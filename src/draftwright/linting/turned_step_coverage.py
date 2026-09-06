@@ -15,7 +15,7 @@ from math import isfinite
 from numbers import Real
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult, TurnedProfile, TurnedProfileKey
+from quiddity import RecognitionResult, TurnedProfile, TurnedProfileKey
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID, is_placement_drop

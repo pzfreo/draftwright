@@ -25,8 +25,8 @@ from _recogniser_public_contract import (
     public_record_return_types,
     public_record_universe,
 )
-from b123d_recognisers import FramedEvidence, HoleRecord
 from build123d import Box, Cylinder, Pos
+from quiddity import FramedEvidence, HoleRecord
 
 from draftwright.model.detect import (
     _CONVERTERS,
@@ -213,7 +213,9 @@ def test_every_uniform_converter_lowers_a_representative_public_record_to_ir():
 
     from test_recogniser_contract import _records_from_recognisers
 
-    records = {type(record): record for _, record in _records_from_recognisers()}
+    records = {}
+    for _, record in _records_from_recognisers():
+        records.setdefault(type(record), record)
     missing = set(_CONVERTERS) - records.keys()
     assert not missing, (
         f"no representative record for converters: {sorted(t.__name__ for t in missing)}"
@@ -234,12 +236,11 @@ def test_every_uniform_converter_lowers_a_representative_public_record_to_ir():
 def test_every_derived_converter_lowers_representative_public_records_to_ir():
     """Every grouped converter is called with real provider records and member evidence."""
 
-    from b123d_recognisers import (
+    from quiddity import (
         HoleRecord,
+        build_raw_recognition_result,
         recognise_hole_patterns,
         recognise_holes,
-        recognise_pocket_patterns,
-        recognise_pockets,
         recognise_slot_patterns,
         recognise_slots,
     )
@@ -262,8 +263,6 @@ def test_every_derived_converter_lowers_representative_public_records_to_ir():
         (recognise_holes, recognise_hole_patterns, _bolt_circle_plate),
         (recognise_holes, recognise_hole_patterns, _linear_array_plate),
         (recognise_holes, recognise_hole_patterns, _grid_plate),
-        (recognise_pockets, recognise_pocket_patterns, _pocket_array_plate),
-        (recognise_pockets, recognise_pocket_patterns, _pocket_grid_plate),
         (recognise_slots, recognise_slot_patterns, _slot_array_plate),
         (recognise_slots, recognise_slot_patterns, _slot_grid_plate),
     )
@@ -275,6 +274,18 @@ def test_every_derived_converter_lowers_representative_public_records_to_ir():
         pattern = patterns[0]
         exercised.add(type(pattern))
         converted.append(_DERIVED_CONVERTERS[type(pattern)](pattern, members))
+
+    for build_part in (_pocket_array_plate, _pocket_grid_plate):
+        recognition = build_raw_recognition_result(build_part())
+        assert len(recognition.section_recess_patterns) == 1, build_part.__name__
+        pattern = recognition.section_recess_patterns[0]
+        exercised.add(type(pattern))
+        from draftwright.section_recess_contract import section_recess_pattern_members
+
+        source_members = section_recess_pattern_members(pattern, recognition.section_recesses)
+        ctx = ConvContext(bbox=None, orientation=None)
+        member_features = tuple(convert(member, ctx) for member in source_members)
+        converted.append(_DERIVED_CONVERTERS[type(pattern)](pattern, member_features))
 
     assert exercised == set(_DERIVED_CONVERTERS), (
         "derived converter corpus mismatch: "

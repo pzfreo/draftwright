@@ -6,8 +6,9 @@ from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import build_raw_recognition_result
+from _section_recess_cases import corrupt_recess, declaration_fields
 from build123d import Align, Axis, Box, Pos
+from quiddity import build_raw_recognition_result
 
 from draftwright import Sheet, build_drawing
 from draftwright.linting.issues import LintIssue
@@ -156,9 +157,9 @@ _CASES = (
 
 def _source(case: _Case):
     recognition = build_raw_recognition_result(case.part)
-    assert recognition.slots == recognition.pockets == recognition.channels == ()
-    assert len(recognition.rectangular_blind_slots) == 1
-    return recognition, recognition.rectangular_blind_slots[0]
+    assert recognition.slots == ()
+    assert len(recognition.section_recesses) == 1
+    return recognition, recognition.section_recesses[0]
 
 
 def _feature(drawing):
@@ -173,15 +174,15 @@ def _feature(drawing):
 def test_independent_corpus_reaches_recognition_ir_and_finished_measurements(case) -> None:
     recognition, source = _source(case)
     assert (
-        source.axis,
-        source.open_sign,
-        source.width_axis,
-        source.depth_axis,
-        source.depth_sign,
-        source.width,
-        source.length,
-        source.depth,
-        source.at,
+        declaration_fields(source, "rectangular_blind_slot")["axis"],
+        declaration_fields(source, "rectangular_blind_slot")["open_sign"],
+        declaration_fields(source, "rectangular_blind_slot")["width_axis"],
+        declaration_fields(source, "rectangular_blind_slot")["depth_axis"],
+        declaration_fields(source, "rectangular_blind_slot")["depth_sign"],
+        declaration_fields(source, "rectangular_blind_slot")["width"],
+        declaration_fields(source, "rectangular_blind_slot")["length"],
+        declaration_fields(source, "rectangular_blind_slot")["depth"],
+        declaration_fields(source, "rectangular_blind_slot")["at"],
     ) == (
         case.axis,
         case.open_sign,
@@ -239,8 +240,8 @@ def test_corpus_denominator_does_not_shrink_when_recognition_is_removed() -> Non
     damaged = 0
     for case in _CASES:
         recognition, _source_record = _source(case)
-        observed += 3 * len(recognition.rectangular_blind_slots)
-        weakened = replace(recognition, rectangular_blind_slots=())
+        observed += 3 * len(recognition.section_recesses)
+        weakened = replace(recognition, section_recesses=())
         damaged += len(
             rectangular_blind_slot_requirement_outcomes(weakened, (), AnnotationRegistry())
         )
@@ -395,9 +396,9 @@ def test_ledger_distinguishes_every_engine_outcome_and_duplicate_sources() -> No
 
     duplicated = replace(
         recognition,
-        rectangular_blind_slots=(
-            recognition.rectangular_blind_slots[0],
-            recognition.rectangular_blind_slots[0],
+        section_recesses=(
+            recognition.section_recesses[0],
+            recognition.section_recesses[0],
         ),
     )
     ambiguous = rectangular_blind_slot_requirement_outcomes(
@@ -539,7 +540,7 @@ def test_outcome_boundary_rejects_a_foreign_aggregate() -> None:
     recognition, _source_record = _source(_CASES[0])
     mutable = replace(
         recognition,
-        rectangular_blind_slots=list(recognition.rectangular_blind_slots),  # type: ignore[arg-type]
+        section_recesses=list(recognition.section_recesses),  # type: ignore[arg-type]
     )
     with pytest.raises(TypeError, match="immutable tuple"):
         rectangular_blind_slot_requirement_outcomes(mutable, (), AnnotationRegistry())
@@ -553,24 +554,32 @@ def test_correspondence_key_rejects_every_malformed_released_fact() -> None:
             raise ValueError
 
     malformed_sources = (
-        replace(source, width=_BadFloat(1)),
-        replace(source, width=float("inf")),
-        replace(source, width=True),
-        replace(source, width=0),
-        replace(source, at=list(source.at)),
-        replace(source, width_axis=source.axis),
-        replace(source, open_sign=True),
+        corrupt_recess(source, "boundary_coordinate", _BadFloat(1)),
+        corrupt_recess(source, "boundary_coordinate", float("inf")),
+        corrupt_recess(source, "boundary_coordinate", True),
+        corrupt_recess(source, "run_interval", (0, 0)),
+        corrupt_recess(source, "origin", list(source.geometry.frame.origin)),
+        corrupt_recess(source, "u", source.geometry.frame.run),
+        corrupt_recess(source, "condition", True),
     )
     for malformed in malformed_sources:
-        with pytest.raises(ValueError):
+        with pytest.raises((TypeError, ValueError)):
             rectangular_blind_slot_key(malformed)
 
-    malformed_recognition = replace(_recognition, rectangular_blind_slots=(malformed_sources[4],))
-    malformed_outcomes = rectangular_blind_slot_requirement_outcomes(
-        malformed_recognition, (), AnnotationRegistry()
+    # A malformed unified recess cannot establish a family or its requirements.
+    # Reject it at intake; a valid source with no IR still reports all three gaps.
+    for malformed in malformed_sources:
+        malformed_recognition = replace(_recognition, section_recesses=(malformed,))
+        with pytest.raises((TypeError, ValueError)):
+            rectangular_blind_slot_requirement_outcomes(
+                malformed_recognition, (), AnnotationRegistry()
+            )
+    unmatched_outcomes = rectangular_blind_slot_requirement_outcomes(
+        _recognition, (), AnnotationRegistry()
     )
-    assert len(malformed_outcomes) == 3
-    assert all(outcome.state == "unverifiable" for outcome in malformed_outcomes)
+    assert len(unmatched_outcomes) == 3
+    assert all(outcome.state == "unverifiable" for outcome in unmatched_outcomes)
+    assert all(outcome.source_records == (source,) for outcome in unmatched_outcomes)
 
     drawing = build_drawing(_CASES[0].part)
     feature = _feature(drawing)

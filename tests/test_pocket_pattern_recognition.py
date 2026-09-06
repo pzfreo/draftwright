@@ -1,8 +1,8 @@
 """Recognition + emit for the pocket-pattern kind (#841 outcome 1, PR 2/2).
 
 PR 1 landed the declared path (`pocket_pattern`/`Sheet.pocket_pattern`/`render_pocket_patterns`).
-This pins the RECOGNITION half: `recognise_pocket_patterns` groups identical pockets into one
-`PocketArray`/`PocketGrid`, `build_part_model` emits ONE `PocketPatternFeature` and excludes the
+This pins the RECOGNITION half: the unified aggregate groups identical pockets into one
+`SectionRecessArray`/`SectionRecessGrid`, `build_part_model` emits ONE `PocketPatternFeature` and excludes the
 member pockets, and `sheet_emit` round-trips it. The #837 tuner-jig STEP (five blind obround
 pockets on one centreline) is the end-to-end regression: it must render ONE grouped
 ``5× W×L×D DEEP`` callout, not five competing per-pocket size dims.
@@ -10,14 +10,9 @@ pockets on one centreline) is the end-to-end regression: it must render ONE grou
 
 from pathlib import Path
 
-from b123d_recognisers import (
-    Pocket,
-    PocketArray,
-    PocketGrid,
-    recognise_pocket_patterns,
-    recognise_pockets,
-)
-from build123d import Box, Pos, import_step
+import pytest
+from build123d import Align, Box, Pos, import_step
+from quiddity import SectionRecessArray, SectionRecessGrid, build_raw_recognition_result
 
 from draftwright.make_drawing import build_drawing
 from draftwright.model import pocket, pocket_pattern  # noqa: F401  (declared-path symmetry)
@@ -42,138 +37,126 @@ def _pocket_grid(nx=2, ny=3, px=40.0, py=30.0):
 
 
 def test_recognise_linear_pocket_array():
-    pockets = recognise_pockets(_pocket_row(n=4, pitch=30.0))
-    assert len(pockets) == 4
-    pats = recognise_pocket_patterns(pockets)
-    assert len(pats) == 1
-    pa = pats[0]
-    assert isinstance(pa, PocketArray)
-    assert len(pa.pockets) == 4
-    assert pa.pitch == 30.0
-    assert abs(pa.direction[1]) == 1.0  # runs along Y
+    result = build_raw_recognition_result(_pocket_row(n=4, pitch=30.0))
+    assert len(result.section_recesses) == 4
+    (pattern,) = result.section_recess_patterns
+    assert type(pattern) is SectionRecessArray
+    assert len(pattern.members) == 4
+    assert pattern.pitch == 30.0
+    assert abs(pattern.direction[1]) == 1.0
 
 
 def test_recognise_pocket_grid():
-    pats = recognise_pocket_patterns(recognise_pockets(_pocket_grid(2, 3)))
-    assert len(pats) == 1
-    pg = pats[0]
-    assert isinstance(pg, PocketGrid)
-    assert len(pg.pockets) == 6
-    assert {pg.rows, pg.cols} == {2, 3}
+    (pattern,) = build_raw_recognition_result(_pocket_grid(2, 3)).section_recess_patterns
+    assert type(pattern) is SectionRecessGrid
+    assert len(pattern.members) == 6
+    assert {pattern.rows, pattern.cols} == {2, 3}
 
 
 def test_two_pockets_are_not_a_pattern():
-    # an array needs >=3 members (a pair is just two pockets)
-    assert recognise_pocket_patterns(recognise_pockets(_pocket_row(n=2, pitch=30.0))) == []
+    result = build_raw_recognition_result(_pocket_row(n=2, pitch=30.0))
+    assert len(result.section_recesses) == 2
+    assert result.section_recess_patterns == ()
 
 
 def test_different_size_pockets_do_not_group():
-    # three collinear pockets of DIFFERENT sizes share no spec key, so none form an array
     part = Box(30, 150, 20)
     part -= Pos(0, -45, 7) * Box(10, 12, 6)
-    part -= Pos(0, 0, 7) * Box(14, 12, 6)  # wider
-    part -= Pos(0, 45, 7) * Box(10, 18, 6)  # longer
-    assert recognise_pocket_patterns(recognise_pockets(part)) == []
+    part -= Pos(0, 0, 7) * Box(14, 12, 6)
+    part -= Pos(0, 45, 7) * Box(10, 18, 6)
+    result = build_raw_recognition_result(part)
+    assert len(result.section_recesses) == 3
+    assert result.section_recess_patterns == ()
+
+
+def _stepped_pocket_row(floors):
+    part = Pos(0, 0, -10) * Box(30, 120, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    for cy, floor in zip((-30, 0, 30), floors):
+        part += Pos(0, cy, 0) * Box(
+            30, 30, floor + 6, align=(Align.CENTER, Align.CENTER, Align.MIN)
+        )
+    for cy, floor in zip((-30, 0, 30), floors):
+        part -= Pos(0, cy, floor + 3) * Box(10, 12, 6)
+    assert len(part.solids()) == 1
+    return part
 
 
 def test_non_coplanar_aligned_pockets_do_not_merge():
-    # three identical pockets whose in-plane (XY) centres form a constant-pitch row but which
-    # sit on DIFFERENT depth planes (staggered d_lo/d_hi) must NOT merge into one planar array
-    # that does not exist — pattern detection projects the depth coord away (Codex #849).
-    def pk(cy, d_lo):
-        return Pocket(
-            width_axis="x",
-            long_axis="y",
-            width=10.0,
-            length=12.0,
-            depth=6.0,
-            w_center=0.0,
-            lo=cy - 6,
-            hi=cy + 6,
-            d_lo=d_lo,
-            d_hi=d_lo + 6,
-        )
+    staggered = build_raw_recognition_result(_stepped_pocket_row((0, 5, 10)))
+    coplanar = build_raw_recognition_result(_stepped_pocket_row((0, 0, 0)))
+    assert len(staggered.section_recesses) == len(coplanar.section_recesses) == 3
+    assert {recess.geometry.run_interval for recess in staggered.section_recesses} == {
+        (0, 6),
+        (5, 11),
+        (10, 16),
+    }
+    assert staggered.section_recess_patterns == ()
+    assert len(coplanar.section_recess_patterns) == 1
 
-    staggered = [pk(-30, 0.0), pk(0, 5.0), pk(30, 10.0)]  # aligned in XY, different depth planes
-    assert recognise_pocket_patterns(staggered) == []
-    coplanar = [pk(-30, 0.0), pk(0, 0.0), pk(30, 0.0)]  # same depth plane → one array
-    assert len(recognise_pocket_patterns(coplanar)) == 1
+
+def _opposed_pocket_row(signs):
+    pieces = [
+        Pos(0, cy, 3 if sign > 0 else 13) * Box(30, 30, 16)
+        for cy, sign in zip((-30, 0, 30), signs)
+    ]
+    part = pieces[0] + pieces[1] + pieces[2]
+    for cy in (-30, 0, 30):
+        part -= Pos(0, cy, 8) * Box(10, 12, 6)
+    assert len(part.solids()) == 1
+    return part
 
 
 def test_opposite_facing_pockets_do_not_merge():
-    # identical pockets sharing the SAME absolute depth range but opening OPPOSITE faces sit on
-    # different faces — d_lo/d_hi alone can't tell them apart, so open_sign keys them (Codex #849).
-    def pk(cy, sign):
-        return Pocket(
-            width_axis="x",
-            long_axis="y",
-            width=10.0,
-            length=12.0,
-            depth=6.0,
-            w_center=0.0,
-            lo=cy - 6,
-            hi=cy + 6,
-            d_lo=5.0,
-            d_hi=11.0,
-            open_sign=sign,
-        )
-
-    mixed = [pk(-30, 1), pk(0, -1), pk(30, 1)]  # same depth range, alternating opening face
-    assert recognise_pocket_patterns(mixed) == []
-    same = [pk(-30, 1), pk(0, 1), pk(30, 1)]  # all open the same face → one array
-    assert len(recognise_pocket_patterns(same)) == 1
+    mixed = build_raw_recognition_result(_opposed_pocket_row((1, -1, 1)))
+    same = build_raw_recognition_result(_opposed_pocket_row((1, 1, 1)))
+    assert len(mixed.section_recesses) == len(same.section_recesses) == 3
+    assert {recess.geometry.run_interval for recess in mixed.section_recesses} == {(5, 11)}
+    assert {recess.geometry.ends.low.condition for recess in mixed.section_recesses} == {
+        "open",
+        "capped",
+    }
+    assert mixed.section_recess_patterns == ()
+    assert len(same.section_recess_patterns) == 1
 
 
 def test_edge_anchored_and_interior_pockets_do_not_form_one_pattern():
-    from dataclasses import replace
-
-    base = Pocket(
-        width_axis="x",
-        long_axis="y",
-        width=10.0,
-        length=12.0,
-        depth=6.0,
-        w_center=0.0,
-        lo=-36.0,
-        hi=-24.0,
-        d_lo=5.0,
-        d_hi=11.0,
-    )
-    mixed = (
-        base,
-        replace(base, lo=-6.0, hi=6.0, edge_anchored=True),
-        replace(base, lo=24.0, hi=36.0),
-    )
-    assert recognise_pocket_patterns(mixed) == []
+    # Three equal 15 x 15 x 6 recesses on a diagonal lattice. The last crosses
+    # the stock corner; its open profile must not join the two closed profiles.
+    part = Box(100, 100, 20)
+    for xy in (-17.5, 12.5):
+        part -= Pos(xy, xy, 7) * Box(15, 15, 6)
+    part -= Pos(45, 45, 7) * Box(20, 20, 6)
+    assert len(part.solids()) == 1
+    result = build_raw_recognition_result(part)
+    assert len(result.section_recesses) == 3
+    assert sorted(source.classification.feature_kind for source in result.section_recesses) == [
+        "edge_open_recess",
+        "pocket",
+        "pocket",
+    ]
+    assert result.section_recess_patterns == ()
 
 
-def test_injected_value_equal_pattern_still_excludes_members():
-    # member exclusion is by VALUE, so an INJECTED pattern inventory built from value-equal
-    # (deserialized/copied) pockets whose ids differ still suppresses the individual pockets —
-    # an id()-based set would emit both the pattern and the members (Codex #849).
+def test_injected_value_equal_inventory_resolves_its_own_pattern_members():
     import dataclasses
 
     part = _pocket_row(n=4, pitch=30.0)
-    pockets = recognise_pockets(part)
-    pats = recognise_pocket_patterns(pockets)
-    copied_pockets = [dataclasses.replace(pk) for pk in pockets]  # value-equal, new ids
-    copied_pats = [
-        dataclasses.replace(p, pockets=tuple(dataclasses.replace(m) for m in p.pockets))
-        for p in pats
-    ]
-    pm = build_part_model(part, pockets=copied_pockets, pocket_patterns=copied_pats)
-    kinds = [f.kind for f in pm.features]
-    assert kinds.count("pocket_pattern") == 1
-    assert kinds.count("pocket") == 0  # value-equal copies still excluded
-
-
-def test_injected_pockets_derive_an_omitted_pattern_from_that_inventory():
-    pockets = recognise_pockets(_pocket_row(n=4, pitch=30.0))
-    pm = build_part_model(Box(200, 200, 20), pockets=pockets)
-    kinds = [feature.kind for feature in pm.features]
-
+    result = build_raw_recognition_result(part)
+    copied = tuple(dataclasses.replace(source) for source in result.section_recesses)
+    patterns = tuple(dataclasses.replace(pattern) for pattern in result.section_recess_patterns)
+    assert all(a == b and a is not b for a, b in zip(copied, result.section_recesses))
+    model = build_part_model(part, section_recesses=copied, section_recess_patterns=patterns)
+    kinds = [feature.kind for feature in model.features]
     assert kinds.count("pocket_pattern") == 1
     assert kinds.count("pocket") == 0
+
+
+def test_injected_recesses_require_their_explicit_pattern_inventory():
+    result = build_raw_recognition_result(_pocket_row(n=4, pitch=30.0))
+    with pytest.raises(
+        ValueError, match="injected section recesses require explicit section_recess_patterns"
+    ):
+        build_part_model(Box(200, 200, 20), section_recesses=result.section_recesses)
 
 
 def test_build_part_model_groups_and_excludes_members():
@@ -202,11 +185,11 @@ def test_sheet_emit_round_trips_the_pattern(tmp_path):
 
 
 def test_tuner_jig_fixture_recognised_as_one_pattern():
-    # #837/#841: five blind obround pockets on one centreline collapse to ONE PocketArray.
+    # #837/#841: five blind obround pockets on one centreline collapse to ONE SectionRecessArray.
     part = import_step(str(_FIXTURE))
-    pats = recognise_pocket_patterns(recognise_pockets(part))
-    assert len(pats) == 1 and isinstance(pats[0], PocketArray)
-    assert len(pats[0].pockets) == 5
+    pats = build_raw_recognition_result(part).section_recess_patterns
+    assert len(pats) == 1 and isinstance(pats[0], SectionRecessArray)
+    assert len(pats[0].members) == 5
 
 
 def test_tuner_jig_renders_one_grouped_callout_not_five():

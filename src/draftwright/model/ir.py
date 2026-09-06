@@ -2626,7 +2626,7 @@ class FlatFeature:
     axis: str
     across: float
     #: The stock axis line's canonical in-plane position — see
-    #: :class:`~b123d_recognisers.flats.Flat`. Two flats share an A/F definition only if
+    #: :class:`~quiddity.flats.Flat`. Two flats share an A/F definition only if
     #: they share direction, line and span; the axis letter alone cannot tell a double-D's
     #: two faces from two parallel or slanted regions (#1013/#1036).
     axis_line: tuple[float, float] = (0.0, 0.0)

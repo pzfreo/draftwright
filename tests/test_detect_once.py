@@ -94,7 +94,7 @@ def cyls_counter():
     Yields a live dict, so the count is read AFTER the work — matching the previous
     fixture's ``calls["n"]`` shape.
     """
-    from b123d_recognisers import analyse_cylinders
+    from quiddity import analyse_cylinders
 
     with counting_calls({"n": analyse_cylinders}) as counts:
         yield counts

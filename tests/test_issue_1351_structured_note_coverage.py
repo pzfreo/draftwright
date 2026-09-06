@@ -6,8 +6,8 @@ from dataclasses import replace
 from typing import cast
 
 import pytest
-from b123d_recognisers import recognise_slots
 from build123d import Align, Box, Cylinder, Pos
+from quiddity import recognise_slots
 
 from draftwright import Sheet
 from draftwright.linting.hole_coverage import hole_requirement_outcomes

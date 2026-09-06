@@ -15,7 +15,7 @@ identifier. Expected and observed facts are matched by family plus authored phys
 Format 1 currently proves independent `holes`, `countersinks`, `hole-patterns`,
 `double-d-bores`, `flats`,
 `pockets`, `pocket-patterns`, `grooves`, `rectangular-pads`, `polygonal-bosses`, `plates`,
-`chamfers` and `fillets` vertical slices. Each observer reads released `b123d-recognisers`
+`chamfers` and `fillets` vertical slices. Each observer reads released `quiddity`
 geometry records, builds one drawing, and reads all four downstream outcomes from that build
 through the public IR, `Sheet`, generated-code and ADR 5 (was 0010) provenance seams.
 

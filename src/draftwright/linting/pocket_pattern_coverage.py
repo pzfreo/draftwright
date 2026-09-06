@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from math import hypot
+from math import atan2, degrees, hypot
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
+from quiddity import RecognitionResult, SectionRecess, SectionRecessArray, SectionRecessGrid
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
@@ -23,6 +23,11 @@ from draftwright.linting.issues import (
     LintIssue,
     is_placement_drop,
     requirement_subject,
+)
+from draftwright.section_recess_contract import (
+    recesses_with_kind,
+    section_recess_fields,
+    section_recess_pattern_members,
 )
 
 PocketPatternRequirementState = Literal[
@@ -66,6 +71,18 @@ def _depth_axis(pocket) -> str:
 
 
 def _member_spec(pocket) -> tuple:
+    if type(pocket) is SectionRecess:
+        kind, data = section_recess_fields(pocket)
+        if kind != "pocket":
+            raise ValueError("pattern member requires the pocket grammar")
+        return (
+            data["width_axis"],
+            data["long_axis"],
+            data["axis"],
+            *(_rounded(data[key]) for key in ("width", "length", "depth")),
+            data["open_sign"],
+            data["edge_anchored"],
+        )
     return (
         pocket.width_axis,
         pocket.long_axis,
@@ -98,50 +115,58 @@ def pocket_pattern_kind(pattern) -> str:
     return str(getattr(pattern, "pattern", "linear"))
 
 
-def pocket_pattern_members(pattern) -> tuple[tuple[float, float, float], ...]:
-    source = getattr(pattern, "pockets", None)
-    points = (
-        (pocket.location for pocket in source)
-        if source is not None
-        else (point for point in pattern.members)
-    )
+def pocket_pattern_members(pattern, *, inventory=()) -> tuple[tuple[float, float, float], ...]:
+    if type(pattern) in (SectionRecessArray, SectionRecessGrid):
+        records = section_recess_pattern_members(pattern, inventory)
+        points = (section_recess_fields(record)[1]["origin"] for record in records)
+    else:
+        points = pattern.members
     return tuple(sorted(_point(point) for point in points))
 
 
-def pocket_pattern_source_at(pattern) -> tuple[float, float, float]:
+def pocket_pattern_source_at(pattern, *, inventory=()) -> tuple[float, float, float]:
     center = getattr(pattern, "center", None)
     if center is not None:
         return _point(center)
-    members = pocket_pattern_members(pattern)
-    return tuple(
-        _rounded(sum(point[index] for point in members) / len(members)) for index in range(3)
-    )  # type: ignore[return-value]
+    members = pocket_pattern_members(pattern, inventory=inventory)
+    x, y, z = (_rounded(sum(point[i] for point in members) / len(members)) for i in range(3))
+    return x, y, z
 
 
-def pocket_pattern_key(pattern) -> tuple:
-    """Facts retained identically by public recognition records and the Draftwright IR."""
-    source = getattr(pattern, "pockets", None)
+def pocket_pattern_key(pattern, *, inventory=()) -> tuple:
+    """Join a published pattern's exact run-local members to retained IR geometry."""
+    provider = type(pattern) in (SectionRecessArray, SectionRecessGrid)
+    source = section_recess_pattern_members(pattern, inventory) if provider else None
     member = source[0] if source is not None else pattern.member
     kind = pocket_pattern_kind(pattern)
     pitch = getattr(pattern, "pitch", None)
-    if source is not None:
-        grid = (
-            getattr(pattern, "row_pitch", None),
-            getattr(pattern, "col_pitch", None),
+    grid = (
+        (getattr(pattern, "row_pitch", None), getattr(pattern, "col_pitch", None))
+        if provider
+        else getattr(pattern, "grid", None) or (None, None)
+    )
+    angle = getattr(pattern, "angle", 0.0) or 0.0
+    if type(pattern) is SectionRecessGrid:
+        depth_axis = section_recess_fields(member)[1]["axis"]
+        plane = tuple(axis for axis in "xyz" if axis != depth_axis)
+        angle = degrees(
+            atan2(
+                pattern.col_direction["xyz".index(plane[1])],
+                pattern.col_direction["xyz".index(plane[0])],
+            )
         )
-    else:
-        grid = getattr(pattern, "grid", None) or (None, None)
+    members = pocket_pattern_members(pattern, inventory=inventory)
     return (
         kind,
-        len(pocket_pattern_members(pattern)),
+        len(members),
         _member_spec(member),
-        pocket_pattern_members(pattern),
+        members,
         None if pitch is None else _rounded(pitch),
         _unoriented_direction(getattr(pattern, "direction", None)) if kind == "linear" else None,
         tuple(None if value is None else _rounded(value) for value in grid),
         getattr(pattern, "rows", None),
         getattr(pattern, "cols", None),
-        _rounded(getattr(pattern, "angle", 0.0) or 0.0) if kind == "grid" else None,
+        _rounded(angle) if kind == "grid" else None,
     )
 
 
@@ -288,12 +313,21 @@ def pocket_pattern_requirement_outcomes(
             "pocket_pattern_requirement_outcomes() requires the run's RecognitionResult; "
             f"got {type(recognition).__name__}"
         )
-    sources = tuple(recognition.pocket_patterns)
+    inventory = recognition.section_recesses
+    pocket_ids = {id(source) for source in recesses_with_kind(inventory, "pocket")}
+    sources = tuple(
+        pattern
+        for pattern in recognition.section_recess_patterns
+        if all(
+            id(member) in pocket_ids
+            for member in section_recess_pattern_members(pattern, inventory)
+        )
+    )
     if not sources:
         return []
     source_counts: dict[tuple, int] = defaultdict(int)
     for source in sources:
-        source_counts[pocket_pattern_key(source)] += 1
+        source_counts[pocket_pattern_key(source, inventory=inventory)] += 1
     ir_by_key: dict[tuple, list] = defaultdict(list)
     for feature in features:
         if getattr(feature, "kind", None) == "pocket_pattern":
@@ -307,12 +341,12 @@ def pocket_pattern_requirement_outcomes(
     }
     outcomes: list[PocketPatternRequirementOutcome] = []
     for source in sources:
-        key = pocket_pattern_key(source)
+        key = pocket_pattern_key(source, inventory=inventory)
         matches = ir_by_key.get(key, ())
         feature = matches[0] if len(matches) == source_counts[key] == 1 else None
         parameter_ids = _parameter_ids(feature) if feature is not None else None
-        at = pocket_pattern_source_at(source)
-        members = pocket_pattern_members(source)
+        at = pocket_pattern_source_at(source, inventory=inventory)
+        members = pocket_pattern_members(source, inventory=inventory)
         member_count = len(members)
         if parameter_ids is None:
             outcomes.append(
@@ -323,7 +357,7 @@ def pocket_pattern_requirement_outcomes(
                     "unverifiable",
                     requirement_count=_physical_requirement_count(source),
                     members=members,
-                    source_records=tuple(source.pockets),
+                    source_records=section_recess_pattern_members(source, inventory),
                 )
             )
             continue
@@ -347,7 +381,7 @@ def pocket_pattern_requirement_outcomes(
                 ),
                 members=members,
                 features=(feature,),
-                source_records=tuple(source.pockets),
+                source_records=section_recess_pattern_members(source, inventory),
             )
             for parameter in parameter_ids
         )

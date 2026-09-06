@@ -37,7 +37,7 @@ _UNLOWERED_PMI_FIXTURE = _FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 # hardcoded surface kind or a repeated vector component cannot satisfy.
 _CURVED_FIXTURE = _FIXTURES / "issue_1058_wheel_rh.step"
 _SCHEMA_PATH = (
-    Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v1.schema.json"
+    Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v2.schema.json"
 )
 
 # The stages an inspection must never reach. `compose`, `model.planner`, `model.callout` and
@@ -113,12 +113,12 @@ def test_a_real_fixture_returns_the_documented_document() -> None:
 
     _validate(document)
     assert document["schema"] == "draftwright-step-inspection"
-    assert document["schema_version"] == 1
+    assert document["schema_version"] == 2
     assert document["source"] == {
         "name": "grm03_thumbwheel_drive_screw_ap242_pmi.step",
         "sha256": __import__("hashlib").sha256(_PMI_FIXTURE.read_bytes()).hexdigest(),
     }
-    assert set(document["producer"]) == {"draftwright", "b123d-recognisers"}
+    assert set(document["producer"]) == {"draftwright", "quiddity"}
     assert all(document["producer"].values())
     assert len(document["found"]) == 16
 

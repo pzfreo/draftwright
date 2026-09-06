@@ -46,16 +46,16 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import b123d_recognisers
-import b123d_recognisers.evidence as recogniser_evidence
-import b123d_recognisers.inspection as recogniser_inspection
 import pytest
+import quiddity
+import quiddity.evidence as recogniser_evidence
+import quiddity.inspection as recogniser_inspection
 
 from draftwright import reporting
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright"
 _MODEL_DIR = _SRC / "model"
-_RECOGNISER_PUBLIC = frozenset(b123d_recognisers.__all__)
+_RECOGNISER_PUBLIC = frozenset(quiddity.__all__)
 _RECOGNISER_EVIDENCE_PUBLIC = frozenset(recogniser_evidence.__all__)
 _RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
 
@@ -96,6 +96,7 @@ _LAYERS: dict[str, int] = {
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
     "oriented_slot_contract": 0,
+    "section_recess_contract": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
@@ -475,6 +476,7 @@ _MODEL_MAY_IMPORT = {
     "recognition",
     "recognition_frame",
     "oriented_slot_contract",
+    "section_recess_contract",
     # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
     # conversion site. The leaf ledger depends on neither the model nor any upper stage.
     "recognition_ownership",
@@ -556,9 +558,9 @@ def _private_recogniser_imports(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
-            if (node.module or "").startswith("b123d_recognisers."):
+            if (node.module or "").startswith("quiddity."):
                 offenders.append(f"{path.name}:{node.lineno} imports {node.module}")
-            elif node.module == "b123d_recognisers":
+            elif node.module == "quiddity":
                 offenders.extend(
                     f"{path.name}:{node.lineno} imports non-public {alias.name}"
                     for alias in node.names
@@ -568,7 +570,7 @@ def _private_recogniser_imports(path: Path) -> list[str]:
             offenders.extend(
                 f"{path.name}:{node.lineno} imports {alias.name}"
                 for alias in node.names
-                if alias.name == "b123d_recognisers" or alias.name.startswith("b123d_recognisers.")
+                if alias.name == "quiddity" or alias.name.startswith("quiddity.")
             )
     return offenders
 
@@ -581,7 +583,7 @@ def test_linting_consumes_recognisers_only_through_the_public_root():
         for offender in _private_recogniser_imports(path)
     ]
     assert not offenders, (
-        "linting/ must consume the released b123d-recognisers contract through its public "
+        "linting/ must consume the released quiddity contract through its public "
         f"package root (ADRs 0013/0017; #1411). Private submodule imports: {offenders}"
     )
 
@@ -777,29 +779,29 @@ def test_the_published_projector_is_what_the_consumers_actually_call():
 _ALLOWED_PRIVATE_RECOGNISER_REFERENCES = {
     (
         "test_grid_lattice_convention.py",
-        "b123d_recognisers._features",
+        "quiddity._features",
         "_plane_uv",
     ),
     (
         "test_grid_lattice_convention.py",
-        "b123d_recognisers._features",
+        "quiddity._features",
         "_rect_grid",
     ),
     (
         "test_slanted_blind_step.py",
-        "b123d_recognisers._recess_core",
+        "quiddity._recess_core",
         "_Face",
     ),
     (
         "test_slanted_blind_step.py",
-        "b123d_recognisers._recess_core",
+        "quiddity._recess_core",
         "_recognise_corner_notches",
     ),
 }
-_RECOGNISER_POLICY_MODULE = "b123d_recognisers.<policy>"
-_PROVIDER_ROOT = "b123d_recognisers"
-_PROVIDER_EVIDENCE = "b123d_recognisers.evidence"
-_PROVIDER_INSPECTION = "b123d_recognisers.inspection"
+_RECOGNISER_POLICY_MODULE = "quiddity.<policy>"
+_PROVIDER_ROOT = "quiddity"
+_PROVIDER_EVIDENCE = "quiddity.evidence"
+_PROVIDER_INSPECTION = "quiddity.inspection"
 _PROVIDER_PUBLIC_MODULES = {_PROVIDER_ROOT, _PROVIDER_EVIDENCE, _PROVIDER_INSPECTION}
 _LITERAL_PREDICATES = {"endswith", "removeprefix", "removesuffix", "startswith"}
 _PROVIDER_MEMBER_CALLS = {"delattr", "object", "setattr"}
@@ -1043,7 +1045,7 @@ def test_consumer_tests_use_only_released_recogniser_contract_or_explicit_blocke
     # The two exact underscore-module seams are immutable upstream blockers (#400/#408).
     # Fail when a new reference appears or either explicit exception becomes stale.
     assert not violations and not stale_exceptions, (
-        "consumer tests must use released b123d-recognisers contracts; only the exact "
+        "consumer tests must use released quiddity contracts; only the exact "
         "documented upstream blockers may use private members. "
         f"Violations: {violations}; stale exceptions: {stale_exceptions}"
     )
@@ -1051,91 +1053,88 @@ def test_consumer_tests_use_only_released_recogniser_contract_or_explicit_blocke
 
 def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_path):
     (tmp_path / "test_grid_lattice_convention.py").write_text(
-        "from b123d_recognisers._features import _plane_uv, _rect_grid, _new_private\n",
+        "from quiddity._features import _plane_uv, _rect_grid, _new_private\n",
         encoding="utf-8",
     )
     (tmp_path / "test_slanted_blind_step.py").write_text(
-        "from b123d_recognisers._recess_core import _Face, _recognise_corner_notches\n",
+        "from quiddity._recess_core import _Face, _recognise_corner_notches\n",
         encoding="utf-8",
     )
     (tmp_path / "private_static.py").write_text(
-        "import b123d_recognisers as br\n"
-        "alias = br\n"
-        "private = alias.profiled_bores.double_d_profile\n",
+        "import quiddity as br\nalias = br\nprivate = alias.profiled_bores.double_d_profile\n",
         encoding="utf-8",
     )
     (tmp_path / "private_inspection.py").write_text(
-        "from b123d_recognisers.inspection import _FaceGraph\n",
+        "from quiddity.inspection import _FaceGraph\n",
         encoding="utf-8",
     )
     (tmp_path / "private_evidence_import.py").write_text(
-        "from b123d_recognisers.evidence import _PrivateEvidence\n",
+        "from quiddity.evidence import _PrivateEvidence\n",
         encoding="utf-8",
     )
     (tmp_path / "private_evidence_alias.py").write_text(
-        "import b123d_recognisers.evidence as evidence\nprivate = evidence._private_builder\n",
+        "import quiddity.evidence as evidence\nprivate = evidence._private_builder\n",
         encoding="utf-8",
     )
     (tmp_path / "private_evidence_getattr.py").write_text(
-        "import b123d_recognisers.evidence as evidence\n"
-        "private = getattr(evidence, '_private_builder')\n",
+        "import quiddity.evidence as evidence\nprivate = getattr(evidence, '_private_builder')\n",
         encoding="utf-8",
     )
     (tmp_path / "private_evidence_patch.py").write_text(
-        "import b123d_recognisers.evidence as evidence\n"
+        "import quiddity.evidence as evidence\n"
         "monkeypatch.setattr(evidence, '_private_builder', replacement)\n",
         encoding="utf-8",
     )
     (tmp_path / "private_getattr.py").write_text(
-        "import b123d_recognisers as br\nprivate = getattr(br, 'polygonal_bosses')\n",
+        "import quiddity as br\nprivate = getattr(br, 'polygonal_bosses')\n",
         encoding="utf-8",
     )
     (tmp_path / "private_literal_target.py").write_text(
         "from unittest import mock\n"
-        "target = 'b123d_recognisers.profiled_bores.double_d_profile'\n"
+        "target = 'quiddity.profiled_bores.double_d_profile'\n"
         "mock.patch(target, replacement)\n",
         encoding="utf-8",
     )
     (tmp_path / "private_unbound_patch.py").write_text(
-        "import b123d_recognisers as br\n"
+        "import quiddity as br\n"
         "pytest.MonkeyPatch.setattr(monkeypatch, br, 'profiled_bores', replacement)\n",
         encoding="utf-8",
     )
     (tmp_path / "private_mixed_setattr.py").write_text(
-        "import b123d_recognisers as br\n"
+        "import quiddity as br\n"
         "monkeypatch.setattr(br, name='profiled_bores', value=replacement)\n",
         encoding="utf-8",
     )
     (tmp_path / "private_mixed_delattr.py").write_text(
-        "import b123d_recognisers as br\nmonkeypatch.delattr(br, name='profiled_bores')\n",
+        "import quiddity as br\nmonkeypatch.delattr(br, name='profiled_bores')\n",
         encoding="utf-8",
     )
     (tmp_path / "private_unbound_delattr.py").write_text(
-        "import b123d_recognisers as br\n"
+        "import quiddity as br\n"
         "pytest.MonkeyPatch.delattr(monkeypatch, br, name='profiled_bores')\n",
         encoding="utf-8",
     )
     (tmp_path / "private_mixed_object_patch.py").write_text(
         "from unittest import mock\n"
-        "import b123d_recognisers as br\n"
+        "import quiddity as br\n"
         "mock.patch.object(br, attribute='profiled_bores', new=replacement)\n",
         encoding="utf-8",
     )
     (tmp_path / "private_multiple_patch.py").write_text(
         "from unittest.mock import patch\n"
-        "patch.multiple('b123d_recognisers', profiled_bores=replacement)\n",
+        "patch.multiple('quiddity', profiled_bores=replacement)\n",
         encoding="utf-8",
     )
     (tmp_path / "publication_mutation.py").write_text(
-        "import b123d_recognisers as br\nbr.__all__.append('profiled_bores')\n",
+        "import quiddity as br\nbr.__all__.append('profiled_bores')\n",
         encoding="utf-8",
     )
     (tmp_path / "public_and_unrelated_controls.py").write_text(
         "import importlib.util\n"
-        "import b123d_recognisers as br\n"
-        "import b123d_recognisers.evidence as evidence\n"
-        "from b123d_recognisers import Flat\n"
-        "from b123d_recognisers.evidence import RecognitionEvidence\n"
+        "import quiddity as br\n"
+        "import quiddity.evidence as evidence\n"
+        "from quiddity import Flat\n"
+        "from quiddity.evidence import RecognitionEvidence\n"
         "public = br.Flat\n"
         "public_evidence = evidence.build_recognition_evidence\n"
         "also_public_evidence = getattr(evidence, 'RecognitionEvidence')\n"
@@ -1155,7 +1154,7 @@ def test_consumer_recogniser_contract_guard_covers_static_provider_seams(tmp_pat
     violations, stale_exceptions = _consumer_recogniser_contract_violations(tmp_path)
 
     assert violations == {
-        ("test_grid_lattice_convention.py", "b123d_recognisers._features", "_new_private"),
+        ("test_grid_lattice_convention.py", "quiddity._features", "_new_private"),
         ("private_static.py", _PROVIDER_ROOT, "profiled_bores"),
         ("private_inspection.py", _PROVIDER_INSPECTION, "_FaceGraph"),
         ("private_evidence_import.py", _PROVIDER_EVIDENCE, "_PrivateEvidence"),
@@ -1209,9 +1208,9 @@ def test_public_recogniser_member_is_an_immutable_public_snapshot(monkeypatch):
 def test_public_root_guard_rejects_module_alias_loopholes(tmp_path):
     probe = tmp_path / "private_recogniser_imports.py"
     probe.write_text(
-        "from b123d_recognisers import profiled_bores, _features\n"
-        "import b123d_recognisers.profiled_bores\n"
-        "import b123d_recognisers as br\n"
+        "from quiddity import profiled_bores, _features\n"
+        "import quiddity.profiled_bores\n"
+        "import quiddity as br\n"
         "private = br.profiled_bores.double_d_profile\n",
         encoding="utf-8",
     )
@@ -1221,5 +1220,5 @@ def test_public_root_guard_rejects_module_alias_loopholes(tmp_path):
     assert len(offenders) == 4
     assert any("non-public profiled_bores" in offender for offender in offenders)
     assert any("non-public _features" in offender for offender in offenders)
-    assert any("b123d_recognisers.profiled_bores" in offender for offender in offenders)
-    assert any("imports b123d_recognisers" in offender for offender in offenders)
+    assert any("quiddity.profiled_bores" in offender for offender in offenders)
+    assert any("imports quiddity" in offender for offender in offenders)

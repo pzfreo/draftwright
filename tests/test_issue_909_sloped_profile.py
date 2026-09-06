@@ -4,8 +4,8 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from b123d_recognisers import RaisedPad, recognise_rectangular_pads
 from build123d import import_step
+from quiddity import RaisedPad, recognise_rectangular_pads
 
 from draftwright import Drawing, build_drawing
 from draftwright.drawing import feature_key

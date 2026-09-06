@@ -5,9 +5,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import b123d_recognisers as external
-import b123d_recognisers.evidence as external_evidence
 import pytest
+import quiddity as external
+import quiddity.evidence as external_evidence
 from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 from build123d import Box
 
@@ -27,25 +27,24 @@ RECOGNITION_DIR = ROOT / "src" / "draftwright" / "recognition"
 
 def test_dependency_is_pinned_to_the_published_stable_release() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-    dependency = next(d for d in project["dependencies"] if d.startswith("b123d-recognisers"))
+    dependency = next(d for d in project["dependencies"] if d.startswith("quiddity"))
 
-    match = re.fullmatch(r"b123d-recognisers==(\d+\.\d+\.\d+)", dependency)
+    match = re.fullmatch(r"quiddity==(\d+\.\d+\.\d+)", dependency)
     assert match is not None
     pinned_version = match.group(1)
-    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
-    package = lock.split('name = "b123d-recognisers"', 1)[1].split("[[package]]", 1)[0]
-    assert f'version = "{pinned_version}"' in package
-    assert 'source = { registry = "https://pypi.org/simple" }' in package
-    assert "git+" not in package
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
+    (package,) = [item for item in lock["package"] if item["name"] == "quiddity"]
+    assert package["version"] == pinned_version
+    assert package["source"] == {"registry": "https://pypi.org/simple"}
 
 
 def test_consumed_evidence_api_is_the_released_public_major() -> None:
     manifest = external_evidence.evidence_api_manifest()
 
-    assert manifest["format"] == "b123d-recognisers-evidence-api"
+    assert manifest["format"] == "quiddity-evidence-api"
     assert manifest["format_version"] == 1
     assert manifest["api"]["major"] == 1
-    assert manifest["api"]["namespace"] == "b123d_recognisers.evidence"
+    assert manifest["api"]["namespace"] == "quiddity.evidence"
     assert {"RecognitionEvidence", "build_recognition_evidence"} <= set(manifest["api"]["symbols"])
 
 

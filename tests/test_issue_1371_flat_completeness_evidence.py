@@ -71,7 +71,7 @@ def test_real_flat_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_flat_projection_groups_faces_but_not_distinct_stock() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     fixtures = CORPUS.parent
     double_d = import_step(fixtures / "flat-double-d.step")

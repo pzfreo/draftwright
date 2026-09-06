@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from b123d_recognisers import Fillet
 from build123d import Cylinder, GeomType, Pos, export_step, fillet
+from quiddity import Fillet
 
 from draftwright import Drawing, build_drawing
 from draftwright.model import detect as detect_module

@@ -101,18 +101,12 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "bosses": "bosses",
     "polygonal_bosses": "polygonal_bosses",
     "polygonal_stock": "polygonal_stock",
-    "channels": "channels",
     "circular_blind_steps": "circular_blind_steps",
     "slots": "slots",
     "oriented_slots": "oriented_slots",
     "slot_patterns": "slot_patterns",
     "grooves": "grooves",
     "flats": "flats",
-    "pockets": "pockets",
-    "rectangular_blind_slots": "rectangular_blind_slots",
-    "round_bottom_blind_slots": "round_bottom_blind_slots",
-    "prismatic_pockets": "prismatic_pockets",
-    "pocket_patterns": "pocket_patterns",
     "pads": "pads",
     "plates": "plates",
     "repeating_radial_profiles": "repeating_radial_profiles",
@@ -121,9 +115,10 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "fillets": "fillets",
     "paired_ramp_steps": "paired_ramp_steps",
     "through_steps": "through_steps",
-    # The rich aggregate is the sole physical Passage authority. The legacy
-    # ``passages`` projection is classified below as non-requirement compatibility data.
-    "section_passages": "passages",
+    # Unified physical recesses are scored through their consumer grammar ledgers;
+    # pattern members share one grouping denominator.
+    "section_recesses": "section_recesses",
+    "section_recess_patterns": "pocket_patterns",
 }
 
 # Inventories that are deliberately NOT requirement families: the substrates would list the
@@ -140,8 +135,8 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
     {
         "countersinks",
         "cylinders",
-        # Accepted-only compatibility projection of authoritative ``section_passages``.
-        "passages",
+        # Refusals are already counted by the shared section-recess outcome ledger.
+        "section_recess_refusals",
         "risers",
         "rotational",
         "step_levels",
@@ -159,6 +154,7 @@ _UNDECIDED_INVENTORIES: dict[str, str] = {
 }
 
 _AUDITED_FAMILIES = (
+    "section_recesses",
     "angled_steps",
     "blends",
     "chamfers",
@@ -328,6 +324,8 @@ _UNSCORED_CODES = frozenset(
         "pattern_pitch_tolerance_withheld",
         "passage_requirement_unsupported",
         "prismatic_pocket_requirement_unsupported",
+        "section_recess_requirement_unsupported",
+        "section_recess_recognition_refused",
         "pocket_not_located",
         "step_position_coincident_with_datum",
         # Neither confirmed nor refuted: the annotation renders no readable text, or the
@@ -664,11 +662,7 @@ def _completeness_component(
     # Passage count uses only its authoritative rich inventory; the legacy projection is never a
     # second requirement. PrismaticPocket and AngledStep use their aggregate-reconciled
     # inventories after the provider assigned contested records to those physical owners.
-    for family, inventory in (
-        ("angled_steps", "angled_steps"),
-        ("passages", "section_passages"),
-        ("prismatic_pockets", "prismatic_pockets"),
-    ):
+    for family, inventory in (("angled_steps", "angled_steps"),):
         unsupported_count = len(getattr(recognition, inventory, ()))
         if unsupported_count:
             counts["unsupported"] += unsupported_count

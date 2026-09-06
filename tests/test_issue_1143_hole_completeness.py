@@ -5,14 +5,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
+from quiddity import (
     BoltCircle,
     HoleRecord,
     LinearArray,
     build_raw_recognition_result,
     recognise_hole_patterns,
 )
-from build123d import Align, Box, Compound, Cone, Cylinder, Pos, Rot
 
 from draftwright import Sheet, build_drawing
 from draftwright.builder import detect_part_model
@@ -265,6 +265,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
     assert completeness["audited_score"] == 1.0
     assert completeness["requirements"] == completeness["placed"] == 10
     assert completeness["by_family"] == {
+        "section_recesses": 0,
         "blends": 0,
         "chamfers": 0,
         "channels": 0,

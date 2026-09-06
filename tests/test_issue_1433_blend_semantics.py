@@ -7,7 +7,8 @@ from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Axis, Box, Compound, Cylinder, GeomType, Pos, Rot, Vertex, fillet
+from quiddity import (
     Blend,
     CircularBlendPath,
     Fillet,
@@ -15,7 +16,6 @@ from b123d_recognisers import (
     build_raw_recognition_result,
     recognise_blends,
 )
-from build123d import Axis, Box, Compound, Cylinder, GeomType, Pos, Rot, Vertex, fillet
 
 from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
 from draftwright.blend_contract import blend_provider_key, register_blend_ir_types
@@ -189,7 +189,8 @@ def test_fully_supplied_competing_inventory_requires_internal_provenance() -> No
         "bosses": recognition.bosses,
         "polygonal_bosses": recognition.polygonal_bosses,
         "polygonal_stock": recognition.polygonal_stock,
-        "channels": recognition.channels,
+        "section_recesses": recognition.section_recesses,
+        "section_recess_patterns": recognition.section_recess_patterns,
         "slots": recognition.slots,
         "slot_patterns": recognition.slot_patterns,
         "oriented_slots": recognition.oriented_slots,
@@ -204,10 +205,6 @@ def test_fully_supplied_competing_inventory_requires_internal_provenance() -> No
         "plates": recognition.plates,
         "grooves": recognition.grooves,
         "flats": recognition.flats,
-        "pockets": recognition.pockets,
-        "pocket_patterns": recognition.pocket_patterns,
-        "rectangular_blind_slots": recognition.rectangular_blind_slots,
-        "round_bottom_blind_slots": recognition.round_bottom_blind_slots,
         "pads": recognition.pads,
         "profiles": recognition.turned_profiles,
         "step_zs": (),
@@ -779,7 +776,7 @@ def test_raw_and_framed_arbitrary_rigid_motion_keep_four_radius_requirements() -
 
 def test_framed_arbitrary_motion_retains_a_circular_blend_requirement() -> None:
     # Raw circular-path transform invariance is tracked upstream as
-    # b123d-recognisers#491; the released framed route already preserves this meaning.
+    # quiddity#491; the released framed route already preserves this meaning.
     drawing = build_drawing(Rot(17, 31, 43) * _circular_concave_blend(), framed_recognition=True)
     features = _blend_features(drawing.model())
 

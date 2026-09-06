@@ -15,13 +15,13 @@ from typing import TYPE_CHECKING, Any, TypeAlias, cast
 from draftwright.recogniser_schema import consumed_record_schema_versions_for_type
 
 if TYPE_CHECKING:
-    from b123d_recognisers.evidence import RecognitionEvidence
+    from quiddity.evidence import RecognitionEvidence
 
     from draftwright.model import PartModel
     from draftwright.recognition_ownership import RecognitionOwnership
 
 REPORT_SCHEMA = "draftwright-report"
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 _DISPOSITIONS = (
     "represented",
     "absorbed",
@@ -66,7 +66,7 @@ def _source(source: str | PathLike[str] | None) -> dict[str, str | None]:
 def producer() -> dict[str, str]:
     return {
         "draftwright": distribution_version("draftwright"),
-        "b123d-recognisers": distribution_version("b123d-recognisers"),
+        "quiddity": distribution_version("quiddity"),
     }
 
 
@@ -95,6 +95,7 @@ _REQUIREMENT_STATES = frozenset(
         "missing",
         "unverifiable",
         "inapplicable",
+        "unsupported",
     }
 )
 _REQUIREMENT_REASON = {
@@ -248,6 +249,13 @@ def _requirements(
                 {_exact_occurrence_id(record, occurrence_ids) for record in source_records},
                 key=occurrence_order.__getitem__,
             )
+            if state == "unsupported" and any(
+                occurrences_by_id[source_id]["disposition"] != "unsupported"
+                for source_id in source_ids
+            ):
+                raise ReportUnavailableError(
+                    "unsupported requirement contradicts occurrence ownership"
+                )
             if state == "inapplicable":
                 inapplicable_occurrences.update(source_ids)
                 continue
@@ -308,6 +316,16 @@ def _requirements(
         if occurrence["disposition"] != "unsupported":
             continue
         occurrence_id = str(occurrence["id"])
+        if by_occurrence[occurrence_id]:
+            if any(
+                row["state"] != "unsupported"
+                for row in requirements
+                if row["id"] in by_occurrence[occurrence_id]
+            ):
+                raise ReportUnavailableError(
+                    "unsupported occurrence has conflicting requirement outcomes"
+                )
+            continue
         requirement_id = f"requirement:{len(requirements) + 1}"
         requirements.append(
             {
@@ -337,7 +355,7 @@ def validate_report_inputs(
     if evidence is None or ownership is None or ownership.evidence is not evidence:
         raise ReportUnavailableError(
             "accepted occurrence ownership is unavailable for this drawing; "
-            "raw automatic recognition is required by report schema version 1"
+            "raw automatic recognition is required by report schema version 2"
         )
     if model is None:
         raise ReportUnavailableError("the drawing has no final IR model")
@@ -468,7 +486,7 @@ def drawing_report(
     part: object | None = None,
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
 ) -> dict[str, object]:
-    """Build the strict schema-v1 report for one raw automatic drawing.
+    """Build the strict schema-v2 report for one raw automatic drawing.
 
     ``bounded-clear`` means only that this report found no known occurrence, semantic
     requirement, or lint blocker. It is deliberately not manufacturing readiness: recognition

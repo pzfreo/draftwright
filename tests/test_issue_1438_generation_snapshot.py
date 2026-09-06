@@ -113,7 +113,7 @@ def test_absorbed_findings_are_acted_on_while_an_unsupported_one_is_not(tmp_path
 
     assert [
         (entry["family"], entry["draftwright"]["disposition"]) for entry in _unused(document)
-    ] == [("passages", "unsupported")]
+    ] == [("section_recesses", "unsupported")]
     absorbed = [
         entry for entry in document["found"] if entry["draftwright"]["disposition"] == "absorbed"
     ]

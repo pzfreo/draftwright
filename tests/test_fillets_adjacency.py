@@ -18,8 +18,8 @@ thousands — the two-sided bound catches both regressions.
 from __future__ import annotations
 
 import build123d.topology.shape_core as shape_core
-from b123d_recognisers import recognise_fillets
 from build123d import Axis, Box, Cylinder, Pos, fillet
+from quiddity import recognise_fillets
 
 
 def _filleted_plate():

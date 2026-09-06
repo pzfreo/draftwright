@@ -21,8 +21,8 @@ from draftwright import Sheet, build_drawing
 from draftwright.audit import diff_builds
 from draftwright.model.detect import (
     _convert_section_recess_pocket,
-    _UnsupportedSectionRecess,
 )
+from draftwright.section_recess_contract import UnsupportedSectionRecess
 from draftwright.sheet_emit import emit_sheet_script
 
 _CORPUS = Path(__file__).parent / "fixtures/evaluation/corpus-pockets-v1.json"
@@ -52,7 +52,7 @@ def pocket_case(request):
             converted.append(
                 _convert_section_recess_pocket(source, schema_version=result["schema_version"])
             )
-        except _UnsupportedSectionRecess:
+        except UnsupportedSectionRecess:
             refused.append(source)
     assert not result["refusals"]
     return case, path, part, result, converted, refused
@@ -226,7 +226,7 @@ def test_only_the_released_schema_is_admitted(version):
 def test_unsupported_sections_are_not_replaced_by_bounding_rectangles(path, value):
     record = _record()
     _change(record, path, value)
-    with pytest.raises(_UnsupportedSectionRecess):
+    with pytest.raises(UnsupportedSectionRecess):
         _convert_section_recess_pocket(record, schema_version=2)
 
 
@@ -250,7 +250,7 @@ def test_crossing_vertex_order_is_refused():
     record = _record()
     boundary = record["geometry"]["profile"]["boundary"]
     boundary[1], boundary[2] = boundary[2], boundary[1]
-    with pytest.raises(_UnsupportedSectionRecess, match="diagonal"):
+    with pytest.raises(UnsupportedSectionRecess, match="diagonal"):
         _convert_section_recess_pocket(record, schema_version=2)
 
 
@@ -308,7 +308,7 @@ def test_zero_section_and_unrepresentable_world_extents_are_refused():
 
 
 def test_lowering_an_existing_document_does_not_recognise_again(monkeypatch):
-    import b123d_recognisers
+    import quiddity
 
     import draftwright.model.detect as detect
 
@@ -317,7 +317,7 @@ def test_lowering_an_existing_document_does_not_recognise_again(monkeypatch):
 
     monkeypatch.setattr(quiddity, "build_section_recess_document", forbidden)
     monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden)
-    monkeypatch.setattr(b123d_recognisers, "build_raw_recognition_result", forbidden)
+    monkeypatch.setattr(quiddity, "build_raw_recognition_result", forbidden)
     monkeypatch.setattr(detect, "build_recognition_evidence", forbidden)
     assert _convert_section_recess_pocket(_record(), schema_version=2).depth == 6
 

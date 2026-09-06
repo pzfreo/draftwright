@@ -99,8 +99,8 @@ def recognition_consumer_calls():
     on the call stack keeps both consumer claims fail-closed without inspecting the provider's
     private registry.
     """
-    import b123d_recognisers as recognition
-    import b123d_recognisers.evidence as recognition_evidence
+    import quiddity as recognition
+    import quiddity.evidence as recognition_evidence
     from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 
     aggregates = {

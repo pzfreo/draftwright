@@ -1,4 +1,4 @@
-"""Rectangular blind-slot consumer semantics (#1421, b123d-recognisers 0.4.10)."""
+"""Rectangular blind-slot consumer semantics (#1421, Quiddity 0.2.2)."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from dataclasses import replace
 from fractions import Fraction
 
 import pytest
-from b123d_recognisers import build_raw_recognition_result
+from _section_recess_cases import corrupt_recess, declaration_fields
 from build123d import Align, Axis, Box, Pos
+from quiddity import build_raw_recognition_result
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations import from_model
@@ -27,23 +28,23 @@ def _part():
 
 def _record():
     result = build_raw_recognition_result(_part())
-    assert result.slots == result.pockets == result.channels == ()
-    assert len(result.rectangular_blind_slots) == 1
-    return result.rectangular_blind_slots[0]
+    assert result.slots == ()
+    assert len(result.section_recesses) == 1
+    return result.section_recesses[0]
 
 
 def _declared(record=None):
     source = _record() if record is None else record
     return rectangular_blind_slot(
-        axis=source.axis,
-        open_sign=source.open_sign,
-        length=source.length,
-        width_axis=source.width_axis,
-        depth_axis=source.depth_axis,
-        depth_sign=source.depth_sign,
-        width=source.width,
-        depth=source.depth,
-        at=source.at,
+        axis=declaration_fields(source, "rectangular_blind_slot")["axis"],
+        open_sign=declaration_fields(source, "rectangular_blind_slot")["open_sign"],
+        length=declaration_fields(source, "rectangular_blind_slot")["length"],
+        width_axis=declaration_fields(source, "rectangular_blind_slot")["width_axis"],
+        depth_axis=declaration_fields(source, "rectangular_blind_slot")["depth_axis"],
+        depth_sign=declaration_fields(source, "rectangular_blind_slot")["depth_sign"],
+        width=declaration_fields(source, "rectangular_blind_slot")["width"],
+        depth=declaration_fields(source, "rectangular_blind_slot")["depth"],
+        at=declaration_fields(source, "rectangular_blind_slot")["at"],
     )
 
 
@@ -57,16 +58,19 @@ def test_aggregate_record_lowers_without_slot_pocket_or_channel_coownership() ->
     assert len(blind_slots) == 1
     feature = blind_slots[0]
     assert feature == _declared(source)
-    assert (feature.axis, feature.open_sign) == (source.axis, source.open_sign)
+    assert (feature.axis, feature.open_sign) == (
+        declaration_fields(source, "rectangular_blind_slot")["axis"],
+        declaration_fields(source, "rectangular_blind_slot")["open_sign"],
+    )
     assert (feature.width_axis, feature.depth_axis, feature.depth_sign) == (
-        source.width_axis,
-        source.depth_axis,
-        source.depth_sign,
+        declaration_fields(source, "rectangular_blind_slot")["width_axis"],
+        declaration_fields(source, "rectangular_blind_slot")["depth_axis"],
+        declaration_fields(source, "rectangular_blind_slot")["depth_sign"],
     )
     assert (feature.width, feature.length, feature.depth) == (
-        source.width,
-        source.length,
-        source.depth,
+        declaration_fields(source, "rectangular_blind_slot")["width"],
+        declaration_fields(source, "rectangular_blind_slot")["length"],
+        declaration_fields(source, "rectangular_blind_slot")["depth"],
     )
     assert not ({"slot", "pocket", "channel"} & {item.kind for item in model.features})
 
@@ -75,15 +79,15 @@ def test_explicit_sheet_word_and_generated_line_round_trip_the_exact_ir() -> Non
     source = _record()
     sheet = Sheet(_part()).authored_dimensions()
     sheet.rectangular_blind_slot(
-        axis=source.axis,
-        open_sign=source.open_sign,
-        length=source.length,
-        width_axis=source.width_axis,
-        depth_axis=source.depth_axis,
-        depth_sign=source.depth_sign,
-        width=source.width,
-        depth=source.depth,
-        at=source.at,
+        axis=declaration_fields(source, "rectangular_blind_slot")["axis"],
+        open_sign=declaration_fields(source, "rectangular_blind_slot")["open_sign"],
+        length=declaration_fields(source, "rectangular_blind_slot")["length"],
+        width_axis=declaration_fields(source, "rectangular_blind_slot")["width_axis"],
+        depth_axis=declaration_fields(source, "rectangular_blind_slot")["depth_axis"],
+        depth_sign=declaration_fields(source, "rectangular_blind_slot")["depth_sign"],
+        width=declaration_fields(source, "rectangular_blind_slot")["width"],
+        depth=declaration_fields(source, "rectangular_blind_slot")["depth"],
+        at=declaration_fields(source, "rectangular_blind_slot")["at"],
     )
     declared = sheet.model().features[0]
     assert declared == _declared(source)
@@ -167,15 +171,15 @@ def test_every_nonempty_authored_parameter_subset_survives_rendering(
     source = _record()
     sheet = Sheet(_part()).authored_dimensions()
     handle = sheet.rectangular_blind_slot(
-        axis=source.axis,
-        open_sign=source.open_sign,
-        length=source.length,
-        width_axis=source.width_axis,
-        depth_axis=source.depth_axis,
-        depth_sign=source.depth_sign,
-        width=source.width,
-        depth=source.depth,
-        at=source.at,
+        axis=declaration_fields(source, "rectangular_blind_slot")["axis"],
+        open_sign=declaration_fields(source, "rectangular_blind_slot")["open_sign"],
+        length=declaration_fields(source, "rectangular_blind_slot")["length"],
+        width_axis=declaration_fields(source, "rectangular_blind_slot")["width_axis"],
+        depth_axis=declaration_fields(source, "rectangular_blind_slot")["depth_axis"],
+        depth_sign=declaration_fields(source, "rectangular_blind_slot")["depth_sign"],
+        width=declaration_fields(source, "rectangular_blind_slot")["width"],
+        depth=declaration_fields(source, "rectangular_blind_slot")["depth"],
+        at=declaration_fields(source, "rectangular_blind_slot")["at"],
     )
     for parameter in parameters:
         sheet.dimension(handle, parameter)
@@ -324,15 +328,15 @@ def test_generated_block_preserves_a_role_specific_tolerance_after_the_call() ->
     source = _record()
     sheet = Sheet(_part()).authored_dimensions()
     handle = sheet.rectangular_blind_slot(
-        axis=source.axis,
-        open_sign=source.open_sign,
-        length=source.length,
-        width_axis=source.width_axis,
-        depth_axis=source.depth_axis,
-        depth_sign=source.depth_sign,
-        width=source.width,
-        depth=source.depth,
-        at=source.at,
+        axis=declaration_fields(source, "rectangular_blind_slot")["axis"],
+        open_sign=declaration_fields(source, "rectangular_blind_slot")["open_sign"],
+        length=declaration_fields(source, "rectangular_blind_slot")["length"],
+        width_axis=declaration_fields(source, "rectangular_blind_slot")["width_axis"],
+        depth_axis=declaration_fields(source, "rectangular_blind_slot")["depth_axis"],
+        depth_sign=declaration_fields(source, "rectangular_blind_slot")["depth_sign"],
+        width=declaration_fields(source, "rectangular_blind_slot")["width"],
+        depth=declaration_fields(source, "rectangular_blind_slot")["depth"],
+        at=declaration_fields(source, "rectangular_blind_slot")["at"],
     )
     handle.tolerance(0, 0.1, on="rectangular_blind_slot_depth.length")
     original = sheet.model()
@@ -412,27 +416,29 @@ def test_ir_rejects_malformed_axes_signs_and_sizes(change) -> None:
 
 def test_injected_public_record_uses_the_same_converter_and_validation() -> None:
     source = _record()
-    model = build_part_model(_part(), rectangular_blind_slots=(source,))
+    model = build_part_model(_part(), section_recesses=(source,), section_recess_patterns=())
     assert _declared(source) in model.features
 
-    malformed = replace(source, depth=-1)
-    with pytest.raises(ValueError, match="rectangular blind slot depth"):
-        build_part_model(_part(), rectangular_blind_slots=(malformed,))
+    malformed = corrupt_recess(source, "run_interval", (0, 0))
+    with pytest.raises(ValueError):
+        build_part_model(_part(), section_recesses=(malformed,), section_recess_patterns=())
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("field", "value"),
     [
-        {"width": "10"},
-        {"length": Fraction(10**10_000, 1)},
-        {"at": ("0", 7.5, 10)},
-        {"at": [0, 7.5, 10]},
-        {"at": (Fraction(10**10_000, 1), 7.5, 10)},
+        ("boundary_coordinate", "10"),
+        ("run_interval", (0, Fraction(10**10_000, 1))),
+        ("origin", ("0", 7.5, 10)),
+        ("origin", [0, 7.5, 10]),
+        ("origin", (Fraction(10**10_000, 1), 7.5, 10)),
     ],
 )
-def test_injected_public_record_rejects_schema_coercions(change) -> None:
-    with pytest.raises(ValueError, match="rectangular blind slot"):
-        build_part_model(_part(), rectangular_blind_slots=(replace(_record(), **change),))
+def test_injected_public_record_rejects_schema_coercions(field, value) -> None:
+    source = _record()
+    malformed = corrupt_recess(source, field, value)
+    with pytest.raises((TypeError, ValueError)):
+        build_part_model(_part(), section_recesses=(malformed,), section_recess_patterns=())
 
 
 def test_hand_built_ir_requires_frame_and_run_axes_to_agree() -> None:

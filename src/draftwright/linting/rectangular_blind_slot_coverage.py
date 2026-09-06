@@ -15,10 +15,11 @@ from math import isfinite
 from numbers import Real
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult, RectangularBlindSlot
+from quiddity import RecognitionResult, SectionRecess
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 RectangularBlindSlotRequirementState = Literal[
     "placed",
@@ -86,6 +87,22 @@ def rectangular_blind_slot_key(slot, *, require_frame: bool = False) -> tuple:
     Ambiguous duplicate keys fail closed in :func:`rectangular_blind_slot_requirement_outcomes`.
     """
 
+    if not require_frame:
+        actual, data = section_recess_fields(slot)
+        if actual != "rectangular_blind_slot":
+            raise ValueError("recess does not use this blind-slot grammar")
+        return (
+            data["axis"],
+            data["open_sign"],
+            data["width_axis"],
+            data["depth_axis"],
+            data["depth_sign"],
+            _positive(data["width"]),
+            _positive(data["length"]),
+            _positive(data["depth"]),
+            _point(data["origin"]),
+        )
+
     axes = (slot.axis, slot.width_axis, slot.depth_axis)
     if (
         any(not isinstance(axis, str) or axis not in {"x", "y", "z"} for axis in axes)
@@ -116,7 +133,7 @@ def rectangular_blind_slot_key(slot, *, require_frame: bool = False) -> tuple:
 
 def _source_at(source) -> tuple[float, float, float]:
     try:
-        return _point(source.at)
+        return _point(section_recess_fields(source)[1]["origin"])
     except (AttributeError, OverflowError, TypeError, ValueError):
         return (float("nan"), float("nan"), float("nan"))
 
@@ -132,6 +149,7 @@ def _span(at, axis: str, value: float) -> tuple[tuple[float, float, float], ...]
 
 def _parameter_ids(feature, source) -> tuple[str, ...] | None:
     try:
+        _kind, data = section_recess_fields(source)
         parameters = tuple(feature.parameters())
         observed = {}
         for parameter in parameters:
@@ -144,16 +162,16 @@ def _parameter_ids(feature, source) -> tuple[str, ...] | None:
                 else None
             )
             observed[parameter_id] = (_positive(parameter.value), span)
-        source_at = _point(source.at)
+        source_at = _point(data["origin"])
         expected_values = (
-            _positive(source.width),
-            _positive(source.length),
-            _positive(source.depth),
+            _positive(data["width"]),
+            _positive(data["length"]),
+            _positive(data["depth"]),
         )
         expected_spans = (
-            _span(source_at, source.width_axis, expected_values[0]),
-            _span(source_at, source.axis, expected_values[1]),
-            _span(source_at, source.depth_axis, expected_values[2]),
+            _span(source_at, data["width_axis"], expected_values[0]),
+            _span(source_at, data["axis"], expected_values[1]),
+            _span(source_at, data["depth_axis"], expected_values[2]),
         )
         expected = dict(zip(_PARAMETERS, zip(expected_values, expected_spans), strict=True))
     except (AttributeError, IndexError, OverflowError, TypeError, ValueError):
@@ -200,17 +218,17 @@ def rectangular_blind_slot_requirement_outcomes(
             "rectangular_blind_slot_requirement_outcomes() requires the run's "
             f"RecognitionResult; got {type(recognition).__name__}"
         )
-    if not isinstance(recognition.rectangular_blind_slots, tuple):
-        raise TypeError("RecognitionResult.rectangular_blind_slots must be an immutable tuple")
-    sources = recognition.rectangular_blind_slots
+    if not isinstance(recognition.section_recesses, tuple):
+        raise TypeError("RecognitionResult.section_recesses must be an immutable tuple")
+    sources = recesses_with_kind(recognition.section_recesses, "rectangular_blind_slot")
     if not sources:
         return []
 
-    keyed_sources: list[tuple[RectangularBlindSlot, tuple | None]] = []
+    keyed_sources: list[tuple[SectionRecess, tuple | None]] = []
     source_counts: dict[tuple, int] = defaultdict(int)
     for source in sources:
         try:
-            if not isinstance(source, RectangularBlindSlot):
+            if not isinstance(source, SectionRecess):
                 raise TypeError
             key = rectangular_blind_slot_key(source)
         except (AttributeError, IndexError, OverflowError, TypeError, ValueError):

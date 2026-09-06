@@ -12,7 +12,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
+from quiddity import RecognitionResult, SectionRecess
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
@@ -21,6 +21,11 @@ from draftwright.linting.issues import (
     LintIssue,
     is_placement_drop,
     requirement_subject,
+)
+from draftwright.section_recess_contract import (
+    recesses_with_kind,
+    section_recess_fields,
+    section_recess_pattern_members,
 )
 
 _POCKET_LOCATION_DATUM_COINCIDENT_CODE = "pocket_location_coincident_with_datum"
@@ -63,6 +68,18 @@ def _depth_axis(pocket) -> str:
 
 def _key(pocket) -> tuple:
     """Every retained physical pocket fact, including its opening side."""
+    if type(pocket) is SectionRecess:
+        kind, data = section_recess_fields(pocket)
+        if kind != "pocket":
+            raise ValueError("pocket correspondence requires the pocket grammar")
+        return (
+            data["width_axis"],
+            data["long_axis"],
+            *(_rounded(data[key]) for key in ("width", "length", "depth", "w_center", "lo", "hi")),
+            _point(data["origin"]),
+            data["open_sign"],
+            data["edge_anchored"],
+        )
     return (
         pocket.width_axis,
         pocket.long_axis,
@@ -195,7 +212,7 @@ def _state(
 
 
 def _physical_requirement_count(source) -> int:
-    return 3 if source.edge_anchored else 5
+    return 3 if section_recess_fields(source)[1]["edge_anchored"] else 5
 
 
 def pocket_requirement_outcomes(
@@ -213,10 +230,16 @@ def pocket_requirement_outcomes(
             f"got {type(recognition).__name__}"
         )
 
+    pockets = recesses_with_kind(recognition.section_recesses, "pocket")
+    pocket_ids = {id(source) for source in pockets}
     pattern_members = {
-        member for pattern in recognition.pocket_patterns for member in pattern.pockets
+        id(member)
+        for pattern in recognition.section_recess_patterns
+        for members in (section_recess_pattern_members(pattern, recognition.section_recesses),)
+        if all(id(member) in pocket_ids for member in members)
+        for member in members
     }
-    sources = tuple(pocket for pocket in recognition.pockets if pocket not in pattern_members)
+    sources = tuple(pocket for pocket in pockets if id(pocket) not in pattern_members)
     if not sources:
         return []
     source_counts: dict[tuple, int] = defaultdict(int)
@@ -245,7 +268,7 @@ def pocket_requirement_outcomes(
         matches = ir_by_key.get(key, ())
         feature = matches[0] if len(matches) == source_counts[key] == 1 else None
         parameter_ids = _parameter_ids(feature) if feature is not None else None
-        at = _point(source.location)
+        at = _point(section_recess_fields(source)[1]["origin"])
         if parameter_ids is None:
             outcomes.append(
                 PocketRequirementOutcome(
@@ -256,7 +279,7 @@ def pocket_requirement_outcomes(
                     source_records=(source,),
                 )
             )
-            if source.edge_anchored:
+            if section_recess_fields(source)[1]["edge_anchored"]:
                 outcomes.extend(
                     PocketRequirementOutcome(
                         at, parameter, "inapplicable", source_records=(source,)
@@ -267,7 +290,7 @@ def pocket_requirement_outcomes(
                     )
                 )
             continue
-        if source.edge_anchored:
+        if section_recess_fields(source)[1]["edge_anchored"]:
             inapplicable.update((feature, parameter) for parameter in parameter_ids[3:])
         outcomes.extend(
             PocketRequirementOutcome(

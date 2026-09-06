@@ -18,8 +18,13 @@ for entry in document["found"]:
         print(entry["family"], entry["draftwright"]["reason"])
 ```
 
+Version 2 names the actual recognition provider in `producer.quiddity`.
+[Version 1](draftwright-step-inspection-v1.schema.json) used `producer.b123d-recognisers`
+and remains available for existing documents. Readers must select the schema using
+`schema_version`; a Quiddity version is not a b123d-recognisers version.
+
 The closed schema is published as
-[`draftwright-step-inspection-v1.schema.json`](draftwright-step-inspection-v1.schema.json).
+[`draftwright-step-inspection-v2.schema.json`](draftwright-step-inspection-v2.schema.json).
 `schema` is always `"draftwright-step-inspection"`; check `schema_version` before interpreting
 the document. Every object is closed except `found[].feature`, which is the recogniser's own
 record.

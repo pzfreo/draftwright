@@ -4,8 +4,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import recognise_slots
 from build123d import Box, Cylinder, Pos
+from quiddity import recognise_slots
 
 from draftwright import Drawing, Sheet, build_drawing
 from draftwright.linting.slot_coverage import slot_requirement_outcomes

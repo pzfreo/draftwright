@@ -62,8 +62,8 @@ def test_real_pattern_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_pattern_projection_owns_disjoint_groups_without_recounting_members() -> None:
-    from b123d_recognisers import build_raw_recognition_result
     from build123d import import_step
+    from quiddity import build_raw_recognition_result
 
     compound = import_step(CORPUS.parent / "pattern-topology-a.step")
     for part, hole_count, pattern_count in ((_grid_part(), 6, 1), (compound, 7, 2)):

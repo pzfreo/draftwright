@@ -2,12 +2,21 @@
 
 from dataclasses import replace
 
-from b123d_recognisers import recognise_channels, recognise_pockets
 from build123d import Align, Box, Cylinder, Pos, Rot
+from quiddity import build_raw_recognition_result
 
 from draftwright import build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.model import ChannelFeature, HoleFeature, PartModel, plan_dimensions
+from draftwright.section_recess_contract import section_recess_fields
+
+
+def _recesses(part, *, kind):
+    return [
+        source
+        for source in build_raw_recognition_result(part).section_recesses
+        if source.classification.feature_kind == kind
+    ]
 
 
 def _u_channel(*, lower_wall=12.5, upper_wall=12.5):
@@ -39,18 +48,13 @@ def _labels(drawing, prefix):
 
 def test_corrected_fixture_has_one_channel_and_one_independent_wall_thickness():
     part = _u_channel()
-    channels = recognise_channels(part)
+    channels = _recesses(part, kind="channel")
     assert len(channels) == 1
-    assert (
-        channels[0].long_axis,
-        channels[0].width_axis,
-        channels[0].width,
-        channels[0].lo,
-        channels[0].hi,
-        channels[0].d_lo,
-        channels[0].d_hi,
+    fields = section_recess_fields(channels[0])[1]
+    assert tuple(
+        fields[key] for key in ("long_axis", "width_axis", "width", "lo", "hi", "d_lo", "d_hi")
     ) == ("x", "y", 25.0, -25.0, 25.0, 6.0, 24.0)
-    assert recognise_pockets(part) == []
+    assert _recesses(part, kind="pocket") == []
 
     drawing = build_drawing(part)
     detected = detect_part_model(_u_channel())
@@ -104,13 +108,13 @@ def test_asymmetric_walls_keep_lower_wall_and_derive_the_opposite_wall():
 
 def test_ordinary_bounded_pocket_does_not_become_a_channel():
     part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8)
-    assert recognise_channels(part) == []
-    assert len(recognise_pockets(part)) == 1
+    assert _recesses(part, kind="channel") == []
+    assert len(_recesses(part, kind="pocket")) == 1
 
 
 def test_monolithic_centered_rebate_stays_with_the_step_ladder():
     part = Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)
-    assert len(recognise_channels(part)) == 1  # geometry census remains honest
+    assert len(_recesses(part, kind="channel")) == 1  # geometry census remains honest
     drawing = build_drawing(part)
     assert not [feature for feature in drawing.model().features if feature.kind == "channel"]
     assert sorted(_labels(drawing, "dim_shoulder").values()) == ["20", "40"]
@@ -124,13 +128,13 @@ def test_channel_must_reach_both_longitudinal_envelope_ends():
             + Pos(x_center, -18.75, 15) * Box(length, 12.5, 18)
             + Pos(x_center, 18.75, 15) * Box(length, 12.5, 18)
         )
-        assert recognise_channels(part) == []
+        assert _recesses(part, kind="channel") == []
 
 
 def test_channel_requires_a_floor_and_opposed_inner_walls():
-    assert recognise_channels(Box(50, 50, 12)) == []
+    assert _recesses(Box(50, 50, 12), kind="channel") == []
     through_gap = Box(50, 50, 30) - Box(50, 25, 30)
-    assert recognise_channels(through_gap) == []
+    assert _recesses(through_gap, kind="channel") == []
 
 
 def test_channel_width_places_for_principal_axis_rotations_and_both_open_signs():

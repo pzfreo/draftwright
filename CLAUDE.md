@@ -14,7 +14,7 @@ It sits on top of three Apache 2.0 libraries:
 - `build123d-drafting-helpers` — annotation primitives (`Dimension`, `Leader`,
   `HoleCallout`, …); the rendering library. Draftwright owns linting and drafting
   policy (ADR 3 (was 0007)).
-- `b123d-recognisers` — deterministic geometry-only feature recognition (ADR 3 (was 0013)).
+- `quiddity` — deterministic geometry-only feature recognition (ADR 3 (was 0013)).
 - `build123d` — the underlying CAD kernel.
 
 `AGENTS.md` is the "drive it correctly" usage guide; this file is the working map for
@@ -75,7 +75,7 @@ Compact map, bottom to top:
   (`inspect_step`: versioned read-only STEP evidence over one hashed byte snapshot and the
   one-run detect seam — no drawing, placement, render, export, or lint path).
 - `score.py` / `recognition/` — temporary identity-preserving re-exports of
-  `b123d_recognisers`; removal scheduled for 0.6.0.
+  `quiddity`; removal scheduled for 0.6.0.
 
 Key invariants — each is machine-enforced, and the guard test is the authority:
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from math import isfinite
 
-from b123d_recognisers import Blend, CircularBlendPath, StraightBlendPath
+from quiddity import Blend, CircularBlendPath, StraightBlendPath
 
 _BLEND_FEATURE_TYPE: type | None = None
 _BLEND_FRAME_TYPE: type | None = None

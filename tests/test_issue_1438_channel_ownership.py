@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import pytest
-from b123d_recognisers import Channel, FaceLevel
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import Box, Compound, Cylinder, Pos, Rot
+from quiddity import FaceLevel
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
+from draftwright.model import channel as declare_channel
 from draftwright.model.detect import _channel_coordinate_matches, _step_level_owns_channel
 from draftwright.model.ir import Frame, StepLevelFeature
 from draftwright.recognition_ownership import CONDITIONAL_FAMILIES, RecognitionOwnershipBuilder
+from draftwright.section_recess_contract import section_recess_fields
 
 
 def _u_channel():
@@ -40,7 +42,7 @@ def _channel_occurrence(ownership):
     (occurrence,) = tuple(
         occurrence
         for occurrence in ownership.evidence.features
-        if ownership.evidence.family(occurrence) == "channels"
+        if ownership.evidence.family(occurrence) == "section_recesses"
     )
     return occurrence
 
@@ -48,7 +50,6 @@ def _channel_occurrence(ownership):
 def test_conditional_family_roster_is_explicit() -> None:
     assert CONDITIONAL_FAMILIES == {
         "bosses",
-        "channels",
         "plates",
         "through_steps",
         "turned_steps",
@@ -97,14 +98,25 @@ def test_cross_axis_rebate_does_not_inherit_an_unrelated_z_step_ladder() -> None
     occurrence = _channel_occurrence(ownership)
     record = ownership.evidence.record(occurrence)
 
-    assert record.depth_axis == "y"
+    assert (
+        next(
+            axis
+            for axis in "xyz"
+            if axis
+            not in (
+                section_recess_fields(record)[1]["long_axis"],
+                section_recess_fields(record)[1]["width_axis"],
+            )
+        )
+        == "y"
+    )
     assert any(feature.kind == "step_level" for feature in drawing.model().features)
     assert ownership.binding_for(occurrence) is None
     assert ownership.status(occurrence) == "unexpectedly_missing"
     assert tuple(
         candidate
         for candidate in ownership.unexpectedly_missing
-        if ownership.evidence.family(candidate) == "channels"
+        if ownership.evidence.family(candidate) == "section_recesses"
     ) == (occurrence,)
 
 
@@ -123,17 +135,17 @@ def test_disconnected_body_cannot_donate_a_channel_step_ladder_owner() -> None:
     occurrences = tuple(
         occurrence
         for occurrence in ownership.evidence.features
-        if ownership.evidence.family(occurrence) == "channels"
+        if ownership.evidence.family(occurrence) == "section_recesses"
     )
     downward = next(
         occurrence
         for occurrence in occurrences
-        if ownership.evidence.record(occurrence).open_sign < 0
+        if section_recess_fields(ownership.evidence.record(occurrence))[1]["open_sign"] < 0
     )
     upward = next(
         occurrence
         for occurrence in occurrences
-        if ownership.evidence.record(occurrence).open_sign > 0
+        if section_recess_fields(ownership.evidence.record(occurrence))[1]["open_sign"] > 0
     )
     ladder = next(feature for feature in drawing.model().features if feature.kind == "step_level")
 
@@ -165,17 +177,17 @@ def test_equal_face_level_values_do_not_erase_body_local_channel_ownership() -> 
     channel_occurrences = tuple(
         occurrence
         for occurrence in ownership.evidence.features
-        if ownership.evidence.family(occurrence) == "channels"
+        if ownership.evidence.family(occurrence) == "section_recesses"
     )
     downward = next(
         occurrence
         for occurrence in channel_occurrences
-        if ownership.evidence.record(occurrence).open_sign < 0
+        if section_recess_fields(ownership.evidence.record(occurrence))[1]["open_sign"] < 0
     )
     upward = next(
         occurrence
         for occurrence in channel_occurrences
-        if ownership.evidence.record(occurrence).open_sign > 0
+        if section_recess_fields(ownership.evidence.record(occurrence))[1]["open_sign"] > 0
     )
 
     assert ownership.binding_for(downward) is None
@@ -247,8 +259,8 @@ def test_channel_is_not_absorbed_when_an_exact_shoulder_left_the_final_ladder() 
     channel = ownership.evidence.record(occurrence)
     ladder = next(feature for feature in drawing.model().features if feature.kind == "step_level")
 
-    assert channel.w_center == pytest.approx(0.0)
-    assert channel.width == pytest.approx(20.0)
+    assert section_recess_fields(channel)[1]["w_center"] == pytest.approx(0.0)
+    assert section_recess_fields(channel)[1]["width"] == pytest.approx(20.0)
     assert ladder.levels == pytest.approx((0.0,))
     assert ladder.shoulders == (("y", -10.0),)
     assert ownership.binding_for(occurrence) is None
@@ -256,7 +268,7 @@ def test_channel_is_not_absorbed_when_an_exact_shoulder_left_the_final_ladder() 
 
 
 def test_channel_owner_predicate_fails_closed_without_complete_floor_support() -> None:
-    channel = Channel(
+    channel = declare_channel(
         width_axis="y",
         long_axis="x",
         width=20.0,
@@ -301,7 +313,7 @@ def test_multiple_exact_channels_may_share_their_final_step_ladder() -> None:
     occurrences = tuple(
         occurrence
         for occurrence in ownership.evidence.features
-        if ownership.evidence.family(occurrence) == "channels"
+        if ownership.evidence.family(occurrence) == "section_recesses"
     )
     bindings = tuple(ownership.binding_for(occurrence) for occurrence in occurrences)
 
@@ -325,15 +337,15 @@ def test_unbound_channel_fails_closed_as_unexpectedly_missing() -> None:
 
     assert tuple(
         candidate
-        for candidate in ownership.expected_conditional
-        if ownership.evidence.family(candidate) == "channels"
+        for candidate in ownership.expected_groupable
+        if ownership.evidence.family(candidate) == "section_recesses"
     ) == (occurrence,)
     assert occurrence in ownership.owner_expected_occurrences
     assert ownership.status(occurrence) == "unexpectedly_missing"
     assert tuple(
         candidate
         for candidate in ownership.unexpectedly_missing
-        if ownership.evidence.family(candidate) == "channels"
+        if ownership.evidence.family(candidate) == "section_recesses"
     ) == (occurrence,)
 
 
@@ -342,7 +354,9 @@ def test_feature_absorption_rejects_unknown_wrong_family_wrong_owner_and_duplica
     evidence = build_recognition_evidence(part)
     builder = RecognitionOwnershipBuilder(evidence)
     channel_occurrence = next(
-        occurrence for occurrence in evidence.features if evidence.family(occurrence) == "channels"
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == "section_recesses"
     )
     channel = evidence.record(channel_occurrence)
     hole = next(

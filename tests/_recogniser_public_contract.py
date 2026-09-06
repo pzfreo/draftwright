@@ -1,4 +1,4 @@
-"""Test helpers for the released public b123d-recognisers record contract."""
+"""Test helpers for the released public quiddity record contract."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import types
 import typing
 from collections.abc import Callable, Iterable
 
-import b123d_recognisers as recognition
+import quiddity as recognition
 
 
 class _PublicRecogniserRoot:
@@ -132,6 +132,15 @@ def public_record_universe(
         # Exclude typing aliases specifically: a callable-object decorator can
         # still be a real public emitter and must remain inside the fail-closed
         # return-grammar census.
+        if name == "RecognitionResult":
+            # Patterns and refusals now arrive only through the completed aggregate.
+            # Keep their public record types in the census after retiring the old emitters.
+            for annotation in typing.get_type_hints(fn).values():
+                for record in _nested_record_like_classes(annotation):
+                    assert is_public_record_class(record), (
+                        f"{name} contains unpublished record {record}"
+                    )
+                    universe.add(record)
         if inspect.isclass(fn) or not callable(fn) or typing.get_origin(fn) is not None:
             continue
         try:
@@ -140,6 +149,11 @@ def public_record_universe(
             raise AssertionError(
                 f"could not resolve return hints for recognition.{name}: {exc!r}"
             ) from exc
+        if name == "build_section_recess_document":
+            document = get_member("SectionRecessDocument")
+            assert hints.get("return") is document and is_public_record_class(document)
+            universe.add(document)
+            continue
         found = public_record_return_types(hints.get("return"), source=f"recognition.{name}")
         if name.startswith(("recognise_", "project_")) or name == "step_level_records":
             assert found, (

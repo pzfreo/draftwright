@@ -10,14 +10,14 @@ competing per-slot size dims (some of which drop for lack of room — #841 confi
 import dataclasses
 from pathlib import Path
 
-from b123d_recognisers import (
+from build123d import Box, Pos
+from quiddity import (
     Slot,
     SlotArray,
     SlotGrid,
     recognise_slot_patterns,
     recognise_slots,
 )
-from build123d import Box, Pos
 
 from draftwright.make_drawing import build_drawing
 from draftwright.model.detect import build_part_model

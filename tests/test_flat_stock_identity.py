@@ -10,8 +10,8 @@ ADR 3 (was 0013)'s rule for a record that looks too thin is that the fix is the 
 """
 
 import pytest
-from b123d_recognisers import recognise_flats
 from build123d import Box, Cylinder, Pos, Rot
+from quiddity import recognise_flats
 
 from draftwright import build_drawing
 from draftwright.model.declare import flat as declare_flat

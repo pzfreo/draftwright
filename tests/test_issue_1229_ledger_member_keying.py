@@ -49,9 +49,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from b123d_recognisers import HoleSpec
+from quiddity import HoleSpec
 
-_ENGINE = ("draftwright", "build123d", "b123d_recognisers")
+_ENGINE = ("draftwright", "build123d", "quiddity")
 
 
 class TestAGroupCannotMixThroughAndBlind:
@@ -164,7 +164,7 @@ class TestTheEvaluationModuleStaysCheapToImport:
         offenders = [
             node.lineno
             for node in tree.body
-            # `b123d_recognisers` too: measured, importing it puts build123d in `sys.modules`,
+            # `quiddity` too: measured, importing it puts build123d in `sys.modules`,
             # so it carries the same cost the note is about and the guard missed it entirely
             # (#1229 review round 3).
             if (isinstance(node, ast.ImportFrom) and (node.module or "").startswith(_ENGINE))

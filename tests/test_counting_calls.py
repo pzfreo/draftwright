@@ -7,8 +7,8 @@ dark for the duration, and two functions sharing one code object.
 
 import sys
 
-import b123d_recognisers as recognition
 import pytest
+import quiddity as recognition
 from conftest import counting_calls, recognition_consumer_calls
 
 

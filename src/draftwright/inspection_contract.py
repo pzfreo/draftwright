@@ -11,15 +11,15 @@ import copy
 from importlib.metadata import version as distribution_version
 from typing import Any
 
-from b123d_recognisers.inspection import inspection_api_manifest
+from quiddity.inspection import inspection_api_manifest
 
 CONSUMER_INSPECTION_FORMAT = "draftwright-inspection-api"
 CONSUMER_INSPECTION_FORMAT_VERSION = 1
 SUPPORTED_INSPECTION_API_MAJOR = 1
-SUPPORTED_RECOGNISER_VERSION = "0.4.14"
-_DISTRIBUTION = "b123d-recognisers"
-_PROVIDER_FORMAT = "b123d-recognisers-inspection-api"
-_NAMESPACE = "b123d_recognisers.inspection"
+SUPPORTED_RECOGNISER_VERSION = "0.2.2"
+_DISTRIBUTION = "quiddity"
+_PROVIDER_FORMAT = "quiddity-inspection-api"
+_NAMESPACE = "quiddity.inspection"
 
 
 class InspectionContractError(RuntimeError):

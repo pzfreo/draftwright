@@ -6,17 +6,20 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Align, Box, Compound, Pos, Rot
+from quiddity import (
     BossRecord,
+    OpenSectionProfile,
+    PassageFrame,
+    PassageSectionVertex,
     PolygonalStock,
+    SectionEnd,
+    SectionRecessClassification,
+    SectionRecessEnds,
     TurnedProfile,
     build_raw_recognition_result,
 )
-from b123d_recognisers import Plate as RecognisedPlate
-from b123d_recognisers import (
-    Pocket as RecognisedPocket,
-)
-from build123d import Align, Box, Compound, Pos, Rot
+from quiddity import Plate as RecognisedPlate
 
 from draftwright import Sheet, build_drawing
 from draftwright.linting.ink_overlap import segments_of
@@ -35,6 +38,7 @@ from draftwright.model.compiled import (
 )
 from draftwright.model.detect import build_part_model
 from draftwright.registry import AnnotationRegistry
+from draftwright.section_recess_contract import section_recess_fields
 from draftwright.sheet_emit import _feature_line, emit_sheet_script
 
 
@@ -325,7 +329,8 @@ def test_fixed_point_reprojects_shoulders_after_an_owned_level_disappears() -> N
         face_levels=(),
         risers=(riser,),
         plates=(),
-        pockets=(),
+        section_recesses=(),
+        section_recess_patterns=(),
         prof=None,
         rotational=None,
     )
@@ -402,7 +407,11 @@ def test_048_edge_open_pocket_orientation_keeps_a_complete_legacy_owner() -> Non
     )
 
     assert len(recognition.through_steps) == 1
-    assert [(p.depth_axis, p.open_sign) for p in recognition.pockets] == [("y", -1)]
+    assert [
+        (fields["axis"], fields["open_sign"])
+        for p in recognition.section_recesses
+        for fields in (section_recess_fields(p)[1],)
+    ] == [("y", -1)]
     assert [feature.kind for feature in drawing.model().features].count("through_step") == 0
     assert [outcome.state for outcome in outcomes] == ["inapplicable", "inapplicable"]
     assert not [issue for issue in drawing.lint() if "through_step" in issue.code]
@@ -413,7 +422,7 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
 
     The provider now truthfully reads the shallow edge opening above as Y-normal, so it no
     longer supplies the Z floor needed to exercise this consumer boundary. Inject the exact
-    public Pocket condition instead: Draftwright must promote the aggregate ThroughStep before
+    public SectionRecess geometry instead: Draftwright must promote the aggregate ThroughStep before
     filtering that floor from the final StepLevelFeature, never end with neither owner.
     """
     base = Rot(90, 0, 0) * _through_step_part()
@@ -425,22 +434,28 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
     )
     part = base - edge_pocket
     recognition = build_raw_recognition_result(part)
-    source_pocket = recognition.pockets[0]
-    z_floor_owner = RecognisedPocket(
-        width_axis="y",
-        long_axis="x",
-        width=6,
-        length=8,
-        depth=15,
-        w_center=-7,
-        lo=-20,
-        hi=-12,
-        d_lo=0,
-        d_hi=15,
-        open_sign=1,
-        edge_anchored=True,
-        body_key=source_pocket.body_key,
+    source_pocket = recognition.section_recesses[0]
+    boundary = tuple(PassageSectionVertex(point, 0.0) for point in ((-4, 3), (4, 3), (4, -3)))
+    profile = OpenSectionProfile("open", boundary, (boundary[-1].point, boundary[0].point))
+    z_floor_owner = replace(
+        source_pocket,
+        geometry=replace(
+            source_pocket.geometry,
+            frame=PassageFrame((-16, -7, 0), (0, 0, 1), (1, 0, 0), (0, 1, 0)),
+            run_interval=(0, 15),
+            profile=profile,
+            ends=SectionRecessEnds(SectionEnd("capped", (0, 0)), SectionEnd("open", (0, 0))),
+        ),
+        classification=SectionRecessClassification("edge_open_recess", "polygonal"),
     )
+    fields = section_recess_fields(z_floor_owner)[1]
+    assert (
+        fields["axis"],
+        fields["width"],
+        fields["length"],
+        fields["depth"],
+        fields["open_sign"],
+    ) == ("z", 6, 8, 15, 1)
     model = build_part_model(
         part,
         through_steps=recognition.through_steps,
@@ -448,7 +463,8 @@ def test_edge_pocket_floor_cannot_preempt_then_erase_the_aggregate_owner() -> No
         face_levels=recognition.step_levels,
         risers=recognition.risers,
         plates=recognition.plates,
-        pockets=(z_floor_owner,),
+        section_recesses=(z_floor_owner,),
+        section_recess_patterns=(),
         prof=None,
         rotational=None,
     )
@@ -477,7 +493,8 @@ def test_base_plate_filter_cannot_erase_the_only_transverse_shoulder_owner() -> 
             RecognisedPlate(axis="z", lo=-15, hi=0, u=0, v=0),
             RecognisedPlate(axis="y", lo=-10, hi=-5, u=0, v=0),
         ),
-        pockets=(),
+        section_recesses=(),
+        section_recess_patterns=(),
         prof=None,
         rotational=None,
     )
@@ -502,7 +519,8 @@ def test_injected_turned_classification_cannot_hide_a_supplied_aggregate() -> No
         face_levels=recognition.step_levels,
         risers=recognition.risers,
         plates=(),
-        pockets=(),
+        section_recesses=(),
+        section_recess_patterns=(),
         prof=TurnedProfile("z", ()),
         rotational=None,
     )
@@ -544,7 +562,8 @@ def test_complement_owner_requires_an_emitted_envelope(suppressor) -> None:
         face_levels=recognition.step_levels,
         risers=recognition.risers,
         plates=(),
-        pockets=(),
+        section_recesses=(),
+        section_recess_patterns=(),
         prof=None,
         rotational=None,
         **kwargs,
@@ -571,7 +590,8 @@ def test_direct_min_datum_owners_do_not_require_an_envelope() -> None:
         face_levels=(),
         risers=(riser,),
         plates=(),
-        pockets=(),
+        section_recesses=(),
+        section_recess_patterns=(),
         bosses=(BossRecord(axis=(0, 0, 1), location=(0, 0, 0), diameter=20, height=30),),
         polygonal_stock=(),
         prof=None,

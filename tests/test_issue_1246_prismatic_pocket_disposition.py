@@ -6,7 +6,6 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import build_raw_recognition_result
 from build123d import (
     Box,
     BuildPart,
@@ -19,11 +18,12 @@ from build123d import (
     Rot,
     extrude,
 )
+from quiddity import build_raw_recognition_result
 
 from draftwright import build_drawing
 from draftwright.linting.coverage import (
     _principal_boundary_plane,
-    _prismatic_pocket_matches_principal_wire,
+    _recess_matches_principal_wire,
 )
 from draftwright.linting.prismatic_pocket_coverage import lint_prismatic_pocket_coverage
 
@@ -57,7 +57,7 @@ def _matched_mouth(part, pocket):
             continue
         axis, plane_axes, at = boundary
         for wire in face.inner_wires():
-            if _prismatic_pocket_matches_principal_wire(pocket, wire, axis, plane_axes, at, tol):
+            if _recess_matches_principal_wire(pocket, wire, axis, plane_axes, at, tol):
                 return wire, axis, plane_axes, at, tol
     raise AssertionError("fixture has no principal mouth matching its PrismaticPocket record")
 
@@ -66,8 +66,10 @@ def test_a_prismatic_pocket_is_specific_actionable_and_non_info() -> None:
     part = _hexagonal_pocket_part()
     recognition = build_raw_recognition_result(part)
 
-    assert len(recognition.prismatic_pockets) == 1
-    assert recognition.pockets == ()
+    assert len(recognition.section_recesses) == 1
+    assert all(
+        recess.classification.feature_kind == "pocket" for recess in recognition.section_recesses
+    )
     drawing = build_drawing(part)
     issues = drawing.lint()
 
@@ -84,7 +86,7 @@ def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> 
     part = _hexagonal_pocket_part(ellipse=True)
     recognition = build_raw_recognition_result(part)
 
-    assert len(recognition.prismatic_pockets) == 1
+    assert len(recognition.section_recesses) == 1
     codes = [issue.code for issue in build_drawing(part).lint()]
     assert codes.count("prismatic_pocket_requirement_unsupported") == 1
     assert codes.count("unrecognised_defining_geometry") == 1
@@ -95,7 +97,7 @@ def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> 
     (
         "wrong_axis",
         "wrong_mouth",
-        "invalid_open_sign",
+        "capped_mouth",
         "side_count",
         "unsupported_edge",
         "malformed_record",
@@ -104,34 +106,42 @@ def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> 
 )
 def test_prismatic_pocket_profile_correlation_fails_closed(case: str) -> None:
     part = _hexagonal_pocket_part()
-    pocket = build_raw_recognition_result(part).prismatic_pockets[0]
+    pocket = build_raw_recognition_result(part).section_recesses[0]
     wire, axis, plane_axes, at, tol = _matched_mouth(part, pocket)
     candidate = pocket
     candidate_wire = wire
 
+    geometry = pocket.geometry
     if case == "wrong_axis":
-        candidate = replace(pocket, axis="x")
+        frame = replace(geometry.frame, run=(1.0, 0.0, 0.0), u=(0.0, 1.0, 0.0), v=(0.0, 0.0, 1.0))
+        candidate = replace(pocket, geometry=replace(geometry, frame=frame))
     elif case == "wrong_mouth":
-        moved = list(pocket.at)
-        moved["xyz".index(axis)] += 10
-        candidate = replace(pocket, at=tuple(moved))
-    elif case == "invalid_open_sign":
-        candidate = replace(pocket, open_sign=0)
+        interval = tuple(value + 10 for value in geometry.run_interval)
+        candidate = replace(pocket, geometry=replace(geometry, run_interval=interval))
+    elif case == "capped_mouth":
+        # Opening the opposite end cannot make this physical mouth count as supported.
+        ends = replace(geometry.ends, low=geometry.ends.high, high=geometry.ends.low)
+        candidate = replace(pocket, geometry=replace(geometry, ends=ends))
     elif case == "side_count":
-        candidate = replace(pocket, sides=pocket.sides + 1)
+        candidate_wire = SimpleNamespace(vertices=lambda: wire.vertices()[:-1], edges=wire.edges)
     elif case == "unsupported_edge":
         candidate_wire = SimpleNamespace(
             vertices=wire.vertices,
-            edges=lambda: [SimpleNamespace(geom_type=GeomType.ELLIPSE)] * len(pocket.section),
+            edges=lambda: (
+                [SimpleNamespace(geom_type=GeomType.ELLIPSE)] * len(geometry.profile.boundary)
+            ),
         )
     elif case == "malformed_record":
         candidate = object()
     elif case == "vertex_mismatch":
-        section = list(pocket.section)
-        section[0] = (100.0, 100.0)
-        candidate = replace(pocket, section=tuple(section))
+        boundary = tuple(
+            replace(vertex, point=tuple(2 * c for c in vertex.point))
+            for vertex in geometry.profile.boundary
+        )
+        profile = replace(geometry.profile, boundary=boundary)
+        candidate = replace(pocket, geometry=replace(geometry, profile=profile))
 
-    assert not _prismatic_pocket_matches_principal_wire(
+    assert not _recess_matches_principal_wire(
         candidate,
         candidate_wire,
         axis,
@@ -150,16 +160,19 @@ def test_a_prismatic_pocket_is_an_explicit_unsupported_completeness_outcome() ->
     assert completeness["audited_score"] == 0.0
     assert completeness["requirements"] == 1
     assert completeness["unsupported"] == 1
-    assert completeness["by_family"]["prismatic_pockets"] == 1
-    assert "prismatic_pockets" not in completeness["unscored_recognized_families"]
+    assert completeness["by_family"]["section_recesses"] == 1
+    assert "section_recesses" not in completeness["unscored_recognized_families"]
 
 
 def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket() -> None:
     part = _hexagonal_pocket_part(rectangular=True)
 
     recognition = build_raw_recognition_result(part)
-    assert len(recognition.prismatic_pockets) == 1
-    assert len(recognition.pockets) == 1
+    assert len(recognition.section_recesses) == 2
+    assert {recess.classification.section_shape for recess in recognition.section_recesses} == {
+        "rectangular",
+        "hexagonal",
+    }
 
     issues = lint_prismatic_pocket_coverage(recognition)
     assert len(issues) == 1
@@ -168,16 +181,18 @@ def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket()
     assert completeness["placed"] == 5
     assert completeness["unsupported"] == 1
     assert completeness["by_family"]["pockets"] == 5
-    assert completeness["by_family"]["prismatic_pockets"] == 1
+    assert completeness["by_family"]["section_recesses"] == 1
 
 
 def test_a_four_sided_survivor_is_unsupported_not_misclassified_as_non_rectangular() -> None:
     part = Box(80, 80, 20) - Pos(0, 0, 4) * Rot(0, 0, 30) * Box(30, 24, 20)
 
     recognition = build_raw_recognition_result(part)
-    assert recognition.pockets == ()
-    assert len(recognition.prismatic_pockets) == 1
-    assert recognition.prismatic_pockets[0].sides == 4
+    assert all(
+        recess.classification.feature_kind == "pocket" for recess in recognition.section_recesses
+    )
+    assert len(recognition.section_recesses) == 1
+    assert len(recognition.section_recesses[0].geometry.profile.boundary) == 4
 
     drawing = build_drawing(part)
     codes = [issue.code for issue in drawing.lint()]

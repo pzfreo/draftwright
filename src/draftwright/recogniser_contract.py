@@ -2,7 +2,7 @@
 
 The geometry package says what it can prove.  This module is the separate consumer-owned
 declaration of what Draftwright does with that evidence.  Keeping the declarations here prevents
-recognition policy from leaking into ``b123d-recognisers`` and gives CI one exhaustive join point.
+recognition policy from leaking into ``quiddity`` and gives CI one exhaustive join point.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from importlib.metadata import version as distribution_version
 from pathlib import Path
 from typing import Any
 
-from b123d_recognisers import capability_manifest
+from quiddity import capability_manifest
 
 from draftwright.recogniser_policy import (
     DEFERRED_FAMILIES as _DEFERRED_FAMILIES,
@@ -31,7 +31,7 @@ from draftwright.recogniser_schema import consumed_record_schema_versions
 
 CONSUMER_CAPABILITY_FORMAT = "draftwright-recogniser-capabilities"
 CONSUMER_CAPABILITY_FORMAT_VERSION = 1
-_RECOGNISER_DISTRIBUTION = "b123d-recognisers"
+_RECOGNISER_DISTRIBUTION = "quiddity"
 _BOUNDARIES = (
     "ir_adapter",
     "dsl_declaration",
@@ -42,9 +42,7 @@ _BOUNDARIES = (
 )
 _STATES = {"deferred", "not-applicable", "supported", "unsupported"}
 _IMPLEMENTATION = re.compile(r"^draftwright(?:\.[A-Za-z_]\w*)+$")
-_TRACKING = re.compile(
-    r"^https://github\.com/pzfreo/(?:draftwright|b123d-recognisers)/issues/\d+$"
-)
+_TRACKING = re.compile(r"^https://github\.com/pzfreo/(?:draftwright|quiddity)/issues/\d+$")
 
 
 class RecogniserCapabilityError(RuntimeError):
@@ -68,7 +66,6 @@ _FAMILIES: dict[str, _FamilySpec] = {
     ),
     "bosses": _FamilySpec(("BossRecord",), "_convert_boss", "boss", "render_boss_diameters"),
     "chamfers": _FamilySpec(("Chamfer",), "_convert_chamfer", "chamfer", "render_chamfers"),
-    "channels": _FamilySpec(("Channel",), "_convert_channel", "channel", "render_slots"),
     "circular-blind-steps": _FamilySpec(
         ("CircularBlindStep",),
         "_convert_circular_blind_step",
@@ -95,19 +92,12 @@ _FAMILIES: dict[str, _FamilySpec] = {
         ("CounterBore", "HoleRecord", "HoleSpec"), "_member_hole", "hole", "_annotate_holes"
     ),
     "plates": _FamilySpec(("Plate",), "_convert_plate", "plate", "render_plates"),
-    "pocket-patterns": _FamilySpec(
-        ("PocketArray", "PocketGrid"),
-        "_pocket_pattern_feature",
-        "pocket_pattern",
-        "render_pocket_patterns",
-    ),
     "paired-ramp-steps": _FamilySpec(
         ("PairedRampStep",),
         "_convert_paired_ramp_step",
         "paired_ramp_step",
         "render_paired_ramp_steps",
     ),
-    "pockets": _FamilySpec(("Pocket",), "_convert_pocket", "pocket", "render_pockets"),
     "polygonal-bosses": _FamilySpec(
         ("PolygonalBoss",), "_convert_polygonal_boss", "polygonal_boss", "render_polygonal_bosses"
     ),
@@ -118,18 +108,6 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "render_polygonal_stock",
     ),
     "rectangular-pads": _FamilySpec(("RaisedPad",), "_convert_pad", "pad", "render_slots"),
-    "rectangular-blind-slots": _FamilySpec(
-        ("RectangularBlindSlot",),
-        "_convert_rectangular_blind_slot",
-        "rectangular_blind_slot",
-        "render_rectangular_blind_slots",
-    ),
-    "round-bottom-blind-slots": _FamilySpec(
-        ("RoundBottomBlindSlot",),
-        "_convert_round_bottom_blind_slot",
-        "round_bottom_blind_slot",
-        "render_round_bottom_blind_slots",
-    ),
     "risers": _FamilySpec(
         ("RiserEvidence", "StepShoulder"),
         "build_part_model",
@@ -157,6 +135,30 @@ _FAMILIES: dict[str, _FamilySpec] = {
         "_convert_step",
         "step",
         "render_step_lengths",
+    ),
+    "section-recesses": _FamilySpec(
+        (
+            "ClosedSectionProfile",
+            "OpenSectionProfile",
+            "PassageFrame",
+            "PassageSection",
+            "PassageSectionVertex",
+            "SectionEnd",
+            "SectionRecess",
+            "SectionRecessArray",
+            "SectionRecessBodyRef",
+            "SectionRecessClassification",
+            "SectionRecessDocument",
+            "SectionRecessEnds",
+            "SectionRecessEvidence",
+            "SectionRecessFaceRef",
+            "SectionRecessGeometry",
+            "SectionRecessGrid",
+            "SectionRecessRefusal",
+        ),
+        "_convert_section_recess",
+        "build",
+        "render_pockets",
     ),
 }
 
@@ -209,7 +211,23 @@ def _deferred_completeness(family_id: str) -> dict[str, Any]:
 
 
 def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
-    if family_id == "bosses":
+    if family_id == "section-recesses":
+        completeness = _supported(
+            "draftwright.linting.requirements.recognized_requirement_outcomes",
+            "tests/test_issue_1471_section_recess_pockets.py",
+        )
+        completeness["evidence"] = [
+            "tests/test_issue_1245_passage_disposition.py",
+            "tests/test_issue_1246_prismatic_pocket_disposition.py",
+            "tests/test_issue_1372_pocket_completeness_evidence.py",
+            "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
+            "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
+            "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+            "tests/test_issue_1438_channel_ownership.py",
+            "tests/test_issue_1471_section_recess_contract.py",
+            "tests/test_issue_1471_section_recess_pockets.py",
+        ]
+    elif family_id == "bosses":
         completeness = _supported(
             "draftwright.linting.coverage.lint_boss_height_coverage",
             "tests/test_issue_885_prismatic_coverage.py",
@@ -269,16 +287,6 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
             "tests/test_issue_1372_groove_completeness_evidence.py",
         )
-    elif family_id == "pockets":
-        completeness = _supported(
-            "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_pocket_completeness_evidence.py",
-        )
-    elif family_id == "pocket-patterns":
-        completeness = _supported(
-            "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
-        )
     elif family_id == "rectangular-pads":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
@@ -304,18 +312,6 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "draftwright.linting.circular_blind_step_coverage.lint_circular_blind_step_coverage",
             "tests/test_issue_1382_circular_blind_step_semantics.py",
         )
-    elif family_id == "rectangular-blind-slots":
-        completeness = _supported(
-            "draftwright.linting.rectangular_blind_slot_coverage."
-            "lint_rectangular_blind_slot_coverage",
-            "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
-        )
-    elif family_id == "round-bottom-blind-slots":
-        completeness = _supported(
-            "draftwright.linting.round_bottom_blind_slot_coverage."
-            "lint_round_bottom_blind_slot_coverage",
-            "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-        )
     elif family_id == "oriented-slots":
         completeness = _supported(
             "draftwright.linting.oriented_slot_coverage.lint_oriented_slot_coverage",
@@ -328,7 +324,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
         )
     else:
         completeness = _deferred_completeness(family_id)
-    return {
+    declaration = {
         "id": family_id,
         "record_schemas": _record_schema_versions(family_id, spec.records),
         "disposition": "supported",
@@ -359,6 +355,14 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             ],
         },
     }
+
+    if family_id == "section-recesses":
+        declaration["drawing_consumer"] = _supported(
+            "draftwright.annotations.orchestrator._auto_annotate",
+            "tests/test_issue_1471_section_recess_pockets.py",
+        )
+
+    return declaration
 
 
 def _geometry_only_declaration() -> dict[str, Any]:
@@ -713,49 +717,11 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1245_passage_disposition.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "passages",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "unsupported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "completeness",
-                "compatibility_evidence": [
                     "tests/test_issue_1373_plate_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
                 "family": "plates",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "completeness",
-                "compatibility_evidence": [
-                    "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
-                    "tests/test_recogniser_capabilities.py",
-                    "tests/test_step_analysis_evaluation.py",
-                ],
-                "family": "pocket-patterns",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "completeness",
-                "compatibility_evidence": [
-                    "tests/test_issue_1372_pocket_completeness_evidence.py",
-                    "tests/test_recogniser_capabilities.py",
-                    "tests/test_step_analysis_evaluation.py",
-                ],
-                "family": "pockets",
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "supported",
@@ -790,143 +756,11 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1246_prismatic_pocket_disposition.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "prismatic-pockets",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "unsupported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "completeness",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "rectangular-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "drawing_consumer",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "rectangular-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "dsl_declaration",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "rectangular-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "generated_code",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "rectangular-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "ir_adapter",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_rectangular_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "rectangular-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "completeness",
-                "compatibility_evidence": [
                     "tests/test_issue_1372_pad_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
                 "family": "rectangular-pads",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "completeness",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "round-bottom-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "drawing_consumer",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "round-bottom-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "dsl_declaration",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "round-bottom-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "generated_code",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "round-bottom-blind-slots",
-                "from": "deferred",
-                "release_notes": "CHANGELOG.md",
-                "to": "supported",
-                "version": distribution_version("draftwright"),
-            },
-            {
-                "boundary": "ir_adapter",
-                "compatibility_evidence": [
-                    "tests/test_issue_1421_round_bottom_blind_slot_semantics.py",
-                    "tests/test_recogniser_capabilities.py",
-                ],
-                "family": "round-bottom-blind-slots",
                 "from": "deferred",
                 "release_notes": "CHANGELOG.md",
                 "to": "supported",
@@ -1155,11 +989,11 @@ def validate_recogniser_capabilities(
         "manifest_format": 2,
     }:
         raise RecogniserCapabilityError(
-            "package compatibility does not match installed b123d-recognisers metadata"
+            "package compatibility does not match installed quiddity metadata"
         )
     if (
         not isinstance(manifest, dict)
-        or manifest.get("format") != "b123d-recognisers-capabilities"
+        or manifest.get("format") != "quiddity-capabilities"
         or type(manifest.get("format_version")) is not int
         or manifest.get("format_version") != 2
     ):
@@ -1167,12 +1001,12 @@ def validate_recogniser_capabilities(
     package_info = manifest.get("package")
     if (
         not isinstance(package_info, dict)
-        or package_info.get("name") != "b123d-recognisers"
+        or package_info.get("name") != "quiddity"
         or package_info.get("version") != installed_package_version
     ):
         raise RecogniserCapabilityError(
             f"installed package identity {package_info!r} does not satisfy "
-            f"installed b123d-recognisers metadata {installed_package_version!r}"
+            f"installed quiddity metadata {installed_package_version!r}"
         )
     package_families = manifest.get("families")
     families = current["families"]

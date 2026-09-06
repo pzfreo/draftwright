@@ -153,7 +153,7 @@ def test_build_and_repeated_consumers_share_one_aggregate(points):
 
 @pytest.mark.parametrize("points", [((0, 0),), ((-30, 0), (0, 0), (30, 0))])
 def test_supplied_generator_keeps_the_same_slot_inventory_as_a_tuple(points):
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.model.detect import build_part_model
 
@@ -239,7 +239,7 @@ def test_malformed_nested_ir_cannot_certify_a_physical_requirement(drawing, fiel
 def test_released_rounded_frame_vectors_remain_valid_at_45_degrees(translation):
     from math import hypot
 
-    from b123d_recognisers import PassageFrame, build_raw_recognition_result
+    from quiddity import PassageFrame, build_raw_recognition_result
 
     part = Pos(*translation) * Rot(45, 45, 45) * _part()
     result = build_raw_recognition_result(part)

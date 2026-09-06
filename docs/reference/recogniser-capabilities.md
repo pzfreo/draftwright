@@ -1,6 +1,6 @@
 # Recogniser capability contract
 
-Draftwright consumes the public capability manifest installed with `b123d-recognisers`; it never
+Draftwright consumes the public capability manifest installed with `quiddity`; it never
 reads a sibling checkout or a package-private file. The matching Draftwright-owned declaration is
 implemented in `draftwright.recogniser_contract` and validated in CI.
 
@@ -14,7 +14,7 @@ library.
 Declared-feature geometry reads use a different public boundary. The installed package's
 inspection manifest format 1 is joined to the separate Draftwright-owned declaration in
 `draftwright.inspection_contract`. That contract admits inspection API major 1 and exactly the
-consumed `b123d_recognisers.inspection` symbol schemas: the five geometry readers, their public
+consumed `quiddity.inspection` symbol schemas: the five geometry readers, their public
 result/error types, the cylindrical surface parameter layout, bevel rejection reasons, and the
 semantic names and units of the Double-D tuple. It also checks the exact installed package
 version. Recognition-family policy does not leak into this smaller measurement contract, and an
@@ -59,7 +59,7 @@ Validation fails closed and names the family and boundary whenever possible:
 ## Adding or changing a recogniser
 
 For an additive field that increments an existing record schema, update the relevant Draftwright
-adapter and declaration when advancing the exact `b123d-recognisers` dependency pin. Tests must
+adapter and declaration when advancing the exact `quiddity` dependency pin. Tests must
 prove the installed schema is accepted while later schemas still fail. The package version belongs
 only in `pyproject.toml` and `uv.lock`; the capability declaration derives runtime identities from
 installed package metadata.
@@ -70,39 +70,42 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity migration baseline
+### Quiddity 0.2.2 runtime contract
 
-The first [#1471](https://github.com/pzfreo/draftwright/issues/1471) migration slice tests the
-released Quiddity SectionRecess document against the existing authored pocket corpus. Quiddity is
-pinned in the development dependencies for this comparison. Production continues to use the
-existing recogniser dependency and capability declaration.
+[#1471](https://github.com/pzfreo/draftwright/issues/1471) moves production recognition to the
+published `quiddity==0.2.2` package. Its public `quiddity`, `quiddity.evidence` and
+`quiddity.inspection` surfaces supply recognition, exact occurrence evidence and declared geometry
+reads. There is one recognition aggregate per build; consumers project that result rather than
+calling the document builder to obtain another run.
 
-The private pocket adapter in `model/detect.py` reads primitive schema-2 occurrence geometry and
-produces the existing `PocketFeature`. It admits principal-axis closed rectangles and open
-rectangular corner/edge chains, preserves the opening direction, and refuses unsupported shapes,
-sloped ends, invalid frames and malformed measurements. An open chain remains edge-anchored; its
-missing boundary is never reconstructed as a physical edge.
+The manifest has 27 families. One `section-recesses` family replaces the former pockets, pocket
+patterns, channels, rectangular and round-bottom blind slots, passages and prismatic pockets.
+`RecognitionResult.section_recesses` contains the immutable occurrences;
+`section_recess_patterns` relates them by run-local occurrence indices; `section_recess_refusals`
+retains the provider's explicit reasons for refusing candidate geometry. The public document
+builder is a serialization front door, not another feature family or a production rescan.
 
-`tests/test_issue_1471_section_recess_pockets.py` checks independently authored dimensions,
-opposed and side openings, disconnected bodies, topology variants, the existing drawing path,
-executed generated Sheet scripts and authored omission. The baseline tests for pocket patterns,
-channels and both blind-slot families remain the acceptance floor for their later adapters.
+The shared adapter reads the published frame, profile, run interval and ends and lowers supported
+principal-axis geometry to the existing pocket, channel and blind-slot IR. It preserves the opening
+direction and edge anchoring and rejects malformed records. Unsupported profiles and sloped ends
+remain explicit unsupported outcomes; they receive no invented dimensions. Pattern members resolve
+to the original records in the same aggregate before they share a drawing owner. Missing members,
+duplicate indices, cross-body grouping and inconsistent lattice geometry fail closed.
 
-This is preparation for adoption, not a new automatic detection mode. The adapter does not yet
-participate in the production registry, bind occurrence ownership or provide Quiddity-based lint.
-Its comparison drawings use the pinned provider for physical critique. The eventual cutover must
-validate result-local references, bind exact same-run occurrences, migrate patterns and explicit
-refusals, and update independent lint, reports and inspection together. A build already holding an
-aggregate must project it rather than invoke the document builder for a second recognition run.
+Independent pocket and pattern corpora, channel ownership tests and both blind-slot corpora check
+measurements, public declarations, executed generated code and the placed requirement ledger.
+Recognition refusals retain source provenance and contribute an unsupported outcome without a
+fabricated position. Report and inspection schema v2 name `producer.quiddity`; their v1 schemas
+remain available for existing documents.
 
-The comparison pins Quiddity 0.2.1, which fixes
-[Quiddity #505](https://github.com/pzfreo/quiddity/issues/505): support proofs now handle
-build123d 0.10 `ShapeList` boolean results. The pocket corpus exercises this public recognition
-path across the supported Python/build123d matrix before consumer adaptation.
+The migration acceptance run still exposes provider regressions tracked by
+[Quiddity #536](https://github.com/pzfreo/quiddity/issues/536) (split-arc pockets) [Quiddity #538](https://github.com/pzfreo/quiddity/issues/538) (pierced channels), and
+[Quiddity #541](https://github.com/pzfreo/quiddity/issues/541) (pockets in cylindrical stock). An honest refusal
+does not demonstrate preservation of drawings supported before migration; these remain release
+acceptance failures while unresolved.
 
-`bosses` is the fully consumed reference family. `repeating-radial-profiles` is the opposite
-reference: it remains geometry-only critique evidence for a separately authored gear declaration,
-with no inferred gear feature added to fill the table.
+`bosses` remains a fully consumed reference family. `repeating-radial-profiles` remains geometry-only
+critique evidence for a separately authored gear declaration, with no inferred gear feature.
 
 ## Hole completeness evidence
 
@@ -205,11 +208,11 @@ independent score.
 
 ## Pocket completeness evidence
 
-The lone `pockets` completeness boundary is independently `supported` from
+The lone-pocket grammar within `section-recesses` is independently `supported` from
 `tests/fixtures/evaluation/corpus-pockets-v1.json`. Ten construction-authored cases contribute 13
 physical pockets, 52 parameter checks and 52 downstream checks. The corpus covers a through-slot
 negative, one off-centre pocket, an edge-anchored corner interruption, equal independent pockets,
-opposite openings, a principal side opening, a PrismaticPocket ownership negative, separate
+opposite openings, a principal side opening, an unsupported polygonal-pocket ownership negative, separate
 compound bodies and a reverse-serialized topology pair.
 
 Identity uses width/long/depth axes, opening sign and physical location; width, length, depth and
@@ -223,7 +226,7 @@ single public `location` authoring unit.
 
 ## Pocket-pattern completeness evidence
 
-The `pocket-patterns` completeness boundary is independently `supported` from
+The pocket-pattern grammar within `section-recesses` is independently `supported` from
 `tests/fixtures/evaluation/corpus-pocket-patterns-v1.json`. Seven construction-authored cases
 cover 30° linear and rectangular-grid positives, the two-member threshold, unequal-spacing
 ambiguity, a plain negative, an axis-aligned underside compound case and a reverse-serialized
@@ -535,27 +538,10 @@ position. Removing any one of those five physical facts produces
 independently authored rectangular-pad detection/parameter/downstream benchmark corpus required
 before claiming family-level completeness.
 
-## Recognisers 0.4.10 adoption and blind-slot boundary
+## Blind-slot drawing grammar
 
-Draftwright exactly pins `b123d-recognisers==0.4.10`. The 28 family record schemas already
-consumed from 0.4.9 are unchanged. The inspection namespace remains format 1 / API major 1;
-Draftwright advances its exact package join without widening the set of inspection symbols it
-consumes. The additive `b123d_recognisers.evidence` API is public provider capability, but this
-adoption does not consume it before a concrete correspondence slice demonstrates that need.
-
-Unchanged record schemas do not mean byte-identical recognition output. The 0.4.10 provider closes
-slot-depth, subdivided paired-ramp/AngledStep, and noisy stubby-pocket gaps and fixes Double-D/Hole
-ownership, external-cone countersink false positives, Plate tie covariance, and turned-step
-translation covariance. Draftwright accepts those public aggregate outcomes: its consumer tests pin
-that an external cone no longer creates a countersink requirement and that an edge-open rectangular
-recess now yields to the dedicated blind-slot owner instead of retaining a false `Pocket` callout.
-The provider's immutable
-[0.4.10 release](https://github.com/pzfreo/b123d-recognisers/releases/tag/v0.4.10) owns the lower-level
-recognition predicates and counterexamples; Draftwright does not duplicate private provider
-algorithms to restate them.
-
-The release adds `rectangular-blind-slots` and `round-bottom-blind-slots` to the one aggregate.
-Both now have dedicated Draftwright feature types and public Sheet words. The rectangular family
+Quiddity publishes both blind-slot shapes as `SectionRecess` occurrences in the unified inventory.
+Their consumer contracts remain distinct. Both now have dedicated Draftwright feature types and public Sheet words. The rectangular family
 uses `RectangularBlindSlotFeature` and
 `Sheet.rectangular_blind_slot(...)` declaration, generated-code round trip and solver-owned
 `OPEN SLOT width × capped-run × depth DEEP` callout. Its axes and opening signs remain structural
@@ -583,14 +569,11 @@ with exact full-record correspondence and parameter/outcome provenance under the
 rules as the rectangular family. It now participates independently in `audited_score`; ordinary
 slots, pockets, channels and rectangular blind slots do not share ownership.
 
-## Recognisers 0.4.14 adoption and path-complete Blends
+## Path-complete Blend drawing grammar
 
-Draftwright exactly pins `b123d-recognisers==0.4.14`; the provider family count remains 33 and
-the inspection API remains format 1 / major 1. The fail-closed record join now accepts `Blend`
-schema v3 with nested `StraightBlendPath` and `CircularBlendPath` schema-v1 records. It also
-accepts `PassageEnds`, `PassageSection`, and `SectionPassage` schema v2. Passage remains explicitly
-unsupported under #1245: accepting its released structural schema does not invent an IR feature,
-Sheet declaration, or completeness credit.
+Quiddity 0.2.2 retains `Blend` schema v3 with nested `StraightBlendPath` and
+`CircularBlendPath` schema-v1 records. The installed manifest and the independently declared
+consumer schemas must agree before these records can reach drawing generation.
 
 The supported Blend adapter preserves the complete discriminated path. Straight occurrences keep
 their canonical line direction and anchor; circular occurrences keep their centre, canonical
@@ -658,7 +641,7 @@ height/shoulder projection. The aggregate face-level and riser families remain s
 outcome says only that each raw evidence record is not itself an independent inferred feature or
 completeness requirement. It adds no Sheet word, IR adapter, drawing ink, or provider API.
 
-## Recognisers 0.4.9 prepared frame boundary
+## Historical: recognisers 0.4.9 prepared frame boundary
 
 Draftwright's 0.4.9 boundary accepted `RiserEvidence` v2,
 `TurnedStep`/`TurnedProfile` v2, and the nested `TurnedProfileKey` v1. These records preserve
@@ -706,51 +689,26 @@ Sheet declaration, generated code or annotation, and emits
 occurrence contributes one `unsupported` completeness requirement. Issue #1247 records this
 consumer decision.
 
-## Prismatic-pocket boundary
+## Unsupported polygonal-pocket and passage grammar
 
-The installed aggregate reconciles the two pocket inventories before Draftwright sees them. A
-candidate reported by both direct recognisers yields to the supported `Pocket` record;
-`RecognitionResult.prismatic_pockets` therefore contains occurrences not owned by `Pocket`.
-Draftwright consumes that aggregate policy and does not repeat provider reconciliation. This is an
-ownership statement, not a shape classification: for example, a rotated four-sided recess can
-remain a `PrismaticPocket` when the axis-paired `Pocket` recogniser does not accept it.
+Quiddity's unified `SectionRecess` inventory carries both supported and unsupported profile
+geometry. Draftwright selects its existing drawing grammar from the exact public section and ends;
+it does not rerun provider recognition or retain a second legacy pocket/passage inventory.
 
-The remaining `PrismaticPocket.section` may be any planar polygon. The rectangular pocket grammar
-`W × L × D DEEP` is false for a triangle, while an across-flats callout applies only to selected
-regular polygons and cannot represent the general record. Draftwright therefore retains the family
-disposition as `unsupported`: it creates no inferred IR feature, Sheet declaration, generated code,
-or drawing annotation. Each aggregate occurrence instead emits
-`prismatic_pocket_requirement_unsupported` at warning severity and contributes one `unsupported`
-completeness requirement. Exact mouth-to-section correlation replaces the generic unsupported-
-profile warning only for that occurrence, so an unrelated unrecognised profile remains visible.
+A general polygonal recess has no truthful rectangular `W × L × D DEEP` callout. A general line/arc
+through-opening likewise cannot be represented by a regular-polygon `HEX … A/F THRU` callout.
+These occurrences retain the decisions recorded by #1246 and #1245: no inferred IR feature, public
+declaration, generated feature or annotation is invented. Each occurrence instead contributes one
+`unsupported` completeness outcome and its corresponding `prismatic_pocket_requirement_unsupported`
+or `passage_requirement_unsupported` warning. Exact mouth-to-section correlation can replace a
+generic unsupported-profile warning for that occurrence; unrelated unrecognised geometry remains
+visible. The old accepted-only Passage projection no longer exists and cannot add another count.
 
-## Passage compatibility boundary
-
-The installed `b123d-recognisers==0.4.14` release contains the `passages` family introduced
-in 0.2.6. Version 0.4.0 made `SectionPassage` the authoritative physical output; 0.4.14 publishes
-its nested schema v2 and retains `Passage` as a compatibility projection. Draftwright declares all
-six public and nested record schemas exhaustively but deliberately keeps the family `unsupported`,
-with the drafting decision recorded by issue #1245. This is a truthful consumer disposition: both
-aggregate inventories remain visible, but only authoritative `section_passages` contributes an explicitly
-`unsupported` completeness requirement. Draftwright does not invent an IR feature, DSL
-declaration, generated code, or drawing annotation for either inventory.
-
-The 0.4 contract is explicit:
-
-- `SectionPassage` will be the authoritative physical output and aggregate census source;
-- legacy `Passage` values will be an accepted-only compatibility projection;
-- `recognise_passages(..., ledger=...)` will be a fail-loud unavailable compatibility operation;
-- the writer-free `recognise_passages` name will remain public but non-authoritative; and
-- rich split-junction passages can supersede a Slot claim, moving physical ownership to the
-  unsupported Passage family through `SLOT_SUPERSEDED_BY_PASSAGE`.
-
-The exact 0.4.14 pin, manifest-v2 validator and explicit unsupported inventories make that limitation
-fail-visible rather than silently treating rich passages as supported. Draftwright deliberately
-does not claim that a regular-polygon `HEX … A/F THRU` callout covers the complete line/arc section
-schema. Each authoritative `RecognitionResult.section_passages` occurrence therefore emits
-`passage_requirement_unsupported` at warning severity and contributes an `unsupported` requirement
-to the completeness component. The accepted-only legacy `.passages` projection contributes neither
-a second issue nor a second requirement. Issue #1245 records this consumer decision.
+Provider refusals are distinct from accepted geometry outside the drawing grammar. Each exact
+`SectionRecessRefusal` is retained with its reason and original evidence, emits
+`section_recess_recognition_refused`, and carries no fabricated feature position. A valid unmatched
+supported recess still contributes its full independent requirement count. A malformed recess
+cannot establish a trustworthy family or denominator and is rejected at intake.
 
 ## Step families introduced in recognisers 0.4.6
 

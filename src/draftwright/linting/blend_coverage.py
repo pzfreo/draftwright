@@ -6,8 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
 from build123d import Edge, Vector
+from quiddity import RecognitionResult
 
 from draftwright._geometry import _blend_profile_arcs, _straight_blend_faces
 from draftwright.blend_contract import (

@@ -7,14 +7,14 @@ from sys import float_info
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Axis, Box, Compound, Cylinder, Pos, Rot, fillet
+from conftest import counting_calls
+from quiddity import (
     analyse_cylinders,
     build_raw_recognition_result,
     recognise_fillets,
     recognise_turned_steps,
 )
-from build123d import Axis, Box, Compound, Cylinder, Pos, Rot, fillet
-from conftest import counting_calls
 
 from draftwright import Sheet, build_drawing
 from draftwright._geometry import _segment_clips_box

@@ -22,7 +22,7 @@ from draftwright import reporting as reporting_module
 from draftwright.linting import requirements as requirement_module
 from draftwright.registry import AnnotationRegistry
 
-_SCHEMA_PATH = Path(__file__).parents[1] / "docs/reference/draftwright-report-v1.schema.json"
+_SCHEMA_PATH = Path(__file__).parents[1] / "docs/reference/draftwright-report-v2.schema.json"
 _EVALUATION_FIXTURES = Path(__file__).parent / "fixtures" / "evaluation"
 
 
@@ -66,7 +66,7 @@ def _coincident_body_local_evidence_part():
     return Compound(children=[stepped_block(), stepped_block()])
 
 
-def test_raw_report_has_the_closed_v1_shape_and_exact_owner() -> None:
+def test_raw_report_has_the_closed_v2_shape_and_exact_owner() -> None:
     drawing = build_drawing(_through_step_part())
 
     report = drawing.report()
@@ -82,9 +82,9 @@ def test_raw_report_has_the_closed_v1_shape_and_exact_owner() -> None:
         "lint",
     }
     assert report["schema"] == "draftwright-report"
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["status"] == "bounded-clear"
-    assert set(report["producer"]) == {"draftwright", "b123d-recognisers"}
+    assert set(report["producer"]) == {"draftwright", "quiddity"}
     assert report["source"] == {"kind": "build123d", "name": None}
     assert report["outputs"] == {}
 
@@ -96,12 +96,13 @@ def test_raw_report_has_the_closed_v1_shape_and_exact_owner() -> None:
         "id": "through_steps:1",
         "family": "through_steps",
         "record_type": "ThroughStep",
-        "record_schema_version": 1,
+        "record_schema_version": 2,
         "record": {
             "at": [12.5, 7.5, 0.0],
             "axis": "z",
             "length": 20.0,
             "section": [[5.0, 15.0], [5.0, 0.0], [20.0, 0.0]],
+            "body_key": list(drawing.recognition().through_steps[0].body_key),
         },
         "disposition": "represented",
         "reason_code": "through_step_adapter",
@@ -562,10 +563,10 @@ def test_separate_deferred_occurrences_keep_distinct_report_local_ids() -> None:
         (_grouped_holes_part, "holes", "absorbed", "grouped_hole_member", None, True),
         (
             _passage_part,
-            "passages",
+            "section_recesses",
             "unsupported",
             "consumer_semantics_unsupported",
-            "/1245",
+            "/1471",
             False,
         ),
         (
@@ -858,7 +859,7 @@ def test_report_projection_does_not_change_visual_output(tmp_path) -> None:
 def test_documented_schema_has_the_same_closed_top_level() -> None:
     schema = _schema()
 
-    assert schema["$id"].endswith("draftwright-report-v1.schema.json")
+    assert schema["$id"].endswith("draftwright-report-v2.schema.json")
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {
         "schema",

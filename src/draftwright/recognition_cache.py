@@ -1,6 +1,6 @@
 """Draftwright-owned lifecycle state for immutable recognition results.
 
-The recognition algorithms and values live in :mod:`b123d_recognisers`.  This cache does not:
+The recognition algorithms and values live in :mod:`quiddity`.  This cache does not:
 it implements Draftwright's build-versus-lazy-critique policy (ADRs 0015/0017), so it remains
 consumer state at the bottom of Draftwright's dependency graph.
 """
@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from b123d_recognisers import RecognitionResult
-from b123d_recognisers.evidence import RecognitionEvidence, build_recognition_evidence
+from quiddity import RecognitionResult
+from quiddity.evidence import RecognitionEvidence, build_recognition_evidence
 
 
 def _result_from_evidence(evidence: RecognitionEvidence) -> RecognitionResult:

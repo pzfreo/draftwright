@@ -24,50 +24,6 @@ from _recogniser_public_contract import (
     public_recogniser_names,
     public_record_universe,
 )
-from b123d_recognisers import (
-    Blend,
-    OrientedSlot,
-    OrientedSlotArray,
-    OrientedSlotGrid,
-    analyse_cylinders,
-    build_raw_recognition_result,
-    project_step_shoulders,
-    recognise_angled_steps,
-    recognise_blends,
-    recognise_bosses,
-    recognise_chamfers,
-    recognise_channels,
-    recognise_circular_blind_steps,
-    recognise_countersinks,
-    recognise_double_d_bores,
-    recognise_face_levels,
-    recognise_fillets,
-    recognise_flats,
-    recognise_grooves,
-    recognise_hole_patterns,
-    recognise_holes,
-    recognise_oriented_slot_patterns,
-    recognise_oriented_slots,
-    recognise_paired_ramp_steps,
-    recognise_passages,
-    recognise_plates,
-    recognise_pocket_patterns,
-    recognise_pockets,
-    recognise_polygonal_bosses,
-    recognise_polygonal_stock,
-    recognise_prismatic_pockets,
-    recognise_rectangular_blind_slots,
-    recognise_rectangular_pads,
-    recognise_repeating_radial_profiles,
-    recognise_risers,
-    recognise_round_bottom_blind_slots,
-    recognise_section_passages,
-    recognise_slot_patterns,
-    recognise_slots,
-    recognise_through_steps,
-    recognise_turned_steps,
-    step_level_records,
-)
 from build123d import (
     Align,
     Axis,
@@ -89,6 +45,44 @@ from build123d import (
     fillet,
     import_step,
     make_face,
+)
+from quiddity import (
+    Blend,
+    OrientedSlot,
+    OrientedSlotArray,
+    OrientedSlotGrid,
+    analyse_cylinders,
+    build_raw_recognition_result,
+    build_section_recess_document,
+    project_step_shoulders,
+    recognise_angled_steps,
+    recognise_blends,
+    recognise_bosses,
+    recognise_chamfers,
+    recognise_circular_blind_steps,
+    recognise_countersinks,
+    recognise_double_d_bores,
+    recognise_face_levels,
+    recognise_fillets,
+    recognise_flats,
+    recognise_grooves,
+    recognise_hole_patterns,
+    recognise_holes,
+    recognise_oriented_slot_patterns,
+    recognise_oriented_slots,
+    recognise_paired_ramp_steps,
+    recognise_plates,
+    recognise_polygonal_bosses,
+    recognise_polygonal_stock,
+    recognise_rectangular_pads,
+    recognise_repeating_radial_profiles,
+    recognise_risers,
+    recognise_section_recesses,
+    recognise_slot_patterns,
+    recognise_slots,
+    recognise_through_steps,
+    recognise_turned_steps,
+    step_level_records,
 )
 
 from draftwright import build_drawing
@@ -321,7 +315,7 @@ def _records_from_recognisers():
         ("hole_patterns:grid", recognise_hole_patterns(recognise_holes(_grid_plate()))),
         ("recognise_chamfers", recognise_chamfers(_chamfered_box())),
         ("recognise_blends", recognise_blends(_small_blended_box())),
-        ("recognise_channels", recognise_channels(channel)),
+        ("recognise_channels", recognise_section_recesses(channel)),
         ("recognise_fillets", recognise_fillets(_filleted_box())),
         ("recognise_slots", recognise_slots(slotted)),
         ("recognise_oriented_slots", oriented_array),
@@ -335,20 +329,20 @@ def _records_from_recognisers():
         ),
         (
             "recognise_rectangular_blind_slots",
-            recognise_rectangular_blind_slots(_rectangular_blind_slot_part()),
+            recognise_section_recesses(_rectangular_blind_slot_part()),
         ),
         (
             "recognise_round_bottom_blind_slots",
-            recognise_round_bottom_blind_slots(_round_bottom_blind_slot_part()),
+            recognise_section_recesses(_round_bottom_blind_slot_part()),
         ),
-        ("recognise_pockets", recognise_pockets(pocketed)),
+        ("recognise_pockets", recognise_section_recesses(pocketed)),
         (
             "pocket_patterns:linear",
-            recognise_pocket_patterns(recognise_pockets(_pocket_array_plate())),
+            build_raw_recognition_result(_pocket_array_plate()).section_recess_patterns,
         ),
         (
             "pocket_patterns:grid",
-            recognise_pocket_patterns(recognise_pockets(_pocket_grid_plate())),
+            build_raw_recognition_result(_pocket_grid_plate()).section_recess_patterns,
         ),
         (
             "slot_patterns:linear",
@@ -374,14 +368,14 @@ def _records_from_recognisers():
             recognise_paired_ramp_steps(_paired_ramp_step_part()),
         ),
         ("recognise_through_steps", recognise_through_steps(_through_step_part())),
-        ("recognise_passages", recognise_passages(_hexagonal_passage_plate())),
+        ("recognise_passages", recognise_section_recesses(_hexagonal_passage_plate())),
         (
             "recognise_section_passages",
-            recognise_section_passages(_hexagonal_passage_plate()),
+            recognise_section_recesses(_hexagonal_passage_plate()),
         ),
         (
             "recognise_prismatic_pockets",
-            recognise_prismatic_pockets(_hexagonal_pocket_plate()),
+            recognise_section_recesses(_hexagonal_pocket_plate()),
         ),
         ("recognise_polygonal_stock", recognise_polygonal_stock(_polygonal_stock())),
         ("recognise_rectangular_pads", recognise_rectangular_pads(_raised_pad_plate())),
@@ -404,6 +398,14 @@ def _records_from_recognisers():
     ]:
         for r in recs:
             out.append((name, r))
+    out.append(("build_section_recess_document", build_section_recess_document(pocketed)))
+    refusal_part = import_step(
+        str(Path(__file__).parent / "fixtures" / "tuner_jig_blind_obround_pockets.step")
+    )
+    out.extend(
+        ("section_recess_refusals", record)
+        for record in build_raw_recognition_result(refusal_part).section_recess_refusals
+    )
     return out
 
 
@@ -415,7 +417,7 @@ def test_records_are_frozen_and_json_serializable():
         record_type = type(rec)
         type_name = record_type.__name__
         assert type_name in public_recogniser_names(), (
-            f"{name}: {type_name} is not published in b123d_recognisers.__all__"
+            f"{name}: {type_name} is not published in quiddity.__all__"
         )
         assert public_recogniser_member(type_name) is record_type, (
             f"{name}: root export {type_name} is not the returned record class"
@@ -449,9 +451,8 @@ def test_0410_round_bottom_slot_crosses_the_dedicated_consumer_path():
     drawing = build_drawing(_round_bottom_blind_slot_part())
     recognition = drawing.recognition()
 
-    assert len(recognition.round_bottom_blind_slots) == 1
+    assert len(recognition.section_recesses) == 1
     assert not recognition.slots
-    assert not recognition.pockets
     assert not {
         "slot",
         "slot_pattern",
@@ -577,10 +578,8 @@ def test_part_based_recognisers_are_keyword_only_after_part():
         recognise_countersinks,
         recognise_double_d_bores,
         recognise_chamfers,
-        recognise_channels,
         recognise_fillets,
         recognise_slots,
-        recognise_pockets,
         recognise_flats,
         recognise_grooves,
         recognise_plates,

@@ -10,14 +10,6 @@ from collections import Counter
 from types import SimpleNamespace
 
 import pytest
-
-# These privates moved from `slots` to `_recess_core` in b123d-recognisers 0.2.2's
-# seam decomposition. Reaching across a package boundary into private names is
-# fragile by construction — ADR 3 (was 0013)'s contract is the PUBLIC uniform recogniser
-# surface — but this test drives a notch-recognition corner case that has no public
-# entry point. If it breaks again, the fix is to move the case upstream, not to chase
-# the private a third time.
-from b123d_recognisers._recess_core import _Face, _recognise_corner_notches
 from build123d import (
     Align,
     Box,
@@ -28,6 +20,14 @@ from build123d import (
     Pos,
     extrude,
 )
+
+# These privates moved from `slots` to `_recess_core` in quiddity 0.2.2's
+# seam decomposition. Reaching across a package boundary into private names is
+# fragile by construction — ADR 3 (was 0013)'s contract is the PUBLIC uniform recogniser
+# surface — but this test drives a notch-recognition corner case that has no public
+# entry point. If it breaks again, the fix is to move the case upstream, not to chase
+# the private a third time.
+from quiddity._recess_core import _Face, _recognise_corner_notches
 
 from draftwright import build_drawing
 from draftwright.builder import detect_part_model

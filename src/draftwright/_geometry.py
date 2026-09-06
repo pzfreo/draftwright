@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from inspect import signature
 
-from b123d_recognisers import full_cylinders
 from build123d import Compound, GeomType, Shape
+from quiddity import full_cylinders
 
 _log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ _OD_FILL_MIN = 0.8
 _OD_AXIS_TOL = 0.05
 _COAXIAL_TOL = 1e-3
 
-# ``b123d-recognisers`` publishes independently quantised public measurements at six
+# ``quiddity`` publishes independently quantised public measurements at six
 # significant figures. These model-neutral bounds reconstruct the possible geometry from the
 # published decimal cells without coupling either the IR waist or linting to provider internals.
 _PROVIDER_SIGNIFICANT_FIGURES = 6

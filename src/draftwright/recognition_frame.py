@@ -15,7 +15,8 @@ from math import isfinite
 from numbers import Real
 from typing import Any
 
-from b123d_recognisers import (
+from build123d import Shape
+from quiddity import (
     FramedRecognitionResult,
     FrameGauge,
     FrameRefusalReason,
@@ -26,7 +27,6 @@ from b123d_recognisers import (
     TurnedProfile,
     prepare_framed_part,
 )
-from build123d import Shape
 
 from draftwright._geometry import _classify_rotational_cylinders
 

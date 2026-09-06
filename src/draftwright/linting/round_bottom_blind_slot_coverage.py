@@ -15,10 +15,11 @@ from math import isfinite
 from numbers import Real
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult, RoundBottomBlindSlot
+from quiddity import RecognitionResult, SectionRecess
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 RoundBottomBlindSlotRequirementState = Literal[
     "placed",
@@ -86,6 +87,22 @@ def round_bottom_blind_slot_key(slot, *, require_frame: bool = False) -> tuple:
     Ambiguous duplicate keys fail closed in :func:`round_bottom_blind_slot_requirement_outcomes`.
     """
 
+    if not require_frame:
+        actual, data = section_recess_fields(slot)
+        if actual != "round_bottom_blind_slot":
+            raise ValueError("recess does not use this blind-slot grammar")
+        return (
+            data["axis"],
+            data["open_sign"],
+            data["width_axis"],
+            data["depth_axis"],
+            data["depth_sign"],
+            _positive(data["length"]),
+            _positive(data["radius"]),
+            _positive(data["flat_width"]),
+            _point(data["origin"]),
+        )
+
     axes = (slot.axis, slot.width_axis, slot.depth_axis)
     if (
         any(not isinstance(axis, str) or axis not in {"x", "y", "z"} for axis in axes)
@@ -116,7 +133,7 @@ def round_bottom_blind_slot_key(slot, *, require_frame: bool = False) -> tuple:
 
 def _source_at(source) -> tuple[float, float, float]:
     try:
-        return _point(source.at)
+        return _point(section_recess_fields(source)[1]["origin"])
     except (AttributeError, OverflowError, TypeError, ValueError):
         return (float("nan"), float("nan"), float("nan"))
 
@@ -130,14 +147,15 @@ def _span(at, axis: str, value: float) -> tuple[tuple[float, float, float], ...]
     return (_point(tuple(lo)), _point(tuple(hi)))
 
 
-def _floor_span(source_at, source) -> tuple[tuple[float, float, float], ...]:
+def _floor_span(source_at, data) -> tuple[tuple[float, float, float], ...]:
     floor = list(source_at)
-    floor["xyz".index(source.depth_axis)] -= source.depth_sign * _positive(source.radius) / 2
-    return _span(tuple(floor), source.width_axis, _positive(source.flat_width))
+    floor["xyz".index(data["depth_axis"])] -= data["depth_sign"] * _positive(data["radius"]) / 2
+    return _span(tuple(floor), data["width_axis"], _positive(data["flat_width"]))
 
 
 def _parameter_ids(feature, source) -> tuple[str, ...] | None:
     try:
+        _kind, data = section_recess_fields(source)
         parameters = tuple(feature.parameters())
         observed = {}
         for parameter in parameters:
@@ -150,15 +168,15 @@ def _parameter_ids(feature, source) -> tuple[str, ...] | None:
                 else None
             )
             observed[parameter_id] = (_positive(parameter.value), span)
-        source_at = _point(source.at)
+        source_at = _point(data["origin"])
         expected_values = (
-            _positive(source.length),
-            _positive(source.flat_width),
-            _positive(source.radius),
+            _positive(data["length"]),
+            _positive(data["flat_width"]),
+            _positive(data["radius"]),
         )
         expected_spans = (
-            _span(source_at, source.axis, expected_values[0]),
-            _floor_span(source_at, source),
+            _span(source_at, data["axis"], expected_values[0]),
+            _floor_span(source_at, data),
             None,
         )
         expected = dict(zip(_PARAMETERS, zip(expected_values, expected_spans), strict=True))
@@ -206,17 +224,17 @@ def round_bottom_blind_slot_requirement_outcomes(
             "round_bottom_blind_slot_requirement_outcomes() requires the run's "
             f"RecognitionResult; got {type(recognition).__name__}"
         )
-    if not isinstance(recognition.round_bottom_blind_slots, tuple):
-        raise TypeError("RecognitionResult.round_bottom_blind_slots must be an immutable tuple")
-    sources = recognition.round_bottom_blind_slots
+    if not isinstance(recognition.section_recesses, tuple):
+        raise TypeError("RecognitionResult.section_recesses must be an immutable tuple")
+    sources = recesses_with_kind(recognition.section_recesses, "round_bottom_blind_slot")
     if not sources:
         return []
 
-    keyed_sources: list[tuple[RoundBottomBlindSlot, tuple | None]] = []
+    keyed_sources: list[tuple[SectionRecess, tuple | None]] = []
     source_counts: dict[tuple, int] = defaultdict(int)
     for source in sources:
         try:
-            if not isinstance(source, RoundBottomBlindSlot):
+            if not isinstance(source, SectionRecess):
                 raise TypeError
             key = round_bottom_blind_slot_key(source)
         except (AttributeError, IndexError, OverflowError, TypeError, ValueError):

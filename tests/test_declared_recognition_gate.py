@@ -19,15 +19,15 @@ import inspect
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Align, Box, Cylinder, Pos, Rot
+from conftest import counting_calls, recognition_consumer_calls
+from quiddity import (
     RecognitionResult,
     build_raw_recognition_result,
     project_step_shoulders,
     recognise_risers,
     step_level_zs,
 )
-from build123d import Align, Box, Cylinder, Pos, Rot
-from conftest import counting_calls, recognition_consumer_calls
 
 from draftwright import Sheet, build_drawing
 from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights

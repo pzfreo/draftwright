@@ -154,6 +154,14 @@
 
 ### Changed
 
+- Production recognition now consumes published `quiddity==0.2.2`. Unified section-recess
+  occurrences and their same-run patterns feed the existing pocket, channel and blind-slot
+  drawing grammar. Original occurrence ownership, independent completeness and explicit
+  unsupported/refusal outcomes follow that single aggregate (#1471).
+- Machine-readable reports and STEP inspection documents advance to schema v2 because their
+  closed producer object now names `quiddity`. The schema-v1 documents remain available for
+  existing files; readers must select the schema using `schema_version` (#1471).
+
 - Accepted schema-v3 straight or circular `Blend` chains, including concave occurrences, now cross
   a dedicated end-to-end consumer path:
   `BlendFeature`, explicit `Sheet.blend(...)`, executable generated declarations, one
@@ -167,7 +175,7 @@
   also retains circular paths, while raw arbitrarily rotated circular recognition remains an
   upstream limitation (b123d-recognisers#491) (#1433; ADRs 0011, 0013–0017, 0020).
 
-- Draftwright now exactly pins the immutable `b123d-recognisers` 0.4.14 release and advances its
+- The preceding recognition update pinned the immutable `b123d-recognisers` 0.4.14 release and advanced its
   fail-closed capability and inspection joins. `Blend` schema v3 replaces the old flat cylindrical
   fields with exact `StraightBlendPath` and `CircularBlendPath` records and admits proved concave
   and toroidal occurrences; Draftwright preserves those semantics through IR, `Sheet.blend(...)`,

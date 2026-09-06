@@ -84,8 +84,8 @@ def test_real_fillet_corpus_scores_all_layers_and_topology_variants() -> None:
 
 
 def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_rounds() -> None:
-    from b123d_recognisers import FramedRecognitionResult, build_framed_recognition_result
     from build123d import Rot
+    from quiddity import FramedRecognitionResult, build_framed_recognition_result
 
     fixtures = (
         (Rot(23, 37, 11) * _lone(), False, 4.0),
@@ -101,7 +101,7 @@ def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_rou
 
 
 def test_circular_blind_step_curved_wall_has_one_aggregate_owner() -> None:
-    from b123d_recognisers import (
+    from quiddity import (
         build_raw_recognition_result,
         recognise_circular_blind_steps,
         recognise_fillets,
@@ -159,7 +159,7 @@ def test_fillet_ledger_tracks_one_callout_per_physical_round_and_fails_closed() 
 
 
 def test_fillet_ledger_rejects_foreign_results_and_malformed_ir_without_guessing() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.fillet_coverage import fillet_requirement_outcomes
     from draftwright.registry import AnnotationRegistry

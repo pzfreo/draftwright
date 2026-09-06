@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from math import isfinite
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult
+from quiddity import RecognitionResult
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import (
@@ -205,7 +205,7 @@ def _validated_recognised_slots(slots):
 
 def _provider_reproduces_slot_pattern(pattern, slots) -> bool:
     """Reapply the public part-less derived projection to reject stale aggregate metadata."""
-    from b123d_recognisers import recognise_slot_patterns
+    from quiddity import recognise_slot_patterns
 
     return pattern in recognise_slot_patterns(slots)
 

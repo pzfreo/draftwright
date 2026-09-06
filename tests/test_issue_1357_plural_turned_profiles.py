@@ -73,7 +73,7 @@ def test_standalone_compiler_keeps_every_body_local_turned_profile():
 
 
 def test_explicit_plural_input_is_the_same_compiler_contract_as_aggregate_discovery():
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     part = _parallel_shafts()
     recognition = build_raw_recognition_result(part, rotational=True)
@@ -88,7 +88,8 @@ def test_explicit_plural_input_is_the_same_compiler_contract_as_aggregate_discov
         bosses=recognition.bosses,
         polygonal_bosses=recognition.polygonal_bosses,
         polygonal_stock=recognition.polygonal_stock,
-        channels=recognition.channels,
+        section_recesses=recognition.section_recesses,
+        section_recess_patterns=recognition.section_recess_patterns,
         slots=recognition.slots,
         slot_patterns=recognition.slot_patterns,
         risers=recognition.risers,
@@ -100,8 +101,6 @@ def test_explicit_plural_input_is_the_same_compiler_contract_as_aggregate_discov
         plates=recognition.plates,
         grooves=recognition.grooves,
         flats=recognition.flats,
-        pockets=recognition.pockets,
-        pocket_patterns=recognition.pocket_patterns,
         pads=recognition.pads,
         step_zs=recognition.step_ladder_for_z_span(
             part.bounding_box().min.Z, part.bounding_box().max.Z
@@ -611,7 +610,7 @@ def test_emitted_coaxial_profiles_keep_exact_lint_ownership_after_chain_removal(
 
 
 def test_ambiguous_nested_groove_ownership_refuses_missing_upstream_identity():
-    from b123d_recognisers import Groove, TurnedProfile, TurnedProfileKey, TurnedStep
+    from quiddity import Groove, TurnedProfile, TurnedProfileKey, TurnedStep
 
     from draftwright.recognition_frame import AmbiguousTurnedOwnershipError
 
@@ -641,7 +640,7 @@ def test_ambiguous_nested_groove_ownership_refuses_missing_upstream_identity():
 
 
 def test_groove_owner_uses_published_axis_precision_for_nearby_profiles():
-    from b123d_recognisers import TurnedProfile, TurnedProfileKey, TurnedStep
+    from quiddity import TurnedProfile, TurnedProfileKey, TurnedStep
 
     from draftwright.recognition_frame import profiles_owning_axial_band
 
@@ -919,7 +918,7 @@ def test_authored_y_profiles_use_plan_cells_without_reading_withheld_diameters()
 
 
 def test_plural_none_and_positional_singular_lint_compatibility():
-    from b123d_recognisers import TurnedProfile, TurnedStep, build_raw_recognition_result
+    from quiddity import TurnedProfile, TurnedStep, build_raw_recognition_result
 
     assert build_part_model(Box(1, 1, 1), profiles=None).orientation is None
 

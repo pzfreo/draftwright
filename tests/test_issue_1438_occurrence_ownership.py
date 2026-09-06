@@ -7,7 +7,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from b123d_recognisers.evidence import build_recognition_evidence
 from build123d import (
     Align,
     Axis,
@@ -27,6 +26,7 @@ from build123d import (
     import_step,
     make_face,
 )
+from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright.analysis import _analyse
@@ -90,8 +90,12 @@ DIRECT_CASES = (
     ("paired_ramp_steps", _paired_ramp_step),
     ("polygonal_bosses", lambda: import_step(FIXTURES / "polygonal-boss-x.step")),
     ("polygonal_stock", lambda: import_step(FIXTURES / "polygonal-stock-x.step")),
-    ("rectangular_blind_slots", _rectangular_blind_slot),
-    ("round_bottom_blind_slots", _round_bottom_blind_slot),
+)
+
+
+BLIND_RECESS_CASES = (
+    ("section_recesses", _rectangular_blind_slot),
+    ("section_recesses", _round_bottom_blind_slot),
 )
 
 
@@ -109,14 +113,14 @@ def test_direct_case_roster_is_independent_and_complete() -> None:
         "paired_ramp_steps",
         "polygonal_bosses",
         "polygonal_stock",
-        "rectangular_blind_slots",
-        "round_bottom_blind_slots",
     )
     assert set(family for family, _factory in DIRECT_CASES) == DIRECT_FAMILIES
 
 
 @pytest.mark.parametrize(
-    ("family", "part_factory"), DIRECT_CASES, ids=[family for family, _factory in DIRECT_CASES]
+    ("family", "part_factory"),
+    DIRECT_CASES + BLIND_RECESS_CASES,
+    ids=[family + factory.__name__ for family, factory in DIRECT_CASES + BLIND_RECESS_CASES],
 )
 def test_every_advertised_direct_family_binds_to_finished_model(family, part_factory) -> None:
     drawing = build_drawing(part_factory())

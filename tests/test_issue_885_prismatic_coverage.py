@@ -1,7 +1,7 @@
 """Regression coverage for #885: sparse recognition must not imply completeness."""
 
-from b123d_recognisers import recognise_rectangular_pads
 from build123d import Align, Box, Cylinder, Plane, Pos, SlotOverall, extrude
+from quiddity import recognise_rectangular_pads
 
 from draftwright import build_drawing
 from draftwright.builder import detect_part_model
@@ -130,7 +130,7 @@ def test_datum_starting_blind_slot_does_not_retain_the_superseded_pocket_callout
     }
     assert "31.1" not in labels
     assert "2 × 62.1 × 0.9 DEEP" not in labels
-    assert len(drawing.recognition().rectangular_blind_slots) == 1
+    assert len(drawing.recognition().section_recesses) == 1
     completeness = drawing.lint_summary()["quality"]["completeness"]
     assert "rectangular_blind_slots" not in completeness["unscored_recognized_families"]
     assert completeness["by_family"]["rectangular_blind_slots"] == 3

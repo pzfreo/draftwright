@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from b123d_recognisers import RecognitionResult, has_multi_axis_plates
+from quiddity import RecognitionResult, SectionRecess, has_multi_axis_plates
 
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import LintIssue
+from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 ChannelRequirementState = Literal[
     "placed",
@@ -40,6 +41,16 @@ def _point(value) -> tuple[float, float, float]:
 
 
 def _key(channel) -> tuple:
+    if type(channel) is SectionRecess:
+        kind, data = section_recess_fields(channel)
+        if kind != "channel":
+            raise ValueError("channel correspondence requires the channel grammar")
+        return (
+            data["width_axis"],
+            data["long_axis"],
+            *(_rounded(data[key]) for key in ("width", "w_center", "lo", "hi", "d_lo", "d_hi")),
+            data["open_sign"],
+        )
     return (
         channel.width_axis,
         channel.long_axis,
@@ -98,7 +109,11 @@ def channel_requirement_outcomes(
     # The same full-span recess geometry can be a monolithic centred rebate. That domain
     # stays with the correlated step ladder; the explicit channel-width scheme is required
     # only when recognition also proves a multi-axis plate construction (base + walls).
-    sources = list(recognition.channels) if has_multi_axis_plates(recognition.plates) else []
+    sources = (
+        list(recesses_with_kind(recognition.section_recesses, "channel"))
+        if has_multi_axis_plates(recognition.plates)
+        else []
+    )
     if not sources:
         return []
     features_by_key: dict[tuple, list] = {}
@@ -123,6 +138,7 @@ def channel_requirement_outcomes(
 
     outcomes = []
     for source in sources:
+        _, data = section_recess_fields(source)
         matches = features_by_key.get(_key(source), ())
         channel = matches[0] if len(matches) == 1 else None
         envelopes = [
@@ -134,16 +150,16 @@ def channel_requirement_outcomes(
             "x": "width.length",
             "y": "depth.length",
             "z": "height.length",
-        }[source.width_axis]
+        }[data["width_axis"]]
         if channel is not None and envelope is not None:
-            axis_index = "xyz".index(source.width_axis)
+            axis_index = "xyz".index(data["width_axis"])
             bbox_lo = envelope.bbox_min[axis_index]
-            channel_lo = source.w_center - source.width / 2
+            channel_lo = data["w_center"] - data["width"] / 2
             lower = [
                 feature
                 for feature in features
                 if getattr(feature, "kind", None) == "plate"
-                and feature.axis == source.width_axis
+                and feature.axis == data["width_axis"]
                 and abs(feature.lo - bbox_lo) <= 1e-3
                 and abs(feature.hi - channel_lo) <= 1e-3
             ]
@@ -155,8 +171,8 @@ def channel_requirement_outcomes(
         ):
             outcomes.append(
                 ChannelRequirementOutcome(
-                    source_at=_point(source.location),
-                    width=_rounded(source.width),
+                    source_at=_point(data["origin"]),
+                    width=_rounded(data["width"]),
                     feature_kind=feature_kind,
                     parameter_id=parameter,
                     state=_state(

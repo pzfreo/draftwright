@@ -1,15 +1,23 @@
 """#958: recognition evidence must belong to one physical solid."""
 
-from b123d_recognisers import (
+from build123d import Box, Compound, Pos
+from quiddity import (
     RaisedPad,
-    recognise_channels,
-    recognise_pockets,
+    build_raw_recognition_result,
     recognise_rectangular_pads,
     recognise_slots,
 )
-from build123d import Box, Compound, Pos
 
 from draftwright import build_drawing
+from draftwright.section_recess_contract import section_recess_fields
+
+
+def _recesses(part, *, kind):
+    return [
+        source
+        for source in build_raw_recognition_result(part).section_recesses
+        if source.classification.feature_kind == kind
+    ]
 
 
 def _detached_pad_compound():
@@ -90,15 +98,15 @@ def test_attached_pad_remains_recognised_once():
 def test_faces_from_three_bodies_do_not_form_a_pocket():
     part = _three_body_wall_pair()
     assert len(part.solids()) == 3
-    assert all(recognise_pockets(solid) == [] for solid in part.solids())
-    assert recognise_pockets(part) == []
+    assert all(_recesses(solid, kind="pocket") == [] for solid in part.solids())
+    assert _recesses(part, kind="pocket") == []
 
 
 def test_faces_from_three_bodies_do_not_form_a_channel():
     part = _three_body_full_span_wall_pair()
     assert len(part.solids()) == 3
-    assert all(recognise_channels(solid) == [] for solid in part.solids())
-    assert recognise_channels(part) == []
+    assert all(_recesses(solid, kind="channel") == [] for solid in part.solids())
+    assert _recesses(part, kind="channel") == []
 
 
 def test_real_slots_on_separate_bodies_are_each_preserved():
@@ -125,8 +133,8 @@ def test_real_pockets_on_separate_bodies_are_each_preserved():
     pocketed = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8)
     part = Compound(children=[pocketed, Pos(120, 0, 0) * pocketed])
 
-    assert all(len(recognise_pockets(solid)) == 1 for solid in part.solids())
-    assert len(recognise_pockets(part)) == 2
+    assert all(len(_recesses(solid, kind="pocket")) == 1 for solid in part.solids())
+    assert len(_recesses(part, kind="pocket")) == 2
 
 
 def test_real_channels_on_separate_bodies_are_each_preserved():
@@ -137,11 +145,11 @@ def test_real_channels_on_separate_bodies_are_each_preserved():
     )
     part = Compound(children=[channelled, Pos(0, 100, 0) * channelled])
 
-    assert all(len(recognise_channels(solid)) == 1 for solid in part.solids())
-    assert len(recognise_channels(part)) == 2
+    assert all(len(_recesses(solid, kind="channel")) == 1 for solid in part.solids())
+    assert len(_recesses(part, kind="channel")) == 2
 
 
-def test_channel_order_does_not_depend_on_compound_child_order():
+def test_channel_geometry_order_does_not_depend_on_compound_child_order():
     channelled = (
         Box(50, 50, 12)
         + Pos(0, -18.75, 15) * Box(50, 12.5, 18)
@@ -149,10 +157,17 @@ def test_channel_order_does_not_depend_on_compound_child_order():
     )
     upper = Pos(0, 0, 60) * channelled
 
-    lower_first = recognise_channels(Compound(children=[channelled, upper]))
-    upper_first = recognise_channels(Compound(children=[upper, channelled]))
-    assert lower_first == upper_first
-    assert [(channel.d_lo, channel.d_hi) for channel in lower_first] == [
+    lower_first = _recesses(Compound(children=[channelled, upper]), kind="channel")
+    upper_first = _recesses(Compound(children=[upper, channelled]), kind="channel")
+    # Body and face indices are run-local; compare physical values across input rosters.
+    assert [section_recess_fields(source) for source in lower_first] == [
+        section_recess_fields(source) for source in upper_first
+    ]
+    assert [
+        (fields["d_lo"], fields["d_hi"])
+        for channel in lower_first
+        for fields in (section_recess_fields(channel)[1],)
+    ] == [
         (6.0, 24.0),
         (66.0, 84.0),
     ]

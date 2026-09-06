@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from b123d_recognisers import FrameRefusalReason
 from build123d import Align, Box, Compound, Cylinder, Pos, Rot
 from conftest import recognition_consumer_calls
+from quiddity import FrameRefusalReason
 
 from draftwright import build_drawing
 from draftwright.audit import diff_builds

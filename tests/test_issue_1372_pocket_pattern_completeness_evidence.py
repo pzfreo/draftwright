@@ -96,7 +96,7 @@ def test_real_pocket_pattern_corpus_scores_all_layers_and_topology_variants() ->
 
 
 def test_pattern_projection_owns_members_once_and_lone_pockets_stay_disjoint() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.builder import build_drawing
     from draftwright.linting.pocket_coverage import pocket_requirement_outcomes
@@ -106,12 +106,13 @@ def test_pattern_projection_owns_members_once_and_lone_pockets_stay_disjoint() -
         (import_step(CORPUS.parent / "pocket-pattern-topology-a.step"), 7, 1),
     ):
         recognition = build_raw_recognition_result(part)
-        assert len(recognition.pockets) == pocket_count
-        assert len(recognition.pocket_patterns) == pattern_count
-        aggregate = {id(pocket) for pocket in recognition.pockets}
+        assert len(recognition.section_recesses) == pocket_count
+        assert len(recognition.section_recess_patterns) == pattern_count
+        aggregate = {id(pocket) for pocket in recognition.section_recesses}
         allocated: set[int] = set()
-        for pattern in recognition.pocket_patterns:
-            member_ids = {id(pocket) for pocket in pattern.pockets}
+        for pattern in recognition.section_recess_patterns:
+            by_index = {recess.index: recess for recess in recognition.section_recesses}
+            member_ids = {id(by_index[index]) for index in pattern.members}
             assert member_ids <= aggregate
             assert not allocated & member_ids
             allocated.update(member_ids)
@@ -545,7 +546,7 @@ def test_legitimate_pitch_tolerance_survives_exact_drawing_observation() -> None
     }
     assert labels == {"1× 32 ±0.2", "2× 24 ±0.2"}
     assert _pocket_pattern_drawing_outcomes(
-        tuple(drawing.recognition().pocket_patterns), drawing
+        tuple(drawing.recognition().section_recess_patterns), drawing
     ) == ["supported"]
 
     angle = math.radians(30)
@@ -589,7 +590,7 @@ def test_legitimate_pitch_tolerance_survives_exact_drawing_observation() -> None
         if name.startswith("dim_pocketpat_pitch")
     } == {"3× 30 ±0.2"}
     assert _pocket_pattern_drawing_outcomes(
-        tuple(linear_drawing.recognition().pocket_patterns), linear_drawing
+        tuple(linear_drawing.recognition().section_recess_patterns), linear_drawing
     ) == ["supported"]
 
 
@@ -824,37 +825,38 @@ def test_deleting_provider_patterns_cannot_shrink_independent_denominator(monkey
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
+    removed = []
 
     def without_patterns(*args, **kwargs):
         result = original(*args, **kwargs)
-        return replace(result, pocket_patterns=())
+        removed.extend(result.section_recess_patterns)
+        return replace(result, section_recess_patterns=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_patterns)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
+    assert len(removed) == 4
     assert damaged.detection.matched == 0
     assert damaged.detection.missed == 4
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 
 
-def test_weakening_provider_pitch_reduces_parameter_fidelity(monkeypatch) -> None:
-    import draftwright.analysis as analysis
+def test_misstating_observed_pitch_reduces_parameter_fidelity() -> None:
+    original = _default_observers()["pocket-patterns"]
 
-    original = analysis._result_from_evidence
-
-    def weakened_patterns(*args, **kwargs):
-        result = original(*args, **kwargs)
+    def weakened_patterns(part):
         changed = []
-        for pattern in result.pocket_patterns:
-            if hasattr(pattern, "row_pitch"):
-                changed.append(replace(pattern, row_pitch=pattern.row_pitch + 1.0))
-            else:
-                changed.append(replace(pattern, pitch=pattern.pitch + 1.0))
-        return replace(result, pocket_patterns=tuple(changed))
+        for fact in original(part):
+            parameters = dict(fact.parameters)
+            key = "row_pitch" if fact.identity["kind"] == "grid" else "pitch"
+            parameters[key] += 1.0
+            changed.append(replace(fact, parameters=parameters))
+        return tuple(changed)
 
-    monkeypatch.setattr(analysis, "_result_from_evidence", weakened_patterns)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(
+        load_corpus(CORPUS), observers={"pocket-patterns": weakened_patterns}
+    )
 
     assert damaged.detection.recall == 1.0
     assert damaged.detection.false_positives == 0
@@ -863,28 +865,65 @@ def test_weakening_provider_pitch_reduces_parameter_fidelity(monkeypatch) -> Non
     assert damaged.parameter_fidelity.score == 37 / 41
 
 
-def test_hardcoding_arrangement_orientation_reduces_parameter_fidelity(monkeypatch) -> None:
-    import draftwright.analysis as analysis
+def test_hardcoding_observed_arrangement_orientation_reduces_parameter_fidelity() -> None:
+    original = _default_observers()["pocket-patterns"]
 
-    original = analysis._result_from_evidence
-
-    def axis_aligned_patterns(*args, **kwargs):
-        result = original(*args, **kwargs)
+    def axis_aligned_patterns(part):
         changed = []
-        for pattern in result.pocket_patterns:
-            if hasattr(pattern, "row_pitch"):
-                changed.append(replace(pattern, angle=0.0))
+        for fact in original(part):
+            parameters = dict(fact.parameters)
+            if fact.identity["kind"] == "grid":
+                parameters["angle"] = 0.0
             else:
-                changed.append(replace(pattern, direction=(0.0, 1.0, 0.0)))
-        return replace(result, pocket_patterns=tuple(changed))
+                parameters["direction"] = (0.0, 1.0, 0.0)
+            changed.append(replace(fact, parameters=parameters))
+        return tuple(changed)
 
-    monkeypatch.setattr(analysis, "_result_from_evidence", axis_aligned_patterns)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(
+        load_corpus(CORPUS), observers={"pocket-patterns": axis_aligned_patterns}
+    )
 
     assert damaged.detection.recall == 1.0
     assert damaged.parameter_fidelity.passed == 39
     assert damaged.parameter_fidelity.total == 41
     assert damaged.parameter_fidelity.score == 39 / 41
+
+
+@pytest.mark.parametrize("corruption", ["pitch", "orientation"])
+def test_inconsistent_provider_lattice_cannot_receive_completeness_credit(
+    monkeypatch, caplog, corruption
+) -> None:
+    import draftwright.analysis as analysis
+
+    original = analysis._result_from_evidence
+    mutations = []
+
+    def inconsistent_patterns(*args, **kwargs):
+        result = original(*args, **kwargs)
+        changed = []
+        for pattern in result.section_recess_patterns:
+            if corruption == "pitch":
+                key = "row_pitch" if hasattr(pattern, "row_pitch") else "pitch"
+                candidate = replace(pattern, **{key: getattr(pattern, key) + 1.0})
+            elif hasattr(pattern, "row_pitch"):
+                candidate = replace(
+                    pattern, row_direction=(1.0, 0.0, 0.0), col_direction=(0.0, -1.0, 0.0)
+                )
+            else:
+                candidate = replace(pattern, direction=(0.0, 1.0, 0.0))
+            assert candidate != pattern
+            mutations.append(candidate)
+            changed.append(candidate)
+        return replace(result, section_recess_patterns=tuple(changed))
+
+    monkeypatch.setattr(analysis, "_result_from_evidence", inconsistent_patterns)
+    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+
+    assert len(mutations) == 4
+    assert damaged.detection.matched == 0
+    assert damaged.detection.missed == 4
+    assert damaged.complete_cases < len(damaged.cases)
+    assert "recess pattern lattice does not identify each member exactly once" in caplog.text
 
 
 def test_deleting_pattern_declaration_cannot_shrink_quality_denominator() -> None:

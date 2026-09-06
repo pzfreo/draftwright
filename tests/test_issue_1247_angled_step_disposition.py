@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from b123d_recognisers import (
+from build123d import import_step
+from quiddity import (
     AngledStep,
     build_raw_recognition_result,
     recognise_angled_steps,
     recognise_chamfers,
 )
-from build123d import import_step
 
 from draftwright import build_drawing
 from draftwright.linting.angled_step_coverage import lint_angled_step_coverage

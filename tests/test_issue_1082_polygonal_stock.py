@@ -6,12 +6,12 @@ import math
 from dataclasses import replace
 
 import pytest
-from b123d_recognisers import (
+from build123d import Box, Compound, Cylinder, Polygon, Pos, RegularPolygon, Rot, extrude
+from quiddity import (
     PolygonalStock,
     build_raw_recognition_result,
     recognise_polygonal_stock,
 )
-from build123d import Box, Compound, Cylinder, Polygon, Pos, RegularPolygon, Rot, extrude
 
 from draftwright import build_drawing
 from draftwright.compose import _est_right_strip_depth, _n_right_strip_boss_heights

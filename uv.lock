@@ -93,19 +93,6 @@ wheels = [
 ]
 
 [[package]]
-name = "b123d-recognisers"
-version = "0.4.14"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
-    { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/88/b7/70b19bf001f04df637da9383a36d809ed55bce92ba691886fe0728caced9/b123d_recognisers-0.4.14.tar.gz", hash = "sha256:c8d10b66610085ce907bd36ea19933fb5a9f7f9ac9ce0e67cb940cf780eae7dc", size = 11259308, upload-time = "2026-09-03T03:27:52.168Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/15/11bdcd2f1b76d457ce5abce840bb87a713074bab5e529da7e10e647f7164/b123d_recognisers-0.4.14-py3-none-any.whl", hash = "sha256:c46f270196b4197fd9ce15c37ddb19974d49615223caa9fabf9e4db1294c9d76", size = 427085, upload-time = "2026-09-03T03:27:49.568Z" },
-]
-
-[[package]]
 name = "build123d"
 version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -719,7 +706,6 @@ version = "0.4.19.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "antlr4-python3-runtime" },
-    { name = "b123d-recognisers" },
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "build123d-drafting-helpers" },
@@ -727,6 +713,7 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pillow" },
     { name = "pypdfium2" },
+    { name = "quiddity" },
     { name = "reportlab" },
     { name = "steputils" },
     { name = "svglib" },
@@ -745,7 +732,6 @@ dev = [
     { name = "pytest-split" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
-    { name = "quiddity" },
     { name = "ruff" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
@@ -757,13 +743,13 @@ docs = [
 [package.metadata]
 requires-dist = [
     { name = "antlr4-python3-runtime", specifier = "<4.10" },
-    { name = "b123d-recognisers", specifier = "==0.4.14" },
     { name = "build123d", marker = "python_full_version < '3.13'", specifier = ">=0.9.0,<0.11" },
     { name = "build123d", marker = "python_full_version >= '3.13'", specifier = ">=0.11,<0.12" },
     { name = "build123d-drafting-helpers", specifier = ">=0.14.2" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "pillow", specifier = ">=10" },
     { name = "pypdfium2", specifier = ">=4" },
+    { name = "quiddity", specifier = "==0.2.2" },
     { name = "reportlab", specifier = ">=4.0" },
     { name = "steputils", specifier = "==0.1" },
     { name = "svglib", specifier = ">=1.5" },
@@ -782,7 +768,6 @@ dev = [
     { name = "pytest-split", specifier = ">=0.8" },
     { name = "pytest-timeout", specifier = ">=2" },
     { name = "pytest-xdist", specifier = ">=3" },
-    { name = "quiddity", specifier = "==0.2.1" },
     { name = "ruff", specifier = ">=0.4" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
 ]
@@ -2592,15 +2577,15 @@ wheels = [
 
 [[package]]
 name = "quiddity"
-version = "0.2.1"
+version = "0.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/fd/cc5f0db511da23d4e99ee41a6f881212e11516779fbb73651cad0e8b0c60/quiddity-0.2.1.tar.gz", hash = "sha256:d30ba4d92eaf7e934e6e012a4d69f290f408e2159fb4fae9cd762ba366835693", size = 13764527, upload-time = "2026-09-06T00:32:08.899Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/db/36/0326bc0a5037bcc42c38defa2d74896e0f28f7c185b35848dccdadf9769c/quiddity-0.2.2.tar.gz", hash = "sha256:a295fd6eb24d7a0b4b2e3c305b543a01a521fd8056a23c911d8b4abedb7744a4", size = 13772003, upload-time = "2026-09-06T09:12:07.14Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/e5/bf380667467987d06b8c10b864cb188b7d149d7f9f8fa54b7150e6507664/quiddity-0.2.1-py3-none-any.whl", hash = "sha256:947867ad028412a1cef272ce29f48b0583d2a8009dea13b2b59be58abdb1df30", size = 466048, upload-time = "2026-09-06T00:32:06.499Z" },
+    { url = "https://files.pythonhosted.org/packages/57/8f/3cac44f48cfe9a7b3f0c4ca80aea574b916c1afcd246437d0b5f4f1bd649/quiddity-0.2.2-py3-none-any.whl", hash = "sha256:1dfffc732b341c8d0f5ebdcaebb5501f4c7442b93b1a6a1356c4363251fcee60", size = 467671, upload-time = "2026-09-06T09:12:05.481Z" },
 ]
 
 [[package]]

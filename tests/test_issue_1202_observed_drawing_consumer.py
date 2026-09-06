@@ -59,7 +59,7 @@ def _part():
 
 
 def _recognised(part):
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     return build_raw_recognition_result(part).holes
 
@@ -519,7 +519,7 @@ class TestTheCanonicalSpaceIsTheLedgersOwn:
     def test_the_axis_letter_comes_from_the_rounded_spec(self):
         from types import SimpleNamespace
 
-        from b123d_recognisers import HoleSpec
+        from quiddity import HoleSpec
 
         from draftwright.linting.hole_coverage import canonical_hole_sites
 

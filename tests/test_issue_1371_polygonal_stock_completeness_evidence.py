@@ -189,7 +189,7 @@ def test_polygonal_stock_ledger_tracks_two_requirements_and_fails_closed() -> No
 
 
 def test_polygonal_stock_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
@@ -237,7 +237,7 @@ def test_polygonal_stock_ledger_rejects_foreign_malformed_and_duplicate_ir() -> 
 
 
 def test_impossible_stock_inventories_have_one_fail_closed_denominator() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
@@ -276,7 +276,7 @@ def test_impossible_stock_inventories_have_one_fail_closed_denominator() -> None
 def test_malformed_provider_flat_centres_fail_before_source_ir_self_consistency(
     corruption,
 ) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import build_drawing
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
@@ -329,7 +329,7 @@ def test_malformed_provider_flat_centres_fail_before_source_ir_self_consistency(
 
 
 def test_provider_quantization_allowance_scales_with_stock_not_world_position() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model import build_part_model
@@ -349,7 +349,7 @@ def test_provider_quantization_allowance_scales_with_stock_not_world_position() 
 
 @pytest.mark.parametrize("rotation", (1, 10.58, 19.42))
 def test_provider_direction_quantization_accepts_a_huge_rotated_stock_record(rotation) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model import build_part_model
@@ -369,7 +369,7 @@ def test_provider_direction_quantization_accepts_a_huge_rotated_stock_record(rot
 
 
 def test_provider_contract_rejects_every_malformed_structural_boundary() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import (
         _canonical_span,
@@ -427,7 +427,7 @@ def test_provider_contract_rejects_every_malformed_structural_boundary() -> None
 
 
 def test_legacy_shape_fallbacks_preserve_polygonal_stock_identity_and_declaration() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.evaluation.step_analysis import (
         _declared_polygonal_stock_model,
@@ -472,7 +472,7 @@ def test_legacy_shape_fallbacks_preserve_polygonal_stock_identity_and_declaratio
 
 
 def test_malformed_source_and_ir_key_fail_closed_without_partial_credit() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.registry import AnnotationRegistry
@@ -488,7 +488,7 @@ def test_malformed_source_and_ir_key_fail_closed_without_partial_credit() -> Non
 
 
 def test_provider_model_tolerance_accepts_a_real_noisy_stock_record() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model import build_part_model
@@ -531,7 +531,7 @@ def test_provider_model_tolerance_accepts_a_real_noisy_stock_record() -> None:
 def test_provider_angular_tolerance_accepts_a_real_near_regular_stock_record(
     apothem, angles
 ) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model import build_part_model
@@ -562,7 +562,7 @@ def test_provider_angular_tolerance_accepts_a_real_near_regular_stock_record(
 
 
 def test_large_stock_never_scales_the_axial_support_allowance() -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model import build_part_model
@@ -590,7 +590,7 @@ def test_large_stock_never_scales_the_axial_support_allowance() -> None:
 
 @pytest.mark.parametrize(("corruption", "distance"), (("radial", 0.85), ("tangential", 20.0)))
 def test_exact_large_ring_cannot_borrow_unused_angular_slack(corruption, distance) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model import build_part_model
@@ -713,7 +713,7 @@ def test_polygonal_stock_key_rejects_rotated_or_tangentially_shifted_foreign_sup
 
 @pytest.mark.parametrize("representation", ("cyclic", "reversed", "reversed_span"))
 def test_equivalent_public_sheet_ring_representations_keep_exact_coverage(representation) -> None:
-    from b123d_recognisers import build_raw_recognition_result
+    from quiddity import build_raw_recognition_result
 
     from draftwright import Sheet
 

@@ -6,13 +6,13 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from b123d_recognisers import build_raw_recognition_result
 from build123d import Box, Ellipse, GeomType, Pos, RegularPolygon, extrude
+from quiddity import build_raw_recognition_result
 
 from draftwright import build_drawing
 from draftwright.linting.coverage import (
-    _passage_matches_principal_wire,
     _principal_boundary_plane,
+    _recess_matches_principal_wire,
 )
 from draftwright.linting.passage_coverage import lint_passage_coverage
 from draftwright.linting.quality import quality_components
@@ -33,7 +33,7 @@ def _matched_mouth(part, passage):
             continue
         axis, plane_axes, at = boundary
         for wire in face.inner_wires():
-            if _passage_matches_principal_wire(passage, wire, axis, plane_axes, at, tol):
+            if _recess_matches_principal_wire(passage, wire, axis, plane_axes, at, tol):
                 return wire, axis, plane_axes, at, tol
     raise AssertionError("fixture has no principal mouth matching its Passage record")
 
@@ -43,8 +43,8 @@ def test_a_recognised_passage_is_specific_actionable_and_non_info() -> None:
     recognition = build_raw_recognition_result(part)
     drawing = build_drawing(part)
 
-    assert len(recognition.section_passages) == 1
-    assert len(recognition.passages) == 1, "precondition: legacy projection exists"
+    assert len(recognition.section_recesses) == 1
+    assert recognition.section_recesses[0].classification.feature_kind == "passage"
     issues = drawing.lint()
 
     assert [issue.code for issue in issues] == ["passage_requirement_unsupported"]
@@ -62,7 +62,7 @@ def test_a_passage_does_not_hide_an_unrelated_unsupported_inner_profile() -> Non
     part = Box(40, 40, 10) - through - blind
     recognition = build_raw_recognition_result(part)
 
-    assert len(recognition.section_passages) == 1
+    assert len(recognition.section_recesses) == 1
     codes = [issue.code for issue in build_drawing(part).lint()]
     assert codes.count("passage_requirement_unsupported") == 1
     assert codes.count("unrecognised_defining_geometry") == 1
@@ -82,61 +82,43 @@ def test_a_passage_does_not_hide_an_unrelated_unsupported_inner_profile() -> Non
 )
 def test_passage_profile_correlation_fails_closed(case: str) -> None:
     part = _hex_passage_part()
-    passage = build_raw_recognition_result(part).section_passages[0]
+    passage = build_raw_recognition_result(part).section_recesses[0]
     wire, axis, plane_axes, at, tol = _matched_mouth(part, passage)
     candidate = passage
     candidate_wire = wire
 
+    geometry = passage.geometry
     if case == "non_principal_run":
-        candidate = SimpleNamespace(
-            frame=SimpleNamespace(
-                origin=passage.frame.origin,
-                run=(0.1, 0.0, 1.0),
-                u=passage.frame.u,
-                v=passage.frame.v,
-            ),
-            run_interval=passage.run_interval,
-            section=passage.section,
-        )
+        # This valid frame runs along X, whereas the actual mouth is normal to Z.
+        frame = replace(geometry.frame, run=(1.0, 0.0, 0.0), u=(0.0, 1.0, 0.0), v=(0.0, 0.0, 1.0))
+        candidate = replace(passage, geometry=replace(geometry, frame=frame))
     elif case == "no_endpoint_on_face":
-        candidate = SimpleNamespace(
-            frame=passage.frame,
-            run_interval=(100.0, 110.0),
-            section=passage.section,
-        )
+        candidate = replace(passage, geometry=replace(geometry, run_interval=(100.0, 110.0)))
     elif case == "boundary_cardinality":
-        candidate = SimpleNamespace(
-            frame=passage.frame,
-            run_interval=passage.run_interval,
-            section=SimpleNamespace(boundary=passage.section.boundary[:-1]),
-        )
+        candidate_wire = SimpleNamespace(vertices=lambda: wire.vertices()[:-1], edges=wire.edges)
     elif case == "unsupported_edge":
         candidate_wire = SimpleNamespace(
             vertices=wire.vertices,
             edges=lambda: (
-                [SimpleNamespace(geom_type=GeomType.ELLIPSE)] * len(passage.section.boundary)
+                [SimpleNamespace(geom_type=GeomType.ELLIPSE)] * len(geometry.profile.boundary)
             ),
         )
     elif case == "arc_cardinality":
-        boundary = list(passage.section.boundary)
-        boundary[0] = SimpleNamespace(point=boundary[0].point, bulge=1.0)
-        candidate = SimpleNamespace(
-            frame=passage.frame,
-            run_interval=passage.run_interval,
-            section=SimpleNamespace(boundary=boundary),
+        candidate_wire = SimpleNamespace(
+            vertices=wire.vertices,
+            edges=lambda: [SimpleNamespace(geom_type=GeomType.CIRCLE), *wire.edges()[1:]],
         )
     elif case == "malformed_record":
         candidate = object()
     elif case == "vertex_mismatch":
-        boundary = list(passage.section.boundary)
-        boundary[0] = SimpleNamespace(point=(100.0, 100.0), bulge=boundary[0].bulge)
-        candidate = SimpleNamespace(
-            frame=passage.frame,
-            run_interval=passage.run_interval,
-            section=SimpleNamespace(boundary=boundary),
+        boundary = tuple(
+            replace(vertex, point=tuple(2 * c for c in vertex.point))
+            for vertex in geometry.profile.boundary
         )
+        profile = replace(geometry.profile, boundary=boundary)
+        candidate = replace(passage, geometry=replace(geometry, profile=profile))
 
-    assert not _passage_matches_principal_wire(
+    assert not _recess_matches_principal_wire(
         candidate,
         candidate_wire,
         axis,
@@ -153,19 +135,19 @@ def test_a_passage_is_an_explicit_unsupported_completeness_outcome() -> None:
     assert completeness["audited_score"] == 0.0
     assert completeness["requirements"] == 1
     assert completeness["unsupported"] == 1
-    assert completeness["by_family"]["passages"] == 1
-    assert "passages" not in completeness["unscored_recognized_families"]
+    assert completeness["by_family"]["section_recesses"] == 1
+    assert "section_recesses" not in completeness["unscored_recognized_families"]
 
 
-def test_only_the_authoritative_rich_inventory_contributes_a_requirement() -> None:
+def test_removing_the_authoritative_inventory_removes_its_requirement() -> None:
     recognition = build_raw_recognition_result(_hex_passage_part())
-    assert recognition.section_passages and recognition.passages
-    legacy_only = replace(recognition, section_passages=())
+    assert len(recognition.section_recesses) == 1
+    empty = replace(recognition, section_recesses=())
 
-    assert lint_passage_coverage(legacy_only) == []
+    assert lint_passage_coverage(empty) == []
 
     completeness = quality_components(
-        recognition=legacy_only,
+        recognition=empty,
         features=(),
         registry=AnnotationRegistry(),
         omissions=(),
@@ -177,4 +159,4 @@ def test_only_the_authoritative_rich_inventory_contributes_a_requirement() -> No
 
     assert completeness["requirements"] == 0
     assert completeness["unsupported"] == 0
-    assert completeness["by_family"].get("passages", 0) == 0
+    assert completeness["by_family"].get("section_recesses", 0) == 0

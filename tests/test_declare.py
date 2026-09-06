@@ -459,9 +459,9 @@ class TestFillet:
         # centre — which sits in the removed-wedge void near the arc's centre of curvature /
         # virtual sharp corner, OFF the solid (~0.71R away). Cover X/Y/Z edge axes + off-origin,
         # and the grouped case (every equal-R member anchored on its own round).
-        from b123d_recognisers import recognise_fillets
         from build123d import Axis, Pos, Vertex
         from build123d import fillet as bd_fillet
+        from quiddity import recognise_fillets
 
         z = bd_fillet(Box(60, 40, 30).edges().filter_by(Axis.Z).sort_by(Axis.X)[-1], 5)
         cases = {
@@ -489,8 +489,8 @@ class TestFillet:
     def test_internal_round_is_not_a_fillet(self):
         # The convex test excludes an internal (concave re-entrant) round. An L-bracket's
         # inner corner fillet must NOT be called out; only the outer convex ones.
-        from b123d_recognisers import recognise_fillets
         from build123d import fillet as bd_fillet
+        from quiddity import recognise_fillets
 
         L = Box(60, 20, 20) + Pos(-20, 20, 0) * Box(20, 20, 20)
         filleted = bd_fillet(L.edges().filter_by(Axis.Z), 3)
@@ -499,15 +499,15 @@ class TestFillet:
 
     def test_tiny_deburr_is_not_a_fillet(self):
         # A sub-min_radius edge-break is not a dimensioned feature.
-        from b123d_recognisers import recognise_fillets
+        from quiddity import recognise_fillets
 
         assert recognise_fillets(self._filleted(0.4)) == []
 
     def test_hole_and_boss_safeguards_intact(self):
         # A filleted part's holes/bosses are still recognised (fillet recognition must not
         # break the existing blend-face exclusions in hole/boss recognition, #561 acceptance).
-        from b123d_recognisers import recognise_bosses, recognise_holes
         from build123d import Cylinder
+        from quiddity import recognise_bosses, recognise_holes
 
         holed = Box(40, 40, 12) - Pos(0, 0, 0) * Cylinder(3, 12)
         assert len(recognise_holes(holed)) == 1
@@ -638,13 +638,13 @@ class TestFlat:
 
     def test_slot_wall_is_not_a_flat(self):
         # A slot's two facing walls point *toward* the axis — not flats (the #148b distinction).
-        from b123d_recognisers import recognise_flats
+        from quiddity import recognise_flats
 
         slotted = Cylinder(10, 30) - Box(6, 40, 40)
         assert recognise_flats(slotted) == []
 
     def test_plain_cylinder_has_no_flat(self):
-        from b123d_recognisers import recognise_flats
+        from quiddity import recognise_flats
 
         assert recognise_flats(Cylinder(10, 30)) == []
 
@@ -715,12 +715,12 @@ class TestGroove:
         assert fs[0].diameter == pytest.approx(16, abs=0.05)
 
     def test_monotonic_step_is_not_a_groove(self):
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         assert recognise_grooves(Cylinder(10, 20) + Pos(0, 0, 15) * Cylinder(6, 10)) == []
 
     def test_plain_cylinder_has_no_groove(self):
-        from b123d_recognisers import recognise_grooves
+        from quiddity import recognise_grooves
 
         assert recognise_grooves(Cylinder(10, 40)) == []
 
@@ -762,41 +762,58 @@ class TestPocket:
     declare, dimensioned W × L × D DEEP."""
 
     def test_recognises_pocket_disjoint_from_slots(self):
-        from b123d_recognisers import Pocket, recognise_pockets, recognise_slots
+        from quiddity import SectionRecess, recognise_section_recesses, recognise_slots
+
+        from draftwright.section_recess_contract import section_recess_fields
 
         part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8)  # blind recess, depth 8
-        pockets = recognise_pockets(part)
-        assert len(pockets) == 1 and isinstance(pockets[0], Pocket)
-        assert pockets[0].width == 20 and pockets[0].length == 30 and pockets[0].depth == 8
+        pockets = recognise_section_recesses(part)
+        assert len(pockets) == 1 and type(pockets[0]) is SectionRecess
+        kind, fields = section_recess_fields(pockets[0])
+        assert kind == "pocket"
+        assert (fields["width"], fields["length"], fields["depth"]) == (20, 30, 8)
         assert recognise_slots(part) == []  # the through-slot recogniser stays silent
 
     def test_through_slot_not_read_as_pocket(self):
-        from b123d_recognisers import recognise_pockets, recognise_slots
+        from quiddity import recognise_section_recesses, recognise_slots
 
         part = Box(80, 60, 20) - Box(40, 10, 40)  # open both ends
-        assert recognise_pockets(part) == []
+        assert not [
+            source
+            for source in recognise_section_recesses(part)
+            if source.classification.feature_kind == "pocket"
+        ]
         assert len(recognise_slots(part)) == 1  # still a through-slot
 
     def test_deep_pocket_reads_depth_axis_from_the_floor_not_size(self):
         # #609 review (major): a pocket DEEPER than it is long. The depth axis must come from
         # the capped (floor) end, not the size heuristic — else the deep span is mislabelled
         # 'length' and an end-wall is taken for the floor, swapping two of three dims + the view.
-        from b123d_recognisers import recognise_pockets
+        from quiddity import recognise_section_recesses
+
+        from draftwright.section_recess_contract import section_recess_fields
 
         part = Box(80, 60, 40) - Pos(0, 0, 7.5) * Box(20, 10, 25)  # footprint 20×10, depth 25
-        pockets = recognise_pockets(part)
+        pockets = recognise_section_recesses(part)
         assert len(pockets) == 1
-        p = pockets[0]
-        assert (p.width, p.length, p.depth) == (10, 20, 25)
-        assert p.depth_axis == "z"  # opening is up the Z axis → callout reads in the plan view
+        kind, fields = section_recess_fields(pockets[0])
+        assert kind == "pocket"
+        assert (fields["width"], fields["length"], fields["depth"]) == (10, 20, 25)
+        assert fields["axis"] == "z"  # opening is up the Z axis → callout reads in the plan view
 
     def test_sealed_internal_void_is_not_a_pocket(self):
         # A cavity capped on BOTH ends of every axis (no opening) is not a pocket — the depth
         # axis must be open on one side. A plain solid trivially has none; the guard is the
         # exactly-one-capped-end rule that also excludes a sealed void.
-        from b123d_recognisers import recognise_pockets
+        from quiddity import recognise_section_recesses
 
-        assert recognise_pockets(Box(60, 60, 60)) == []
+        assert recognise_section_recesses(Box(60, 60, 60)) == []
+        sealed = Box(60, 60, 60) - Box(20, 20, 20)
+        assert not [
+            source
+            for source in recognise_section_recesses(sealed)
+            if source.classification.feature_kind == "pocket"
+        ]
 
     def test_recognised_pocket_gets_callout(self):
         dwg = build_drawing(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), number="X")
@@ -845,12 +862,12 @@ class TestPocket:
 
     def test_hole_and_boss_safeguards_intact(self):
         # A pocketed part's holes are still recognised; a pocket does not spawn a phantom hole.
-        from b123d_recognisers import recognise_holes, recognise_pockets
         from build123d import Cylinder
+        from quiddity import recognise_holes, recognise_section_recesses
 
         part = Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8) - Pos(-30, 0, 0) * Cylinder(3, 20)
         assert len(recognise_holes(part)) == 1
-        assert len(recognise_pockets(part)) == 1
+        assert len(recognise_section_recesses(part)) == 1
 
 
 class TestCountersink:
