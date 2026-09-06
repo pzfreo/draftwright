@@ -107,6 +107,7 @@ from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import NominalRequirement, RequestedDimension, ToleranceDecoration
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
+from draftwright.model.planner import dimension_placement_options, validate_dimension_placement
 from draftwright.model.planner import location_role as _location_role
 from draftwright.view_plan import (
     ConstraintSource,
@@ -1269,6 +1270,99 @@ class Sheet:
         if feature is _UNSET or role is _UNSET:
             raise TypeError("dimension() requires a feature and a parameter id")
         return self._authored_dimension(feature, role, axis=axis, view=view, side=side)
+
+    def dimension_options(
+        self, feature, role: DimensionParameterId, *, axis: str | None = None
+    ) -> dict:
+        """Discover supported view/side pairs for one declared measurement, without building.
+
+        Uses the same handle/id resolver as :meth:`dimension` and the planner's renderer
+        support checks. ``None`` means omit that override. Pairs are intentional: a side
+        supported in one view need not be supported in another. The result is JSON-ready.
+
+        Scope is **one dimension in isolation**. It does not validate the full authored set,
+        chosen views, compound-callout agreement, or collision-free placement. Keep the supplied
+        feature handle to address subsequent edits; the result creates no persistent feature
+        identity. Invalid feature/measurement references raise as they do in ``dimension``.
+        The query neither records an intent nor prepares, recognises, or renders the part.
+        """
+        _token, target, discriminator, canonical = self._resolve_measurement(
+            feature, role, axis, "dimension_options"
+        )
+        request = RequestedDimension(target, canonical, discriminator=discriminator)
+        parameter_id = next(
+            (
+                parameter.parameter_id
+                for parameter in target.parameters()
+                if canonical in (parameter.role, parameter.parameter_id)
+                and parameter.discriminator == discriminator
+            ),
+            canonical,
+        )
+        return {
+            "schema": "draftwright.dimension-options",
+            "schema_version": 1,
+            "scope": "single_dimension",
+            "feature_kind": target.kind,
+            "parameter_id": parameter_id,
+            "axis": discriminator,
+            "placements": dimension_placement_options(request),
+        }
+
+    def validate_dimension(
+        self,
+        feature,
+        role: DimensionParameterId,
+        *,
+        axis: str | None = None,
+        view: str | None = None,
+        side: str | None = None,
+        **unsupported,
+    ) -> dict:
+        """Preflight a proposed ``dimension`` call without recording or rendering it.
+
+        Returns ``supported``, structured ``issues`` and the valid ``options`` for this
+        target. This checks the single-dimension support scope of :meth:`dimension_options`,
+        not whole-sheet feasibility. Existing authored intent is never replaced or modified.
+        Unknown controls are refused rather than ignored or passed on to a renderer.
+        """
+        result = {
+            "schema": "draftwright.dimension-validation",
+            "schema_version": 1,
+            "scope": "single_dimension",
+            "supported": False,
+            "issues": [],
+            "options": None,
+        }
+        try:
+            options = self.dimension_options(feature, role, axis=axis)
+        except (TypeError, ValueError) as exc:
+            result["issues"] = [{"code": "invalid_measurement", "message": str(exc)}]
+            return result
+        result["options"] = options
+        if unsupported:
+            result["issues"] = [
+                {
+                    "code": "unsupported_control",
+                    "message": "dimension accepts only axis, view and side placement controls",
+                    "controls": sorted(unsupported),
+                }
+            ]
+            return result
+        _token, target, discriminator, canonical = self._resolve_measurement(
+            feature, role, axis, "validate_dimension"
+        )
+        try:
+            validate_dimension_placement(
+                RequestedDimension(
+                    target, canonical, discriminator=discriminator, view=view, side=side
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            result["issues"] = [{"code": "unsupported_placement", "message": str(exc)}]
+            return result
+        result["supported"] = True
+        return result
 
     def _authored_dimension(
         self,
