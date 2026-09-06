@@ -50,6 +50,8 @@ def _replace_dim(dwg, old, new):
         new._dw_label_value = old._dw_label_value
     if getattr(old, "_dw_measurement_span", None) is not None:
         new._dw_measurement_span = old._dw_measurement_span
+    if getattr(old, "_dw_authored_side", None) is not None:
+        new._dw_authored_side = old._dw_authored_side
     dwg.items[dwg.items.index(old)] = new
     dwg.registry.replace_object(old, new)
 
@@ -59,6 +61,10 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
     labels = _QUOTED_RE.findall(issue.message)
     dim = _find_dim(dwg, labels[0]) if labels else None
     if dim is None:
+        return False
+    # A side override is an authored constraint, including after a same-side label
+    # reconciliation rebuild. Leave the diagnosis visible instead of flipping it.
+    if getattr(dim, "_dw_authored_side", None) is not None:
         return False
     s = dim._dw_spec
     new_side = _OPPOSITE_SIDE.get(s.side)

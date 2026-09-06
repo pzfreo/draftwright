@@ -1064,10 +1064,11 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
     # reject a perfectly valid width/front + depth/side pair.
     if feature.kind == "envelope":
         for pd in approved:
-            if pd.side is not None:
+            supported_sides = {"left", "right"} if pd.param.role == "height" else set()
+            if pd.side is not None and pd.side not in supported_sides:
                 raise ValueError(
                     f"envelope dimensions cannot render at {pd.view!r}/{pd.side!r}; "
-                    "supported sides for this renderer: none"
+                    f"supported sides for this renderer: {sorted(supported_sides) or 'none'}"
                 )
             if pd.view is None:
                 continue
@@ -1118,7 +1119,7 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
     if requested_side is not None:
         supported = {
             "plan": {"left", "right"},
-            "side": {"right"},
+            "side": {"left", "right"},
             "front": {"below"},
         }.get(selected_view or "", set())
         if (

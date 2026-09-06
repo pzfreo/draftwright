@@ -37,6 +37,26 @@ or side override. Invalid references, unsupported controls and unsupported place
 separate structured refusal codes in `validate_dimension()`; `dimension_options()` raises on an
 invalid reference.
 
+Hole-size callouts in the plan and side views accept `left` or `right`. The overall
+envelope height accepts `left` or `right` in the front view. These hints can separate
+hole sizes from vertical location dimensions without moving annotation coordinates:
+
+```python
+sheet.dimension(lower_hole, "bore.diameter", side="left")
+sheet.dimension(upper_hole, "bore.diameter", side="left")
+sheet.dimension(envelope, "height.length", side="left")
+sheet.dimension(lower_hole, "location")
+sheet.dimension(upper_hole, "location")
+```
+
+Each side belongs to its named view: the front-view height and side-view hole sizes
+occupy different boundaries. The layout reserves space for the left height and short
+step rises together before choosing scale and page. The shared solver places the
+annotations within those boundaries; generated scripts retain the authored sides.
+An explicit side is a constraint: an infeasible placement reports the affected
+measurement instead of silently choosing the opposite boundary. Repair preserves an
+authored overall-height side, including after a label adjustment.
+
 The explicit `single_dimension_placement_rules` scope means `supported` reports acceptance by
 the current planner placement rules. Both documents set `requires_build_validation: true`:
 whole-part classification can select a different renderer, so this query does not prove actual

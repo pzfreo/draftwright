@@ -5830,9 +5830,9 @@ def ladder_plan_for(plan, *, step_height: bool, overall: bool):
 
 
 def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) -> int:
-    """Front-view right ladder: prismatic step heights stacked inner→outer, then the overall
-    height outermost — registered as :class:`CorridorCandidate`s in the shared
-    ``(front, right)`` corridor (#636). The leapfrog witness cursor (#237) survives as a
+    """Front-view ladder: prismatic step heights stacked inner→outer, then the overall
+    height outermost. The overall height can be authored on the left; candidates enter
+    the shared corridor for their side. The leapfrog witness cursor (#237) survives as a
     *build-time chain*: candidates share a ``solved`` position map, and each dim's witness
     anchors on its nearest already-built predecessor's line (the view edge for the first).
 
@@ -5868,8 +5868,6 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             frame.project("front", entry.span[0])[1],
             frame.project("front", entry.span[1])[1],
         )
-
-    strip = frame.fv_zones.right
 
     rung_set = plan.ladder("step_height")
     rungs = list(rung_set.rungs) if rung_set is not None else []
@@ -6022,6 +6020,12 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     _tolerances = {c[0]: c[8] for c in chain}
 
     names = [c[0] for c in chain]
+    sides = {
+        name: (overall.rungs[0].side or "right")
+        if name == "dim_height" and overall is not None
+        else "right"
+        for name in names
+    }
     solved: dict[str, float] = {}
     for k, (
         name,
@@ -6035,6 +6039,21 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
         _rt,
         measurement_span,
     ) in enumerate(chain):
+        side = sides[name]
+        direction = 1 if side == "right" else -1
+        edge = edge2 if side == "right" else _left - 2
+        strip = frame.fv_zones.right if side == "right" else frame.fv_zones.left
+        predecessors = [pn for pn in names[:k] if sides[pn] == side]
+
+        def _witness_base(pos, predecessors=predecessors, direction=direction, edge=edge):
+            base = edge
+            for pn in reversed(predecessors):
+                if pn in solved:
+                    base = solved[pn]
+                    break
+            # A retry can revisit the inner position after a predecessor was built.
+            # Prediction and rendering must use the same non-degenerate witness.
+            return edge if direction * (pos - base) < 0.5 else base
 
         def _build(
             pos,
@@ -6042,22 +6061,23 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             zbase=zbase,
             ztop=ztop,
             label=label,
-            k=k,
+            witness_base=_witness_base,
+            side=side,
+            direction=direction,
+            authored_side=overall.rungs[0].side
+            if name == "dim_height" and overall is not None
+            else None,
             per_unit=per_unit,
             _tol=_tolerances.get(name),
             measurement_span=measurement_span,
         ):
-            base = edge2
-            for pn in reversed(names[:k]):  # nearest already-built predecessor's line
-                if pn in solved:
-                    base = solved[pn]
-                    break
+            base = witness_base(pos)
             solved[name] = pos
             dim = _dim(
                 (base, zbase, 0),
                 (base, ztop, 0),
-                "right",
-                pos - base,
+                side,
+                direction * (pos - base),
                 draft,
                 label=label + _tol_suffix(_tol, draft),
             )
@@ -6068,6 +6088,8 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 # step, while a hole pitch spans the whole run. Same seam as `_dw_scale`.
                 dim._dw_label_value = per_unit
             dim._dw_measurement_span = measurement_span
+            if authored_side is not None:
+                dim._dw_authored_side = authored_side
             return dim
 
         # The footprint measures the RENDERED string, so it carries the same suffix the
@@ -6078,25 +6100,22 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             zbase=zbase,
             ztop=ztop,
             label=label + _tol_suffix(_tolerances.get(name), draft),
-            k=k,
+            witness_base=_witness_base,
+            side=side,
+            direction=direction,
         ):
             # Predecessor-aware prediction (#689 review): the conservative edge-anchored
             # witness can falsely exhaust the strip when an inner obstacle sits in the
-            # already-traversed region. Use the same solved map the build chain uses.
-            base = edge2
-            for pn in reversed(names[:k]):
-                if pn in solved:
-                    base = solved[pn]
-                    break
-            if pos - base < 0.5:  # degenerate guard: never model a zero-length offset
-                base = edge2
+            # already-traversed region. Use the build chain's witness calculation.
+            base = witness_base(pos)
             return dim_footprint(
-                (base, zbase, 0), (base, ztop, 0), "right", pos - base, draft, label
+                (base, zbase, 0), (base, ztop, 0), side, direction * (pos - base), draft, label
             )
 
         def _drop(
             nm,
-            drop_msg=drop_msg,
+            drop_msg=drop_msg.replace("right strip", f"{side} strip"),
+            strip=strip,
             name=name,
             measurement=mid,
             measurement_span=measurement_span,
@@ -6116,7 +6135,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
 
         register_corridor(
             ctx,
-            ("front", "right"),
+            ("front", side),
             strip,
             "front",
             "x",

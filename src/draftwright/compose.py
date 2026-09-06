@@ -422,6 +422,20 @@ def _compose_anno_boxes(
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
+    requests = (
+        model.authored_dimensions
+        if model.authored_dimensions is not None
+        else model.requested_dimensions
+    )
+    if any(
+        request.feature.kind == "envelope"
+        and request.role in {"height", "height.length"}
+        and request.side == "left"
+        for request in requests
+    ):
+        # Short step rises can also use the left corridor. Reserve their ladder with
+        # the authored overall height before choosing the page and scale.
+        boxes.append(AnnoBox("left", _est_right_strip_depth(n_steps)))
     bore_depth = bore_callout_width
     if bore_depth > 0:
         # elbow clearance + leader-to-label gap, as in _measure_strips

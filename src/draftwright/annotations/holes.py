@@ -2996,6 +2996,10 @@ def _place_planside_callouts(
     over-capacity drop per edge, right then left with index continuity (``next_i``)."""
     edge_right = plan_right if view == "plan" else side_right
     edge_left = plan_left if view == "plan" else None
+    if view == "side" and any(
+        side_of_callout.get(id(callout)) == "left" for _, _, callout, _ in specs
+    ):
+        edge_left = a.proj.side_x(a.bb.min.Y)
 
     right_strip = a.pv_zones.right if view == "plan" else a.sv_zones.right
     # Elbow offset past the view boundary: only needed in the plan view when a section line will
@@ -3075,9 +3079,13 @@ def _place_planside_callouts(
 
         if not can_right and not can_left:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
-            _record_callout_drop(
-                ctx, dwg, view, dia, "no room beside the view", feat, callout=callout
+            reason = (
+                f"requested {requested_side} side has insufficient label space "
+                f"at the {'page margin' if requested_side == 'left' else 'right boundary'}"
+                if requested_side is not None
+                else "no room beside the view"
             )
+            _record_callout_drop(ctx, dwg, view, dia, reason, feat, callout=callout)
             continue
 
         # Natural Y is the bore's own row; keep-out-band avoidance is `_place_queue`'s carve.
@@ -3160,9 +3168,8 @@ def _annotate_holes(
     wall thickness. The leader tip lands on the hole's profile boundary, on the
     group's hole nearest the callout.
 
-    Placement: plan- and side-view callouts go to the right of their view
-    (the strip before the iso view / page margin; plan falls back to its
-    left, the side view has no usable left strip), front-view callouts go
+    Placement: plan- and side-view callouts use the shared boundary assignment;
+    explicit left/right hints constrain its candidates. Front-view callouts go
     below the front view through the strip solver. Each callout is width-checked;
     anything that fits nowhere is logged and skipped — never force-placed — and
     then surfaces through the coverage lint as ``feature_not_dimensioned``.
