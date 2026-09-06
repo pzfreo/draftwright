@@ -1114,8 +1114,7 @@ class OrientedSlotPassage:
             object.__setattr__(self, name, _strict_finite_point3(name, getattr(self, name)))
         for name in ("run", "u", "v"):
             direction = getattr(self, name)
-            squared_length = sum(value * value for value in direction)
-            if abs(squared_length - 1.0) > 1e-6:
+            if abs(hypot(*direction) - 1.0) > 1e-6 + 1e-12:
                 raise ValueError(f"oriented slot passage {name} must be unit length")
         for first, second in (("run", "u"), ("run", "v"), ("u", "v")):
             dot = sum(
@@ -1287,7 +1286,7 @@ class OrientedSlotFeature:
         return []
 
 
-register_oriented_slot_feature_type(OrientedSlotFeature, OrientedSlotPassage)
+register_oriented_slot_feature_type(OrientedSlotFeature, OrientedSlotPassage, Frame)
 
 
 @dataclass(frozen=True)

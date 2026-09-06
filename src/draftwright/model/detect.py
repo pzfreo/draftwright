@@ -1764,6 +1764,10 @@ def build_part_model(
         circular_blind_steps = tuple(circular_blind_steps)
     derive_hole_patterns = holes is not None and patterns is None
     derive_slot_patterns = slots is not None and slot_patterns is None
+    # Pattern projection and conversion share one materialised caller inventory. A
+    # generator would otherwise be exhausted before standalone records reach the adapter.
+    if oriented_slots is not None:
+        oriented_slots = tuple(oriented_slots)
     derive_oriented_slot_patterns = oriented_slots is not None and oriented_slot_patterns is None
     derive_pocket_patterns = pockets is not None and pocket_patterns is None
     if prof is not _UNSET and profiles is not _UNSET:

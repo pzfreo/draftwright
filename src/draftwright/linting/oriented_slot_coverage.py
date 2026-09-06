@@ -71,10 +71,37 @@ def _provider_key(slot) -> tuple:
     return oriented_slot_provider_key(slot)
 
 
+def _immutable_tuple(value, *, size: int | None = None) -> tuple:
+    if type(value) is not tuple or (size is not None and len(value) != size):
+        raise ValueError("oriented slot correspondence requires exact immutable tuple fields")
+    return value
+
+
 def _feature_key(feature) -> tuple:
     if not is_exact_oriented_slot_feature(feature):
         raise TypeError("oriented slot IR members must carry oriented-slot semantics")
     passage = feature.passage
+    if type(feature.frame.axis) is not str or feature.frame.axis not in ("x", "y", "z"):
+        raise ValueError("oriented slot correspondence requires an exact axis string")
+    if type(passage.low_capped) is not bool or type(passage.high_capped) is not bool:
+        raise ValueError("oriented slot correspondence requires exact boolean end states")
+    run = _vector(passage.run)
+    if _vector(feature.run_direction) != run:
+        raise ValueError("oriented slot correspondence requires its exact passage run")
+    interval = _immutable_tuple(passage.run_interval, size=2)
+    boundary = []
+    for vertex in _immutable_tuple(passage.boundary, size=4):
+        point, bulge = _immutable_tuple(vertex, size=2)
+        x, y = _immutable_tuple(point, size=2)
+        boundary.append(
+            (
+                (
+                    _real(x, name="oriented slot IR boundary coordinate"),
+                    _real(y, name="oriented slot IR boundary coordinate"),
+                ),
+                _real(bulge, name="oriented slot IR boundary bulge"),
+            )
+        )
     return (
         _vector(feature.frame.origin),
         feature.frame.axis,
@@ -83,27 +110,19 @@ def _feature_key(feature) -> tuple:
         _real(feature.width, name="oriented slot IR width"),
         _real(feature.length, name="oriented slot IR length"),
         _vector(passage.origin),
-        _vector(passage.run),
+        run,
         _vector(passage.u),
         _vector(passage.v),
-        tuple(
-            _real(value, name="oriented slot IR run interval") for value in passage.run_interval
-        ),
-        tuple(
-            (
-                (
-                    _real(point[0], name="oriented slot IR boundary coordinate"),
-                    _real(point[1], name="oriented slot IR boundary coordinate"),
-                ),
-                _real(bulge, name="oriented slot IR boundary bulge"),
-            )
-            for point, bulge in passage.boundary
-        ),
+        tuple(_real(value, name="oriented slot IR run interval") for value in interval),
+        tuple(boundary),
         passage.low_capped,
         passage.high_capped,
         None
         if passage.body_key is None
-        else tuple(_real(value, name="oriented slot IR body key") for value in passage.body_key),
+        else tuple(
+            _real(value, name="oriented slot IR body key")
+            for value in _immutable_tuple(passage.body_key)
+        ),
     )
 
 

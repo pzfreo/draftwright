@@ -51,9 +51,9 @@ def _serialized(values: tuple[float, ...], digits: int, *, name: str) -> None:
         raise ValueError(f"{name} must use the released {digits}-decimal serialization")
 
 
-def _unit(value, *, name: str, squared_tolerance: float = 4e-5) -> tuple[float, float, float]:
+def _unit(value, *, name: str, length_tolerance: float = 2e-5) -> tuple[float, float, float]:
     result = _vector(value, size=3, name=name)
-    if abs(_dot(result, result) - 1.0) > squared_tolerance:
+    if abs(hypot(*result) - 1.0) > length_tolerance:
         raise ValueError(f"{name} must be unit length")
     return (result[0], result[1], result[2])
 
@@ -172,10 +172,10 @@ def oriented_slot_provider_key(slot) -> tuple:
     run = _unit(
         source.frame.run,
         name="oriented slot passage run",
-        squared_tolerance=1e-6,
+        length_tolerance=1e-6 + 1e-12,
     )
-    u = _unit(source.frame.u, name="oriented slot passage u", squared_tolerance=1e-6)
-    v = _unit(source.frame.v, name="oriented slot passage v", squared_tolerance=1e-6)
+    u = _unit(source.frame.u, name="oriented slot passage u", length_tolerance=1e-6 + 1e-12)
+    v = _unit(source.frame.v, name="oriented slot passage v", length_tolerance=1e-6 + 1e-12)
     _serialized(center, 3, name="oriented slot center")
     _serialized(width_direction, 6, name="oriented slot width direction")
     _serialized(long_direction, 6, name="oriented slot long direction")

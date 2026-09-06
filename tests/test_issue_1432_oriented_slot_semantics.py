@@ -934,12 +934,12 @@ def test_provider_frame_is_revalidated_at_the_adapter_boundary(mutation) -> None
         oriented_slot_provider_key(replace(slot, source=source))
 
 
-def test_provider_and_ir_share_the_released_squared_length_limit() -> None:
+def test_provider_and_ir_share_the_released_direction_length_limit() -> None:
     drawing = build_drawing(_part())
     recognition = drawing.recognition()
     assert recognition is not None
     slot = recognition.oriented_slots[0]
-    scale = 1.000001
+    scale = 1.000002
     frame = copy(slot.source.frame)
     object.__setattr__(frame, "run", tuple(scale * value for value in frame.run))
     object.__setattr__(frame, "v", tuple(scale * value for value in frame.v))
@@ -1068,7 +1068,7 @@ def test_spoofed_ir_class_name_cannot_join_provider_evidence() -> None:
 
 def test_exact_ir_identity_registration_is_write_once() -> None:
     feature = _feature()
-    register_oriented_slot_feature_type(type(feature), type(feature.passage))
+    register_oriented_slot_feature_type(type(feature), type(feature.passage), Frame)
     spoof = type(
         "OrientedSlotFeature",
         (),
@@ -1076,7 +1076,7 @@ def test_exact_ir_identity_registration_is_write_once() -> None:
     )
 
     with pytest.raises(RuntimeError, match="already registered"):
-        register_oriented_slot_feature_type(spoof, type(feature.passage))
+        register_oriented_slot_feature_type(spoof, type(feature.passage), Frame)
 
 
 @pytest.mark.parametrize("width", [7.0, 6.0004])

@@ -248,9 +248,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
 - **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves.
-  The former validates the exact released public oriented-slot/pattern schema once for both
-  detection and independent completeness, including lossless occurrence keys. The latter
-  registers the exact compiler feature class so lint can reject same-named ducks without the
+  The former shares exact released schema validation between detection and independent
+  completeness, with geometric correspondence keys separate from same-run occurrence identity.
+  The latter registers exact compiler feature, passage and frame classes so lint can reject
+  same-named ducks without the
   ADR 1 (was 0015)-forbidden `linting` → `model` import.
 - **`recogniser_contract.py`** — the fail-closed cross-repository capability join. It consumes
   only the installed `b123d-recognisers` public manifest and rank-0 consumer policy, then validates
