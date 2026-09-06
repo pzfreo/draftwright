@@ -95,11 +95,10 @@ validate result-local references, bind exact same-run occurrences, migrate patte
 refusals, and update independent lint, reports and inspection together. A build already holding an
 aggregate must project it rather than invoke the document builder for a second recognition run.
 
-Adoption is currently blocked by [Quiddity #505](https://github.com/pzfreo/quiddity/issues/505):
-the released provider reads `.area` from a build123d 0.10 `ShapeList` while proving support, so
-ordinary pocket recognition raises before this adapter runs. The compatibility tests retain
-that failure; the migration needs a released provider fix before it can pass Draftwright's
-supported Python/build123d matrix.
+The comparison pins Quiddity 0.2.1, which fixes
+[Quiddity #505](https://github.com/pzfreo/quiddity/issues/505): support proofs now handle
+build123d 0.10 `ShapeList` boolean results. The pocket corpus exercises this public recognition
+path across the supported Python/build123d matrix before consumer adaptation.
 
 `bosses` is the fully consumed reference family. `repeating-radial-profiles` is the opposite
 reference: it remains geometry-only critique evidence for a separately authored gear declaration,

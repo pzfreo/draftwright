@@ -782,7 +782,7 @@ dev = [
     { name = "pytest-split", specifier = ">=0.8" },
     { name = "pytest-timeout", specifier = ">=2" },
     { name = "pytest-xdist", specifier = ">=3" },
-    { name = "quiddity", specifier = "==0.2.0" },
+    { name = "quiddity", specifier = "==0.2.1" },
     { name = "ruff", specifier = ">=0.4" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2" },
 ]
@@ -2592,15 +2592,15 @@ wheels = [
 
 [[package]]
 name = "quiddity"
-version = "0.2.0"
+version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/73/f2/024b4a77613075b49a001e2d44496b063f82c6aa91c952ff80bd0089b519/quiddity-0.2.0.tar.gz", hash = "sha256:ceb152a7e7009eccdb1ba548ac91a62f85ad298cf4d0e4a30e0a0149245c9d31", size = 13749033, upload-time = "2026-09-05T16:27:33.001Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1f/fd/cc5f0db511da23d4e99ee41a6f881212e11516779fbb73651cad0e8b0c60/quiddity-0.2.1.tar.gz", hash = "sha256:d30ba4d92eaf7e934e6e012a4d69f290f408e2159fb4fae9cd762ba366835693", size = 13764527, upload-time = "2026-09-06T00:32:08.899Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/d7/c9d2fdbfc0ed1f9d65b713426701e568ea0a558ca5c426ec2b49b8992b98/quiddity-0.2.0-py3-none-any.whl", hash = "sha256:d2fd89d031b8ad955045615b5cdfabb506a6547fcaf89905d7f97e3e82242c57", size = 462108, upload-time = "2026-09-05T16:27:31.25Z" },
+    { url = "https://files.pythonhosted.org/packages/9e/e5/bf380667467987d06b8c10b864cb188b7d149d7f9f8fa54b7150e6507664/quiddity-0.2.1-py3-none-any.whl", hash = "sha256:947867ad028412a1cef272ce29f48b0583d2a8009dea13b2b59be58abdb1df30", size = 466048, upload-time = "2026-09-06T00:32:06.499Z" },
 ]
 
 [[package]]

@@ -170,7 +170,7 @@ dev = [
     "pytest-timeout>=2",
     "pytest-xdist>=3",
     # Released provider used by the migration parity tests; production remains on 0.4.14.
-    "quiddity==0.2.0",
+    "quiddity==0.2.1",
     "ruff>=0.4",
     "tomli>=2; python_version < '3.11'",
 ]
