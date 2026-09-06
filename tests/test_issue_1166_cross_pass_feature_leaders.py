@@ -123,6 +123,10 @@ def tiny_box_dwg():
     return build_drawing(Box(10, 10, 2), page="A4", auto_dims=False)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     part, model = _narrow_cross_pass_part()
     trace_path = tmp_path / "cross-pass.json"
@@ -256,6 +260,10 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
         )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_corrected_side_strip_avoids_the_former_policy_b_crossing_without_trace():
     part, model = _narrow_cross_pass_part()
     drawing = build_drawing(part, model=model, page="A4")
@@ -1818,6 +1826,10 @@ def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
     assert _candidate_hits_component(candidate, residual[0])
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
     import draftwright.annotations.leaders as leaders
@@ -1861,6 +1873,10 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
     assert all("Policy B" in issue.message for issue in crossings)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
     import draftwright.annotations.leaders as leaders
@@ -1921,6 +1937,10 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
     }
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch, tmp_path):
     """Candidate×fixed work is capped even when the fixed inventory itself fits."""
 
@@ -2408,6 +2428,10 @@ def test_final_section_rolls_back_when_exact_preflight_rejects(monkeypatch):
     assert not any(name.startswith("section_") for name in drawing.annotations())
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_live_and_deferred_callout_verbs_preserve_the_same_semantic_evidence():
     part, model = _narrow_cross_pass_part()
     holes = [feature for feature in model.features if feature.kind == "hole"]

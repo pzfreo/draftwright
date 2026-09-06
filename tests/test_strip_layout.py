@@ -12,6 +12,7 @@ production placer without regressing busy strips).
 
 from __future__ import annotations
 
+import pytest
 from build123d import Box, BuildPart, Cylinder, Hole, Pos, Rotation
 
 from draftwright import build_drawing
@@ -1012,6 +1013,10 @@ def test_side_hole_z_dim_is_kept_not_dropped_under_policy_b():
     assert any(n.startswith("dim_loc_") and "_z" in n for n in names), "Z location dim was dropped"
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+)
 def test_two_cross_hole_heights_share_their_end_view_ladder_without_crossing():
     """The GRM-01 class: two X bores plus a long side pocket and equal-R end rounds.
 

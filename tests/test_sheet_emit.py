@@ -2603,10 +2603,9 @@ class TestTheDimensionMirror:
     #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
     _EXPECTED_KINDS = {
         "plate+hole": {"hole"},
-        # RaisedPad v2 no longer treats two of the flange's end lugs as +Z pads after the
-        # whole part is rotated. They are the four genuine Y-opening edge pockets below;
-        # the dedicated "pad" fixture remains this corpus's pad mirror evidence.
-        "flange (no envelope feature)": {"boss", "hole", "pattern", "pocket", "step"},
+        # The mounting lugs are solid material pierced by bores, not pockets. The
+        # dedicated pocket and pad fixtures exercise those two mirror paths.
+        "flange (no envelope feature)": {"boss", "hole", "pattern", "step"},
         "stepped": {"step_level"},
         "slot": {"slot"},
         "pocket": {"pocket"},
@@ -2649,6 +2648,20 @@ class TestTheDimensionMirror:
         """The two tables cannot drift: a fixture added without an expectation is a fixture
         nobody has said what it is for."""
         assert set(self._corpus()) == set(self._EXPECTED_KINDS)
+
+    def test_flange_mounting_lugs_are_material_not_pockets(self):
+        from math import pi
+
+        from build123d import Box, Pos
+
+        part = self._corpus()["flange (no envelope feature)"]
+        for x in (-18, 18):
+            for z in (-18, 18):
+                lug = Pos(x, -2, z) * Box(10, 4, 10)
+                # Only the radius-2 bore is removed from each nominal lug volume.
+                assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
+        model = detect_part_model(part)
+        assert not [f for f in model.features if f.kind == "pocket"]
 
     def test_the_side_drilled_fixture_reaches_the_off_axis_location_path(self):
         """Named because it is the path that was silently uncovered. An X-axis bore's

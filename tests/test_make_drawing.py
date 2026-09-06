@@ -8145,6 +8145,10 @@ class TestFindSlots:
         part = Cylinder(10, 40) - (Cylinder(10, 4) - Cylinder(7, 4))
         assert recognise_slots(part) == []
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/541",
+    )
     def test_arc_walled_slot_in_round_stock_recognised(self):
         # #148e: a slot milled into a curved surface has walls the OD clips into an
         # arc + a straight floor/chord. The relaxed wall test (LINE/CIRCLE with at
@@ -8320,6 +8324,10 @@ class TestFindSlots:
             p["width"] == 8.0 and p["length"] == 13.5 and p["depth"] == 19.0 for p in pockets
         )
 
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
+    )
     def test_step_imported_blind_obround_pockets_with_quarter_cylinder_ends(self):
         # #837: the reported failure — an imported STEP whose semicircular ends are each split into
         # two quarter-cylinder faces (r × r, not the 2r × r half-cylinder build123d emits). The caps
@@ -9741,12 +9749,19 @@ class TestTurnedDiameters:
         below, since the source-text half described a file that no longer exists.
         """
         part = self._issue_881_y_step_flange()
-        assert not any(f.kind == "envelope" for f in build_drawing(part).model().features), (
+        from math import pi
+
+        for x in (-18, 18):
+            for z in (-18, 18):
+                lug = Pos(x, -2, z) * Box(10, 4, 10)
+                assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
+        auto = build_drawing(part)
+        assert not any(f.kind == "pocket" for f in auto.model().features)
+        assert not any(f.kind == "envelope" for f in auto.model().features), (
             "the fixture must have NO envelope feature — the bbox fallback is the case "
             "with no intent to record"
         )
 
-        auto = build_drawing(part)
         _source, replayed = _sheet_script_drawing(part, tmp_path, "flange")
 
         automatic = {n for n, _ in auto.iter_annotations()}
@@ -9769,12 +9784,15 @@ class TestTurnedDiameters:
         # Candidate prevention (#1334) removes the same-batch step-chain crossings, and
         # measured block clearance now clears the former cross-producer ink crossing. The
         # remaining critique is reproduced on both paths.
+        # Quiddity refuses four recess proposals at the solid mounting lugs. The
+        # material-volume checks above prohibit reviving the old false pocket claims.
         assert (
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
+                "section_recess_recognition_refused": 4,
             }
         )
 

@@ -161,6 +161,15 @@
 - Machine-readable reports and STEP inspection documents advance to schema v2 because their
   closed producer object now names `quiddity`. The schema-v1 documents remain available for
   existing files; readers must select the schema using `schema_version` (#1471).
+- Groove membership now retains Quiddity's body-local profile identity. Generated declarations
+  use `profile_group` to associate coaxial grooves and steps without copying provider keys.
+  Omitted steps do not cause a groove to attach to another body (#1471).
+- Known limitations in Quiddity 0.2.2: some mixed-profile/nested pockets, bore-intersected channels
+  and edge-open recesses, and pockets in cylindrical stock can lose automatic annotations.
+  Refusals remain visible in lint and evidence. Regression cases are retained as strict expected
+  failures while upstream [#536](https://github.com/pzfreo/quiddity/issues/536),
+  [#538](https://github.com/pzfreo/quiddity/issues/538) and
+  [#541](https://github.com/pzfreo/quiddity/issues/541) are open.
 
 - Accepted schema-v3 straight or circular `Blend` chains, including concave occurrences, now cross
   a dedicated end-to-end consumer path:

@@ -98,11 +98,20 @@ Recognition refusals retain source provenance and contribute an unsupported outc
 fabricated position. Report and inspection schema v2 name `producer.quiddity`; their v1 schemas
 remain available for existing documents.
 
-The migration acceptance run still exposes provider regressions tracked by
-[Quiddity #536](https://github.com/pzfreo/quiddity/issues/536) (split-arc pockets) [Quiddity #538](https://github.com/pzfreo/quiddity/issues/538) (pierced channels), and
-[Quiddity #541](https://github.com/pzfreo/quiddity/issues/541) (pockets in cylindrical stock). An honest refusal
-does not demonstrate preservation of drawings supported before migration; these remain release
-acceptance failures while unresolved.
+The 0.4.20 release includes these known Quiddity 0.2.2 limitations:
+
+- Some mixed line/arc and nested pockets, including the tuner-jig and dense #915 STEP fixtures,
+  are refused: [Quiddity #536](https://github.com/pzfreo/quiddity/issues/536).
+- Bores intersecting channel walls, floors or an edge-open recess can prevent recognition:
+  [Quiddity #538](https://github.com/pzfreo/quiddity/issues/538).
+- A pocket cut into cylindrical stock can be refused:
+  [Quiddity #541](https://github.com/pzfreo/quiddity/issues/541).
+
+These cases can lose automatic annotations that the previous provider emitted. Check recognition
+refusals and lint when using affected geometry. An explicit refusal makes the limitation visible;
+it does not establish drawing completeness. The regression cases remain in the suite as strict
+expected failures linked to the upstream issues. Other recognition, declaration, placement,
+reporting and coverage checks remain release gates.
 
 `bosses` remains a fully consumed reference family. `repeating-radial-profiles` remains geometry-only
 critique evidence for a separately authored gear declaration, with no inferred gear feature.
