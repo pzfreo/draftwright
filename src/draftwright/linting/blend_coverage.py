@@ -7,7 +7,9 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from b123d_recognisers import RecognitionResult
+from build123d import Edge, Vector
 
+from draftwright._geometry import _blend_profile_arcs, _straight_blend_faces
 from draftwright.blend_contract import (
     blend_provider_key,
     is_exact_blend_feature,
@@ -216,4 +218,97 @@ def lint_blend_coverage(
                 message=f"blend at {outcome.source_at} {messages[outcome.state]}",
             )
         )
+    return issues
+
+
+def _projected_arc_distance(edge, tip, project):
+    """Distance from a page point's projection line to the actual trimmed OCC edge."""
+    origin = project(0, 0, 0)
+    basis = [project(*(1 if i == j else 0 for i in range(3))) for j in range(3)]
+    u = Vector(*(point[0] - origin[0] for point in basis))
+    v = Vector(*(point[1] - origin[1] for point in basis))
+    normal = u.cross(v).normalized()
+    centre = edge.center()
+    projected = project(*centre)
+    point = (
+        centre
+        + u * ((tip[0] - projected[0]) / u.dot(u))
+        + v * ((tip[1] - projected[1]) / v.dot(v))
+    )
+    reach = edge.bounding_box().size.length + 1
+    line = Edge.make_line(point - normal * reach, point + normal * reach)
+    return edge.distance_to(line)
+
+
+def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ownership=None):
+    """Judge placed straight-Blend radius tips against their physical trimmed arcs.
+
+    The renderer's candidate site is not evidence here: lint measures the finished tip against
+    the complete trimmed edge. Circular-path toroidal blends have a different target contract.
+    """
+    issues = []
+    for name in sorted(registry.names()):
+        measurements = registry.measurement_of(name)
+        if not any(measurement.parameter == "blend.radius" for measurement in measurements):
+            continue
+        feature = registry.feature_of(name)
+        annotation = registry.named(name)
+        view = registry.view_of(name)
+        tip = getattr(annotation, "tip", None)
+        if tip is None:
+            continue
+        arcs = ()
+        try:
+            key = blend_feature_key(feature)
+        except (AttributeError, OverflowError, TypeError, ValueError):
+            key = None
+        if key is not None and not any(
+            measurement.feature is feature and measurement.parameter == "blend.radius"
+            for measurement in measurements
+        ):
+            key = None
+        if key is not None and feature.path_kind == "circular":
+            continue
+        if key is not None and view is not None:
+            defining_faces = None
+            if ownership is not None:
+                defining_faces = ()
+                if evidence is not None and ownership.evidence is evidence:
+                    defining_faces = tuple(
+                        evidence.face(ref)
+                        for binding in ownership.bindings
+                        if evidence.family(binding.occurrence) == "blends"
+                        and any(owner is feature for owner in binding.features)
+                        for ref in evidence.defining_faces(binding.occurrence)
+                    )
+            faces = _straight_blend_faces(
+                feature, cylinders, feature.radius, defining_faces=defining_faces
+            )
+            arcs = _blend_profile_arcs(faces, feature.radius)
+        if not arcs:
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="radius_leader_target_unverifiable",
+                    message=f"{name}: the radius leader's physical profile arc cannot be verified",
+                    location=tip,
+                    measurement_ids=measurements,
+                )
+            )
+        elif (
+            min(
+                _projected_arc_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
+                for edge in arcs
+            )
+            > 2e-3
+        ):
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="radius_leader_target_mismatch",
+                    message=f"{name}: the radius leader tip does not touch its trimmed profile arc",
+                    location=tip,
+                    measurement_ids=measurements,
+                )
+            )
     return issues
