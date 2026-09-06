@@ -629,7 +629,7 @@ def test_ambiguous_nested_groove_ownership_refuses_missing_upstream_identity():
     groove = Groove(axis="z", width=2, diameter=20, at=(0, 0, 1))
     part = Compound(children=[Cylinder(15, 20), Cylinder(5, 20)])
 
-    with pytest.raises(AmbiguousTurnedOwnershipError, match="issues/354"):
+    with pytest.raises(AmbiguousTurnedOwnershipError, match="multiple body-local turned profiles"):
         build_part_model(
             part,
             profiles=(outer, inner),

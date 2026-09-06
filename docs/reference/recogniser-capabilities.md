@@ -263,6 +263,14 @@ its diameter is drafted once. Removing provider grooves, changing width/diameter
 corrupting declaration or generated code, or severing either measurement claim reduces the
 corresponding independent layer.
 
+Quiddity's optional `Groove.profile` key now identifies the exact body-local turned profile.
+The compiler and independent axial/step ledgers use that key and still cross-check the published
+axis line and axial band. Missing profile identity retains the geometric ambiguity refusal;
+a missing profile in an authored subset cannot redirect the groove to another coaxial body.
+Generated declarations replace the provider key with the same `profile_group` token used for the
+owning steps. The keyed nested-body and omission checks live in
+`tests/test_issue_1471_groove_profile.py`; they supplement the unchanged authored groove corpus.
+
 ## Rectangular-pad completeness evidence
 
 The `rectangular-pads` completeness boundary is independently `supported` from

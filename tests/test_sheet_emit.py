@@ -3588,6 +3588,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
     #: need not reproduce something, so each one is argued AND checked below — a bare skip
     #: list would let a real divergence hide behind a plausible sentence.
     _EXEMPT = {
+        ("groove", "profile"): "provider membership is replaced by an authored profile_group",
+        ("groove", "profile_group"): "the generated groove shares its owning steps' group token",
         ("hole", "members"): "a single hole's member list is exactly its own frame origin",
         ("plate", "frame"): "detection fills a plate's frame with the PART centroid, so it "
         "carries no per-plate information and nothing reads it",
@@ -3615,9 +3617,9 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
                 and tuple(rebuilt.members) == ()
                 and tuple(map(tuple, original.members)) == (tuple(original.frame.origin),)
             )
-        if (original.kind, field) == ("step", "profile"):
+        if original.kind in {"step", "groove"} and field == "profile":
             return original.profile is not None and rebuilt.profile is None
-        if (original.kind, field) == ("step", "profile_group"):
+        if original.kind in {"step", "groove"} and field == "profile_group":
             return original.profile is not None and rebuilt.profile_group is not None
         return False
 

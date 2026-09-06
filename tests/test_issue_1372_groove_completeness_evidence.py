@@ -632,16 +632,19 @@ def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field
 
     original = analysis._result_from_evidence
 
+    # Profile membership is optional in the published record. Exercise geometric
+    # detection drift without also injecting a contradictory membership contract;
+    # the keyed contradiction has its own fail-closed tests in #1471.
     def weakened_grooves(*args, **kwargs):
         result = original(*args, **kwargs)
         if field == "axis":
             values = tuple(
-                replace(groove, axis={"x": "y", "y": "z", "z": "x"}[groove.axis])
+                replace(groove, axis={"x": "y", "y": "z", "z": "x"}[groove.axis], profile=None)
                 for groove in result.grooves
             )
         else:
             values = tuple(
-                replace(groove, at=(groove.at[0] + 1.0, groove.at[1], groove.at[2]))
+                replace(groove, at=(groove.at[0] + 1.0, groove.at[1], groove.at[2]), profile=None)
                 for groove in result.grooves
             )
         return replace(result, grooves=values)

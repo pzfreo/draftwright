@@ -995,6 +995,7 @@ def _convert_groove(groove: Groove, ctx: ConvContext) -> GrooveFeature:
         axis=groove.axis,
         width=groove.width,
         diameter=groove.diameter,
+        profile=groove.profile,
     )
 
 

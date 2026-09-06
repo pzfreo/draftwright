@@ -937,12 +937,16 @@ def _read_groove_face(face) -> tuple[str, float, float, Point]:
     )
 
 
-def groove(obj=None, *, axis=None, width=None, diameter=None, at=None) -> GrooveFeature:
+def groove(
+    obj=None, *, axis=None, width=None, diameter=None, at=None, profile_group=None
+) -> GrooveFeature:
     """A turned / circlip groove on round stock (#148c). Either ``groove(floor_face)`` — the
     reduced-OD floor face supplies axis, width, diameter and the leader point ``at`` — or
     fully explicit ``groove(axis="z", width=3, diameter=16, at=(x, y, z))``. Called out
     ``{width} WIDE × ø{diameter}``. An object supplies *defaults*; any explicit keyword
-    overrides (#451)."""
+    overrides (#451). ``profile_group`` joins the groove to steps carrying the same
+    authored body-group token when coaxial bodies cannot be distinguished by their
+    axis lines. It does not add a dimension or require omitted steps to be declared."""
     if obj is not None:
         r_axis, r_width, r_diameter, r_at = _read_groove_face(obj)
         axis = r_axis if axis is None else axis
@@ -956,11 +960,14 @@ def groove(obj=None, *, axis=None, width=None, diameter=None, at=None) -> Groove
     axis = _norm_axis(axis)
     _require_positive(width=width, diameter=diameter)
     _require_point("at", at)
+    if profile_group is not None and (type(profile_group) is not str or not profile_group.strip()):
+        raise ValueError("profile_group must be a non-empty string when supplied")
     return GrooveFeature(
         frame=Frame(origin=at, axis=axis),
         axis=axis,
         width=round(width, 3),
         diameter=round(diameter, 3),
+        profile_group=profile_group,
     )
 
 

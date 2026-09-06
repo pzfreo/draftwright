@@ -54,8 +54,9 @@ from draftwright.linting._registry import annotation_owner, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
 from draftwright.recognition_frame import (
+    AmbiguousTurnedOwnershipError,
     groove_owns_turned_step_band,
-    profiles_owning_axial_band,
+    require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import (
     BOSS_BLEND_DIAMETER_TOL,
@@ -1723,7 +1724,7 @@ def _feature_on_turned_axis(feature, prof, tol: float = 0.5) -> bool:
     """Whether an IR feature belongs to this body-local turned axis line."""
     profile_group = getattr(prof, "profile_group", None)
     feature_group = getattr(feature, "profile_group", None)
-    if profile_group is not None and getattr(feature, "kind", None) == "step":
+    if profile_group is not None and getattr(feature, "kind", None) in {"step", "groove"}:
         # Declared/emitted coaxial occurrences may share an axis, span, and even diameter.
         # Their opaque declaration token is one exact ownership witness. Do not geometrically
         # credit one group's placed measurement to another group (#1357).
@@ -2020,12 +2021,13 @@ def _lint_one_axial_profile(
         )
 
     def groove_belongs_exactly(feature) -> bool:
-        owners = profiles_owning_axial_band(
-            (prof, *(sibling for sibling in sibling_profiles if sibling is not prof)),
-            axis=feature.axis,
-            centre=feature.frame.origin,
-            width=feature.width,
-        )
+        try:
+            owners = require_unambiguous_groove_owner(
+                feature,
+                (prof, *(sibling for sibling in sibling_profiles if sibling is not prof)),
+            )
+        except (AmbiguousTurnedOwnershipError, TypeError, ValueError):
+            return False
         return len(owners) == 1 and owners[0] is prof
 
     placed_grooves = {

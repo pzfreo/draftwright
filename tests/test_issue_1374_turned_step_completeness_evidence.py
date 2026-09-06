@@ -1481,7 +1481,15 @@ def test_weakening_provider_band_parameter_reduces_fidelity(monkeypatch, paramet
                 )
                 for step in result.turned_steps
             )
-        return replace(result, turned_steps=steps)
+        grooves = (
+            result.grooves
+            if parameter == "diameter"
+            else tuple(
+                replace(groove, profile=profiles.get(groove.profile, groove.profile))
+                for groove in result.grooves
+            )
+        )
+        return replace(result, turned_steps=steps, grooves=grooves)
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
     damaged = evaluate_step_corpus(load_corpus(CORPUS))

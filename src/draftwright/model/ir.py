@@ -2693,6 +2693,9 @@ class GrooveFeature:
     axis: str
     width: float
     diameter: float
+    #: Same body-local provenance and authored replacement token used by StepFeature.
+    profile: TurnedProfileIdentity | None = None
+    profile_group: str | None = None
     kind: ClassVar[str] = "groove"
 
     def parameters(self) -> list[DimParameter]:

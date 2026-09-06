@@ -999,9 +999,10 @@ def _feature_line(
             f"axis_line={_pt(f.axis_line)}, stock_span={_pt(f.stock_span)}{direction})"
         )
     if k == "groove":
+        group = f", profile_group={profile_group!r}" if profile_group is not None else ""
         return (
             f'sheet.groove(axis="{f.axis}", width={_n(f.width)}, '
-            f"diameter={_n(f.diameter)}, at={_pt(f.frame.origin)})"
+            f"diameter={_n(f.diameter)}, at={_pt(f.frame.origin)}{group})"
         )
     if k == "plate":
         return (
@@ -1582,7 +1583,7 @@ def _feature_block(
     reserved_profile_groups = {
         group
         for feature in source_features
-        if feature.kind == "step"
+        if feature.kind in {"step", "groove"}
         for group in (getattr(feature, "profile_group", None),)
         if group is not None
     }
@@ -1598,7 +1599,7 @@ def _feature_block(
         return token
 
     for feature in source_features:
-        if feature.kind != "step":
+        if feature.kind not in {"step", "groove"}:
             continue
         declared_group = getattr(feature, "profile_group", None)
         if declared_group is not None:
