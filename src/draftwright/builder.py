@@ -491,6 +491,17 @@ def detect_part_model(part, *, pmi="off") -> PartModel:
     return _detect_part_model_analysis(part, pmi=pmi)[0]
 
 
+def _layout_advisory(code: str, message: str) -> LintIssue:
+    """Validate the closed layout-advisory vocabulary at the lint boundary."""
+    if code == "legibility_floor_breached":
+        return LintIssue(severity="warning", code="legibility_floor_breached", message=message)
+    if code == "page_fit_uncertain":
+        return LintIssue(severity="warning", code="page_fit_uncertain", message=message)
+    if code == "scale_fallback_applied":
+        return LintIssue(severity="warning", code="scale_fallback_applied", message=message)
+    raise ValueError(f"unknown layout advisory: {code!r}")
+
+
 def _assemble(
     a,
     out,
@@ -824,6 +835,8 @@ def _assemble(
         # produce a confident "nothing was suppressed" (#996).
         _diagnostics = compile_dimensions(dwg.model()).diagnostics
     dwg._build.omissions = tuple(_diagnostics or ())
+    for code, message in a.layout_advisories:
+        dwg.registry.record_issue(_layout_advisory(code, message))
     return dwg
 
 
@@ -882,6 +895,7 @@ def _repack(
     no view actually moves).
     """
     if not _needs_repack(dwg, a):
+        dwg.registry.drop_issues({"page_fit_uncertain"})
         return None
     blocks = _measure_blocks(dwg, a)
 
@@ -940,6 +954,7 @@ def _repack(
         return g.auto_fits if auto_search else g.fits
 
     fit = next(((c, gg) for c in candidates if _candidate_fits(gg := _geom(c))), None)
+    repack_advisories: list[tuple[str, str]] = []
     if fit is not None:
         chosen, g = fit
     else:
@@ -961,6 +976,12 @@ def _repack(
             if lo > 0.0:
                 chosen = (lo, pw0, ph0, tb0)
                 g = _geom(chosen)
+                repack_advisories.append(
+                    (
+                        "scale_fallback_applied",
+                        f"No standard scale fits the measured layout; using computed {lo:g}",
+                    )
+                )
                 _log.warning(
                     "measure-repack: no standard sheet fits the measured layout; "
                     "using computed %s",
@@ -971,6 +992,9 @@ def _repack(
             # keep the largest candidate and let lint report the overflow (as before).
             chosen = candidates[-1]
             g = _geom(chosen)
+            repack_advisories.append(
+                ("page_fit_uncertain", f"No sheet/scale fits the measured layout; using {chosen}")
+            )
             _log.warning(
                 "measure-repack: no sheet/scale fits the measured layout; using %s", chosen
             )
@@ -983,11 +1007,22 @@ def _repack(
         abs(g.SV_X - a.SV_X),
         abs(g.SV_Y - a.SV_Y),
     )
+    # Seed fit warnings yield to the measured result; retain the explicit legibility
+    # advisory only at the scale for which it was evaluated.
+    advisories = tuple(
+        (code, message)
+        for code, message in a.layout_advisories
+        if code == "legibility_floor_breached" and s == a.SCALE
+    ) + tuple(repack_advisories)
     if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H and moved < _REPACK_TOL:
+        dwg.registry.drop_issues({"page_fit_uncertain", "scale_fallback_applied"})
+        for code, message in repack_advisories:
+            dwg.registry.record_issue(_layout_advisory(code, message))
         return None
     fv_zones, pv_zones, sv_zones = _build_zones(g, a.margin, ph)
     a2 = replace(
         a,
+        layout_advisories=advisories,
         SCALE=s,
         PAGE_W=pw,
         PAGE_H=ph,
@@ -1080,6 +1115,13 @@ def _repack_to_fixed_point(
         )
         if repacked is None:
             if _needs_repack(cur_dwg, cur_a):
+                cur_dwg.registry.record_issue(
+                    LintIssue(
+                        severity="warning",
+                        code="layout_repack_stalled",
+                        message=f"Measured repack stalled after {i} iterations with residual layout triggers",
+                    )
+                )
                 _log.warning(
                     "measure-repack: stalled after %d iteration(s) with residual layout triggers",
                     i,
@@ -1088,6 +1130,13 @@ def _repack_to_fixed_point(
         cur_a, cur_dwg = repacked
 
     if _needs_repack(cur_dwg, cur_a):
+        cur_dwg.registry.record_issue(
+            LintIssue(
+                severity="warning",
+                code="layout_repack_stalled",
+                message=f"Measured repack reached its {_REPACK_MAX_ITER} iteration limit with residual layout triggers",
+            )
+        )
         _log.warning(
             "measure-repack: reached iteration limit (%d) with residual layout triggers",
             _REPACK_MAX_ITER,
@@ -2638,6 +2687,14 @@ def build_drawing(
             blockers=blockers,
             attempted=attempted,
             attempts=attempts,
+        )
+        fallback.registry.record_issue(
+            LintIssue(
+                severity="warning",
+                code="scale_fallback_applied",
+                message=f"Requested scale {requested_scale:g} dropped required annotations; "
+                f"using complete fallback scale {fallback.scale:g}",
+            )
         )
         warnings.warn(
             f"requested scale {requested_scale:g} dropped required annotation outcomes; "

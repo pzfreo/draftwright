@@ -191,6 +191,12 @@ def test_every_nonempty_authored_parameter_subset_survives_rendering(
     assert annotation.label == expected_label
     assert {key["parameter_id"] for key in drawing.measurement_keys(name)} == set(parameters)
     issues = drawing.lint()
+    stalled = [issue for issue in issues if issue.code == "layout_repack_stalled"]
+    assert len(stalled) == (
+        parameters
+        == ("rectangular_blind_slot_width.length", "rectangular_blind_slot_length.length")
+    )
+    issues = [issue for issue in issues if issue.code != "layout_repack_stalled"]
     assert len(issues) == 3 - len(parameters)
     assert {issue.code for issue in issues} <= {"rectangular_blind_slot_requirement_suppressed"}
 

@@ -40,6 +40,14 @@ refused at declaration and constraints are never silently relaxed. The immutable
 snapshot is available as `sheet.view_constraints`, while `drawing.view_plan` is the distinct
 resolved result.
 
+Layout advisories are also available as structured findings from `Drawing.lint()` and
+`lint(physical=False)`. `legibility_floor_breached` reports an explicit scale below the
+legibility floor when a legible automatic fit exists; `page_fit_uncertain` reports an
+unsuccessful layout fit; `layout_repack_stalled` reports unresolved measured-repack
+triggers; and `scale_fallback_applied` reports a computed scale or a completeness-driven
+scale fallback. These warnings contribute to the legibility component of `lint_summary()`.
+A successful measured fit replaces the earlier estimated fit warning.
+
 ### Taking over a detected baseline
 
 `Sheet.from_part(part)` retains the detector's feature set and starts with implicit automatic
@@ -289,3 +297,9 @@ drop, or missing ink is not hidden by the ownership choice.
 ::: draftwright.sheet._Control
     options:
       filters: public
+
+Imported AP242 nominal-diameter ownership requires absolute agreement within `1e-6`
+with the canonical feature diameter, using the same rule as planning. A larger mismatch
+keeps the original source value and identity in a blocked dimension; it does not replace
+the canonical value or crash planning. Generated Sheet scripts retain the blocker, and
+`authored_dim_source_unresolved` reports the withheld source dimension through lint.

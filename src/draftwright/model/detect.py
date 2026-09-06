@@ -15,7 +15,7 @@ for any part.
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from math import isfinite, ulp
@@ -631,6 +631,181 @@ def _member_pocket(pk: Pocket) -> PocketFeature:
 
 def _convert_pocket(pk: Pocket, ctx: ConvContext) -> PocketFeature:
     return _member_pocket(pk)
+
+
+class _UnsupportedSectionRecess(ValueError):
+    """Valid recess geometry outside the first migration adapter's drawing vocabulary."""
+
+
+def _section_object(value: object, keys: set[str], name: str) -> Mapping:
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise ValueError(f"{name} must contain exactly {sorted(keys)}")
+    return value
+
+
+def _section_numbers(value: object, count: int, name: str) -> tuple[float, ...]:
+    if (
+        not isinstance(value, (tuple, list))
+        or type(value) not in (tuple, list)
+        or len(value) != count
+    ):
+        raise ValueError(f"{name} must contain {count} finite numbers")
+    if any(type(item) not in (int, float) for item in value):
+        raise ValueError(f"{name} requires built-in non-boolean numbers")
+    try:
+        result = tuple(float(item) for item in value)
+    except OverflowError as exc:
+        raise ValueError(f"{name} must be finite") from exc
+    if not all(isfinite(item) for item in result):
+        raise ValueError(f"{name} must be finite")
+    return result
+
+
+def _section_axis(vector: tuple[float, ...]) -> tuple[int, int]:
+    index = max(range(3), key=lambda i: abs(vector[i]))
+    sign = 1 if vector[index] > 0 else -1
+    if any(abs(value - (sign if i == index else 0)) > 1e-9 for i, value in enumerate(vector)):
+        raise _UnsupportedSectionRecess("pocket requires principal section and run directions")
+    return index, sign
+
+
+def _convert_section_recess_pocket(record: Mapping, *, schema_version: int) -> PocketFeature:
+    """Lower a schema-2 document's rectangular pocket into the existing drafting IR.
+
+    This private migration adapter consumes JSON primitives from a released SectionRecess.
+    It performs no recognition and returns no provider references. It is not yet wired into
+    production detection: the aggregate, ownership and independent lint cutover must land
+    together before the runtime dependency changes (#1471). The caller remains responsible
+    for validating result-local references and recording ownership from the exact source run.
+
+    Closed rectangles and open rectangular corner/edge cuts share the existing PocketFeature
+    grammar. Open cuts keep ``edge_anchored=True``; no closing edge is manufactured. Curved,
+    general polygonal, sloped-end and free-axis sections are explicitly refused by this slice.
+    """
+
+    if type(schema_version) is not int or schema_version != 2:
+        raise ValueError("unsupported SectionRecess schema version")
+    row = _section_object(
+        record, {"index", "body", "geometry", "classification", "evidence"}, "occurrence"
+    )
+    if any(type(row[key]) is not int or row[key] < 0 for key in ("index", "body")):
+        raise ValueError("occurrence and body indices must be non-negative integers")
+    evidence = _section_object(
+        row["evidence"], {"defining_faces", "constituent_faces"}, "evidence"
+    )
+    for refs in evidence.values():
+        if (
+            type(refs) not in (tuple, list)
+            or any(type(ref) is not int or ref < 0 for ref in refs)
+            or list(refs) != sorted(set(refs))
+        ):
+            raise ValueError("face references must be sorted unique non-negative integers")
+    if not evidence["defining_faces"] or not set(evidence["defining_faces"]) <= set(
+        evidence["constituent_faces"]
+    ):
+        raise ValueError("pocket requires defining faces contained in constituent faces")
+    classification = _section_object(
+        row["classification"], {"feature_kind", "section_shape"}, "classification"
+    )
+    kind, shape = classification["feature_kind"], classification["section_shape"]
+    if (kind, shape) not in (("pocket", "rectangular"), ("edge_open_recess", "polygonal")):
+        raise _UnsupportedSectionRecess("recess is outside the rectangular pocket vocabulary")
+    geometry = _section_object(
+        row["geometry"], {"type", "frame", "run_interval", "profile", "ends"}, "geometry"
+    )
+    if geometry["type"] != "section_recess":
+        raise ValueError("expected section_recess geometry")
+    frame = _section_object(geometry["frame"], {"origin", "run", "u", "v"}, "frame")
+    origin = _section_numbers(frame["origin"], 3, "frame origin")
+    run, u, v = (_section_numbers(frame[key], 3, key) for key in ("run", "u", "v"))
+    run_index, run_sign = _section_axis(run)
+    u_index, u_sign = _section_axis(u)
+    v_index, v_sign = _section_axis(v)
+    if len({run_index, u_index, v_index}) != 3:
+        raise ValueError("section frame directions must be perpendicular")
+    cross = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+    if any(abs(a - b) > 1e-9 for a, b in zip(cross, run)):
+        raise ValueError("section frame must be right-handed")
+    low, high = _section_numbers(geometry["run_interval"], 2, "run interval")
+    if high <= low:
+        raise ValueError("run interval must increase")
+    ends = _section_object(geometry["ends"], {"low", "high"}, "ends")
+    conditions = []
+    for key in ("low", "high"):
+        end = _section_object(ends[key], {"condition", "gradient"}, "end")
+        conditions.append(end["condition"])
+        if any(_section_numbers(end["gradient"], 2, "end gradient")):
+            raise _UnsupportedSectionRecess("pocket requires perpendicular run ends")
+    if sorted(conditions, key=str) != ["capped", "open"]:
+        raise ValueError("pocket requires exactly one capped and one open end")
+
+    edge_anchored = kind == "edge_open_recess"
+    profile = _section_object(
+        geometry["profile"],
+        {"closure", "boundary", "opening"} if edge_anchored else {"closure", "boundary"},
+        "profile",
+    )
+    if profile["closure"] != ("open" if edge_anchored else "closed"):
+        raise ValueError("profile closure disagrees with pocket classification")
+    boundary = profile["boundary"]
+    if type(boundary) not in (tuple, list) or len(boundary) not in (
+        (3, 4) if edge_anchored else (4,)
+    ):
+        raise _UnsupportedSectionRecess("pocket requires a rectangular boundary or open chain")
+    points = []
+    for item in boundary:
+        vertex = _section_object(item, {"point", "bulge"}, "profile vertex")
+        point = _section_numbers(vertex["point"], 2, "profile point")
+        if _section_numbers([vertex["bulge"]], 1, "bulge")[0] != 0:
+            raise _UnsupportedSectionRecess("curved profiles need their own drafting semantics")
+        points.append(point)
+    if edge_anchored:
+        opening = profile["opening"]
+        if type(opening) not in (tuple, list) or len(opening) != 2:
+            raise ValueError("opening must join the two loose endpoints")
+        endpoints = tuple(_section_numbers(point, 2, "opening point") for point in opening)
+        if endpoints != (points[-1], points[0]):
+            raise ValueError("opening must join the two loose endpoints")
+    bounds = [(min(p[i] for p in points), max(p[i] for p in points)) for i in range(2)]
+    if any(hi <= lo for lo, hi in bounds):
+        raise ValueError("pocket section must have positive extents")
+    if len(set(points)) != len(points) or any(
+        p[0] not in bounds[0] or p[1] not in bounds[1] for p in points
+    ):
+        raise _UnsupportedSectionRecess("profile does not follow rectangular supports")
+    chain = points if edge_anchored else [*points, points[0]]
+    if any(sum(a[i] != b[i] for i in range(2)) != 1 for a, b in zip(chain, chain[1:])):
+        raise _UnsupportedSectionRecess("profile contains a diagonal or crossing support")
+
+    world_bounds = {
+        run_index: sorted(origin[run_index] + run_sign * n for n in (low, high)),
+        u_index: sorted(origin[u_index] + u_sign * n for n in bounds[0]),
+        v_index: sorted(origin[v_index] + v_sign * n for n in bounds[1]),
+    }
+    span_index = max(
+        (u_index, v_index), key=lambda i: (world_bounds[i][1] - world_bounds[i][0], i)
+    )
+    width_index = v_index if span_index == u_index else u_index
+    center = tuple(lo / 2 + hi / 2 for lo, hi in (world_bounds[i] for i in range(3)))
+    width = world_bounds[width_index][1] - world_bounds[width_index][0]
+    length = world_bounds[span_index][1] - world_bounds[span_index][0]
+    if not all(isfinite(n) for n in (*center, width, length, high - low)):
+        raise ValueError("projected pocket measurements must be finite")
+    if any(hi <= lo for lo, hi in world_bounds.values()):
+        raise ValueError("projected pocket extents must remain positive")
+    return PocketFeature(
+        frame=Frame(origin=(center[0], center[1], center[2]), axis="xyz"[run_index]),
+        width_axis="xyz"[width_index],
+        long_axis="xyz"[span_index],
+        width=width,
+        length=length,
+        depth=high - low,
+        w_center=center[width_index],
+        lo=world_bounds[span_index][0],
+        hi=world_bounds[span_index][1],
+        edge_anchored=edge_anchored,
+        open_sign=run_sign * (1 if conditions[1] == "open" else -1),
+    )
 
 
 def _convert_channel(channel: Channel, ctx: ConvContext) -> ChannelFeature:
