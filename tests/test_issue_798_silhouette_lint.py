@@ -224,6 +224,10 @@ class TestGreedyFloorPrefersClearRoutes:
         assert _MATERIAL_PENALTY_UNIT > 0
 
 
+class _HistoricalCalloutFloorNotMet(AssertionError):
+    """Only the accepted historical-count gap may be expected to fail."""
+
+
 class TestCardinalityIsNotTradedForCleanliness:
     """#798 — a crossing is cosmetic; a missing dimension is not.
 
@@ -245,9 +249,26 @@ class TestCardinalityIsNotTradedForCleanliness:
     """
 
     # (fixture stem, feature-leader callouts the floor must keep placing)
-    CASES = (
-        ("nist_ctc_04_asme1_ap203", 11),
-        ("nist_ctc_05_asme1_ap242", 18),
+    # Preserve the historical floors while the release-accepted Quiddity migration
+    # reclassifies/refuses the old pocket inventory. Do not lower these counts to
+    # the smaller drawings or treat their disappearance as a routing improvement.
+    CASES = tuple(
+        pytest.param(
+            stem,
+            floor,
+            marks=pytest.mark.xfail(
+                strict=True,
+                raises=_HistoricalCalloutFloorNotMet,
+                reason=(
+                    "Quiddity 0.2.2 accepted recess-inventory limitation: "
+                    "https://github.com/pzfreo/draftwright/issues/1471"
+                ),
+            ),
+        )
+        for stem, floor in (
+            ("nist_ctc_04_asme1_ap203", 11),
+            ("nist_ctc_05_asme1_ap242", 18),
+        )
     )
 
     # Parametrized per fixture (#656): each dense build is ~60 s, and one test running
@@ -265,11 +286,12 @@ class TestCardinalityIsNotTradedForCleanliness:
         build_drawing(step_file=str(Path("tests/fixtures") / f"{stem}.stp"))
         events = json.loads(trace.read_text())["pass_events"]
         event = next(e for e in events if e.get("label") == "feature_leader_inventory")
-        assert event["objective"]["placed"] >= floor, (
-            f"{stem}: the leader floor placed {event['objective']['placed']} callouts, "
-            f"below the historical floor of {floor} — a route preference must never "
-            "cost a dimension"
-        )
+        if event["objective"]["placed"] < floor:
+            raise _HistoricalCalloutFloorNotMet(
+                f"{stem}: the leader floor placed {event['objective']['placed']} callouts, "
+                f"below the historical floor of {floor} — a route preference must never "
+                "cost a dimension"
+            )
 
     def test_material_is_never_an_acceptance_test(self):
         # The direct guarantee, read off the code rather than a fixture: the floor's

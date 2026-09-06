@@ -148,7 +148,11 @@ def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
     _p = dwg.export(stem, formats=("svg", "dxf"))
     svg = _p["svg"]
     dxf = _p["dxf"]
-    _assert_ctc_diagnostic_contract(dwg, svg, dxf, expect_incomplete=True)
+    _assert_ctc_diagnostic_contract(dwg, svg, dxf, expect_incomplete=n != "01")
+    if n == "01":
+        # Quiddity 0.2.2 reclassifies/refuses the former pockets. The smaller plan
+        # fits, but recognition gaps must remain visible; this is not completeness.
+        assert "section_recess_recognition_refused" in {issue.code for issue in dwg.lint()}
     # The #19 fix: no circle-edge-on degenerate arcs leak into the SVG.
     data = Path(svg).read_text(encoding="utf-8")
     degenerate = [
