@@ -19,7 +19,7 @@ from decimal import Decimal
 from inspect import signature
 
 from b123d_recognisers import full_cylinders
-from build123d import Compound, Shape
+from build123d import Compound, GeomType, Shape
 
 _log = logging.getLogger(__name__)
 
@@ -1181,3 +1181,51 @@ def _segments_cross_or_overlap(a1, a2, b1, b2) -> bool:
         if on_segment(point, first, second) and not (same(point, first) or same(point, second)):
             return True
     return False
+
+
+def _straight_blend_faces(blend, cylinders, radius, *, defining_faces=None):
+    """Use exact occurrence faces, or one unambiguous declared cylinder support."""
+    if defining_faces is not None:
+        return tuple(defining_faces)
+    origin = blend.frame.origin
+    direction = blend.axis_direction
+    length = math.hypot(*direction)
+    normal = tuple(value / length for value in direction)
+    matches = []
+    for family in cylinders:
+        for cylinder in family:
+            if abs(cylinder["diameter"] / 2 - radius) > 2e-3:
+                continue
+            if cylinder["external"] != (blend.side == "convex"):
+                continue
+            axis = cylinder["dir_xyz"]
+            alignment = abs(sum(normal[i] * axis[i] for i in range(3)))
+            delta = tuple(origin[i] - cylinder["axis_xyz"][i] for i in range(3))
+            along = sum(delta[i] * axis[i] for i in range(3))
+            radial = math.hypot(*(delta[i] - along * axis[i] for i in range(3)))
+            station = sum(origin[i] * axis[i] for i in range(3))
+            if (
+                abs(alignment - 1) <= 2e-6
+                and radial <= 2e-3
+                and cylinder["s_lo"] - 2e-3 <= station <= cylinder["s_hi"] + 2e-3
+            ):
+                matches.append(cylinder["face"])
+    return tuple(matches) if len(matches) == 1 else ()
+
+
+def _blend_profile_arcs(faces, radius):
+    """Curved boundaries of the physical cylindrical patch carrying this radius.
+
+    An oblique end trim can be a spline in 3-D while its end-on profile is still a radius
+    arc. Validate the cylinder's radius and retain the actual boundary curve, never rebuild
+    an untrimmed mathematical circle. Straight generatrices are not radius targets.
+    """
+    return tuple(
+        edge
+        for face in faces
+        if face.geom_type == GeomType.CYLINDER
+        and face.radius is not None
+        and abs(face.radius - radius) <= 2e-3
+        for edge in face.edges()
+        if edge.geom_type != GeomType.LINE
+    )

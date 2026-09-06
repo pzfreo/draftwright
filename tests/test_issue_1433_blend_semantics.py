@@ -683,9 +683,19 @@ def test_detected_drawing_places_one_grouped_callout_with_four_exact_credits() -
 
 
 def test_authored_distinct_display_radii_never_share_false_group_credit() -> None:
-    sheet = Sheet(_single_blend()).authored_dimensions()
-    first = sheet.blend(axis="z", radius=0.2001, at=(-2.0, 0.0, 0.0))
-    second = sheet.blend(axis="z", radius=0.2002, at=(2.0, 0.0, 0.0))
+    part = Compound(children=[_single_blend(0.2001), Pos(40, 0, 0) * _single_blend(0.2002)])
+    sheet = Sheet(part).authored_dimensions()
+    handles = []
+    for radius in (0.2001, 0.2002):
+        arcs = [
+            edge
+            for edge in part.edges()
+            if edge.geom_type == GeomType.CIRCLE and abs(edge.radius - radius) < 1e-8
+        ]
+        assert len(arcs) == 2
+        centre = arcs[0].arc_center
+        handles.append(sheet.blend(axis="z", radius=radius, at=(centre.X, centre.Y, 0.0)))
+    first, second = handles
     sheet.dimension(first, "blend.radius").format(decimals=4)
     sheet.dimension(second, "blend.radius").format(decimals=4)
     drawing = sheet.build()

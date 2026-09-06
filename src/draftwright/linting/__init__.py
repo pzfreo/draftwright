@@ -17,7 +17,7 @@ Import the public surface from here, not the submodules.
 from __future__ import annotations
 
 from draftwright.linting.angled_step_coverage import lint_angled_step_coverage
-from draftwright.linting.blend_coverage import lint_blend_coverage
+from draftwright.linting.blend_coverage import lint_blend_coverage, lint_blend_leader_targets
 from draftwright.linting.chamfer_coverage import lint_chamfer_coverage
 from draftwright.linting.channel_coverage import lint_channel_coverage
 from draftwright.linting.circular_blind_step_coverage import lint_circular_blind_step_coverage
@@ -91,6 +91,7 @@ __all__ = [
     "lint_axial_coverage",
     "lint_boss_height_coverage",
     "lint_blend_coverage",
+    "lint_blend_leader_targets",
     "lint_channel_coverage",
     "lint_circular_blind_step_coverage",
     "lint_chamfer_coverage",
