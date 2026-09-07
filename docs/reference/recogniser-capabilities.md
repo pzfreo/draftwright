@@ -70,6 +70,18 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
+### Quiddity 0.2.5 runtime contract
+
+Adopts the published `quiddity==0.2.5` package. The public record surface, the 27-family
+manifest and every consumed schema version are unchanged from 0.2.4: the release routes each
+whole-solid query (bounding box, volume, area) through one run-scoped property cache, so the
+body correlation signature that every family reads is computed once per solid instead of once
+per family. Measured in Draftwright on the 292-face wheel fixture (`issue_1058_wheel_rh.step`),
+signing fell from nine 0.57 s computations to one, and the whole build from 11.8–18.3 s to
+5.4–5.5 s interleaved on one host; CTC-01 AP242 fell 5%, and GRM03/GRM04 were unchanged.
+Recognition scores on the groove, plate, turned-step and holes corpora are identical under
+0.2.5, and the full fast tier passes with only the five version literals changed.
+
 ### Quiddity 0.2.4 runtime contract
 
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) adopts the published

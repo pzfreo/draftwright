@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Adopt `quiddity==0.2.5`, which computes the body correlation signature once per solid per
+  recognition run instead of once per family. Recognition records and drawings are unchanged;
+  B-spline-heavy parts build materially faster (the wheel fixture ~2×, CTC-01 −5%).
+
 ### Added
 
 - Report schema v1 now projects one recognition-owned physical requirement ledger shared with
