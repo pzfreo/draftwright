@@ -1295,14 +1295,113 @@ class Drawing:
         the annotation measures nothing. Which renderers record it is enforced by the ratchet
         in `tests/test_audit_differential.py`; treat presence as exact and absence as unknown.
 
-        Exact **within** a build. Across two builds the key cannot match directly, because
-        `feature_key` embeds coordinates and scalars a differential deliberately changes —
-        `draftwright.audit` joins on the feature's kind instead.
+        These keys describe geometry and have the collision limits of ``feature_key``.
+        For declaration-local ownership and meaning comparisons, capture
+        :meth:`measurement_snapshot`; geometry descriptions alone do not prove correspondence.
         """
         return [
             {"feature": feature_key(mid.feature), "parameter_id": mid.parameter}
             for mid in self._registry.measurement_of(name)
         ]
+
+    def measurement_snapshot(self):
+        """Capture named measurement claims for a declaration-local edit comparison.
+
+        Use :func:`draftwright.audit.compare_measurements` to compare snapshots. Capture
+        before mutating a drawing. Owner references stay local to this process; separately
+        rebuilt declarations need an explicit correspondence, never a geometry-key guess.
+        This read compiles the existing model and reads recorded claim text, without recognition.
+        """
+        from copy import deepcopy
+
+        from draftwright.audit import _FURNITURE, MeasurementClaim, MeasurementSnapshot
+        from draftwright.linting.evidence import compiled_values, verify_measurement_claims
+        from draftwright.linting.structural import dimension_path_measurement
+        from draftwright.model.compiled import compile_dimensions
+
+        model = self.model()
+        if model is None:
+            return MeasurementSnapshot((), (), (("", "model_unavailable"),))
+        plan = compile_dimensions(model)
+        values = compiled_values(plan)
+        outcomes = verify_measurement_claims(self.registry, plan)
+        claims = []
+        unknown = []
+        for name, type_name in self.annotations().items():
+            if type_name in _FURNITURE:
+                continue
+            annotation = self.registry.named(name)
+            path = dimension_path_measurement(annotation, self.scale)
+            # Paper-space arithmetic can introduce sub-nanometre roundoff when
+            # a view moves or rescales. Compiled values/spans remain unrounded;
+            # this extra observed length only binds the text to its drawn path.
+            measured_length = None if path is None else round(path[0] / path[1], 9)
+            identities = self.registry.measurement_of(name)
+            if not identities:
+                unknown.append((name, "measurement_identity_unavailable"))
+            for identity in identities:
+                approved = tuple(
+                    item
+                    for item in values.get(identity, ())
+                    if item.id is not None and item.id.feature is identity.feature
+                )
+                evidence = [
+                    item
+                    for item in outcomes
+                    if item.annotation == name
+                    and item.measurement is not None
+                    and getattr(item.measurement, "feature", None) is identity.feature
+                    and item.parameter_id == identity.parameter
+                ]
+                if (
+                    not approved
+                    or not evidence
+                    or any(item.state != "confirmed" for item in evidence)
+                ):
+                    unknown.append((name, "compiled_claim_unconfirmed"))
+                    continue
+                meaning = tuple(
+                    (
+                        item.value,
+                        deepcopy(item.tolerance),
+                        item.span,
+                        item.axis,
+                        item.discriminator,
+                        item.location_member,
+                    )
+                    for item in approved
+                )
+                claims.append(
+                    MeasurementClaim(
+                        identity.feature,
+                        identity.parameter,
+                        name,
+                        meaning,
+                        (
+                            str(
+                                getattr(self.registry.named(name), "label", None)
+                                or getattr(self.registry.named(name), "_annotate_label", "")
+                            ),
+                            tuple(
+                                tuple(str(cell) for cell in row)
+                                for row in getattr(self.registry.named(name), "table_rows", ())
+                                or ()
+                            ),
+                            measured_length,
+                        ),
+                        (
+                            deepcopy(getattr(annotation, "_dw_measurement_span", None)),
+                            tuple(
+                                (component, deepcopy(at))
+                                for feature, component, at in getattr(
+                                    annotation, "covers_hole_locations", ()
+                                )
+                                if feature is identity.feature
+                            ),
+                        ),
+                    )
+                )
+        return MeasurementSnapshot(tuple(model.features), tuple(claims), tuple(unknown))
 
     @property
     def solve_trace(self):

@@ -8,6 +8,7 @@ import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright import Sheet, build_drawing
+from draftwright.audit import compare_measurements
 from draftwright.linting.issues import LintIssue
 from draftwright.model import hole
 from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
@@ -90,6 +91,28 @@ def test_discovery_and_emission_preserve_the_supported_sides(grm04_scripts):
         (r.role, r.view, r.side) for r in model.authored_dimensions
     ]
     assert _measurements(namespace["drawing"]) == _measurements(edited["drawing"])
+
+
+def test_grm04_edit_preserves_measurement_meaning_under_shared_declaration(grm04_scripts):
+    original, _edited, _out = grm04_scripts
+    before = original["drawing"]
+    model = before.model()
+    requests = tuple(
+        replace(request, side="left")
+        if request.role in {"bore.diameter", "height.length"}
+        else request
+        for request in model.authored_dimensions
+    )
+    assert sum(request.side == "left" for request in requests) == 3
+    after = build_drawing(
+        original["part"], model=replace(model, authored_dimensions=requests), scale=4
+    )
+    assert any(issue.code == "annotation_ink_overlap" for issue in before.lint())
+    assert not any(
+        issue.code in {"annotation_overlap", "annotation_ink_overlap"} for issue in after.lint()
+    )
+    comparison = compare_measurements(before, after)
+    assert comparison["status"] == "preserved", comparison
 
 
 def _side_sheet(kind, side, **options):

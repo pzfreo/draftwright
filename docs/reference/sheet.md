@@ -97,6 +97,53 @@ to place the dimension; location selection supplies no page coordinates.
 
 ## Sheet
 
+### Comparing measurements after a declaration edit
+
+`compare_measurements()` compares named compiled measurements, including their owner,
+parameter, nominal value, tolerance, directional span and rendered claim text. Linear
+dimensions also retain their measured path lengths in model units, so exchanging labels
+between two spans cannot hide behind an unchanged label multiset. Recorded per-annotation
+spans and location components also distinguish equal-valued axes under a coarse parameter
+id. These are provenance claims; independent lint must still check physical targets.
+Reuse the feature objects in a declaration when editing placement intent:
+
+```python
+from dataclasses import replace
+from draftwright import build_drawing
+from draftwright.audit import compare_measurements
+
+original_model = sheet.model()
+edited_model = replace(
+    original_model,
+    authored_dimensions=tuple(
+        replace(request, side="left") if request.role == "height.length" else request
+        for request in original_model.authored_dimensions
+    ),
+)
+before = build_drawing(part, model=original_model)
+after = build_drawing(part, model=edited_model)
+result = compare_measurements(before, after)
+print(result["status"], result["lost"], result["changed"], result["unknown"])
+```
+
+The status is `preserved`, `changed` or `unknown`. An unresolved owner or unconfirmed
+claim prevents `preserved`. For an in-place edit, capture
+`before = drawing.measurement_snapshot()` before changing the drawing, then compare
+that snapshot with the edited drawing. Snapshots retain process-local feature references.
+
+Separately rebuilt declarations do not acquire correspondence from equal geometry or
+inventory order. If the caller knows the correspondence, pass
+`feature_pairs=((old_feature, new_feature), ...)`. Each pair must name exact owners in
+the respective snapshots and the correspondence must be one-to-one. These are caller
+assertions; the comparison checks measurement meaning under them. Output owner numbers
+are positions in the before snapshot for presentation, not durable identities.
+
+`diff_builds()` includes this result as `measurement_comparison` and detects same-kind
+substitutions between shared declared owners. A clear annotation diff can still have
+unknown measurement correspondence. Use independent `lint_summary()["quality"]`
+evidence alongside the comparison: named-measurement preservation does not establish
+physical completeness, pin preservation or release readiness.
+
 ::: draftwright.sheet.Sheet
     options:
       filters: public

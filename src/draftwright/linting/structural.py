@@ -1089,10 +1089,15 @@ def _is_angular_label(label: str) -> bool:
 _MATERIAL_LABEL_DISCREPANCY = 0.05
 
 
-def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:
+def dimension_path_measurement(item, drawing_scale: float = 1.0):
+    """Return a linear dimension's measured page length and its applicable scale.
+
+    Shared by structural lint and measurement snapshots so a claim's text remains
+    associated with the quantity drawn by that annotation. Angular labels have no
+    linear path measurement under this contract.
+    """
     label = _item_label(item)
     measured = getattr(item, "measured_length", None)
-
     # An ANGULAR label is denominated in degrees; `measured_length` is a projected path in
     # millimetres. Comparing them is a category error, not a discrepancy — it reported a
     # 60 deg dovetail flank as "differs from measured path length 16.000 by 275.0%",
@@ -1108,33 +1113,41 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     # every path into lint", which is false. Tagging the annotation with its kind would fix
     # that properly; it is not done here because nothing angular now reaches the renderer.
     #
-    # Both guards apply: an angular label is skipped outright (its units differ), and a
-    # repeat label is read as its producer declared it (#1153).
+    if measured is None or _is_angular_label(label):
+        return None
+    # When drawing_scale != 1.0 the geometry was scaled up before projecting
+    # (e.g. part.scale(5) for a 7.5 mm feature drawn at 5:1). The measured
+    # path length is the *scaled* length; the label carries the *real* value.
+    # Divide measured by the scale factor before comparing so a 37.5 mm
+    # measured segment with label "7.5" at 5:1 is accepted, not flagged.
+    #
+    # PER ANNOTATION. An enlarged detail view (#42) tags its dims with `_dw_scale`, and the
+    # caller used to pre-split the item list by that tag and call `lint_drawing` once per
+    # group so this comparison saw the right scale. That split is what made the PAIRWISE
+    # checks blind across groups: two annotations in different groups were never compared,
+    # and a detail view's dims and its own caption are ALWAYS in different groups while
+    # being spatially adjacent by construction — the pair most likely to collide was the
+    # one pair never checked (#1216).
+    #
+    # Reading the tag here instead lets `lint_drawing` run once over every annotation.
+    # `drawing_scale` remains the sheet default for the untagged majority, and stays the
+    # right value for the page-level `world_ext` check above, which is about the sheet and
+    # not about any one annotation.
+    # `drawing_scale` is validated positive by `lint_drawing`; a per-annotation `_dw_scale`
+    # is not on that path, so it is guarded here rather than assumed.
+    item_scale = getattr(item, "_dw_scale", drawing_scale)
+    if not item_scale or item_scale <= 0:
+        item_scale = drawing_scale
+    return measured, item_scale
+
+
+def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:
+    label = _item_label(item)
+    measurement = dimension_path_measurement(item, drawing_scale)
+    # A repeat label is read as its producer declared it (#1153).
     label_val = _label_reading(item, label)
-    if label_val is not None and measured is not None and not _is_angular_label(label):
-        # When drawing_scale != 1.0 the geometry was scaled up before projecting
-        # (e.g. part.scale(5) for a 7.5 mm feature drawn at 5:1). The measured
-        # path length is the *scaled* length; the label carries the *real* value.
-        # Divide measured by the scale factor before comparing so a 37.5 mm
-        # measured segment with label "7.5" at 5:1 is accepted, not flagged.
-        #
-        # PER ANNOTATION. An enlarged detail view (#42) tags its dims with `_dw_scale`, and the
-        # caller used to pre-split the item list by that tag and call `lint_drawing` once per
-        # group so this comparison saw the right scale. That split is what made the PAIRWISE
-        # checks blind across groups: two annotations in different groups were never compared,
-        # and a detail view's dims and its own caption are ALWAYS in different groups while
-        # being spatially adjacent by construction — the pair most likely to collide was the
-        # one pair never checked (#1216).
-        #
-        # Reading the tag here instead lets `lint_drawing` run once over every annotation.
-        # `drawing_scale` remains the sheet default for the untagged majority, and stays the
-        # right value for the page-level `world_ext` check above, which is about the sheet and
-        # not about any one annotation.
-        # `drawing_scale` is validated positive by `lint_drawing`; a per-annotation `_dw_scale`
-        # is not on that path, so it is guarded here rather than assumed.
-        item_scale = getattr(item, "_dw_scale", drawing_scale)
-        if not item_scale or item_scale <= 0:
-            item_scale = drawing_scale
+    if label_val is not None and measurement is not None:
+        measured, item_scale = measurement
         effective_measured = measured / item_scale
         if effective_measured > 1e-6:
             ratio = abs(label_val - effective_measured) / effective_measured
