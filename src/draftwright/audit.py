@@ -35,12 +35,9 @@ coordinates. Two features of one kind are therefore not separated: a same-count 
 slot's width for another's is invisible (**#1006**). Multiplicity IS compared — as a multiset,
 so a grouped callout dropping a member is caught — but a like-for-like exchange is not.
 
-- **A replaced measurement hides where identity is unrecorded.** Move a hole and `m_locx0`
-  goes from `70` to `90`: a different measurement reused the slot. With identity recorded
-  that is caught and reported as ``measurements_substituted``. Without it the old hole
-  remains — and if the replacement renders the same label, **every result map is empty**. So
-  a clean diff still does not establish that the measurements were preserved; it establishes
-  that nothing observable at this resolution moved (Codex #1001).
+- **A replaced measurement can reuse an annotation name.** Recorded parameter and member
+  identities allow ``measurements_substituted`` to report changes even when the displayed
+  value agrees. The same-kind, same-parameter feature swap described above remains a gap.
 - **A loss is attributed only where identity exists, and only by kind.** Where identity is
   recorded the join is on ``(feature kind, parameter_id)`` — precise enough to separate an
   envelope's width from a slot's, not precise enough to separate two slots. Where it is not
@@ -186,10 +183,9 @@ def diff_builds(before, after) -> dict:
     # every envelope dim of every perturbed build as "reattributed" — three noise lines on a
     # three-dimension drawing, in the one experiment this module exists to run.
     #
-    # Hole location DimensionIds remain one feature-level `location.location` unit (ADR 4 (was 0016)).
-    # Physical completeness carries directional X/Y evidence separately, but this differential
-    # audit intentionally compares the public addressable identity, so X↔Y substitution remains
-    # part of #883's open naming decision.
+    # Hole location IDs carry the declared member and measured axis. This detects component
+    # substitutions even when the rendered name and value agree. The feature-kind join still
+    # cannot distinguish unrelated same-kind owners; that remaining gap is tracked in #1006.
     substituted: dict[str, tuple] = {}
     for name in set(before_dims) & set(after_dims):
         b_ids, a_ids = _identities(before, name), _identities(after, name)

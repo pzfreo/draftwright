@@ -671,7 +671,11 @@ class TestAPositionIsADimension:
         assert len(locations) == 2
         assert {
             key["parameter_id"] for name in locations for key in drawing.measurement_keys(name)
-        } == {"location_pattern.location"}
+        } == {
+            f"location_pattern.location.member.0.{measured}"
+            for measured in "xyz"
+            if measured != axis
+        }
 
     def test_a_Z_normal_pattern_location_still_works(self):
         """The false-positive half: narrowing eligibility must not cost the case that works."""

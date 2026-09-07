@@ -310,12 +310,12 @@ def test_shared_location_marks_retain_addressable_and_physical_axis_identities()
     x_keys = drawing.measurement_keys("m_locx0")
     y_keys = drawing.measurement_keys("m_locy0")
     assert {key["parameter_id"] for key in x_keys} == {
-        "location.location",
-        "location_pattern.location",
+        "location.location.member.0.x",
+        "location_pattern.location.centre.x",
     }
     assert {key["parameter_id"] for key in y_keys} == {
-        "location.location",
-        "location_pattern.location",
+        "location.location.member.0.y",
+        "location_pattern.location.centre.y",
     }
     assert len({key["feature"] for key in x_keys}) == 2
     assert len({key["feature"] for key in y_keys}) == 2
@@ -1806,13 +1806,18 @@ def test_cross_hole_locations_retain_both_off_axis_measurement_identities():
         for key in drawing.measurement_keys(name)
         if key["parameter_id"].startswith("location_off_axis.")
     }
-    assert placed_location_ids == {"location_off_axis.y", "location_off_axis.z"}
+    assert placed_location_ids == {
+        "location_off_axis.location.member.0.y",
+        "location_off_axis.location.member.0.z",
+    }
 
     z_mark = next(
         name
         for name in drawing.annotations()
         if any(
-            key["parameter_id"] == "location_off_axis.z" for key in drawing.measurement_keys(name)
+            key["parameter_id"]
+            in {"location_off_axis.location.member.0.z", "location_off_axis.location.member.1.z"}
+            for key in drawing.measurement_keys(name)
         )
     )
     measurement_ids = tuple(drawing.registry.measurement_of(z_mark))
@@ -1843,7 +1848,9 @@ def test_grouped_off_axis_locations_require_every_physical_member_mark():
         name
         for name in drawing.annotations_of(feature)
         if any(
-            key["parameter_id"] == "location_off_axis.z" for key in drawing.measurement_keys(name)
+            key["parameter_id"]
+            in {"location_off_axis.location.member.0.z", "location_off_axis.location.member.1.z"}
+            for key in drawing.measurement_keys(name)
         )
     ]
     assert len(z_marks) == 2
@@ -2037,7 +2044,7 @@ def test_eccentric_longitudinal_boss_is_not_the_turned_profile_axis():
         for name in drawing.annotations_of(feature)
         for key in drawing.measurement_keys(name)
         if key["parameter_id"].startswith("location_off_axis.")
-    } == {"location_off_axis.y", "location_off_axis.z"}
+    } == {"location_off_axis.location.member.0.y", "location_off_axis.location.member.0.z"}
     assert {
         item.parameter_id: item.state
         for item in _outcomes(drawing)
@@ -2074,7 +2081,9 @@ def test_nearby_distinct_member_locations_are_dropped_not_semantically_merged():
     assert {parameter for _feature, parameter in drop.hole_requirement_ids} == {
         "location.location.x"
     }
-    assert {measurement.parameter for measurement in drop.measurement_ids} == {"location.location"}
+    assert {measurement.parameter for measurement in drop.measurement_ids} == {
+        "location.location.member.1.x"
+    }
 
 
 def test_live_locate_restores_member_level_location_provenance():
@@ -2154,13 +2163,58 @@ def test_successful_hole_table_escalation_carries_every_replaced_requirement():
     hole_count = len([feature for feature in drawing.model().features if feature.kind == "hole"])
     assert hole_count == 16
     keys = drawing.measurement_keys("hole_table_plan")
-    assert len(keys) == hole_count * 2
+    assert len(keys) == hole_count * 3  # diameter and two independently identified ordinates
     assert len({(key["feature"], key["parameter_id"]) for key in keys}) == len(keys)
     outcomes = _outcomes(drawing)
     assert len(outcomes) == hole_count * 4
     assert all(item.state == "placed" for item in outcomes)
     assert not [issue for issue in drawing.lint() if issue.code.startswith("hole_requirement_")]
     assert _completeness(drawing)["audited_score"] == 1.0
+
+
+@pytest.mark.parametrize("axis", ["x", "y"])
+def test_hole_table_leaves_an_unauthored_location_axis_blank(monkeypatch, axis):
+    from draftwright.drawing import Drawing
+
+    captured = []
+    original = Drawing.add_table
+
+    def capture_rows(self, rows, **kwargs):
+        captured.append(tuple(tuple(row) for row in rows))
+        return original(self, rows, **kwargs)
+
+    monkeypatch.setattr(Drawing, "add_table", capture_rows)
+    sheet = Sheet.from_part(_dense_scattered_plate(), page="A3")
+    holes = [feature for feature in sheet.features if feature.kind == "hole"]
+    assert len(holes) == 16
+    for feature in holes:
+        sheet.dimension(feature, "bore.diameter")
+        sheet.dimension(feature, "location", member=0, axis=axis)
+    drawing = sheet.build()
+    assert "hole_table_plan" in drawing.annotations()
+    rows = captured[-1]
+    assert rows[0][:5] == ("TAG", "⌀", "DEPTH", "X", "Y")
+    cells = [
+        row[offset : offset + 5]
+        for row in rows[1:]
+        for offset in range(0, len(row), 5)
+        if row[offset]
+    ]
+    assert len(cells) == 16
+    selected, omitted = (3, 4) if axis == "x" else (4, 3)
+    assert all(row[selected] and row[omitted] == "" for row in cells)
+    keys = drawing.measurement_keys("hole_table_plan")
+    assert len(keys) == 32
+    assert {key["parameter_id"] for key in keys} == {
+        "bore.diameter",
+        f"location.location.member.0.{axis}",
+    }
+    omitted_axis = "y" if axis == "x" else "x"
+    assert {
+        item.state
+        for item in _outcomes(drawing)
+        if item.parameter_id == f"location.location.{omitted_axis}"
+    } == {"suppressed"}
 
 
 def test_scattered_hole_table_preserves_placed_pattern_location_evidence():

@@ -2706,7 +2706,8 @@ class TestTheDimensionMirror:
         src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
         assert "sheet.auto_dimensions()" not in src
         assert 'sheet.dimension(hole1, "bore.diameter")' in src
-        assert 'sheet.dimension(hole1, "location")' in src
+        assert 'sheet.dimension(hole1, "location", axis="x", member=0)' in src
+        assert 'sheet.dimension(hole1, "location", axis="y", member=0)' in src
         assert 'sheet.dimension(envelope1, "width.length")' in src
 
     def test_commenting_one_line_drops_exactly_that_dimension(self):

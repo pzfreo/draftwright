@@ -67,6 +67,34 @@ build. Build and lint still assess the resulting Sheet. A
 query never replaces an existing dimension request. Keep the original feature handle for edits;
 these reports do not introduce persistent feature identities or new lane, route or pin controls.
 
+## Selecting a hole location component
+
+Use `location` alone to request the usual location set. To select one component of a hole
+group or pattern, pair its declared member index with the measured world axis:
+
+```python
+options = sheet.dimension_options(holes, "location")
+print(options["location_components"])  # valid member/axis pairs and their parameter ids
+sheet.dimension(holes, "location", member=1, axis="y")
+```
+
+Member indices start at zero and refer to the declared `members` tuple. A singleton hole
+has member 0. The axis is transverse to the hole's own axis: an X-directed hole can have
+Y and Z location dimensions. A bolt-circle pattern also accepts `member="centre"`.
+Both selectors are required for a fine request; invalid members or axes are refused.
+The existing `validate_dimension()` query accepts the same selectors.
+
+The coarse pattern request keeps its automatic anchor policy: the member nearest the
+datum, or the centre of a bolt circle. Adding a fine request selects that extra component
+without selecting its sibling axis. Repeating a request does not duplicate a measurement.
+Generated scripts carry the member and axis so removing one location declaration omits
+that component. Coincident dimensions can share one mark while recording every approved
+owner.
+
+These indices address one declaration and its generated script. They do not establish
+correspondence across unrelated recognition runs. The shared solver still chooses where
+to place the dimension; location selection supplies no page coordinates.
+
 ## Sheet
 
 ::: draftwright.sheet.Sheet

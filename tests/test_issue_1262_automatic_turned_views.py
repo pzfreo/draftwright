@@ -74,7 +74,8 @@ def test_a_radial_feature_vetoes_reduction_before_any_annotation_can_disappear()
     assert set(attempt["uncovered"]) == {
         "hole_1.bore.diameter",
         "hole_1.bore.depth",
-        "hole_1.location",
+        "hole_1.location.location.member.0.x",
+        "hole_1.location.location.member.0.y",
     }
 
 

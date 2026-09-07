@@ -50,7 +50,7 @@ completeness:
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Literal
 
 from draftwright._geometry import _fmt
 from draftwright.model.ir import (
@@ -74,7 +74,10 @@ from draftwright.model.planner import (
     DimensionId,
     _decorated,
     _is_zero_step_position,
+    authored_location_axis_omitted,
     authored_location_omitted,
+    hole_location_parameter_id,
+    hole_location_references,
     location_datum,
     plan_dimensions,
     plan_locations,
@@ -248,6 +251,9 @@ class ApprovedDimension:
     #: fields because one feature's dimensions legitimately scatter across views.
     view: str | None = None
     side: str | None = None
+    #: The declaration-local selector retained for location script emission. Other
+    #: dimensional families keep their established parameter-id addressing.
+    location_member: int | Literal["centre"] | None = None
 
     @property
     def parameter_id(self) -> str:
@@ -583,11 +589,16 @@ _LADDER_ROLE = {"overall_height": "height.length"}
 
 
 def _deduplicated(intents: list) -> list:
-    """*intents* with repeated ``(feature, role)`` targets removed, first occurrence kept."""
+    """Repeated feature/parameter/member/axis selectors removed, first occurrence kept."""
     seen: set = set()
     out = []
     for i in intents:
-        key = (id(resolve_feature(i.ref)) if i.ref is not None else None, i.role)
+        key = (
+            id(resolve_feature(i.ref)) if i.ref is not None else None,
+            i.role,
+            i.discriminator,
+            i.member,
+        )
         if key in seen:
             continue
         seen.add(key)
@@ -638,6 +649,8 @@ class AddressableIntent:
 
     ref: FeatureRef | None
     role: str
+    discriminator: str | None = None
+    member: int | Literal["centre"] | None = None
 
 
 @dataclass(frozen=True)
@@ -760,17 +773,19 @@ class RenderableDimensionPlan:
 
     def _addressable_locations(self) -> list[AddressableIntent]:
         out: list[AddressableIntent] = []
-        named: set[int] = set()
         for approved in self.locations:
-            # One intent per FEATURE, not per ref. The compiler preserves coincident
-            # feature-owned identities; rendering may share one visible ordinate while
-            # accumulating every owner. `dimension(f, "location")` remains a per-feature
-            # unit (#883 is the per-member question, deliberately not answered here).
-            feature = resolve_feature(approved.ref)
-            if feature is None or id(feature) in named:
+            if approved.ref is None:
                 continue
-            named.add(id(feature))
-            out.append(AddressableIntent(approved.ref, "location"))
+            out.append(
+                AddressableIntent(
+                    approved.ref,
+                    "location",
+                    discriminator=approved.discriminator
+                    if approved.location_member is not None
+                    else None,
+                    member=approved.location_member,
+                )
+            )
         return out
 
     def _addressable_contingencies(self) -> list[AddressableIntent]:
@@ -1226,6 +1241,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
     """
     approved: list[ApprovedDimension] = []
     omissions: list[Omission] = []
+    omitted_axes: set[tuple[int, str]] = set()
     for pd in plan_locations(model):
         feature = pd.feature
         span = pd.param.span
@@ -1254,6 +1270,11 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                 if directional_slot_pattern
                 else (pd.param.parameter_id,)
             )
+            if isinstance(feature, HoleFeature | PatternFeature) and pd.location_axes:
+                parameter_ids = tuple(
+                    hole_location_parameter_id(feature, pd.location_member, axis)
+                    for axis in pd.location_axes
+                )
             omissions.extend(
                 Omission(feature, parameter_id, None, pd.reason or "suppressed")
                 for parameter_id in parameter_ids
@@ -1263,19 +1284,40 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
         axis = feature.frame.axis if feature is not None else None
         if directional_location:
             assert feature is not None
-            # One authored `location` intent, two independently observable page dimensions.
-            # Hole/pattern X/Y facts remain rendering members of the ONE feature-level
-            # addressable DimensionId (ADR 4 (was 0016) / #883); critique carries their directional
-            # physical evidence separately. Slot patterns retain their existing directional
-            # identity contract.
+            # A coarse location request expands to independently identified components.
+            # The member index comes from the declared reference, before layout grouping;
+            # it is not a correspondence claim across unrelated recognition runs.
             for measured_axis in ("x", "y"):
                 index = "xyz".index(measured_axis)
                 value = abs(span[1][index] - span[0][index])
-                parameter_id = (
-                    f"{pd.param.parameter_id}.{measured_axis}"
-                    if directional_slot_pattern
-                    else pd.param.parameter_id
-                )
+                if isinstance(feature, HoleFeature | PatternFeature):
+                    parameter_id = hole_location_parameter_id(
+                        feature, pd.location_member, measured_axis
+                    )
+                else:
+                    parameter_id = (
+                        f"{pd.param.parameter_id}.{measured_axis}"
+                        if directional_slot_pattern
+                        else pd.param.parameter_id
+                    )
+                if pd.location_axes is not None and measured_axis not in pd.location_axes:
+                    omissions.append(Omission(feature, parameter_id, value, _AUTHORED_OMISSION))
+                    axis_key = (id(feature), measured_axis)
+                    if axis_key not in omitted_axes and authored_location_axis_omitted(
+                        model, feature, measured_axis
+                    ):
+                        # This whole-axis omission follows explicit intent, not a missing
+                        # rendered mark. Keep the finer component diagnostic as well.
+                        omissions.append(
+                            Omission(
+                                feature,
+                                f"{pd.param.role}.location.{measured_axis}",
+                                None,
+                                _AUTHORED_OMISSION,
+                            )
+                        )
+                        omitted_axes.add(axis_key)
+                    continue
                 approved.append(
                     ApprovedDimension(
                         id=_dim_id(feature, parameter_id),
@@ -1290,6 +1332,11 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                         role=pd.param.role,
                         discriminator=measured_axis,
                         axis=axis,
+                        location_member=(
+                            "centre" if pd.location_member is None else pd.location_member
+                        )
+                        if isinstance(feature, HoleFeature | PatternFeature)
+                        else None,
                     )
                 )
             continue
@@ -1402,38 +1449,39 @@ def _compile_off_axis_hole_locations(
         # carry a height. Patterns compile one absolute address below, independently of
         # their relative pitch/count requirements.
         measured = ("y" if f.frame.axis == "x" else "x", "z")
-        omitted = authored_location_omitted(model, f)
-        references: tuple[Point, ...]
-        if isinstance(f, PatternFeature):
-            # One absolute address owns a pattern. A grid uses the member nearest the bbox
-            # datum so the two emitted offsets identify its near corner; a bolt circle uses
-            # its centre. Relative pitch/count remain separate requirements.
-            if f.pattern == "bolt_circle" or not f.members:
-                references = (f.frame.origin,)
-            else:
-                transverse = tuple(axis for axis in "xyz" if axis != f.frame.axis)
-                references = (
-                    min(
-                        f.members,
-                        key=lambda member: sum(
-                            (member["xyz".index(axis)] - float(getattr(bb.min, axis.upper()))) ** 2
-                            for axis in transverse
-                        ),
-                    ),
-                )
-            role = f.LOCATION_STEM
-        else:
-            references = f.members or (f.frame.origin,)
-            role = f.LOCATION_OFF_AXIS_STEM
-        for member in references:
+        datum_point = (float(bb.min.X), float(bb.min.Y), float(bb.min.Z))
+        role = f.LOCATION_STEM if isinstance(f, PatternFeature) else f.LOCATION_OFF_AXIS_STEM
+        if isinstance(f, PatternFeature) and f.pattern != "bolt_circle" and not f.members:
+            omissions.append(
+                Omission(f, f"{role}.location", None, "pattern has no members to locate from")
+            )
+            continue
+        omitted_axes_for_feature: set[str] = set()
+        for member_index, member, axes in hole_location_references(model, f, datum_point):
             for meas in measured:
                 index = "xyz".index(meas)
                 datum = float(getattr(bb.min, meas.upper()))
                 value = abs(member[index] - datum)
-                parameter = (
-                    f"{role}.location" if isinstance(f, PatternFeature) else f"{role}.{meas}"
-                )
-                if omitted:
+                parameter = hole_location_parameter_id(f, member_index, meas)
+                if meas not in axes:
+                    if meas not in omitted_axes_for_feature and authored_location_axis_omitted(
+                        model, f, meas
+                    ):
+                        physical_parameter = (
+                            f"{role}.location.{meas}"
+                            if isinstance(f, PatternFeature)
+                            else f"{role}.{meas}"
+                        )
+                        omissions.append(Omission(f, physical_parameter, None, _AUTHORED_OMISSION))
+                        omitted_axes_for_feature.add(meas)
+                    if authored_location_omitted(model, f):
+                        # The whole-feature omission remains the physical ledger's
+                        # coarse authored suppression, distinct from a selected component.
+                        parameter = (
+                            f"{role}.location"
+                            if isinstance(f, PatternFeature)
+                            else f"{role}.{meas}"
+                        )
                     omissions.append(Omission(f, parameter, value, _AUTHORED_OMISSION))
                     continue
                 start = list(member)
@@ -1449,6 +1497,7 @@ def _compile_off_axis_hole_locations(
                         role=role,
                         discriminator=meas,
                         axis=f.frame.axis,
+                        location_member="centre" if member_index is None else member_index,
                     )
                 )
     return approved, omissions

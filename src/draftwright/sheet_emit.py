@@ -331,6 +331,17 @@ def _tuple_arg(values) -> str:
     return "(" + ", ".join(vals) + ")"
 
 
+def _hole_group_args(f) -> list[str]:
+    kw = []
+    if f.count and f.count > 1:
+        kw.append(f"count={f.count}")
+    # Preserve members independently of the callout count. A singleton at the frame
+    # origin already has the same member-0 location through the constructor default.
+    if f.members and (len(f.members) > 1 or f.members[0] != f.frame.origin):
+        kw.append("members=[" + ", ".join(_pt(m) for m in f.members) + "]")
+    return kw
+
+
 def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None = None) -> str:
     if getattr(f, "profile", None) == "double_d":
         kw = [
@@ -344,6 +355,7 @@ def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None 
             kw.append(f"depth={_n(f.depth)}")
         if f.profile_direction is not None:
             kw.append(f"profile_direction={_direction(f.profile_direction)}")
+        kw.extend(_hole_group_args(f))
         return f"sheet.double_d_bore({', '.join(kw)})"
     kw = (
         [object_ref]
@@ -354,13 +366,7 @@ def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None 
             f'axis="{f.frame.axis}"',
         ]
     )
-    if f.count and f.count > 1:
-        kw.append(f"count={f.count}")
-        # A count-group carries its member positions; without them the render collapses to a
-        # single hole at the anchor (fidelity loss). Patterns recompute members from the
-        # arrangement, so only a plain count-group needs them spelled out.
-        if f.members:
-            kw.append("members=[" + ", ".join(_pt(m) for m in f.members) + "]")
+    kw.extend(_hole_group_args(f))
     if f.cbore:
         kw.append(f"cbore=({_n(f.cbore[0])}, {_n(f.cbore[1])})")
     if f.spotface:
@@ -1304,17 +1310,19 @@ def unmirrored_dimensions(model) -> list[str]:
     # exists in the walk and would never reach the file. Checking the request alone reported
     # a turned part as fully mirrorable while its rotational dimensions had no name.
     requested = {
-        (id(feature), role)
-        for feature, role, _disc in _mirrored_requests(declared, synthesised)
+        (id(feature), role, discriminator, member)
+        for feature, role, discriminator, member in _mirrored_requests(declared, synthesised)
         if not _feature_line(feature).lstrip().startswith("#")
     }
 
-    def _asked(feature, parameter_id: str) -> bool:
+    def _asked(feature, parameter_id: str, discriminator=None, member=None) -> bool:
         # A line names either the full parameter id ("bore.diameter") or the bare role
         # ("bore"); a correlated set emits one line covering N members.
-        return (id(feature), parameter_id) in requested or (
+        return (id(feature), parameter_id, discriminator, member) in requested or (
             id(feature),
             parameter_id.split(".")[0],
+            discriminator,
+            member,
         ) in requested
 
     # ONE interpreter, the same one the emitter serialises (#946). This used to walk
@@ -1345,9 +1353,15 @@ def unmirrored_dimensions(model) -> list[str]:
         if feature is None:
             # Model-level — the overall height of a part with no envelope feature. Only the
             # synthesised envelope can name it, until #976 gives it a declarative target.
-            if synthesised is None or (id(synthesised), "height.length") not in requested:
+            if (
+                synthesised is None
+                or (id(synthesised), "height.length", None, None) not in requested
+            ):
                 missing.append("(bounding box).overall_height")
-        elif not _asked(feature, intent.role) and (id(feature), intent.role) not in consolidated:
+        elif (
+            not _asked(feature, intent.role, intent.discriminator, intent.member)
+            and (id(feature), intent.role) not in consolidated
+        ):
             missing.append(f"{feature.kind}.{intent.role}")
     return sorted(set(missing))
 
@@ -1365,11 +1379,10 @@ def _is_mirrorable(model) -> bool:
 
 
 def _mirrored_requests(declared, declared_envelope=None):
-    """One `(feature, role)` per dimension the planner CHOSE — the mirror's content.
+    """The compiler's feature/role/axis/member selectors, serialized for the mirror.
 
-    Emitted per addressable UNIT, never per member: a `step_height` ladder and a rotational
-    body's bores are one `AddressableDimension` holding N, so one line drops the set and
-    there is no member line to mislead (ADR 4 (was 0016) identity tier 3).
+    A step-height ladder and rotational bores remain correlated units. Hole locations carry
+    separate member/axis selectors so an emitted line can omit exactly one component.
 
     From the planner's INTENT, never from placed annotations. Walking the drawing is the
     obvious way to build a mirror and it is wrong: a dimension the solver dropped would
@@ -1393,7 +1406,7 @@ def _mirrored_requests(declared, declared_envelope=None):
             # The synthesised envelope is what makes it nameable; `mirror_model` supplies it.
             if declared_envelope is None:
                 continue
-            out.append((declared_envelope, "height.length", None))
+            out.append((declared_envelope, "height.length", None, None))
             continue
         if declared_envelope is not None and feature is declared_envelope:
             # The synthesised envelope exists ONLY to make the overall height nameable, so
@@ -1403,7 +1416,7 @@ def _mirrored_requests(declared, declared_envelope=None):
             # `addressable()` has already collapsed them to one intent.
             if intent.role != "height.length":
                 continue
-        out.append((feature, intent.role, None))
+        out.append((feature, intent.role, intent.discriminator, intent.member))
     return out
 
 
@@ -1413,11 +1426,11 @@ def _requested_display_decimals(model, feature, role, discriminator) -> int | No
 
 
 def _requested_intent_policy(
-    model, feature, role, discriminator
+    model, feature, role, discriminator, member=None
 ) -> tuple[int | None, str | None, str | None]:
     """Display and placement policy attached to an augmenting referential intent."""
     for request in model.requested_dimensions:
-        if request.feature is not feature:
+        if request.feature is not feature or request.member != member:
             continue
         matches = (
             request.role == role if "." in request.role else role.startswith(f"{request.role}.")
@@ -1481,7 +1494,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         ]
     requests = (
         [
-            (a.feature, a.role, a.discriminator, a.display_decimals, a.view, a.side)
+            (a.feature, a.role, a.discriminator, a.display_decimals, a.view, a.side, a.member)
             for a in model.authored_dimensions
         ]
         if model.authored_dimensions is not None
@@ -1493,8 +1506,9 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # the location with it.
         else [
             (
-                *request,
+                *request[:3],
                 *_requested_intent_policy(model, *request),
+                request[3],
             )
             for request in _mirrored_requests(model, synthesised_envelope)
         ]
@@ -1516,7 +1530,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
     ]
-    for feature, role, discriminator, display_decimals, view, side in requests:
+    for feature, role, discriminator, display_decimals, view, side, member in requests:
         name = names.get(id(feature))
         if name is None:
             # Reachable for a kind with no declarative verb (its line is a comment, so it
@@ -1539,7 +1553,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
             if discriminator and "." not in role[role.find(".") + 1 :]
             else ""
         )
-        placement = ""
+        placement = "" if member is None else f", member={member!r}"
         if view is not None:
             placement += f', view="{view}"'
         if side is not None:

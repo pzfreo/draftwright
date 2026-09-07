@@ -3151,9 +3151,39 @@ class RequestedDimension:
     #: compatibility; the placement engine still owns coordinates.
     view: str | None = None
     side: str | None = None
+    #: Declaration-local hole member, or the centre of a bolt-circle pattern.
+    #: Paired with the measured-axis discriminator to select one location component.
+    member: int | Literal["centre"] | None = None
 
     def __post_init__(self) -> None:
         validate_placement_intent(self.view, self.side, owner="requested dimension")
+        if self.member is not None and self.role != "location":
+            raise ValueError("member selects only a location measurement")
+        if self.role == "location" and (self.member is not None or self.discriminator is not None):
+            feature = self.feature
+            if not isinstance(feature, HoleFeature | PatternFeature):
+                raise ValueError("member/axis location selection requires a hole or hole pattern")
+            if self.member is None or self.discriminator is None:
+                raise ValueError("select a location component with both member and axis")
+            if self.discriminator not in tuple(
+                axis for axis in "xyz" if axis != feature.frame.axis
+            ):
+                raise ValueError("location axis must be transverse to the hole axis")
+            if self.member == "centre":
+                if not isinstance(feature, PatternFeature) or feature.pattern != "bolt_circle":
+                    raise ValueError("only a bolt-circle pattern has a centre location")
+            elif (
+                isinstance(self.member, bool)
+                or not isinstance(self.member, int)
+                or not 0
+                <= self.member
+                < len(
+                    feature.members
+                    if isinstance(feature, PatternFeature)
+                    else feature.members or (feature.frame.origin,)
+                )
+            ):
+                raise ValueError("location member must index the declared member tuple")
         if self.role == "location" and (self.view is not None or self.side is not None):
             raise ValueError(
                 "placement intent is unavailable for location dimensions: one location "
