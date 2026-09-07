@@ -2149,12 +2149,19 @@ def _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale):
     centre = to_page(rep)
     if side == "right":
         elbow = (edge + elbow_dx, y)
-        tip = _rim_tip(centre, elbow, dia, scale, callout=callout, location=rep, to_page=to_page)
-        tip = (min(tip[0], edge - draft.arrow_length), tip[1])
     else:
         elbow = (edge - elbow_dx, y)
-        tip = _rim_tip(centre, elbow, dia, scale, callout=callout, location=rep, to_page=to_page)
-        tip = (max(tip[0], edge + draft.arrow_length), tip[1])
+    # The native arrow builder needs room for its head before the shelf. Extend
+    # the elbow when necessary; moving the rim tip would falsify the target.
+    minimum = dia * scale / 2 + draft.arrow_length + draft.line_width
+    dy = elbow[1] - centre[1]
+    if math.hypot(elbow[0] - centre[0], dy) < minimum:
+        dx = math.sqrt(max(0.0, minimum * minimum - dy * dy))
+        elbow = (centre[0] + (dx if side == "right" else -dx), y)
+    # The target is the bore boundary, even when it lies near the strip edge.
+    # Moving one tip coordinate for arrow clearance detaches it from that boundary.
+    # Probe and placement judge the footprint of this same physical anchor.
+    tip = _rim_tip(centre, elbow, dia, scale, callout=callout, location=rep, to_page=to_page)
     return tip, elbow
 
 

@@ -6,10 +6,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from build123d import Edge, Vector
 from quiddity import RecognitionResult
 
-from draftwright._geometry import _blend_profile_arcs, _straight_blend_faces
+from draftwright._geometry import (
+    _blend_profile_arcs,
+    _projected_edge_distance,
+    _straight_blend_faces,
+)
 from draftwright.blend_contract import (
     blend_provider_key,
     is_exact_blend_feature,
@@ -221,25 +224,6 @@ def lint_blend_coverage(
     return issues
 
 
-def _projected_arc_distance(edge, tip, project):
-    """Distance from a page point's projection line to the actual trimmed OCC edge."""
-    origin = project(0, 0, 0)
-    basis = [project(*(1 if i == j else 0 for i in range(3))) for j in range(3)]
-    u = Vector(*(point[0] - origin[0] for point in basis))
-    v = Vector(*(point[1] - origin[1] for point in basis))
-    normal = u.cross(v).normalized()
-    centre = edge.center()
-    projected = project(*centre)
-    point = (
-        centre
-        + u * ((tip[0] - projected[0]) / u.dot(u))
-        + v * ((tip[1] - projected[1]) / v.dot(v))
-    )
-    reach = edge.bounding_box().size.length + 1
-    line = Edge.make_line(point - normal * reach, point + normal * reach)
-    return edge.distance_to(line)
-
-
 def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ownership=None):
     """Judge placed straight-Blend radius tips against their physical trimmed arcs.
 
@@ -297,7 +281,7 @@ def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ow
             )
         elif (
             min(
-                _projected_arc_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
+                _projected_edge_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
                 for edge in arcs
             )
             > 2e-3

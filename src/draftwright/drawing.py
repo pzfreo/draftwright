@@ -1003,8 +1003,8 @@ class Drawing:
 
         This experimental, read-only view is available for raw automatic recognition and
         after the first physical critique of a declared drawing. It is ``None`` before that
-        lazy critique, for a bare drawing, and for framed recognition while the provider lacks
-        a public framed-evidence contract. Draftwright never reruns recognition merely to fill
+        lazy critique, for a bare drawing, and for the framed path, which has not adopted
+        the provider's framed-evidence contract. Draftwright never reruns recognition merely to fill
         this value. The returned evidence borrows exact faces from the source part, so callers
         must not mutate that part while using the evidence view.
         """
@@ -4062,6 +4062,10 @@ class Drawing:
                 registry=self._registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
+                project=self.at,
+                evidence=self._build.recognition_evidence,
+                ownership=self._build.recognition_ownership,
+                declared=self.model_declared,
             )
             issues += lint_channel_coverage(
                 working_part,

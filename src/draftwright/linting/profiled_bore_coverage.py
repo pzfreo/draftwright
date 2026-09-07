@@ -13,7 +13,7 @@ from typing import Literal
 
 from quiddity import RecognitionResult
 
-from draftwright._geometry import _fmt
+from draftwright._geometry import _fmt, _is_principal_axis
 from draftwright.linting._registry import annotation_owner, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 
@@ -44,29 +44,76 @@ def _canonical_direction(value) -> tuple[float, float, float]:
     return (clean[0], clean[1], clean[2])
 
 
-def profiled_bore_key(profile, axis, through, major, across, direction) -> tuple:
+def profiled_bore_key(profile, axis, through, major, across, direction, *, precision=3) -> tuple:
     """Canonical physical/callout identity for one double-D specification."""
     return (
         str(profile),
         _axis_letter(axis),
         bool(through),
-        round(float(major), 3),
-        round(float(across), 3),
+        round(float(major), precision),
+        round(float(across), precision),
         _canonical_direction(direction),
     )
 
 
-def _site(point, axis) -> tuple[float, float, float]:
+def _site(point, axis, *, precision=3) -> tuple[float, float, float]:
     """Physical profile site with the through-axis coordinate made irrelevant."""
-    result = [round(float(component), 3) for component in point]
+    result = [round(float(component), precision) for component in point]
     result["xyz".index(_axis_letter(axis))] = 0.0
     return (result[0], result[1], result[2])
 
 
-def _feature_sites(feature) -> tuple[tuple[float, float, float], ...]:
+def _feature_sites(feature, *, precision=3) -> tuple[tuple[float, float, float], ...]:
     members = tuple(getattr(feature, "members", ()) or ())
     points = members or (feature.frame.origin,)
-    return tuple(_site(point, feature.frame.axis) for point in points)
+    return tuple(_site(point, feature.frame.axis, precision=precision) for point in points)
+
+
+def profiled_bore_target_sources(features, records):
+    """Unambiguous declared owners at provider precision, for physical target checks."""
+    candidates = []
+    for feature in features:
+        if getattr(feature, "profile", None) != "double_d":
+            continue
+        key = profiled_bore_key(
+            feature.profile,
+            feature.frame.axis,
+            feature.through,
+            feature.diameter,
+            feature.across_flats,
+            feature.profile_direction,
+            precision=6,
+        )
+        sites = Counter(_feature_sites(feature, precision=6))
+        if sum(sites.values()) == feature.count:
+            candidates.append((feature, key, sites))
+    matches: dict[int, list] = {}
+    physical_sites: dict[int, Counter] = {}
+    for record in records:
+        if not _is_principal_axis(record.axis):
+            continue
+        key = profiled_bore_key(
+            "double_d",
+            record.axis,
+            record.through,
+            record.major_diameter,
+            record.across_flats,
+            record.flat_direction,
+            precision=6,
+        )
+        site = _site(record.location, record.axis, precision=6)
+        owners = [
+            feature for feature, expected, sites in candidates if key == expected and site in sites
+        ]
+        if len(owners) == 1:
+            owner_id = id(owners[0])
+            matches.setdefault(owner_id, []).append(record)
+            physical_sites.setdefault(owner_id, Counter())[site] += 1
+    return {
+        id(feature): tuple(matches[id(feature)])
+        for feature, _, sites in candidates
+        if physical_sites.get(id(feature)) == sites
+    }
 
 
 def _same_site(first, second) -> bool:
