@@ -10,6 +10,7 @@ from _evidence_contract import (
     assert_missing_model_outcomes_fail_closed,
     assert_observer_uses_one_build_owned_recognition,
 )
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -19,6 +20,12 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-grooves-v1.json"
+
+
+#: Clean score of the subset the damage tests below use, asserted perfect.
+reduced_baseline = reduced_baseline_fixture(CORPUS)
+
+
 _MIN = (Align.CENTER, Align.CENTER, Align.MIN)
 
 
@@ -596,7 +603,9 @@ def test_deleting_provider_grooves_cannot_shrink_independent_denominator(monkeyp
 
 
 @pytest.mark.parametrize("field", ("width", "diameter"))
-def test_weakening_provider_measurements_reduces_parameter_fidelity(monkeypatch, field) -> None:
+def test_weakening_provider_measurements_reduces_parameter_fidelity(
+    monkeypatch, field, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -609,17 +618,20 @@ def test_weakening_provider_measurements_reduces_parameter_fidelity(monkeypatch,
         return replace(result, grooves=grooves)
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_grooves)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.recall == 1.0
     assert damaged.detection.false_positives == 0
-    assert damaged.parameter_fidelity.passed == 10
-    assert damaged.parameter_fidelity.total == 20
+    # The denominator may not shrink under damage, and half the parameters must fail:
+    # the authored 10-of-20 ratio, now stated against the subset's own clean total.
+    assert damaged.parameter_fidelity.total == reduced_baseline.parameter_fidelity.total
     assert damaged.parameter_fidelity.score == 0.5
 
 
 @pytest.mark.parametrize("field", ("axis", "at"))
-def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field) -> None:
+def test_weakening_provider_identity_reduces_detection_recall(
+    monkeypatch, field, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -642,11 +654,13 @@ def test_weakening_provider_identity_reduces_detection_recall(monkeypatch, field
         return replace(result, grooves=values)
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_grooves)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.recall == 0.0
-    assert damaged.detection.missed == 10
-    assert damaged.detection.false_positives == 10
+    # Every groove that matched cleanly is now both missed and reported in the wrong
+    # place — stated against the clean run, not a full-corpus constant.
+    assert damaged.detection.missed == reduced_baseline.detection.matched
+    assert damaged.detection.false_positives == reduced_baseline.detection.matched
 
 
 def test_deleting_groove_declaration_cannot_shrink_quality_denominator() -> None:

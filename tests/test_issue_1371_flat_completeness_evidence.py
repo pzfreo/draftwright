@@ -9,6 +9,7 @@ from _evidence_contract import (
     assert_missing_model_outcomes_fail_closed,
     assert_observer_uses_one_build_owned_recognition,
 )
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Box, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -18,6 +19,10 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-flats-v1.json"
+
+
+#: Clean score of the subset the damage tests below use, asserted perfect.
+reduced_baseline = reduced_baseline_fixture(CORPUS)
 
 
 def _double_d():
@@ -259,7 +264,9 @@ def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monke
     assert damaged.complete_cases < len(damaged.cases)
 
 
-def test_weakening_provider_across_values_reduces_parameter_fidelity(monkeypatch) -> None:
+def test_weakening_provider_across_values_reduces_parameter_fidelity(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -270,10 +277,9 @@ def test_weakening_provider_across_values_reduces_parameter_fidelity(monkeypatch
         return replace(result, flats=flats)
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_flats)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.recall == 1.0
     assert damaged.detection.false_positives == 0
-    assert damaged.parameter_fidelity.passed == 18
-    assert damaged.parameter_fidelity.total == 27
+    assert damaged.parameter_fidelity.total == reduced_baseline.parameter_fidelity.total
     assert damaged.parameter_fidelity.score == 2 / 3
