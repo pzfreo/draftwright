@@ -23,6 +23,7 @@ reads recognised geometry, by design (ground truth, not the plan).
 from __future__ import annotations
 
 from draftwright.model.declare import (
+    angle,
     blend,
     boss,
     chamfer,
@@ -61,6 +62,7 @@ from draftwright.model.declare import (
 from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
+    AngleFeature,
     AngularReference,
     AuthoredDimension,
     BlendFeature,
@@ -124,6 +126,8 @@ from draftwright.model.planner import (
 from draftwright.view_plan import UncoveredViewRequirement, ViewPlanIncomplete
 
 __all__ = [
+    "AngleFeature",
+    "angle",
     "AngularReference",
     "AuthoredDimension",
     "AUTHORED_DIMENSION_KINDS",

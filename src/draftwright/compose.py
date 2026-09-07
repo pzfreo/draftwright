@@ -56,6 +56,7 @@ from draftwright._core import (
 from draftwright._geometry import _END_ON
 from draftwright.layout import fit_box
 from draftwright.model.callout import hole_callout_spec, hole_callout_suffix
+from draftwright.model.compiled import compile_dimensions
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.view_plan import (
     ARRANGEMENTS,
@@ -451,6 +452,14 @@ def _compose_anno_boxes(
     def _reserve(view: str, side: str) -> None:
         key = (view, side)
         authored_corridors[key] = authored_corridors.get(key, 0) + 1
+
+    if any(feature.kind == "angle" for feature in model.features):
+        # Reserve only approved angles: an authored omission must not keep
+        # phantom bands. The arc's extent can reach both neighbouring corridors.
+        for group in compile_dimensions(model).of_kind("angle"):
+            for _approved in group.dims:
+                for side in ("above", "below", "left", "right"):
+                    _reserve(group.view, side)
 
     for feature in model.features:
         if getattr(feature, "kind", None) != "authored_dimension":

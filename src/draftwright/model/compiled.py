@@ -50,10 +50,13 @@ completeness:
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from decimal import Decimal
+from math import isfinite
 from typing import Any, Literal
 
 from draftwright._geometry import _fmt
 from draftwright.model.ir import (
+    AngularReference,
     EnvelopeFeature,
     Feature,
     HoleFeature,
@@ -254,6 +257,7 @@ class ApprovedDimension:
     #: The declaration-local selector retained for location script emission. Other
     #: dimensional families keep their established parameter-id addressing.
     location_member: int | Literal["centre"] | None = None
+    angular_reference: AngularReference | None = None
 
     @property
     def parameter_id(self) -> str:
@@ -297,6 +301,7 @@ class ApprovedDimension:
 #: The compiler refuses anything absent from this table, so a new feature kind cannot leak
 #: measurements by default: it arrives with no facts at all until someone lists them.
 _FACTS: dict[str, tuple[str, ...]] = {
+    "angle": ("frame",),
     "hole": (
         "frame",
         "through",
@@ -1571,6 +1576,29 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
     return approved, omissions
 
 
+def _angular_label(parameter, decimals) -> str | None:
+    if parameter.angular_reference is None:
+        return None
+    nominal = f"{_fmt(parameter.value, decimals)}°"
+    tolerance = parameter.tolerance
+    if tolerance is None:
+        return nominal
+
+    def magnitude(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("angular tolerance must be a nonnegative degree magnitude")
+        if not isfinite(value) or value < 0:
+            raise ValueError("angular tolerance must be finite and nonnegative")
+        # Keep small authored deviations even when nominal display precision is
+        # coarse; formatting a nonzero tolerance as zero would change the claim.
+        return format(Decimal(str(value)), "f")
+
+    if isinstance(tolerance, tuple) and len(tolerance) == 2:
+        lower, upper = tolerance
+        return f"{nominal} +{magnitude(upper)}° -{magnitude(lower)}°"
+    return f"{nominal} ±{magnitude(tolerance)}°"
+
+
 def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
     """Every planned group, reduced to what the compiler approved, plus what it withheld.
 
@@ -1612,6 +1640,8 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 role=pd.param.role,
                 discriminator=pd.param.discriminator,
                 tolerance=pd.param.tolerance,
+                angular_reference=pd.param.angular_reference,
+                rendered_label=_angular_label(pd.param, pd.display_decimals),
                 display_decimals=pd.display_decimals,
                 view=pd.view,
                 side=pd.side,

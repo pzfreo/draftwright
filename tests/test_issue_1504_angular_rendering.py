@@ -265,3 +265,23 @@ def test_unreadable_angular_ink_is_a_finding():
     findings = lint_angular_geometry(item, 90)
     assert len(findings) == 1 and findings[0].code == "angular_geometry_mismatch"
     assert "circular geometry unavailable" in findings[0].message
+
+
+@pytest.mark.parametrize(
+    ("angle", "label", "displayed", "matches"),
+    [(60.04, "60.00°", 60.0, False), (1.04, "1.0°", 1.0, True), (60.04, "60.04°", 60.04, True)],
+)
+def test_angular_label_check_respects_the_displayed_precision(
+    angle, label, displayed, matches, drawing_draft
+):
+    ink = AngularInk(
+        (0, 0), (15, 0), (15 * cos(radians(angle)), 15 * sin(radians(angle))), label, drawing_draft
+    )
+    annotation = ink.build(ink.minimum_radius)
+    assert annotation.measured_angle == pytest.approx(angle)
+    incorrect = [
+        finding
+        for finding in lint_angular_geometry(annotation, displayed)
+        if finding.code == "angular_label_vs_geometry"
+    ]
+    assert bool(incorrect) is not matches

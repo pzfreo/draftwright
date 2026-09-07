@@ -318,6 +318,27 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
         for claim in claims:
             entries = approved.get(claim, ())
             parameter = str(getattr(claim, "parameter", claim))
+            angular_labels = tuple(
+                entry.rendered_label
+                for entry in entries
+                if getattr(entry, "angular_reference", None) is not None
+                and entry.rendered_label is not None
+            )
+            if angular_labels:
+                # An included angle has one complete compiler-owned label. A
+                # matching nominal alone cannot vouch for a missing tolerance.
+                rendered = str(getattr(registry.named(name), "label", ""))
+                outcomes.append(
+                    ClaimOutcome(
+                        name,
+                        parameter,
+                        "confirmed" if rendered in angular_labels else "value_absent",
+                        angular_labels,
+                        rendered,
+                        measurement=claim,
+                    )
+                )
+                continue
             expected = tuple(entry.value_text for entry in entries)
             wanted = (
                 frozenset().union(*(_expected_numbers(entry) for entry in entries))

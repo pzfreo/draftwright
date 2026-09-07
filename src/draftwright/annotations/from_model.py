@@ -7107,7 +7107,17 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     }
 
 
-def _pmi_place_one(dwg, spec, rec, *, ctx, trace=None):
+def _place_corridor_option(
+    dwg,
+    spec,
+    feature,
+    *,
+    ctx,
+    trace=None,
+    measurement=None,
+    priority=_PMI_CORRIDOR_PRIORITY,
+    anchored=False,
+):
     # *trace* (#736): a PMI dim's post-drop fallback is a standalone strip pass —
     # traced as a pass_event like the other standalone placers.
     left = place_strip_candidates(
@@ -7119,13 +7129,15 @@ def _pmi_place_one(dwg, spec, rec, *, ctx, trace=None):
         _PMI_SLOT,
         ctx=ctx,
         force=True,
-        features={spec["name"]: rec},
+        features={spec["name"]: feature},
+        measurements={spec["name"]: measurement} if measurement is not None else None,
         naturals={spec["name"]: spec["natural"]} if "natural" in spec else None,
         footprints={spec["name"]: spec["footprint"]} if "footprint" in spec else None,
         valid_positions={spec["name"]: spec["valid_position"]}
         if "valid_position" in spec
         else None,
-        priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
+        priorities={spec["name"]: priority},
+        anchored={spec["name"]: anchored},
         trace=trace,
         trace_label="pmi_fallback",
     )
@@ -7140,7 +7152,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
 
     def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
         for alt in _alts:
-            if _pmi_place_one(dwg, alt, _rec, ctx=ctx, trace=ctx.trace):
+            if _place_corridor_option(dwg, alt, _rec, ctx=ctx, trace=ctx.trace):
                 _log.info(
                     "PMI dim %s placed on fallback %s/%s",
                     nm,
@@ -7228,8 +7240,7 @@ def _pmi_front_linear(dwg, a, ctx, rec, ax, label, name, primary, secondary, cen
     return placed
 
 
-def _pmi_angular_specs(a, rec, name, draft):
-    reference = rec.angular_reference
+def _angular_specs(a, reference, label, name, draft, *, side=None):
     axis = reference.principal_axis
     view, to_page, zones = {
         "X": ("side", lambda p: (a.proj.side_x(p[1]), a.proj.side_z(p[2])), a.sv_zones),
@@ -7240,7 +7251,7 @@ def _pmi_angular_specs(a, rec, name, draft):
         to_page(reference.vertex),
         to_page(reference.first),
         to_page(reference.second),
-        rec.label,
+        label,
         draft,
     )
     options = []
@@ -7248,10 +7259,10 @@ def _pmi_angular_specs(a, rec, name, draft):
         component = ink.bisector[index]
         if abs(component) < 1e-6:
             continue
-        side = (("left", "right"), ("below", "above"))[index][component > 0]
-        if rec.side is not None and rec.side != side:
+        candidate_side = (("left", "right"), ("below", "above"))[index][component > 0]
+        if side is not None and side != candidate_side:
             continue
-        strip = getattr(zones, side)
+        strip = getattr(zones, candidate_side)
         if strip is None:
             continue
         lo, hi, inner = strip_free_span(strip)
@@ -7277,7 +7288,7 @@ def _pmi_angular_specs(a, rec, name, draft):
             {
                 "name": name,
                 "view": view,
-                "side": side,
+                "side": candidate_side,
                 "strip": strip,
                 "axis": "x" if index == 0 else "y",
                 "order": (_PMI_SUBCHAIN, ink.vertex[1 - index], name),
@@ -7292,6 +7303,92 @@ def _pmi_angular_specs(a, rec, name, draft):
             }
         )
     return options
+
+
+def render_angular_dimensions(
+    dwg,
+    plan,
+    a,
+    *,
+    ctx,
+    only=None,
+    name=None,
+    pin=False,
+    priority=0.0,
+) -> int:
+    """Queue compiler-approved included angles through the shared corridor solve."""
+    count = 0
+    rank = max(float(priority), 100.0) if pin else float(priority)
+    for index, group in enumerate(plan.of_kind("angle")):
+        if only is not None and group.ref not in only:
+            continue
+        for approved in group.dims:
+            reference = approved.angular_reference
+            if reference is None:
+                raise ValueError("approved included angle has no angular reference")
+            options = _angular_specs(
+                a,
+                reference,
+                approved.final_label,
+                name or f"m_angle_{index}",
+                dwg.draft,
+                side=group.side,
+            )
+
+            def placed(annotation_name):
+                if pin:
+                    dwg.pin(annotation_name)
+
+            def dropped(_name, _options=options, _approved=approved, _ref=group.ref):
+                for option in _options[1:]:
+                    if _place_corridor_option(
+                        dwg,
+                        option,
+                        _ref,
+                        ctx=ctx,
+                        trace=ctx.trace,
+                        measurement=_approved.id,
+                        priority=rank,
+                        anchored=pin,
+                    ):
+                        placed(option["name"])
+                        return
+                ctx.record_issue(
+                    "warning",
+                    "angular_dimension_dropped",
+                    f"Included angle {_approved.final_label} could not fit its reference sector",
+                    measurement=_approved.id,
+                )
+
+            if not options:
+                dropped("")
+                continue
+            primary = options[0]
+            register_corridor(
+                ctx,
+                (primary["view"], primary["side"]),
+                primary["strip"],
+                primary["view"],
+                primary["axis"],
+                _PMI_SLOT,
+                CorridorCandidate(
+                    name=primary["name"],
+                    build=primary["build"],
+                    order=primary["order"],
+                    on_place=placed,
+                    on_drop=dropped,
+                    force=True,
+                    feature=group.ref,
+                    measurement=approved.id,
+                    priority=rank,
+                    anchored=pin,
+                    natural=primary["natural"],
+                    footprint=primary["footprint"],
+                    valid_position=primary["valid_position"],
+                ),
+            )
+            count += 1
+    return count
 
 
 def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
@@ -7312,7 +7409,14 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
 
     if rec.pmi_kind == "angular":
         placed = _pmi_queue_options(
-            dwg, ctx, _pmi_angular_specs(a, rec, f"pmi_angle_{idx}", draft), ax, label, rec
+            dwg,
+            ctx,
+            _angular_specs(
+                a, rec.angular_reference, rec.label, f"pmi_angle_{idx}", draft, side=rec.side
+            ),
+            ax,
+            label,
+            rec,
         )
     elif rec.pmi_kind in ("diameter", "radius"):
         # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value

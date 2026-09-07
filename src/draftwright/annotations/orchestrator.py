@@ -54,6 +54,7 @@ from draftwright.annotations._common import (
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     ladder_plan_for,
+    render_angular_dimensions,
     render_blends,
     render_boss_diameters,
     render_boss_heights,
@@ -262,6 +263,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     # hole pattern (the pitch dim needs strip room the post-drain decoration slots lack)
     "slot_patterns",  # a through-slot ARRAY: same grouped callout + pitch, same pre-drain reason
     "through_steps",  # two section legs register with the shared corridor before its drain
+    "angles",
     "user_dims",  # finalize-only: pin/priority dims queue into the shared corridor
     "gdt",
     "pmi",
@@ -680,6 +682,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Two transverse open-section legs, independently identified and corridor-placed.
         render_through_steps(dwg, _compiled, a, ctx=ctx)
 
+    def _s_angles():
+        render_angular_dimensions(dwg, _compiled, a, ctx=ctx)
+
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
         # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
@@ -909,6 +914,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,
             "through_steps": _s_through_steps,
+            "angles": _s_angles,
             "off_axis_across": _s_off_axis_across,
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,

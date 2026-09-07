@@ -982,6 +982,13 @@ def _feature_line(
             f'sheet.fillet(axis="{f.axis}", radius={_n(f.radius)}, '
             f"at={_pt(f.frame.origin)}{turned})"
         )
+    if k == "angle":
+        reference = f.angular_reference
+        return (
+            f"sheet.angle(vertex={reference.vertex!r}, first={reference.first!r}, "
+            f"second={reference.second!r}, sector={reference.sector!r}, "
+            f"virtual_vertex={reference.virtual_vertex!r})"
+        )
     if k == "paired_ramp_step":
         return (
             f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
@@ -1788,6 +1795,7 @@ def _feature_block(
                     line += f".fit({tolerance.code!r}{show})"
 
             if f.kind in (
+                "angle",
                 "through_step",
                 "pad",
                 "rectangular_blind_slot",

@@ -67,27 +67,25 @@ build. Build and lint still assess the resulting Sheet. A
 query never replaces an existing dimension request. Keep the original feature handle for edits;
 these reports do not introduce persistent feature identities or new lane, route or pin controls.
 
-## Explicit angular measurements
+## Angular measurements
 
-`measured_dimension(kind="angular", ...)` accepts an `AngularReference` in model
-coordinates. Its vertex and two witness points identify directed rays; they do
-not position the annotation. The engine chooses a true-angle principal view and
-places the arc, arrows and complete label through the shared corridor solver.
+`Sheet.angle()` derives an included angle from a vertex and two witness points
+in model coordinates. Select its canonical `included.angle` measurement with
+`dimension()`. The engine chooses a true-angle principal view and places the arc,
+arrows and complete compiler-owned label through the shared corridor solver.
 
 ```python
 from math import sqrt
 from build123d import Polygon, extrude
 from draftwright import Sheet
-from draftwright.model import AngularReference
 
 part = extrude(Polygon((0, 0), (30, 0), (15, 15 * sqrt(3)), align=None), amount=3)
 sheet = Sheet(part).authored_dimensions()
-angle = sheet.measured_dimension(
-    kind="angular", value=60, label="60°", dominant_axis="z", ref_pts=(),
-    angular_reference=AngularReference(
-        vertex=(0, 0, 3), first=(15, 0, 3), second=(7.5, 7.5 * sqrt(3), 3),
-    ),
+angle = sheet.angle(
+    vertex=(0, 0, 3), first=(15, 0, 3), second=(7.5, 7.5 * sqrt(3), 3),
 )
+angle.tolerance(0.05, on="included.angle")
+sheet.dimension(angle, "included.angle")
 drawing = sheet.build()
 for finding in drawing.lint():
     print(finding.code, finding.message)
@@ -97,18 +95,30 @@ The supported sector is the non-reflex angle between the two directed rays.
 Reversing their order preserves that angle. For extended supports meeting beyond
 a rounded corner, use `virtual_vertex=True`; this declares the virtual
 intersection without asserting that the vertex lies on a physical edge.
-Zero-length or collinear rays and unsupported sectors are rejected. Oblique
-planes and structured angular tolerances currently produce
-`dimension_kind_unsupported`; insufficient page space produces a placement drop.
+Zero-length or collinear rays, oblique planes and unsupported sectors are
+rejected. Insufficient page space produces `angular_dimension_dropped` against
+the named measurement. Symmetric tolerances and lower/upper deviation magnitudes
+retain degree units, including small deviations when the nominal display is
+coarse. Omitting the dimension request suppresses the angle; generated scripts
+retain its reference geometry and tolerances.
 
-Plain Sheet-authored three-point references also use `(first, vertex, second)`.
-Imported PMI does not infer this ordering: it requires an explicit angular
-reference. The authored label is retained verbatim, and lint compares its degree
-value with the projected rays and inspects the visible angular ink. Physical
+After building, `drawing.dimension(feature, "included.angle", pin=True, priority=2)`
+uses the shared corridor in live and deferred edits. As with other edits, use an
+exact feature from `drawing.model()`. Measurement comparison records the angular
+references, so equal-valued support substitutions cannot appear preserved merely
+because the labels match.
+
+The lower-level `measured_dimension(kind="angular", ...)` route retains nominal
+author-supplied text. Its explicit `AngularReference` supplies the same ray
+geometry; plain Sheet-authored three-point `ref_pts` use `(first, vertex, second)`.
+Imported PMI requires explicit ordering. Structured tolerances on that raw route
+remain unsupported; use the canonical declaration for new authored angles.
+Lint compares degree values at their displayed resolution, inspects the visible
+angular ink and checks complete canonical labels against the compiler. Physical
 support correspondence remains `angular_support_unverifiable` pending the
 provider evidence contract in [Quiddity #579](https://github.com/pzfreo/quiddity/issues/579).
-Automatic profile-angle discovery and canonical angle selectors are still tracked
-in [#1504](https://github.com/pzfreo/draftwright/issues/1504).
+Automatic profile-angle discovery remains tracked in
+[#1504](https://github.com/pzfreo/draftwright/issues/1504).
 
 ## Selecting a hole location component
 

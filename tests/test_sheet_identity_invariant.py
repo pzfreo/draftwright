@@ -249,6 +249,7 @@ _SCENARIOS = {
 #: against the source rather than taking it on trust: an exemption list nobody verifies is
 #: how a guard stops guarding.
 _SAME_PATH_AS_ENVELOPE = {
+    "angle",
     "add",
     "double_d_bore",
     "measured_dimension",

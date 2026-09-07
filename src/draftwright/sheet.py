@@ -63,6 +63,7 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
+from draftwright.model import angle as _angle
 from draftwright.model import blend as _blend
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
@@ -1754,6 +1755,16 @@ class Sheet:
         open-to-terminal run length and shared-ridge midpoint.  The form is explicit-only:
         a detached face or cutter cannot prove the paired material-removal topology."""
         self._features.append(_paired_ramp_step(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def angle(self, **kw) -> _Params:
+        """Declare an included angle from vertex/first/second model-space points.
+
+        The value is derived from those rays. Select ``included.angle`` with
+        ``dimension()`` and use the usual tolerance, omission and placement controls.
+        No number or annotation radius is authored.
+        """
+        self._features.append(_angle(**kw))
         return _Params(self, len(self._features) - 1)
 
     def circular_blind_step(self, **kw) -> _Params:

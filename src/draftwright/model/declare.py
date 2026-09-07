@@ -39,6 +39,7 @@ from draftwright._geometry import (
 )
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
+    AngleFeature,
     AngularReference,
     AuthoredDimension,
     BlendFeature,
@@ -2401,6 +2402,16 @@ def _point3(name: str, p) -> Point:
     if len(vals) != 3:
         raise ValueError(f"measured_dimension() {name} must be a 3-tuple")
     return (vals[0], vals[1], vals[2])
+
+
+def angle(*, vertex, first, second, sector="minor", virtual_vertex=False) -> AngleFeature:
+    """Declare the included angle between two model-space rays, deriving its value.
+
+    Witness points identify geometry, not annotation positions. The reference
+    plane must admit a true-angle principal projection. A virtual vertex states
+    that the oriented supports meet only when extended.
+    """
+    return AngleFeature(AngularReference(vertex, first, second, sector, virtual_vertex))
 
 
 def measured_dimension(

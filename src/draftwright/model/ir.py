@@ -375,6 +375,7 @@ DimensionParameterId = Literal[
     "groove.diameter",
     "groove.length",
     "height.length",
+    "included.angle",
     "od.diameter",
     "oriented_slot_length.length",
     "oriented_slot_width.length",
@@ -453,6 +454,9 @@ class DimParameter:
     # (ADR 4 (was 0016) identity, tier 2). Today's sole instance is a grid pattern's two pitches
     # (``"row"`` / ``"col"``). ``None`` wherever role + kind already identify the thing.
     discriminator: str | None = None
+    # Angular geometry travels with the approved measurement, not through the
+    # structural feature facts where suppression could be bypassed.
+    angular_reference: AngularReference | None = None
 
     @property
     def parameter_id(self) -> ParameterId:
@@ -2962,6 +2966,49 @@ class AngularReference:
         if any(abs(normal[index]) > 1e-6 for index in range(3) if index != dominant):
             return "?"
         return "XYZ"[dominant]
+
+    @property
+    def measurement_key(self) -> tuple:
+        """Referenced geometry and sector, invariant under witness-order reversal."""
+        return (
+            self.vertex,
+            tuple(sorted((self.first, self.second))),
+            self.sector,
+            self.virtual_vertex,
+        )
+
+
+@dataclass(frozen=True)
+class AngleFeature:
+    """One included-angle requirement derived from explicit oriented supports."""
+
+    angular_reference: AngularReference
+    kind: ClassVar[str] = "angle"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.angular_reference, AngularReference):
+            raise ValueError("angle requires an AngularReference")
+        if self.angular_reference.principal_axis == "?":
+            raise ValueError(
+                "angle requires a true-angle principal projection; oblique is unsupported"
+            )
+
+    @property
+    def frame(self) -> Frame:
+        return Frame(self.angular_reference.vertex, self.angular_reference.principal_axis.lower())
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "angle",
+                "included",
+                self.angular_reference.angle_degrees,
+                angular_reference=self.angular_reference,
+            )
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
 
 
 @dataclass(frozen=True)

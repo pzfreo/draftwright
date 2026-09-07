@@ -1372,6 +1372,9 @@ class Drawing:
                         item.axis,
                         item.discriminator,
                         item.location_member,
+                        item.angular_reference.measurement_key
+                        if item.angular_reference is not None
+                        else None,
                     )
                     for item in approved
                 )
@@ -1743,9 +1746,63 @@ class Drawing:
             return "above" if exterior[1] > (p1[1] + p2[1]) / 2 else "below"
         return "right" if exterior[0] > (p1[0] + p2[0]) / 2 else "left"
 
+    def _angular_dimension_plan(self, feature, options):
+        """Compile a referential angle edit with the model's existing decorations."""
+        from dataclasses import replace
+
+        from draftwright.model.compiled import compile_dimensions
+        from draftwright.model.ir import RequestedDimension
+
+        if options["param"] not in ("angle", "included.angle") or options.get("role") not in (
+            None,
+            "included",
+        ):
+            raise ValueError("angle exposes only the included.angle measurement")
+        extra = set(options) - {"param", "role", "view", "side", "name", "pin", "priority"}
+        if extra:
+            raise ValueError(
+                f"unsupported angular edit controls: {sorted(extra)}; declare content on Sheet"
+            )
+        model = self.model()
+        if model is None or not any(owner is feature for owner in model.features):
+            raise ValueError("angular edit must name an exact feature in the drawing model")
+        request = RequestedDimension(
+            feature,
+            "included.angle",
+            view=options.get("view"),
+            side=options.get("side"),
+        )
+        return compile_dimensions(
+            replace(model, authored_dimensions=(request,), requested_dimensions=())
+        )
+
     def _queue_dimension_intent(self, it, a, *, ctx, used_names=None) -> bool:
         """Queue a pinned/prioritized feature dimension into a shared corridor."""
         from draftwright.annotations._common import CorridorCandidate, register_corridor
+
+        if getattr(it.feature, "kind", None) == "angle":
+            from draftwright.annotations.from_model import render_angular_dimensions
+            from draftwright.model.compiled import FeatureRef
+
+            plan = self._angular_dimension_plan(it.feature, it.kwargs)
+            name = it.kwargs.get("name")
+            used_names = used_names if used_names is not None else set()
+            if name is None:
+                index = 0
+                while (name := f"dim_angle{index}") in self._registry or name in used_names:
+                    index += 1
+            used_names.add(name)
+            render_angular_dimensions(
+                self,
+                plan,
+                a,
+                ctx=ctx,
+                only={FeatureRef(it.feature)},
+                name=name,
+                pin=bool(it.kwargs.get("pin")),
+                priority=float(it.kwargs.get("priority") or 0.0),
+            )
+            return True
 
         side = it.kwargs.get("side")
         view = it.kwargs.get("view")
@@ -1927,6 +1984,35 @@ class Drawing:
                 )
             )
             return ""
+        if getattr(feature, "kind", None) == "angle":
+            options = dict(
+                param=param,
+                role=role,
+                side=side,
+                view=view,
+                name=name,
+                pin=pin,
+                priority=priority,
+                **kwargs,
+            )
+            self._angular_dimension_plan(feature, options)
+            if name is None:
+                index = 0
+                while (name := f"dim_angle{index}") in self._registry:
+                    index += 1
+            with self.deferred():
+                self.dimension(
+                    feature,
+                    param,
+                    role=role,
+                    side=side,
+                    view=view,
+                    name=name,
+                    pin=pin,
+                    priority=priority,
+                    **kwargs,
+                )
+            return name
         rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
         side = self._resolve_dimension_side(feature, rec, view, p1, p2, side)
         from draftwright.model.compiled import DimensionId
@@ -2525,6 +2611,9 @@ class Drawing:
         dimension with a resolvable span and a corridor-side, not already claimed by a
         specialized route (``already_routed`` = ``len_ids | slot_ids | height_ladder_ids |
         step_position_ids``)."""
+        if routable and it.kind == "dimension" and getattr(it.feature, "kind", None) == "angle":
+            self._angular_dimension_plan(it.feature, it.kwargs)
+            return True
         if (
             not routable
             or it.kind != "dimension"

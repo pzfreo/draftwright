@@ -33,6 +33,7 @@ from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
 from draftwright.model.ir import (
     PLACEMENT_SIDES,
     PLACEMENT_VIEWS,
+    AngleFeature,
     BlendFeature,
     ChamferFeature,
     ChannelFeature,
@@ -57,6 +58,7 @@ from draftwright.model.ir import (
     SlotFeature,
     SlotPatternFeature,
     StepLevelFeature,
+    validate_authored_dimension_placement,
 )
 from draftwright.view_plan import (
     UncoveredViewRequirement,
@@ -81,6 +83,7 @@ def _is_zero_step_position(value: float) -> bool:
 
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {
+    ("included", "angle"): "angular",
     ("step", "length"): "chain",
     ("step", "diameter"): "leader",
     ("bore", "diameter"): "leader",
@@ -156,7 +159,7 @@ class PlannedDimension:
     a feature emits datum-referenced params."""
 
     param: DimParameter
-    convention: str  # "chain" | "ordinate" | "leader" | "linear" | "pitch"
+    convention: str  # "chain" | "ordinate" | "leader" | "linear" | "pitch" | "angular"
     suppressed: bool = False
     reason: str | None = None
     datum: Datum | None = None
@@ -1180,6 +1183,21 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
 def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_views=None):
     """Resolve one view/side for a compound group, or reject an unrenderable intent."""
     approved = [pd for pd in dims if not pd.suppressed]
+
+    if isinstance(feature, AngleFeature):
+        for pd in approved:
+            validate_authored_dimension_placement(
+                "angular",
+                feature.frame.axis.upper(),
+                pd.view,
+                pd.side,
+                owner="angle",
+                angular_reference=feature.angular_reference,
+            )
+        sides = {pd.side for pd in approved if pd.side is not None}
+        if len(sides) > 1:
+            raise ValueError("conflicting placement intent for one included angle")
+        return _group_view(feature, planned_views), next(iter(sides), None)
 
     # An envelope group is a feature-level compiler container, not one compound mark:
     # width, depth, and height are independent dimensions which intentionally scatter

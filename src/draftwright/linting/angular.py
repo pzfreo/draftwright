@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from math import atan2, degrees, hypot, isfinite, pi
 from statistics import median
 
@@ -85,11 +86,15 @@ def lint_angular_geometry(item, label_value):
 
     findings = []
     actual = degrees(angle)
+    nominal = re.search(r"[+-]?\d+(?:\.(\d+))?\s*(?:°|deg)", label, re.IGNORECASE)
+    # Interpret the nominal at its displayed resolution. A fixed percentage
+    # both missed false precise claims and rejected correctly rounded small angles.
+    rounding = 0.5 * 10 ** -len(nominal.group(1) or "") if nominal else 0.0
     if (
         not is_angular_label(label)
         or label_value is None
         or not isfinite(label_value)
-        or abs(label_value - actual) > max(0.01, actual * 0.005)
+        or abs(label_value - actual) > rounding + 1e-8
     ):
         findings.append(
             LintIssue(

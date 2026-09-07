@@ -1235,6 +1235,7 @@ class TestEveryFeatureVerbIsNameable:
     #: with no entry FAILS rather than being skipped, so the table cannot silently fall behind
     #: the API the way the first version's six-verb parametrization did.
     _CALLS: dict = {
+        "angle": dict(vertex=(0, 0, 0), first=(10, 0, 0), second=(0, 10, 0)),
         "hole": dict(diameter=6, at=(0, 0, 0), axis="z"),
         "double_d_bore": dict(
             major_diameter=10,

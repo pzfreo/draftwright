@@ -2925,6 +2925,7 @@ def _route_of(value: str) -> str:
 #: serialises it and the generated script reconstructs it (#973 r3). No `"untested"` route
 #: either; #948 closed the last of them.
 _KIND_MIRROR_COVERAGE = {
+    "angle": "declared",
     "hole": "corpus",
     "pattern": "corpus",
     "boss": "corpus",
@@ -3092,6 +3093,8 @@ def _declared_models():
         "external spur gear"
     ]()
     yield "external_spur_gear", gear, "sheet.external_spur_gear("
+    _part, angle = TestTheDeclaredModelMatchesTheDetectedOne._declared_corpus()["angle"]()
+    yield "angle", angle, "sheet.angle("
 
 
 def _declarable_kinds() -> set[str]:
@@ -3431,6 +3434,7 @@ _ROUTES = tuple(_ROUTE_OBLIGATIONS)
 #: reads it; the route decides which corpus must contain the kind, and is validated against
 #: `_ROUTES`. Fail-closed against the IR itself, so a new kind cannot arrive unclassified.
 _FIDELITY_ROUTE = {
+    "angle": ("declared", "included angle with explicit rays and tolerance"),
     # Detected: reachable by emitting a model the detectors built from a part.
     "hole": ("detected", "plate+hole, and as a pattern member"),
     "pattern": ("detected", "hole pattern (linear) and grid pattern"),
@@ -3804,6 +3808,14 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
         from draftwright import Sheet
 
+        def angle():
+            part = Box(40, 20, 10)
+            sheet = Sheet(part, title="T", number="N")
+            handle = sheet.angle(vertex=(0, 0, 5), first=(10, 0, 5), second=(0, 10, 5))
+            handle.tolerance(0.05, on="included.angle")
+            sheet.dimension(handle, "included.angle")
+            return part, sheet.model()
+
         def measured_dimension():
             part = Box(40, 20, 10)
             sheet = Sheet(part, title="T", number="N").auto_dimensions()
@@ -3908,6 +3920,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             return part, dataclasses.replace(model, features=[*model.features, datum])
 
         return {
+            "angle": angle,
             "control frame": control_frame,
             "datum feature": datum_ref,
             "external spur gear": external_spur_gear,
