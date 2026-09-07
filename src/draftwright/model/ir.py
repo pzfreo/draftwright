@@ -2875,6 +2875,80 @@ class RotationalFeature:
 
 
 @dataclass(frozen=True)
+class AngularReference:
+    """Two oriented model-space rays bounding the non-reflex angular sector.
+
+    ``first`` and ``second`` are witness points on rays starting at ``vertex``.
+    Reversing their order reverses the plane normal, not the measured angle.
+    A virtual vertex explicitly describes intersecting extended supports; this
+    declaration alone does not certify correspondence to physical part edges.
+    No field describes annotation placement or an arc radius on the sheet.
+    """
+
+    vertex: Point
+    first: Point
+    second: Point
+    sector: Literal["minor"] = "minor"
+    virtual_vertex: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("vertex", "first", "second"):
+            object.__setattr__(self, name, _finite_point3(name, getattr(self, name)))
+        if self.sector != "minor":
+            raise ValueError("angular reference supports only the minor (non-reflex) sector")
+        if type(self.virtual_vertex) is not bool:
+            raise ValueError("angular reference virtual_vertex must be a bool")
+        first, second = self.rays
+        cross = self._cross(first, second)
+        if hypot(*cross) <= 1e-9:
+            raise ValueError("angular reference rays must not be parallel or collinear")
+
+    @property
+    def rays(self) -> tuple[Point, Point]:
+        result = []
+        for point in (self.first, self.second):
+            ray = tuple(p - v for p, v in zip(point, self.vertex, strict=True))
+            length = hypot(*ray)
+            if not isfinite(length) or length <= 1e-9:
+                raise ValueError("angular reference needs two finite nonzero rays")
+            result.append((ray[0] / length, ray[1] / length, ray[2] / length))
+        return result[0], result[1]
+
+    @staticmethod
+    def _cross(first: Point, second: Point) -> Point:
+        x, y, z = first
+        u, v, w = second
+        return y * w - z * v, z * u - x * w, x * v - y * u
+
+    @property
+    def normal(self) -> Point:
+        cross = self._cross(*self.rays)
+        length = hypot(*cross)
+        return cross[0] / length, cross[1] / length, cross[2] / length
+
+    @property
+    def angle_degrees(self) -> float:
+        first, second = self.rays
+        return (
+            atan2(
+                hypot(*self._cross(first, second)),
+                sum(a * b for a, b in zip(first, second, strict=True)),
+            )
+            * 180
+            / pi
+        )
+
+    @property
+    def principal_axis(self) -> str:
+        """Normal axis of a true-angle principal projection, or ``?`` if oblique."""
+        normal = self.normal
+        dominant = max(range(3), key=lambda index: abs(normal[index]))
+        if any(abs(normal[index]) > 1e-6 for index in range(3) if index != dominant):
+            return "?"
+        return "XYZ"[dominant]
+
+
+@dataclass(frozen=True)
 class AuthoredDimension:
     """A pre-authored drafting dimension imported from an external semantic source.
 
@@ -2917,9 +2991,18 @@ class AuthoredDimension:
     # they are not page coordinates and do not bypass placement solving (ADR 2 (was 0012/0014)).
     view: str | None = None
     side: str | None = None
+    angular_reference: AngularReference | None = None
     kind: ClassVar[str] = "authored_dimension"
 
     def __post_init__(self) -> None:
+        if self.angular_reference is not None:
+            if self.dimension_kind != "angular":
+                raise ValueError("angular_reference requires an angular dimension")
+            if not isinstance(self.angular_reference, AngularReference):
+                raise ValueError("angular_reference must be an AngularReference")
+            reference = self.angular_reference
+            if self.ref_pts != (reference.first, reference.vertex, reference.second):
+                raise ValueError("angular ref_pts must agree with first, vertex, second")
         validate_authored_dimension_placement(
             self.dimension_kind,
             self.dominant_axis,

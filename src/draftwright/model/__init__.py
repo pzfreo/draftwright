@@ -61,6 +61,7 @@ from draftwright.model.declare import (
 from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
+    AngularReference,
     AuthoredDimension,
     BlendFeature,
     BossFeature,
@@ -123,6 +124,7 @@ from draftwright.model.planner import (
 from draftwright.view_plan import UncoveredViewRequirement, ViewPlanIncomplete
 
 __all__ = [
+    "AngularReference",
     "AuthoredDimension",
     "AUTHORED_DIMENSION_KINDS",
     "BossFeature",

@@ -1470,6 +1470,7 @@ class Sheet:
         cylindrical_refs=(),
         view: str | None = None,
         side: str | None = None,
+        angular_reference=None,
     ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
@@ -1491,6 +1492,11 @@ class Sheet:
         ``rendering_blockers`` carries the source-geometry reason it cannot be drawn truthfully.
         ``view``/``side`` select a supported semantic corridor while leaving its actual
         position to the normal placement solve.
+        ``angular_reference`` names a model-space ``vertex``, ``first`` and ``second``
+        ray witness, with optional ``virtual_vertex=True`` for extended supports.
+        Its only supported sector is the non-reflex ``"minor"`` sector. Supply it as an
+        ``AngularReference`` or mapping; empty ``ref_pts`` are filled from that reference.
+        Geometric intent is preserved even when angular rendering is unavailable.
         Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.
         """
@@ -1516,6 +1522,7 @@ class Sheet:
                 cylindrical_refs=cylindrical_refs,
                 view=view,
                 side=side,
+                angular_reference=angular_reference,
             )
         )
         # A handle like every other declaration verb (#922). A measured dimension carries its

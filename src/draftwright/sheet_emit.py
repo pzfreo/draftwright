@@ -489,24 +489,31 @@ def _member_slot_str(m) -> str:
 
 
 def _measured_dimension_line(f) -> str:
+    angular = getattr(f, "angular_reference", None)
+    number = repr if angular is not None else _n
+    reference_points = (
+        repr((angular.first, angular.vertex, angular.second))
+        if angular is not None
+        else _pts_arg(f.ref_pts)
+    )
     kw = [
         f"kind={f.dimension_kind!r}",
-        f"value={_n(f.value)}",
+        f"value={number(f.value)}",
         f"label={f.label!r}",
         f"dominant_axis={f.dominant_axis!r}",
-        f"ref_pts={_pts_arg(f.ref_pts)}",
+        f"ref_pts={reference_points}",
         f"ref_bbox={_bbox_arg(f.ref_bbox)}",
         f"at={_pt(f.frame.origin)}",
         f"axis={f.frame.axis!r}",
     ]
     if f.upper_tol is not None:
-        kw.append(f"upper_tol={_n(f.upper_tol)}")
+        kw.append(f"upper_tol={number(f.upper_tol)}")
     if f.lower_tol is not None:
-        kw.append(f"lower_tol={_n(f.lower_tol)}")
+        kw.append(f"lower_tol={number(f.lower_tol)}")
     if f.lower_bound is not None:
-        kw.append(f"lower_bound={_n(f.lower_bound)}")
+        kw.append(f"lower_bound={number(f.lower_bound)}")
     if f.upper_bound is not None:
-        kw.append(f"upper_bound={_n(f.upper_bound)}")
+        kw.append(f"upper_bound={number(f.upper_bound)}")
     if f.source != "sheet":
         kw.append(f"source={f.source!r}")
     if f.source_kind is not None and f.source_kind != f.dimension_kind:
@@ -519,6 +526,16 @@ def _measured_dimension_line(f) -> str:
         kw.append(f"rendering_blockers={f.rendering_blockers!r}")
     if getattr(f, "cylindrical_refs", ()):
         kw.append(f"cylindrical_refs={_cylindrical_refs_arg(f.cylindrical_refs)}")
+    if angular is not None:
+        # Preserve full point precision: short angular rays amplify coordinate rounding.
+        reference = {
+            "vertex": angular.vertex,
+            "first": angular.first,
+            "second": angular.second,
+            "sector": angular.sector,
+            "virtual_vertex": angular.virtual_vertex,
+        }
+        kw.append(f"angular_reference={reference!r}")
     if getattr(f, "view", None) is not None:
         kw.append(f"view={f.view!r}")
     if getattr(f, "side", None) is not None:
