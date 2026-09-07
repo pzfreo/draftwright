@@ -15,6 +15,8 @@ The comparison scope is named compiled measurements. It checks their recorded ow
 parameter, nominal value, tolerance, directional span and rendered claim text. A linear
 dimension also retains its scale-normalised measured path length, keeping its text tied
 to the quantity that annotation draws even when several claims share one coarse id.
+Recorded per-annotation spans and location components retain distinctions hidden by a
+coarse parameter id. These records remain source claims, not proof of a physical target.
 It does not establish physical completeness, inspect unnamed annotations or certify an engineering
 release. Use independent lint/requirement evidence alongside it. Claim verification retains
 its own attribution limits, described in ``linting.evidence.verify_measurement_claims``.
@@ -38,6 +40,7 @@ class MeasurementClaim:
     annotation: str
     meaning: tuple
     rendered: tuple
+    witnesses: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,7 @@ def compare_measurements(before, after, *, feature_pairs=()) -> dict:
                         for index, candidate in enumerate(remaining)
                         if claim.meaning == candidate.meaning
                         and claim.rendered == candidate.rendered
+                        and claim.witnesses == candidate.witnesses
                     ),
                     None,
                 )

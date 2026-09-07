@@ -1389,6 +1389,16 @@ class Drawing:
                             ),
                             measured_length,
                         ),
+                        (
+                            deepcopy(getattr(annotation, "_dw_measurement_span", None)),
+                            tuple(
+                                (component, deepcopy(at))
+                                for feature, component, at in getattr(
+                                    annotation, "covers_hole_locations", ()
+                                )
+                                if feature is identity.feature
+                            ),
+                        ),
                     )
                 )
         return MeasurementSnapshot(tuple(model.features), tuple(claims), tuple(unknown))

@@ -181,6 +181,14 @@ def test_feature_pair_must_reference_the_exact_snapshot_inventory(declared_pair)
         compare_measurements(drawing, drawing, feature_pairs=((holes[0], holes[1]),))
 
 
+def _replace_with_provenance(drawing, old, new, provenance):
+    for attr, value in vars(provenance).items():
+        if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+            setattr(new, attr, value)
+    drawing.items[next(i for i, item in enumerate(drawing.items) if item is old)] = new
+    drawing.registry.replace_object(old, new)
+
+
 @pytest.mark.parametrize(
     ("fixture", "names"),
     [
@@ -207,12 +215,7 @@ def test_swapping_labels_between_coarse_claims_changes_the_measurements(fixture,
             spec.draft,
             **dict(spec.kwargs, label=original[1 - index].label),
         )
-        for attr, value in vars(old).items():
-            if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
-                setattr(new, attr, value)
-        item_index = next(i for i, item in enumerate(drawing.items) if item is old)
-        drawing.items[item_index] = new
-        drawing.registry.replace_object(old, new)
+        _replace_with_provenance(drawing, old, new, old)
     assert sum(issue.code == "label_vs_measured" for issue in drawing.lint(physical=False)) == 2
     result = compare_measurements(before, drawing)
     assert result["status"] == "changed", result
@@ -227,3 +230,40 @@ def test_a_scale_change_preserves_real_dimension_measurements():
     assert any(getattr(item, "measured_length", None) for item in before.items)
     result = compare_measurements(before, after)
     assert result["status"] == "preserved", result
+
+
+def test_equal_valued_location_axes_keep_their_recorded_component_identity():
+    part = Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10)
+    drawing = build_drawing(part)
+    x = drawing.get_annotation("m_locx0")
+    y = drawing.get_annotation("m_locy0")
+    assert x.label == y.label == "35"
+    assert x.covers_hole_locations[0][1].endswith(".x")
+    assert y.covers_hole_locations[0][1].endswith(".y")
+    before = drawing.measurement_snapshot()
+    # Substitute another real Y dimension, including its producer-recorded axis,
+    # for X. The coarse registry id, label and measured length all remain equal.
+    spec = y._dw_spec
+    duplicate = _dim(spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **spec.kwargs)
+    _replace_with_provenance(drawing, x, duplicate, y)
+
+    result = compare_measurements(before, drawing)
+    assert result["status"] == "changed", result
+    assert result["changed"]
+
+
+def test_a_changed_dimension_path_cannot_keep_its_original_claim():
+    drawing = build_drawing(Box(60, 40, 10), scale=2)
+    old = drawing.get_annotation("dim_height")
+    before = drawing.measurement_snapshot()
+    spec = old._dw_spec
+    end = (spec.p2[0], spec.p2[1] + drawing.scale, spec.p2[2])
+    new = _dim(spec.p1, end, spec.side, spec.distance, spec.draft, **spec.kwargs)
+    assert new.label == old.label
+    assert new.measured_length != old.measured_length
+    _replace_with_provenance(drawing, old, new, old)
+    assert any(issue.code == "label_vs_measured" for issue in drawing.lint(physical=False))
+
+    result = compare_measurements(before, drawing)
+    assert result["status"] == "changed", result
+    assert result["changed"]
