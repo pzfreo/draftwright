@@ -81,13 +81,15 @@ include = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 timeout = 300
-# `slow` covers the heavy end-to-end builds over the large NIST CTC fixtures
+# `slow` covers end-to-end integration builds, including the large NIST CTC fixtures
 # (minutes each), deselected by default. `smoke` is a curated, build-light subset
 # (~30 s) for a quick local "did I break something obvious" check — run it with
 # `uv run pytest -m smoke`. The default run is the full fast tier (`-m 'not slow'`,
-# ~8 min); CI owns that plus the slow tier across the OS/Python matrix.
+# runtime depends on worker count). CI runs one real-part canary before merge,
+# the full slow tier after merge, and the fast tier across its compatibility matrix.
 markers = [
-    "slow: heavy end-to-end CTC fixture builds (deselected by default)",
+    "slow: end-to-end integration builds, including CTC fixtures (deselected by default)",
+    "real_part_canary: bounded real STEP semantic/export gate, selected once in PR CI",
     "smoke: curated build-light subset for a fast local check (~30 s)",
     "unit: pure-logic inner-loop tier — constructs NO OCC geometry (enforced by conftest, #656)",
 ]

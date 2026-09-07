@@ -190,6 +190,28 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  test-real-part-canary:
+    # One real STEP build checks fixed occurrence/measurement expectations and exports
+    # before merge (#827). Linux/Python 3.12 matches the post-merge slow-suite kernel;
+    # the compatibility matrix covers the other supported Python/kernel resolutions.
+    # Run once, outside that matrix. The test has a 120 s execution budget; this
+    # job limit also bounds installation and a native-kernel hang.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Check real-part semantics and production exports
+        run: uv run pytest tests/test_issue_827_real_part_canary.py -m real_part_canary -v -s --durations=1
+
   test-slow:
     # Heavy end-to-end CTC fixture builds (minutes each); run once, not across
     # the full OS/Python matrix.
@@ -264,7 +286,7 @@ jobs:
     # skips this job, and GitHub counts a skipped required check as satisfied — so a
     # broken test suite would report a green gate.
     if: always()
-    needs: [lint, test, coverage, test-slow, test-platform-canary]
+    needs: [lint, test, coverage, test-slow, test-platform-canary, test-real-part-canary]
     runs-on: ubuntu-latest
     permissions:
       statuses: write # Attach the dispatched post-release gate to its generated PR head.
@@ -277,8 +299,9 @@ jobs:
           COVERAGE: ${{ needs.coverage.result }}
           SLOW: ${{ needs.test-slow.result }}
           CANARY: ${{ needs.test-platform-canary.result }}
+          REAL_PART: ${{ needs.test-real-part-canary.result }}
         run: |
-          echo "lint=$LINT test=$TEST coverage=$COVERAGE slow=$SLOW canary=$CANARY"
+          echo "lint=$LINT test=$TEST coverage=$COVERAGE slow=$SLOW canary=$CANARY real-part=$REAL_PART"
           failed=0
           for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" "canary:$CANARY"; do
             name=${pair%%:*}
@@ -302,6 +325,16 @@ jobs:
             fi
           elif [[ "$SLOW" != "skipped" ]]; then
             echo "::error::slow ran unexpectedly for $EVENT_NAME (result: $SLOW)"
+            failed=1
+          fi
+          # A skipped PR canary must not silently satisfy this required check.
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            if [[ "$REAL_PART" != "success" ]]; then
+              echo "::error::real-part canary did not pass (result: $REAL_PART)"
+              failed=1
+            fi
+          elif [[ "$REAL_PART" != "skipped" ]]; then
+            echo "::error::real-part canary ran unexpectedly for $EVENT_NAME (result: $REAL_PART)"
             failed=1
           fi
           exit $failed
