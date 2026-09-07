@@ -471,7 +471,7 @@ def test_a_real_build_records_which_measurement_its_location_dims_draw():
     assert identified["m_locx0"] == [
         {
             "feature": identified["m_locx0"][0]["feature"],
-            "parameter_id": "location.location",
+            "parameter_id": "location.location.member.0.x",
         }
     ]
     assert identified["m_locx0"][0]["feature"].startswith("hole@"), "located hole"
@@ -608,7 +608,7 @@ def test_a_location_dim_two_features_share_records_both_measurements():
     )
     keys = dwg.measurement_keys("m_locx0")
     assert len(keys) == 2, "it measures BOTH holes' feature location, not neither"
-    assert {k["parameter_id"] for k in keys} == {"location.location"}
+    assert {k["parameter_id"] for k in keys} == {"location.location.member.0.x"}
     assert len({k["feature"] for k in keys}) == 2, "two distinct holes, not one repeated"
 
 

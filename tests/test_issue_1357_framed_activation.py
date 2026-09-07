@@ -220,5 +220,8 @@ def test_framed_off_axis_pattern_keeps_one_absolute_location_requirement():
     }
 
     assert pattern.frame.axis in {"x", "y"}
-    assert location_ids == {"location_pattern.location"}
+    assert location_ids == {
+        "location_pattern.location.centre.y",
+        "location_pattern.location.centre.z",
+    }
     assert drawing.lint() == []

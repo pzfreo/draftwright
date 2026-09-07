@@ -187,7 +187,8 @@ class TestTheAsymmetricCounterexample:
         assert caught.value.planned == ("front", "side")
         assert {item.identity.parameter for item in caught.value.uncovered} == {
             "bore.diameter",
-            "location.location",
+            "location.location.member.0.x",
+            "location.location.member.0.y",
         }
         assert all(item.preferred_view == "plan" for item in caught.value.uncovered)
         assert "hole_1.bore.diameter" in str(caught.value)
@@ -212,7 +213,8 @@ class TestTheAsymmetricCounterexample:
             build_drawing(part, model=model, _views=("front", "side"))
 
         assert [item.identity.parameter for item in caught.value.uncovered] == [
-            "location.location"
+            "location.location.member.0.x",
+            "location.location.member.0.y",
         ]
         assert "hole_1.location" in str(caught.value)
         assert "bore.diameter" not in str(caught.value), "the authored omission stays omitted"
@@ -222,7 +224,7 @@ class TestTheAsymmetricCounterexample:
         assert y_names, "the approved Y member must re-home rather than disappear"
         assert {drawing.view_of(name) for name in y_names} == {"plan"}
 
-    def test_the_adrs_two_requirement_diagnostic_is_executable(self):
+    def test_missing_view_diagnostics_name_extent_and_location_components(self):
         from dataclasses import replace
 
         from draftwright.model.ir import RequestedDimension
@@ -245,7 +247,8 @@ class TestTheAsymmetricCounterexample:
 
         assert [(item.label, item.preferred_view) for item in caught.value.uncovered] == [
             ("envelope.depth.length", "side"),
-            ("hole_1.location", "plan"),
+            ("hole_1.location.location.member.0.x", "plan"),
+            ("hole_1.location.location.member.0.y", "plan"),
         ]
 
     def test_the_same_view_is_droppable_when_the_feature_turns(self):
@@ -267,8 +270,8 @@ class TestTheAsymmetricCounterexample:
         assert {item.identity.parameter for item in caught.value.uncovered} == {
             "bore.diameter",
             "depth.length",
-            "location_off_axis.y",
-            "location_off_axis.z",
+            "location_off_axis.location.member.0.y",
+            "location_off_axis.location.member.0.z",
         }
         assert all(item.preferred_view == "side" for item in caught.value.uncovered)
 
@@ -287,8 +290,8 @@ class TestTheAsymmetricCounterexample:
         with pytest.raises(ViewPlanIncomplete) as caught:
             build_drawing(part, model=model, _views=("front", "plan"))
         assert {item.identity.parameter for item in caught.value.uncovered} == {
-            "location_off_axis.y",
-            "location_off_axis.z",
+            "location_off_axis.location.member.0.y",
+            "location_off_axis.location.member.0.z",
         }
 
 
@@ -320,7 +323,8 @@ class TestAnExtentMovesOrIsReported:
             compile_dimensions(model, planned_views=("front", "side"))
         assert {item.identity.parameter for item in caught.value.uncovered} >= {
             "bore.diameter",
-            "location.location",
+            "location.location.member.0.x",
+            "location.location.member.0.y",
         }
 
     @pytest.mark.parametrize(

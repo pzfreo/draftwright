@@ -494,8 +494,7 @@ def _parameter_ids(
             ids.extend((f"{stem}.{in_plane}", f"{stem}.z"))
     else:
         # Pitch/direction/count define only relative arrangement. Retain both absolute
-        # in-plane physical requirements independently; the compiler's one feature-level
-        # location unit can prove both without changing this physical ledger schema.
+        # in-plane physical requirements independently of authoring granularity.
         stem = getattr(feature, "LOCATION_STEM", None)
         if stem is None:
             return None
@@ -514,8 +513,8 @@ def _evidence_parameter(parameter: str) -> str:
         # those compiler-owned ids instead of inventing a second suppression vocabulary.
         return parameter.replace(".centerline.", ".")
     if parameter.startswith(("location.location.", "location_pattern.location.")):
-        # X/Y are independent physical critique requirements, while ADR 4 (was 0016) / #883 keeps
-        # their authored addressability as one feature-level location unit.
+        # A whole-feature authored omission retains the coarse location parameter.
+        # Independent X/Y requirements consult that omission without merging their evidence.
         return parameter.rsplit(".", 1)[0]
     return parameter
 
@@ -558,6 +557,29 @@ def _normalised_location(feature, point) -> tuple[float, float, float]:
     if hole.through:
         normalized["xyz".index(feature.frame.axis)] = 0.0
     return (normalized[0], normalized[1], normalized[2])
+
+
+def _member_location_drop_parameter(parameter: str) -> str | None:
+    """Project a component's public address to its aggregate drop category.
+
+    This classifies a recorded failure; it supplies neither an owner nor evidence that
+    a location was placed. Physical placement still requires the recorded member point.
+    """
+    parts = parameter.split(".")
+    if len(parts) == 5 and parts[2] == "member":
+        if not parts[3].isascii() or not parts[3].isdecimal() or str(int(parts[3])) != parts[3]:
+            return None
+    elif len(parts) == 4 and parts[2] == "centre" and parts[0] == "location_pattern":
+        pass
+    else:
+        return None
+    if parts[1] != "location" or parts[-1] not in {"x", "y", "z"}:
+        return None
+    if parts[0] == "location_off_axis":
+        return f"{parts[0]}.{parts[-1]}"
+    if parts[0] in {"location", "location_pattern"}:
+        return f"{parts[0]}.location.{parts[-1]}"
+    return None
 
 
 def _index_hole_evidence(registry) -> _HoleEvidence:
@@ -654,6 +676,12 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         if is_placement_drop(issue)
         for feature, parameter in getattr(issue, "hole_requirement_ids", ())
     )
+    dropped.update(
+        (feature, physical_parameter)
+        for feature, parameter in tuple(dropped)
+        if isinstance(parameter, str)
+        and (physical_parameter := _member_location_drop_parameter(parameter)) is not None
+    )
     return _HoleEvidence(
         placed,
         satisfied,
@@ -690,8 +718,8 @@ def _structured_locations_placed(evidence, features, parameter: str, turned_axis
             else:
                 # Linear/grid absolute location is compiled from one member nearest the
                 # datum. Any member is a truthful anchor because pitch/lattice facts locate
-                # the rest; requiring every member would mistake one pattern-location
-                # dimension for N independently addressable locations (#883).
+                # the rest. Fine member addressing does not make every member's absolute
+                # position a separate physical requirement for a pattern.
                 valid = {_normalised_location(feature, point) for point in _members(feature)}
             if not valid.intersection(evidence.locations.get((feature, parameter), ())):
                 return False
@@ -752,7 +780,10 @@ def _state(features, parameter, *, member_count, evidence_index, suppressed, tur
         ]
         if all(satisfied) if "location" in parameter else any(satisfied):
             return "satisfied_by_structured_note"
-    if all((feature, evidence_parameter) in suppressed for feature in features):
+    if all(
+        (feature, evidence_parameter) in suppressed or (feature, parameter) in suppressed
+        for feature in features
+    ):
         return "suppressed"
     drop_parameter = (
         parameter

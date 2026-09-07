@@ -46,6 +46,8 @@ from draftwright.linting.structural import (
     _centerline_extent,
 )
 from draftwright.model.compiled import resolve_feature
+from draftwright.model.ir import HoleFeature, PatternFeature
+from draftwright.model.planner import hole_location_parameter_id
 
 _log = logging.getLogger(__name__)
 
@@ -67,14 +69,21 @@ def _with_hole_location_coverage(annotation, coverage):
 def _hole_location_coverage_fact(location):
     """The directional physical fact rendered by one compiled hole location member.
 
-    ``location.id`` remains ADR 4 (was 0016)'s feature-level addressable ``DimensionId``. The
-    requirement parameter is deliberately separate: critique can distinguish X from Y
-    without resolving #883's open public naming decision or minting a general identity.
+    The physical requirement vocabulary is independent of the public member address.
+    Its point identifies the physical member; the compiler's declaration-local index
+    must not replace that independent evidence.
     """
     feature = resolve_feature(location.ref)
     if feature is None and location.id is not None:
         feature = location.id.feature
     assert feature is not None and location.span is not None
+    if isinstance(feature, HoleFeature | PatternFeature):
+        parameter = (
+            f"{location.role}.{location.discriminator}"
+            if isinstance(feature, HoleFeature) and location.axis != "z"
+            else f"{location.role}.location.{location.discriminator}"
+        )
+        return (feature, parameter, tuple(location.span[1]))
     parameter = location.id.parameter if location.id is not None else location.parameter_id
     if (
         parameter
@@ -189,6 +198,16 @@ def _annotation_hole_features(registry, name, annotation) -> frozenset:
     return frozenset(features)
 
 
+def _table_location_parameters(feature) -> set[str]:
+    if not isinstance(feature, HoleFeature) or feature.frame.axis != "z":
+        return set()
+    return {
+        hole_location_parameter_id(feature, member, axis)
+        for member in range(len(feature.members or (feature.frame.origin,)))
+        for axis in ("x", "y")
+    }
+
+
 def _hole_table_replaceable_annotation(registry, name, annotation) -> bool:
     """Whether a table can replace *all* semantic facts carried by an annotation.
 
@@ -214,6 +233,8 @@ def _hole_table_replaceable_annotation(registry, name, annotation) -> bool:
         "location.location",
         "location_pattern.location",
     }
+    for feature in features:
+        table_parameters.update(_table_location_parameters(feature))
     return all(
         getattr(measurement, "parameter", None) in table_parameters
         for measurement in registry.measurement_of(name)
@@ -233,6 +254,8 @@ def _hole_table_replaceable_location_annotation(registry, name, annotation) -> b
     measurements = tuple(registry.measurement_of(name))
     return bool(measurements) and all(
         getattr(measurement, "parameter", None) == "location.location"
+        or getattr(measurement, "parameter", None)
+        in _table_location_parameters(getattr(measurement, "feature", None))
         for measurement in measurements
     )
 

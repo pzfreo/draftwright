@@ -302,6 +302,8 @@ def double_d_bore(
     depth=None,
     through=True,
     profile_direction=None,
+    count=1,
+    members=(),
 ) -> HoleFeature:
     """A through double-D bore, from its cutter or explicit geometric values.
 
@@ -327,6 +329,7 @@ def double_d_bore(
     axis = _norm_axis(axis)
     _require_positive(major_diameter=major_diameter, across_flats=across_flats, depth=depth)
     _require_point("at", at)
+    _require_count("double_d_bore()", count)
     if profile_direction is None:
         direction_axis = next(candidate for candidate in "xyz" if candidate != axis)
         profile_direction = (
@@ -342,6 +345,8 @@ def double_d_bore(
         profile="double_d",
         across_flats=across_flats,
         profile_direction=profile_direction,
+        count=count,
+        members=tuple(members),
     )
 
 

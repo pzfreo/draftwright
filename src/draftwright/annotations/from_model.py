@@ -875,6 +875,8 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     PX, PY = a.proj.plan_x, a.proj.plan_y
     x_refs: list = []
     for r in refs:
+        if r[4] not in (None, "x"):
+            continue
         for u in x_refs:
             if _same_location_ordinate(r[0], u[0]):
                 u[3] = u[3] or r[2] in pinned_set
@@ -932,7 +934,10 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # A single X-location dim shared by two *distinct* features at this X belongs to
         # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
         # dimension and annotations_of never over-claims it (review #406, ADR 5 (was 0010)).
-        _shared_x = any(_same_location_ordinate(o[0], rx) and o[2] != feat for o in refs)
+        _shared_x = any(
+            o[4] in (None, "x") and _same_location_ordinate(o[0], rx) and o[2] != feat
+            for o in refs
+        )
         _xfeat = None if _shared_x else feat
         # The measurement does NOT follow the feature (#1002 r4). Feature-unowned is an
         # ADR 5 (was 0010) *ownership* rule — it stops drop(feature) stripping a sibling's dim. It
@@ -995,6 +1000,8 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
     y_refs: list = []
     for r in refs:
+        if r[4] not in (None, "y"):
+            continue
         for u in y_refs:
             if _same_location_ordinate(r[1], u[1]):
                 u[3] = u[3] or r[2] in pinned_set
@@ -1053,7 +1060,10 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             continue
         n += 1
         # Shared-Y location dim → unowned (see the X loop; review #406).
-        _shared_y = any(_same_location_ordinate(o[1], ry) and o[2] != feat for o in refs)
+        _shared_y = any(
+            o[4] in (None, "y") and _same_location_ordinate(o[1], ry) and o[2] != feat
+            for o in refs
+        )
         _yfeat = None if _shared_y else feat
         # Every collapsed feature-level location; the structured facts carry Y (see X above).
         _ymid = tuple(mids)

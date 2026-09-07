@@ -27,6 +27,7 @@ ISO/ASME rule set grows here as real features demand it.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from typing import Any, Literal
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
 from draftwright.model.ir import (
@@ -180,6 +181,10 @@ class PlannedDimension:
     # happens once per compound group below; renderers never receive raw coordinates.
     view: str | None = None
     side: str | None = None
+    # Index in the declared hole/group member tuple, carried from reference selection.
+    # None identifies a pattern centre (or a location family without member addressing).
+    location_member: int | None = None
+    location_axes: tuple[str, ...] | None = None
 
 
 # Correlated sets (ADR 4 (was 0016) identity, tier 3): exact ``(feature kind, role)`` pairs
@@ -229,12 +234,9 @@ class AddressableDimension:
     renderer may collapse truly coincident ordinates into one visible mark, while retaining
     every semantic owner on that mark.
 
-    That no longer means a location is unaddressable. each feature's own `LOCATION_STEM` gives
-    locatable kind a role, which is what `sheet.dimension(bore, "location")` names and what
-    an authored set omits (#925) — one unit per feature. The finer question **#883** asks
-    (one unit or one per member; how X/Y components are named; who owns a shared mark) is
-    about NAMING, and omission is well-formed either way, so
-    it no longer blocks the `"location"` role."""
+    Locations have a coarse authored `location` role and hole locations additionally carry
+    member/axis selectors. Their identities are derived during location compilation rather
+    than from a feature's static parameter list; coincident marks retain each approved id."""
 
     id: ParameterId
     members: tuple[PlannedDimension, ...]
@@ -794,12 +796,8 @@ def location_datum(feature) -> str | None:
 
 #: The role every authored entry uses to name a location, whatever the per-kind role above.
 #:
-#: One coarse unit per feature, deliberately: #883 asks whether a patterned hole's location
-#: is one addressable thing or one per member and how its X/Y components are named. Those are
-#: questions about NAMING. Omission does not need the answer — "this feature's position is not
-#: in the set" is well-formed at either granularity, and a finer id
-#: (`location.member.3`, for example) refines this one later without contradicting it. So the
-#: completeness contract does not wait on #883.
+#: Omitting this role suppresses the feature's whole location set. A member/axis selector
+#: refines it without changing the meaning of the coarse request.
 LOCATION_ROLE = "location"
 
 
@@ -813,15 +811,133 @@ def location_role(feature) -> str | None:
     return getattr(type(feature), "LOCATION_STEM", None)  # live read, never a snapshot
 
 
+def hole_location_parameter_id(feature, member: int | None, axis: str) -> str:
+    role = (
+        feature.LOCATION_OFF_AXIS_STEM
+        if isinstance(feature, HoleFeature) and feature.frame.axis != "z"
+        else feature.LOCATION_STEM
+    )
+    address = "centre" if member is None else f"member.{member}"
+    return f"{role}.location.{address}.{axis}"
+
+
+def location_components(feature) -> list[dict]:
+    """Discover hole location selectors without building or consulting placement."""
+    if not isinstance(feature, HoleFeature | PatternFeature):
+        return []
+    points = (
+        feature.members
+        if isinstance(feature, PatternFeature)
+        else feature.members or (feature.frame.origin,)
+    )
+    members: list[int | Literal["centre"]] = list(range(len(points)))
+    if isinstance(feature, PatternFeature) and feature.pattern == "bolt_circle":
+        members.append("centre")
+    return [
+        {
+            "member": member,
+            "axis": axis,
+            "parameter_id": hole_location_parameter_id(
+                feature, None if member == "centre" else member, axis
+            ),
+        }
+        for member in members
+        for axis in "xyz"
+        if axis != feature.frame.axis
+    ]
+
+
+def _location_requests(model: PartModel, feature):
+    return tuple(
+        request
+        for request in (
+            model.authored_dimensions
+            if model.authored_dimensions is not None
+            else model.requested_dimensions
+        )
+        if request.feature is feature and request.role == LOCATION_ROLE
+    )
+
+
+def authored_location_axis_omitted(model: PartModel, feature, axis: str) -> bool:
+    """An authored location set deliberately selects no component on this axis."""
+    requests = _location_requests(model, feature)
+    return (
+        model.authored_dimensions is not None
+        and bool(requests)
+        and all(
+            request.member is not None and request.discriminator != axis for request in requests
+        )
+    )
+
+
+def hole_location_references(model: PartModel, feature, datum: Point):
+    """Select declaration-local members and their approved transverse components.
+
+    Coarse intent keeps the automatic anchor policy. Fine intent can name another member
+    without approving its sibling axis. Member indices are carried from the IR tuple.
+    """
+    axes = tuple(axis for axis in "xyz" if axis != feature.frame.axis)
+    points = (
+        feature.members
+        if isinstance(feature, PatternFeature)
+        else feature.members or (feature.frame.origin,)
+    )
+    members: dict[int | None, Point] = dict(enumerate(points))
+    defaults: set[int | None]
+    if isinstance(feature, PatternFeature):
+        if feature.pattern == "bolt_circle":
+            members[None] = feature.frame.origin
+            defaults = {None}
+        else:
+            if not members:
+                return
+            defaults = {
+                min(
+                    members,
+                    key=lambda index: sum(
+                        (members[index]["xyz".index(axis)] - datum["xyz".index(axis)]) ** 2
+                        for axis in axes
+                    ),
+                )
+            }
+    else:
+        defaults = set(members)
+    requests = _location_requests(model, feature)
+    selected = defaults | {
+        None if request.member == "centre" else request.member
+        for request in requests
+        if request.member is not None
+    }
+    for member, point in members.items():
+        if member not in selected:
+            continue
+        allowed = tuple(
+            axis
+            for axis in axes
+            if (model.authored_dimensions is None and member in defaults)
+            or any(
+                (request.member is None and member in defaults)
+                or (
+                    (None if request.member == "centre" else request.member) == member
+                    and request.discriminator == axis
+                )
+                for request in requests
+            )
+        )
+        yield member, point, allowed
+
+
 def plan_locations(model: PartModel) -> list[PlannedDimension]:
     """Plan hole **location** dimensions — the *intent*: which features get located
     and from which datum. The renderer owns the tier/legibility/zone layout
-    (Amendment 4). One ref per un-patterned Z-hole + one per Z-pattern (bolt-circle
+    (Amendment 4). By default, one ref per un-patterned Z-hole + one per Z-pattern (bolt-circle
     centre, else the array member nearest the datum). Coincident refs remain distinct here
     so the renderer can collapse them into one mark while retaining every measurement id.
     Each
     returned `PlannedDimension` carries the datum and a `span` of datum → ref; the
-    renderer derives the X (plan) and Y (side) distances from it (#238).
+    compiler derives the directional values from it. Fine pattern requests may add references
+    beyond the default absolute anchor.
 
     Under an AUTHORED set (#876) a feature whose position the script did not name is
     marked suppressed here, exactly as `plan_dimensions` marks an unnamed parameter — a
@@ -847,26 +963,37 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         #
         # Deliberately NOT fixed by defaulting a datum into model coercion: that would hide
         # malformed compiler input behind a plausible drawing instead of reporting it.
-        return [
-            PlannedDimension(
-                param=DimParameter(kind="location", role=role, value=0.0, span=None, refs=()),
-                convention="location",
-                suppressed=True,
-                reason="no datum_xy in the model to measure the position from",
-                datum=None,
-                feature=f,
-            )
-            for f in model.features
-            for role in (location_role(f),)
-            if role is not None and location_datum(f) == "datum_xy"
-        ]
+        unavailable = []
+        for feature in model.features:
+            role = location_role(feature)
+            if role is None or location_datum(feature) != "datum_xy":
+                continue
+            requests = _location_requests(model, feature)
+            selectors = [(request.member, request.discriminator) for request in requests]
+            if model.authored_dimensions is None or not selectors:
+                selectors.append((None, None))
+            for member, axis in dict.fromkeys(selectors):
+                unavailable.append(
+                    PlannedDimension(
+                        param=DimParameter(
+                            kind="location", role=role, value=0.0, span=None, refs=()
+                        ),
+                        convention="location",
+                        suppressed=True,
+                        reason="no datum_xy in the model to measure the position from",
+                        feature=feature,
+                        location_member=None if member == "centre" else member,
+                        location_axes=(axis,) if axis is not None else None,
+                    )
+                )
+        return unavailable
     dx, dy, dz = datum.at
     # (ref_point, role): role distinguishes a hole ref from a pattern ref — the
     # renderer's concentric-bore exclusion applies to holes only (a bolt circle on
     # the axis is still located by its centre), matching the engine.
     # (ref_point, role, source feature): the feature is carried so the renderer can
     # record provenance on the placed location dim (ADR 5 (was 0010)).
-    refs: list[tuple[Point, str, Feature]] = []
+    refs: list[tuple[Point, str, Feature, int | None, tuple[str, ...] | None]] = []
     # Features whose location a RULE declined before a reference point existed. They have no
     # ref to plan from, so they cannot go through `refs`, but they were considered — and an
     # audit that cannot see them reads their absence as "nothing was suppressed" (#996).
@@ -880,21 +1007,12 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         role = location_role(f)
         if role is None or location_datum(f) != "datum_xy":
             continue
-        if isinstance(f, HoleFeature):
-            # un-patterned holes — a HoleFeature may group identical holes
-            for m in f.members or (f.frame.origin,):
-                refs.append((m, role, f))
-        elif isinstance(f, PatternFeature):
-            if f.pattern == "bolt_circle":
-                refs.append((f.frame.origin, role, f))
-            elif f.members:
-                near = min(f.members, key=lambda m: (m[0] - dx) ** 2 + (m[1] - dy) ** 2)
-                refs.append((near, role, f))
-            else:
-                # A non-bolt-circle pattern with no members has no point to locate FROM.
-                # Recorded rather than skipped (#996): this feature passed the eligibility
-                # check two lines up, so its location was considered and then dropped.
+        if isinstance(f, HoleFeature | PatternFeature):
+            if isinstance(f, PatternFeature) and f.pattern != "bolt_circle" and not f.members:
                 dropped.append((f, role, "pattern has no members to locate from"))
+                continue
+            for member, point, axes in hole_location_references(model, f, datum.at):
+                refs.append((point, role, f, member, axes))
         elif isinstance(f, PocketFeature):
             if f.edge_anchored:
                 # The pocket's position is conveyed by the edge it is anchored to, so no
@@ -915,11 +1033,13 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             ref_point[long_index] = f.lo if abs(f.lo - datum_coord) <= 1e-6 else (f.lo + f.hi) / 2
             ref_point["xyz".index(f.width_axis)] = f.w_center
             ref = (ref_point[0], ref_point[1], ref_point[2])
-            refs.append((ref, role, f))
+            refs.append((ref, role, f, None, None))
         else:
-            refs.append((f.frame.origin, role, f))
+            refs.append((f.frame.origin, role, f, None, None))
 
-    def _plan(r, role, feat, *, suppressed=False, reason=None) -> PlannedDimension:
+    def _plan(
+        r, role, feat, member=None, axes=None, *, suppressed=False, reason=None
+    ) -> PlannedDimension:
         return PlannedDimension(
             param=DimParameter(
                 kind="location",
@@ -933,16 +1053,20 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             reason=reason,
             datum=datum,
             feature=feat,
+            location_member=member,
+            location_axes=axes,
         )
 
     omitted: list[PlannedDimension] = []
     if model.authored_dimensions is not None:
-        kept: list[tuple[Point, str, Feature]] = []
-        for r, role, feat in refs:
+        kept: list[tuple[Point, str, Feature, int | None, tuple[str, ...] | None]] = []
+        for r, role, feat, member, axes in refs:
             if _authored_location_for(model, feat) is None:
-                omitted.append(_plan(r, role, feat, suppressed=True, reason=_AUTHORED_OMISSION))
+                omitted.append(
+                    _plan(r, role, feat, member, axes, suppressed=True, reason=_AUTHORED_OMISSION)
+                )
             else:
-                kept.append((r, role, feat))
+                kept.append((r, role, feat, member, axes))
         refs = kept
     omitted += [
         _plan(feat.frame.origin, role, feat, suppressed=True, reason=why)
@@ -952,7 +1076,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     # per-axis grouping and records every collapsed id on its one shared mark (ADR 5 (was 0010) /
     # 0016). Compiler-time dedup used to make a central bore sharing a bolt-circle centre
     # look unlocated even though the visible X/Y dimensions constrained both features.
-    return [_plan(r, role, feat) for r, role, feat in refs] + omitted
+    return [_plan(r, role, feat, member, axes) for r, role, feat, member, axes in refs] + omitted
 
 
 def _request_for(model, feature, param):
@@ -1393,12 +1517,7 @@ def _uncovered_group_requirements(
 def _uncovered_location_requirements(
     model: PartModel, planned_views
 ) -> list[UncoveredViewRequirement]:
-    """Approved datum locations whose current semantic renderer has no selected view.
-
-    Location identity is feature-level today (ADR 4 (was 0016) / #883), while X and Y are distinct
-    observable members.  The two records therefore retain the same ``DimensionId`` and use
-    an ``.x``/``.y`` diagnostic suffix; correspondence never depends on that suffix.
-    """
+    """Approved datum locations whose current semantic renderer has no selected view."""
     planned = set(planned_views)
     labels = _feature_labels(model)
     uncovered: list[UncoveredViewRequirement] = []
@@ -1408,6 +1527,28 @@ def _uncovered_location_requirements(
         if pd.suppressed or feature is None or pd.param.span is None:
             continue
         start, end = pd.param.span
+        if isinstance(feature, HoleFeature | PatternFeature):
+            for axis in pd.location_axes or ():
+                index = "xyz".index(axis)
+                parameter = hole_location_parameter_id(feature, pd.location_member, axis)
+                key = (id(feature), parameter, "plan")
+                if (
+                    "plan" in planned
+                    or key in seen
+                    or abs(end[index] - start[index]) <= _PLANE_TOL
+                ):
+                    continue
+                seen.add(key)
+                uncovered.append(
+                    UncoveredViewRequirement(
+                        identity=DimensionId(feature, parameter),
+                        label=f"{labels[id(feature)]}.{parameter}",
+                        preferred_view="plan",
+                        eligible_views=("plan",),
+                        reason="reads only in `plan`",
+                    )
+                )
+            continue
         requirements: list[tuple[str, str]] = []
         if isinstance(feature, PocketFeature) and feature.frame.axis != "z":
             requirements.append(("position", _END_ON[feature.depth_axis]))
@@ -1449,12 +1590,14 @@ def _uncovered_location_requirements(
         if location_datum(feature) != "bbox" or authored_location_omitted(model, feature):
             continue
         parameters: tuple[str, ...]
-        if isinstance(feature, HoleFeature):
+        if isinstance(feature, HoleFeature | PatternFeature):
             view = _END_ON[feature.frame.axis]
-            measured = "y" if feature.frame.axis == "x" else "x"
-            parameters = (
-                f"{feature.LOCATION_OFF_AXIS_STEM}.{measured}",
-                f"{feature.LOCATION_OFF_AXIS_STEM}.z",
+            bbox: Any = model.bbox
+            datum = (float(bbox.min.X), float(bbox.min.Y), float(bbox.min.Z))
+            parameters = tuple(
+                hole_location_parameter_id(feature, member, axis)
+                for member, _point, axes in hole_location_references(model, feature, datum)
+                for axis in axes
             )
         elif isinstance(feature, SlotFeature):
             view = _END_ON[_plane_normal(feature)]

@@ -156,12 +156,8 @@ class ClaimOutcome:
 def compiled_values(plan) -> dict:
     """``{measurement id: (ApprovedDimension, ...)}`` for everything the compiler approved.
 
-    A **multimap**, deliberately. A ``DimensionId`` is not unique per rendered dimension: one
-    hole's ``location.location`` yields both the X and the Y offset, and the overall height
-    appears in a group and in the ladder. Keyed as a single value it silently drops one of each
-    pair, and the verifier then reports a true dimension as a mismatch — measured while building
-    this, on a two-hole plate where the Y locations read 15 and 45 against a lookup insisting on
-    20 and 60.
+    A **multimap**, deliberately: the overall height appears in a group and in the ladder.
+    Multiple compiled representations of one identity must remain available to the verifier.
     """
     values: dict = defaultdict(list)
     for group in getattr(plan, "groups", ()):

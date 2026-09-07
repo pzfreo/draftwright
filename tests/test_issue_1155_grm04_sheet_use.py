@@ -31,7 +31,11 @@ def test_grm04_measured_replan_keeps_diameter_and_location_on_a4():
         for measurement in drawing.registry.measurement_of(name)
         if measurement.feature is hole
     }
-    assert {"bore.diameter", "location_off_axis.y", "location_off_axis.z"} <= carried
+    assert {
+        "bore.diameter",
+        "location_off_axis.location.member.0.y",
+        "location_off_axis.location.member.0.z",
+    } <= carried
     assert any(
         "2.4" in str(getattr(drawing.get_annotation(name), "label", ""))
         for name in drawing.annotations()

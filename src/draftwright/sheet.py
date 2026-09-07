@@ -115,7 +115,11 @@ from draftwright.model.ir import (
     ToleranceDecoration,
 )
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
-from draftwright.model.planner import dimension_placement_options, validate_dimension_placement
+from draftwright.model.planner import (
+    dimension_placement_options,
+    location_components,
+    validate_dimension_placement,
+)
 from draftwright.model.planner import location_role as _location_role
 from draftwright.view_plan import (
     ConstraintSource,
@@ -1235,6 +1239,7 @@ class Sheet:
         role: DimensionParameterId = _UNSET,  # type: ignore[assignment]
         *,
         axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
         view: str | None = None,
         side: str | None = None,
         **removed,
@@ -1276,10 +1281,17 @@ class Sheet:
             raise TypeError(f"dimension() got unexpected keyword(s) {sorted(removed)}")
         if feature is _UNSET or role is _UNSET:
             raise TypeError("dimension() requires a feature and a parameter id")
-        return self._authored_dimension(feature, role, axis=axis, view=view, side=side)
+        return self._authored_dimension(
+            feature, role, axis=axis, member=member, view=view, side=side
+        )
 
     def dimension_options(
-        self, feature, role: DimensionParameterId, *, axis: str | None = None
+        self,
+        feature,
+        role: DimensionParameterId,
+        *,
+        axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
     ) -> dict:
         """Discover view/side pairs accepted by planner placement rules, without building.
 
@@ -1296,9 +1308,9 @@ class Sheet:
         The query neither records an intent nor prepares, recognises, or renders the part.
         """
         _token, target, discriminator, canonical = self._resolve_measurement(
-            feature, role, axis, "dimension_options"
+            feature, role, axis, "dimension_options", member=member
         )
-        request = RequestedDimension(target, canonical, discriminator=discriminator)
+        request = RequestedDimension(target, canonical, discriminator=discriminator, member=member)
         parameter_id = next(
             (
                 parameter.parameter_id
@@ -1308,7 +1320,7 @@ class Sheet:
             ),
             canonical,
         )
-        return {
+        result = {
             "schema": "draftwright.dimension-options",
             "schema_version": 1,
             "scope": "single_dimension_placement_rules",
@@ -1319,12 +1331,25 @@ class Sheet:
             "placements": dimension_placement_options(request),
         }
 
+        if canonical == _LOCATION_ROLE:
+            components = location_components(target)
+            result["location_components"] = components
+            result["member"] = member
+            if member is not None:
+                result["parameter_id"] = next(
+                    component["parameter_id"]
+                    for component in components
+                    if component["member"] == member and component["axis"] == discriminator
+                )
+        return result
+
     def validate_dimension(
         self,
         feature,
         role: DimensionParameterId,
         *,
         axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
         view: str | None = None,
         side: str | None = None,
         **unsupported,
@@ -1347,7 +1372,7 @@ class Sheet:
             "options": None,
         }
         try:
-            options = self.dimension_options(feature, role, axis=axis)
+            options = self.dimension_options(feature, role, axis=axis, member=member)
         except (TypeError, ValueError, IndexError) as exc:
             result["issues"] = [{"code": "invalid_measurement", "message": str(exc)}]
             return result
@@ -1356,18 +1381,23 @@ class Sheet:
             result["issues"] = [
                 {
                     "code": "unsupported_control",
-                    "message": "dimension accepts only axis, view and side placement controls",
+                    "message": "dimension accepts only member, axis, view and side controls",
                     "controls": sorted(unsupported),
                 }
             ]
             return result
         _token, target, discriminator, canonical = self._resolve_measurement(
-            feature, role, axis, "validate_dimension"
+            feature, role, axis, "validate_dimension", member=member
         )
         try:
             validate_dimension_placement(
                 RequestedDimension(
-                    target, canonical, discriminator=discriminator, view=view, side=side
+                    target,
+                    canonical,
+                    discriminator=discriminator,
+                    member=member,
+                    view=view,
+                    side=side,
                 )
             )
         except (TypeError, ValueError) as exc:
@@ -1382,6 +1412,7 @@ class Sheet:
         role: DimensionParameterId,
         *,
         axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
         view: str | None = None,
         side: str | None = None,
     ) -> DimensionIntent:
@@ -1399,7 +1430,7 @@ class Sheet:
         chooses, plus these" and "only these" at once.
         """
         token, target, discriminator, role = self._resolve_measurement(
-            feature, role, axis, "dimension"
+            feature, role, axis, "dimension", member=member
         )
         # The CANONICAL spelling is stored, not what was typed (#963). Otherwise a generated
         # script's dialect depended on how its source model was authored — mirrored sets wrote
@@ -1409,6 +1440,7 @@ class Sheet:
                 "token": token,
                 "role": role,
                 "discriminator": discriminator,
+                "member": member,
                 "view": view,
                 "side": side,
             }
@@ -2590,6 +2622,7 @@ class Sheet:
         role: DimensionParameterId,
         *,
         axis: str | None = None,
+        member: int | Literal["centre"] | None = None,
         view: str | None = None,
         side: str | None = None,
     ):
@@ -2627,12 +2660,13 @@ class Sheet:
             stacklevel=2,
         )
         token, _target, discriminator, role = self._resolve_measurement(
-            feature, role, axis, "add_dimension"
+            feature, role, axis, "add_dimension", member=member
         )
         entry = {
             "token": token,
             "role": role,
             "discriminator": discriminator,
+            "member": member,
             "view": view,
             "side": side,
         }
@@ -2701,7 +2735,13 @@ class Sheet:
             )
 
     def _resolve_measurement(
-        self, feature, role: DimensionParameterId, axis: str | None, verb: str
+        self,
+        feature,
+        role: DimensionParameterId,
+        axis: str | None,
+        verb: str,
+        *,
+        member: int | Literal["centre"] | None = None,
     ):
         """Resolve ``(feature, role, axis)`` to ``(token, feature, discriminator)``, or raise.
 
@@ -2723,6 +2763,11 @@ class Sheet:
                 f"{verb}: {type(target).__name__} has no {role!r} measurement "
                 f"(it carries {sorted(roles)})"
             )
+        if role == _LOCATION_ROLE:
+            RequestedDimension(target, role, discriminator=axis, member=member)
+            return token, target, axis, role
+        if member is not None:
+            raise ValueError("member selects only a location measurement")
         matching = [p for p in params if role in (p.role, p.parameter_id)]
         # ── canonical spelling: the parameter id (#963) ──────────────────────────────
         # A role spelling ("bore") and a parameter id ("bore.diameter") both resolve, and
@@ -2840,6 +2885,7 @@ class Sheet:
                 feature=self._features[self._index_of_token(e["token"])],
                 role=e["role"],
                 discriminator=e["discriminator"],
+                member=e.get("member"),
                 display_decimals=e.get("display_decimals"),
                 view=e.get("view"),
                 side=e.get("side"),
@@ -2868,6 +2914,7 @@ class Sheet:
                 feature=self._features[self._index_of_token(e["token"])],
                 role=e["role"],
                 discriminator=e["discriminator"],
+                member=e.get("member"),
                 display_decimals=e.get("display_decimals"),
                 view=e.get("view"),
                 side=e.get("side"),

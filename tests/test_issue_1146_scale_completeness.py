@@ -136,7 +136,7 @@ def test_default_fallback_returns_largest_complete_standard_scale_and_reports_de
     }
     (blocker,) = drawing.scale_decision["blockers"]
     assert blocker["code"] == "location_ref_dropped"
-    assert blocker["measurements"][0]["parameter"] == "location.location"
+    assert blocker["measurements"][0]["parameter"] == "location.location.member.0.x"
     assert blocker["hole_requirements"][0]["parameter"] == "location.location.x"
     assert [(item["scale"], item["status"]) for item in drawing.scale_decision["attempts"]] == [
         (1.0, "incomplete"),
