@@ -21,8 +21,8 @@ the compiled plan as its inventory: a feature the planner omitted must still be 
 is reported as separate components — completeness, restraint, legibility, fidelity — never a
 composite, and the completeness figure is `audited_score`, named for its bound in the field name
 itself because the qualifier in a sibling key is lost the moment the number is quoted. Repair is
-an allowlisted safety net for one mechanically clear case; the structural cure for a collision
-class is a placement rule, not a peephole.
+an allowlisted safety net using mechanically clear fixes and the shared placement solver;
+the structural cure for a collision class remains a placement rule.
 
 **Every statement carries its provenance, and every absence is reported.** An annotation knows
 which intent produced it, recorded once at the render seam and never parsed back out of a name.
@@ -45,10 +45,16 @@ proves nothing about a guard that was never mutated.
    `test_import_boundaries.py` (`test_linting_does_not_import_model`). Lint *may* compare a claim
    the drawing makes against the plan — that contributes no denominator.
    `test_issue_1217_the_facility_is_shared.py`.
-3. **Repair is allowlisted and idempotent.** `repair.py` handles `dim_inside_part` only, never
-   executes an arbitrary suggestion, attempts once, and never increases issue counts.
+3. **Repair is allowlisted and idempotent.** `repair.py` handles `dim_inside_part` and the
+   demonstrated axis-aligned dimension `annotation_ink_overlap` class; it never executes an
+   arbitrary suggestion. Ink repair tries the shared bounded candidate solver with along-span
+   choices and at most one established typography-derived stacking tier per operation. It
+   accepts only strict improvement with no increased lint-code/severity component, preserving
+   requirements, confirmed measurement claims, annotation membership and pins; rejection restores
+   the original items and registry. Infeasible choices retain explicit findings.
    `test_make_drawing.py` (`test_repair_dim_inside_part_flips_side`,
-   `test_repair_idempotent_on_clean_drawing`, `test_repair_does_not_increase_issue_counts`).
+   `test_repair_idempotent_on_clean_drawing`, `test_repair_does_not_increase_issue_counts`),
+   `test_issue_1333_bounded_ink_repair.py`. Maintainer approved this extension on 2026-09-07 (#1490).
 4. **Provenance is recorded once, at the seam, for every feature kind.** `annotations_of(feature)`
    equals exactly what `drop(feature)` removes; no pass resolves a feature from an annotation name.
    `test_render_seam.py`, `test_make_drawing.py` (`test_drop_is_complete_for_a_multi_feature_prismatic_part`,
