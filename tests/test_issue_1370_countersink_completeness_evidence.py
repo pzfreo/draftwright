@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from _evidence_contract import assert_missing_model_outcomes_fail_closed
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Box, Compound, Cone, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -19,6 +20,9 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-countersinks-v1.json"
+
+#: Clean score of the subset the damage tests below use, asserted perfect.
+reduced_baseline = reduced_baseline_fixture(CORPUS)
 
 
 def _single_part():
@@ -472,7 +476,7 @@ def test_countersink_observer_fails_closed_when_build_or_recognition_is_unavaila
 
 @pytest.mark.parametrize("corruption", ["nonnumeric-location", "missing-axis"])
 def test_malformed_public_countersink_records_become_missed_instead_of_aborting(
-    monkeypatch, corruption: str
+    monkeypatch, corruption: str, reduced_baseline
 ) -> None:
     from draftwright.drawing import Drawing
 
@@ -500,9 +504,11 @@ def test_malformed_public_countersink_records_become_missed_instead_of_aborting(
     monkeypatch.setattr(Drawing, "recognition", with_malformed_record)
 
     assert _default_observers()["countersinks"](_single_part()) == ()
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 7
+    # Every seat that matched cleanly is now missed, stated against the clean subset
+    # rather than the full corpus's count of 7.
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.false_positives == 0
 
 

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 from _evidence_contract import assert_observer_uses_one_build_owned_recognition
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Box, Pos, RegularPolygon, Rot, extrude, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -20,6 +21,12 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-polygonal-bosses-v1.json"
+
+
+#: Clean score of the subset the damage tests below use, asserted perfect.
+reduced_baseline = reduced_baseline_fixture(CORPUS)
+
+
 _CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
 
 
@@ -682,7 +689,9 @@ def test_deleting_provider_bosses_cannot_shrink_the_independent_denominator(
     "parameter",
     ("side_count", "across_flats", "height", "flat_supports"),
 )
-def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, parameter) -> None:
+def test_weakening_provider_parameters_reduces_parameter_fidelity(
+    monkeypatch, parameter, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -754,11 +763,11 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
         return replace(result, polygonal_bosses=tuple(values))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.recall == 1.0
     assert damaged.detection.false_positives == 0
-    assert damaged.parameter_fidelity.total == 40
+    assert damaged.parameter_fidelity.total == reduced_baseline.parameter_fidelity.total
     assert damaged.parameter_fidelity.passed < damaged.parameter_fidelity.total
 
     if parameter == "side_count":
@@ -778,7 +787,9 @@ def test_weakening_provider_parameters_reduces_parameter_fidelity(monkeypatch, p
         assert quality["audited_score"] == 0.0
 
 
-def test_shifting_provider_identity_reduces_detection_recall(monkeypatch) -> None:
+def test_shifting_provider_identity_reduces_detection_recall(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -804,11 +815,11 @@ def test_shifting_provider_identity_reduces_detection_recall(monkeypatch) -> Non
         return replace(result, polygonal_bosses=tuple(values))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", shifted)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.recall == 0.0
-    assert damaged.detection.missed == 10
-    assert damaged.detection.false_positives == 10
+    assert damaged.detection.missed == reduced_baseline.detection.matched
+    assert damaged.detection.false_positives == reduced_baseline.detection.matched
 
 
 def test_deleting_declared_boss_cannot_shrink_quality_denominator() -> None:

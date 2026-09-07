@@ -10,6 +10,7 @@ from _evidence_contract import (
     assert_missing_model_outcomes_fail_closed,
     assert_observer_uses_one_build_owned_recognition,
 )
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Box, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -19,6 +20,10 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-pockets-v1.json"
+
+
+#: Clean score of the subset the damage tests below use, asserted perfect.
+reduced_baseline = reduced_baseline_fixture(CORPUS)
 
 
 def _lone():
@@ -413,7 +418,9 @@ def test_deleting_provider_pockets_cannot_shrink_independent_denominator(monkeyp
     assert damaged.complete_cases < len(damaged.cases)
 
 
-def test_weakening_provider_widths_reduces_parameter_fidelity(monkeypatch) -> None:
+def test_weakening_provider_widths_reduces_parameter_fidelity(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -464,12 +471,11 @@ def test_weakening_provider_widths_reduces_parameter_fidelity(monkeypatch) -> No
         return replace(result, section_recesses=tuple(changed))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_pockets)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.recall == 1.0
     assert damaged.detection.false_positives == 0
-    assert damaged.parameter_fidelity.passed == 39
-    assert damaged.parameter_fidelity.total == 52
+    assert damaged.parameter_fidelity.total == reduced_baseline.parameter_fidelity.total
     assert damaged.parameter_fidelity.score == 0.75
 
 

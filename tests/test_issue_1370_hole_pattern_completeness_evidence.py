@@ -327,6 +327,11 @@ def test_weakening_provider_arrangement_values_reduces_parameter_fidelity(monkey
         return replace(result, hole_patterns=tuple(changed))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", weakened_patterns)
+    # NOT reduced. The damaged fraction here depends on which pattern kind each fixture
+    # carries — the mutation hits `pitch`, `row_pitch` or `diameter` — so the ratio is a
+    # property of the corpus composition, not of the damage. Measured: the full corpus
+    # scores 14/19 = 0.7368 and the reduced subset 4/6 = 0.6667, so reducing it would
+    # mean inventing a new expected number rather than restating the authored one.
     damaged = evaluate_step_corpus(load_corpus(CORPUS))
 
     assert damaged.detection.recall == 1.0
