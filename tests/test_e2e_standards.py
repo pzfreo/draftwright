@@ -150,9 +150,37 @@ def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
     dxf = _p["dxf"]
     _assert_ctc_diagnostic_contract(dwg, svg, dxf, expect_incomplete=n != "01")
     if n == "01":
-        # Quiddity 0.2.2 reclassifies/refuses the former pockets. The smaller plan
-        # fits, but recognition gaps must remain visible; this is not completeness.
-        assert "section_recess_recognition_refused" in {issue.code for issue in dwg.lint()}
+        # Quiddity 0.2.4 recognises both complex blind pockets. Their 12- and
+        # 20-edge profiles remain outside the drafting grammar, so a fitting plan
+        # must still report both unsupported requirements, without inventing a
+        # provider refusal. These are fixture expectations, not a plan denominator.
+        recognition = dwg.recognition()
+        assert recognition is not None
+        assert recognition.section_recess_refusals == ()
+        pockets = [
+            recess
+            for recess in recognition.section_recesses
+            if recess.classification.feature_kind == "pocket"
+        ]
+        assert sorted(
+            (
+                len(pocket.geometry.profile.boundary),
+                pocket.geometry.run_interval[1] - pocket.geometry.run_interval[0],
+            )
+            for pocket in pockets
+        ) == [(12, 2.0), (20, 2.0)]
+        issues = dwg.lint()
+        assert not any(issue.code == "section_recess_recognition_refused" for issue in issues)
+        unsupported = [
+            issue for issue in issues if issue.code == "prismatic_pocket_requirement_unsupported"
+        ]
+        assert len(unsupported) == 2
+        assert all(issue.severity == "warning" for issue in unsupported)
+        for edges in (12, 20):
+            assert any(
+                f"recognised {edges}-sided blind prismatic recess 2 mm deep" in issue.message
+                for issue in unsupported
+            )
     # The #19 fix: no circle-edge-on degenerate arcs leak into the SVG.
     data = Path(svg).read_text(encoding="utf-8")
     degenerate = [
