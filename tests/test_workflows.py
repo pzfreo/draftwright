@@ -331,6 +331,12 @@ def test_project_coverage_allows_only_a_small_refactor_fluctuation():
         "      default:\n"
         "        target: auto\n"
         "        threshold: 0.5%\n"
+        "\n"
+        "# These metadata files have no executable lines. Only the base-owned complete-diff\n"
+        "# verifier may select empty-upload; dependency or configuration edits run normal CI.\n"
+        "ignore:\n"
+        "  - '^pyproject\\.toml$'\n"
+        "  - '^uv\\.lock$'\n"
     )
 
 
