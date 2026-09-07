@@ -70,10 +70,11 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.2.2 runtime contract
+### Quiddity 0.2.4 runtime contract
 
-[#1471](https://github.com/pzfreo/draftwright/issues/1471) moves production recognition to the
-published `quiddity==0.2.2` package. Its public `quiddity`, `quiddity.evidence` and
+[#1486](https://github.com/pzfreo/draftwright/pull/1486) adopts the published
+`quiddity==0.2.4` package after the migration in
+[#1471](https://github.com/pzfreo/draftwright/issues/1471). Its public `quiddity`, `quiddity.evidence` and
 `quiddity.inspection` surfaces supply recognition, exact occurrence evidence and declared geometry
 reads. There is one recognition aggregate per build; consumers project that result rather than
 calling the document builder to obtain another run.
@@ -87,8 +88,10 @@ builder is a serialization front door, not another feature family or a productio
 
 The shared adapter reads the published frame, profile, run interval and ends and lowers supported
 principal-axis geometry to the existing pocket, channel and blind-slot IR. It preserves the opening
-direction and edge anchoring and rejects malformed records. Unsupported profiles and sloped ends
-remain explicit unsupported outcomes; they receive no invented dimensions. Pattern members resolve
+direction and edge anchoring and rejects malformed records. Supported rounded rectangular pockets
+retain their corner radius, and supported cylindrical-mouth pockets carry maximum-depth intent
+rather than an invented uniform depth. Valid profiles and end shapes outside the drafting grammar
+remain explicit unsupported outcomes, including the two-plane passage cases. Pattern members resolve
 to the original records in the same aggregate before they share a drawing owner. Missing members,
 duplicate indices, cross-body grouping and inconsistent lattice geometry fail closed.
 
@@ -98,20 +101,24 @@ Recognition refusals retain source provenance and contribute an unsupported outc
 fabricated position. Report and inspection schema v2 name `producer.quiddity`; their v1 schemas
 remain available for existing documents.
 
-The 0.4.20 release includes these known Quiddity 0.2.2 limitations:
+The common-part restoration checks the five rounded tuner-jig pockets and their grouped callout,
+corner radii, pitch and absolute locations; pockets cut into cylindrical stock; and the pierced
+U-channel's supported channel measurements. Automatic recognition, declared input and executed
+Sheet scripts retain the supported recess facts. These checks do not turn a successfully rendered
+part into a completeness guarantee.
 
-- Some mixed line/arc and nested pockets, including the tuner-jig and dense #915 STEP fixtures,
-  are refused: [Quiddity #536](https://github.com/pzfreo/quiddity/issues/536).
-- Bores intersecting channel walls, floors or an edge-open recess can prevent recognition:
-  [Quiddity #538](https://github.com/pzfreo/quiddity/issues/538).
-- A pocket cut into cylindrical stock can be refused:
-  [Quiddity #541](https://github.com/pzfreo/quiddity/issues/541).
+The preceding Draftwright 0.4.20 / Quiddity 0.2.2 release documented annotation losses for mixed
+and nested pockets ([Quiddity #536](https://github.com/pzfreo/quiddity/issues/536)), bore-intersected
+or edge-open recesses ([#538](https://github.com/pzfreo/quiddity/issues/538)), and pockets in
+cylindrical stock ([#541](https://github.com/pzfreo/quiddity/issues/541)). Those historical limitations
+must not be used to excuse the common cases restored in #1486. Conversely, recognising more source
+profiles does not imply that every profile now has a supported drafting grammar. General complex
+pockets and nonuniform passages can still produce explicit unsupported requirements.
 
-These cases can lose automatic annotations that the previous provider emitted. Check recognition
-refusals and lint when using affected geometry. An explicit refusal makes the limitation visible;
-it does not establish drawing completeness. The regression cases remain in the suite as strict
-expected failures linked to the upstream issues. Other recognition, declaration, placement,
-reporting and coverage checks remain release gates.
+Check the source occurrence outcomes, placed requirements and lint for affected geometry.
+Regression expectations are reassessed per fixture: a restored supported case must pass, while an
+unsupported case must retain its truthful diagnostic rather than an approximate old annotation.
+Recognition, declaration, placement, reporting and coverage checks remain release gates.
 
 `bosses` remains a fully consumed reference family. `repeating-radial-profiles` remains geometry-only
 critique evidence for a separately authored gear declaration, with no inferred gear feature.
