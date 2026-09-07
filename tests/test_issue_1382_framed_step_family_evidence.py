@@ -182,7 +182,9 @@ def test_raw_and_framed_step_families_preserve_requirements_dsl_and_ink_under_ri
     assert _requirements(raw, kind) == _requirements(framed, kind) == _requirements(moved, kind)
     assert _ink(raw, kind) == _ink(framed, kind) == _ink(moved, kind)
     assert raw.lint() == framed.lint() == moved.lint() == []
-    assert diff_builds(framed, moved) == _NO_BUILD_DIFF
+    difference = diff_builds(framed, moved)
+    assert difference.pop("measurement_comparison")["status"] == "unknown"
+    assert difference == _NO_BUILD_DIFF
 
     generated, source = _generated_drawing(moved.working_part, moved.model())
     assert f"sheet.{sheet_word}(" in source

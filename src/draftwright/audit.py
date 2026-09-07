@@ -1,70 +1,159 @@
-"""audit — diff two builds and ask what went missing (#996 WP1 step 2).
+"""Compare finished drawings and captured measurement claims.
 
-The suppression ledger (`Drawing.suppressions()`) says which rule removed a measurement. It
-answers *why* a dimension is absent — but only for absences some code path remembered to
-record. Three consecutive review rounds on #999 found suppression paths that recorded nothing,
-each caught by a person hunting for it rather than by the ledger noticing its own gap.
+``diff_builds`` reports named annotation losses, gains, changed labels and substitutions.
+It never lets a candidate suppression explanation cancel a loss. The legacy explanation
+join is approximate: feature kind plus parameter, sufficient for a hint but not ownership.
 
-**A diff does not depend on that.** If a dimension is present in one build and absent in
-another, something removed it, whether or not anything wrote it down. That is how #997 was
-actually found: not from the four issue reports describing its symptoms, but from `50x50` vs
-`50x40`.
+``compare_measurements`` checks named compiled claims using exact feature references shared
+by the two declarations, or explicit caller-supplied feature pairs. Equal geometry, labels
+and inventory order establish no correspondence. Unmatched owners and unconfirmed claims
+produce unknown results. A caller-supplied pair asserts correspondence; the comparison
+checks the measurement meaning under that assertion and does not verify physical identity.
+Capture ``Drawing.measurement_snapshot()`` before mutating a live drawing.
 
-## What this cannot do, stated first
+The comparison scope is named compiled measurements. It checks their recorded owner,
+parameter, nominal value, tolerance, directional span and rendered claim text. It does not
+establish physical completeness, inspect unnamed annotations or certify an engineering
+release. Use independent lint/requirement evidence alongside it. Claim verification retains
+its own attribution limits, described in ``linting.evidence.verify_measurement_claims``.
 
-A placed annotation carries measurement identity only where the renderer recorded one
-(#1002) — otherwise its name is an engine-assigned registry slot, not a handle on what it
-measures. **Identity is partial, and every limit below is a consequence of where it is
-missing.** Which renderers record it is not described here in prose, because a prose
-description of that set has now been wrong TWICE: first it named only the direct-placing
-group while four compiled-plan renderers dropped their ids (Codex r1), then it listed a
-four-item exception set while the entire shared machined-feature renderer — chamfers,
-fillets, flats, pockets, grooves, boss diameters — recorded nothing (Codex r3). The prose
-was believable both times, which is the point.
-
-The answer lives in `tests/test_audit_differential.py`, whose ratchet scans both placement
-paths (corridor candidates and direct `ctx.place`) across the whole `annotations/` package,
-and whose EXEMPT map IS the exception inventory — every entry carrying its reason, and a
-stale entry failing so the list cannot outlive the gaps it describes. Read that, not a
-second prose inventory here.
-
-Even where identity IS recorded, matching it across two builds is approximate. The ledger's
-key embeds the feature's origin and scalars, so it cannot join two builds that differ — the
-join uses `_correspondence` instead, which keeps the feature's KIND and drops its
-coordinates. Two features of one kind are therefore not separated: a same-count swap of one
-slot's width for another's is invisible (**#1006**). Multiplicity IS compared — as a multiset,
-so a grouped callout dropping a member is caught — but a like-for-like exchange is not.
-
-- **A replaced measurement can reuse an annotation name.** Recorded parameter and member
-  identities allow ``measurements_substituted`` to report changes even when the displayed
-  value agrees. The same-kind, same-parameter feature swap described above remains a gap.
-- **A loss is attributed only where identity exists, and only by kind.** Where identity is
-  recorded the join is on ``(feature kind, parameter_id)`` — precise enough to separate an
-  envelope's width from a slot's, not precise enough to separate two slots. Where it is not
-  recorded the loss reads "nothing claims it" whether or not a rule removed it: unknown,
-  deliberately, rather than guessed. The first cut inferred attribution from annotation
-  NAMES by substring and cancelled real alarms with unrelated suppressions.
-- **An unnamed annotation is invisible.** ``Drawing.annotations()`` returns only *named*
-  annotations by contract, so anything placed without a name cannot be compared here at all.
-- **A legacy or external labelless callout exposes presence only.** Generated hole leaders
-  retain their geometric callout's semantic text, so a changed diameter/depth is observable.
-  A user-supplied or older ``Leader`` may still have ``label == ""``; its loss is reported,
-  but two such present annotations remain indistinguishable by content.
-
-Closing the rest needs the remaining renderers to record identity too (#754). Until then this
-is a **triage aid, not a proof** — and shaped so its weakest part cannot silence its strongest:
-a candidate suppression annotates a loss, it never removes it.
-An earlier cut let a weak substring match cancel the alarm outright, so any newly-suppressed
-``width.*`` excused every lost annotation whose name contained "width", across unrelated
-features (Codex #1001). That is the exact false confidence this epic exists to remove.
-
-A leaf by construction: it reads the public surface of two finished ``Drawing``s and imports
-nothing from the engine, so the thing it measures can never come to depend on it.
+The module imports no engine code. Drawings supply their public snapshots and registry
+reads; no cross-run provider identity is reconstructed or serialized.
 """
 
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MeasurementClaim:
+    """A named rendered claim and its compiled meaning, retained in one process."""
+
+    owner: object
+    parameter: str
+    annotation: str
+    meaning: tuple
+    rendered: tuple
+
+
+@dataclass(frozen=True)
+class MeasurementSnapshot:
+    """A captured drawing read, with declaration-local references rather than durable IDs."""
+
+    owners: tuple
+    claims: tuple[MeasurementClaim, ...]
+    unknown: tuple[tuple[str, str], ...] = ()
+
+
+def compare_measurements(before, after, *, feature_pairs=()) -> dict:
+    """Compare captured or finished drawings within an explicit declaration correspondence.
+
+    Shared feature objects correspond automatically. ``feature_pairs`` may explicitly pair
+    an owner from each snapshot; these pairs are caller assertions, never inferred from
+    geometry or inventory order. Unknown ownership or unreadable claims prevent preservation.
+    The scope is named compiled measurements, not physical completeness of the whole part.
+    """
+    if not isinstance(before, MeasurementSnapshot):
+        before = before.measurement_snapshot()
+    if not isinstance(after, MeasurementSnapshot):
+        after = after.measurement_snapshot()
+    before_owners = {id(owner): index for index, owner in enumerate(before.owners)}
+    after_owners = {id(owner): index for index, owner in enumerate(after.owners)}
+    correspondence = {key: key for key in before_owners.keys() & after_owners.keys()}
+    paired_after = set(correspondence.values())
+    for old, new in feature_pairs:
+        old_id, new_id = id(old), id(new)
+        if old_id not in before_owners or new_id not in after_owners:
+            raise ValueError("feature pairs must name exact owners in the two snapshots")
+        if correspondence.get(old_id) == new_id:
+            continue
+        if old_id in correspondence or new_id in paired_after:
+            raise ValueError("feature correspondence must be one-to-one and unambiguous")
+        correspondence[old_id] = new_id
+        paired_after.add(new_id)
+
+    unknown = [
+        {"side": side, "annotation": name, "reason": reason}
+        for side, snapshot in (("before", before), ("after", after))
+        for name, reason in snapshot.unknown
+    ]
+    reverse = {new: old for old, new in correspondence.items()}
+
+    def index_claims(snapshot, side):
+        indexed: dict[tuple, list] = {}
+        for claim in snapshot.claims:
+            owner = id(claim.owner)
+            paired = owner if side == "before" and owner in correspondence else reverse.get(owner)
+            if paired is None:
+                unknown.append(
+                    {
+                        "side": side,
+                        "annotation": claim.annotation,
+                        "reason": "owner_correspondence_unknown",
+                    }
+                )
+                continue
+            indexed.setdefault((paired, claim.parameter), []).append(claim)
+        return indexed
+
+    old_claims, new_claims = index_claims(before, "before"), index_claims(after, "after")
+
+    def description(key, claims):
+        return {
+            "owner": before_owners[key[0]],
+            "parameter_id": key[1],
+            "annotations": sorted(claim.annotation for claim in claims),
+        }
+
+    lost, gained, changed = [], [], []
+    old_unknown = {name for name, _reason in before.unknown}
+    new_unknown = {name for name, _reason in after.unknown}
+    for key in sorted(
+        old_claims.keys() | new_claims.keys(), key=lambda key: (before_owners[key[0]], key[1])
+    ):
+        old, new = old_claims.get(key, []), new_claims.get(key, [])
+        if not new:
+            if not any(claim.annotation in new_unknown for claim in old):
+                lost.append(description(key, old))
+        elif not old:
+            if not any(claim.annotation in old_unknown for claim in new):
+                gained.append(description(key, new))
+        else:
+            remaining = list(new)
+            for claim in old:
+                match = next(
+                    (
+                        index
+                        for index, candidate in enumerate(remaining)
+                        if claim.meaning == candidate.meaning
+                        and claim.rendered == candidate.rendered
+                    ),
+                    None,
+                )
+                if match is None:
+                    break
+                remaining.pop(match)
+            else:
+                if not remaining:
+                    continue
+            changed.append(description(key, old))
+    if not before.claims and not after.claims:
+        unknown.append({"side": "both", "annotation": None, "reason": "no_compiled_measurements"})
+    return {
+        "status": "changed"
+        if lost or gained or changed
+        else "unknown"
+        if unknown
+        else "preserved",
+        "scope": "named_compiled_measurements",
+        "lost": lost,
+        "gained": gained,
+        "changed": changed,
+        "unknown": unknown,
+    }
+
 
 #: Sheet FURNITURE — the annotation types that carry no measurement. Everything else counts.
 #:
@@ -159,12 +248,29 @@ def diff_builds(before, after) -> dict:
     - ``candidate_explanations`` — ``{lost name: [reason, ...]}``, a **hint** at which
       newly-gained suppression might account for a loss, joined on ``(feature kind,
       parameter_id)`` where the renderer recorded identity, and absent where it did not.
+    - ``measurement_comparison`` — the bounded ``compare_measurements`` result for real
+      drawings; ``None`` for protocol stand-ins without measurement snapshots. An empty
+      annotation diff does not establish preservation when this result is unknown.
 
     The hint does not subtract from ``dimensions_lost``. The join is by feature KIND, so it
     cannot separate two features of one kind, and a weak match that cancels an alarm is worse
     than no match at all — it manufactures the confidence this epic exists to remove.
     """
     before_dims, after_dims = _measurements(before), _measurements(after)
+    comparison = None
+    exact_owners = {}
+    if hasattr(before, "measurement_snapshot") and hasattr(after, "measurement_snapshot"):
+        before_snapshot, after_snapshot = (
+            before.measurement_snapshot(),
+            after.measurement_snapshot(),
+        )
+        comparison = compare_measurements(before_snapshot, after_snapshot)
+        after_owners = {id(owner) for owner in after_snapshot.owners}
+        exact_owners = {
+            id(owner): f"{getattr(owner, 'kind', type(owner).__name__)}#{index}"
+            for index, owner in enumerate(before_snapshot.owners)
+            if id(owner) in after_owners
+        }
     lost = {n: v for n, v in before_dims.items() if n not in after_dims}
     gained = {n: v for n, v in after_dims.items() if n not in before_dims}
     changed = {n: (v, after_dims[n]) for n, v in before_dims.items() if after_dims.get(n, v) != v}
@@ -185,12 +291,35 @@ def diff_builds(before, after) -> dict:
     #
     # Hole location IDs carry the declared member and measured axis. This detects component
     # substitutions even when the rendered name and value agree. The feature-kind join still
-    # cannot distinguish unrelated same-kind owners; that remaining gap is tracked in #1006.
+    # cannot distinguish same-kind owners. Exact shared declaration references below can;
+    # unrelated builds retain an explicitly unknown measurement comparison.
     substituted: dict[str, tuple] = {}
     for name in set(before_dims) & set(after_dims):
         b_ids, a_ids = _identities(before, name), _identities(after, name)
         if b_ids and a_ids and b_ids != a_ids:
             substituted[name] = (sorted(b_ids.elements()), sorted(a_ids.elements()))
+        elif exact_owners:
+
+            def exact(drawing):
+                identities = drawing.registry.measurement_of(name)
+                if not identities or any(
+                    id(item.feature) not in exact_owners for item in identities
+                ):
+                    return None
+                return Counter(
+                    (exact_owners[id(item.feature)], item.parameter) for item in identities
+                )
+
+            exact_before, exact_after = exact(before), exact(after)
+            if (
+                exact_before is not None
+                and exact_after is not None
+                and exact_before != exact_after
+            ):
+                substituted[name] = (
+                    sorted(exact_before.elements()),
+                    sorted(exact_after.elements()),
+                )
 
     # Attribution, on the cross-build correspondence key. The first cut matched a
     # suppression's parameter stem against the annotation's NAME by substring, so a
@@ -219,6 +348,7 @@ def diff_builds(before, after) -> dict:
         "suppressions_gained": gained_supp,
         "suppressions_lost": lost_supp,
         "candidate_explanations": candidates,
+        "measurement_comparison": comparison,
     }
 
 
@@ -242,6 +372,15 @@ def explain(diff: dict) -> list[str]:
     # gained, disguised as neither (#1002) — so it ranks with the losses.
     for name, (was, now) in sorted(diff.get("measurements_substituted", {}).items()):
         out.append(f"SUBSTITUTED: {name} now draws {now}, was {was}")
+    comparison = diff.get("measurement_comparison")
+    if comparison:
+        for measurement in comparison["changed"]:
+            out.append(
+                f"MEASUREMENT CHANGED: {measurement['parameter_id']} "
+                f"on owner {measurement['owner']}"
+            )
+    if comparison and comparison["unknown"]:
+        out.append("UNKNOWN: measurement preservation is unresolved for some named claims")
     for feature, parameter, reason in diff["suppressions_gained"]:
         out.append(f"suppressed: {parameter} on {feature} — {reason}")
     for name, label in sorted(diff["dimensions_gained"].items()):

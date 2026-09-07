@@ -180,7 +180,9 @@ def test_rigid_motion_preserves_requirements_and_build_diff():
 
     assert _requirements(baseline) == _requirements(moved)
     assert baseline.annotations() == moved.annotations()
-    assert diff_builds(baseline, moved) == {
+    difference = diff_builds(baseline, moved)
+    assert difference.pop("measurement_comparison")["status"] == "unknown"
+    assert difference == {
         "dimensions_lost": {},
         "dimensions_gained": {},
         "dimensions_changed": {},
