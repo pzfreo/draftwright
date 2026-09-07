@@ -93,6 +93,7 @@ from draftwright.annotations._common import (
     strip_obstacles,
     strip_occupants,
 )
+from draftwright.annotations.angular import AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
     collect_feature_leader,
@@ -6679,6 +6680,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
         ax,
         getattr(rec, "view", None),
         getattr(rec, "side", None),
+        getattr(rec, "angular_reference", None),
     )
     if selected_view is not None:
         view = selected_view
@@ -6763,7 +6765,8 @@ _PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
 
-#: Dimension categories the IR admits but this renderer cannot draw TRUTHFULLY. `Dimension`
+#: Categories the generic linear renderer cannot draw truthfully. The separate angular
+#: candidate path admits explicit supported ray geometry via _angular_renderable. `Dimension`
 #: measures a straight projected path, so a record whose value is measured on some other
 #: basis renders as an annotation whose geometry contradicts its own label — a drawing that
 #: asserts something false (#1177). Measured on a 1:1 sheet, value against drawn length:
@@ -6797,6 +6800,21 @@ _MEASUREMENT_BASIS = {
     "curved_dist": "a distance along a curve",
     "oriented": "a distance along a stated direction",
 }
+
+
+def _angular_renderable(record) -> bool:
+    reference = getattr(record, "angular_reference", None)
+    return (
+        record.pmi_kind == "angular"
+        and reference is not None
+        and reference.principal_axis in ("X", "Y", "Z")
+        # Structured angle tolerances still need compiler-owned label composition.
+        # Retain a refusal until that path can state every authored term.
+        and all(
+            getattr(record, field, None) is None
+            for field in ("upper_tol", "lower_tol", "lower_bound", "upper_bound")
+        )
+    )
 
 
 def _authored_with_usable_references(record) -> bool:
@@ -6850,6 +6868,12 @@ def _record_unsupported_dimension_kind(ctx, rec):
     drawing.
     """
     basis = _MEASUREMENT_BASIS[rec.pmi_kind]
+    reason = (
+        "supported angular ink requires explicit coplanar rays in a principal view "
+        "and currently cannot compose structured angular tolerances"
+        if rec.pmi_kind == "angular"
+        else "this renderer measures only a straight projected path"
+    )
     source_id = getattr(rec, "source_id", "")
     # `error` for a source-bearing record, matching `_record_pmi_no_candidate` and the
     # three `lint_pmi_*` checks: in annotate mode a requirement that came from the AP242
@@ -6860,7 +6884,7 @@ def _record_unsupported_dimension_kind(ctx, rec):
         "error" if source_id else "warning",
         "dimension_kind_unsupported",
         f"authored {rec.pmi_kind} dimension {getattr(rec, 'label', '')!r} is not drawn: it "
-        f"states {basis}, and this renderer measures only a straight projected path",
+        f"states {basis}; {reason}",
         source=source_id,
         outcome_stage="validation",
     )
@@ -6879,7 +6903,7 @@ def _renderable_pmi_records(records):
         for r in records
         if _authored_with_usable_references(r)
         and r.pmi_kind in AUTHORED_DIMENSION_KINDS
-        and r.pmi_kind not in _UNRENDERABLE_DIMENSION_KINDS
+        and (r.pmi_kind not in _UNRENDERABLE_DIMENSION_KINDS or _angular_renderable(r))
     ]
 
 
@@ -6894,6 +6918,7 @@ def _unsupported_kind_records(records):
         if _authored_with_usable_references(r)
         and r.pmi_kind in AUTHORED_DIMENSION_KINDS
         and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
+        and not _angular_renderable(r)
     ]
 
 
@@ -7095,6 +7120,11 @@ def _pmi_place_one(dwg, spec, rec, *, ctx, trace=None):
         ctx=ctx,
         force=True,
         features={spec["name"]: rec},
+        naturals={spec["name"]: spec["natural"]} if "natural" in spec else None,
+        footprints={spec["name"]: spec["footprint"]} if "footprint" in spec else None,
+        valid_positions={spec["name"]: spec["valid_position"]}
+        if "valid_position" in spec
+        else None,
         priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
         trace=trace,
         trace_label="pmi_fallback",
@@ -7138,6 +7168,9 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
             priority=_PMI_CORRIDOR_PRIORITY,
             force=True,
             feature=rec,
+            natural=primary.get("natural"),
+            footprint=primary.get("footprint"),
+            valid_position=primary.get("valid_position"),
         ),
     )
     return True
@@ -7195,6 +7228,72 @@ def _pmi_front_linear(dwg, a, ctx, rec, ax, label, name, primary, secondary, cen
     return placed
 
 
+def _pmi_angular_specs(a, rec, name, draft):
+    reference = rec.angular_reference
+    axis = reference.principal_axis
+    view, to_page, zones = {
+        "X": ("side", lambda p: (a.proj.side_x(p[1]), a.proj.side_z(p[2])), a.sv_zones),
+        "Y": ("front", lambda p: (a.proj.front_x(p[0]), a.proj.front_z(p[2])), a.fv_zones),
+        "Z": ("plan", lambda p: (a.proj.plan_x(p[0]), a.proj.plan_y(p[1])), a.pv_zones),
+    }[axis]
+    ink = AngularInk(
+        to_page(reference.vertex),
+        to_page(reference.first),
+        to_page(reference.second),
+        rec.label,
+        draft,
+    )
+    options = []
+    for index in sorted(range(2), key=lambda i: -abs(ink.bisector[i])):
+        component = ink.bisector[index]
+        if abs(component) < 1e-6:
+            continue
+        side = (("left", "right"), ("below", "above"))[index][component > 0]
+        if rec.side is not None and rec.side != side:
+            continue
+        strip = getattr(zones, side)
+        if strip is None:
+            continue
+        lo, hi, inner = strip_free_span(strip)
+        natural = ink.vertex[index] + ink.minimum_radius * component
+        natural = max(natural, inner) if component > 0 else min(natural, inner)
+
+        def radius(pos, _index=index, _component=component):
+            return (pos - ink.vertex[_index]) / _component
+
+        def valid_position(pos, _radius=radius):
+            value = _radius(pos)
+            if value < ink.minimum_radius - 1e-9:
+                return False
+            x0, y0, x1, y1 = ink.footprint(max(ink.minimum_radius, value))
+            return (
+                x0 >= _MARGIN
+                and y0 >= _MARGIN
+                and x1 <= a.PAGE_W - _MARGIN
+                and y1 <= a.PAGE_H - _MARGIN
+            )
+
+        options.append(
+            {
+                "name": name,
+                "view": view,
+                "side": side,
+                "strip": strip,
+                "axis": "x" if index == 0 else "y",
+                "order": (_PMI_SUBCHAIN, ink.vertex[1 - index], name),
+                "natural": natural,
+                "valid_position": valid_position,
+                "build": lambda pos, _radius=radius: ink.build(
+                    max(ink.minimum_radius, _radius(pos))
+                ),
+                "footprint": lambda pos, _radius=radius: ink.footprint(
+                    max(ink.minimum_radius, _radius(pos))
+                ),
+            }
+        )
+    return options
+
+
 def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     """Place one PMI record; returns True when it was queued/placed on a strip.
 
@@ -7211,7 +7310,11 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     name_y = f"pmi_y_{idx}"
     name_d = f"pmi_d_{idx}"
 
-    if rec.pmi_kind in ("diameter", "radius"):
+    if rec.pmi_kind == "angular":
+        placed = _pmi_queue_options(
+            dwg, ctx, _pmi_angular_specs(a, rec, f"pmi_angle_{idx}", draft), ax, label, rec
+        )
+    elif rec.pmi_kind in ("diameter", "radius"):
         # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value
         # (#1208). See `_bore_span_offsets`.
         info = _bore_info(rec)

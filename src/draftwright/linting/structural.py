@@ -23,6 +23,8 @@ from draftwright._geometry import (
     _segment_clips_box,
     material_reentry_span,
 )
+from draftwright.linting.angular import is_angular_label as _is_angular_label
+from draftwright.linting.angular import lint_angular_geometry
 from draftwright.linting.ink_overlap import crossable_region, label_crossings, segments_of
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
@@ -147,7 +149,10 @@ def is_dimension_like(item) -> bool:
     Deliberately narrow: ``measured_length`` is a plain attribute on the helper's dimension
     types, so this needs none of :func:`_label_bbox`'s raising-property discipline.
     """
-    return getattr(item, "measured_length", None) is not None
+    return (
+        getattr(item, "measured_length", None) is not None
+        or getattr(item, "measured_angle", None) is not None
+    )
 
 
 def _label_bbox(item, warned=None):
@@ -1039,17 +1044,6 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
     return overlap((cl_min_x, cl_min_y, cl_max_x, cl_max_y))
 
 
-#: Degree markers a dimension label may carry. ``°`` is what the engine and AP242 emit;
-#: ``deg`` is admitted because an authored label is free text.
-_DEGREE_MARKS = ("\u00b0", "deg")
-
-
-def _is_angular_label(label: str) -> bool:
-    """Whether *label* states an angle rather than a length."""
-    lowered = label.lower()
-    return any(mark in lowered for mark in _DEGREE_MARKS)
-
-
 #: At or above this relative discrepancy a dimension does not merely round differently from
 #: its geometry — it states something false, and the drawing asserts a measurement the part does
 #: not have. That is a different KIND of defect from everything else lint reports: an
@@ -1111,7 +1105,8 @@ def dimension_path_measurement(item, drawing_scale: float = 1.0):
     # so on the imported path this guard is inert and the renderer's category refusal is
     # the whole protection. An earlier version of this comment claimed the marker "survives
     # every path into lint", which is false. Tagging the annotation with its kind would fix
-    # that properly; it is not done here because nothing angular now reaches the renderer.
+    # that category independently. Supported angular ink now exposes measured_angle
+    # and angular_points, and is checked by lint_angular_geometry instead.
     #
     if measured is None or _is_angular_label(label):
         return None
@@ -1146,6 +1141,8 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     measurement = dimension_path_measurement(item, drawing_scale)
     # A repeat label is read as its producer declared it (#1153).
     label_val = _label_reading(item, label)
+    if getattr(item, "measured_angle", None) is not None:
+        issues.extend(lint_angular_geometry(item, label_val))
     if label_val is not None and measurement is not None:
         measured, item_scale = measurement
         effective_measured = measured / item_scale

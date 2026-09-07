@@ -2053,6 +2053,10 @@ class CorridorCandidate:
     # keeping footprints truthful (``dim_footprint``, ±0.05 mm) is what keeps that
     # fallback rare and the placement identical to the probe path.
     footprint: object | None = None
+    # A candidate can need a minimum geometric clearance (e.g. an angular arc
+    # must carry its complete label). Reject an infeasible tier before building
+    # OCC ink; the caller's normal drop/fallback path remains authoritative.
+    valid_position: object | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
@@ -2210,6 +2214,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     anchored = {c.name: c.anchored for c in kept if c.anchored}
     naturals = {c.name: c.natural for c in kept if c.natural is not None}
     foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical (#602)
+    valid_positions = {c.name: c.valid_position for c in kept if c.valid_position is not None}
     left = {
         n
         for n, _ in place_strip_candidates(
@@ -2229,6 +2234,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             anchored=anchored,
             naturals=naturals,
             footprints=foots,
+            valid_positions=valid_positions,
             corner_reserves=corner_reserves,
             trace=trace,
         )
@@ -2247,6 +2253,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 ctx=ctx,
                 force=True,
                 footprints=foots,
+                valid_positions=valid_positions,
                 corner_reserves=corner_reserves,
                 features=feats,
                 measurements=meas,
@@ -2538,6 +2545,7 @@ def place_strip_candidates(
     anchored=None,
     naturals=None,
     footprints=None,
+    valid_positions=None,
     corner_reserves=(),
     trace=None,
     trace_label=None,
@@ -2775,6 +2783,11 @@ def place_strip_candidates(
             pos = res.placed.get(sc.key)
             if pos is None:  # segment over its estimated capacity (shouldn't occur)
                 _reject(name, "over_capacity")
+                rejected.append((name, build))
+                continue
+            valid_position = (valid_positions or {}).get(name)
+            if valid_position is not None and not valid_position(pos):
+                _reject(name, "geometric_clearance")
                 rejected.append((name, build))
                 continue
             # Predicted box, not built geometry (#602): the refill loop re-evaluates

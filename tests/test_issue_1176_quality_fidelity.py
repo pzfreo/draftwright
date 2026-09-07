@@ -367,9 +367,8 @@ class TestFidelityIsAboutFalsehoodNotAbsence:
         assert code not in _FIDELITY_CODES
 
     def test_an_unsupported_dimension_does_not_lower_fidelity(self):
-        # #1207 refuses to draw an angular dimension rather than drawing it as a linear
-        # one. Nothing false reaches the sheet, so fidelity is intact; the content is
-        # missing, which is a different axis.
+        # Generic imported stations do not establish angular rays (#1504). Nothing
+        # false reaches the sheet; the content is missing, which is a different axis.
         sheet = Sheet(Box(115, 50, 68), title="T", number="T-1", page="A2", scale=1)
         sheet.measured_dimension(
             kind="angular",
@@ -377,6 +376,7 @@ class TestFidelityIsAboutFalsehoodNotAbsence:
             label="60°",
             dominant_axis="y",
             ref_pts=((0, -25, 0), (0, -9, 0), (0, -13.619, 8)),
+            source="ap242_pmi",
         )
         sheet.authored_dimensions()
         summary = sheet.build().lint_summary()

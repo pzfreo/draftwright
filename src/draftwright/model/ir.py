@@ -78,13 +78,26 @@ def validate_authored_dimension_placement(
     side: str | None,
     *,
     owner: str,
+    angular_reference: AngularReference | None = None,
 ) -> None:
     """Reject a view/side pair for which the authored-dimension renderer has no candidate."""
     validate_placement_intent(view, side, owner=owner)
     if view is None and side is None:
         return
     valid_pairs: tuple[tuple[str, str], ...]
-    if dimension_kind in ("diameter", "radius"):
+    if dimension_kind == "angular" and angular_reference is not None:
+        axis = angular_reference.principal_axis
+        end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(axis)
+        first, second = angular_reference.rays
+        bisector = tuple(a + b for a, b in zip(first, second, strict=True))
+        length = hypot(*bisector)
+        components = {"X": (1, 2), "Y": (0, 2), "Z": (0, 1)}.get(axis, ())
+        valid_pairs = tuple(
+            (end_view, (("left", "right"), ("below", "above"))[index][bisector[component] > 0])
+            for index, component in enumerate(components)
+            if end_view is not None and abs(bisector[component]) / length >= 1e-6
+        )
+    elif dimension_kind in ("diameter", "radius"):
         end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(dominant_axis)
         valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
     else:
@@ -114,6 +127,7 @@ def authored_dimension_target_view(
     dominant_axis: str,
     view: str | None,
     side: str | None,
+    angular_reference: AngularReference | None = None,
 ) -> str | None:
     """Resolve the principal view selected by an explicit measured-dimension hint.
 
@@ -124,6 +138,8 @@ def authored_dimension_target_view(
     """
     if view is not None:
         return view
+    if dimension_kind == "angular" and angular_reference is not None:
+        return {"X": "side", "Y": "front", "Z": "plan"}.get(angular_reference.principal_axis)
     if side is None:
         return None
     if dimension_kind in ("diameter", "radius"):
@@ -3009,6 +3025,7 @@ class AuthoredDimension:
             self.view,
             self.side,
             owner="authored dimension",
+            angular_reference=self.angular_reference,
         )
 
     @property

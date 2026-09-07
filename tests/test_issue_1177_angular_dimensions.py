@@ -10,9 +10,9 @@ Two defects in one line. The drawing asserted a length where the author stated a
 and the check that exists to catch a wrong value was itself comparing degrees to
 millimetres — so it reported a units mismatch as an axis swap.
 
-The issue's minimal contract allows either rendering a genuine angular dimension or
-failing loudly as unsupported *before* producing the misleading annotation. This refuses,
-and says so.
+The original safety fix refused angular rendering. #1504 now draws supported
+Sheet-authored three-point angles; imported generic stations remain unsupported
+unless their angular reference geometry is established explicitly.
 
 NOT because the primitives are missing — an earlier version of this docstring claimed the
 rendering library "has no angular primitive at all", and that is false twice over:
@@ -29,6 +29,7 @@ legitimate AP242 file unreadable.
 
 from __future__ import annotations
 
+from math import atan2, degrees
 from types import SimpleNamespace
 
 import pytest
@@ -53,7 +54,7 @@ _DOVETAIL = ((0, -25, 0), (0, -9, 0), (0, -13.619, 8))
 _RENDERABLE = frozenset({"linear", "thickness", "diameter", "radius"})
 
 
-def _sheet_with_angular():
+def _sheet_with_angular(source="ap242_pmi"):
     sheet = Sheet(Box(115, 50, 68), title="T", number="T-1")
     sheet.measured_dimension(
         kind="angular",
@@ -61,6 +62,7 @@ def _sheet_with_angular():
         label="60°",
         dominant_axis="y",
         ref_pts=_DOVETAIL,
+        source=source,
     )
     sheet.authored_dimensions()
     return sheet
@@ -70,7 +72,7 @@ class TestTheDrawingNoLongerAssertsALengthForAnAngle:
     def test_no_linear_dimension_is_drawn_for_an_angular_declaration(self):
         # The reported reproduction. Before: `pmi_y_0`, a `Dimension` with
         # `measured_length=16.0` carrying the label '60°'.
-        drawing = _sheet_with_angular().build()
+        drawing = _sheet_with_angular(source="sheet").build()
         drawn = [
             name
             for name, annotation in drawing.iter_annotations()
@@ -78,11 +80,17 @@ class TestTheDrawingNoLongerAssertsALengthForAnAngle:
             and "60" in str(getattr(annotation, "label", ""))
         ]
         assert drawn == [], f"an angular declaration was drawn as a linear dimension: {drawn}"
+        angular = [
+            item for _, item in drawing.iter_annotations() if hasattr(item, "measured_angle")
+        ]
+        assert len(angular) == 1
+        # The source coordinates round the slanted leg to 4.619mm.
+        assert angular[0].measured_angle == pytest.approx(degrees(atan2(8, 4.619)))
 
     def test_the_omission_is_reported_rather_than_silent(self):
         # "Fail loudly as unsupported" — the alternative the issue permits. Refusing
         # without saying so would trade a wrong drawing for a quietly incomplete one.
-        drawing = _sheet_with_angular().build()
+        drawing = _sheet_with_angular(source="ap242_pmi").build()
         reported = [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
         assert reported, "the angular dimension vanished with no diagnostic"
         assert "angular" in reported[0].message
@@ -100,7 +108,7 @@ class TestTheDrawingNoLongerAssertsALengthForAnAngle:
         # a fact about the renderer, not a reason to declare the page unusable.
         from draftwright.linting.issues import is_placement_drop
 
-        drawing = _sheet_with_angular().build()
+        drawing = _sheet_with_angular(source="ap242_pmi").build()
         refusals = [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
         assert refusals
         assert not any(is_placement_drop(i) for i in refusals)

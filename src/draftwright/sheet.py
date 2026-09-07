@@ -1496,6 +1496,9 @@ class Sheet:
         ray witness, with optional ``virtual_vertex=True`` for extended supports.
         Its only supported sector is the non-reflex ``"minor"`` sector. Supply it as an
         ``AngularReference`` or mapping; empty ``ref_pts`` are filled from that reference.
+        A Sheet-authored angle with exactly three ``ref_pts`` uses the order
+        ``(first, vertex, second)``. Generic imported PMI stations require an explicit
+        angular reference; their order cannot be inferred from the point count.
         Geometric intent is preserved even when angular rendering is unavailable.
         Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.

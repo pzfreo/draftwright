@@ -67,6 +67,49 @@ build. Build and lint still assess the resulting Sheet. A
 query never replaces an existing dimension request. Keep the original feature handle for edits;
 these reports do not introduce persistent feature identities or new lane, route or pin controls.
 
+## Explicit angular measurements
+
+`measured_dimension(kind="angular", ...)` accepts an `AngularReference` in model
+coordinates. Its vertex and two witness points identify directed rays; they do
+not position the annotation. The engine chooses a true-angle principal view and
+places the arc, arrows and complete label through the shared corridor solver.
+
+```python
+from math import sqrt
+from build123d import Polygon, extrude
+from draftwright import Sheet
+from draftwright.model import AngularReference
+
+part = extrude(Polygon((0, 0), (30, 0), (15, 15 * sqrt(3)), align=None), amount=3)
+sheet = Sheet(part).authored_dimensions()
+angle = sheet.measured_dimension(
+    kind="angular", value=60, label="60°", dominant_axis="z", ref_pts=(),
+    angular_reference=AngularReference(
+        vertex=(0, 0, 3), first=(15, 0, 3), second=(7.5, 7.5 * sqrt(3), 3),
+    ),
+)
+drawing = sheet.build()
+for finding in drawing.lint():
+    print(finding.code, finding.message)
+```
+
+The supported sector is the non-reflex angle between the two directed rays.
+Reversing their order preserves that angle. For extended supports meeting beyond
+a rounded corner, use `virtual_vertex=True`; this declares the virtual
+intersection without asserting that the vertex lies on a physical edge.
+Zero-length or collinear rays and unsupported sectors are rejected. Oblique
+planes and structured angular tolerances currently produce
+`dimension_kind_unsupported`; insufficient page space produces a placement drop.
+
+Plain Sheet-authored three-point references also use `(first, vertex, second)`.
+Imported PMI does not infer this ordering: it requires an explicit angular
+reference. The authored label is retained verbatim, and lint compares its degree
+value with the projected rays and inspects the visible angular ink. Physical
+support correspondence remains `angular_support_unverifiable` pending the
+provider evidence contract in [Quiddity #579](https://github.com/pzfreo/quiddity/issues/579).
+Automatic profile-angle discovery and canonical angle selectors are still tracked
+in [#1504](https://github.com/pzfreo/draftwright/issues/1504).
+
 ## Selecting a hole location component
 
 Use `location` alone to request the usual location set. To select one component of a hole

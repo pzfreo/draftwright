@@ -103,3 +103,23 @@ def test_reference_cannot_disagree_with_generic_stations_or_dimension_kind():
         replace(valid, dimension_kind="linear")
     with pytest.raises(ValueError, match="ref_pts must agree"):
         replace(valid, ref_pts=((0, 0, 0), (3, 0, 0)))
+
+
+@pytest.mark.parametrize(
+    ("view", "side"), [("front", "above"), ("plan", "left"), ("plan", "below")]
+)
+def test_hints_cannot_change_the_reference_plane_or_angular_sector(view, side):
+    reference = AngularReference((0, 0, 0), (1, 0, 0), (0, 1, 0))
+    arguments = dict(
+        kind="angular",
+        value=90,
+        label="90°",
+        dominant_axis="z",
+        ref_pts=(),
+        angular_reference=reference,
+    )
+    assert (
+        measured_dimension(**arguments, view="plan", side="right").angular_reference == reference
+    )
+    with pytest.raises(ValueError, match="cannot render"):
+        measured_dimension(**arguments, view=view, side=side)

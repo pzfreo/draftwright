@@ -135,6 +135,7 @@ from draftwright.linting import (
     lint_through_step_coverage,
     pmi_stage_summary,
 )
+from draftwright.linting.angular import lint_angular_supports
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components
 from draftwright.linting.section_recess_coverage import lint_section_recess_coverage
@@ -237,6 +238,9 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pocket_requirement_unverifiable",
         "missing_principal_dimension",
         "label_vs_measured",
+        "angular_label_vs_geometry",
+        "angular_geometry_mismatch",
+        "angular_support_unverifiable",
         "dim_inside_part",
         "callout_dropped",
         "location_ref_dropped",
@@ -3777,6 +3781,8 @@ class Drawing:
             _aggregation=aggregation,
         )
         working_part = self._working_part
+        if physical:
+            issues += lint_angular_supports(self.items)
         if working_part is not None and physical:
             # Reuse the single feature inventory from the build (#244) when present,
             # so lint does not re-detect holes/patterns/turned-steps; fall back to

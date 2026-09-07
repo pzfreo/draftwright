@@ -2440,6 +2440,8 @@ def measured_dimension(
     ``angular_reference`` supplies an explicit vertex and two ray witnesses in model space;
     it is an ``AngularReference`` or a mapping with the same fields. Its points populate
     empty ``ref_pts`` or must agree with the supplied ``(first, vertex, second)`` points.
+    Sheet-authored three-point angles use that same order automatically. Imported generic
+    reference stations do not establish this ordering and require an explicit reference.
     This retains angular meaning; it does not imply that the renderer supports the case."""
     _require_positive(value=value)
     dim_kind = str(kind).lower()
@@ -2447,6 +2449,15 @@ def measured_dimension(
         allowed = ", ".join(sorted(AUTHORED_DIMENSION_KINDS))
         raise ValueError(f"measured_dimension() kind must be one of: {allowed}")
     pts = tuple(_point3("ref_pts item", p) for p in ref_pts)
+    if (
+        dim_kind == "angular"
+        and angular_reference is None
+        and source == "sheet"
+        and not source_id
+        and len(pts) == 3
+        and not rendering_blockers
+    ):
+        angular_reference = AngularReference(vertex=pts[1], first=pts[0], second=pts[2])
     if angular_reference is not None:
         if isinstance(angular_reference, dict):
             angular_reference = AngularReference(**angular_reference)
@@ -2498,7 +2509,14 @@ def measured_dimension(
         unresolved_bore = dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None
         if not (unresolved_import or unresolved_bore):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
-    validate_authored_dimension_placement(dim_kind, dom, view, side, owner="measured_dimension()")
+    validate_authored_dimension_placement(
+        dim_kind,
+        dom,
+        view,
+        side,
+        owner="measured_dimension()",
+        angular_reference=angular_reference,
+    )
     cylinder_axes = {reference.principal_axis for reference in cylinders}
     if cylinders and (len(cylinder_axes) != 1 or "?" in cylinder_axes):
         if not imported_blocked:

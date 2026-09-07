@@ -246,6 +246,9 @@ _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 _FIDELITY_CODES = frozenset(
     {
         "label_vs_measured",
+        "angular_label_vs_geometry",
+        "angular_geometry_mismatch",
+        "angular_support_unverifiable",
         "radius_leader_target_mismatch",
         "radius_leader_target_unverifiable",
         "diameter_leader_target_mismatch",

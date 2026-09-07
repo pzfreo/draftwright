@@ -95,6 +95,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 1 (was 0015),
     #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
     were deleted as each migrated here.
+  - **`annotations/angular.py`** — angular arc/arrow/extension ink and analytic
+    radius-dependent footprints, consumed through the shared corridor solve.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
@@ -198,6 +200,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
+  `angular.py` (degree claims and actual angular ink, with explicit unavailable
+  physical-support evidence),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
   (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
   `plate_correspondence` leaf,
