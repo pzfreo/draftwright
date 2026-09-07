@@ -70,35 +70,11 @@ def test_pocket_rim_tip_is_axis_independent(rotation):
     # clears the page's dimensioning floor depends on which view it lands in: of the
     # orientations here only `x-depth` reports it. This test is about the leader's tip, so it
     # asserts the leader draws nothing wrong rather than pinning an orientation-dependent set.
-    # The `y-depth` orientation crosses a pair of location dimensions over each
-    # other's labels (#1321/#1332) — '50' 3.3 mm through '35', and '35' 3.2 mm back
-    # through '50'. Two obscured labels, two defects; rendered at 600 dpi and
-    # confirmed. Named rather than filtered by code, so this sheet cannot quietly
-    # accumulate a third crossing. `z-depth` and `x-depth` carry none, and the
-    # unrotated fixture above still asserts a wholly clean sheet.
-    known = {("50", "35"), ("35", "50")} if pocket.depth_axis == "y" else set()
-
-    def _pair(issue):
-        for crosser, crossed in known:
-            if (
-                f"'{crosser}' draws" in issue.message
-                and f"through the label '{crossed}'" in issue.message
-            ):
-                return (crosser, crossed)
-        return None
-
-    crossings = [i for i in dwg.lint() if i.code == "annotation_ink_overlap"]
-    unexpected = [
-        issue
-        for issue in dwg.lint()
-        if issue.code not in {"step_dim_withheld", "annotation_ink_overlap"}
-    ]
+    # #1333's shared repair now clears the y-depth 35/50 dimension crossings;
+    # its own regression proves both crossings before repair and preservation
+    # afterwards. Keep this rim-target test strict: no crossing is exempt now.
+    unexpected = [issue for issue in dwg.lint() if issue.code != "step_dim_withheld"]
     assert [issue.code for issue in unexpected] == []
-    # An EXACT set, not `any(...)`. Two crossings in the SAME direction used to
-    # satisfy both this and the count below, so the test did not pin the "two
-    # obscured labels, one each way" claim its comment makes.
-    assert {_pair(i) for i in crossings} == known, [i.message for i in crossings]
-    assert len(crossings) == len(known)
 
 
 @pytest.mark.parametrize("axis", ["long", "width"], ids=["long-axis", "width-axis"])

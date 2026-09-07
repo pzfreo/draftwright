@@ -52,9 +52,12 @@ def test_side_edit_clears_demonstrated_crossing_without_losing_measurements(grm0
     before, after = original["drawing"], edited["drawing"]
     before_issues = before.lint()
     assert any(
-        issue.code == "annotation_ink_overlap" and "⌀2.4 THRU" in issue.message
+        issue.code in {"annotation_overlap", "annotation_ink_overlap"}
+        and "⌀2.4 THRU" in issue.message
         for issue in before_issues
     ), "The fixture must exhibit the hole/location collision before editing"
+    # Bounded build-time repair can now clear the ink crossings while leaving
+    # the existing label overlap. The authored side edit must clear that too.
     assert before.scale == after.scale == 4
     assert not any(
         issue.code in {"annotation_overlap", "annotation_ink_overlap", "placement_unsatisfiable"}
@@ -107,7 +110,11 @@ def test_grm04_edit_preserves_measurement_meaning_under_shared_declaration(grm04
     after = build_drawing(
         original["part"], model=replace(model, authored_dimensions=requests), scale=4
     )
-    assert any(issue.code == "annotation_ink_overlap" for issue in before.lint())
+    assert any(
+        issue.code in {"annotation_overlap", "annotation_ink_overlap"}
+        and "⌀2.4 THRU" in issue.message
+        for issue in before.lint()
+    )
     assert not any(
         issue.code in {"annotation_overlap", "annotation_ink_overlap"} for issue in after.lint()
     )

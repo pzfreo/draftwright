@@ -1,19 +1,20 @@
 """The deterministic lint→repair safety net (#138 / ADR 1 (was 0005); #30 / ADR 5 (was 0002)).
 
-The solver path now owns annotation placement. Repair is deliberately narrow:
-it only handles the mechanically-clear wrong-side dimension case and never performs
-fixed-step overlap placement. `Drawing.repair()` remains the public wrapper; these
-helpers take the drawing as `dwg` (duck-typed — `lint` / `items` / `_registry`), so
-this module imports only `_core`, never `make_drawing` — no cycle.
+The solver path owns annotation placement. Repair handles wrong-side dimensions
+and a bounded dimension-ink candidate supplied by that same solver. Drawing
+supplies the higher-ranked candidate function; this module never imports it.
 """
 
 from __future__ import annotations
 
+from collections import Counter
+
 from draftwright._core import _QUOTED_RE, _dim
+from draftwright.audit import compare_measurements
 
 # Lint codes the repair loop can mechanically resolve, and the side flip used to
 # move a dimension that landed on the wrong side of its witness points.
-_REPAIRABLE_CODES = frozenset({"dim_inside_part"})
+_REPAIRABLE_CODES = frozenset({"dim_inside_part", "annotation_ink_overlap"})
 _OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
 
 
@@ -36,6 +37,11 @@ def _find_dim(dwg, label):
     return None
 
 
+def _swap_annotation(dwg, old, new):
+    dwg.items[next(i for i, item in enumerate(dwg.items) if item is old)] = new
+    dwg.registry.replace_object(old, new)
+
+
 def _replace_dim(dwg, old, new):
     """Swap *old* for *new* in ``dwg.items``, preserving its name and any per-view
     scale tag (so a re-placed detail-view dim stays at scale)."""
@@ -52,8 +58,7 @@ def _replace_dim(dwg, old, new):
         new._dw_measurement_span = old._dw_measurement_span
     if getattr(old, "_dw_authored_side", None) is not None:
         new._dw_authored_side = old._dw_authored_side
-    dwg.items[dwg.items.index(old)] = new
-    dwg.registry.replace_object(old, new)
+    _swap_annotation(dwg, old, new)
 
 
 def _repair_dim_inside_part(dwg, issue) -> bool:
@@ -74,20 +79,77 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
     return True
 
 
-def repair_drawing(dwg, max_iter: int = 3):
+def _repair_annotation_ink(dwg, choose_candidates, before):
+    """Try one shared-solver batch; commit only a content-preserving improvement."""
+    if "annotation_ink_overlap" not in _REPAIRABLE_CODES or not any(
+        issue.code == "annotation_ink_overlap" for issue in before
+    ):
+        return
+    original = list(dwg.iter_annotations())
+    pins = dwg.registry.pinned_names()
+    measurements = dwg.measurement_snapshot()
+    if measurements.unknown:
+        return  # an unconfirmed measurement cannot authorise an automatic move
+    candidates = choose_candidates(original, pins)
+    if [name for name, _ in candidates] != [name for name, _ in original]:
+        return
+    changes = [
+        (old, new)
+        for (_, old), (_, new) in zip(original, candidates, strict=True)
+        if old is not new
+    ]
+    if not changes:
+        return
+    for (name, old), (_, new) in zip(original, candidates, strict=True):
+        if old is new:
+            continue
+        a, b = getattr(old, "_dw_spec", None), getattr(new, "_dw_spec", None)
+        if (
+            name in pins
+            or a is None
+            or b is None
+            or (a.p1, a.p2, a.side) != (b.p1, b.p2, b.side)
+            or getattr(old, "_dw_authored_side", None) != getattr(new, "_dw_authored_side", None)
+        ):
+            return
+    items = list(dwg.items)
+    registry = dwg.registry.snapshot()
+    accepted = False
+    try:
+        for old, new in changes:
+            # The shared solver already carries provenance. Judge its candidate
+            # as returned, without overwriting evidence that the comparison reads.
+            _swap_annotation(dwg, old, new)
+        after = dwg.lint(physical=False)
+        before_counts = Counter((issue.code, issue.severity) for issue in before)
+        after_counts = Counter((issue.code, issue.severity) for issue in after)
+        accepted = (
+            bool(before_counts - after_counts)
+            and not (after_counts - before_counts)
+            and compare_measurements(measurements, dwg)["status"] == "preserved"
+        )
+    finally:
+        if not accepted:
+            dwg.items[:] = items
+            dwg.registry.restore(registry)
+
+
+def repair_drawing(dwg, max_iter: int = 3, *, ink_candidates=None):
     """Close the lint→repair loop; see :meth:`Drawing.repair` for the contract.
     Returns *dwg* for chaining.
 
     Lints ``physical=False`` — the placement critique only. This loop acts on
-    ``_REPAIRABLE_CODES`` (``dim_inside_part``) and nothing else, so the feature-coverage
+    ``_REPAIRABLE_CODES`` and nothing else, so the feature-coverage
     half was computed and discarded on every iteration; on a declared build it also forced
     the recognition ADR 4 (was 0011) says that path skips (#1022). It makes the net-worsened
     comparison below stricter too: coverage issues cannot change from re-placing a
     dimension, so counting them only diluted the ratio.
     """
+    if max_iter <= 0:
+        return dwg
+    before = dwg.lint(physical=False)
     flipped: set = set()
     for _ in range(max_iter):
-        before = dwg.lint(physical=False)
         if not before:
             break
         snap_annotations = list(dwg.items)
@@ -106,37 +168,16 @@ def repair_drawing(dwg, max_iter: int = 3):
                     changed = True
         if not changed:
             break
-        if len(dwg.lint(physical=False)) > len(before):
-            # The repairs net-worsened the sheet — undo this pass and stop.
-            #
-            # Note what this counts: EVERY placement issue, while `_REPAIRABLE_CODES`
-            # holds one. So a code the loop cannot target still decides whether a
-            # repair survives. A flip that corrects a `dim_inside_part` while moving
-            # its dimension line across a neighbour's label nets +1 and is undone,
-            # leaving the wrong-side dimension in place.
-            #
-            # Not one-directional, though: the flip moves the dimension line, which
-            # IS the ink `annotation_ink_overlap` measures, so it can clear a
-            # crossing as readily as create one. An earlier revision of this comment
-            # claimed such codes "can vote a repair down but never vote one up",
-            # which the measurement quoted below does not establish and the geometry
-            # contradicts.
-            #
-            # Measured over the population where it can actually occur. A first
-            # measurement counted zero flips across the 23 STEP fixtures, which was
-            # true and beside the point: `dim_inside_part` fires on Python-built
-            # parts, so that corpus cannot exercise this at all. Instrumenting
-            # `_repair_dim_inside_part` across the **whole test suite** records 2
-            # flips, of which 0 net-worsen counting ink and 0 are reverted because of
-            # it. So the veto is reachable and does not currently fire.
-            #
-            # The asymmetry is pre-existing and structural rather than anything #1321
-            # introduced — it acquires a new member with every lint code added — and
-            # it dissolves once #1333 makes these codes repairable, at which point the
-            # loop can improve what it is being judged on.
+        after = dwg.lint(physical=False)
+        if len(after) > len(before):
+            # Preserve the wrong-side handler's existing rollback contract. Ink
+            # candidates below use the stricter per-code/severity comparison.
             dwg.items[:] = snap_annotations
             dwg.registry.restore(snap_registry)
             break
+        before = after
+    if ink_candidates is not None:
+        _repair_annotation_ink(dwg, ink_candidates, before)
     return dwg
 
 

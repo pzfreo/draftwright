@@ -3683,23 +3683,34 @@ class Drawing:
         mechanically-clear violations and re-lint, bounded to *max_iter* passes:
 
         - ``dim_inside_part`` — the offset is on the wrong side; flip it once.
-        ``annotation_overlap`` is intentionally not repaired here anymore: the
-        corridor/strip solvers own primary placement, and a fixed-step nudge would
-        reintroduce a second placement policy.
+        - ``annotation_ink_overlap`` — try the shared dimension candidate solver
+          once, with along-span choices and at most one existing stacking tier.
+          Pins, authored sides, annotation membership and confirmed measurements
+          survive; every lint-code/severity component must stay the same or improve,
+          and at least one must improve. An infeasible candidate leaves the findings.
 
         Only engine-built dimensions (carrying ``_dw_spec``) are re-placeable;
         leaders, callouts and standards-judgement issues (e.g.
         ``missing_principal_dimension``) are left for the caller. Each side flip
-        is attempted at most once and overlap pushes only move outward, so the
-        loop terminates and a clean drawing is returned unchanged.
+        is attempted at most once; a clean drawing is returned unchanged.
 
-        A pass that would *net-increase* the issue count (e.g. an overlap push
-        that shoves a label out of frame on a tight sheet) is rolled back and the
-        loop stops, so :meth:`repair` never makes a drawing worse.
+        Wrong-side flips retain their issue-count rollback guard. Rejected ink
+        candidates restore the original items and registry; an exception during
+        candidate critique also restores them before propagating the error.
 
         Returns ``self`` for chaining.
         """
-        return repair_drawing(self, max_iter)
+        from draftwright.annotations._common import prevent_dimension_label_ink
+
+        def ink_candidates(dimensions, pins):
+            return prevent_dimension_label_ink(
+                dimensions,
+                page=(_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN),
+                immutable=pins,
+                perpendicular_step=self.draft.font_size + 2 * self.draft.pad_around_text,
+            )
+
+        return repair_drawing(self, max_iter, ink_candidates=ink_candidates)
 
     # -- output ---------------------------------------------------------------
     def lint(self, *, physical: bool = True):
@@ -3711,7 +3722,7 @@ class Drawing:
         ``physical=False`` asks for the **placement** critique only — geometry/standards
         checks over what is on the sheet — and skips the feature-coverage half that needs a
         recognition inventory of the solid. That is what the repair loop wants (it acts on
-        ``dim_inside_part`` and nothing else, ADR 5 (was 0002)), and on a declared build it is the
+        the allowlisted placement codes in ADR 5), and on a declared build it is the
         difference between exporting a drawing and recognising the part to no purpose
         (#1022). The default stays the full critique: a caller asking "is this drawing
         right?" means both halves.

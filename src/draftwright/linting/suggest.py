@@ -66,6 +66,14 @@ def _suggest_fix(issue, dwg) -> str | None:
             f"# HoleCallout(..., count={need}, draft=dwg.draft)"
         )
 
+    if code == "annotation_ink_overlap":
+        return (
+            "# Try bounded shared-solver repair for axis-aligned dimension ink.\n"
+            "# Pins and measurements are preserved; infeasible crossings remain visible.\n"
+            "dwg.repair()\n"
+            "issues = dwg.lint()"
+        )
+
     if code == "annotation_overlap":
         # Message: "labels 'A' and 'B' overlap by ...".
         if "move what is drawn" in issue.message:

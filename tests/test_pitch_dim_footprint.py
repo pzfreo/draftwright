@@ -159,11 +159,12 @@ def test_grid_pitch_dim_constructions_bounded(monkeypatch):
     import draftwright._core as core
 
     pitch_builds = 0
+    assembling = False
     real_dimension = core.Dimension
 
     def counting_dimension(p1, p2, side, distance, draft, **kwargs):
         nonlocal pitch_builds
-        if "× " in (kwargs.get("label") or ""):
+        if assembling and "× " in (kwargs.get("label") or ""):
             pitch_builds += 1
         return real_dimension(p1, p2, side, distance, draft, **kwargs)
 
@@ -174,14 +175,20 @@ def test_grid_pitch_dim_constructions_bounded(monkeypatch):
     real_assemble = builder_mod._assemble
 
     def counting_assemble(*args, **kwargs):
-        nonlocal compiles
+        nonlocal compiles, assembling
         compiles += 1
-        return real_assemble(*args, **kwargs)
+        assembling = True
+        try:
+            return real_assemble(*args, **kwargs)
+        finally:
+            assembling = False
 
     monkeypatch.setattr(builder_mod, "_assemble", counting_assemble)
     monkeypatch.setattr(core, "Dimension", counting_dimension)
     dwg = build_drawing(_grid_plate())
 
+    # Count the initial placement phase this performance guard protects. #1333
+    # also uses bounded candidate construction during the separate repair pass.
     placed = [name for name, _ in dwg.iter_annotations() if name.startswith("dim_pitch_")]
     assert placed, "fixture no longer places pitch dims — the guard lost its subject"
     assert compiles >= 1
