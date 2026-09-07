@@ -154,6 +154,9 @@
 
 ### Changed
 
+- Updated the exact Quiddity runtime and declared-inspection contract to 0.2.5 for the
+  provider's recognition performance improvements.
+
 - Production recognition now consumes published `quiddity==0.2.2`. Unified section-recess
   occurrences and their same-run patterns feed the existing pocket, channel and blind-slot
   drawing grammar. Original occurrence ownership, independent completeness and explicit
