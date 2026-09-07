@@ -190,12 +190,22 @@ already contains worker profiles.
 Coverage is kept out of the default addopts (it adds ~13% locally); the CI
 workflow passes the `--cov` flags, in the two `coverage` shards whose data
 `coverage-report` combines for the single Codecov upload and the `fail_under`
-gate. Each PR runs the full fast tier on Linux across supported Python versions,
+gate. PRs requiring normal CI run the full fast tier across supported Python versions,
 each split into two pytest-split shards, plus smaller macOS/Windows platform
 canaries. One real-part canary checks fixed tuner-fixture measurements and
 exports before merge; the **full slow tier runs post-merge on `main`** (#153,
 #827). The wider platform matrix remains available weekly, manually, or with the
 `full-matrix` PR label.
+
+Exact next-patch development-version bumps use a short metadata path on PRs, the
+post-release dispatch and the resulting main push. The base commit's
+`scripts/check-version-bump` must prove that the entire Git diff changes only the
+matching Draftwright version records in `pyproject.toml` and `uv.lock`, including
+unchanged file modes and all other bytes. It then checks the lock and builds the
+package without installing CAD dependencies. Codecov's `empty-upload` supplies
+its no-code-change status; branch protection still requires Codecov and `ci-ok`.
+Mixed edits or unavailable proof use normal CI. Schedules and ordinary manual
+runs keep the full matrix. The classifier requires Python 3.11+ (`tomllib`).
 
 ## Working practices — evidence, not confidence
 

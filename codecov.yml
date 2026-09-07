@@ -4,3 +4,9 @@ coverage:
       default:
         target: auto
         threshold: 0.5%
+
+# These metadata files have no executable lines. Only the base-owned complete-diff
+# verifier may select empty-upload; dependency or configuration edits run normal CI.
+ignore:
+  - '^pyproject\.toml$'
+  - '^uv\.lock$'

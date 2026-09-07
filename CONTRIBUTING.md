@@ -37,7 +37,8 @@ before changing those areas.
 
 ### Real-part PR canary
 
-Every pull request builds `tests/fixtures/tuner_jig_blind_obround_pockets.step`
+Every PR other than a verified version-only bump builds
+`tests/fixtures/tuner_jig_blind_obround_pockets.step`
 once on Linux/Python 3.12, matching the post-merge integration kernel. This common
 part exposed annotation losses during the Quiddity migration: five rounded
 pockets, their grouped dimensions, pitch, distinct X/Y locations, and twenty
@@ -54,8 +55,8 @@ uv run pytest tests/test_issue_827_real_part_canary.py -m real_part_canary -v -s
 
 The test has a 120-second execution budget and prints its build/audit/export
 runtime. The hosted job has a separate ten-minute limit including setup. Its
-result must be successful before merge; a skipped result fails the aggregate
-gate. The test also belongs to `slow`, so the default fast matrix excludes it
+result must be successful on the normal PR path; a skipped result there fails
+the aggregate gate. The test also belongs to `slow`, so the default fast matrix excludes it
 and the full post-merge integration suite retains it.
 
 ### Coverage
@@ -124,3 +125,10 @@ the installed package. Never commit a path or Git override.
 - Run `scripts/pr-check --quick` while iterating and `scripts/pr-check` before the final push.
 
 Questions or commercial-licensing enquiries: paul@fremantle.org.
+
+Automated next-development-version PRs take a short CI path only when the complete
+diff proves an exact patch increment in the project and matching lockfile record.
+The base commit's verifier checks that no other content or file modes changed.
+These PRs run `uv lock --check` and `uv build`, with Codecov's explicit
+`empty-upload` status. Any additional edit or missing proof uses normal CI; a
+branch name or dispatch flag alone cannot select the short path.

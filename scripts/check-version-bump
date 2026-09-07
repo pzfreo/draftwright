@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Prove a complete Git diff changes only the next development-version identity.
+
+Print true only for an exact patch increment in both canonical metadata records.
+All other diffs, malformed metadata and unavailable history select normal CI.
+The workflow executes this script from the comparison BASE, never from the PR.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+import sys
+
+import tomllib
+
+
+def git(*args: str) -> bytes:
+    return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL)
+
+
+def version_only(base: str, head: str) -> bool:
+    """Return whether the two immutable trees differ only by a patch dev bump."""
+    if not all(re.fullmatch(r"[0-9a-f]{40}", ref) for ref in (base, head)):
+        return False
+    try:
+        git("merge-base", "--is-ancestor", base, head)
+        paths = git("diff", "--no-renames", "--name-only", "-z", base, head).split(b"\0")
+        if set(paths) != {b"pyproject.toml", b"uv.lock", b""}:
+            return False
+        documents = {}
+        for ref in (base, head):
+            for path in ("pyproject.toml", "uv.lock"):
+                entry = git("ls-tree", ref, "--", path).decode()
+                if not entry.startswith("100644 blob "):
+                    return False
+                documents[ref, path] = git("show", f"{ref}:{path}").decode()
+
+        old_project = tomllib.loads(documents[base, "pyproject.toml"])["project"]
+        current = old_project["version"]
+        match = re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.dev0)?", current)
+        if old_project["name"] != "draftwright" or not match:
+            return False
+        major, minor, patch = map(int, match.groups())
+        target = f"{major}.{minor}.{patch + 1}.dev0"
+        for ref, expected in ((base, current), (head, target)):
+            project = tomllib.loads(documents[ref, "pyproject.toml"])["project"]
+            packages = tomllib.loads(documents[ref, "uv.lock"])["package"]
+            own = [package for package in packages if package["name"] == "draftwright"]
+            if (
+                project["version"] != expected
+                or len(own) != 1
+                or own[0]["version"] != expected
+                or own[0]["source"] != {"editable": "."}
+            ):
+                return False
+
+        # Byte equality after replacing the two exact records rejects dependency,
+        # tool configuration, comments, whitespace and unrelated lockfile edits too.
+        for path, header in (("pyproject.toml", "[project]"), ("uv.lock", "[[package]]")):
+            before = f'{header}\nname = "draftwright"\nversion = "{current}"\n'
+            after = f'{header}\nname = "draftwright"\nversion = "{target}"\n'
+            original = documents[base, path]
+            if (
+                original.count(before) != 1
+                or original.replace(before, after) != documents[head, path]
+            ):
+                return False
+        return True
+    except (subprocess.CalledProcessError, UnicodeError, ValueError, KeyError, TypeError):
+        return False
+
+
+if __name__ == "__main__":
+    print(str(len(sys.argv) == 3 and version_only(*sys.argv[1:])).lower())
