@@ -724,6 +724,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "codespell" },
+    { name = "coverage" },
     { name = "hypothesis" },
     { name = "jsonschema" },
     { name = "mypy" },
@@ -760,6 +761,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "codespell", specifier = ">=2.3.0" },
+    { name = "coverage", specifier = ">=7" },
     { name = "hypothesis", specifier = ">=6" },
     { name = "jsonschema", specifier = ">=4,<5" },
     { name = "mypy", specifier = ">=2.1.0" },

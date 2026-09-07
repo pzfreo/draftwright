@@ -306,6 +306,49 @@ def test_real_part_canary_runs_once_with_an_execution_budget():
     ) in job
 
 
+def test_coverage_artefacts_are_rendered_before_the_fail_under_gate():
+    """A coverage-floor breach must still produce the XML and HTML that explain it.
+
+    `coverage report` applies `fail_under = 90` and the step runs under `bash -e`, so
+    ordering it before `xml`/`html` means a breach aborts the step, the artefact upload
+    (which runs `if: !cancelled()` with `if-no-files-found: warn`) silently uploads
+    nothing, and Codecov receives no upload — precisely when the drop needs diagnosing.
+    pytest-cov rendered every report before raising fail-under; this keeps that.
+    """
+    job = _job(_workflow("ci.yml"), "coverage-report")
+    commands = [
+        line.strip() for line in job.splitlines() if line.strip().startswith("uv run coverage")
+    ]
+
+    assert commands, "coverage-report no longer runs coverage directly"
+    rendered = [i for i, c in enumerate(commands) if " xml" in c or " html" in c]
+    gate = [i for i, c in enumerate(commands) if c.startswith("uv run coverage report")]
+    assert rendered and gate, f"expected render and report commands, got {commands}"
+    assert max(rendered) < min(gate), (
+        f"`coverage report` applies fail_under and aborts the step; render the artefacts "
+        f"first. Got order: {commands}"
+    )
+
+
+def test_coverage_combine_follows_the_shard_matrix():
+    """The shard count lives in the matrix and `--splits`; combine must not restate it.
+
+    Naming the data files (`coverage-data-1 coverage-data-2`) is a third place to keep in
+    step. Raising the shard count without updating it combines a subset, which
+    `coverage report` then measures against `fail_under` as though it were the suite.
+    """
+    workflow = _workflow("ci.yml")
+    job = _job(workflow, "coverage-report")
+
+    assert "coverage combine coverage-data-*" in job, (
+        "combine should glob the shard artefacts rather than naming each one"
+    )
+    shards = _job(workflow, "coverage")
+    assert "--splits 2" in shards and "shard: [1, 2]" in shards, (
+        "shard count is declared in the matrix and --splits; this test pins them together"
+    )
+
+
 def test_project_coverage_allows_only_a_small_refactor_fluctuation():
     """Deleting above-average covered modules must not block a tested extraction."""
     policy = (ROOT / "codecov.yml").read_text(encoding="utf-8")

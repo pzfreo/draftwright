@@ -223,13 +223,22 @@ jobs:
 
       - name: Combine the shards and render the canonical reports
         # `relative_files = true` (pyproject) anchors both shards' paths at the repository
-        # root, so the two data files combine without runner-specific rewriting.
-        # `coverage report` is what applies `fail_under = 90`, now over the whole suite.
+        # root, so the data files combine without runner-specific rewriting.
+        #
+        # `coverage-data-*` rather than naming the shards: the shard count already lives in
+        # the matrix and in `--splits`, and a third place to update silently combines a
+        # subset — which `coverage report` would then measure against `fail_under`.
+        #
+        # ORDER IS LOAD-BEARING. `report` is what applies `fail_under = 90`, and the step
+        # runs under `bash -e`, so rendering the artefacts after it means a coverage breach
+        # aborts before `coverage.xml` and `htmlcov/` exist — the upload below then warns
+        # on an empty artefact and Codecov receives nothing, exactly when the drop needs
+        # diagnosing. pytest-cov rendered every report before failing; keep that property.
         run: |
-          uv run coverage combine coverage-data-1 coverage-data-2
-          uv run coverage report --show-missing
+          uv run coverage combine coverage-data-*
           uv run coverage xml
           uv run coverage html -d htmlcov
+          uv run coverage report --show-missing
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6

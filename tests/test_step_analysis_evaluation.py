@@ -245,6 +245,19 @@ def test_versioned_corpus_has_independent_provenance_and_required_case_classes()
 
 
 def test_real_step_corpus_scores_all_layers_and_topology_variants_deterministically() -> None:
+    """The ONLY remaining repeat-evaluation check, and it covers this corpus alone.
+
+    The per-family `*_completeness_evidence` modules each ran `evaluate_step_corpus`
+    twice to assert `first == second`; those fourteen copies were removed in #1494 as
+    duplicated work, on the grounds that the invariant belongs to `evaluate_step_corpus`
+    and is owned here. That is true of the FUNCTION but not of the corpora: this test
+    loads `corpus-v1.json`, whose scope is `("holes",)`, so repeat-determinism is no
+    longer exercised on the pocket, plate, groove, turned-step, chamfer, fillet, flat,
+    pad, boss, stock, countersink, double-D or hole-pattern corpora. CLAUDE.md rates an
+    in-process repeat as weak evidence anyway — string hashing is stable for a given
+    PYTHONHASHSEED — so this is a deliberate trade, recorded here rather than left as an
+    overstatement in a merged PR body.
+    """
     corpus = load_corpus(CORPUS)
 
     first = evaluate_step_corpus(corpus)
