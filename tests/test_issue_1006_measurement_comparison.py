@@ -1,11 +1,13 @@
 """A declaration edit must preserve owners and meaning, not merely counts or labels."""
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright import Sheet, build_drawing
+from draftwright._core import _dim
 from draftwright.audit import compare_measurements, diff_builds, explain
 from draftwright.model.ir import RequestedDimension
 
@@ -177,3 +179,51 @@ def test_feature_pair_must_reference_the_exact_snapshot_inventory(declared_pair)
         compare_measurements(drawing, drawing, feature_pairs=((replace(holes[0]), holes[0]),))
     with pytest.raises(ValueError, match="one-to-one"):
         compare_measurements(drawing, drawing, feature_pairs=((holes[0], holes[1]),))
+
+
+@pytest.mark.parametrize(
+    ("fixture", "names"),
+    [
+        ("grm04_drive_plate.step", ("dim_step_0", "dim_step_1")),
+        ("tuner_jig_blind_obround_pockets.step", ("m_locx0", "m_locy0")),
+    ],
+    ids=["step-spans", "pocket-location-axes"],
+)
+def test_swapping_labels_between_coarse_claims_changes_the_measurements(fixture, names):
+    drawing = build_drawing(Path(__file__).parent / "fixtures" / fixture)
+    original = [drawing.get_annotation(name) for name in names]
+    assert original[0].label != original[1].label
+    before = drawing.measurement_snapshot()
+    assert not before.unknown
+    # Rebuild real dimension geometry with exchanged labels while retaining its
+    # recorded ownership and spans. The two labels still form the same multiset.
+    for index, old in enumerate(original):
+        spec = old._dw_spec
+        new = _dim(
+            spec.p1,
+            spec.p2,
+            spec.side,
+            spec.distance,
+            spec.draft,
+            **dict(spec.kwargs, label=original[1 - index].label),
+        )
+        for attr, value in vars(old).items():
+            if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+                setattr(new, attr, value)
+        item_index = next(i for i, item in enumerate(drawing.items) if item is old)
+        drawing.items[item_index] = new
+        drawing.registry.replace_object(old, new)
+    assert sum(issue.code == "label_vs_measured" for issue in drawing.lint(physical=False)) == 2
+    result = compare_measurements(before, drawing)
+    assert result["status"] == "changed", result
+    assert result["changed"]
+
+
+def test_a_scale_change_preserves_real_dimension_measurements():
+    part = Box(60, 40, 10)
+    before = build_drawing(part, scale=1)
+    after = build_drawing(part, model=before.model(), scale=2)
+    assert before.scale == 1 and after.scale == 2
+    assert any(getattr(item, "measured_length", None) for item in before.items)
+    result = compare_measurements(before, after)
+    assert result["status"] == "preserved", result

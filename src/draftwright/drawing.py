@@ -1316,6 +1316,7 @@ class Drawing:
 
         from draftwright.audit import _FURNITURE, MeasurementClaim, MeasurementSnapshot
         from draftwright.linting.evidence import compiled_values, verify_measurement_claims
+        from draftwright.linting.structural import dimension_path_measurement
         from draftwright.model.compiled import compile_dimensions
 
         model = self.model()
@@ -1329,6 +1330,12 @@ class Drawing:
         for name, type_name in self.annotations().items():
             if type_name in _FURNITURE:
                 continue
+            annotation = self.registry.named(name)
+            path = dimension_path_measurement(annotation, self.scale)
+            # Paper-space arithmetic can introduce sub-nanometre roundoff when
+            # a view moves or rescales. Compiled values/spans remain unrounded;
+            # this extra observed length only binds the text to its drawn path.
+            measured_length = None if path is None else round(path[0] / path[1], 9)
             identities = self.registry.measurement_of(name)
             if not identities:
                 unknown.append((name, "measurement_identity_unavailable"))
@@ -1380,6 +1387,7 @@ class Drawing:
                                 for row in getattr(self.registry.named(name), "table_rows", ())
                                 or ()
                             ),
+                            measured_length,
                         ),
                     )
                 )

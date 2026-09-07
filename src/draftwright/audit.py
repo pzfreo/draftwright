@@ -12,8 +12,10 @@ checks the measurement meaning under that assertion and does not verify physical
 Capture ``Drawing.measurement_snapshot()`` before mutating a live drawing.
 
 The comparison scope is named compiled measurements. It checks their recorded owner,
-parameter, nominal value, tolerance, directional span and rendered claim text. It does not
-establish physical completeness, inspect unnamed annotations or certify an engineering
+parameter, nominal value, tolerance, directional span and rendered claim text. A linear
+dimension also retains its scale-normalised measured path length, keeping its text tied
+to the quantity that annotation draws even when several claims share one coarse id.
+It does not establish physical completeness, inspect unnamed annotations or certify an engineering
 release. Use independent lint/requirement evidence alongside it. Claim verification retains
 its own attribution limits, described in ``linting.evidence.verify_measurement_claims``.
 

@@ -100,8 +100,10 @@ to place the dimension; location selection supplies no page coordinates.
 ### Comparing measurements after a declaration edit
 
 `compare_measurements()` compares named compiled measurements, including their owner,
-parameter, nominal value, tolerance, directional span and rendered claim text. Reuse the
-feature objects in a declaration when editing placement intent:
+parameter, nominal value, tolerance, directional span and rendered claim text. Linear
+dimensions also retain their measured path lengths in model units, so exchanging labels
+between two spans cannot hide behind an unchanged label multiset. Reuse the feature
+objects in a declaration when editing placement intent:
 
 ```python
 from dataclasses import replace
