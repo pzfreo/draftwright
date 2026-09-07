@@ -35,6 +35,29 @@ tiers and the architecture overview, and `docs/adr/` for the design decisions
 behind layout, scaling, and annotation placement — please read the relevant ADRs
 before changing those areas.
 
+### Real-part PR canary
+
+Every pull request builds `tests/fixtures/tuner_jig_blind_obround_pockets.step`
+once on Linux/Python 3.12, matching the post-merge integration kernel. This common
+part exposed annotation losses during the Quiddity migration: five rounded
+pockets, their grouped dimensions, pitch, distinct X/Y locations, and twenty
+corner radii give useful coverage in a small fixture. The test checks fixed
+geometry and measurement expectations, exact occurrence/member ownership,
+expected lint, and valid SVG/DXF exports. It does not snapshot layout bytes or
+derive completeness solely from whichever features recognition returns.
+
+Run it locally with:
+
+```
+uv run pytest tests/test_issue_827_real_part_canary.py -m real_part_canary -v -s --durations=1
+```
+
+The test has a 120-second execution budget and prints its build/audit/export
+runtime. The hosted job has a separate ten-minute limit including setup. Its
+result must be successful before merge; a skipped result fails the aggregate
+gate. The test also belongs to `slow`, so the default fast matrix excludes it
+and the full post-merge integration suite retains it.
+
 ### Coverage
 
 CI measures line and branch coverage on the full fast tier and enforces the

@@ -250,12 +250,52 @@ def test_aggregate_gate_waits_for_slow_and_requires_success_on_main(event_name, 
             "COVERAGE": coverage,
             "SLOW": slow,
             "CANARY": canary,
+            "REAL_PART": "success" if event_name == "pull_request" else "skipped",
         },
         check=False,
         capture_output=True,
         text=True,
     )
     assert (completed.returncode == 0) is passes, completed.stdout + completed.stderr
+
+
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_real_part_canary_requires_actual_success_before_merge(result):
+    gate = _job(_workflow("ci.yml"), "ci-ok")
+    assert "test-real-part-canary" in _needs(gate)
+    assert "if: always()" in gate
+    assert "REAL_PART: ${{ needs.test-real-part-canary.result }}" in gate
+    completed = subprocess.run(
+        [_bash(), "-eu", "-o", "pipefail", "-c", _literal_run(gate)],
+        env={
+            **os.environ,
+            "EVENT_NAME": "pull_request",
+            "LINT": "success",
+            "TEST": "success",
+            "COVERAGE": "success",
+            "SLOW": "skipped",
+            "CANARY": "success",
+            "REAL_PART": result,
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert (completed.returncode == 0) is (result == "success"), (
+        completed.stdout + completed.stderr
+    )
+
+
+def test_real_part_canary_runs_once_with_an_execution_budget():
+    job = _job(_workflow("ci.yml"), "test-real-part-canary")
+    assert "if: github.event_name == 'pull_request'" in job
+    assert "runs-on: ubuntu-latest" in job and 'python-version: "3.12"' in job
+    assert "matrix:" not in job and "continue-on-error:" not in job
+    assert "timeout-minutes: 10" in job
+    assert (
+        "run: uv run pytest tests/test_issue_827_real_part_canary.py "
+        "-m real_part_canary -v -s --durations=1"
+    ) in job
 
 
 def test_project_coverage_allows_only_a_small_refactor_fluctuation():

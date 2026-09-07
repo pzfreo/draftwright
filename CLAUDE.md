@@ -157,7 +157,8 @@ checks. Target is 100% passing. Tiers (#153):
   class/module scope grouping with `loadscope`. The tier grows with every
   trust fix; a critique-style test should share a module-scoped built drawing,
   not mint a new dense fixture.
-- **`-m slow`** (CTC fixture builds) — CI-only.
+- **`-m slow`** (integration builds, including CTC fixtures) — full tier in post-merge CI.
+  The bounded `-m real_part_canary` tuner STEP test also runs once before merge (#827).
 
 For reproducible build-cost profiling, use a fresh output directory and state the expected
 collection census explicitly:
@@ -174,10 +175,11 @@ records pytest phases of at least 5 ms for attribution. Do not reuse an output d
 already contains worker profiles.
 
 Coverage is kept out of the default addopts (it adds ~13% locally); the CI
-workflow passes the `--cov` flags. CI runs the full fast tier (3×3 OS/Python
-matrix, parallelised with `-n auto`) on every PR; the **slow tier runs post-merge
-on `main`**, not as a PR gate (#153) — a regression there is caught right after
-merge rather than blocking every PR for ~19 min.
+workflow passes the `--cov` flags. Each PR runs the full fast tier on Linux across
+supported Python versions, plus smaller macOS/Windows platform canaries. One
+real-part canary checks fixed tuner-fixture measurements and exports before merge;
+the **full slow tier runs post-merge on `main`** (#153, #827). The wider platform
+matrix remains available weekly, manually, or with the `full-matrix` PR label.
 
 ## Working practices — evidence, not confidence
 
