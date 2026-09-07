@@ -156,79 +156,85 @@ def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules()
     (
         pytest.param(
             "push",
-            ("success", "skipped", "skipped", "success", "skipped"),
+            ("success", "skipped", "skipped", "skipped", "success", "skipped"),
             True,
             id="main-green",
         ),
         pytest.param(
             "push",
-            ("success", "skipped", "skipped", "failure", "skipped"),
+            ("success", "skipped", "skipped", "skipped", "failure", "skipped"),
             False,
             id="main-slow-failed",
         ),
         pytest.param(
             "push",
-            ("success", "skipped", "skipped", "cancelled", "skipped"),
+            ("success", "skipped", "skipped", "skipped", "cancelled", "skipped"),
             False,
             id="main-slow-cancelled",
         ),
         pytest.param(
             "push",
-            ("success", "skipped", "skipped", "skipped", "skipped"),
+            ("success", "skipped", "skipped", "skipped", "skipped", "skipped"),
             False,
             id="main-slow-skipped",
         ),
         pytest.param(
             "push",
-            ("failure", "skipped", "skipped", "success", "skipped"),
+            ("failure", "skipped", "skipped", "skipped", "success", "skipped"),
             False,
             id="main-lint-failed",
         ),
         pytest.param(
             "pull_request",
-            ("success", "success", "success", "skipped", "success"),
+            ("success", "success", "success", "success", "skipped", "success"),
             True,
             id="pull-request-green",
         ),
         pytest.param(
             "pull_request",
-            ("success", "success", "failure", "skipped", "success"),
+            ("success", "success", "failure", "skipped", "skipped", "success"),
             False,
             id="pull-request-coverage-failed",
         ),
         pytest.param(
             "pull_request",
-            ("success", "success", "success", "skipped", "cancelled"),
+            ("success", "success", "success", "success", "skipped", "cancelled"),
             False,
             id="pull-request-canary-cancelled",
         ),
         pytest.param(
             "pull_request",
-            ("success", "success", "success", "success", "success"),
+            ("success", "success", "success", "success", "success", "success"),
             False,
             id="pull-request-slow-ran-unexpectedly",
         ),
         pytest.param(
+            "pull_request",
+            ("success", "success", "success", "failure", "skipped", "success"),
+            False,
+            id="pull-request-coverage-report-failed",
+        ),
+        pytest.param(
             "schedule",
-            ("success", "success", "skipped", "skipped", "skipped"),
+            ("success", "success", "skipped", "skipped", "skipped", "skipped"),
             True,
             id="schedule-green",
         ),
         pytest.param(
             "schedule",
-            ("success", "cancelled", "skipped", "skipped", "skipped"),
+            ("success", "cancelled", "skipped", "skipped", "skipped", "skipped"),
             False,
             id="schedule-test-cancelled",
         ),
         pytest.param(
             "workflow_dispatch",
-            ("success", "success", "skipped", "skipped", "skipped"),
+            ("success", "success", "skipped", "skipped", "skipped", "skipped"),
             True,
             id="manual-green",
         ),
         pytest.param(
             "workflow_dispatch",
-            ("success", "skipped", "success", "skipped", "skipped"),
+            ("success", "skipped", "success", "success", "skipped", "skipped"),
             True,
             id="post-release-manual-green",
         ),
@@ -238,7 +244,7 @@ def test_aggregate_gate_waits_for_slow_and_requires_success_on_main(event_name, 
     """Execute the gate: a red or absent main slow result must keep it red (#1418)."""
     gate = _job(_workflow("ci.yml"), "ci-ok")
     assert "test-slow" in _needs(gate)
-    lint, test, coverage, slow, canary = results
+    lint, test, coverage, coverage_report, slow, canary = results
 
     completed = subprocess.run(
         [_bash(), "-eu", "-o", "pipefail", "-c", _literal_run(gate)],
@@ -248,6 +254,7 @@ def test_aggregate_gate_waits_for_slow_and_requires_success_on_main(event_name, 
             "LINT": lint,
             "TEST": test,
             "COVERAGE": coverage,
+            "COVERAGE_REPORT": coverage_report,
             "SLOW": slow,
             "CANARY": canary,
             "REAL_PART": "success" if event_name == "pull_request" else "skipped",
@@ -273,6 +280,7 @@ def test_real_part_canary_requires_actual_success_before_merge(result):
             "LINT": "success",
             "TEST": "success",
             "COVERAGE": "success",
+            "COVERAGE_REPORT": "success",
             "SLOW": "skipped",
             "CANARY": "success",
             "REAL_PART": result,

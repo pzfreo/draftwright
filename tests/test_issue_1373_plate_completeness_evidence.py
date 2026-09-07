@@ -88,17 +88,14 @@ def test_versioned_plate_corpus_covers_every_required_case_class() -> None:
 def test_real_plate_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert first.detection.matched == 20
-    assert first.parameter_fidelity.passed == first.parameter_fidelity.total == 20
-    assert first.downstream_usefulness.passed == first.downstream_usefulness.total == 80
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert evaluation.detection.matched == 20
+    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 20
+    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 80
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity

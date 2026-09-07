@@ -31,8 +31,14 @@ def _states(boundary: str) -> set[str]:
 
 
 def test_every_hole_boundary_is_observed_supported_on_the_real_public_path() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["holes"](_part())
+    assert observed, "fixture produced no hole observations"
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert _states(boundary) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 def test_removing_holes_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:

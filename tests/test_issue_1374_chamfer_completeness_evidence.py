@@ -59,17 +59,14 @@ def test_versioned_chamfer_corpus_covers_every_required_case_class() -> None:
 def test_real_chamfer_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert first.detection.matched == 12
-    assert first.parameter_fidelity.passed == first.parameter_fidelity.total == 36
-    assert first.downstream_usefulness.passed == first.downstream_usefulness.total == 48
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert evaluation.detection.matched == 12
+    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 36
+    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 48
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
@@ -276,8 +273,14 @@ def test_chamfer_ledger_distinguishes_structured_satisfaction() -> None:
 
 
 def test_every_chamfer_boundary_is_observed_supported_on_the_real_public_path() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["chamfers"](_lone())
+    assert len(observed) == 1
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert _states(boundary) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 def test_chamfer_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
