@@ -1021,10 +1021,10 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 
 
 def _compile_overall_height(
-    model: PartModel, marked, *, include_overall: bool, step_chain_approved: bool
+    model: PartModel, marked, *, planned, include_overall: bool, step_chain_approved: bool
 ) -> tuple[ApprovedLadder | None, ApprovedContingency | None, list[Omission]]:
-    """The part's overall height — the envelope's ``height`` parameter, drawn in the
-    front-view right strip rather than below a view, which is why it rides the ladder.
+    """The part's overall height — the envelope's ``height`` parameter, drawn in a
+    front-view vertical strip rather than below a view, which is why it rides the ladder.
 
     Every reason it might not be drawn is settled here — as conditions named in `planner`
     (`polygonal_stock_conveys_height`, `rotational_od_conveys_height`) and applied here, so
@@ -1141,9 +1141,20 @@ def _compile_overall_height(
     # would silently drop an authored tolerance if the contract ever changed. Raising is the
     # honest failure.
     height_tol = None
+    height_side = None
     if env is not None:
         height_param = next(pm for pm in env.parameters() if pm.role == "height")
         height_tol = _decorated(model, env, height_param).tolerance
+        height_side = next(
+            (
+                pd.side
+                for group in planned
+                if group.feature is env
+                for pd in group.dims
+                if pd.param.parameter_id == "height.length"
+            ),
+            None,
+        )
     ladder = ApprovedLadder(
         "overall_height",
         (
@@ -1154,6 +1165,7 @@ def _compile_overall_height(
                 span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
                 ref=env_ref,
                 tolerance=height_tol,
+                side=height_side,
                 # `rendered_label` is the BARE value while `tolerance` is set beside it, so for
                 # a toleranced rung this field is not the "complete compiler-owned label" its
                 # own docstring promises — the renderer composes the suffix. It has to:
@@ -1636,6 +1648,7 @@ def compile_dimensions(
     overall, contingency, height_omissions = _compile_overall_height(
         model,
         marked,
+        planned=planned,
         include_overall=include_overall,
         step_chain_approved=step_chain_approved,
     )

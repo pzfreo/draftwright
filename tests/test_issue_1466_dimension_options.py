@@ -71,9 +71,13 @@ def test_location_and_envelope_constraints_are_discoverable():
     envelope = sheet.envelope()
     assert sheet.dimension_options(envelope, "height.length")["placements"] == [
         {"view": None, "side": None},
+        {"view": None, "side": "left"},
+        {"view": None, "side": "right"},
         {"view": "front", "side": None},
+        {"view": "front", "side": "left"},
+        {"view": "front", "side": "right"},
     ]
-    assert not sheet.validate_dimension(envelope, "height.length", side="left")["supported"]
+    assert not sheet.validate_dimension(envelope, "height.length", side="above")["supported"]
     result = sheet.validate_dimension(hole_handle, "location", axis="y", side="below")
     assert result["issues"][0]["code"] == "invalid_measurement"
 
@@ -245,7 +249,7 @@ def test_grm04_discovers_supported_edits_without_exploratory_renders(monkeypatch
 
     monkeypatch.setattr(Sheet, "build", forbidden)
     assert not sheet.validate_dimension(holes[0], "location", side="below")["supported"]
-    assert not sheet.validate_dimension(envelopes[0], "height.length", side="left")["supported"]
+    assert sheet.validate_dimension(envelopes[0], "height.length", side="left")["supported"]
     options = sheet.dimension_options(holes[0], "bore.diameter")
     assert options["placements"]
     assert not sheet.validate_dimension(holes[0], "bore.diameter", side="bottom")["supported"]
