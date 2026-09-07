@@ -4254,7 +4254,11 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
         for line in r.stdout.splitlines()
         if line.startswith(("info ", "warning ", "error "))
     )
-    assert findings == ["axial_length_missing", "hole_requirement_unverifiable"], findings
+    assert findings == [
+        "axial_length_missing",
+        "diameter_leader_target_unverifiable",
+        "hole_requirement_unverifiable",
+    ], findings
     assert not any(line.startswith("error ") for line in r.stdout.splitlines()), r.stdout
 
     # Everything the "What you should see" section promises, pinned against the real run.

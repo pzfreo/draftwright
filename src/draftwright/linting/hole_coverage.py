@@ -15,7 +15,7 @@ from typing import Literal
 from quiddity import HoleSpec, RecognitionResult, countersink_matches_hole
 
 from draftwright._core import _decode_hole_location_fact
-from draftwright._geometry import _END_ON, _is_principal_axis
+from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
 from draftwright.linting._registry import satisfaction_ids
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
@@ -23,6 +23,7 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.linting.profiled_bore_coverage import profiled_bore_target_sources
 
 HoleRequirementState = Literal[
     "placed",
@@ -1146,6 +1147,112 @@ def hole_requirement_outcomes(
     return outcomes
 
 
+def lint_hole_leader_targets(
+    *,
+    registry,
+    outcomes,
+    project,
+    evidence=None,
+    ownership=None,
+    declared=False,
+    features=(),
+    recognition=None,
+):
+    """Check finished diameter tips against the named occurrence's trimmed physical edges.
+
+    Automatic builds use exact recorded ownership. Declared builds reuse the hole
+    requirement ledger's validated physical joins; geometry proximity never selects an owner.
+    """
+    source_owners: dict[int, dict[int, object]] = defaultdict(dict)
+    for outcome in outcomes:
+        for feature in outcome.features:
+            hole = getattr(feature, "member", feature)
+            for source in outcome.source_records:
+                sites = _members(source)
+                member_sites = _members(feature)
+                if (
+                    all(site in member_sites for site in sites)
+                    or (not hole.through)
+                    and source.depth is not None
+                    and all(
+                        site in member_sites
+                        for site in _tool_center_members(source, sites, source.depth)
+                    )
+                ):
+                    source_owners[id(feature)][id(source)] = source
+    valid_evidence = evidence is not None and getattr(evidence, "result", None) is recognition
+    if declared and valid_evidence:
+        for owner_id, sources in profiled_bore_target_sources(
+            features, evidence.result.double_d_bores
+        ).items():
+            source_owners[owner_id].update((id(source), source) for source in sources)
+    issues = []
+    for name in sorted(registry.names()):
+        measurements = registry.measurement_of(name)
+        if not any(m.parameter == "bore.diameter" for m in measurements):
+            continue
+        annotation = registry.named(name)
+        tip = getattr(annotation, "tip", None)
+        if tip is None:
+            continue
+        feature = registry.feature_of(name)
+        view = registry.view_of(name)
+        refs: tuple = ()
+        if (
+            valid_evidence
+            and view is not None
+            and any(m.feature is feature and m.parameter == "bore.diameter" for m in measurements)
+        ):
+            if ownership is not None:
+                if ownership.evidence is evidence:
+                    refs = tuple(
+                        binding.occurrence
+                        for binding in ownership.bindings
+                        if any(owner is feature for owner in binding.features)
+                        and evidence.family(binding.occurrence) in {"holes", "double_d_bores"}
+                    )
+            elif declared:
+                sources = source_owners.get(id(feature), {})
+                refs = tuple(
+                    ref
+                    for ref in evidence.features
+                    if sources.get(id(evidence.record(ref))) is evidence.record(ref)
+                )
+        edges = tuple(
+            edge
+            for ref in refs
+            for face in evidence.defining_faces(ref)
+            for edge in evidence.face(face).edges()
+        )
+        if not edges:
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="diameter_leader_target_unverifiable",
+                    message=f"{name}: the diameter leader's physical boundary cannot be verified",
+                    location=tip,
+                    measurement_ids=measurements,
+                )
+            )
+        elif (
+            min(
+                _projected_edge_distance(edge, tip, lambda x, y, z: project(view, x, y, z))
+                for edge in edges
+            )
+            > 2e-3
+        ):
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="diameter_leader_target_mismatch",
+                    message=f"{name}: the diameter leader tip does not touch its named physical boundary",
+                    location=tip,
+                    measurement_ids=measurements,
+                )
+            )
+    return issues
+
+
 def lint_hole_coverage(
     part,
     *,
@@ -1154,6 +1261,10 @@ def lint_hole_coverage(
     registry,
     omissions=(),
     assembly=None,
+    project=None,
+    evidence=None,
+    ownership=None,
+    declared=False,
 ) -> list[LintIssue]:
     """Report unaccounted hole requirements without duplicating explicit drop findings."""
     if assembly is None:
@@ -1165,7 +1276,8 @@ def lint_hole_coverage(
         "unverifiable": "cannot be joined to measurement provenance without guessing",
     }
     issues = []
-    for outcome in hole_requirement_outcomes(recognition, features, registry, omissions):
+    outcomes = hole_requirement_outcomes(recognition, features, registry, omissions)
+    for outcome in outcomes:
         if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
             continue
         noun = "hole" if outcome.source_kind == "hole" else f"{outcome.member_count}-hole pattern"
@@ -1177,5 +1289,16 @@ def lint_hole_coverage(
                     f"{noun} at {outcome.source_at} {requirement_subject(outcome, noun='requirement')} {messages[outcome.state]}"
                 ),
             )
+        )
+    if project is not None:
+        issues += lint_hole_leader_targets(
+            registry=registry,
+            outcomes=outcomes,
+            project=project,
+            evidence=evidence,
+            ownership=ownership,
+            declared=declared,
+            features=features,
+            recognition=recognition,
         )
     return issues

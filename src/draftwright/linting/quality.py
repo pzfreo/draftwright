@@ -248,6 +248,8 @@ _FIDELITY_CODES = frozenset(
         "label_vs_measured",
         "radius_leader_target_mismatch",
         "radius_leader_target_unverifiable",
+        "diameter_leader_target_mismatch",
+        "diameter_leader_target_unverifiable",
         "declared_feature_absent",
         "gear_repeat_count_mismatch",
         "gear_axis_mismatch",

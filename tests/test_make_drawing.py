@@ -4675,6 +4675,7 @@ class TestAutoHoleAnnotations:
         a = dwg._analysis
         plan_right = a.PV_X + (a.bb.max.X - a.cx) * a.SCALE
         arrow_len = dwg.draft.arrow_length
+        assert 2 * a.SCALE < arrow_len, "fixture must expose the old rim-clamp defect"
         old_corridor = 0.6 * a.DIM_PAD  # ≈ 10.8 mm — the old, oversized offset
         hc_plan_names = [n for n in dwg.annotations() if n.startswith("hc_plan")]
         assert hc_plan_names, "Expected at least one plan-view bore callout"
@@ -4688,10 +4689,12 @@ class TestAutoHoleAnnotations:
                 f"{name}: elbow x={ldr.elbow[0]:.3f} is too far from view "
                 f"(should be < plan_right + 0.6×DIM_PAD = {plan_right + old_corridor:.3f})"
             )
-            # Arrowhead must still sit inside the view.
-            assert ldr.tip[0] + arrow_len <= plan_right + 1e-6, (
-                f"{name}: arrowhead back at {ldr.tip[0] + arrow_len:.3f} "
-                f"exceeds plan_right={plan_right:.3f}"
+            # The bore has less edge margin than the arrow length. Its head may
+            # extend past the silhouette; clamping the tip instead puts it off
+            # the named rim (#1378). Preserve the compact elbow and real target.
+            centre = dwg.at("plan", 15, 0, 0)
+            assert math.hypot(ldr.tip[0] - centre[0], ldr.tip[1] - centre[1]) == pytest.approx(
+                3 * a.SCALE
             )
 
     @pytest.mark.timeout(60)

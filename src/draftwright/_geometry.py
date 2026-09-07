@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from inspect import signature
 
-from build123d import Compound, GeomType, Shape
+from build123d import Compound, Edge, GeomType, Shape, Vector
 from quiddity import full_cylinders
 
 _log = logging.getLogger(__name__)
@@ -1229,3 +1229,24 @@ def _blend_profile_arcs(faces, radius):
         for edge in face.edges()
         if edge.geom_type != GeomType.LINE
     )
+
+
+def _projected_edge_distance(edge, tip, project):
+    """Distance from a page point's projection line to the actual trimmed OCC edge."""
+    origin = project(0, 0, 0)
+    basis = [project(*(1 if i == j else 0 for i in range(3))) for j in range(3)]
+    u = Vector(*(point[0] - origin[0] for point in basis))
+    v = Vector(*(point[1] - origin[1] for point in basis))
+    normal = u.cross(v).normalized()
+    centre = edge.center()
+    projected = project(*centre)
+    point = (
+        centre
+        + u * ((tip[0] - projected[0]) / u.dot(u))
+        + v * ((tip[1] - projected[1]) / v.dot(v))
+    )
+    # Curve length bounds the distance from its centre to any point on it and
+    # avoids recomputing physical bounding boxes on every repeated lint call.
+    reach = edge.length + 1
+    line = Edge.make_line(point - normal * reach, point + normal * reach)
+    return edge.distance_to(line)

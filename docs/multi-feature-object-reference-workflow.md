@@ -184,7 +184,7 @@ Measured from the snippet above on 2026-09-05 (draftwright 0.4.x, `Sheet.build()
   `m_dia_x3` (the four turned diameters), `m_steplen0` (the journal's length), `hc_side0`
   (the `M2×0.4` tap callout, on the side view), `m_gdt0` (the `M3×0.5` note),
   `centerline_front`, `m_cm0`, `title_block` and `note_iso_nts`.
-- **Two `warning`-level lint notes, and no errors.** Both are correct reports about this
+- **Three `warning`-level lint notes, and no errors.** These report the limits of this
   deliberately-short example, not failures of the workflow:
 
   ```
@@ -194,6 +194,9 @@ Measured from the snippet above on 2026-09-05 (draftwright 0.4.x, `Sheet.build()
                               hole at (0.8, 0.0, 0.0) all 4 physical requirements, which
                               no IR feature claimed, cannot be joined to measurement
                               provenance without guessing
+  diameter_leader_target_unverifiable
+                              hc_side0: the diameter leader's physical boundary cannot
+                              be verified
   ```
 
   The first is the authored-set contract working: only one `step.length` was declared, so
@@ -205,7 +208,8 @@ Measured from the snippet above on 2026-09-05 (draftwright 0.4.x, `Sheet.build()
   a four-shoulder part 20 mm long. The second warning is explained under
   [Why `sheet.hole(features.tap)` works](#why-sheethofeatures-tap-works) below.
 
-  Neither of the two is an `error`. `plan_incomplete` is what an error looks like.
+  The third follows the same missing hole join: the declared tap leader's physical target
+  cannot be certified. None is an `error`. `plan_incomplete` is what an error looks like.
 
 ## Why `sheet.hole(features.tap)` works
 
