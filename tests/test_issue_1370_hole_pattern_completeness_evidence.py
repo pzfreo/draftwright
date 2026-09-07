@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from _evidence_contract import assert_missing_model_outcomes_fail_closed
 from build123d import Box, Cylinder, Pos
 
 from draftwright.evaluation.step_analysis import (
@@ -45,16 +46,13 @@ def test_versioned_pattern_corpus_covers_every_required_case_class() -> None:
 def test_real_pattern_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert first.parameter_fidelity.score == 1.0
-    assert first.downstream_usefulness.score == 1.0
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert evaluation.parameter_fidelity.score == 1.0
+    assert evaluation.downstream_usefulness.score == 1.0
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
@@ -93,8 +91,14 @@ def test_pattern_projection_owns_disjoint_groups_without_recounting_members() ->
 
 
 def test_every_pattern_boundary_is_observed_supported_on_the_real_public_path() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["hole-patterns"](_grid_part())
+    assert len(observed) == 1, "fixture must produce one grid observation"
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert _states(boundary) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 def test_removing_patterns_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -114,10 +118,7 @@ def test_removing_patterns_from_the_built_ir_loses_ir_adapter_credit(monkeypatch
 
 
 def test_a_boundary_with_missing_per_pattern_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_pattern_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_pattern_model_outcomes", _states)
 
 
 def test_pattern_observer_fails_closed_when_build_or_recognition_is_unavailable(

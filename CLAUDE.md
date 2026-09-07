@@ -158,6 +158,17 @@ checks. Target is 100% passing. Tiers (#153):
   trust fix; a critique-style test should share a module-scoped built drawing,
   not mint a new dense fixture.
 - **`-m slow`** (integration builds, including CTC fixtures) — full tier in post-merge CI.
+
+The suite may not grow by CLONING. `tests/test_clone_budget.py` compares test bodies
+with identifiers, attributes and literals erased — the shape — across modules, and
+fails when the count of cross-module copies rises above `CLONE_BUDGET`. It exists
+because the two natural checks both miss this codebase's cloning style: identical test
+NAMES miss it (each copy is renamed for its family) and identical ASTs miss it (each
+copy substitutes its family's symbols). Thirteen copies of one three-statement body
+went unnoticed that way, each paying for a real `build_drawing` on every CI run.
+When it fails, parametrize over the symbol that varies — `tests/_evidence_contract.py`
+is the worked example — and ratchet `CLONE_BUDGET` down. Raising it needs a reason in
+the PR body, like `fail_under`.
   The bounded `-m real_part_canary` tuner STEP test also runs once before merge (#827).
 
 For reproducible build-cost profiling, use a fresh output directory and state the expected
@@ -165,7 +176,7 @@ collection census explicitly:
 
 ```bash
 scripts/profile-builds --output /tmp/draftwright-profile \
-  --expect-collected 4740 -- tests/ -n auto --dist loadscope
+  --expect-collected 7259 -- tests/ -n auto --dist loadscope
 ```
 
 The runner passes every module/option as a literal argv entry, writes one JSON file per xdist
@@ -175,11 +186,14 @@ records pytest phases of at least 5 ms for attribution. Do not reuse an output d
 already contains worker profiles.
 
 Coverage is kept out of the default addopts (it adds ~13% locally); the CI
-workflow passes the `--cov` flags. Each PR runs the full fast tier on Linux across
-supported Python versions, plus smaller macOS/Windows platform canaries. One
-real-part canary checks fixed tuner-fixture measurements and exports before merge;
-the **full slow tier runs post-merge on `main`** (#153, #827). The wider platform
-matrix remains available weekly, manually, or with the `full-matrix` PR label.
+workflow passes the `--cov` flags, in the two `coverage` shards whose data
+`coverage-report` combines for the single Codecov upload and the `fail_under`
+gate. Each PR runs the full fast tier on Linux across supported Python versions,
+each split into two pytest-split shards, plus smaller macOS/Windows platform
+canaries. One real-part canary checks fixed tuner-fixture measurements and
+exports before merge; the **full slow tier runs post-merge on `main`** (#153,
+#827). The wider platform matrix remains available weekly, manually, or with the
+`full-matrix` PR label.
 
 ## Working practices — evidence, not confidence
 

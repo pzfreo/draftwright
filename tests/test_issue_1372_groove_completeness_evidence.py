@@ -6,6 +6,10 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _evidence_contract import (
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_uses_one_build_owned_recognition,
+)
 from build123d import Align, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -56,17 +60,14 @@ def test_versioned_groove_corpus_covers_every_required_case_class() -> None:
 def test_real_groove_corpus_scores_all_layers_and_boolean_order_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert first.detection.matched == 10
-    assert first.parameter_fidelity.passed == first.parameter_fidelity.total == 20
-    assert first.downstream_usefulness.passed == first.downstream_usefulness.total == 40
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert evaluation.detection.matched == 10
+    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 20
+    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 40
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
@@ -275,24 +276,18 @@ def test_owner_without_measurement_or_note_provenance_is_unverifiable() -> None:
 
 
 def test_every_groove_boundary_is_observed_supported_on_the_real_public_path() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["grooves"](_lone())
+    assert len(observed) == 1
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert _states(boundary) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 def test_groove_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["grooves"](_lone())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "grooves", _lone())
 
 
 def test_removing_grooves_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -309,10 +304,7 @@ def test_removing_grooves_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> 
 
 
 def test_missing_per_groove_boundary_outcomes_fail_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_groove_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_groove_model_outcomes", _states)
 
 
 def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:

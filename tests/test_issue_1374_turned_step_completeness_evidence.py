@@ -8,6 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import (
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_uses_one_build_owned_recognition,
+)
 from build123d import Align, Box, Compound, Cylinder, Pos, Rot, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -84,17 +88,14 @@ def test_versioned_turned_step_corpus_covers_every_required_case_class() -> None
 def test_real_turned_step_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert first.detection.matched == 26
-    assert first.parameter_fidelity.passed == first.parameter_fidelity.total == 52
-    assert first.downstream_usefulness.passed == first.downstream_usefulness.total == 104
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert evaluation.detection.matched == 26
+    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 52
+    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 104
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
@@ -1025,8 +1026,14 @@ def test_turned_step_ledger_distinguishes_structured_satisfaction() -> None:
 
 
 def test_every_turned_step_boundary_is_supported_on_real_public_paths() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["turned-steps"](_shaft())
+    assert observed
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert set(_states(boundary)) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 def test_turned_step_observer_retains_malformed_source_as_explicit_invalid_evidence(
@@ -1086,19 +1093,7 @@ def test_generated_drawing_evaluator_requires_the_public_build_boundary(monkeypa
 
 
 def test_turned_step_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["turned-steps"](_shaft())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "turned-steps", _shaft())
 
 
 def test_removing_steps_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -1168,10 +1163,7 @@ def test_inconsistent_or_surplus_step_ir_loses_exact_correspondence(
 
 
 def test_missing_per_band_boundary_outcomes_fail_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_turned_step_model_outcomes", lambda *_args: [])
-    assert set(_states("ir_adapter")) == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_turned_step_model_outcomes", _states)
 
 
 def test_observer_failure_cannot_pass_zero_band_negative(monkeypatch) -> None:

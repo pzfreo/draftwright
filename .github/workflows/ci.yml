@@ -126,7 +126,7 @@ jobs:
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
-        # Coverage is measured once by the canonical Ubuntu/Python 3.13 job below.
+        # Coverage is measured only by the Ubuntu/Python 3.13 `coverage` shards below.
         # Instrumenting all fourteen compatibility jobs adds ~13% runtime without
         # producing another retained or uploaded report.
         # `--splits/--group` (pytest-split) apply only when the matrix entry carries a
@@ -140,9 +140,65 @@ jobs:
 
   coverage:
     if: github.event_name == 'pull_request' || inputs.post_release_bump
-    # The ninth OS/Python compatibility entry, split out so only the one job that
-    # uploads to Codecov receives an OIDC token and renders retained reports.
-    name: test (ubuntu-latest, 3.13)
+    # The Python 3.13 compatibility entry, which also carries coverage. Unsharded it
+    # was the pull request's critical path: measured on run 34078991086 it took 63
+    # minutes while the slowest sharded compatibility leg took 42, so every PR waited
+    # on this one job well after the rest of the matrix had gone green.
+    # Sharded the same way as the `test` matrix, it costs the same billed minutes and
+    # halves that wait. Coverage MEASUREMENT is per shard; the reports and the single
+    # Codecov upload belong to `coverage-report`, which combines the two data files —
+    # so `fail_under` is still applied once, to the whole suite, exactly as before.
+    name: test (ubuntu-latest, 3.13, ${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Measure coverage for this shard
+        env:
+          # A name without the leading dot: `actions/upload-artifact` skips hidden files
+          # unless told otherwise, and `coverage combine` takes explicit paths anyway.
+          COVERAGE_FILE: coverage-data-${{ matrix.shard }}
+        # `--cov-report=` renders nothing here and `--cov-fail-under=0` disables the
+        # pyproject floor for the shard: half the suite legitimately covers less than
+        # 90%, and the real gate runs on the combined data in `coverage-report`.
+        run: >-
+          uv run pytest tests/ -n auto --dist loadscope
+          --splits 2 --group ${{ matrix.shard }}
+          --cov=src/draftwright
+          --cov-report=
+          --cov-fail-under=0
+          --durations=25
+
+      - name: Upload this shard's coverage data
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-data-${{ matrix.shard }}
+          path: coverage-data-${{ matrix.shard }}
+          if-no-files-found: error
+          retention-days: 1
+
+  coverage-report:
+    # The canonical reports and the ONE Codecov upload, over both shards combined.
+    # Kept a separate job so only it needs an OIDC token, and so Codecov receives a
+    # single complete upload rather than two partial ones racing to compute a status.
+    if: github.event_name == 'pull_request' || inputs.post_release_bump
+    needs: coverage
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -160,14 +216,20 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
 
-      - name: Run tests with canonical coverage reports
-        run: >-
-          uv run pytest tests/ -n auto --dist loadscope
-          --cov=src/draftwright
-          --cov-report=term-missing
-          --cov-report=xml
-          --cov-report=html:htmlcov
-          --durations=25
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
+
+      - name: Combine the shards and render the canonical reports
+        # `relative_files = true` (pyproject) anchors both shards' paths at the repository
+        # root, so the two data files combine without runner-specific rewriting.
+        # `coverage report` is what applies `fail_under = 90`, now over the whole suite.
+        run: |
+          uv run coverage combine coverage-data-1 coverage-data-2
+          uv run coverage report --show-missing
+          uv run coverage xml
+          uv run coverage html -d htmlcov
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
@@ -286,7 +348,14 @@ jobs:
     # skips this job, and GitHub counts a skipped required check as satisfied — so a
     # broken test suite would report a green gate.
     if: always()
-    needs: [lint, test, coverage, test-slow, test-platform-canary, test-real-part-canary]
+    needs:
+      - lint
+      - test
+      - coverage
+      - coverage-report
+      - test-slow
+      - test-platform-canary
+      - test-real-part-canary
     runs-on: ubuntu-latest
     permissions:
       statuses: write # Attach the dispatched post-release gate to its generated PR head.
@@ -297,13 +366,16 @@ jobs:
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           COVERAGE: ${{ needs.coverage.result }}
+          COVERAGE_REPORT: ${{ needs.coverage-report.result }}
           SLOW: ${{ needs.test-slow.result }}
           CANARY: ${{ needs.test-platform-canary.result }}
           REAL_PART: ${{ needs.test-real-part-canary.result }}
         run: |
-          echo "lint=$LINT test=$TEST coverage=$COVERAGE slow=$SLOW canary=$CANARY real-part=$REAL_PART"
+          echo "lint=$LINT test=$TEST coverage=$COVERAGE report=$COVERAGE_REPORT" \
+               "slow=$SLOW canary=$CANARY real-part=$REAL_PART"
           failed=0
-          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" "canary:$CANARY"; do
+          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" \
+                      "coverage-report:$COVERAGE_REPORT" "canary:$CANARY"; do
             name=${pair%%:*}
             result=${pair#*:}
             # `skipped` is a pass: `test` does not run on push and `coverage` runs only on

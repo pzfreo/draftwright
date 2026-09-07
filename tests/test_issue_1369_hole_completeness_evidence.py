@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from _evidence_contract import assert_missing_model_outcomes_fail_closed
 from build123d import Box, Cylinder, Pos
 
 from draftwright.evaluation.step_analysis import (
@@ -31,8 +32,14 @@ def _states(boundary: str) -> set[str]:
 
 
 def test_every_hole_boundary_is_observed_supported_on_the_real_public_path() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["holes"](_part())
+    assert observed, "fixture produced no hole observations"
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert _states(boundary) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 def test_removing_holes_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -86,10 +93,7 @@ def test_deleting_generated_hole_lines_loses_generated_code_credit(monkeypatch) 
 
 
 def test_a_boundary_with_missing_per_hole_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_hole_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_hole_model_outcomes", _states)
 
 
 def test_a_post_build_model_access_failure_is_scored_not_raised(monkeypatch) -> None:

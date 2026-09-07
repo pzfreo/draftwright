@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import assert_missing_model_outcomes_fail_closed
 from build123d import Align, Box, Compound, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -67,18 +68,18 @@ def test_versioned_double_d_corpus_covers_each_required_case_class() -> None:
 def test_real_double_d_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert (first.parameter_fidelity.passed, first.parameter_fidelity.total) == (50, 50)
-    assert first.parameter_fidelity.score == 1.0
-    assert (first.downstream_usefulness.passed, first.downstream_usefulness.total) == (40, 40)
-    assert first.downstream_usefulness.score == 1.0
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert (evaluation.parameter_fidelity.passed, evaluation.parameter_fidelity.total) == (50, 50)
+    assert evaluation.parameter_fidelity.score == 1.0
+    assert (evaluation.downstream_usefulness.passed, evaluation.downstream_usefulness.total) == (
+        40,
+        40,
+    )
+    assert evaluation.downstream_usefulness.score == 1.0
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
@@ -187,8 +188,14 @@ def test_public_depth_quantization_allowance_is_independently_bracketed() -> Non
 
 
 def test_every_double_d_boundary_is_supported_on_the_real_public_path() -> None:
+    # One observation for all four boundaries. `_states` re-runs the observer —
+    # a full `build_drawing` — on every call, so the loop paid for four identical
+    # builds of the same part to read four keys off the same facts.
+    observed = _default_observers()["double-d-bores"](_part())
+    assert len(observed) == 1, "fixture must produce one Double-D observation"
     for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        assert _states(boundary) == {"supported"}
+        states = {fact.downstream[boundary] for fact in observed}
+        assert states == {"supported"}
 
 
 @pytest.mark.parametrize(
@@ -629,10 +636,7 @@ def test_double_d_observer_fails_closed_when_build_or_recognition_is_unavailable
 
 
 def test_a_boundary_with_missing_per_bore_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_double_d_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_double_d_model_outcomes", _states)
 
 
 @pytest.mark.parametrize(

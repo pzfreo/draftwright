@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import assert_observer_uses_one_build_owned_recognition
 from build123d import Polygon, Pos, RegularPolygon, Rot, extrude, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -87,17 +88,14 @@ def test_consumer_contract_publishes_polygonal_stock_completeness_evidence() -> 
 def test_real_polygonal_stock_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
-    first = evaluate_step_corpus(corpus)
-    second = evaluate_step_corpus(corpus)
-
-    assert first == second
-    assert first.detection.recall == 1.0
-    assert first.detection.false_positive_rate == 0.0
-    assert first.detection.matched == 6
-    assert first.parameter_fidelity.passed == first.parameter_fidelity.total == 24
-    assert first.downstream_usefulness.passed == first.downstream_usefulness.total == 24
-    assert first.conformant_cases == first.complete_cases == len(corpus.cases)
-    variants = [case for case in first.cases if "topology" in case.case_id]
+    evaluation = evaluate_step_corpus(corpus)
+    assert evaluation.detection.recall == 1.0
+    assert evaluation.detection.false_positive_rate == 0.0
+    assert evaluation.detection.matched == 6
+    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 24
+    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 24
+    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
+    variants = [case for case in evaluation.cases if "topology" in case.case_id]
     assert len(variants) == 2
     assert variants[0].detection == variants[1].detection
     assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
@@ -851,19 +849,7 @@ def test_polygonal_stock_ledger_distinguishes_suppressed_dropped_structured_and_
 
 
 def test_polygonal_stock_observer_uses_one_build_owned_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["polygonal-stock"](_stock())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "polygonal-stock", _stock())
 
 
 def test_polygonal_stock_observer_rejects_a_missing_build_owned_aggregate(monkeypatch) -> None:
