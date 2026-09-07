@@ -11,12 +11,12 @@ on:
   workflow_dispatch:
     inputs:
       post_release_bump:
-        description: Run one canonical coverage suite for an automated post-release version PR
+        description: Validate an automated post-release version PR; use normal CI for any other diff
         required: false
         default: false
         type: boolean
       post_release_pr_number:
-        description: PR number receiving Codecov patch/project statuses for the version bump
+        description: PR number for the branch-SHA-bound post-release checks
         required: false
         type: string
 
@@ -30,7 +30,92 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      version_only: ${{ steps.classify.outputs.version_only }}
+      head: ${{ steps.classify.outputs.head }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Classify the complete diff using the base commit's verifier
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          POST_RELEASE: ${{ inputs.post_release_bump }}
+          FULL_MATRIX: ${{ contains(github.event.pull_request.labels.*.name, 'full-matrix') }}
+          PR_NUMBER: ${{ inputs.post_release_pr_number }}
+        run: |
+          version_only=false
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" == "true" \
+                && "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            # A dispatch input is a request, not proof. Bind it to an open, same-repo
+            # PR against main and the immutable SHA this workflow checked out.
+            if gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$RUNNER_TEMP/bump-pr.json"; then
+              BASE_SHA=$(jq -r --arg sha "$GITHUB_SHA" --arg repo "$GITHUB_REPOSITORY" \
+                'select(.state == "open" and .head.sha == $sha and .base.ref == "main"
+                  and .head.repo.full_name == $repo) | .base.sha' "$RUNNER_TEMP/bump-pr.json") || BASE_SHA=""
+              if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                git fetch --no-tags origin "$BASE_SHA" || BASE_SHA=""
+              fi
+            fi
+          fi
+          if [[ "$EVENT_NAME" == "pull_request" || "$EVENT_NAME" == "push" \
+                || ( "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" == "true" ) ]]; then
+            if [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ && "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] \
+                && git show "$BASE_SHA:scripts/check-version-bump" > "$RUNNER_TEMP/check-version-bump.py"; then
+              version_only=$(python3 "$RUNNER_TEMP/check-version-bump.py" "$BASE_SHA" "$HEAD_SHA")
+            fi
+          fi
+          if [[ "$FULL_MATRIX" == "true" ]]; then
+            version_only=false
+          fi
+          echo "version_only=$version_only" >> "$GITHUB_OUTPUT"
+          echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "version-only=$version_only"
+
+  version-only:
+    needs: changes
+    if: needs.changes.outputs.version_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write # Codecov's explicit no-code-change status; no fabricated coverage.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.changes.outputs.head }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Validate the lockfile and build package metadata without installing CAD dependencies
+        run: |
+          uv lock --check
+          uv build
+      - name: Report the proven version-only change to Codecov
+        if: github.event_name != 'push'
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f
+        with:
+          run_command: empty-upload
+          fail_ci_if_error: true
+          override_commit: ${{ needs.changes.outputs.head }}
+          override_pr: ${{ inputs.post_release_pr_number || github.event.pull_request.number }}
+          use_oidc: true
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -51,7 +136,8 @@ jobs:
   test:
     # The PR is the compatibility gate. A merge to protected main has already passed these
     # exact checks, so main keeps lint + the slow post-merge safety net without repeating them.
-    if: github.event_name != 'push' && !inputs.post_release_bump
+    needs: changes
+    if: github.event_name != 'push' && needs.changes.outputs.version_only != 'true'
     permissions:
       contents: read
     strategy:
@@ -139,7 +225,8 @@ jobs:
           ${{ matrix.shard && format('--splits 2 --group {0}', matrix.shard) || '' }}
 
   coverage:
-    if: github.event_name == 'pull_request' || inputs.post_release_bump
+    needs: changes
+    if: (github.event_name == 'pull_request' || inputs.post_release_bump) && needs.changes.outputs.version_only != 'true'
     # The Python 3.13 compatibility entry, which also carries coverage. Unsharded it
     # was the pull request's critical path: measured on run 34078991086 it took 63
     # minutes while the slowest sharded compatibility leg took 42, so every PR waited
@@ -197,8 +284,8 @@ jobs:
     # The canonical reports and the ONE Codecov upload, over both shards combined.
     # Kept a separate job so only it needs an OIDC token, and so Codecov receives a
     # single complete upload rather than two partial ones racing to compute a status.
-    if: github.event_name == 'pull_request' || inputs.post_release_bump
-    needs: coverage
+    if: (github.event_name == 'pull_request' || inputs.post_release_bump) && needs.changes.outputs.version_only != 'true'
+    needs: [changes, coverage]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -258,7 +345,8 @@ jobs:
     # the compatibility matrix covers the other supported Python/kernel resolutions.
     # Run once, outside that matrix. The test has a 120 s execution budget; this
     # job limit also bounds installation and a native-kernel hang.
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -283,7 +371,8 @@ jobs:
     # generated layout is deterministic, so these heavy real-part standards builds
     # rarely catch anything the PR fast tier misses. They stay as a safety net on
     # main; a regression here is caught right after merge.
-    if: github.event_name == 'push'
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.version_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -310,7 +399,8 @@ jobs:
     # per-PR legs are what exhausted the Actions allowance (see the matrix comment
     # above) — the full non-Linux surface stays on the weekly sweep and the
     # `full-matrix` label.
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.version_only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -336,19 +426,16 @@ jobs:
         run: uv run pytest tests/ -m "smoke or unit" -n auto --dist loadscope
 
   ci-ok:
-    # The single status check branch protection should require.
-    #
-    # Protection currently names each matrix leg individually — `test (macos-latest, 3.12)`
-    # and nine others. A required context that names a job is only satisfied when a job of
-    # that exact name reports, so changing the matrix at all leaves those contexts stuck on
-    # "Expected" and makes every pull request permanently unmergeable. Requiring this job
-    # instead lets the matrix change shape without touching repository settings.
+    # Required alongside codecov/project. This aggregate keeps protection independent
+    # of matrix shape while requiring the exact jobs selected by the verified diff.
     #
     # `if: always()` is load-bearing, not decoration. Without it a failing dependency
     # skips this job, and GitHub counts a skipped required check as satisfied — so a
     # broken test suite would report a green gate.
     if: always()
     needs:
+      - changes
+      - version-only
       - lint
       - test
       - coverage
@@ -363,6 +450,10 @@ jobs:
       - name: Require every gating job to have succeeded or been legitimately skipped
         env:
           EVENT_NAME: ${{ github.event_name }}
+          POST_RELEASE: ${{ inputs.post_release_bump }}
+          CHANGES: ${{ needs.changes.result }}
+          VERSION_ONLY: ${{ needs.changes.outputs.version_only }}
+          VERSION_CHECK: ${{ needs.version-only.result }}
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
           COVERAGE: ${{ needs.coverage.result }}
@@ -371,44 +462,46 @@ jobs:
           CANARY: ${{ needs.test-platform-canary.result }}
           REAL_PART: ${{ needs.test-real-part-canary.result }}
         run: |
-          echo "lint=$LINT test=$TEST coverage=$COVERAGE report=$COVERAGE_REPORT" \
-               "slow=$SLOW canary=$CANARY real-part=$REAL_PART"
+          if [[ "$CHANGES" != "success" || ! "$VERSION_ONLY" =~ ^(true|false)$ ]]; then
+            echo "::error::change classification did not produce a valid result"
+            exit 1
+          fi
+          if [[ "$VERSION_ONLY" == "true" ]]; then
+            expected_version=success
+            expected_lint=skipped
+            expected_test=skipped
+            expected_coverage=skipped
+            expected_slow=skipped
+            expected_canary=skipped
+          else
+            expected_version=skipped
+            expected_lint=success
+            expected_test=success
+            expected_coverage=skipped
+            expected_slow=skipped
+            expected_canary=skipped
+            if [[ "$EVENT_NAME" == "push" ]]; then
+              expected_test=skipped
+              expected_slow=success
+            elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+              expected_coverage=success
+              expected_canary=success
+            elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" == "true" ]]; then
+              expected_coverage=success
+            fi
+          fi
           failed=0
-          for pair in "lint:$LINT" "test:$TEST" "coverage:$COVERAGE" \
-                      "coverage-report:$COVERAGE_REPORT" "canary:$CANARY"; do
-            name=${pair%%:*}
-            result=${pair#*:}
-            # `skipped` is a pass: `test` does not run on push and `coverage` runs only on
-            # pull_request, by design. `failure` and `cancelled` are not passes.
-            case "$result" in
-              success|skipped) ;;
-              *) echo "::error::$name did not pass (result: $result)"; failed=1 ;;
-            esac
+          for pair in "version:$VERSION_CHECK:$expected_version" "lint:$LINT:$expected_lint" \
+                      "test:$TEST:$expected_test" "coverage:$COVERAGE:$expected_coverage" \
+                      "coverage-report:$COVERAGE_REPORT:$expected_coverage" \
+                      "slow:$SLOW:$expected_slow" "canary:$CANARY:$expected_canary" \
+                      "real-part:$REAL_PART:$expected_canary"; do
+            IFS=: read -r name result expected <<< "$pair"
+            if [[ "$result" != "$expected" ]]; then
+              echo "::error::$name: expected $expected, got $result"
+              failed=1
+            fi
           done
-
-          # The slow suite is deliberately post-merge only. On a push to main it is a
-          # required result, while every other trigger must see the conditional job as
-          # skipped. Keeping it out of the generic success-or-skipped loop prevents a
-          # skipped or failed main slow suite from being reported as a green aggregate.
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            if [[ "$SLOW" != "success" ]]; then
-              echo "::error::slow did not pass on main (result: $SLOW)"
-              failed=1
-            fi
-          elif [[ "$SLOW" != "skipped" ]]; then
-            echo "::error::slow ran unexpectedly for $EVENT_NAME (result: $SLOW)"
-            failed=1
-          fi
-          # A skipped PR canary must not silently satisfy this required check.
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            if [[ "$REAL_PART" != "success" ]]; then
-              echo "::error::real-part canary did not pass (result: $REAL_PART)"
-              failed=1
-            fi
-          elif [[ "$REAL_PART" != "skipped" ]]; then
-            echo "::error::real-part canary ran unexpectedly for $EVENT_NAME (result: $REAL_PART)"
-            failed=1
-          fi
           exit $failed
 
       - name: Attach successful post-release gate to the generated PR head

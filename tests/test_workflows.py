@@ -118,7 +118,9 @@ def test_pull_requests_run_linux_only_to_stay_inside_the_runner_budget():
         }
 
     assert "if: github.event_name != 'push'" in test_job
-    assert "if: github.event_name == 'pull_request'" in _job(workflow, "coverage")
+    assert "if: (github.event_name == 'pull_request' || inputs.post_release_bump)" in _job(
+        workflow, "coverage"
+    )
 
 
 def test_the_full_matrix_stays_reachable_without_editing_the_workflow():
@@ -135,12 +137,14 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     workflow = _workflow("ci.yml")
 
     assert "push:\n    branches: [main]" in workflow
-    assert "if:" not in _job(workflow, "lint")
+    assert "needs.changes.outputs.version_only" in _job(workflow, "lint")
     assert "if: github.event_name == 'push'" in _job(workflow, "test-slow")
     # `test` also serves the weekly sweep and workflow_dispatch, so it is gated on "not a
     # merge to main" rather than on "is a pull request".
     assert "if: github.event_name != 'push'" in _job(workflow, "test")
-    assert "if: github.event_name == 'pull_request'" in _job(workflow, "coverage")
+    assert "if: (github.event_name == 'pull_request' || inputs.post_release_bump)" in _job(
+        workflow, "coverage"
+    )
 
 
 def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules():
@@ -234,7 +238,7 @@ def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules()
         ),
         pytest.param(
             "workflow_dispatch",
-            ("success", "skipped", "success", "success", "skipped", "skipped"),
+            ("success", "success", "success", "success", "skipped", "skipped"),
             True,
             id="post-release-manual-green",
         ),
@@ -251,6 +255,12 @@ def test_aggregate_gate_waits_for_slow_and_requires_success_on_main(event_name, 
         env={
             **os.environ,
             "EVENT_NAME": event_name,
+            "POST_RELEASE": "true"
+            if coverage == "success" and event_name == "workflow_dispatch"
+            else "false",
+            "CHANGES": "success",
+            "VERSION_ONLY": "false",
+            "VERSION_CHECK": "skipped",
             "LINT": lint,
             "TEST": test,
             "COVERAGE": coverage,
@@ -277,6 +287,10 @@ def test_real_part_canary_requires_actual_success_before_merge(result):
         env={
             **os.environ,
             "EVENT_NAME": "pull_request",
+            "POST_RELEASE": "false",
+            "CHANGES": "success",
+            "VERSION_ONLY": "false",
+            "VERSION_CHECK": "skipped",
             "LINT": "success",
             "TEST": "success",
             "COVERAGE": "success",
@@ -317,6 +331,12 @@ def test_project_coverage_allows_only_a_small_refactor_fluctuation():
         "      default:\n"
         "        target: auto\n"
         "        threshold: 0.5%\n"
+        "\n"
+        "# These metadata files have no executable lines. Only the base-owned complete-diff\n"
+        "# verifier may select empty-upload; dependency or configuration edits run normal CI.\n"
+        "ignore:\n"
+        "  - '^pyproject\\.toml$'\n"
+        "  - '^uv\\.lock$'\n"
     )
 
 
@@ -371,3 +391,91 @@ def test_version_updater_changes_only_project_and_lock_identity(tmp_path: Path, 
     lock = (tmp_path / "uv.lock").read_text()
     package = lock.split('[[package]]\nname = "draftwright"', 1)[1].split("[[package]]", 1)[0]
     assert f'version = "{target}"' in package
+
+
+@pytest.mark.parametrize("event_name", ["pull_request", "push", "workflow_dispatch"])
+@pytest.mark.parametrize(
+    ("overrides", "passes"),
+    [
+        ({}, True),
+        ({"CHANGES": "failure"}, False),
+        ({"CHANGES": "skipped"}, False),
+        ({"VERSION_ONLY": ""}, False),
+        ({"VERSION_CHECK": "failure"}, False),
+        ({"VERSION_CHECK": "skipped"}, False),
+        ({"VERSION_CHECK": "cancelled"}, False),
+        ({"TEST": "failure"}, False),
+        ({"COVERAGE": "success"}, False),
+        ({"SLOW": "success"}, False),
+    ],
+    ids=[
+        "verified",
+        "classifier-failed",
+        "classifier-skipped",
+        "missing-proof",
+        "build-failed",
+        "build-skipped",
+        "build-cancelled",
+        "tests-failed",
+        "coverage-ran",
+        "slow-ran",
+    ],
+)
+def test_version_only_gate_requires_proof_and_successful_metadata_build(
+    event_name, overrides, passes
+):
+    gate = _job(_workflow("ci.yml"), "ci-ok")
+    env = {
+        **os.environ,
+        "EVENT_NAME": event_name,
+        "POST_RELEASE": "true" if event_name == "workflow_dispatch" else "false",
+        "CHANGES": "success",
+        "VERSION_ONLY": "true",
+        "VERSION_CHECK": "success",
+        "LINT": "skipped",
+        "TEST": "skipped",
+        "COVERAGE": "skipped",
+        "COVERAGE_REPORT": "skipped",
+        "SLOW": "skipped",
+        "CANARY": "skipped",
+        "REAL_PART": "skipped",
+        **overrides,
+    }
+    completed = subprocess.run(
+        [_bash(), "-eu", "-o", "pipefail", "-c", _literal_run(gate)],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert (completed.returncode == 0) is passes, completed.stdout + completed.stderr
+
+
+def test_version_only_path_is_narrow_and_keeps_required_statuses():
+    workflow = _workflow("ci.yml")
+    classifier = _job(workflow, "changes")
+    assert 'git show "$BASE_SHA:scripts/check-version-bump"' in classifier
+    assert ".head.sha == $sha" in classifier and ".head.repo.full_name == $repo" in classifier
+    assert '.base.ref == "main"' in classifier
+    assert "fetch-depth: 0" in classifier
+    assert "pull_request_target" not in workflow
+    for name in (
+        "lint",
+        "test",
+        "coverage",
+        "coverage-report",
+        "test-slow",
+        "test-platform-canary",
+        "test-real-part-canary",
+    ):
+        job = _job(workflow, name)
+        assert "changes" in _needs(job)
+        assert "needs.changes.outputs.version_only != 'true'" in job
+    quick = _job(workflow, "version-only")
+    assert "needs.changes.outputs.version_only == 'true'" in quick
+    assert "uv lock --check" in quick and "uv build" in quick
+    assert "uv sync" not in quick and "pytest" not in quick
+    assert "run_command: empty-upload" in quick and "force:" not in quick
+    assert "fail_ci_if_error: true" in quick
+    assert "override_commit: ${{ needs.changes.outputs.head }}" in quick
+    assert {"changes", "version-only"} <= _needs(_job(workflow, "ci-ok"))

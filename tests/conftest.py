@@ -188,6 +188,7 @@ _UNIT_MODULES = frozenset(
         "test_recogniser_adoption.py",
         "test_registry.py",
         "test_workflows.py",
+        "test_version_bump_ci.py",
     }
 )
 
