@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import assert_missing_model_outcomes_fail_closed
 from build123d import Box, Compound, Cone, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -282,10 +283,7 @@ def test_deleting_generated_countersink_argument_loses_generated_code_credit(
 
 
 def test_a_boundary_with_missing_per_seat_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_countersink_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_countersink_model_outcomes", _states)
 
 
 def test_removing_placed_countersink_ink_loses_drawing_credit(monkeypatch) -> None:

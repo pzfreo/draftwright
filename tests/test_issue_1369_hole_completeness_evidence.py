@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from _evidence_contract import assert_missing_model_outcomes_fail_closed
 from build123d import Box, Cylinder, Pos
 
 from draftwright.evaluation.step_analysis import (
@@ -92,10 +93,7 @@ def test_deleting_generated_hole_lines_loses_generated_code_credit(monkeypatch) 
 
 
 def test_a_boundary_with_missing_per_hole_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_hole_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_hole_model_outcomes", _states)
 
 
 def test_a_post_build_model_access_failure_is_scored_not_raised(monkeypatch) -> None:

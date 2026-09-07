@@ -171,6 +171,7 @@ _UNIT_MODULES = frozenset(
         "test_api_docs.py",
         "test_architecture_docs.py",
         "test_carve_free_position_callers.py",
+        "test_clone_budget.py",
         "test_counting_calls.py",
         "test_deprecation_dates.py",
         "test_import_boundaries.py",

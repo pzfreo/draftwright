@@ -158,6 +158,17 @@ checks. Target is 100% passing. Tiers (#153):
   trust fix; a critique-style test should share a module-scoped built drawing,
   not mint a new dense fixture.
 - **`-m slow`** (integration builds, including CTC fixtures) — full tier in post-merge CI.
+
+The suite may not grow by CLONING. `tests/test_clone_budget.py` compares test bodies
+with identifiers, attributes and literals erased — the shape — across modules, and
+fails when the count of cross-module copies rises above `CLONE_BUDGET`. It exists
+because the two natural checks both miss this codebase's cloning style: identical test
+NAMES miss it (each copy is renamed for its family) and identical ASTs miss it (each
+copy substitutes its family's symbols). Thirteen copies of one three-statement body
+went unnoticed that way, each paying for a real `build_drawing` on every CI run.
+When it fails, parametrize over the symbol that varies — `tests/_evidence_contract.py`
+is the worked example — and ratchet `CLONE_BUDGET` down. Raising it needs a reason in
+the PR body, like `fail_under`.
   The bounded `-m real_part_canary` tuner STEP test also runs once before merge (#827).
 
 For reproducible build-cost profiling, use a fresh output directory and state the expected

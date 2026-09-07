@@ -8,6 +8,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from _evidence_contract import (
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_uses_one_build_owned_recognition,
+)
 from build123d import (
     Align,
     Box,
@@ -1154,19 +1158,7 @@ def test_derived_plate_drawing_credit_requires_verified_dependency_ink() -> None
 
 
 def test_plate_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["plates"](_tee())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "plates", _tee())
 
 
 def test_removing_plates_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -1183,10 +1175,7 @@ def test_removing_plates_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> N
 
 
 def test_missing_per_plate_boundary_outcomes_fail_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_plate_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_plate_model_outcomes", _states)
 
 
 def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:

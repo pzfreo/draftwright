@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import assert_missing_model_outcomes_fail_closed
 from build123d import Align, Box, Compound, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -635,10 +636,7 @@ def test_double_d_observer_fails_closed_when_build_or_recognition_is_unavailable
 
 
 def test_a_boundary_with_missing_per_bore_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_double_d_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_double_d_model_outcomes", _states)
 
 
 @pytest.mark.parametrize(

@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import assert_observer_uses_one_build_owned_recognition
 from build123d import Polygon, Pos, RegularPolygon, Rot, extrude, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -848,19 +849,7 @@ def test_polygonal_stock_ledger_distinguishes_suppressed_dropped_structured_and_
 
 
 def test_polygonal_stock_observer_uses_one_build_owned_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["polygonal-stock"](_stock())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "polygonal-stock", _stock())
 
 
 def test_polygonal_stock_observer_rejects_a_missing_build_owned_aggregate(monkeypatch) -> None:

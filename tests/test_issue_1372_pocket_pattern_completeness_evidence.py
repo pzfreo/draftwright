@@ -8,6 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import (
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_uses_one_build_owned_recognition,
+)
 from build123d import Box, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -286,19 +290,7 @@ def test_every_pocket_pattern_boundary_is_observed_on_the_real_public_path() -> 
 
 
 def test_pocket_pattern_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["pocket-patterns"](_grid_part())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "pocket-patterns", _grid_part())
 
 
 def test_removing_patterns_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -318,10 +310,9 @@ def test_removing_patterns_from_built_ir_loses_ir_adapter_credit(monkeypatch) ->
 
 
 def test_missing_per_pattern_boundary_outcomes_fail_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_pocket_pattern_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(
+        monkeypatch, "_pocket_pattern_model_outcomes", _states
+    )
 
 
 def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:

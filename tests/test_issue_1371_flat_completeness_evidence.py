@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from _evidence_contract import (
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_uses_one_build_owned_recognition,
+)
 from build123d import Box, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -108,19 +112,7 @@ def test_every_flat_boundary_is_observed_supported_on_the_real_public_path() -> 
 
 
 def test_flat_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["flats"](_double_d())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "flats", _double_d())
 
 
 def test_removing_flats_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -140,10 +132,7 @@ def test_removing_flats_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -
 
 
 def test_a_boundary_with_missing_per_requirement_outcomes_fails_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_flat_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_flat_model_outcomes", _states)
 
 
 def test_flat_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:

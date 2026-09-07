@@ -7,6 +7,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _evidence_contract import (
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_uses_one_build_owned_recognition,
+)
 from build123d import Align, Box, Location
 
 from draftwright.evaluation.step_analysis import (
@@ -418,19 +422,7 @@ def test_pad_coverage_does_not_duplicate_a_placement_drop() -> None:
 
 
 def test_pad_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
-    import draftwright.analysis as analysis
-
-    original = analysis.build_recognition_evidence
-    calls = 0
-
-    def counted(*args, **kwargs):
-        nonlocal calls
-        calls += 1
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(analysis, "build_recognition_evidence", counted)
-    assert _default_observers()["rectangular-pads"](_lone())
-    assert calls == 1
+    assert_observer_uses_one_build_owned_recognition(monkeypatch, "rectangular-pads", _lone())
 
 
 def test_removing_pads_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -447,10 +439,7 @@ def test_removing_pads_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> Non
 
 
 def test_missing_per_pad_boundary_outcomes_fail_closed(monkeypatch) -> None:
-    import draftwright.evaluation.step_analysis as step_analysis
-
-    monkeypatch.setattr(step_analysis, "_pad_model_outcomes", lambda *_args: [])
-    assert _states("ir_adapter") == {"unknown"}
+    assert_missing_model_outcomes_fail_closed(monkeypatch, "_pad_model_outcomes", _states)
 
 
 def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:
