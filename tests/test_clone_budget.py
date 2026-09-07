@@ -15,8 +15,10 @@ The two obvious ways to detect that both fail here, which is why it went unnotic
 identical test NAMES miss it (every clone is renamed for its family) and identical
 ASTs miss it (every clone substitutes its family's identifiers and literals). So this
 guard compares test bodies with identifiers, attributes, literals and argument names
-erased — the SHAPE — and only across modules, since same-module repetition is a much
-weaker smell and often a deliberate readability choice.
+erased — the SHAPE — across modules, since same-module repetition is a much weaker smell
+and often a deliberate readability choice, and only where a shape recurs in at least
+`_MIN_GROUP_MEMBERS` places, since a bare pair is usually coincidence rather than a
+template.
 
 The fix when this fails is not to raise the budget. It is to parametrize over the
 one thing that varies, which keeps every assertion and deletes the copies. Lower the
@@ -33,11 +35,22 @@ from pathlib import Path
 
 TESTS = Path(__file__).parent
 
-#: Cross-module structurally identical test bodies, counted as `group size - 1`.
-#: Measured at 94 on 2026-09-07, after collapsing the thirteen `_<family>_model_outcomes`
-#: copies and the eleven one-recognition copies into `tests/_evidence_contract.py`.
+#: Cross-module structurally identical test bodies, counted as `group size - 1`, over
+#: groups of at least `_MIN_GROUP_MEMBERS`. Measured at 33 on 2026-09-07.
 #: RATCHET DOWN ONLY — see the module docstring.
-CLONE_BUDGET = 94
+CLONE_BUDGET = 33
+
+#: A shape must recur in at least this many modules to count as templated cloning.
+#:
+#: At two, the guard was measuring coincidence. 61 of its 70 groups were pairs, and the
+#: pairs are ordinary tests that happen to share a shape once identifiers and literals are
+#: erased — `test_add_dimension.py::test_a_tuple_swap_invalidates_rather_than_retargets`
+#: against `test_sheet_identity_invariant.py::test_a_tuple_swap_raises`. With the budget
+#: sitting exactly on the measured count, the next PR adding any three-statement test that
+#: collided by accident would have failed CI telling its author to "parametrize and delete
+#: the copies", which would usually be wrong — and a gate that cries wolf gets raised
+#: rather than obeyed. Templated cloning shows up as a family, not a pair.
+_MIN_GROUP_MEMBERS = 3
 
 #: A body must have at least this many statements, and this many AST nodes, before it
 #: counts. Short bodies (`build; assert`) collide by chance and would make the guard
@@ -99,7 +112,7 @@ def _clone_groups() -> dict[str, list[tuple[str, str]]]:
     return {
         digest: members
         for digest, members in shapes.items()
-        if len({module for module, _ in members}) > 1
+        if len({module for module, _ in members}) > 1 and len(members) >= _MIN_GROUP_MEMBERS
     }
 
 
