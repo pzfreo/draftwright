@@ -5461,6 +5461,7 @@ class TestLintSummaryAndDrops:
             "score",
             "diagnostic_score",
             "quality",
+            "review",
             "errors",
             "warnings",
             "infos",
