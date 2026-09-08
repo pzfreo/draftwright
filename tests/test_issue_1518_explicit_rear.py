@@ -518,17 +518,26 @@ def test_rear_discovery_exposes_rendered_holes_at_their_physical_positions(rear_
     assert drawing.features("front") == []
 
 
-@pytest.mark.parametrize("axis,point", [("x", (-39.5, 20, 5)), ("z", (-21, 20, -24.5))])
-def test_short_rear_location_is_a_reported_loss_and_strict_refusal(axis, point):
+@pytest.mark.parametrize(
+    "axis,point,hole_axis,view",
+    [
+        ("x", (-39.5, 20, 5), "y", "rear"),
+        ("z", (-21, 20, -24.5), "y", "rear"),
+        ("y", (40, -19.5, 5), "x", "side"),
+    ],
+)
+def test_short_rear_location_is_a_reported_loss_and_strict_refusal(axis, point, hole_axis, view):
     from draftwright import Sheet
     from draftwright.builder import ScaleIncompatibilityError
 
-    part = Box(80, 40, 50) - Pos(point[0], 19.5, point[2]) * Rot(90, 0, 0) * Cylinder(0.1, 2)
-    assert part.is_valid and not part.is_inside(Vector(point[0], 19.5, point[2]))
+    centre = (point[0], 19.5, point[2]) if hole_axis == "y" else (39.5, point[1], point[2])
+    rotation = Rot(90, 0, 0) if hole_axis == "y" else Rot(0, 90, 0)
+    part = Box(80, 40, 50) - Pos(*centre) * rotation * Cylinder(0.1, 2)
+    assert part.is_valid and not part.is_inside(Vector(*centre))
     sheet = Sheet(part, page="A3", scale=1, scale_policy="strict")
-    hole = sheet.hole(diameter=0.2, at=point, axis="y", through=False, depth=1.5)
+    hole = sheet.hole(diameter=0.2, at=point, axis=hole_axis, through=False, depth=1.5)
     sheet.dimension(hole, "location")
-    sheet.view("rear")
+    sheet.view(view)
     with pytest.raises(ScaleIncompatibilityError, match="off_axis_location_dropped"):
         sheet.build()
     from draftwright import build_drawing
@@ -538,7 +547,7 @@ def test_short_rear_location_is_a_reported_loss_and_strict_refusal(axis, point):
         drawing = build_drawing(
             part,
             model=sheet.model(),
-            _views=("rear",),
+            _views=(view,),
             _include_iso=False,
             page="A3",
             scale=1,
@@ -627,3 +636,38 @@ def test_rear_grid_and_bolt_circle_keep_pattern_measurements(kind, convention):
         for issue in drawing.lint()
         if issue.code.endswith("_dropped") or issue.code == "diameter_leader_target_mismatch"
     ]
+
+
+@pytest.mark.parametrize("operation", ["project", "edges", "zones"])
+def test_absent_rear_has_no_fallback_layout_frame(operation):
+    from draftwright import build_drawing
+    from draftwright._core import layout_frame
+
+    drawing = build_drawing(Box(40, 30, 20), auto_dims=False)
+    assert "rear" not in drawing.views
+    frame = layout_frame(drawing._analysis)
+    arguments = ("rear", (1, 2, 3)) if operation == "project" else ("rear",)
+    with pytest.raises(ValueError, match="rear"):
+        getattr(frame, operation)(*arguments)
+
+
+def test_unknown_principal_refuses_in_shared_view_vocabulary():
+    with pytest.raises(ValueError, match="unknown principal views.*backwards"):
+        principal_specs(("rear", "backwards"))
+
+
+def test_rear_furniture_refuses_a_hole_not_normal_to_the_rear():
+    from draftwright import Sheet
+
+    cutter = Cylinder(2, 40)
+    part = Box(40, 30, 20) - cutter
+    sheet = Sheet(part).authored_dimensions()
+    sheet.hole(cutter)
+    sheet.auto_views().add_view("rear")
+    drawing = sheet.build()
+    hole = drawing.model().features[0]
+    assert hole.frame.axis == "z"
+    before = set(drawing.annotations())
+    with pytest.raises(ValueError, match="rear is not end-on"):
+        drawing.furniture(hole, view="rear")
+    assert set(drawing.annotations()) == before
