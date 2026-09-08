@@ -92,6 +92,7 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     resolve_from_analysis,
     third_angle_view_names,
+    validate_projection,
 )
 
 # A view centre must move by more than this (mm) for the measure-and-repack
@@ -1873,7 +1874,12 @@ def build_drawing(
     Pass ``framed_recognition=True`` to opt an automatic build into the provider-owned local
     recognition frame. Raw remains the default. Other arguments and return semantics are
     unchanged from the one-pass builder.
+
+    ``projection='third'`` adds the matching projection symbol. The default omits the
+    symbol but uses the same third-angle layout. ``projection='first'`` is refused until
+    first-angle layout is supported; it must not label a third-angle drawing as first-angle.
     """
+    validate_projection(projection)
     if scale_policy not in {"strict", "fallback", "permissive"}:
         raise ValueError(
             f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"

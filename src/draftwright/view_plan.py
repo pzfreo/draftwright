@@ -32,6 +32,15 @@ from types import MappingProxyType
 from typing import Any
 
 
+def validate_projection(projection: str | None) -> None:
+    """Refuse first-angle intent until the layout supports its convention (#1515)."""
+    if projection == "first":
+        raise ValueError(
+            "first-angle layout is not supported yet; use projection='third' "
+            "for supported third-angle output"
+        )
+
+
 @dataclass(frozen=True)
 class UncoveredViewRequirement:
     """One semantic requirement no selected principal view can carry.

@@ -124,7 +124,7 @@ def _arc_gap(drawing, view, tip, arc):
 
 
 @pytest.mark.parametrize("rotation", [(0, 0, 0), (0, 90, 0), (90, 0, 0), (17, 31, 43)])
-@pytest.mark.parametrize("projection", ["first", "third"])
+@pytest.mark.parametrize("projection", [None, "third"])
 def test_radius_targets_follow_rotated_translated_geometry(rotation, projection):
     from build123d import Axis, Box, Rot, fillet
 

@@ -64,7 +64,7 @@ from draftwright.model.ir import (
     ToleranceDecoration,
 )
 from draftwright.reporting import write_json_document
-from draftwright.view_plan import ViewConstraints
+from draftwright.view_plan import ViewConstraints, validate_projection
 
 _log = logging.getLogger(__name__)
 
@@ -2460,6 +2460,7 @@ def generate_sheet_script(
     surface (flagged inline).
     *part_expr*, when given, overrides the ``part = …`` seam — e.g. the import seam from
     :func:`resolve_object_spec` so the script references a live module (#469)."""
+    validate_projection(projection)
     _validate_scale_policy(scale, scale_policy)
     is_shape = isinstance(step_file, Shape)
     stem = out or ("drawing" if is_shape else Path(step_file).stem)

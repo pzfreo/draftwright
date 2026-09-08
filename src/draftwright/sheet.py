@@ -131,6 +131,7 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     ViewRelation,
     ViewSpec,
+    validate_projection,
 )
 
 _SOURCE_CHOICES = ("automatic", "authored")
@@ -1077,6 +1078,7 @@ class Sheet:
         zones=None,
         detail_view=None,
     ):
+        validate_projection(projection)
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
         # view; handles hold tokens and resolve through it, so a reorder of the public
