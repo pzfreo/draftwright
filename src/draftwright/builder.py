@@ -543,18 +543,6 @@ def _assemble(
     # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
     # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
-    if model is None and (requested or authored is not None):
-        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
-        # builds its own. Silently dropping them would leave a caller's add_dimension() /
-        # dimension() with no effect and no diagnostic — the failure mode this project
-        # treats as worse than a visible error (#630/#631/#632). An authored set is the
-        # worse of the two to drop: the build would quietly revert to the automatic
-        # dimensions the author was replacing (#921 review).
-        verb = "requested=" if requested else "authored="
-        raise ValueError(
-            f"{verb} names declared features, so it needs model= too; a detected "
-            "model builds its own feature objects that no request can target"
-        )
     pm = (
         _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
@@ -1308,6 +1296,19 @@ def _build_drawing_once(
     title = title or stem.replace("_", " ").upper()
     tracer = _resolve_trace(trace, out)
 
+    if model is None and (requested or authored is not None):
+        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
+        # builds its own. Silently dropping them would leave a caller's add_dimension() /
+        # dimension() with no effect and no diagnostic — the failure mode this project
+        # treats as worse than a visible error (#630/#631/#632). An authored set is the
+        # worse of the two to drop: the build would quietly revert to the automatic
+        # dimensions the author was replacing (#921 review).
+        verb = "requested=" if requested else "authored="
+        raise ValueError(
+            f"{verb} names declared features, so it needs model= too; a detected "
+            "model builds its own feature objects that no request can target"
+        )
+
     def analyse(*, reuse, views):
         return _analyse(
             step_file,
@@ -1378,6 +1379,27 @@ def _build_drawing_once(
         )
     if uncovered_measured:
         raise ViewPlanIncomplete(planned_principals, uncovered_measured)
+    if auto_dims and not {"front", "rear"}.intersection(planned_principals):
+        # A model without an envelope can still approve a synthetic bbox height.
+        # It has no feature parameter for plan_dimensions to check, so prove its
+        # compiled view requirement before projecting a reduced principal set.
+        from draftwright.model.compiled import compile_dimensions
+
+        overall = compile_dimensions(explicit_model).ladder("overall_height")
+        if overall is not None:
+            height = overall.rungs[0]
+            raise ViewPlanIncomplete(
+                planned_principals,
+                [
+                    UncoveredViewRequirement(
+                        identity=height.id,
+                        label="overall_height.length",
+                        preferred_view="front",
+                        eligible_views=("front", "rear"),
+                        reason="requires a planned front or rear view",
+                    )
+                ],
+            )
     view_attempts: tuple[dict[str, object], ...] = ()
     view_status = "selected"
     if _select_automatic_views and _views is None and auto_dims:

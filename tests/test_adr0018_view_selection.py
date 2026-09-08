@@ -72,7 +72,7 @@ class TestTheObservabilityModel:
             assert {horizontal, vertical} <= {"x", "y", "z"}
 
     def test_the_three_views_between_them_show_every_axis_twice(self):
-        seen = [axis for axes in VIEW_AXES.values() for axis in axes]
+        seen = [axis for view in ("front", "plan", "side") for axis in VIEW_AXES[view]]
         assert {axis: seen.count(axis) for axis in "xyz"} == {"x": 2, "y": 2, "z": 2}
 
     def test_views_showing_agrees_with_the_page_axes(self):
@@ -368,7 +368,7 @@ class TestAnExtentMovesOrIsReported:
         assert [item.identity.parameter for item in caught.value.uncovered] == ["depth.length"]
         assert "envelope.depth.length" in str(caught.value)
 
-    def test_a_width_diagnostic_lists_both_semantically_eligible_views(self):
+    def test_a_width_diagnostic_lists_all_semantically_eligible_views(self):
         from draftwright.model.planner import plan_dimensions
 
         model = detect_part_model(_plain_box())
@@ -378,8 +378,8 @@ class TestAnExtentMovesOrIsReported:
         width = next(
             item for item in caught.value.uncovered if item.identity.parameter == "width.length"
         )
-        assert width.eligible_views == ("plan", "front")
-        assert "add one of `plan`, `front`" in str(caught.value)
+        assert width.eligible_views == ("plan", "front", "rear")
+        assert "add one of `plan`, `front`, `rear`" in str(caught.value)
 
     def test_an_authored_slot_position_uses_the_slot_plane_not_its_long_axis(self):
         from draftwright.model import Frame, PartModel, SlotFeature

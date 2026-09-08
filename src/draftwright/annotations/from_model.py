@@ -1190,7 +1190,9 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
         dia = hole.diameter or 0.0
         size = max(2.5, dia * dwg.scale + 2.0)
         view = g.view or _END_ON.get(feat.frame.axis, "plan")
-        if view not in dwg.views and all(dimension.suppressed for dimension in g.dims):
+        if view not in getattr(dwg, "views", (view,)) and all(
+            dimension.suppressed for dimension in g.dims
+        ):
             continue  # No value-bearing requirement earned furniture in this projection.
         members = feat.members or (g.anchor,)
         for loc in members:
@@ -4711,6 +4713,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         tier,
                         ctx=ctx,
                         measurements={nm: _mid},
+                        features={nm: env.ref},
                         trace=ctx.trace,
                         trace_label=f"{nm}_above_fallthrough",
                     ):
@@ -4734,6 +4737,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 on_drop=_drop,
                 priority=_MANDATORY_OVERALL_PRIORITY,
                 force=True,
+                feature=env.ref,
                 measurement=measurement,  # which envelope extent this is (#1002)
                 footprint=footprint,  # analytical measure — no probe build (#602)
             ),
@@ -5921,11 +5925,26 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     may use an explicitly selected rear view, with its own corridor and witnesses.
     """
     overall = plan.ladder("overall_height")
-    height_view = "front"
+    height_view: str | None = "front"
     if overall is not None:
-        height_view = overall.rungs[0].view or (
-            "front" if "front" in getattr(dwg, "views", ("front",)) else "rear"
+        height_view = overall.rungs[0].view or next(
+            (name for name in ("front", "rear") if name in getattr(dwg, "views", ("front",))),
+            None,
         )
+        if height_view is None:
+            height = overall.rungs[0]
+            ctx.record_issue(
+                "error",
+                "placement_unsatisfiable",
+                "overall height cannot be shown: no planned front or rear view",
+                measurement=height.id,
+                measurement_span=height.span,
+                outcome_stage="placement",
+            )
+            plan = ladder_plan_for(plan, step_height=True, overall=False)
+            if plan.ladder("step_height") is None:
+                return 0
+            height_view = "front"
     if height_view == "front":
         return _render_height_ladder_in_view(
             dwg, plan, frame, ctx=ctx, detail_view=detail_view, view="front"
@@ -6271,7 +6290,11 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
                 # …and when it IS physically full, they outrank ordinary auto dims rather
                 # than tying with them at 0 and losing on the generated key (#894).
                 priority=_PRINCIPAL_CHAIN_PRIORITY,
-                feature=step if name != "dim_height" else None,
+                feature=step
+                if name != "dim_height"
+                else overall.ref
+                if overall is not None
+                else None,
                 measurement=mid,  # the rung's own compiled id (#1002)
                 footprint=_foot,
             ),

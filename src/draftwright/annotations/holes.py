@@ -741,7 +741,7 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
     return list(holes.values())
 
 
-def _off_axis_drop(dwg, axis, view, *, ctx, measurement=()):
+def _off_axis_drop(dwg, axis, view, *, ctx, measurement=(), reason="no room beside the view"):
     # Recorded at INFO under a code DISTINCT from the plan path's
     # ``location_ref_dropped`` (which is a warning). Two reasons:
     #  - Severity: a best-effort off-axis location dim that did not fit is not
@@ -758,7 +758,7 @@ def _off_axis_drop(dwg, axis, view, *, ctx, measurement=()):
     ctx.record_issue(
         "info",
         "off_axis_location_dropped",
-        f"{axis} location dim for a {view}-view hole not placed (no room beside the view)",
+        f"{axis} location dim for a {view}-view hole not placed ({reason})",
         measurement=measurement,
     )
 
@@ -877,6 +877,15 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             continue  # not approved — the compiler withheld this position
         yo = round(entry.value, 2)
         if yo * a.SCALE < 1.0:
+            if abs(entry.value) > 1e-9:
+                _off_axis_drop(
+                    dwg,
+                    "Y",
+                    "side",
+                    ctx=ctx,
+                    measurement=entry.id,
+                    reason="span shorter than 1 mm at this scale",
+                )
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
         loc_by_name.setdefault(name, []).append(h)
@@ -1000,6 +1009,15 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
             continue  # not approved
         xo = round(entry.value, 2)
         if xo * a.SCALE < 1.0:
+            if abs(entry.value) > 1e-9:
+                _off_axis_drop(
+                    dwg,
+                    "X",
+                    view,
+                    ctx=ctx,
+                    measurement=entry.id,
+                    reason="span shorter than 1 mm at this scale",
+                )
             continue
         name = f"dim_loc_{view}_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h)
@@ -1074,7 +1092,18 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
         if entry is None:
             continue  # not approved
         zo = round(entry.value, 2)
-        if zo * a.SCALE < 1.0 or zo in seen_z:
+        if zo * a.SCALE < 1.0:
+            if abs(entry.value) > 1e-9:
+                _off_axis_drop(
+                    dwg,
+                    "Z",
+                    front_view if h.axis == "y" else "side",
+                    ctx=ctx,
+                    measurement=entry.id,
+                    reason="span shorter than 1 mm at this scale",
+                )
+            continue
+        if zo in seen_z:
             continue
         seen_z.add(zo)
         hz = h.location[2]

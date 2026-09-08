@@ -76,6 +76,9 @@ def test_location_and_envelope_constraints_are_discoverable():
         {"view": "front", "side": None},
         {"view": "front", "side": "left"},
         {"view": "front", "side": "right"},
+        {"view": "rear", "side": None},
+        {"view": "rear", "side": "left"},
+        {"view": "rear", "side": "right"},
     ]
     assert not sheet.validate_dimension(envelope, "height.length", side="above")["supported"]
     result = sheet.validate_dimension(hole_handle, "location", axis="y", side="below")

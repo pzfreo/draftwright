@@ -258,6 +258,8 @@ def test_rear_envelope_width_and_height_keep_spans_and_identity(convention, expl
     sheet.dimension(envelope, "width.length", **placement)
     sheet.dimension(envelope, "height.length", side="left", **placement)
     sheet.view("rear")
+    if explicit_dimensions:
+        sheet.view("front")
     drawing = sheet.build()
     expected = {"m_env_width": ("80", 80), "dim_height": ("50", 50)}
     for name, (label, length) in expected.items():
@@ -464,3 +466,164 @@ def test_unrequested_rear_dimension_refuses_before_projection(rear_enclosure, in
     monkeypatch.setattr(builder, "_assemble", forbidden_projection)
     with pytest.raises(ViewPlanIncomplete, match="rear"):
         build_drawing(rear_enclosure, model=[feature], **{intent: (request,)})
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("deferred", [False, True])
+def test_rear_linear_edit_uses_selected_view_and_shared_strip(explicit, deferred):
+    from contextlib import nullcontext
+
+    from draftwright import Sheet
+
+    sheet = Sheet(Box(80, 40, 50), page="A3", scale=1).authored_dimensions()
+    envelope = sheet.envelope()
+    sheet.dimension(envelope, "width.length")
+    sheet.dimension(envelope, "height.length")
+    sheet.view("rear")
+    drawing = sheet.build()
+    feature = drawing.model().features[0]
+    assert set(drawing.drop(feature)) == {"m_env_width", "dim_height"}
+    with drawing.deferred() if deferred else nullcontext():
+        drawing.dimension(
+            feature,
+            "width.length",
+            view="rear" if explicit else None,
+            name="edited_width",
+            priority=1,
+        )
+        drawing.dimension(
+            feature,
+            "height.length",
+            view="rear" if explicit else None,
+            name="edited_height",
+            side="right",
+            priority=1,
+        )
+    for name, value in (("edited_width", 80), ("edited_height", 50)):
+        annotation = drawing.get_annotation(name)
+        assert drawing.view_of(name) == "rear"
+        assert annotation.measured_length == pytest.approx(value)
+        assert drawing.registry.measurement_of(name)
+    assert not drawing.lint()
+
+
+def test_rear_discovery_exposes_rendered_holes_at_their_physical_positions(rear_enclosure):
+    drawing = _rear_hole_sheet(rear_enclosure, "first").build()
+    features = drawing.features("rear")
+    assert sorted(feature.diameter for feature in features) == [4, 7]
+    for feature in features:
+        x, z = (-21, 11) if feature.diameter == 4 else (14, -9)
+        assert feature.page_pos == pytest.approx(drawing.at("rear", x, 20, z)[:2])
+        assert not feature.through and feature.depth == 1.5
+    assert drawing.features("front") == []
+
+
+@pytest.mark.parametrize("axis,point", [("x", (-39.5, 20, 5)), ("z", (-21, 20, -24.5))])
+def test_short_rear_location_is_a_reported_loss_and_strict_refusal(axis, point):
+    from draftwright import Sheet
+    from draftwright.builder import ScaleIncompatibilityError
+
+    part = Box(80, 40, 50) - Pos(point[0], 19.5, point[2]) * Rot(90, 0, 0) * Cylinder(0.1, 2)
+    assert part.is_valid and not part.is_inside(Vector(point[0], 19.5, point[2]))
+    sheet = Sheet(part, page="A3", scale=1, scale_policy="strict")
+    hole = sheet.hole(diameter=0.2, at=point, axis="y", through=False, depth=1.5)
+    sheet.dimension(hole, "location")
+    sheet.view("rear")
+    with pytest.raises(ScaleIncompatibilityError, match="off_axis_location_dropped"):
+        sheet.build()
+    from draftwright import build_drawing
+    from draftwright._warnings import ScaleCompletenessWarning
+
+    with pytest.warns(ScaleCompletenessWarning):
+        drawing = build_drawing(
+            part,
+            model=sheet.model(),
+            _views=("rear",),
+            _include_iso=False,
+            page="A3",
+            scale=1,
+            scale_policy="permissive",
+        )
+    drops = [issue for issue in drawing.lint() if issue.code == "off_axis_location_dropped"]
+    assert len(drops) == 1 and "shorter than 1 mm" in drops[0].message
+    assert any(identity.parameter.endswith(f".{axis}") for identity in drops[0].measurement_ids)
+    assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
+
+
+@pytest.mark.parametrize("axis,views", [("x", ("side",)), ("z", ("plan",))])
+def test_bbox_height_requires_a_selected_elevation_before_projection(axis, views, monkeypatch):
+    import draftwright.builder as builder
+    from draftwright import build_drawing
+    from draftwright.model import hole
+    from draftwright.view_plan import ViewPlanIncomplete
+
+    cutter = Cylinder(2, 100) if axis == "z" else Rot(0, 90, 0) * Cylinder(2, 100)
+    part = Box(80, 40, 50) - cutter
+    feature = hole(diameter=4, at=(0, 0, 0), axis=axis)
+
+    def forbidden_projection(*args, **kwargs):
+        raise AssertionError("unshowable height reached projection")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(builder, "_assemble", forbidden_projection)
+        with pytest.raises(ViewPlanIncomplete, match="overall_height.length"):
+            build_drawing(part, model=[feature], _views=views, _include_iso=False)
+    drawing = build_drawing(
+        part, model=[feature], _views=views, _include_iso=False, auto_dims=False
+    )
+    drawing.overall_height()
+    assert "rear" not in drawing.views and "dim_height" not in drawing.annotations()
+    issues = [issue for issue in drawing.lint() if issue.code == "placement_unsatisfiable"]
+    assert len(issues) == 1 and "no planned front or rear" in issues[0].message
+    assert issues[0].measurement_ids
+
+
+@pytest.mark.parametrize("kind", ["grid", "bolt_circle"])
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_rear_grid_and_bolt_circle_keep_pattern_measurements(kind, convention):
+    from draftwright import Sheet
+    from draftwright.model import hole, pattern
+
+    grammar = (
+        dict(count=4, grid=(16, 24), rows=2, cols=2) if kind == "grid" else dict(count=3, bcd=24)
+    )
+    member = hole(diameter=4, at=(0, 20, 0), axis="y", through=False, depth=1.5)
+    layout = pattern(member, kind=kind, **grammar)
+    part = Box(80, 40, 50)
+    for x, _, z in layout.members:
+        part -= Pos(x, 19.5, z) * Rot(90, 0, 0) * Cylinder(2, 2)
+    visible, _ = part.project_to_viewport((0, 1000, 0), look_at=(0, 0, 0))
+    assert len([edge for edge in visible if edge.geom_type == GeomType.CIRCLE]) == layout.count
+    sheet = Sheet(part, page="A3", scale=1, scale_policy="strict", projection=convention)
+    handle = sheet.pattern(member, kind=kind, **grammar)
+    for parameter in layout.parameters():
+        sheet.dimension(handle, parameter.parameter_id, axis=parameter.discriminator)
+    sheet.view("rear")
+    drawing = sheet.build()
+    assert drawing.view_plan.principal_names == ("rear",)
+    marks = [
+        (name, annotation)
+        for name, annotation in drawing.iter_annotations()
+        if getattr(annotation, "label", "") and drawing.view_of(name) == "rear"
+    ]
+    callouts = [
+        annotation
+        for _, annotation in marks
+        if getattr(annotation, "covers_count", 0) == layout.count
+    ]
+    assert len(callouts) == 1 and "1.5" in callouts[0].label
+    if kind == "grid":
+        dimensions = [
+            annotation.measured_length
+            for _, annotation in marks
+            if hasattr(annotation, "measured_length")
+        ]
+        assert sorted(dimensions) == pytest.approx([16, 24])
+    else:
+        assert "24" in callouts[0].label
+        assert any(name.startswith("bc_rear") for name in drawing.annotations())
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code.endswith("_dropped") or issue.code == "diameter_leader_target_mismatch"
+    ]

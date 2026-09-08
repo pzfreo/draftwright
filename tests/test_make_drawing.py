@@ -2247,7 +2247,7 @@ class TestComposeViewBlocks:
         )
 
         blocks = _compose_view_blocks(60.0, 40.0, 20.0, 2.0, None, n_steps=3)
-        assert set(blocks) == {"front", "plan", "side"}
+        assert set(blocks) == {"front", "plan", "side", "rear"}
         assert blocks["front"].hw == pytest.approx(60.0)
         assert blocks["front"].hh == pytest.approx(20.0)
         assert blocks["front"].right == pytest.approx(_est_right_strip_depth(3))

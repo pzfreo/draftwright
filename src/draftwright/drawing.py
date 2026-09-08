@@ -147,6 +147,7 @@ from draftwright.projection import (
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
+from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, VIEW_AXES
 
 
 def _exact_vertex_rotation(source_vertices, target_vertices) -> float | None:
@@ -930,7 +931,7 @@ class Drawing:
         annotatable from that view):
 
         - ``"plan"``  → Z-axis holes
-        - ``"front"`` → Y-axis holes
+        - ``"front"`` / ``"rear"`` → Y-axis holes
         - ``"side"``  → X-axis holes
 
         Returns an empty list when no analysis is available or the view name
@@ -940,7 +941,10 @@ class Drawing:
         if a is None:
             return []
 
-        _axis_for_view = {"plan": "z", "front": "y", "side": "x"}
+        _axis_for_view = {
+            name: next(axis for axis in "xyz" if axis not in axes)
+            for name, axes in VIEW_AXES.items()
+        }
         target_axis = _axis_for_view.get(view)
         if target_axis is None:
             return []
@@ -1475,7 +1479,7 @@ class Drawing:
                 convert world coordinates.
             p2: second page-coordinate tuple ``(px, py, 0)``.
             side: ``"above"``, ``"below"``, ``"left"``, or ``"right"``.
-            view: ``"front"``, ``"plan"``, or ``"side"``.
+            view: ``"front"``, ``"plan"``, ``"side"``, or ``"rear"``.
             draft: the drawing's :attr:`draft` preset.
             name: optional annotation name for later :meth:`remove` / replace.
             slot: strip slot depth (mm); the perpendicular space reserved per dim.
@@ -1531,7 +1535,12 @@ class Drawing:
         behaviour notes.
         """
         a = self._analysis
-        _view_zones = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
+        _view_zones = {
+            "front": "fv_zones",
+            "plan": "pv_zones",
+            "side": "sv_zones",
+            "rear": "rv_zones",
+        }
         strip = None
         if a is not None:
             zones = getattr(a, _view_zones.get(view, ""), None)
@@ -1697,7 +1706,7 @@ class Drawing:
 
     def _resolve_dimension_span(self, feature, param, *, role=None, view=None):
         """Return ``(param_record, view, p1, p2)`` for a feature linear dimension."""
-        _ortho = ("front", "plan", "side")
+        _ortho = PRINCIPAL_VIEW_NAMES
         if view is not None and view not in _ortho:
             raise ValueError(
                 f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
@@ -1733,7 +1742,7 @@ class Drawing:
         (lo, hi) = span
         p1 = p2 = None
         chosen = view
-        automatic_views: tuple[str, ...] = _ortho
+        automatic_views = tuple(name for name in _ortho if name in self.views)
         if view is None and getattr(feature, "kind", None) == "through_step":
             automatic_views = (_END_ON[feature.axis],)
         for v in [view] if view else automatic_views:
@@ -1831,7 +1840,12 @@ class Drawing:
 
         side = it.kwargs.get("side")
         view = it.kwargs.get("view")
-        zones_name = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
+        zones_name = {
+            "front": "fv_zones",
+            "plan": "pv_zones",
+            "side": "sv_zones",
+            "rear": "rv_zones",
+        }
         rec, view, p1, p2 = self._resolve_dimension_span(
             it.feature,
             it.kwargs["param"],
@@ -1972,11 +1986,11 @@ class Drawing:
         an exact parameter id/discriminator to pick one — an ambiguous kind raises rather
         than guessing.
 
-        ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
-        ``"side"``) where the span projects non-degenerate — a length along the turning
+        ``view`` is chosen from the selected principal views (``"front"``/``"plan"``/
+        ``"side"``/``"rear"``) where the span projects non-degenerate — a length along the turning
         axis vanishes in its end-on view, so the view follows the geometry. Through-step legs
         share their semantic axis end view and natural outside-corner sides. Pass ``view=``
-        to force one of those three (a non-orthographic view foreshortens the span and is
+        to select a principal explicitly (a non-orthographic view foreshortens the span and is
         rejected). An implicit ``side`` is ``"above"`` except for through-step legs, whose
         missing corner selects the natural outside corridor. ``kwargs`` forward to the dimension
         — except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
@@ -3430,7 +3444,7 @@ class Drawing:
         return self._registry.iter_named()
 
     def view_of(self, name):
-        """The owning orthographic view for *name* ("front"/"plan"/"side"), or
+        """The owning orthographic view for *name* ("front"/"plan"/"side"/"rear"), or
         ``None`` — instead of reading ``dwg._anno_view`` directly (#241)."""
         return self._registry.view_of(name)
 
