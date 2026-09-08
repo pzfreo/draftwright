@@ -131,7 +131,9 @@ def main(
         False, "--frame", help="Draw a sheet border; content reserves clearance inside it"
     ),
     projection: str = typer.Option(
-        "", "--projection", help="Projection-method symbol: 'third' or 'first' (default: none)"
+        "",
+        "--projection",
+        help="Projection symbol: 'third' (default: none); 'first' is unsupported",
     ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
@@ -195,6 +197,12 @@ def main(
     logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(message)s")
 
     formats = _parse_formats(output_format)
+    from draftwright.view_plan import validate_projection
+
+    try:
+        validate_projection(projection)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--projection") from error
     if script and style != "sheet":
         # validate before the ~5 s engine import so a typo fails fast
         raise typer.BadParameter("--style must be 'sheet'", param_hint="--style")

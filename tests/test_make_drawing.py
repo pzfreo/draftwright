@@ -11248,19 +11248,18 @@ class TestProjectionSymbol:
         assert "projection_symbol" not in dwg.annotations()
         assert dwg._analysis.projection is None
 
-    def test_third_and_first_render_in_the_title_block_band(self):
+    def test_third_renders_in_the_title_block_band(self):
         from draftwright._core import _TB_CLEAR, _TB_H
 
-        for method in ("third", "first"):
-            dwg = build_drawing(Box(80, 60, 20), projection=method)
-            ps = dwg.get_annotation("projection_symbol")
-            assert ps is not None and getattr(ps, "is_projection_symbol", False)
-            b = ps.bounding_box()
-            a = dwg._analysis
-            # within the page, and in the reserved title-block column/band (above the block)
-            assert b.min.X >= _MARGIN and b.max.X <= a.PAGE_W - _MARGIN
-            assert b.min.Y <= _TB_CLEAR + _TB_H and b.max.Y <= _TB_CLEAR + _TB_H
-            assert b.min.X >= a.PAGE_W - a.TB_W - _TB_CLEAR  # the title-block column
+        dwg = build_drawing(Box(80, 60, 20), projection="third")
+        ps = dwg.get_annotation("projection_symbol")
+        assert ps is not None and getattr(ps, "is_projection_symbol", False)
+        b = ps.bounding_box()
+        a = dwg._analysis
+        # within the page, and in the reserved title-block column/band (above the block)
+        assert b.min.X >= _MARGIN and b.max.X <= a.PAGE_W - _MARGIN
+        assert b.min.Y <= _TB_CLEAR + _TB_H and b.max.Y <= _TB_CLEAR + _TB_H
+        assert b.min.X >= a.PAGE_W - a.TB_W - _TB_CLEAR  # the title-block column
 
     def test_projection_build_is_lint_clean(self):
         dwg = build_drawing(Box(80, 60, 20), projection="third")

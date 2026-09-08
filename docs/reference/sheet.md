@@ -4,6 +4,16 @@
 are documented here because they are part of normal use even though their Python names begin
 with an underscore.
 
+## Projection convention
+
+Drawings currently use third-angle layout. `Sheet(part, projection="third")` adds its
+matching projection symbol; omitting `projection` keeps that layout without a symbol.
+`projection="first"` is refused before building or generating a script because first-angle
+layout is not yet supported. This is a safeguard against a misleading drawing, not
+first-angle support. The same restriction applies to `build_drawing` and the CLI's
+`--projection first`. Full convention-aware layout is tracked in
+[#1515](https://github.com/pzfreo/draftwright/issues/1515).
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`
