@@ -176,12 +176,17 @@ def test_lint_rejects_visible_ink_rotated_away_from_its_reference_sector(sector)
         if issue.code == "angular_geometry_mismatch"
     ]
     vertex = annotation.angular_points[1]
+    reference_points = annotation.angular_points
     old_box = annotation.bounding_box()
     wrong_sector = annotation.rotate(Axis((*vertex, 0), (0, 0, 1)), 180)
     assert wrong_sector.bounding_box().center() != old_box.center()
     # Deliberately replace only visible ink. Trusting the renderer's value or
     # reference metadata alone would still report a correct 60-degree angle.
-    annotation.wrapped = wrong_sector.wrapped
+    # A rotated shape can carry the rotation in its root location (build123d
+    # 0.11). Nest it in a fresh compound so only the visible ink rotates.
+    annotation.wrapped = Compound(children=[wrong_sector]).wrapped
+    assert annotation.angular_points == reference_points
+    assert annotation.bounding_box().center() == wrong_sector.bounding_box().center()
     assert annotation.measured_angle == pytest.approx(60)
     assert [
         issue
