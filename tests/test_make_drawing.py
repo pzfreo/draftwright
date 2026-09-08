@@ -4902,10 +4902,10 @@ class TestLocationDimsAndSection:
             assert len(wing.edges()) == 1
             # arrow is a filled solid (Arrow produces faces, not open barbs)
             assert len(list(arrow.faces())) >= 1
-        # wings are below the section line (tip_y < line y)
+        # Wings point toward retained +Y material, above the plan cutting line.
         sl_y = plate_drawing.get_annotation("section_line").bounding_box().min.Y
-        wl_y = plate_drawing.get_annotation("section_wing_left").bounding_box().min.Y
-        assert wl_y < sl_y
+        wl_y = plate_drawing.get_annotation("section_wing_left").bounding_box().max.Y
+        assert wl_y > sl_y
 
     @pytest.mark.timeout(120)
     def test_section_hatch_present_and_45_degrees(self, plate_drawing):
