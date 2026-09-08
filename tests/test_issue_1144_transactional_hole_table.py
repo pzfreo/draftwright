@@ -1609,7 +1609,7 @@ def test_automatic_table_cannot_resolve_a_dropped_decorated_callout(
     )
     feature = dropped_issue.measurement_ids[0].feature
     if not isinstance(decoration, float):
-        decoration = fit_class("H7", feature.diameter, show="deviation")
+        decoration = fit_class("H7", feature.diameter)
     declared = replace(
         baseline.model(),
         decorations={(feature, "diameter"): decoration},
@@ -1617,18 +1617,11 @@ def test_automatic_table_cannot_resolve_a_dropped_decorated_callout(
 
     drawing = build_drawing(part, model=declared, page="A3")
 
-    assert "hole_table_plan" not in drawing.annotations()
-    assert any(issue.code == "table_dropped" for issue in drawing.registry.issues)
-    assert any(
-        issue.code == "callout_dropped" and feature in _features_from_issue(issue)
-        for issue in drawing.registry.issues
-    )
-    assert {
-        outcome.representation
-        for outcome in _outcomes(drawing)
-        if outcome.source_at[:2] == tuple(feature.frame.origin[:2])
-        and outcome.parameter_id == "bore.diameter"
-    } == {None}
+    table = drawing.get_annotation("hole_table_plan")
+    assert table is not None
+    suffix = " ±0.1" if isinstance(decoration, float) else " H7"
+    assert f"ø{feature.diameter:g}{suffix}" in {row[1] for row in table.table_rows}
+    _assert_callout_remains_unresolved(drawing, table, feature)
 
 
 def test_automatic_table_cannot_resolve_a_dropped_thread_callout(monkeypatch, rollback_plate):
@@ -1654,16 +1647,34 @@ def test_automatic_table_cannot_resolve_a_dropped_thread_callout(monkeypatch, ro
 
     drawing = build_drawing(part, model=declared, page="A3")
 
-    assert "hole_table_plan" not in drawing.annotations()
-    assert any(issue.code == "table_dropped" for issue in drawing.registry.issues)
+    table = drawing.get_annotation("hole_table_plan")
+    assert table is not None
+    assert not any(threaded.thread in cell for row in table.table_rows for cell in row)
+    assert not any(
+        measurement.feature == threaded and "thread" in measurement.parameter
+        for measurement in drawing.registry.measurement_of("hole_table_plan")
+    )
+    _assert_callout_remains_unresolved(drawing, table, threaded)
+
+
+def _assert_callout_remains_unresolved(drawing, table, feature):
+    # A visible diameter/location row does not certify replacement of the full callout.
     assert any(
-        issue.code == "callout_dropped" and threaded in _features_from_issue(issue)
+        issue.code == "callout_dropped" and feature in _features_from_issue(issue)
         for issue in drawing.registry.issues
+    )
+    assert drawing.scale_decision["status"] == "incomplete"
+    assert any(b["code"] == "callout_dropped" for b in drawing.scale_decision["blockers"])
+    assert not any(
+        owner == feature and parameter.startswith("bore.")
+        for owner, parameter, _representation, _reason in (
+            table.covers_hole_representations_by_requirement
+        )
     )
     assert {
         outcome.representation
         for outcome in _outcomes(drawing)
-        if outcome.source_at[:2] == tuple(threaded.frame.origin[:2])
+        if outcome.source_at[:2] == tuple(feature.frame.origin[:2])
         and outcome.parameter_id == "bore.diameter"
     } == {None}
 

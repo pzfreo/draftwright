@@ -2755,7 +2755,8 @@ class TestComposeThenPackRepack:
 
     # --- out-of-bounds escalation trigger (#92) ---------------------------
 
-    def test_out_of_bounds_trigger(self):
+    @pytest.mark.parametrize("overflow", [(20, 20, 40, 120), (9.95, 20, 40, 40)])
+    def test_out_of_bounds_trigger(self, overflow):
         # The second repack trigger: a view-owned annotation past the drawable
         # (e.g. a ballooned plan view overflowing the page top) escalates even
         # without a cross-view overlap. Untagged overflow is ignored — a repack
@@ -2767,9 +2768,9 @@ class TestComposeThenPackRepack:
         a = SimpleNamespace(margin=10.0, PAGE_W=200.0, PAGE_H=100.0)
         inb = self._fake_dwg({"d": self._line((20, 20, 40, 40))}, {"d": "plan"})
         assert not _annotations_out_of_bounds(inb, a)
-        over = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "plan"})
+        over = self._fake_dwg({"d": self._line(overflow)}, {"d": "plan"})
         assert _annotations_out_of_bounds(over, a)
-        untagged = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "iso"})
+        untagged = self._fake_dwg({"d": self._line(overflow)}, {"d": "iso"})
         assert not _annotations_out_of_bounds(untagged, a)
 
     # --- disjoint block packing ------------------------------------------
@@ -5708,10 +5709,9 @@ class TestLintSummaryAndDrops:
         assert 0 < n_locy < 10
 
     @pytest.mark.timeout(120)
-    def test_location_gate_ignores_datum_edge_hole(self):
-        # #43 follow-up: a hole on the datum edge is never dimensioned (its dim is
-        # ~zero), so the gate must not anchor a cluster on it and drop a real
-        # neighbour. Box centred at origin -> datum corner at (-40, -30).
+    def test_short_location_does_not_displace_its_legible_neighbour(self):
+        # A nonzero 0.7 mm location is too short to draw; report it honestly without
+        # anchoring the spacing cluster on it and dropping its legible neighbour.
         from build123d import Box, Cylinder, Pos
 
         from draftwright import build_drawing
@@ -5726,7 +5726,11 @@ class TestLintSummaryAndDrops:
         x_spacing_drops = [
             i for i in dwg.lint() if i.code == "location_ref_dropped" and "X location" in i.message
         ]
-        assert x_spacing_drops == []
+        assert len(x_spacing_drops) == 1
+        issue = x_spacing_drops[0]
+        assert "less than 1 mm" in issue.message
+        assert issue.measurement_ids
+        assert all(abs(mid.feature.frame.origin[0] + 39.3) < 1e-6 for mid in issue.measurement_ids)
 
     @pytest.mark.timeout(120)
     def test_auto_annotate_clears_stale_build_issues(self):

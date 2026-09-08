@@ -148,8 +148,7 @@ def _est_pv_above_depth(
     if not distinct:
         return 0.0
     tier = font_size + 2 * pad_around_text
-    # Reserve the strip's initial clearance and inter-tier spacing as well as text.
-    return _STRIP_GAP + (len(distinct) + 1) * (tier + _STRIP_SPACING)
+    return (len(distinct) + 1) * tier
 
 
 def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
@@ -372,6 +371,7 @@ class StripDepths:
     sv_bottom: float = 0.0
     sv_right: float = 0.0  # band to the right of the side view
     angular: tuple[AngularReservation, ...] = ()
+    pv_location_top: float = 0.0  # complete ladder depth for a facing plan/front corridor
 
 
 def _measure_strips(
@@ -667,6 +667,10 @@ def _compose_anno_boxes(
     above = _est_pv_above_depth(model, font_size, pad_around_text)
     if above > 0:
         boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
+        # The same tier inventory, with initial clearance and inter-tier spacing,
+        # provides the complete requirement for a bounded facing corridor.
+        full_depth = _STRIP_GAP + above * (1 + _STRIP_SPACING / (font_size + 2 * pad_around_text))
+        boxes.append(AnnoBox("plan_location_above", full_depth))
     if _will_balloon(model):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
@@ -686,6 +690,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
         right=deepest("right"),
         left=max(_DIM_PAD, deepest("left")),
         top=deepest("above"),
+        pv_location_top=deepest("plan_location_above"),
         pv_halo=deepest("plan_halo"),
         fv_top=deepest("front_above"),
         fv_bottom=deepest("front_below"),
@@ -1158,8 +1163,8 @@ def _compose_view_blocks(
     pv_below = _est_pv_below_depth()
     # Top band above PV. When the plan view is ballooned, the ring sits beyond
     # the tiered X-location dims, so reserve their real depth (strip_top) plus a
-    # balloon row. The location ladder needs that space even without balloons.
-    pv_top = max(DIM_PAD, strip_top) + halo
+    # balloon row. Outer-facing strips retain this seed and grow by measured repacking.
+    pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
     if strips is not None:
         pv_top = max(pv_top, strips.pv_authored_top)
     sv_right_band = max(
@@ -1302,6 +1307,10 @@ def _layout_geometry(
     if convention not in {"first", "third"}:
         raise ValueError(f"unknown projection convention {convention!r}")
     first_angle = convention == "first"
+    # Plan's upper strip is bounded by front in this arrangement. Missing location
+    # candidates cannot grow measured ink, so reserve their complete ladder here.
+    if first_angle and has_front and has_plan and strips is not None:
+        pv = replace(pv, top=max(pv.top, strips.pv_location_top))
     # Relative projection origins come from the convention and the facing annotation
     # bands. Pack these complete blocks before building geometry; never move rendered views.
     relative_plan_y = -(fv.hh + fv.bottom + pv.top + pv.hh)

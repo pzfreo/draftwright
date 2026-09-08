@@ -1,14 +1,17 @@
 """Projection convention changes sheet relationships, never physical view identity."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder, Pos
 
 import draftwright.builder as builder
 from draftwright import Drawing, Sheet, build_drawing
+from draftwright.analysis import _analyse
 from draftwright.audit import compare_measurements
-from draftwright.compose import ViewBlock, _layout_geometry
+from draftwright.compose import StripDepths, ViewBlock, _layout_geometry
+from draftwright.registry import AnnotationRegistry
 from draftwright.sheet_emit import generate_sheet_script
 
 
@@ -198,3 +201,67 @@ def test_submillimetre_locations_cannot_claim_a_complete_scale(plate, method):
     assert error.value.decision["status"] == "rejected"
     blockers = error.value.decision["blockers"]
     assert any(b["code"] == "location_ref_dropped" and b["measurements"] for b in blockers)
+    assert {"x", "y"} <= {
+        m["parameter"].rsplit(".", 1)[-1] for b in blockers for m in b["measurements"]
+    }
+
+
+def test_repack_applies_a_small_move_when_ink_is_outside_the_page(monkeypatch):
+    analysis = _analyse(
+        Box(50, 30, 10),
+        title="",
+        number="",
+        tolerance="",
+        drawn_by="",
+        out="small",
+        page="A3",
+        scale=1,
+        projection="first",
+    )
+    original_geometry = builder._layout_geometry
+
+    def small_correction(*args, **kwargs):
+        geometry = original_geometry(*args, **kwargs)
+        for name in ("FV_X", "FV_Y", "PV_X", "PV_Y", "SV_X", "SV_Y"):
+            setattr(
+                geometry, name, getattr(analysis, name) + (0.05 if name.endswith("X") else 0.0)
+            )
+        return geometry
+
+    monkeypatch.setattr(builder, "_layout_geometry", small_correction)
+    monkeypatch.setattr(builder, "_needs_repack", lambda *_: True)
+    monkeypatch.setattr(builder, "_annotations_out_of_bounds", lambda *_: True)
+    monkeypatch.setattr(builder, "_measure_blocks", lambda *_: {})
+    assembled = []
+
+    def assemble(chosen, *args, **kwargs):
+        assembled.append(chosen)
+        return "corrected drawing"
+
+    monkeypatch.setattr(builder, "_assemble", assemble)
+    drawing = SimpleNamespace(registry=AnnotationRegistry())
+    result = builder._repack(analysis, drawing, "small", None, False, scale=1, page="A3")
+    assert result is not None
+    corrected, output = result
+    assert output == "corrected drawing" and assembled == [corrected]
+    assert 0 < corrected.SV_X - analysis.SV_X < builder._REPACK_TOL
+    assert corrected.SV_X - analysis.SV_X == pytest.approx(0.05)
+
+
+@pytest.mark.parametrize("method", ["first", "third"])
+def test_plan_only_does_not_reserve_a_phantom_front_corridor(method):
+    geometry = _layout_geometry(
+        50,
+        35,
+        12,
+        1,
+        297,
+        210,
+        150,
+        StripDepths(right=20, left=20, pv_location_top=250),
+        views=("plan",),
+        include_iso=False,
+        convention=method,
+    )
+    assert geometry.fits
+    assert geometry.planned_views == ("plan",)
