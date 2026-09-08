@@ -20,6 +20,7 @@ import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
@@ -340,9 +341,9 @@ def _build_table(rows, draft, block_cols=None):
 
 def _tol_suffix(tolerance, draft) -> str:
     """The ``±`` / limit tolerance suffix to append to a **callout** label (a ø leader
-    or a hole callout), matching byte-for-byte what ``Dimension(tolerance=…)`` renders
-    on a linear dim (helpers ``_format_label``): a symmetric ``float`` → ``" ±t"``; an
-    ``(lower, upper)`` pair → ``" +upper -lower"`` — all rounded to the draft precision.
+    or a hole callout): a symmetric ``float`` → ``" ±t"``; an ``(lower, upper)`` pair
+    → ``" +upper -lower"``. Draft precision is a minimum; supplied tolerance
+    magnitudes must never be rounded into different engineering requirements.
 
     draftwright owns this suffix ONLY because the pinned helpers' ``Leader`` /
     ``HoleCallout`` take no ``tolerance=`` yet, so we bake it into the label string
@@ -355,11 +356,16 @@ def _tol_suffix(tolerance, draft) -> str:
         return ""
     if isinstance(tolerance, FitClass):
         return tolerance.suffix()
-    prec = draft.decimal_precision
+
+    def magnitude(value):
+        decimal = Decimal(str(value))
+        precision = max(draft.decimal_precision, -int(decimal.as_tuple().exponent))
+        return f"{decimal:.{precision}f}"
+
     if isinstance(tolerance, (int, float)):
-        return f" ±{round(tolerance, prec):.{prec}f}"
+        return f" ±{magnitude(tolerance)}"
     lo, hi = tolerance
-    return f" +{round(hi, prec):.{prec}f} -{round(lo, prec):.{prec}f}"
+    return f" +{magnitude(hi)} -{magnitude(lo)}"
 
 
 def _tag_sequence(n):

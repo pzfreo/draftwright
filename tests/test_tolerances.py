@@ -49,15 +49,15 @@ def _spec(diameter, **over):
 
 
 class TestTolSuffix:
-    """The owned callout formatter — must byte-match helpers' ``_format_label`` suffix."""
+    """The owned callout formatter preserves the supplied engineering magnitudes."""
 
     def test_symmetric_float(self):
         d = draft_preset(font_size=2.5, decimal_precision=2)
         assert _tol_suffix(0.05, d) == " ±0.05"
 
-    def test_symmetric_respects_precision(self):
+    def test_symmetric_does_not_coarsen_authored_magnitude(self):
         d1 = draft_preset(font_size=2.5, decimal_precision=1)
-        assert _tol_suffix(0.05, d1) == " ±0.1"  # rounds to the draft precision, like Dimension
+        assert _tol_suffix(0.05, d1) == " ±0.05"
 
     def test_limit_pair_is_plus_upper_minus_lower(self):
         d = draft_preset(font_size=2.5, decimal_precision=1)
@@ -501,7 +501,7 @@ class TestSheetTolerance:
             label="CUSTOM",
             tolerance=0.05,
         )
-        assert str(dwg.get_annotation("u0").label) == "CUSTOM ±0.1"
+        assert str(dwg.get_annotation("u0").label) == "CUSTOM ±0.05"
 
     @pytest.mark.parametrize("extra", [{}, {"pin": True}, {"priority": 5.0}])
     def test_a_deferred_dimension_renders_its_tolerance(self, extra):
@@ -551,7 +551,7 @@ class TestSheetTolerance:
         """
         from draftwright.sheet import Sheet as _S
 
-        for tol, expected in ((None, {"15", "30"}), (0.05, {"15 ±0.1", "30 ±0.1"})):
+        for tol, expected in ((None, {"15", "30"}), (0.05, {"15 ±0.05", "30 ±0.05"})):
             sheet = _S(self._staircase(), title="T", number="N")
             handle = sheet.step_level(self._staircase())
             if tol is not None:
