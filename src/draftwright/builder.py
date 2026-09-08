@@ -90,6 +90,7 @@ from draftwright.projection import (
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    PRINCIPAL_VIEW_NAMES,
     UncoveredViewRequirement,
     ViewConstraints,
     ViewPlanIncomplete,
@@ -307,7 +308,7 @@ def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
     by escalating the sheet."""
     lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
     for name, o in dwg.iter_annotations():
-        if dwg.view_of(name) not in ("front", "plan", "side"):
+        if dwg.view_of(name) not in PRINCIPAL_VIEW_NAMES:
             continue
         # Match the lint, which tests each item's FULL bounding_box (extension
         # lines, arrowheads, leader + balloon ring) — not just the label rect —

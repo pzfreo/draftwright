@@ -1382,7 +1382,7 @@ def _furnish_uncalled_patterns(dwg, a: Analysis, view_of_axis, plan, *, ctx, fur
         axis = feat.frame.axis
         if axis not in view_of_axis:
             continue
-        view = _END_ON[axis]
+        view = group.view
         j = 0
         while any(
             nm == f"dim_pitch_{view}{j}" or nm.startswith(f"dim_pitch_{view}{j}_")
@@ -1395,7 +1395,7 @@ def _furnish_uncalled_patterns(dwg, a: Analysis, view_of_axis, plan, *, ctx, fur
             view,
             j,
             feat,
-            view_of_axis[axis][1],
+            partial(layout_frame(a).project, view),
             ctx=ctx,
             plan=plan,
             furnished=furnished,
@@ -1603,25 +1603,10 @@ def _place_pitch_dim(
         return
     ux, uy = ux / norm, uy / norm
     mid = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
-    # view extents in page coordinates, to push the dim line outside
-    if view == "plan":
-        corners = [
-            (a.proj.plan_x(x), a.proj.plan_y(y))
-            for x in (a.bb.min.X, a.bb.max.X)
-            for y in (a.bb.min.Y, a.bb.max.Y)
-        ]
-    elif view == "front":
-        corners = [
-            (a.proj.front_x(x), a.proj.front_z(z))
-            for x in (a.bb.min.X, a.bb.max.X)
-            for z in (a.bb.min.Z, a.bb.max.Z)
-        ]
-    else:
-        corners = [
-            (a.proj.side_x(y), a.proj.side_z(z))
-            for y in (a.bb.min.Y, a.bb.max.Y)
-            for z in (a.bb.min.Z, a.bb.max.Z)
-        ]
+    # Every principal uses its selected view's composed, handed page frame.
+    frame = layout_frame(a)
+    x0, x1, y0, y1 = frame.edges(view)
+    corners = [(x, y) for x in (x0, x1) for y in (y0, y1)]
     # Pick the perpendicular side from the page layout, not raw distance:
     # below the plan view sit dim_width and the front view, above the front
     # view sits the plan — so plan dims go up, front dims go down, and
@@ -1721,7 +1706,7 @@ def _place_pitch_dim(
     # `sgn` the exact outward sign (±1); `distance = sgn*(pos - mid[axis])` then lands the line at
     # the carved `pos`. The tight threshold (≈1.6°) keeps a tilted row off this path — its dim
     # isn't axis-aligned, so it can't cleanly occupy a tier — routing it to the vector fallback.
-    zones = {"plan": a.pv_zones, "front": a.fv_zones, "side": a.sv_zones}[view]
+    zones = frame.zones(view)
     sx, sy = side[0], side[1]
     strip = axis = perp = None
     witness = sgn = 0.0

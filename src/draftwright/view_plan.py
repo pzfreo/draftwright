@@ -98,6 +98,7 @@ _PRINCIPAL_PAGE_AXES = {
 
 # Supported vocabulary is larger than the automatic candidate set. Rear is an
 # authored choice even when visibility or coverage would benefit from it.
+PRINCIPAL_VIEW_NAMES = tuple(_PRINCIPAL_PAGE_AXES)
 _AUTOMATIC_PRINCIPALS = ("front", "plan", "side")
 
 
@@ -729,12 +730,7 @@ def arrangement_of(pick) -> str:
 #: The primitive everything below derives from, so the derivations cannot drift from each
 #: other or be quietly mis-stated: `front` is the x-z elevation, `plan` looks down at x-y,
 #: `side` is the y-z elevation.
-VIEW_AXES: dict[str, tuple[str, str]] = {
-    "front": ("x", "z"),
-    "plan": ("x", "y"),
-    "side": ("y", "z"),
-    "rear": ("x", "z"),
-}
+VIEW_AXES: dict[str, tuple[str, str]] = dict(_PRINCIPAL_PAGE_AXES)
 
 #: Axis letter -> the principal views that can carry a requirement about it, preference
 #: ordered. `_geometry._END_ON` answers "which single view does this feature read face-on

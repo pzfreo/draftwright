@@ -125,6 +125,7 @@ from draftwright.model.planner import (
 )
 from draftwright.model.planner import location_role as _location_role
 from draftwright.view_plan import (
+    PRINCIPAL_VIEW_NAMES,
     ConstraintSource,
     ViewConstraint,
     ViewConstraints,
@@ -1960,13 +1961,7 @@ class Sheet:
     @staticmethod
     def _principal_view_name(name) -> tuple[str, str]:
         name = str(name).strip().lower()
-        kinds = {
-            "front": "principal",
-            "plan": "principal",
-            "side": "principal",
-            "rear": "principal",
-            "iso": "pictorial",
-        }
+        kinds = {**dict.fromkeys(PRINCIPAL_VIEW_NAMES, "principal"), "iso": "pictorial"}
         if name not in kinds:
             raise ValueError(
                 f"unknown view {name!r}; expected one of {tuple(kinds)}. "
@@ -2560,7 +2555,7 @@ class Sheet:
                 return tuple(dict.fromkeys((*third_angle_view_names(), *additions))), True
             return None, True
         names = tuple(record["name"] for record in self._principal_views)
-        principals = tuple(name for name in names if name in {"front", "plan", "side", "rear"})
+        principals = tuple(name for name in names if name in PRINCIPAL_VIEW_NAMES)
         if not principals:
             source = (
                 self._principal_views[0]["source"]

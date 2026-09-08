@@ -128,3 +128,117 @@ def test_rear_target_validation_rejects_another_holes_visible_rim(rear_enclosure
     errors = [issue for issue in drawing.lint() if issue.code == "diameter_leader_target_mismatch"]
     assert len(errors) == 1 and name in errors[0].message
     assert errors[0].measurement_ids == drawing.registry.measurement_of(name)
+
+
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_added_rear_retains_measurements_through_script_and_export(
+    rear_enclosure, convention, tmp_path
+):
+    from draftwright import Sheet
+    from draftwright.audit import compare_measurements
+    from draftwright.sheet_emit import emit_sheet_script
+
+    sheet = Sheet(rear_enclosure, projection=convention, page="A2", scale=1, scale_policy="strict")
+    for diameter, x, z in ((4, -21, 11), (7, 14, -9)):
+        hole = sheet.hole(diameter=diameter, at=(x, 20, z), axis="y", through=False, depth=1.5)
+        sheet.dimension(hole, "bore.diameter", view="rear")
+        sheet.dimension(hole, "bore.depth", view="rear")
+        sheet.dimension(hole, "location")
+    sheet.auto_views().add_view("rear")
+    original = sheet.build()
+    assert set(original.view_plan.principal_names) == {"front", "plan", "side", "rear"}
+    source = emit_sheet_script(
+        sheet.model(),
+        "part = supplied_part",
+        str(tmp_path / "rear"),
+        title="REAR",
+        number="REAR",
+        page="A2",
+        scale=1,
+        scale_policy="strict",
+        projection=convention,
+        formats=("svg", "pdf", "dxf"),
+        view_constraints=sheet.view_constraints,
+    )
+    assert 'sheet.add_view("rear")' in source
+    namespace = {"supplied_part": rear_enclosure}
+    exec(source, namespace)
+    replay = namespace["drawing"]
+    assert replay.view_plan.principal_names == original.view_plan.principal_names
+    assert replay.view_plan.convention == convention
+    pairs = tuple(zip(sheet.model().features, namespace["sheet"].model().features, strict=True))
+    assert compare_measurements(original, replay, feature_pairs=pairs)["status"] == "preserved"
+    for feature in namespace["sheet"].model().features:
+        assert all(replay.view_of(name) == "rear" for name in replay.annotations_of(feature))
+    assert all(
+        (tmp_path / f"rear.{extension}").stat().st_size > 100
+        for extension in ("svg", "pdf", "dxf")
+    )
+
+
+def test_rear_ink_overflow_triggers_shared_repack():
+    from types import SimpleNamespace
+
+    import draftwright.builder as builder
+
+    ink = SimpleNamespace(
+        bounding_box=lambda: SimpleNamespace(min=Vector(9, 20, 0), max=Vector(30, 40, 0))
+    )
+    drawing = SimpleNamespace(
+        iter_annotations=lambda: [("rear_ink", ink)], view_of=lambda name: "rear"
+    )
+    analysis = SimpleNamespace(margin=10, PAGE_W=100, PAGE_H=100)
+    assert builder._annotations_out_of_bounds(drawing, analysis)
+
+
+def test_external_location_judge_does_not_invent_a_rear_view():
+    from draftwright import build_drawing
+    from draftwright.linting import lint_location_coverage
+
+    part = Box(100, 60, 20) - Pos(30, 0, 0) * Rot(90, 0, 0) * Cylinder(4, 80)
+    drawing = build_drawing(part, auto_dims=False)
+
+    class ExternalDrawing:
+        at = drawing.at
+        iter_annotations = drawing.iter_annotations
+        view_of = drawing.view_of
+
+    expected = [issue.code for issue in lint_location_coverage(part, drawing)]
+    assert expected == ["feature_no_centermark", "feature_not_located"]
+    assert [issue.code for issue in lint_location_coverage(part, ExternalDrawing())] == expected
+
+
+@pytest.mark.parametrize("with_bore", [False, True])
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_rear_pattern_pitch_never_draws_in_an_absent_front_view(with_bore, convention):
+    from draftwright import Sheet
+    from draftwright.model import hole
+
+    part = Box(80, 40, 50)
+    for x in (-20, 0, 20):
+        part -= Pos(x, 19.5, 5) * Rot(90, 0, 0) * Cylinder(2, 2)
+    sheet = Sheet(part, page="A3", scale=1, scale_policy="strict", projection=convention)
+    pattern = sheet.pattern(
+        hole(diameter=4, at=(-20, 20, 5), axis="y", through=False, depth=1.5),
+        kind="linear",
+        count=3,
+        at=(0, 20, 5),
+        members=((-20, 20, 5), (0, 20, 5), (20, 20, 5)),
+        pitch=20,
+        direction=(1, 0, 0),
+    )
+    sheet.dimension(pattern, "pitch.length")
+    if with_bore:
+        sheet.dimension(pattern, "bore.diameter")
+        sheet.dimension(pattern, "bore.depth")
+    sheet.view("rear")
+    drawing = sheet.build()
+    assert drawing.view_plan.principal_names == ("rear",)
+    assert all(drawing.view_of(name) in (None, "rear") for name in drawing.annotations())
+    pitches = [
+        annotation
+        for _, annotation in drawing.iter_annotations()
+        if getattr(annotation, "label", "") == "2× 20"
+    ]
+    assert len(pitches) == 1
+    assert pitches[0].measured_length == pytest.approx(40)

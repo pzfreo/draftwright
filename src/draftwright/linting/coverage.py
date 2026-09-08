@@ -582,6 +582,8 @@ def lint_location_coverage(
         axis = _axis_letter(h)
         views = ("front", "rear") if axis == "y" else (_END_ON.get(axis, "plan"),)
         available_views = getattr(dwg, "views", None)
+        if available_views is None:
+            views = (_END_ON.get(axis, "plan"),)
         projections = {
             view: dwg.at(view, x, y, z)
             for view in views
