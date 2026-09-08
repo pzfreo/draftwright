@@ -17,6 +17,7 @@ from build123d import GeomType
 
 from draftwright._core import _shape_box2d
 from draftwright._geometry import (
+    BOUNDS_ROUNDOFF,
     MATERIAL_VISIBLE_FLOOR,
     _boxes_overlap,
     _segment_clip_extent,
@@ -668,13 +669,13 @@ def _overshoots(bb, bounds) -> list[str]:
     """Sides where (min_x, min_y, max_x, max_y) *bb* spills past *bounds*, as text."""
     bx0, by0, bx1, by1 = bounds
     out = []
-    if bb[0] < bx0:
+    if bb[0] < bx0 - BOUNDS_ROUNDOFF:
         out.append(f"left by {bx0 - bb[0]:.1f} mm")
-    if bb[2] > bx1:
+    if bb[2] > bx1 + BOUNDS_ROUNDOFF:
         out.append(f"right by {bb[2] - bx1:.1f} mm")
-    if bb[1] < by0:
+    if bb[1] < by0 - BOUNDS_ROUNDOFF:
         out.append(f"below by {by0 - bb[1]:.1f} mm")
-    if bb[3] > by1:
+    if bb[3] > by1 + BOUNDS_ROUNDOFF:
         out.append(f"above by {bb[3] - by1:.1f} mm")
     return out
 

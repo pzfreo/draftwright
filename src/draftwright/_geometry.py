@@ -23,6 +23,9 @@ from quiddity import full_cylinders
 
 _log = logging.getLogger(__name__)
 
+# Ignore floating-point noise at rectangle boundaries, never visible overflow.
+BOUNDS_ROUNDOFF = 1e-9
+
 # Axis letter -> the orthographic view a feature on that axis reads end-on in: a z-hole is
 # a circle in plan, an x-channel is a cross-section in side.
 #

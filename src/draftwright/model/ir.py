@@ -793,6 +793,9 @@ class HoleFeature:
     # Canonical unit normal to the parallel flats in part coordinates. This is orientation,
     # not a printable measurement, and is retained for declaration/script fidelity.
     profile_direction: Point | None = None
+    # None uses default wording; an explicitly empty string omits only the
+    # printed indicator. This is declared content, separate from through/blind.
+    through_indicator: str | None = None
     kind: ClassVar[str] = "hole"
 
     def __post_init__(self) -> None:
@@ -802,6 +805,18 @@ class HoleFeature:
         (ADR 4 (was 0011)). Validating here prevents a direct model from planning ``DOUBLE-D`` with
         no A/F value, or carrying an orientation that the profile cannot have.
         """
+        if self.through_indicator is not None:
+            if not self.through:
+                raise ValueError("a blind hole cannot carry a through_indicator")
+            if not isinstance(self.through_indicator, str) or (
+                self.through_indicator
+                and (
+                    not self.through_indicator.isprintable() or not self.through_indicator.strip()
+                )
+            ):
+                raise ValueError(
+                    "through_indicator must be printable single-line text, or '' to omit"
+                )
         if (
             isinstance(self.thread, ThreadOperation)
             and self.depth is not None

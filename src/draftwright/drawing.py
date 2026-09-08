@@ -1648,8 +1648,23 @@ class Drawing:
         a feature's callout/centre-mark/size-dims is a page-level edit; call
         :func:`finalize_drawing` afterwards (when available) to recompose the sheet."""
         names = self._registry.names_for_feature(feature)
+        survivors: list = []
+        for name in names:
+            for owner in getattr(self._registry.named(name), "source_features", ()):
+                if owner != feature and not any(owner is existing for existing in survivors):
+                    survivors.append(owner)
         for n in names:
             self.remove(n)
+        if survivors:
+            # A shared callout is indivisible ink. Re-emit only its other owners
+            # through the same deferred callout path after removing that ink.
+            if self._defer_intents:
+                for owner in survivors:
+                    self.callout(owner)
+            else:
+                with self.deferred():
+                    for owner in survivors:
+                        self.callout(owner)
         return names
 
     @staticmethod
@@ -3602,6 +3617,8 @@ class Drawing:
         table visibly states. Returns the table, or ``None`` when *view* has no holes or it
         will not fit.
         """
+        from draftwright.model.callout import resolved_through_indicator
+
         groups = self._hole_spec_groups(view)
         if not groups:
             return None
@@ -3661,7 +3678,7 @@ class Drawing:
             # escalated table does (`orchestrator._table_row`): a bare `ø` with no number, or a
             # `THRU` qualifying a diameter that is not printed, states less than nothing.
             depth = (
-                ("THRU" if dia else "")
+                (resolved_through_indicator(owner) if dia else "")
                 if h.through
                 else (_cell(owner, "bore.depth", _fmt(h.depth)) if h.depth else "")
             )

@@ -47,7 +47,7 @@ from draftwright._core import (
     _shape_box2d,
     _tb_width,
 )
-from draftwright._geometry import _scale_world
+from draftwright._geometry import BOUNDS_ROUNDOFF, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotations._common import (
@@ -296,7 +296,7 @@ def _inflate_box(box, clearance):
     )
 
 
-def _annotations_out_of_bounds(dwg, a, tol: float = 0.0) -> bool:
+def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
     """True when any view-owned annotation's footprint extends past the drawable
     area — the second repack trigger besides cross-view overlap.  A ballooned
     plan view can overflow the page top (the balloon ring) without crossing

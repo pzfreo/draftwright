@@ -49,6 +49,31 @@ SVG, PDF and DXF export the same resolved ink. Unsupported values raise `ValueEr
 The choices affect rendering and its placement footprint, not feature measurements
 or tolerances. These are explicit rendering choices, not a claim of standards conformity.
 
+## Through-hole wording
+
+The optional argument to a hole handle's `through()` controls its printed indicator:
+
+```python
+hole.through()                # default THRU
+hole.through("THRU")          # explicit wording
+hole.through("")              # omit the printed indicator
+hole.through("THROUGH ALL")   # alternative wording
+```
+
+Each declares a through hole and clears any blind depth. Diameter, tolerances, fits and
+measurement identities remain unchanged. The empty string is an explicit display omission;
+it remains visible in the suppression ledger and does not count as a printed through
+qualifier. `.depth(4)` makes the hole blind and clears the override; a later `.through()`
+returns to the default.
+
+The override is also accepted as `through_indicator=` by `Sheet.hole()` and the IR `hole()`
+constructor, including pattern members. Generated scripts preserve the difference between
+no override, explicit default wording and an empty string. Callouts and hole tables measure
+the selected wording before placement. Compatible holes can share a callout when their
+resolved wording, machining specifications and placement constraints agree; original feature
+owners and measurement identities remain separate. Removing one owner of a shared callout
+rebuilds the survivors through the placement solver.
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`

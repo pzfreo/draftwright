@@ -1887,3 +1887,47 @@ def test_retained_fit_leader_crossing_rolls_the_automatic_table_back():
         issue.code for issue in drawing.registry.issues
     }
     assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
+
+
+@pytest.mark.parametrize("projection", [None, "first", "third"])
+@pytest.mark.parametrize("indicator", ["", "THROUGH ALL"])
+def test_automatic_table_preserves_authored_through_wording(indicator, projection):
+    part = _dense_perimeter_plate()
+    model = detect_part_model(part)
+    holes = [feature for feature in model.features if feature.kind == "hole"]
+    assert len(holes) == 16 and all(feature.through for feature in holes)
+    model.features = [
+        replace(feature, through_indicator=indicator) if feature.kind == "hole" else feature
+        for feature in model.features
+    ]
+    drawing = build_drawing(part, model=model, page="A3", projection=projection)
+    assert ("projection_symbol" in drawing.annotations()) is (projection is not None)
+    assert "hole_table_plan" in drawing.annotations()
+    table = drawing.get_annotation("hole_table_plan")
+    depth_column = table.table_rows[0].index("DEPTH")
+    assert len(table.table_rows) == 17
+    assert {row[depth_column] for row in table.table_rows[1:]} == {indicator}
+    assert all(row[1].startswith("ø") and len(row[1]) > 1 for row in table.table_rows[1:])
+    diagnostics = compile_dimensions(drawing.model()).diagnostics
+    omissions = [item for item in diagnostics if item.parameter_id == "bore.through"]
+    assert len(omissions) == (16 if indicator == "" else 0)
+    outcomes = hole_requirement_outcomes(
+        drawing.recognition(),
+        drawing.model().features,
+        drawing.registry,
+        diagnostics,
+    )
+    assert all(
+        outcome.state == "placed"
+        or (
+            indicator == ""
+            and outcome.parameter_id == "bore.through"
+            and outcome.state == "suppressed"
+        )
+        for outcome in outcomes
+    )
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.severity in {"warning", "error"} and issue.code != "hole_requirement_suppressed"
+    ]

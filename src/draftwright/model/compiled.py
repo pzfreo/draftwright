@@ -549,12 +549,13 @@ class ApprovedLadder:
 
 @dataclass(frozen=True)
 class Omission:
-    """A measurement the compiler did not approve, and why.
+    """A measurement or displayed qualifier the compiler withheld, and why.
 
     ``authored`` separates the author's own omission from a planner rule's suppression (an
     X-turned extent, a rotational OD's cross-axis extent — the square-footprint rule that used
     to be the stock example was deleted in #997). Only the first makes an empty result the script's
-    doing, and only the first is recoverable by adding a `dimension(...)` line — a
+    doing. A dimension is restored with `dimension(...)`; an explicitly omitted
+    through qualifier is restored with `through(...)`. This is a
     distinction three attempts at predicting renderer behaviour in #921 kept blurring.
     """
 
@@ -579,7 +580,7 @@ class Omission:
 
     @property
     def authored(self) -> bool:
-        return self.reason == _AUTHORED_OMISSION
+        return self.reason in {_AUTHORED_OMISSION, "through indicator explicitly omitted"}
 
 
 POCKET_LOCATION_DATUM_COINCIDENT = "pocket location is coincident with its datum"
@@ -1637,6 +1638,12 @@ def _compile_groups(
     out: list[ApprovedGroup] = []
     omissions: list[Omission] = []
     for g in planned:
+        feature = g.feature
+        hole = feature.member if isinstance(feature, PatternFeature) else feature
+        if isinstance(hole, HoleFeature) and hole.through and hole.through_indicator == "":
+            omissions.append(
+                Omission(feature, "bore.through", None, "through indicator explicitly omitted")
+            )
         # The planner's X-chain redundancy decision precedes chain approval.
         # Restore only that reason, preserving authored and unrelated omissions.
         dims = tuple(

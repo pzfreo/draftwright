@@ -356,6 +356,8 @@ def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None 
             kw.append(f"depth={_n(f.depth)}")
         if f.profile_direction is not None:
             kw.append(f"profile_direction={_direction(f.profile_direction)}")
+        if f.through_indicator is not None:
+            kw.append(f"through_indicator={f.through_indicator!r}")
         kw.extend(_hole_group_args(f))
         return f"sheet.double_d_bore({', '.join(kw)})"
     kw = (
@@ -391,6 +393,8 @@ def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None 
         # annotation: the callout reads THRU either way, checked. `.depth()` is not usable
         # here because it also sets `through=False`, which would invert the very fact above.
         kw.append(f"depth={_n(f.depth)}")
+    if f.through_indicator is not None:
+        kw.append(f"through_indicator={f.through_indicator!r}")
     line = f"sheet.hole({', '.join(kw)})"
     if not f.through and f.depth is not None:
         line += f".depth({_n(f.depth)})"  # sets through=False too
@@ -414,6 +418,8 @@ def _member_hole_str(m, *, exact_parameter: str | None = None) -> str:
             kw.append(f"depth={_n(m.depth)}")
         if m.profile_direction is not None:
             kw.append(f"profile_direction={_direction(m.profile_direction)}")
+        if m.through_indicator is not None:
+            kw.append(f"through_indicator={m.through_indicator!r}")
         return f"double_d_bore({', '.join(kw)})"
     kw = [
         f"diameter={_parameter_n(m.diameter, 'bore.diameter', exact_parameter)}",
@@ -439,6 +445,8 @@ def _member_hole_str(m, *, exact_parameter: str | None = None) -> str:
         # fixed, which the model-fidelity oracle missed because its corpus carried no hole
         # pattern (#967 review). The two templates diverging is the recurring shape here.
         kw.append(f"depth={_n(m.depth)}")
+    if m.through_indicator is not None:
+        kw.append(f"through_indicator={m.through_indicator!r}")
     return f"hole({', '.join(kw)})"
 
 
