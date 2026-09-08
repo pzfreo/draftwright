@@ -1840,6 +1840,12 @@ class TestCli:
         assert (tmp_path / "g.pdf").exists()  # #702: Sheet.export defaults to PDF
 
 
+def _angular_profile():
+    # Scalene stock has independent corner angles, unlike a regular HEX callout
+    # or chamfer, whose geometry already defines the incident angles.
+    return extrude(Polygon((0, 0), (50, 0), (13, 30), align=None), amount=8)
+
+
 def _chamfered_corner(op, size):
     """A plate with ONE vertical corner edge chamfered or filleted — `op` is build123d's
     `chamfer` or `fillet`. Same edge selection the per-kind emit tests use, so the corpus
@@ -1974,11 +1980,12 @@ class TestRoundTripParity:
 
         Signature parity alone would also be satisfied by two identically BLANK drawings, so
         this pins the content on both sides as well.
-        This shaft's shoulders sit 4 mm apart, which fails the legibility gate, which drops the
-        whole step chain. #955 recovers the overall height from a compiler-approved contingency
-        while retaining the specific chain-drop diagnostic; direct and generated-script builds
-        must make that same runtime selection."""
+        The 4 mm groove previously caused the whole step chain to drop, activating the
+        overall-height contingency. Shoulder recovery now preserves the native lengths;
+        direct and generated-script builds must make the same runtime selection."""
         from build123d import Align
+
+        from draftwright.model import DimensionId
 
         shaft = Cylinder(12, 60, align=(Align.CENTER, Align.CENTER, Align.MIN))
         shaft -= Pos(0, 0, 30) * (
@@ -1994,14 +2001,20 @@ class TestRoundTripParity:
             assert any(n.startswith("m_groove") for n in names), (which, names)
             assert "4 WIDE × ø18" in labels, (which, labels)
             assert "ø24" in labels, (which, labels)
-            assert "dim_height" in names, (which, names)
-            assert "60" in labels, (which, labels)
+            assert sorted(
+                item.label for name, item in dwg.iter_annotations() if name.startswith("m_steplen")
+            ) == ["26", "30"], (which, labels)
+            assert "dim_height" not in names, "the complete chain needs no fallback"
             codes = dwg.lint_summary()["by_code"]
             assert codes.get("axial_length_missing", 0) == 0, (which, codes)
-            assert codes.get("step_dim_dropped") == 1, (which, codes)
-            assert not [
-                row for row in dwg.suppressions() if row["parameter_id"] == "height.length"
-            ], (which, dwg.suppressions())
+            assert codes.get("step_dim_dropped", 0) == 0, (which, codes)
+            steps = [feature for feature in dwg.model().features if feature.kind == "step"]
+            assert len(steps) == 2
+            assert all(
+                dwg.registry.has_measurement(DimensionId(step, parameter.parameter_id))
+                for step in steps
+                for parameter in step.parameters()
+            ), (which, steps)
 
     def test_pocket_pattern_parity(self, tmp_path, monkeypatch):
         """#957 review: the emitted script named `pocket` without importing it, so a
@@ -2556,6 +2569,7 @@ class TestTheDimensionMirror:
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
             "polygonal boss": _polygonal_boss_plate(),
             "polygonal stock": _polygonal_stock(),
+            "outer angles": _angular_profile(),
             # Turned parts joined the corpus with #945: `rotational` gained a declarative
             # verb, so they mirror their dimensions instead of falling back. Contiguous on
             # purpose — a disconnected profile is a separate, unrelated defect (#943).
@@ -2603,6 +2617,7 @@ class TestTheDimensionMirror:
     #: only an envelope) and "slot" (detected a pocket) until #947's review counted them.
     _EXPECTED_KINDS = {
         "plate+hole": {"hole"},
+        "outer angles": {"angle"},
         # The mounting lugs are solid material pierced by bores, not pockets. The
         # dedicated pocket and pad fixtures exercise those two mirror paths.
         "flange (no envelope feature)": {"boss", "hole", "pattern", "step"},
@@ -2925,6 +2940,7 @@ def _route_of(value: str) -> str:
 #: serialises it and the generated script reconstructs it (#973 r3). No `"untested"` route
 #: either; #948 closed the last of them.
 _KIND_MIRROR_COVERAGE = {
+    "angle": "corpus",
     "hole": "corpus",
     "pattern": "corpus",
     "boss": "corpus",
@@ -3092,6 +3108,8 @@ def _declared_models():
         "external spur gear"
     ]()
     yield "external_spur_gear", gear, "sheet.external_spur_gear("
+    _part, angle = TestTheDeclaredModelMatchesTheDetectedOne._declared_corpus()["angle"]()
+    yield "angle", angle, "sheet.angle("
 
 
 def _declarable_kinds() -> set[str]:
@@ -3431,6 +3449,10 @@ _ROUTES = tuple(_ROUTE_OBLIGATIONS)
 #: reads it; the route decides which corpus must contain the kind, and is validated against
 #: `_ROUTES`. Fail-closed against the IR itself, so a new kind cannot arrive unclassified.
 _FIDELITY_ROUTE = {
+    "angle": (
+        "detected",
+        "outer-profile included angles; declared rays and tolerances also tested",
+    ),
     # Detected: reachable by emitting a model the detectors built from a part.
     "hole": ("detected", "plate+hole, and as a pattern member"),
     "pattern": ("detected", "hole pattern (linear) and grid pattern"),
@@ -3673,9 +3695,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             - Pos(20, 0, 0) * Cylinder(4, 40)
             - Pos(60, 0, 0) * Cylinder(4, 40),
             "pocket pattern": rows(Box(10, 12, 6), z=7),
-            # Grid variants. They do NOT round-trip — #969 transposes the array — so they
-            # carry a strict xfail rather than sitting outside the corpus, which keeps the
-            # DESIRED equality as the assertion and still executes the grid emit branches.
+            # Both grid families remain in the round-trip corpus; the independent
+            # member-order check retains a strict xfail for the slot-grid mismatch.
             "pocket grid": grid(Box(12, 14, 6), z=7),
             "slot grid": grid(Box(24, 8, 40), z=0),
             # GRID variants. The linear ones above leave the grid branches of
@@ -3700,6 +3721,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "boss": Box(80, 60, 12) + Pos(0, 0, 12) * Cylinder(10, 8),
             "polygonal boss": _polygonal_boss_plate(),
             "polygonal stock": _polygonal_stock(),
+            "outer angles": _angular_profile(),
             "turned shaft": Cylinder(15, 20) + Pos(0, 0, 17.5) * Cylinder(10, 15),
             "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
             # The machined kinds. Excused in the first two cuts as carrying "no position to
@@ -3736,9 +3758,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
     #: two fixtures most likely to regress. #969's second defect (recognition projecting onto
     #: its own plane basis) was live underneath one of these markers (Codex review of #970).
     _KNOWN_BAD_ORDER = {
-        "pocket grid": "#883 — per-member identity: detection enumerates a grid by column, "
+        "slot grid": "#883 — per-member identity: detection enumerates a grid by column, "
         "declaration by row. Same members, same places, different tuple order.",
-        "slot grid": "#883 — as pocket grid",
     }
 
     def _order_cases(_corpus=_corpus, _bad=_KNOWN_BAD_ORDER):  # noqa: N805 — class-body
@@ -3757,6 +3778,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
     #: exists for, repeated here because this corpus made the same mistake (#967 review).
     _EXPECTED_KINDS = {
         "underside pocket": {"pocket"},
+        "outer angles": {"angle"},
         "top pocket": {"pocket"},
         "slot": {"slot"},
         "pocket pattern": {"pocket_pattern"},
@@ -3803,6 +3825,14 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         from build123d import Box
 
         from draftwright import Sheet
+
+        def angle():
+            part = Box(40, 20, 10)
+            sheet = Sheet(part, title="T", number="N")
+            handle = sheet.angle(vertex=(0, 0, 5), first=(10, 0, 5), second=(0, 10, 5))
+            handle.tolerance(0.05, on="included.angle")
+            sheet.dimension(handle, "included.angle")
+            return part, sheet.model()
 
         def measured_dimension():
             part = Box(40, 20, 10)
@@ -3908,6 +3938,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             return part, dataclasses.replace(model, features=[*model.features, datum])
 
         return {
+            "angle": angle,
             "control frame": control_frame,
             "datum feature": datum_ref,
             "external spur gear": external_spur_gear,

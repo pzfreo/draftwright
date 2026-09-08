@@ -1850,12 +1850,11 @@ def _axial_covered_from_drawing(
         px, py, *_ = dwg.at(view, *pt)
         return float(px if horizontal else py)
 
-    # A crowded X-turned head or Y-turned side chain can be dimensioned in an
-    # enlarged detail view (#304/#307/#892), not the principal profile — so a
+    # A crowded turned chain can be dimensioned in an enlarged detail view,
+    # on every turning axis, rather than the principal profile — so a
     # shoulder counts as located when matched in EITHER source or detail view.
     views = [view for view in _turned_profile_views(prof.axis) if view in dwg.views]
-    if prof.axis in ("x", "y"):
-        views += sorted(v for v in dwg.views if v.startswith("detail_"))
+    views += sorted(v for v in dwg.views if v.startswith("detail_"))
     covered_steps: set[int] = set()
     for view in views:
         horizontal, _own_cross = _profile_projection(dwg, view, base, prof.axis)
@@ -1878,6 +1877,10 @@ def _axial_covered_from_drawing(
                 # step endpoint (so a non-contiguous profile's interior end face is a
                 # shoulder), and this branch should be unreachable — but a lint pass must
                 # never crash on an unguarded lookup, so skip rather than KeyError.
+                continue
+            if abs(chi - clo) < 1e-9:
+                # An end-on detail projects both shoulder stations onto one
+                # point. Coincident witnesses cannot establish an axial length.
                 continue
             for name, label, cs, cross_coords, owners in dims:
                 if not cs:

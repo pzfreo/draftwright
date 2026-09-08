@@ -11,7 +11,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
 top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`plate_correspondence.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary) →
 `_core.py` → stage modules (`export.py`,
@@ -95,6 +95,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 1 (was 0015),
     #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
     were deleted as each migrated here.
+  - **`annotations/angular.py`** — angular arc/arrow/extension ink and analytic
+    radius-dependent footprints, consumed through the shared corridor solve.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
@@ -198,6 +200,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
+  `angular.py` (degree claims and actual angular ink, with explicit unavailable
+  physical-support evidence),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
   (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
   `plate_correspondence` leaf,
@@ -221,6 +225,14 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   unsupported/deferred/evidence-only occurrences are classified; remaining conditional
   cross-family records stay unclassified.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
+- **`profile_angles.py`** — bounded face-profile angle requirements projected from Quiddity's
+  ordered supports, with issued body/profile identity retained outside the IR. The detection
+  adapter creates the ordinary declared angle feature and records its owner in
+  `RecognitionOwnership.profile_angles`; these are drafting requirements, not additional
+  accepted recognition occurrences.
+- **`angular_geometry.py`** — analytic angular boxes from support rays, fixed typography
+  and paper-space drafting clearances. Composition and rendering share this geometry;
+  page/scale trials consume numeric boxes without constructing CAD annotation objects.
   Model assembly uses their feature dependency sets only while recording exact same-run
   occurrence ownership; completeness lint uses the same predicates for requirement ownership.
   The leaf imports neither consumer, recogniser implementation, nor drawing state.

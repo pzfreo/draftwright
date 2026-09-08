@@ -32,6 +32,13 @@ def grm04_scripts(tmp_path_factory):
         formats=(),
     )
     source = Path(path).read_text(encoding="utf-8")
+    # Keep this authored collision case focused on hole/location dimensions.
+    # The newly detected profile angles change packing enough to clear its
+    # original crossing before the side edit. Omit their dimension requests
+    # explicitly on both sides of the comparison, retaining their declarations.
+    angle_requests = [line for line in source.splitlines() if '"included.angle")' in line]
+    assert len(angle_requests) == 2
+    source = "\n".join(line for line in source.splitlines() if line not in angle_requests)
     assert source.count('"bore.diameter")') == 2
     assert source.count('"height.length")') == 1
     edited = source.replace('"bore.diameter")', '"bore.diameter", side="left")')

@@ -13,6 +13,7 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
+from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,7 @@ from draftwright._geometry import (  # noqa: F401
     _segment_crosses_box,
     _segments_cross_or_overlap,
 )
+from draftwright.annotations.angular import AngularDimension
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.linting.ink_overlap import (
     MIN_CROSSING_MM,
@@ -44,6 +46,8 @@ from draftwright.linting.issues import LintIssue
 from draftwright.linting.structural import (
     _ann_box,
     _centerline_extent,
+    _edges_intersect_rect,
+    _view_edge_entries,
 )
 from draftwright.model.compiled import resolve_feature
 from draftwright.model.ir import HoleFeature, PatternFeature
@@ -616,6 +620,12 @@ class SolveTrace:
         (with *label*) for a pass-local strip placement outside any corridor."""
         rec: dict = {
             "force": force,
+            # A fallback can use another axis/view while its parent corridor is
+            # still open. Every pass therefore owns its coordinate frame.
+            "label": label,
+            "view": view,
+            "axis": axis,
+            "strip": self._strip_rec(strip),
             "obstacles": [],
             "free_segments": [],
             "placed": [],
@@ -628,10 +638,6 @@ class SolveTrace:
             rec = {
                 "seq": self._next_seq(),
                 "phase": self._phase,
-                "label": label,
-                "view": view,
-                "axis": axis,
-                "strip": self._strip_rec(strip),
                 **rec,
                 "items": [],
             }
@@ -1504,7 +1510,7 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
     )
 
 
-def annotation_ink_clear(dwg, candidate, *, view=None) -> bool:
+def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
     """Whether *candidate* clears exact decomposable ink and conservative fixed furniture.
 
     A diagonal dimension cannot use the strip system's conservative AABB occupancy as its
@@ -1528,8 +1534,8 @@ def annotation_ink_clear(dwg, candidate, *, view=None) -> bool:
     )
     if candidate_region is None:
         return False
-    for name, annotation in dwg.iter_annotations():
-        owner = dwg.view_of(name)
+    for name, annotation in chain(dwg.iter_annotations(), ((None, item) for item in additional)):
+        owner = dwg.view_of(name) if name is not None else view
         if view is not None and owner is not None and owner != view:
             continue
         annotation_segments = segments_of(annotation)
@@ -1542,9 +1548,9 @@ def annotation_ink_clear(dwg, candidate, *, view=None) -> bool:
             item=annotation,
             segments=annotation_segments,
         )
-        crossable_strokes = isinstance(annotation, (Dimension, SafeDimension)) or (
-            type(annotation).__name__ in CROSSABLE_TYPES
-        )
+        crossable_strokes = isinstance(
+            annotation, (Dimension, SafeDimension, AngularDimension)
+        ) or (type(annotation).__name__ in CROSSABLE_TYPES)
         if annotation_label is not None and annotation_region is None:
             try:
                 conservative_label_hit = _boxes_overlap(candidate_label, annotation_label) or any(
@@ -1593,6 +1599,19 @@ def annotation_ink_clear(dwg, candidate, *, view=None) -> bool:
     return True
 
 
+def view_label_clearance(dwg, view):
+    """A label guard over the same projected edges the structural critic reads.
+
+    Prepare the edges once per batch, outside candidate evaluation. Missing view
+    geometry supplies no guard; unreadable geometry cannot establish clearance.
+    """
+    placed = getattr(dwg, "views", {}).get(view)
+    if not placed or placed[0] is None:
+        return None
+    entries = _view_edge_entries(placed[0], {})
+    return lambda box: entries is not None and not _edges_intersect_rect(entries, box)
+
+
 def prevent_dimension_label_ink(
     dimensions,
     *,
@@ -1600,6 +1619,7 @@ def prevent_dimension_label_ink(
     immutable=(),
     obstacles=(),
     perpendicular_step=None,
+    label_clear=None,
 ):
     """Choose small along-line label offsets for a just-built dimension batch.
 
@@ -1627,12 +1647,14 @@ def prevent_dimension_label_ink(
     whose line-work cannot be cleared by moving labels along their measured spans.
     Fixed *obstacles* do not make an existing contact this local batch's responsibility, but
     no selected move may introduce a new label contact with one.
+    ``label_clear`` optionally checks labels against projected part ink. Unlike
+    pre-existing annotation contacts, these are conflicts to resolve in this batch.
 
     Returns ``[(name, dimension), ...]`` in input order.
     """
 
     original = list(dimensions)
-    if len(original) < 2:
+    if not original or (len(original) < 2 and label_clear is None):
         return original
     immutable = set(immutable)
     obstacles = tuple(obstacles)
@@ -1729,6 +1751,8 @@ def prevent_dimension_label_ink(
         for target, (label, region) in enumerate(zip(labels, regions, strict=True)):
             if label is None or region is None:
                 continue
+            if label_clear is not None and not label_clear(label):
+                found.add(("view", target))
             # Helpers expose no arrow polygons.  The foreign dimension's exact
             # attachment tips still participate, closing the line-metadata gap without
             # guessing the orientation of this dimension's own inside/outside arrows.
@@ -1907,6 +1931,8 @@ def prevent_dimension_label_ink(
                 involved.update((conflict[1], conflict[2]))  # source + crossed label
             elif conflict[0] == "fixed":
                 involved.add(conflict[2])
+            elif conflict[0] == "view":
+                involved.add(conflict[1])
             else:  # label/label
                 involved.update((conflict[1], conflict[2]))
         best = None
@@ -2053,6 +2079,13 @@ class CorridorCandidate:
     # keeping footprints truthful (``dim_footprint``, ±0.05 mm) is what keeps that
     # fallback rare and the placement identical to the probe path.
     footprint: object | None = None
+    # A candidate can need a minimum geometric clearance (e.g. an angular arc
+    # must carry its complete label). Reject an infeasible tier before building
+    # OCC ink; the caller's normal drop/fallback path remains authoritative.
+    valid_position: object | None = None
+    # Bounded curved-ink alternatives, checked against actual ink after the
+    # conservative strip solve. They preserve the approved content and sector.
+    compact_candidates: object | None = None
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
@@ -2210,6 +2243,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     anchored = {c.name: c.anchored for c in kept if c.anchored}
     naturals = {c.name: c.natural for c in kept if c.natural is not None}
     foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical (#602)
+    valid_positions = {c.name: c.valid_position for c in kept if c.valid_position is not None}
+    compactions = {c.name: c.compact_candidates for c in kept if c.compact_candidates is not None}
     left = {
         n
         for n, _ in place_strip_candidates(
@@ -2229,6 +2264,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             anchored=anchored,
             naturals=naturals,
             footprints=foots,
+            valid_positions=valid_positions,
+            compact_candidates=compactions,
             corner_reserves=corner_reserves,
             trace=trace,
         )
@@ -2247,6 +2284,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 ctx=ctx,
                 force=True,
                 footprints=foots,
+                valid_positions=valid_positions,
+                compact_candidates=compactions,
                 corner_reserves=corner_reserves,
                 features=feats,
                 measurements=meas,
@@ -2538,6 +2577,8 @@ def place_strip_candidates(
     anchored=None,
     naturals=None,
     footprints=None,
+    valid_positions=None,
+    compact_candidates=None,
     corner_reserves=(),
     trace=None,
     trace_label=None,
@@ -2777,6 +2818,11 @@ def place_strip_candidates(
                 _reject(name, "over_capacity")
                 rejected.append((name, build))
                 continue
+            valid_position = (valid_positions or {}).get(name)
+            if valid_position is not None and not valid_position(pos):
+                _reject(name, "geometric_clearance")
+                rejected.append((name, build))
+                continue
             # Predicted box, not built geometry (#602): the refill loop re-evaluates
             # every already-accepted candidate each iteration, so building here made
             # the drain quadratic in OCC builds.
@@ -2867,6 +2913,48 @@ def place_strip_candidates(
                 continue
             real = _geom_box(dim)
             solved.append((name, natural if _real_box_conflict(name, real) else dim))
+    # Curved ink can enclose large empty rectangles. After the shared strip
+    # solve, try a bounded contraction using actual segments and labels against
+    # both committed ink and this batch. Never move an anchored dimension.
+    active_names = {name for name, _build in cands}
+    for name, alternatives in (compact_candidates or {}).items():
+        if name not in active_names:
+            continue
+        if (anchored or {}).get(name, False):
+            continue
+        index = next((i for i, (key, _dim) in enumerate(solved) if key == name), None)
+        original = solved[index][1] if index is not None else None
+        others = [item for key, item in solved if key != name]
+        for candidate in alternatives():
+            if original is not None and candidate.arc_radius >= original.arc_radius - 1e-6:
+                break
+            box = _geom_box(candidate)
+            if (
+                box is None
+                or box[0] < _MARGIN
+                or box[1] < _MARGIN
+                or box[2] > dwg.page_w - _MARGIN
+                or box[3] > dwg.page_h - _MARGIN
+                or ((forbid or {}).get(name) is not None and _box_hits(box, (forbid[name],)))
+                or not annotation_ink_clear(dwg, candidate, additional=others)
+            ):
+                continue
+            if index is None:
+                solved.append((name, candidate))
+                todo = [(key, build) for key, build in todo if key != name]
+                if tp is not None:
+                    label = candidate.label_bbox
+                    tp["placed"].append({"name": name, "pos": (label[idx] + label[idx + 2]) / 2})
+            else:
+                solved[index] = (name, candidate)
+                if tp is not None:
+                    entry = next(item for item in tp["placed"] if item["name"] == name)
+                    label = candidate.label_bbox
+                    entry["strip_pos"] = entry["pos"]
+                    entry["pos"] = (label[idx] + label[idx + 2]) / 2
+            if tp is not None:
+                tp.setdefault("angular_contractions", []).append(name)
+            break
     for name, dim in solved:
         # Record feature provenance (ADR 5 (was 0010)): the drain-time seam for corridor-placed
         # dims — `features` maps this batch's names to their source IR feature.

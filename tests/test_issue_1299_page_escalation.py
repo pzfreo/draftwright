@@ -39,8 +39,9 @@ def _five_step_grm_profile():
 def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
     # #1338: larger scales on the selected sheet are still the first recovery lever. With
     # external text clearance included in view blocks (#1262), this synthetic detected model's
-    # overall-height dimension no longer fits beside the end view on A4, so both bounded scale
-    # candidates are rejected before the workflow spends the ISO and advances to A3.
+    # overall-height dimension no longer fits beside the end view on A4. At 10:1 the
+    # native shoulder chain is incomplete, so its earlier coverage gate rejects the
+    # proposal. Both scales fail before the workflow spends the ISO and advances to A3.
     drawing = build_drawing(_five_step_grm_profile(), pmi="off")
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
@@ -67,7 +68,7 @@ def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
             (297.0, 210.0),
             "rejected",
             "scale_escalation_on_selected_page",
-            "structural_error",
+            "axial_coverage_incomplete",
         ),
         ((297.0, 210.0), "rejected", "remove_optional_iso", "axial_coverage_incomplete"),
         ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
@@ -308,7 +309,7 @@ def test_unrelated_drop_on_a_typed_owner_does_not_borrow_its_source(monkeypatch)
 
 
 def test_complete_detail_drawing_stays_on_its_original_page(monkeypatch):
-    """#1299 does not broaden recovery beyond incomplete axial/source-owned plans."""
+    """A complete detected drawing does not spend a larger sheet to remove a detail."""
 
     class FakeDrawing:
         def __init__(self, *, page, scale, include_iso, detail):

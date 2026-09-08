@@ -69,6 +69,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_add_shapes",
         "_add_view",
         "_analysis",
+        "_angular_dimension_plan",
         "_ann_box_cache",
         "_attach_part_model",
         "_attach_solve_trace",

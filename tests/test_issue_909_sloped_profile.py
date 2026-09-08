@@ -23,8 +23,29 @@ def test_touching_lower_ledges_do_not_hide_the_case_studys_raised_pad():
     assert recognise_rectangular_pads(part) == [RaisedPad(-15.5, 15.5, 8.0, 24.7, 13.0, 20.0)]
 
 
-def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
+def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint(monkeypatch):
+    import draftwright.builder as builder
+
+    build_once = builder._build_drawing_once
+    attempts = []
+
+    def capture_attempt(*args, **kwargs):
+        candidate = build_once(*args, **kwargs)
+        attempts.append(candidate)
+        return candidate
+
+    monkeypatch.setattr(builder, "_build_drawing_once", capture_attempt)
     drawing = build_drawing(_ISSUE_909)
+    # The angle and location requirements exceed the selected A4 corridor even
+    # after the height detail succeeds. Recovery must keep searching for the
+    # still-missing shoulder, rather than treating any detail as completion.
+    cramped = attempts[0]
+    assert (cramped.page_w, cramped.page_h) == (297, 210)
+    assert "detail_a" in cramped.views
+    assert any(issue.code == "step_position_dropped" for issue in cramped.lint())
+    assert (drawing.page_w, drawing.page_h) == (420, 297)
+    assert drawing.scale_decision["status"] == "automatic_replanned"
+    assert drawing.scale_decision["attempts"][-1]["reason"] == "page_escalation_after_detail"
     source = RaisedPad(-15.5, 15.5, 8.0, 24.7, 13.0, 20.0)
 
     recognition = drawing.recognition()
@@ -70,7 +91,27 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint():
     assert main_labels == Counter({"21": 1})
     assert detail_labels == Counter({"26": 1})
     assert not main_labels & detail_labels
-    assert drawing.lint() == []
+    shoulder = drawing.get_annotation("dim_shoulder_y0")
+    assert shoulder.label == "21"
+    assert drawing.measurement_keys("dim_shoulder_y0") == [
+        {
+            "feature": feature_key(
+                next(f for f in drawing.model().features if f.kind == "step_level")
+            ),
+            "parameter_id": "step_position.length",
+        }
+    ]
+    assert Counter(
+        annotation.label
+        for _, annotation in drawing.iter_annotations()
+        if hasattr(annotation, "measured_angle")
+    ) == Counter({"51.1°": 1, "128.9°": 1})
+    # An angle label over a blank region inside the view extents is legitimate;
+    # every diagnostic must describe that informational condition only.
+    assert all(
+        issue.severity == "info" and issue.code == "view_annotation_inside_extents"
+        for issue in drawing.lint()
+    )
 
 
 def test_case_study_detail_rungs_keep_their_compiled_measurement_identity():

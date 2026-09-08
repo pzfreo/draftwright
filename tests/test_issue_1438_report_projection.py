@@ -22,7 +22,7 @@ from draftwright import reporting as reporting_module
 from draftwright.linting import requirements as requirement_module
 from draftwright.registry import AnnotationRegistry
 
-_SCHEMA_PATH = Path(__file__).parents[1] / "docs/reference/draftwright-report-v2.schema.json"
+_SCHEMA_PATH = Path(__file__).parents[1] / "docs/reference/draftwright-report-v3.schema.json"
 _EVALUATION_FIXTURES = Path(__file__).parent / "fixtures" / "evaluation"
 
 
@@ -66,7 +66,7 @@ def _coincident_body_local_evidence_part():
     return Compound(children=[stepped_block(), stepped_block()])
 
 
-def test_raw_report_has_the_closed_v2_shape_and_exact_owner() -> None:
+def test_raw_report_has_the_closed_v3_shape_and_exact_owner() -> None:
     drawing = build_drawing(_through_step_part())
 
     report = drawing.report()
@@ -82,14 +82,14 @@ def test_raw_report_has_the_closed_v2_shape_and_exact_owner() -> None:
         "lint",
     }
     assert report["schema"] == "draftwright-report"
-    assert report["schema_version"] == 2
+    assert report["schema_version"] == 3
     assert report["status"] == "bounded-clear"
     assert set(report["producer"]) == {"draftwright", "quiddity"}
     assert report["source"] == {"kind": "build123d", "name": None}
     assert report["outputs"] == {}
 
     recognition = report["recognition"]
-    assert recognition["coverage"] == "accepted-occurrences"
+    assert recognition["coverage"] == "accepted-occurrences-and-profile-requirements"
     assert recognition["identity_scope"] == "report-local"
     (occurrence,) = recognition["occurrences"]
     assert occurrence == {
@@ -273,9 +273,7 @@ def test_report_requirement_projection_matches_typed_family_ledgers(fixture: str
     counts = Counter(requirement["state"] for requirement in requirements)
     completeness = report["lint"]["quality"]["completeness"]
     occurrence_ids = {occurrence["id"] for occurrence in recognition["occurrences"]}
-    owner_ids = {
-        owner["id"] for occurrence in recognition["occurrences"] for owner in occurrence["owners"]
-    }
+    owner_ids = {owner["id"] for owner in recognition["owners"]}
 
     assert len(requirements) == completeness["requirements"]
     assert all(
@@ -859,7 +857,7 @@ def test_report_projection_does_not_change_visual_output(tmp_path) -> None:
 def test_documented_schema_has_the_same_closed_top_level() -> None:
     schema = _schema()
 
-    assert schema["$id"].endswith("draftwright-report-v2.schema.json")
+    assert schema["$id"].endswith("draftwright-report-v3.schema.json")
     assert schema["additionalProperties"] is False
     assert set(schema["required"]) == {
         "schema",

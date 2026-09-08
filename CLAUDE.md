@@ -41,6 +41,8 @@ Compact map, bottom to top:
   lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
   final-IR binding, group/pattern absorption, and settled ownerless consumer policy),
   `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
+  `profile_angles.py` (face-profile drafting requirements from issued ordered supports),
+  `angular_geometry.py` (analytic angular ink boxes shared by sizing and rendering),
   `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
   `recogniser_schema.py` (consumer-owned public record schema versions shared by validation and
   reporting),

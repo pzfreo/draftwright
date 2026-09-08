@@ -56,6 +56,11 @@ labels identical, page identical, one build issue ADDED and none removed. The dr
 get worse; the report got honest, which is the one direction a completeness gate must not
 mistake for a regression.
 
+#1505 re-baselines only `grooved_shaft` after native shoulder recovery: the three
+13/26/13 mm links replace the inactive 60 mm fallback, and the redundant side view
+is omitted. All ten audited groove/shoulder requirements are placed, with each
+outer diameter retaining its own claim. The baseline now guards those recovered marks.
+
 Re-bless the recorded baseline (advances the footprint ratchet — do it deliberately):
     DRAFTWRIGHT_UPDATE_GOLDEN=1 uv run pytest tests/test_refactor_golden.py
 """

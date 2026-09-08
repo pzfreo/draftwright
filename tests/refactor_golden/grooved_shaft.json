@@ -15,37 +15,6 @@
     },
     {
       "geom_bbox": [
-        112.9,
-        50.0,
-        113.1,
-        120.0
-      ],
-      "label": "",
-      "label_bbox": null,
-      "name": "centerline_side",
-      "type": "Centerline",
-      "view": "side"
-    },
-    {
-      "geom_bbox": [
-        54.0,
-        55.0,
-        62.0,
-        115.1
-      ],
-      "label": "60",
-      "label_bbox": [
-        58.9,
-        83.4,
-        61.1,
-        86.6
-      ],
-      "name": "dim_height",
-      "type": "Dimension",
-      "view": "front"
-    },
-    {
-      "geom_bbox": [
         30.0,
         119.0,
         50.1,
@@ -64,17 +33,71 @@
     },
     {
       "geom_bbox": [
+        15.9,
+        60.4,
+        30.0,
+        62.6
+      ],
+      "label": "\u00f820",
+      "label_bbox": [
+        15.9,
+        60.4,
+        21.0,
+        62.6
+      ],
+      "name": "m_dia_z0",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        15.9,
+        83.9,
+        30.0,
+        86.1
+      ],
+      "label": "\u00f820",
+      "label_bbox": [
+        15.9,
+        83.9,
+        21.0,
+        86.1
+      ],
+      "name": "m_dia_z1",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        15.9,
+        107.4,
+        30.0,
+        109.6
+      ],
+      "label": "\u00f820",
+      "label_bbox": [
+        15.9,
+        107.4,
+        21.0,
+        109.6
+      ],
+      "name": "m_dia_z2",
+      "type": "Leader",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
         40.0,
-        70.0,
-        88.9,
-        86.8
+        68.9,
+        88.4,
+        71.1
       ],
       "label": "4 WIDE \u00d7 \u00f814",
       "label_bbox": [
-        67.6,
-        84.5,
-        88.9,
-        86.8
+        67.0,
+        68.9,
+        88.4,
+        71.1
       ],
       "name": "m_groove_z0",
       "type": "Leader",
@@ -83,16 +106,16 @@
     {
       "geom_bbox": [
         40.0,
-        100.0,
-        79.0,
-        126.7
+        98.9,
+        88.3,
+        101.1
       ],
       "label": "4 WIDE \u00d7 \u00f816",
       "label_bbox": [
-        57.7,
-        124.4,
-        79.0,
-        126.7
+        67.0,
+        98.9,
+        88.3,
+        101.1
       ],
       "name": "m_groove_z1",
       "type": "Leader",
@@ -100,16 +123,70 @@
     },
     {
       "geom_bbox": [
-        202.8,
+        52.0,
+        55.0,
+        63.0,
+        68.1
+      ],
+      "label": "13",
+      "label_bbox": [
+        59.9,
+        59.9,
+        62.1,
+        63.1
+      ],
+      "name": "m_steplen0",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        52.0,
+        72.0,
+        63.0,
+        98.1
+      ],
+      "label": "26",
+      "label_bbox": [
+        59.9,
+        83.4,
+        62.1,
+        86.6
+      ],
+      "name": "m_steplen1",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        52.0,
+        102.0,
+        63.0,
+        115.1
+      ],
+      "label": "13",
+      "label_bbox": [
+        59.9,
+        106.9,
+        62.1,
+        110.1
+      ],
+      "name": "m_steplen2",
+      "type": "Dimension",
+      "view": "front"
+    },
+    {
+      "geom_bbox": [
+        166.3,
         86.3,
-        227.2,
+        190.7,
         89.0
       ],
       "label": "ISO VIEW (NTS)",
       "label_bbox": [
-        202.8,
+        166.3,
         86.3,
-        227.2,
+        190.7,
         89.0
       ],
       "name": "note_iso_nts",
@@ -130,19 +207,8 @@
       "view": null
     }
   ],
-  "build_issues": [
-    [
-      "error",
-      "plan_incomplete",
-      "the automatically planned sheet drops 1 required annotation outcome(s) (step_dim_dropped)"
-    ],
-    [
-      "warning",
-      "step_dim_dropped",
-      "step-length chain dropped: turned shoulders too closely spaced to dimension at this scale (use a detail view)"
-    ]
-  ],
-  "item_count": 8,
+  "build_issues": [],
+  "item_count": 12,
   "page": [
     297.0,
     210.0
@@ -155,9 +221,9 @@
       115.0
     ],
     "iso": [
-      202.0,
+      165.5,
       93.7,
-      228.0,
+      191.5,
       172.3
     ],
     "plan": [
@@ -165,12 +231,6 @@
       135.0,
       50.0,
       155.0
-    ],
-    "side": [
-      103.0,
-      55.0,
-      123.0,
-      115.0
     ]
   }
 }

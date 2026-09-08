@@ -16,6 +16,7 @@ from quiddity.evidence import FeatureRef, RecognitionEvidence
 
 from draftwright.blend_contract import blend_provider_key
 from draftwright.oriented_slot_contract import standalone_oriented_slots
+from draftwright.profile_angles import ProfileAngle
 from draftwright.recogniser_policy import (
     OwnerlessDisposition,
     ownerless_occurrence_policy,
@@ -391,6 +392,15 @@ def _policy_outcomes(evidence: RecognitionEvidence) -> tuple[OccurrencePolicyOut
 
 
 @dataclass(frozen=True)
+class ProfileAngleBinding:
+    """A drafting requirement's exact provider support pair and final IR owner."""
+
+    requirement: ProfileAngle
+    feature: object
+    parameter_id: str = "included.angle"
+
+
+@dataclass(frozen=True)
 class RecognitionOwnership:
     """Immutable run-local ownership ledger paired with one evidence authority."""
 
@@ -401,6 +411,7 @@ class RecognitionOwnership:
     expected_conditional: tuple[FeatureRef, ...]
     bindings: tuple[OccurrenceBinding, ...]
     policy_outcomes: tuple[OccurrencePolicyOutcome, ...]
+    profile_angles: tuple[ProfileAngleBinding, ...] = ()
 
     @property
     def owner_expected_occurrences(self) -> tuple[FeatureRef, ...]:
@@ -529,6 +540,7 @@ class RecognitionOwnershipBuilder:
             record = evidence.record(occurrence)
             self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
         self._bindings: list[OccurrenceBinding] = []
+        self._profile_angles: list[ProfileAngleBinding] = []
         expected_ids = {
             id(occurrence)
             for occurrence in (
@@ -565,6 +577,31 @@ class RecognitionOwnershipBuilder:
             )
             raise ValueError(f"recognition record {reason}")
         return matches[0]
+
+    def bind_profile_angle(
+        self, requirement: ProfileAngle, feature: object, *, parameter_id="included.angle"
+    ) -> None:
+        """Bind at conversion, validating the source against this run's authority."""
+        for index in (requirement.first_index, requirement.second_index):
+            self.evidence.profile_edge(requirement.source, index)
+        if getattr(feature, "kind", None) != "angle":
+            raise ValueError("profile angle binding requires an angular IR owner")
+        parameters = getattr(feature, "parameters", None)
+        if not callable(parameters) or not any(
+            p.parameter_id == parameter_id for p in parameters()
+        ):
+            raise ValueError("profile angle binding requires an addressable member")
+        if any(
+            (binding.feature is feature and binding.parameter_id == parameter_id)
+            or (
+                binding.requirement.source is requirement.source
+                and binding.requirement.first_index == requirement.first_index
+                and binding.requirement.second_index == requirement.second_index
+            )
+            for binding in self._profile_angles
+        ):
+            raise ValueError("profile angle or IR feature already has an owner")
+        self._profile_angles.append(ProfileAngleBinding(requirement, feature, parameter_id))
 
     def bind(
         self,
@@ -887,6 +924,26 @@ class RecognitionOwnershipBuilder:
     ) -> None:
         """Follow one explicit IR-lowering lineage without reconstructing correspondence."""
 
+        profile_matches = [
+            binding for binding in self._profile_angles if binding.feature is source
+        ]
+        if profile_matches and len(replacements) == 1 and source_member_groups is None:
+            replacement = replacements[0]
+            if getattr(replacement, "kind", None) != "angle":
+                raise ValueError("a lowered profile angle requires an angular IR owner")
+            if any(
+                binding.feature is replacement and binding.feature is not source
+                for binding in self._profile_angles
+            ):
+                raise ValueError("lowered IR feature already owns a profile angle")
+            self._profile_angles = [
+                ProfileAngleBinding(binding.requirement, replacement)
+                if binding.feature is source
+                else binding
+                for binding in self._profile_angles
+            ]
+        # An absent or ambiguous replacement leaves the expected owner in the
+        # ledger. Final-model accounting reports that loss; no new join is guessed.
         matches = [
             index
             for index, binding in enumerate(self._bindings)
@@ -1012,4 +1069,5 @@ class RecognitionOwnershipBuilder:
             expected_conditional=self._expected_conditional,
             bindings=tuple(self._bindings),
             policy_outcomes=self._policy_outcomes,
+            profile_angles=tuple(self._profile_angles),
         )

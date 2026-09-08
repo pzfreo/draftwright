@@ -52,8 +52,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from draftwright._geometry import _fmt
+from draftwright._geometry import _fmt, _fmt_angle
 from draftwright.model.ir import (
+    AngularReference,
     EnvelopeFeature,
     Feature,
     HoleFeature,
@@ -74,6 +75,7 @@ from draftwright.model.planner import (
     DimensionId,
     _decorated,
     _is_zero_step_position,
+    angular_pattern_label,
     authored_location_axis_omitted,
     authored_location_omitted,
     hole_location_parameter_id,
@@ -254,6 +256,14 @@ class ApprovedDimension:
     #: The declaration-local selector retained for location script emission. Other
     #: dimensional families keep their established parameter-id addressing.
     location_member: int | Literal["centre"] | None = None
+    angular_reference: AngularReference | None = None
+    #: Other approved identities for the same physical measurement. This is
+    #: compiler-owned equivalence, never inferred from already printed numbers.
+    equivalent_ids: tuple[DimensionId, ...] = ()
+
+    @property
+    def measurement_ids(self) -> tuple[DimensionId, ...]:
+        return ((self.id,) if self.id is not None else ()) + self.equivalent_ids
 
     @property
     def parameter_id(self) -> str:
@@ -297,6 +307,7 @@ class ApprovedDimension:
 #: The compiler refuses anything absent from this table, so a new feature kind cannot leak
 #: measurements by default: it arrives with no facts at all until someone lists them.
 _FACTS: dict[str, tuple[str, ...]] = {
+    "angle": ("frame",),
     "hole": (
         "frame",
         "through",
@@ -496,6 +507,9 @@ class ApprovedGroup:
     #: Optional authored strip intent.  The renderer turns this into an ordinary corridor
     #: candidate; coordinates remain solver-owned.
     side: str | None = None
+    #: Optional complete quantity presentation, alongside the independent
+    #: per-member approvals. Every member must be claimed by a shared mark.
+    shared_label: str | None = None
 
     def dim(self, *, kind: str | None = None, role: str | None = None):
         """The first approved dimension matching *kind* and/or *role*, or ``None``.
@@ -1612,6 +1626,12 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 role=pd.param.role,
                 discriminator=pd.param.discriminator,
                 tolerance=pd.param.tolerance,
+                angular_reference=pd.param.angular_reference,
+                rendered_label=(
+                    _fmt_angle(pd.param.value, pd.display_decimals, pd.param.tolerance)
+                    if pd.param.angular_reference is not None
+                    else None
+                ),
                 display_decimals=pd.display_decimals,
                 view=pd.view,
                 side=pd.side,
@@ -1637,6 +1657,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 facts=FeatureFacts(g.feature),
                 dims=approved,
                 side=g.side,
+                shared_label=angular_pattern_label(g),
             )
         )
     return out, omissions
@@ -1688,6 +1709,7 @@ def compile_dimensions(
     marked = _suppressed_dims(model, planned)
     ladders, omissions = _compile_step_ladders(model, marked)
     groups_out, group_omissions = _compile_groups(planned)
+    groups_out = _share_unique_outer_diameter(groups_out, planned)
     step_chain_approved = any(
         group.feature_kind == "step"
         and group.facts.frame.axis == "z"
@@ -1733,6 +1755,82 @@ def compile_dimensions(
             omissions, height_omissions, location_omissions, group_omissions
         ),
     )
+
+
+def _share_unique_outer_diameter(groups: list[ApprovedGroup], planned) -> list[ApprovedGroup]:
+    """Let a global OD carry one unique coaxial maximum band's approved identity.
+
+    A global OD has no axial station or body token. It can therefore stand for
+    a native external diameter only when exactly one band supplies
+    that maximum on its axis line. Equal disjoint bands, bores and decorated
+    diameters keep their own measurements. The native entry remains available
+    if the global OD does not land.
+    """
+    result = []
+    for group in groups:
+        od = group.dim(kind="diameter", role="od") if group.feature_kind == "rotational" else None
+        if od is None or od.tolerance is not None:
+            result.append(group)
+            continue
+        frame = group.facts.frame
+        axis = "xyz".find(frame.axis)
+        if axis < 0:
+            result.append(group)
+            continue
+        coaxial = [
+            (candidate, diameter)
+            for candidate in groups
+            if candidate.feature_kind in {"step", "boss"}
+            and candidate.facts.frame.axis == frame.axis
+            and all(
+                abs(candidate.facts.frame.origin[index] - frame.origin[index]) <= 1e-6
+                for index in range(3)
+                if index != axis
+            )
+            if (diameter := candidate.dim(kind="diameter")) is not None
+        ]
+        # Suppression changes what is printed, never whether another band makes
+        # the global OD ambiguous. Count the planner's complete geometry here.
+        physical = [
+            dimension.param.value
+            for candidate in planned
+            if candidate.feature_kind in {"step", "boss"}
+            and candidate.feature.frame.axis == frame.axis
+            and all(
+                abs(candidate.feature.frame.origin[index] - frame.origin[index]) <= 1e-6
+                for index in range(3)
+                if index != axis
+            )
+            for dimension in candidate.dims
+            if dimension.param.kind == "diameter"
+        ]
+        matches = [
+            (candidate, diameter)
+            for candidate, diameter in coaxial
+            if abs(diameter.value - od.value) <= 1e-6
+        ]
+        if (
+            len(matches) == 1
+            and sum(abs(value - od.value) <= 1e-6 for value in physical) == 1
+            and not any(value > od.value + 1e-6 for value in physical)
+        ):
+            candidate, diameter = matches[0]
+            if (
+                diameter.id is not None
+                and diameter.tolerance is None
+                and diameter.value_text == od.value_text
+                and candidate.facts.get("thread") is None
+                and candidate.facts.get("knurl") is None
+            ):
+                group = replace(
+                    group,
+                    dims=tuple(
+                        replace(entry, equivalent_ids=(diameter.id,)) if entry is od else entry
+                        for entry in group.dims
+                    ),
+                )
+        result.append(group)
+    return result
 
 
 def _dedupe_omissions(*sources: list[Omission]) -> tuple[Omission, ...]:

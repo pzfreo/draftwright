@@ -315,9 +315,46 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
         if not claims:
             continue
         numbers = rendered_numbers(registry.named(name))
+        shared_angular_labels = tuple(
+            group.shared_label
+            for group in getattr(plan, "groups", ())
+            if getattr(group, "feature_kind", None) == "angle"
+            and getattr(group, "shared_label", None)
+            and len(claims) == len(group.dims)
+            and all(
+                any(
+                    claim.feature is member.id.feature and claim.parameter == member.id.parameter
+                    for claim in claims
+                )
+                for member in group.dims
+            )
+        )
         for claim in claims:
             entries = approved.get(claim, ())
             parameter = str(getattr(claim, "parameter", claim))
+            angular_labels = tuple(
+                entry.rendered_label
+                for entry in entries
+                if getattr(entry, "angular_reference", None) is not None
+                and entry.rendered_label is not None
+            )
+            if angular_labels:
+                # A quantity label must carry the entire compiler-approved member
+                # roster. Matching a nominal cannot vouch for a lost tolerance or
+                # a quantity whose other corner measurements disappeared.
+                angular_labels += shared_angular_labels
+                rendered = str(getattr(registry.named(name), "label", ""))
+                outcomes.append(
+                    ClaimOutcome(
+                        name,
+                        parameter,
+                        "confirmed" if rendered in angular_labels else "value_absent",
+                        angular_labels,
+                        rendered,
+                        measurement=claim,
+                    )
+                )
+                continue
             expected = tuple(entry.value_text for entry in entries)
             wanted = (
                 frozenset().union(*(_expected_numbers(entry) for entry in entries))

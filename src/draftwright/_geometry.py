@@ -585,6 +585,30 @@ def _fmt(v: float, decimals: int | None = None) -> str:
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
 
 
+def _fmt_angle(value, decimals=None, tolerance=None) -> str:
+    """Complete angular text shared by footprint sizing and compilation.
+
+    This pure formatter approves no content and needs no feature or compiled plan.
+    """
+    nominal = f"{_fmt(value, decimals)}°"
+    if tolerance is None:
+        return nominal
+
+    def magnitude(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("angular tolerance must be a nonnegative degree magnitude")
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("angular tolerance must be finite and nonnegative")
+        # Keep small authored deviations even when nominal display precision is
+        # coarse; formatting a nonzero tolerance as zero would change the claim.
+        return format(Decimal(str(value)), "f")
+
+    if isinstance(tolerance, tuple) and len(tolerance) == 2:
+        lower, upper = tolerance
+        return f"{nominal} +{magnitude(upper)}° -{magnitude(lower)}°"
+    return f"{nominal} ±{magnitude(tolerance)}°"
+
+
 def _boxes_overlap(a, b) -> bool:
     """True when two ``(x0, y0, x1, y1)`` AABBs overlap (strict: a touch is not
     an overlap). The one pairwise test behind both the placement-side

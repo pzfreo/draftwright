@@ -78,13 +78,26 @@ def validate_authored_dimension_placement(
     side: str | None,
     *,
     owner: str,
+    angular_reference: AngularReference | None = None,
 ) -> None:
     """Reject a view/side pair for which the authored-dimension renderer has no candidate."""
     validate_placement_intent(view, side, owner=owner)
     if view is None and side is None:
         return
     valid_pairs: tuple[tuple[str, str], ...]
-    if dimension_kind in ("diameter", "radius"):
+    if dimension_kind == "angular" and angular_reference is not None:
+        axis = angular_reference.principal_axis
+        end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(axis)
+        first, second = angular_reference.rays
+        bisector = tuple(a + b for a, b in zip(first, second, strict=True))
+        length = hypot(*bisector)
+        components = {"X": (1, 2), "Y": (0, 2), "Z": (0, 1)}.get(axis, ())
+        valid_pairs = tuple(
+            (end_view, (("left", "right"), ("below", "above"))[index][bisector[component] > 0])
+            for index, component in enumerate(components)
+            if end_view is not None and abs(bisector[component]) / length >= 1e-6
+        )
+    elif dimension_kind in ("diameter", "radius"):
         end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(dominant_axis)
         valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
     else:
@@ -114,6 +127,7 @@ def authored_dimension_target_view(
     dominant_axis: str,
     view: str | None,
     side: str | None,
+    angular_reference: AngularReference | None = None,
 ) -> str | None:
     """Resolve the principal view selected by an explicit measured-dimension hint.
 
@@ -124,6 +138,8 @@ def authored_dimension_target_view(
     """
     if view is not None:
         return view
+    if dimension_kind == "angular" and angular_reference is not None:
+        return {"X": "side", "Y": "front", "Z": "plan"}.get(angular_reference.principal_axis)
     if side is None:
         return None
     if dimension_kind in ("diameter", "radius"):
@@ -359,6 +375,7 @@ DimensionParameterId = Literal[
     "groove.diameter",
     "groove.length",
     "height.length",
+    "included.angle",
     "od.diameter",
     "oriented_slot_length.length",
     "oriented_slot_width.length",
@@ -437,6 +454,9 @@ class DimParameter:
     # (ADR 4 (was 0016) identity, tier 2). Today's sole instance is a grid pattern's two pitches
     # (``"row"`` / ``"col"``). ``None`` wherever role + kind already identify the thing.
     discriminator: str | None = None
+    # Angular geometry travels with the approved measurement, not through the
+    # structural feature facts where suppression could be bypassed.
+    angular_reference: AngularReference | None = None
 
     @property
     def parameter_id(self) -> ParameterId:
@@ -2875,6 +2895,186 @@ class RotationalFeature:
 
 
 @dataclass(frozen=True)
+class AngularReference:
+    """Two oriented model-space rays bounding the non-reflex angular sector.
+
+    ``first`` and ``second`` are witness points on supports through ``vertex``.
+    ``minor`` selects the rays towards them; ``opposite`` extends both supports
+    through the vertex and selects the vertically opposite non-reflex sector.
+    Reversing witness order reverses the plane normal, not the measured angle.
+    A virtual vertex explicitly describes intersecting extended supports; this
+    declaration alone does not certify correspondence to physical part edges.
+    No field describes annotation placement or an arc radius on the sheet.
+    """
+
+    vertex: Point
+    first: Point
+    second: Point
+    sector: Literal["minor", "opposite"] = "minor"
+    virtual_vertex: bool = False
+
+    def __post_init__(self) -> None:
+        for name in ("vertex", "first", "second"):
+            object.__setattr__(self, name, _finite_point3(name, getattr(self, name)))
+        if self.sector not in ("minor", "opposite"):
+            raise ValueError(
+                "angular reference supports only minor or opposite non-reflex sectors"
+            )
+        if type(self.virtual_vertex) is not bool:
+            raise ValueError("angular reference virtual_vertex must be a bool")
+        first, second = self.rays
+        cross = self._cross(first, second)
+        if hypot(*cross) <= 1e-9:
+            raise ValueError("angular reference rays must not be parallel or collinear")
+
+    @property
+    def rays(self) -> tuple[Point, Point]:
+        result = []
+        for point in (self.first, self.second):
+            ray = tuple(p - v for p, v in zip(point, self.vertex, strict=True))
+            length = hypot(*ray)
+            if not isfinite(length) or length <= 1e-9:
+                raise ValueError("angular reference needs two finite nonzero rays")
+            sign = -1 if self.sector == "opposite" else 1
+            result.append((sign * ray[0] / length, sign * ray[1] / length, sign * ray[2] / length))
+        return result[0], result[1]
+
+    @staticmethod
+    def _cross(first: Point, second: Point) -> Point:
+        x, y, z = first
+        u, v, w = second
+        return y * w - z * v, z * u - x * w, x * v - y * u
+
+    @property
+    def normal(self) -> Point:
+        cross = self._cross(*self.rays)
+        length = hypot(*cross)
+        return cross[0] / length, cross[1] / length, cross[2] / length
+
+    @property
+    def angle_degrees(self) -> float:
+        first, second = self.rays
+        return (
+            atan2(
+                hypot(*self._cross(first, second)),
+                sum(a * b for a, b in zip(first, second, strict=True)),
+            )
+            * 180
+            / pi
+        )
+
+    @property
+    def principal_axis(self) -> str:
+        """Normal axis of a true-angle principal projection, or ``?`` if oblique."""
+        normal = self.normal
+        dominant = max(range(3), key=lambda index: abs(normal[index]))
+        if any(abs(normal[index]) > 1e-6 for index in range(3) if index != dominant):
+            return "?"
+        return "XYZ"[dominant]
+
+    @property
+    def measurement_key(self) -> tuple:
+        """Referenced geometry and sector, invariant under witness-order reversal."""
+        return (
+            self.vertex,
+            tuple(sorted((self.first, self.second))),
+            self.sector,
+            self.virtual_vertex,
+        )
+
+
+@dataclass(frozen=True)
+class AngleFeature:
+    """One included-angle requirement derived from explicit oriented supports."""
+
+    angular_reference: AngularReference
+    kind: ClassVar[str] = "angle"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.angular_reference, AngularReference):
+            raise ValueError("angle requires an AngularReference")
+        if self.angular_reference.principal_axis == "?":
+            raise ValueError(
+                "angle requires a true-angle principal projection; oblique is unsupported"
+            )
+
+    @property
+    def frame(self) -> Frame:
+        return Frame(self.angular_reference.vertex, self.angular_reference.principal_axis.lower())
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "angle",
+                "included",
+                self.angular_reference.angle_degrees,
+                angular_reference=self.angular_reference,
+            )
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class AnglePatternFeature:
+    """Declared repeated corners, each with an independently addressable angle.
+
+    The member order is part of the declaration: omitting or tolerancing one
+    measurement does not remove or renumber members. Recognition may create
+    this form only after proving the physical profile repetition.
+    """
+
+    members: tuple[AngularReference, ...]
+    kind: ClassVar[str] = "angle"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "members", tuple(self.members))
+        if len(self.members) < 2 or not all(
+            isinstance(member, AngularReference) for member in self.members
+        ):
+            raise ValueError("angle pattern requires at least two AngularReference members")
+        if len({member.vertex for member in self.members}) != len(self.members):
+            raise ValueError("angle pattern requires distinct corner references")
+        first = self.members[0]
+        if first.principal_axis == "?":
+            raise ValueError("angle pattern requires a true-angle principal projection")
+        axis = "XYZ".index(first.principal_axis)
+        if any(
+            member.principal_axis != first.principal_axis
+            or member.sector != first.sector
+            or abs(member.vertex[axis] - first.vertex[axis]) > 1e-6
+            or abs(member.angle_degrees - first.angle_degrees) > 1e-6
+            for member in self.members
+        ):
+            raise ValueError("angle pattern members must share a plane, sector and angle")
+
+    @property
+    def angular_reference(self) -> AngularReference:
+        """The first member establishes the common true-angle view."""
+        return self.members[0]
+
+    @property
+    def frame(self) -> Frame:
+        return Frame(self.angular_reference.vertex, self.angular_reference.principal_axis.lower())
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "angle",
+                "included",
+                member.angle_degrees,
+                discriminator=f"member{index + 1}",
+                angular_reference=member,
+            )
+            for index, member in enumerate(self.members)
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class AuthoredDimension:
     """A pre-authored drafting dimension imported from an external semantic source.
 
@@ -2917,15 +3117,25 @@ class AuthoredDimension:
     # they are not page coordinates and do not bypass placement solving (ADR 2 (was 0012/0014)).
     view: str | None = None
     side: str | None = None
+    angular_reference: AngularReference | None = None
     kind: ClassVar[str] = "authored_dimension"
 
     def __post_init__(self) -> None:
+        if self.angular_reference is not None:
+            if self.dimension_kind != "angular":
+                raise ValueError("angular_reference requires an angular dimension")
+            if not isinstance(self.angular_reference, AngularReference):
+                raise ValueError("angular_reference must be an AngularReference")
+            reference = self.angular_reference
+            if self.ref_pts != (reference.first, reference.vertex, reference.second):
+                raise ValueError("angular ref_pts must agree with first, vertex, second")
         validate_authored_dimension_placement(
             self.dimension_kind,
             self.dominant_axis,
             self.view,
             self.side,
             owner="authored dimension",
+            angular_reference=self.angular_reference,
         )
 
     @property

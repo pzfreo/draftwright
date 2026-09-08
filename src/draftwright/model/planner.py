@@ -29,10 +29,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Literal
 
-from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef
+from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef, _fmt_angle
 from draftwright.model.ir import (
     PLACEMENT_SIDES,
     PLACEMENT_VIEWS,
+    AngleFeature,
+    AnglePatternFeature,
     BlendFeature,
     ChamferFeature,
     ChannelFeature,
@@ -57,6 +59,7 @@ from draftwright.model.ir import (
     SlotFeature,
     SlotPatternFeature,
     StepLevelFeature,
+    validate_authored_dimension_placement,
 )
 from draftwright.view_plan import (
     UncoveredViewRequirement,
@@ -81,6 +84,7 @@ def _is_zero_step_position(value: float) -> bool:
 
 # How each (role, kind) is drawn. Defaults keep the table small.
 _CONVENTION = {
+    ("included", "angle"): "angular",
     ("step", "length"): "chain",
     ("step", "diameter"): "leader",
     ("bore", "diameter"): "leader",
@@ -156,7 +160,7 @@ class PlannedDimension:
     a feature emits datum-referenced params."""
 
     param: DimParameter
-    convention: str  # "chain" | "ordinate" | "leader" | "linear" | "pitch"
+    convention: str  # "chain" | "ordinate" | "leader" | "linear" | "pitch" | "angular"
     suppressed: bool = False
     reason: str | None = None
     datum: Datum | None = None
@@ -1181,6 +1185,23 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
     """Resolve one view/side for a compound group, or reject an unrenderable intent."""
     approved = [pd for pd in dims if not pd.suppressed]
 
+    if isinstance(feature, AngleFeature | AnglePatternFeature):
+        for pd in approved:
+            validate_authored_dimension_placement(
+                "angular",
+                feature.frame.axis.upper(),
+                pd.view,
+                pd.side,
+                owner="angle",
+                angular_reference=pd.param.angular_reference,
+            )
+        if isinstance(feature, AnglePatternFeature):
+            return _group_view(feature, planned_views), None
+        sides = {pd.side for pd in approved if pd.side is not None}
+        if len(sides) > 1:
+            raise ValueError("conflicting placement intent for one included angle")
+        return _group_view(feature, planned_views), next(iter(sides), None)
+
     # An envelope group is a feature-level compiler container, not one compound mark:
     # width, depth, and height are independent dimensions which intentionally scatter
     # across views (ADR 4 (was 0016)).  Validate each requested view independently and preserve it
@@ -1617,6 +1638,25 @@ def _uncovered_location_requirements(
                 )
             )
     return uncovered
+
+
+def angular_pattern_label(group: DimensionGroup) -> str | None:
+    """Approve a quantity label only for a complete, uniformly decorated pattern.
+
+    Partial authored sets and member-specific formatting remain individual
+    measurements. Their original parameter IDs and references are unchanged.
+    Composition shares this pure decision without executing the compiler.
+    """
+    if not isinstance(group.feature, AnglePatternFeature):
+        return None
+    dimensions = group.dims
+    if len(dimensions) != len(group.feature.members) or any(d.suppressed for d in dimensions):
+        return None
+    labels = {_fmt_angle(d.param.value, d.display_decimals, d.param.tolerance) for d in dimensions}
+    routes = {(d.view, d.side) for d in dimensions}
+    if len(labels) != 1 or len(routes) != 1:
+        return None
+    return f"{len(dimensions)}× {next(iter(labels))}"
 
 
 def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGroup]:

@@ -1,7 +1,7 @@
 # Machine-readable reports
 
-`Drawing.report()` returns a JSON-compatible Draftwright report. Version 2 is a
-bounded first contract: it projects the accepted occurrences from one raw automatic recognition
+`Drawing.report()` returns a JSON-compatible Draftwright report. Version 3 is a
+bounded contract: it projects the accepted occurrences from one raw automatic recognition
 run, their exact consumer dispositions and final IR owners, the recognition-owned semantic
 requirement ledger, and `Drawing.lint_summary()`.
 
@@ -20,17 +20,18 @@ report or filesystem failure leaves an existing destination unchanged. Temporary
 best-effort when the filesystem itself refuses it, and a cleanup error never masks the primary
 failure. Parent directories are not created implicitly.
 
-Version 2 names the actual recognition provider in `producer.quiddity`.
+Version 3 adds exact outer-profile support sources for angular requirements.
+[Version 2](draftwright-report-v2.schema.json) named the actual recognition provider in `producer.quiddity`.
 [Version 1](draftwright-report-v1.schema.json) used `producer.b123d-recognisers`
 and remains available for existing documents. Readers must select the schema using
 `schema_version`; a Quiddity version is not a b123d-recognisers version.
 
 The closed top-level schema is published as
-[`draftwright-report-v2.schema.json`](draftwright-report-v2.schema.json). `schema` is always
+[`draftwright-report-v3.schema.json`](draftwright-report-v3.schema.json). `schema` is always
 `"draftwright-report"`; consumers must check `schema_version` before interpreting the document.
 The schema deliberately closes its report-owned objects. Adding a field to one of those objects,
 changing a meaning, or removing a field requires a new schema version. Only the explicitly open
-payload containers (`record`, `outputs`, and `lint`) can gain producer-owned fields under version 2.
+payload containers (`record`, `outputs`, and `lint`) can gain producer-owned fields under version 3.
 
 Occurrence, owner, and requirement IDs are deterministic **within one report**. They are allocated
 from the provider's accepted-occurrence order, Draftwright's final IR order, and the existing typed
@@ -50,6 +51,16 @@ row reports the semantic state (`placed`, structured-note satisfaction, `suppres
 measurement/satisfaction provenance. An empty `annotations` list does not mean no ink exists: some
 compound renderer facts have typed semantic evidence without an independently addressable
 annotation identity.
+
+Outer-profile angles use `profile_source` instead of an accepted occurrence: its
+`kind` is `planar_outer_profile`, with a report-local `profile_id` and two
+`support_ids`. Their `occurrence_ids` are empty. These IDs are allocated on first
+use; no opaque provider reference or topology index is serialized. The physical
+corner remains a requirement when its IR owner or annotation disappears; a missing
+conversion binding is `unverifiable`, and a bound owner absent from the final model
+is `missing`. `recognition.owners` lists all final IR owners so profile-derived
+requirements can reference owners without inventing accepted occurrences.
+Version 1 and 2 schemas remain unchanged for existing documents.
 
 An occurrence's `requirements.coverage` is `ledger` when it references those rows,
 `not-applicable` for evidence-only or already-conveyed physical evidence, `deferred` when the

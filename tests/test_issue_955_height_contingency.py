@@ -140,7 +140,19 @@ def test_an_unrelated_planner_suppression_still_withholds_height():
 
 
 @pytest.mark.timeout(120)
-def test_a_dropped_chain_releases_the_height_and_clears_the_planner_omission():
+def test_a_dropped_chain_releases_the_height_and_clears_the_planner_omission(monkeypatch):
+    from draftwright.annotations import from_model
+
+    draw_chain = from_model._draw_step_chain
+
+    def starved_chain(dwg, view, segs, name, **kwargs):
+        # #1505 recovers this part's naturally short shoulder. Exercise the
+        # contingency with an actually unavailable chain lane instead: use the
+        # real page guard and keep its measurement-specific drop reporting.
+        kwargs["profile_bounds"] = (dwg.page_w, 0, dwg.page_w, dwg.page_h)
+        return draw_chain(dwg, view, segs, name, **kwargs)
+
+    monkeypatch.setattr(from_model, "_draw_step_chain", starved_chain)
     drawing = build_drawing(_crowded_grooved_shaft(), number="X")
     labels = {
         label
@@ -152,7 +164,7 @@ def test_a_dropped_chain_releases_the_height_and_clears_the_planner_omission():
     assert "60" in labels
     assert "dim_height" in drawing.annotations()
     assert codes.get("axial_length_missing", 0) == 0
-    assert codes.get("step_dim_dropped") == 1
+    assert codes.get("step_dim_dropped") == 2
     assert not [row for row in drawing.suppressions() if row["parameter_id"] == "height.length"]
 
 

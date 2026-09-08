@@ -7,9 +7,6 @@ resolution-markers = [
     "python_full_version < '3.11'",
 ]
 
-[manifest]
-constraints = [{ name = "cadquery-ocp-novtk", specifier = "!=7.9.3.1.1" }]
-
 [[package]]
 name = "annotated-doc"
 version = "0.0.4"
@@ -709,8 +706,10 @@ dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "build123d-drafting-helpers" },
+    { name = "cadquery-ocp-novtk", marker = "python_full_version >= '3.13'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "ocp-gordon" },
     { name = "pillow" },
     { name = "pypdfium2" },
     { name = "quiddity" },
@@ -747,10 +746,12 @@ requires-dist = [
     { name = "build123d", marker = "python_full_version < '3.13'", specifier = ">=0.9.0,<0.11" },
     { name = "build123d", marker = "python_full_version >= '3.13'", specifier = ">=0.11,<0.12" },
     { name = "build123d-drafting-helpers", specifier = ">=0.14.2" },
+    { name = "cadquery-ocp-novtk", marker = "python_full_version >= '3.13'", specifier = "!=7.9.3.1.1" },
     { name = "numpy", specifier = ">=1.24" },
+    { name = "ocp-gordon", specifier = "<0.3" },
     { name = "pillow", specifier = ">=10" },
     { name = "pypdfium2", specifier = ">=4" },
-    { name = "quiddity", specifier = "==0.2.5" },
+    { name = "quiddity", specifier = "==0.2.6" },
     { name = "reportlab", specifier = ">=4.0" },
     { name = "steputils", specifier = "==0.1" },
     { name = "svglib", specifier = ">=1.5" },
@@ -2579,15 +2580,15 @@ wheels = [
 
 [[package]]
 name = "quiddity"
-version = "0.2.5"
+version = "0.2.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/d7/9a3a7686941c3147aad406abc36b4cb5b97887d47960a5e4a37eb2ca431b/quiddity-0.2.5.tar.gz", hash = "sha256:dc2f36d8848f2a6553e82b88e2b382c6024d43d7c51579d9b8b36d024cce64da", size = 14857329, upload-time = "2026-09-07T13:04:10.854Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/08/14ff956ac24f5811e4289dc9dd7dc6587479d86ec494b6953a1b6414caf6/quiddity-0.2.6.tar.gz", hash = "sha256:5ae79af9cffe0c5f03f5c1750391759040b9efbc9359bf9f1af3769aaf30316d", size = 14879390, upload-time = "2026-09-07T17:06:58.315Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/a2/ea9de2a6d389bd67cad2391e15045b8563d31666fb8306f1cd521e3ea546/quiddity-0.2.5-py3-none-any.whl", hash = "sha256:22d91ebc85624dbb56203ba5540b2c3c9ae7ba82bdea32d7536fe4391ad59997", size = 517010, upload-time = "2026-09-07T13:04:08.574Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/ad/2bb920c90af85f98f8907705da8439723d6296d409c6975a1e211a7d7642/quiddity-0.2.6-py3-none-any.whl", hash = "sha256:b08a405da6eaf5fcfe48f2fdea452630c71b4b46b3ac7aca2c6ecc3430940a45", size = 526044, upload-time = "2026-09-07T17:06:56.733Z" },
 ]
 
 [[package]]

@@ -1341,6 +1341,7 @@ def _build_drawing_once(
                 getattr(feature, "dominant_axis", ""),
                 getattr(feature, "view", None),
                 getattr(feature, "side", None),
+                getattr(feature, "angular_reference", None),
             )
             if (
                 getattr(feature, "kind", None) != "authored_dimension"
@@ -1382,6 +1383,7 @@ def _build_drawing_once(
                         getattr(feature, "dominant_axis", ""),
                         view,
                         getattr(feature, "side", None),
+                        getattr(feature, "angular_reference", None),
                     )
                 if isinstance(view, str) and view in third_angle_view_names():
                     aspect_views.add(view)
@@ -2132,9 +2134,11 @@ def build_drawing(
                 )
             )
 
-        def _qualify_candidate(candidate, *, require_axial_coverage=False):
+        def _qualify_candidate(
+            candidate, *, require_axial_coverage=False, allow_recovery_detail=False
+        ):
             """Run cheap semantic gates before the one full acceptance lint."""
-            if _has_detail_view(candidate.views):
+            if _has_detail_view(candidate.views) and not allow_recovery_detail:
                 return (), (), "recovery_detail_retained"
             if require_axial_coverage:
                 assert latest_analysis is not None
@@ -2164,6 +2168,7 @@ def build_drawing(
             reason,
             fallback_views,
             require_axial_coverage,
+            allow_recovery_detail=False,
         ):
             """Try the bounded standard-page tail under one settled correction policy."""
             standard_pages = tuple(_PAGE_SIZES.items())
@@ -2208,6 +2213,7 @@ def build_drawing(
                 issues, blockers, rejection = _qualify_candidate(
                     larger,
                     require_axial_coverage=require_axial_coverage,
+                    allow_recovery_detail=allow_recovery_detail,
                 )
                 if rejection is None:
                     _record_attempt(
@@ -2315,27 +2321,31 @@ def build_drawing(
                 drawing = upscaled
                 settled_issues = upscaled_issues
                 replanned = True
-            elif page is None and any(
-                getattr(feature, "kind", None) == "authored_dimension"
-                and bool(getattr(feature, "source_id", ""))
-                for feature in getattr(drawing.model(), "features", ())
-            ):
-                # If the measured detail cannot be eliminated on the selected sheet, keep
-                # searching the bounded standard-page tail for externally authored dimensions.
-                # A generated detail is a conservative recovery for detected measurements, but
-                # it must not strand imported source-owned marks when the next sheet renders
-                # every one directly (GRM-03 PMI after inter-view clearance, #1262).
-                larger, larger_issues = _try_larger_standard_pages(
-                    original_page,
-                    include_iso=_include_iso,
-                    reason="page_escalation_after_detail",
-                    fallback_views=tuple(drawing.views),
-                    require_axial_coverage=False,
+            elif page is None:
+                _detail_issues, detail_blockers = _automatic_assessment(drawing)
+                has_source_dimensions = any(
+                    getattr(feature, "kind", None) == "authored_dimension"
+                    and bool(getattr(feature, "source_id", ""))
+                    for feature in getattr(drawing.model(), "features", ())
                 )
-                if larger is not None:
-                    drawing = larger
-                    settled_issues = larger_issues
-                    replanned = True
+                if detail_blockers or has_source_dimensions:
+                    # A detail may recover its own measurements while another required
+                    # mark remains unplaced. Try the existing bounded page tail in that
+                    # case too; retaining the detail is valid if the candidate passes
+                    # every structural and required-outcome gate. A complete detected
+                    # drawing does not spend a larger sheet just to eliminate its detail.
+                    larger, larger_issues = _try_larger_standard_pages(
+                        original_page,
+                        include_iso=_include_iso,
+                        reason="page_escalation_after_detail",
+                        fallback_views=tuple(drawing.views),
+                        require_axial_coverage=False,
+                        allow_recovery_detail=bool(detail_blockers),
+                    )
+                    if larger is not None:
+                        drawing = larger
+                        settled_issues = larger_issues
+                        replanned = True
 
         # #443/#1299: a pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.

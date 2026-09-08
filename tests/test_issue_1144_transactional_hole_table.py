@@ -430,6 +430,29 @@ def test_segmented_centerline_diagnostic_ignores_only_the_empty_aabb_triangle():
     )
 
 
+@pytest.mark.parametrize("moved", (False, True))
+def test_circular_centerline_lint_uses_the_ring_not_its_enclosing_square(moved):
+    from build123d import Location
+    from build123d_drafting import CenterlineCircle
+
+    from draftwright.linting.structural import _label_centerline_overlap
+
+    ring = CenterlineCircle((0, 0), 40)
+    assert not ring.segments  # circular strokes exercise the rendered-ink fallback
+    cache = {}
+    interior = SimpleNamespace(label="CLEAR", label_bbox=(-2, -2, 2, 2))
+    corner = SimpleNamespace(label="CLEAR", label_bbox=(15, 15, 19, 19))
+    crossing = SimpleNamespace(label="HIT", label_bbox=(17, -3, 23, 3))
+    assert _label_centerline_overlap(interior, ring, cache) is None
+    assert _label_centerline_overlap(corner, ring, cache) is None
+    assert _label_centerline_overlap(crossing, ring, cache) is not None
+    if moved:
+        # A persisted cache must follow a public in-place location change.
+        ring.locate(Location((20, 0, 0)))
+        assert _label_centerline_overlap(interior, ring, cache) is not None
+        assert _label_centerline_overlap(crossing, ring, cache) is None
+
+
 def test_centerline_warning_tolerance_uses_the_actual_colliding_component():
     from draftwright.linting.structural import _label_centerline_overlap
 

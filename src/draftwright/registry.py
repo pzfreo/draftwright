@@ -119,6 +119,14 @@ class AnnotationRegistry:
         ids: tuple = self._anno_measurement.get(name, ())
         return ids
 
+    def has_measurement(self, identity) -> bool:
+        """Whether a live mark carries this exact feature/parameter identity."""
+        return identity is not None and any(
+            recorded.feature is identity.feature and recorded.parameter == identity.parameter
+            for name in self._named
+            for recorded in self.measurement_of(name)
+        )
+
     def satisfaction_of(self, name) -> tuple:
         """The ``DimensionId`` requirements *name* satisfies as structured note authority.
 

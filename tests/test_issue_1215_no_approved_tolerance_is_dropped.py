@@ -255,7 +255,7 @@ def _rendered_text(registry, name) -> str:
 
 
 def _missing(text: str, approved) -> list[str]:
-    """The suffixes *text* owes and does not carry — counted, not searched for.
+    """The complete angular labels or linear suffixes *text* owes, counted per claim.
 
     ONE OCCURRENCE PER APPROVED ID. Every predicate before this one asked "does the label
     contain a tolerance", and each was green over a live drop:
@@ -282,7 +282,12 @@ def _missing(text: str, approved) -> list[str]:
     guessed — which is also the ADR 4 (was 0016 Amdt 1) shape: compare to the compiler, not to a
     pattern.
     """
-    want = Counter(_tol_suffix(dim.tolerance, _DRAFT) for dim in approved)
+    want = Counter(
+        dim.final_label
+        if dim.angular_reference is not None
+        else _tol_suffix(dim.tolerance, _DRAFT)
+        for dim in approved
+    )
     return [f"{n}x{sfx!r}" for sfx, n in sorted(want.items()) if text.count(sfx) < n]
 
 

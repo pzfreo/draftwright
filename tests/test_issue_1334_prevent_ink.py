@@ -1,10 +1,14 @@
 """Candidate prevention: dimension ink blocks peer labels before commit (#1334)."""
 
+from types import SimpleNamespace
+
+import pytest
+from build123d import Edge
 from build123d_drafting.helpers import Draft
 
 from draftwright._core import _dim
 from draftwright._geometry import _boxes_overlap
-from draftwright.annotations._common import prevent_dimension_label_ink
+from draftwright.annotations._common import prevent_dimension_label_ink, view_label_clearance
 from draftwright.linting.ink_overlap import (
     MIN_CROSSING_MM,
     crossable_region,
@@ -26,6 +30,27 @@ def _short_chain():
             _dim((22.5, 0.0, 0.0), (32.5, 0.0, 0.0), "above", 11.0, draft, label="2"),
         ),
     ]
+
+
+@pytest.mark.parametrize("pin", (False, True))
+def test_part_edge_through_a_single_short_label_uses_the_far_tier(pin):
+    draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+    natural = _dim((20, 20, 0), (20, 23, 0), "right", 11, draft, label="3")
+    edge = Edge.make_line((29, 21.5, 0), (34, 21.5, 0))
+    clear = view_label_clearance(SimpleNamespace(views={"front": (edge,)}), "front")
+    assert not clear(natural.label_bbox)
+    [(name, selected)] = prevent_dimension_label_ink(
+        [("short", natural)],
+        page=(0, 0, 100, 100),
+        perpendicular_step=7,
+        label_clear=clear,
+        immutable={"short"} if pin else (),
+    )
+    assert name == "short" and selected.label == "3"
+    assert clear(selected.label_bbox) is not pin
+    assert (selected is natural) is pin
+    assert selected._dw_spec.p1 == natural._dw_spec.p1
+    assert selected._dw_spec.p2 == natural._dw_spec.p2
 
 
 def _connected_mixed_chain():

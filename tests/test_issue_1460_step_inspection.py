@@ -44,6 +44,7 @@ _SCHEMA_PATH = (
 # `view_plan` are absent because the shared one-run detect seam sizes a page and plans dimensions
 # while detecting; the pinned set below covers those.
 _FORBIDDEN_STAGES = (
+    "draftwright.model.compiled",
     "draftwright.projection",
     "draftwright.export",
     "draftwright.repair",
@@ -63,6 +64,8 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright._geometry",
         "draftwright._pmi_part21",
         "draftwright.analysis",
+        "draftwright.angular_geometry",  # pure sizing footprints, no compiled plan
+        "draftwright.profile_angles",  # pure projection of issued profile supports
         "draftwright.blend_contract",
         "draftwright.oriented_slot_contract",
         "draftwright.section_recess_contract",  # pure validated pattern projection during detect

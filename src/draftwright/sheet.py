@@ -63,6 +63,8 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
+from draftwright.model import angle as _angle
+from draftwright.model import angle_pattern as _angle_pattern
 from draftwright.model import blend as _blend
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
@@ -546,9 +548,20 @@ class _Dim(_Nameable):
     ) -> _Dim:
         """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
         limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
-        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD).
+        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD),
+        or its canonical parameter id such as ``"step.length"``.
         ``source`` / ``source_ids`` retain provenance on generated imported requirements."""
-        self._sheet._tolerances[(self._token, on or self._kind)] = _tolerance_decoration(
+        parameters = self._sheet._features[self._i].parameters()
+        target = on or self._kind
+        exact = [parameter for parameter in parameters if parameter.parameter_id == target]
+        if len(exact) == 1:
+            target = exact[0].kind
+        if sum(parameter.kind == target for parameter in parameters) != 1:
+            raise ValueError(
+                f"on={on!r} must name one parameter of this feature; "
+                f"choose from {sorted(parameter.parameter_id for parameter in parameters)}"
+            )
+        self._sheet._tolerances[(self._token, target)] = _tolerance_decoration(
             lo, hi, source=source, source_ids=source_ids
         )
         return self
@@ -1470,6 +1483,7 @@ class Sheet:
         cylindrical_refs=(),
         view: str | None = None,
         side: str | None = None,
+        angular_reference=None,
     ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
@@ -1491,6 +1505,14 @@ class Sheet:
         ``rendering_blockers`` carries the source-geometry reason it cannot be drawn truthfully.
         ``view``/``side`` select a supported semantic corridor while leaving its actual
         position to the normal placement solve.
+        ``angular_reference`` names a model-space ``vertex``, ``first`` and ``second``
+        ray witness, with optional ``virtual_vertex=True`` for extended supports.
+        Its only supported sector is the non-reflex ``"minor"`` sector. Supply it as an
+        ``AngularReference`` or mapping; empty ``ref_pts`` are filled from that reference.
+        A Sheet-authored angle with exactly three ``ref_pts`` uses the order
+        ``(first, vertex, second)``. Generic imported PMI stations require an explicit
+        angular reference; their order cannot be inferred from the point count.
+        Geometric intent is preserved even when angular rendering is unavailable.
         Delegates to :func:`draftwright.model.declare.measured_dimension` (#704), so
         ``build_drawing(model=…)`` callers can author the same feature without the façade.
         """
@@ -1516,6 +1538,7 @@ class Sheet:
                 cylindrical_refs=cylindrical_refs,
                 view=view,
                 side=side,
+                angular_reference=angular_reference,
             )
         )
         # A handle like every other declaration verb (#922). A measured dimension carries its
@@ -1744,6 +1767,26 @@ class Sheet:
         open-to-terminal run length and shared-ridge midpoint.  The form is explicit-only:
         a detached face or cutter cannot prove the paired material-removal topology."""
         self._features.append(_paired_ramp_step(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def angle(self, **kw) -> _Params:
+        """Declare an included angle from vertex/first/second model-space points.
+
+        The value is derived from those rays. Select ``included.angle`` with
+        ``dimension()`` and use the usual tolerance, omission and placement controls.
+        No number or annotation radius is authored.
+        """
+        self._features.append(_angle(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def angle_pattern(self, *members) -> _Params:
+        """Declare repeated AngularReference corners with independent member IDs.
+
+        The parameters are ``included.angle.member1``, ``member2``, etc. An
+        authored omission retains the other member identities; tolerances may
+        target one full parameter ID or the whole included-angle family.
+        """
+        self._features.append(_angle_pattern(*members))
         return _Params(self, len(self._features) - 1)
 
     def circular_blind_step(self, **kw) -> _Params:

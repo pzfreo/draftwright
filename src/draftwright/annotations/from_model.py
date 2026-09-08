@@ -30,7 +30,6 @@ from build123d_drafting.helpers import (
     CenterMark,
     HoleCallout,
     Leader,
-    TitleBlock,
 )
 
 from draftwright._core import (
@@ -46,7 +45,6 @@ from draftwright._core import (
     _SLOT_DIM_WIDTH,
     _WITNESS_LIFT_MM,
     DetailRequest,
-    _annotation_diameter_sources,
     _classify_steps,
     _concentric_with_axis,
     _dim,
@@ -92,7 +90,9 @@ from draftwright.annotations._common import (
     strip_free_span,
     strip_obstacles,
     strip_occupants,
+    view_label_clearance,
 )
+from draftwright.annotations.angular import AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
     collect_feature_leader,
@@ -1167,24 +1167,6 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
     return n
 
 
-def _mentioned_diameters(dwg) -> set[float]:
-    """Diameters already called out on the drawing.
-
-    Structured ``covers_diameters`` is authoritative when present; only genuinely
-    unstructured labels are parsed.  A geometric hole callout's semantic label may also
-    contain a bolt-circle or grid suffix diameter, which locates the pattern but does not
-    cover a physical feature of that diameter (#1142 / ADR 3 (was 0017)).
-    """
-    diams: set[float] = set()
-    for _, ann in dwg.iter_annotations():
-        if isinstance(ann, TitleBlock):
-            continue
-        structured_diameters, text_diameters = _annotation_diameter_sources(ann)
-        diams.update(structured_diameters)
-        diams.update(text_diameters)
-    return diams
-
-
 def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     """Fit as many ø specs as the strip ``[lo, hi]`` holds at ``min_gap`` spacing,
     dropping the SMALLEST-diameter spec first when the full set overflows — so the
@@ -1510,14 +1492,14 @@ def _diameter_source_bounds(dwg, view, feature, diameter) -> tuple[float, float,
     )
 
 
-def _render_typed_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ctx) -> int:
-    """Route a typed thread/knurl diameter row through the shared leader solve.
+def _render_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ctx) -> int:
+    """Route external diameters through the shared leader solve.
 
     The legacy row deliberately gives every item the widest label's pitch.  That is stable and
     tidy for short diameter strings, but an authoritative manufacturing paragraph cannot share
     that pitch without evicting its siblings.  Collect typed buckets into the global
-    feature-leader solve, which has independent label footprints and multiple clear lanes;
-    short plain buckets retain their byte-stable legacy row.
+    feature-leader solve, which has independent label footprints and multiple clear lanes.
+    Plain diameters that did not fit their row use these same candidates.
     """
     vb = dwg.view_bounds("front")
     if vb is None:
@@ -1592,7 +1574,7 @@ def _render_typed_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ct
         dwg,
         a,
         jobs,
-        noun="typed manufacturing diameter",
+        noun="external diameter",
         drop_code="diameter_dropped",
         ctx=ctx,
         geom_clear=True,
@@ -1601,9 +1583,9 @@ def _render_typed_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ct
     )
 
 
-def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
+def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
     """ø leaders for a turned part's external step/boss diameters, from the IR —
-    one distinct callout per diameter, in a tidy row below the front view
+    one owned callout per physical diameter measurement, in a tidy row below the front view
     (X-turning), a column to its left (Z-turning), or as radial leaders in the
     end-on front view (Y-turning). Orientation is the feature frame's axis, not
     separate detection paths. Replaces the engine's
@@ -1614,13 +1596,9 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
     finalize() path passes the recorded step/boss ``callout`` intents' features.
     ``None`` (the auto-pass) places every diameter with the historical 0-based
     ``m_dia_{x,z}`` naming; Y-axis leaders use ``m_dia_y``."""
-    mentioned = _mentioned_diameters(dwg)
-    # One distinct callout per (axis, diameter, approved text, manufacturing suffix/owner).
-    # Accumulate EVERY feature that shares that complete printed claim (insertion-ordered),
-    # so provenance (#412) can tag the callout with its single owner — or leave it unowned
-    # when two distinct features genuinely share the same claim.
-    # Keep the compiler-approved text beside the numeric diameter.  Layout still needs the
-    # number for truthful rim geometry; only ``value_text`` may cross into a printed label.
+    # Equal numeric diameters do not establish one physical measurement. Keep the
+    # compiler owner in every key, including plain diameters, so public feature
+    # edits retain their independent provenance and tolerances.
     row_buckets: dict = {}  # semantic print key -> [anchor, dia, text, {features}, tol, ...]
     col_buckets: dict = {}  # Z-turned
     end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
@@ -1631,37 +1609,17 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
         if dpd is None:
             continue
         dia = dpd.value
-        # An EXTERNAL thread (#859) makes a distinct callout: a threaded ⌀6 ("ø6 M6x1") and a
-        # plain ⌀6 are NOT the same label. Plain entries key on (⌀, suffix, None) and retain
-        # byte-identical value deduplication; source-owned entries add their opaque canonical
-        # owner below. The first authored tolerance within one legitimate shared bucket wins.
         thr = _manufacturing_suffix(
             g.facts.get("thread"),
             g.facts.get("knurl"),
         )
-        # A coincident plain ⌀ already drawn (a bore, another step) dedups only an UNTHREADED ⌀;
-        # a threaded ⌀ is a distinct callout, so a bare ⌀8 mention must not suppress ø8 M8x1.25.
-        if (
-            thr is None
-            and dpd.display_decimals is None
-            and any(abs(dia - m) <= tol for m in mentioned)
-        ):
+        if dwg.registry.has_measurement(dpd.id):
             continue
         bucket = {"x": row_buckets, "y": end_buckets, "z": col_buckets}.get(g.facts.frame.axis)
         if bucket is None:
             continue
         dtol = dpd.tolerance
-        typed_owner = (
-            g.ref
-            if isinstance(g.facts.get("thread"), ThreadRequirement)
-            or isinstance(g.facts.get("knurl"), KnurlRequirement)
-            else None
-        )
-        # Legacy plain diameters remain deduplicated by value.  A typed requirement is
-        # owned by one canonical feature and may share identical wording with another
-        # source-owned feature; include the opaque compiler owner so neither provenance
-        # nor public ``drop(feature)`` is collapsed into an unowned shared mark.
-        dkey = (round(dia, 2), dpd.value_text, thr, typed_owner)
+        dkey = (g.ref, dpd.value_text, thr)
         entry = bucket.setdefault(dkey, [g.anchor, dia, dpd.value_text, set(), dtol, thr, []])
         entry[3].add(g.ref)
         entry[6].append(g)
@@ -1669,11 +1627,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
             entry[4] = dtol
 
     def _item(entry):
-        # The trailing element is the ADR 5 (was 0010) claim: one ø callout stands for every step
-        # sharing this diameter, so it draws each of their diameter dims (#1002). It is the
-        # same derivation the m_dia_y branch below already made; the row/column placers
-        # threaded nothing, so every X- and Z-turned ø callout reached the sheet unclaimed
-        # and no verifier could see it (#1227).
+        # Carry the exact approved identity into the row/column placement.
         a, d, value_text, refs, t, thr, gs = entry
         return (
             _diameter_step_anchor(a, gs),
@@ -1733,7 +1687,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
             trace=trace,
             ctx=ctx,
         )
-    placed += _render_typed_diameter_leaders(
+    placed += _render_diameter_leaders(
         dwg,
         a,
         typed_entries,
@@ -1741,12 +1695,26 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
         start=start_x,
         ctx=ctx,
     )
+    unplaced = [
+        entry
+        for _index, entry in plain_entries
+        if any(
+            not dwg.registry.has_measurement(group.dim(kind="diameter").id) for group in entry[6]
+        )
+    ]
+    placed += _render_diameter_leaders(
+        dwg,
+        a,
+        list(enumerate(unplaced)),
+        prefix="m_dia_x",
+        start=start_x + len(row_buckets),
+        ctx=ctx,
+    )
     placed += _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace, ctx=ctx)
 
     # A Y-axis step is end-on in the front view, so the X/Z profile-strip
     # leaders are geometrically inapplicable. Place one radial leader per
-    # distinct diameter around the concentric circles instead. Keep shared-value
-    # provenance honest: a diameter owned by several steps has no single feature.
+    # owned diameter around the concentric circles instead.
     if end_buckets:
         vb = dwg.view_bounds("front")
         if vb is not None:
@@ -1783,13 +1751,11 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                         representative,
                         reach,
                         rim=dia / 2 * a.SCALE,
+                        directions=_END_DIAMETER_LEAD_DIRS,
                     )
                 ]
-                # This pre-drain consumer deliberately retains the exact #890
-                # greedy semantics: try hole-clear rays first, but preserve the
-                # obstructed Policy-B tail in case every clear ray is blocked by
-                # fixed annotation/page occupancy. Joint filtering here would
-                # change the diameter coverage seen by later semantic passes.
+                # Preserve the existing pre-drain first-clear order, preferring
+                # rays that avoid the bore circles.
                 candidates.sort(
                     key=lambda candidate: _leader_hole_clearance(candidate, hole_circles),
                     reverse=True,
@@ -1798,9 +1764,7 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                 if thr:
                     label += f" {thr}"
                 name = f"m_dia_y{start_y + i}"
-                # One ø callout stands for every step sharing this diameter, so it draws
-                # each of their diameter dims (#1002). Empty when a group planned none —
-                # recorded as unknown, which is the honest answer, not a guessed id.
+                # Retain the compiler identities of this owned diameter bucket.
                 mids = tuple(
                     pd.id for gp in feature_groups for pd in gp.dims if pd.kind == "diameter"
                 )
@@ -1815,10 +1779,8 @@ def render_diameters(dwg, plan, a, tol: float = 0.15, *, ctx, only=None) -> int:
                 ctx=ctx,
                 geom_clear=True,
             )
-            # These leaders intentionally start on an internal concentric circle
-            # and exit the outer silhouette, just like a bore callout. Structured
-            # diameter coverage both credits completeness lint and exempts that
-            # legitimate shaft crossing from leader_crosses_silhouette.
+            # Internal concentric-circle leaders legitimately exit the outer
+            # silhouette, like bore callouts. Retain their diameter coverage.
             for name, dia in covered_by_name.items():
                 ann = ctx.registry.named(name)
                 if ann is not None:
@@ -3213,6 +3175,14 @@ _POCKET_LEAD_DIRS = (
     (0, -1),
 )
 
+# Independently owned coaxial diameters can exhaust the eight pocket directions.
+# This bounded circular fan supplies additional rim targets to the same solver;
+# every candidate remains radial and is ranked for clearance from projected bores.
+_END_DIAMETER_LEAD_DIRS = (
+    *_POCKET_LEAD_DIRS,
+    *((math.cos(math.pi * i / 16), math.sin(math.pi * i / 16)) for i in range(32) if i % 4),
+)
+
 # The feature anchor lies on a quarter-cylindrical wall, so only the four outward diagonal
 # normals are physically meaningful.  Axial page rays can escape the composed end-view
 # footprint into adjacent-view ink; the diagonal set keeps auto, live and deferred placement
@@ -3987,8 +3957,8 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     A *turned* part keeps the diameter row/column (``render_diameters``): there the boss ø sits
     in the OD stack. The turned column-left strip, applied to a prismatic boss, strands its ø
     whenever that narrow strip is tight — dropping the callout even on a half-empty sheet (#629).
-    Run BEFORE ``render_diameters`` so a placed boss ø is 'mentioned' and not re-placed. A boss
-    whose ø a coincident feature already carries is skipped; an unplaceable one drops lint-visibly.
+    Run BEFORE ``render_diameters`` so its placed measurement identity prevents a second
+    rendering of that same boss. An unplaceable one drops lint-visibly.
 
     Placement rides the shared :func:`place_machined_leader_jobs` adapter (#700 — never a sixth copy
     of the ray-exit loop, #637): rim-anchored :func:`_radial_candidates`, accepted with
@@ -4000,7 +3970,6 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     draft = dwg.draft
     view_of = _END_ON  # the view looking down the boss axis
     boss_groups = list(plan.of_kind("boss"))
-    mentioned = _mentioned_diameters(dwg)
     reach = draft.font_size + 6 * draft.pad_around_text
     jobs = []
     for bi, g in enumerate(
@@ -4016,13 +3985,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
             getattr(b, "thread", None),
             getattr(b, "knurl", None),
         )
-        # A coincident plain ⌀ dedups only an UNTHREADED boss; a threaded ⌀ is a distinct callout,
-        # so a bare ⌀8 mention (a bore, a step) must not suppress ø8 M8x1.25 (#859).
-        if (
-            thr is None
-            and dpd.display_decimals is None
-            and any(abs(dia - m) <= 0.15 for m in mentioned)
-        ):
+        if dwg.registry.has_measurement(dpd.id):
             continue
         view = view_of.get(b.frame.axis)
         if view is None:
@@ -4849,18 +4812,19 @@ def _step_measurements(segs: list[_StepChainSegment]) -> tuple[Any, ...]:
 
 
 def _record_step_chain_drop(dwg, why: str, *, ctx, measurement=()) -> None:
-    """Record the ``step_dim_dropped`` lint warning when a turned step-length chain
-    is dropped whole (#362). These drops were silent (debug log only) — the user got
+    """Record the ``step_dim_dropped`` warning for unresolved turned lengths.
+    These drops were silent (debug log only) — the user got
     a drawing with no step-length dimensioning and no signal. Mirrors
     ``render_height_ladder``'s prismatic drop, but records ONLY the lint code (not an
     ``Escalation(kind="step")``): that escalation is consumed by
     ``_request_prismatic_detail`` (sections.py), which would redraw *prismatic*
     height-above-base dims for a *turned* chain — the wrong semantics #351 PR-4b
-    removed. A Z-turned-appropriate detail-view remedy is a tracked follow-up."""
+    removed. An authored semantic shoulder detail uses the shared chain pass."""
     ctx.record_issue(
         "warning",
         "step_dim_dropped",
-        f"step-length chain dropped: {why} at this scale (use a detail view)",
+        f"step-length chain dropped: {why} at this scale "
+        "(request Sheet.detail_view(..., around=step) at a larger scale)",
         measurement=measurement,
     )
 
@@ -4876,14 +4840,16 @@ def _draw_step_chain(
     ctx,
     start=0,
     profile_bounds=None,
+    placement_bounds=None,
 ) -> int:
     """Place a turned step-length chain in *view* from structured *segs*, each already
     projected to *view*'s page coords in axis order. Orientation is
     data (the projected span direction): horizontal → chain above the view, vertical
     → chain to the right. A uniform run collapses to one ``N× v`` dim (#230); else a
     per-segment chain, staggered into a near/far tier only when crowded (ISO 129-1,
-    #293); skipped if even two tiers can't separate the labels, or if any dim would
-    fall off the page. ``detail_scale`` tags the dims for label-vs-measured lint when
+    #293). The shared ink solve offers both orientations a far tier; off-page
+    members are reported individually without erasing valid neighbours.
+    ``detail_scale`` tags the dims for label-vs-measured lint when
     drawing inside a scaled detail view. ``allow_collapse=False`` disables the ``N× v``
     collapse — used when the chain mixes a synthetic head-*block* with real steps, where
     a uniform-staircase representative would be a false claim of N equal steps (#307
@@ -4974,25 +4940,9 @@ def _draw_step_chain(
                         {"name": name_prefix, "outcome": "dropped", "reason": "too_dense"}
                     )
                 return 0
-        else:
-            shoulder_ys = sorted({c for seg in segs for c in (seg.pa[1], seg.pb[1])})
-            if any(b - a < tier_step for a, b in zip(shoulder_ys, shoulder_ys[1:])):
-                _log.info("step-length chain skipped: shoulders too close to dimension")
-                _record_step_chain_drop(
-                    dwg,
-                    "turned shoulders too closely spaced to dimension",
-                    ctx=ctx,
-                    measurement=_step_measurements(segs),
-                )
-                if ev is not None:
-                    ev["items"].append(
-                        {
-                            "name": name_prefix,
-                            "outcome": "dropped",
-                            "reason": "shoulders_too_close",
-                        }
-                    )
-                return 0
+        # A short vertical shoulder is not a density test for the whole chain.
+        # Helpers can draw outside arrows, and the shared batch solver below
+        # checks actual labels/ink and offers the same far tier on either axis.
 
         candidates = []
         for i, seg in enumerate(segs):
@@ -5023,19 +4973,28 @@ def _draw_step_chain(
     # the complete batch before the room guard (#1334).  Measurement provenance stays paired
     # by name; only the rendered Dimension survivor changes.
     measurements_by_name = {name: measurements for name, _dim_obj, measurements in candidates}
+    # A body-local profile can sit inside a wider flange in the same view.
+    # Its near tier stays local; the one alternate tier can reach the outer
+    # edge of its assigned view cell without moving measurement supports.
+    cell = placement_bounds or dwg.view_bounds(view)
+    outer_index = 3 if horizontal else 2
+    far_step = max(tier_step, cell[outer_index] - vb[outer_index]) if cell else tier_step
     candidates = [
         (name, dim, measurements_by_name[name])
         for name, dim in prevent_dimension_label_ink(
             [(name, dim) for name, dim, _measurements in candidates],
             page=page,
             obstacles=strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES),
-            perpendicular_step=tier_step if horizontal else None,
+            perpendicular_step=far_step,
+            label_clear=view_label_clearance(dwg, view),
         )
     ]
 
-    # Room guard: if any dim would fall off the drawable page, place NONE.
-    for _, dim, _measurements in candidates:
-        box = _anno_box(dim)
+    # Preserve independently placeable measurements when one member is off-page.
+    # A missing neighbour stays explicitly unresolved under its own identity.
+    survivors = []
+    for name, dim, measurements in candidates:
+        box = _geom_box(dim)
         if box is not None and not (
             page[0] <= box[0] and box[2] <= page[2] and page[1] <= box[1] and box[3] <= page[3]
         ):
@@ -5043,14 +5002,13 @@ def _draw_step_chain(
                 dwg,
                 "a dimension would fall off the drawable page",
                 ctx=ctx,
-                measurement=_step_measurements(segs),
+                measurement=measurements,
             )
             if ev is not None:
-                ev["items"].append(
-                    {"name": name_prefix, "outcome": "dropped", "reason": "off_page"}
-                )
-            return 0
-    for name, dim, measurements in candidates:
+                ev["items"].append({"name": name, "outcome": "dropped", "reason": "off_page"})
+            continue
+        survivors.append((name, dim, measurements))
+    for name, dim, measurements in survivors:
         if detail_scale is not None:
             dim._dw_scale = detail_scale
         ctx.place(dim, name, view=view, measurement=measurements)
@@ -5059,7 +5017,7 @@ def _draw_step_chain(
             ev["items"].append(
                 {"name": name, "outcome": "placed", "box": list(b) if b is not None else None}
             )
-    return len(candidates)
+    return len(survivors)
 
 
 def _next_steplen_start(ctx, prefix: str = "m_steplen") -> int:
@@ -5077,6 +5035,83 @@ def _next_steplen_start(ctx, prefix: str = "m_steplen") -> int:
             tail = rest[4:]
             idxs.append(int(tail) if tail.isdigit() else 0)
     return max(idxs) + 1 if idxs else 0
+
+
+def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, source) -> bool:
+    """Redraw an authored shoulder detail through the shared approved-length pass."""
+    target = FeatureRef(feature)
+    groups = [group for group in plan.of_kind("step") if group.ref == target]
+    if len(groups) != 1:
+        return False
+    (group,) = groups
+    length = group.dim(kind="length")
+    if length is None or length.span is None:
+        return False
+    axis = group.facts.frame.axis
+    view = group.view
+    in_plane = {"front": ("x", "z"), "side": ("y", "z"), "plan": ("x", "y")}
+    if view not in in_plane or axis not in in_plane[view]:
+        return False
+    cross = cast(Literal["x", "y", "z"], next(value for value in in_plane[view] if value != axis))
+    ai, ci = "xyz".index(axis), "xyz".index(cross)
+    lo, hi = sorted(point[ai] for point in length.span)
+    context = max(1.0, (hi - lo) / 2)
+    diameter = group.dim(kind="diameter")
+    if diameter is not None:
+        rim = group.facts.frame.origin[ci] + diameter.value / 2
+        cross_lo, cross_hi = rim - context, rim + context
+    else:
+        # Suppression removes diameter content. The crop may still use the
+        # part bounds as context, but it cannot manufacture an omitted label.
+        cross_lo, cross_hi = tuple(a.bb.min)[ci], tuple(a.bb.max)[ci]
+    segment = _StepChainSegment(
+        length.span[0],
+        length.span[1],
+        length.value,
+        length.tolerance,
+        length.measurement_ids,
+        value_text=length.value_text,
+        display_decimals=length.display_decimals,
+    )
+
+    def redraw(dwg, detail_view, coords, detail_scale):
+        projected = replace(segment, pa=coords.pp(*segment.pa), pb=coords.pp(*segment.pb))
+        return _draw_step_chain(
+            dwg,
+            detail_view,
+            [projected],
+            f"{detail_view}_steplen",
+            detail_scale=detail_scale,
+            allow_collapse=False,
+            ctx=ctx,
+        )
+
+    draft = dwg.draft
+    band = 2 * draft.font_size + 6 * draft.pad_around_text + 2 * draft.arrow_length
+    ctx.detail_requests.append(
+        DetailRequest(
+            axis=axis,
+            lo=lo,
+            hi=hi,
+            crop_lo=lo - context,
+            crop_hi=hi + context,
+            scale_needed=a.SCALE * factor,
+            redraw=redraw,
+            pads=lambda _scale: (band, 0.0) if axis == in_plane[view][1] else (0.0, band),
+            source_view=view,
+            cross_axis=cross,
+            cross_lo=cross_lo,
+            cross_hi=cross_hi,
+            kind="authored-step",
+            view_name=view_name,
+            label=label,
+            scale_factor=factor,
+            source=source,
+            measurement_ids=length.measurement_ids,
+            measurement_spans=(length.span,),
+        )
+    )
+    return True
 
 
 def render_step_lengths(
@@ -5811,6 +5846,7 @@ def render_step_lengths(
         ctx=ctx,
         start=start,
         profile_bounds=profile_bounds,
+        placement_bounds=_profile_bounds_hint,
     )
 
 
@@ -6437,7 +6473,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 ),
                 "dim_od",
                 view="front",
-                measurement=od_dim.id,
+                measurement=od_dim.measurement_ids,
             )
             n += 1
         _place_axis_centerline(
@@ -6535,7 +6571,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 ),
                 "dim_od",
                 view="front",
-                measurement=od_dim.id,
+                measurement=od_dim.measurement_ids,
             )
             n += 1
         _place_axis_centerline(
@@ -6571,7 +6607,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
                 ),
                 "dim_od",
                 view="side",
-                measurement=od_dim.id,
+                measurement=od_dim.measurement_ids,
             )
             n += 1
         _place_axis_centerline(
@@ -6679,6 +6715,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
         ax,
         getattr(rec, "view", None),
         getattr(rec, "side", None),
+        getattr(rec, "angular_reference", None),
     )
     if selected_view is not None:
         view = selected_view
@@ -6763,7 +6800,8 @@ _PMI_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 _PMI_SLOT = 10.0  # mm — slot size for PMI dim lines in the strip
 
 
-#: Dimension categories the IR admits but this renderer cannot draw TRUTHFULLY. `Dimension`
+#: Categories the generic linear renderer cannot draw truthfully. The separate angular
+#: candidate path admits explicit supported ray geometry via _angular_renderable. `Dimension`
 #: measures a straight projected path, so a record whose value is measured on some other
 #: basis renders as an annotation whose geometry contradicts its own label — a drawing that
 #: asserts something false (#1177). Measured on a 1:1 sheet, value against drawn length:
@@ -6797,6 +6835,21 @@ _MEASUREMENT_BASIS = {
     "curved_dist": "a distance along a curve",
     "oriented": "a distance along a stated direction",
 }
+
+
+def _angular_renderable(record) -> bool:
+    reference = getattr(record, "angular_reference", None)
+    return (
+        record.pmi_kind == "angular"
+        and reference is not None
+        and reference.principal_axis in ("X", "Y", "Z")
+        # Structured angle tolerances still need compiler-owned label composition.
+        # Retain a refusal until that path can state every authored term.
+        and all(
+            getattr(record, field, None) is None
+            for field in ("upper_tol", "lower_tol", "lower_bound", "upper_bound")
+        )
+    )
 
 
 def _authored_with_usable_references(record) -> bool:
@@ -6850,6 +6903,12 @@ def _record_unsupported_dimension_kind(ctx, rec):
     drawing.
     """
     basis = _MEASUREMENT_BASIS[rec.pmi_kind]
+    reason = (
+        "supported angular ink requires explicit coplanar rays in a principal view "
+        "and currently cannot compose structured angular tolerances"
+        if rec.pmi_kind == "angular"
+        else "this renderer measures only a straight projected path"
+    )
     source_id = getattr(rec, "source_id", "")
     # `error` for a source-bearing record, matching `_record_pmi_no_candidate` and the
     # three `lint_pmi_*` checks: in annotate mode a requirement that came from the AP242
@@ -6860,7 +6919,7 @@ def _record_unsupported_dimension_kind(ctx, rec):
         "error" if source_id else "warning",
         "dimension_kind_unsupported",
         f"authored {rec.pmi_kind} dimension {getattr(rec, 'label', '')!r} is not drawn: it "
-        f"states {basis}, and this renderer measures only a straight projected path",
+        f"states {basis}; {reason}",
         source=source_id,
         outcome_stage="validation",
     )
@@ -6879,7 +6938,7 @@ def _renderable_pmi_records(records):
         for r in records
         if _authored_with_usable_references(r)
         and r.pmi_kind in AUTHORED_DIMENSION_KINDS
-        and r.pmi_kind not in _UNRENDERABLE_DIMENSION_KINDS
+        and (r.pmi_kind not in _UNRENDERABLE_DIMENSION_KINDS or _angular_renderable(r))
     ]
 
 
@@ -6894,6 +6953,7 @@ def _unsupported_kind_records(records):
         if _authored_with_usable_references(r)
         and r.pmi_kind in AUTHORED_DIMENSION_KINDS
         and r.pmi_kind in _UNRENDERABLE_DIMENSION_KINDS
+        and not _angular_renderable(r)
     ]
 
 
@@ -7082,7 +7142,17 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     }
 
 
-def _pmi_place_one(dwg, spec, rec, *, ctx, trace=None):
+def _place_corridor_option(
+    dwg,
+    spec,
+    feature,
+    *,
+    ctx,
+    trace=None,
+    measurement=None,
+    priority=_PMI_CORRIDOR_PRIORITY,
+    anchored=False,
+):
     # *trace* (#736): a PMI dim's post-drop fallback is a standalone strip pass —
     # traced as a pass_event like the other standalone placers.
     left = place_strip_candidates(
@@ -7094,8 +7164,18 @@ def _pmi_place_one(dwg, spec, rec, *, ctx, trace=None):
         _PMI_SLOT,
         ctx=ctx,
         force=True,
-        features={spec["name"]: rec},
-        priorities={spec["name"]: _PMI_CORRIDOR_PRIORITY},
+        features={spec["name"]: feature},
+        measurements={spec["name"]: measurement} if measurement is not None else None,
+        naturals={spec["name"]: spec["natural"]} if "natural" in spec else None,
+        footprints={spec["name"]: spec["footprint"]} if "footprint" in spec else None,
+        valid_positions={spec["name"]: spec["valid_position"]}
+        if "valid_position" in spec
+        else None,
+        compact_candidates={spec["name"]: spec["compact_candidates"]}
+        if "compact_candidates" in spec
+        else None,
+        priorities={spec["name"]: priority},
+        anchored={spec["name"]: anchored},
         trace=trace,
         trace_label="pmi_fallback",
     )
@@ -7110,7 +7190,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
 
     def _drop(nm, _alts=alternates, _ax=ax, _label=label, _rec=rec):
         for alt in _alts:
-            if _pmi_place_one(dwg, alt, _rec, ctx=ctx, trace=ctx.trace):
+            if _place_corridor_option(dwg, alt, _rec, ctx=ctx, trace=ctx.trace):
                 _log.info(
                     "PMI dim %s placed on fallback %s/%s",
                     nm,
@@ -7138,6 +7218,10 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
             priority=_PMI_CORRIDOR_PRIORITY,
             force=True,
             feature=rec,
+            natural=primary.get("natural"),
+            footprint=primary.get("footprint"),
+            valid_position=primary.get("valid_position"),
+            compact_candidates=primary.get("compact_candidates"),
         ),
     )
     return True
@@ -7195,6 +7279,176 @@ def _pmi_front_linear(dwg, a, ctx, rec, ax, label, name, primary, secondary, cen
     return placed
 
 
+def _angular_specs(a, reference, label, name, draft, *, side=None):
+    axis = reference.principal_axis
+    view, to_page, zones = {
+        "X": ("side", lambda p: (a.proj.side_x(p[1]), a.proj.side_z(p[2])), a.sv_zones),
+        "Y": ("front", lambda p: (a.proj.front_x(p[0]), a.proj.front_z(p[2])), a.fv_zones),
+        "Z": ("plan", lambda p: (a.proj.plan_x(p[0]), a.proj.plan_y(p[1])), a.pv_zones),
+    }[axis]
+    ink = AngularInk(
+        to_page(reference.vertex),
+        to_page(reference.first),
+        to_page(reference.second),
+        label,
+        draft,
+        sector=reference.sector,
+    )
+    options = []
+    for index in sorted(range(2), key=lambda i: -abs(ink.bisector[i])):
+        component = ink.bisector[index]
+        if abs(component) < 1e-6:
+            continue
+        candidate_side = (("left", "right"), ("below", "above"))[index][component > 0]
+        if side is not None and side != candidate_side:
+            continue
+        strip = getattr(zones, candidate_side)
+        if strip is None:
+            continue
+        lo, hi, inner = strip_free_span(strip)
+        natural = ink.vertex[index] + ink.minimum_radius * component
+        natural = max(natural, inner) if component > 0 else min(natural, inner)
+
+        def radius(pos, _index=index, _component=component):
+            return (pos - ink.vertex[_index]) / _component
+
+        def valid_position(pos, _radius=radius):
+            value = _radius(pos)
+            if value < ink.minimum_radius - 1e-9:
+                return False
+            x0, y0, x1, y1 = ink.footprint(max(ink.minimum_radius, value))
+            return (
+                x0 >= _MARGIN
+                and y0 >= _MARGIN
+                and x1 <= a.PAGE_W - _MARGIN
+                and y1 <= a.PAGE_H - _MARGIN
+            )
+
+        options.append(
+            {
+                "name": name,
+                "view": view,
+                "side": candidate_side,
+                "strip": strip,
+                "axis": "x" if index == 0 else "y",
+                "order": (_PMI_SUBCHAIN, ink.vertex[1 - index], name),
+                "natural": natural,
+                "valid_position": valid_position,
+                "compact_candidates": lambda: ink.compact_candidates(_PMI_SLOT),
+                "build": lambda pos, _radius=radius: ink.build(
+                    max(ink.minimum_radius, _radius(pos))
+                ),
+                "footprint": lambda pos, _radius=radius: ink.footprint(
+                    max(ink.minimum_radius, _radius(pos))
+                ),
+            }
+        )
+    return options
+
+
+def render_angular_dimensions(
+    dwg,
+    plan,
+    a,
+    *,
+    ctx,
+    only=None,
+    name=None,
+    pin=False,
+    priority=0.0,
+) -> int:
+    """Queue compiler-approved included angles through the shared corridor solve."""
+    count = 0
+    rank = max(float(priority), 100.0) if pin else float(priority)
+    for index, group in enumerate(plan.of_kind("angle")):
+        if only is not None and group.ref not in only:
+            continue
+        bundles = (group.dims,) if group.shared_label else tuple((d,) for d in group.dims)
+        for members in bundles:
+            label = group.shared_label or members[0].final_label
+            measurement = tuple(member.id for member in members)
+            annotation_name = name or f"m_angle_{index}"
+            if len(bundles) > 1:
+                annotation_name += f"_{members[0].discriminator}"
+            options = []
+            for member in members:
+                reference = member.angular_reference
+                if reference is None:
+                    raise ValueError("approved included angle has no angular reference")
+                options.extend(
+                    _angular_specs(
+                        a,
+                        reference,
+                        label,
+                        annotation_name,
+                        dwg.draft,
+                        side=member.side or group.side,
+                    )
+                )
+
+            def placed(annotation_name):
+                if pin:
+                    dwg.pin(annotation_name)
+
+            def dropped(
+                _name,
+                _options=options,
+                _measurement=measurement,
+                _label=label,
+                _ref=group.ref,
+            ):
+                for option in _options[1:]:
+                    if _place_corridor_option(
+                        dwg,
+                        option,
+                        _ref,
+                        ctx=ctx,
+                        trace=ctx.trace,
+                        measurement=_measurement,
+                        priority=rank,
+                        anchored=pin,
+                    ):
+                        placed(option["name"])
+                        return
+                ctx.record_issue(
+                    "warning",
+                    "angular_dimension_dropped",
+                    f"Included angle {_label} could not fit its reference sector",
+                    measurement=_measurement,
+                )
+
+            if not options:
+                dropped("")
+                continue
+            primary = options[0]
+            register_corridor(
+                ctx,
+                (primary["view"], primary["side"]),
+                primary["strip"],
+                primary["view"],
+                primary["axis"],
+                _PMI_SLOT,
+                CorridorCandidate(
+                    name=primary["name"],
+                    build=primary["build"],
+                    order=primary["order"],
+                    on_place=placed,
+                    on_drop=dropped,
+                    force=True,
+                    feature=group.ref,
+                    measurement=measurement,
+                    priority=rank,
+                    anchored=pin,
+                    natural=primary["natural"],
+                    footprint=primary["footprint"],
+                    valid_position=primary["valid_position"],
+                    compact_candidates=primary["compact_candidates"],
+                ),
+            )
+            count += 1
+    return count
+
+
 def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     """Place one PMI record; returns True when it was queued/placed on a strip.
 
@@ -7211,7 +7465,18 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     name_y = f"pmi_y_{idx}"
     name_d = f"pmi_d_{idx}"
 
-    if rec.pmi_kind in ("diameter", "radius"):
+    if rec.pmi_kind == "angular":
+        placed = _pmi_queue_options(
+            dwg,
+            ctx,
+            _angular_specs(
+                a, rec.angular_reference, rec.label, f"pmi_angle_{idx}", draft, side=rec.side
+            ),
+            ax,
+            label,
+            rec,
+        )
+    elif rec.pmi_kind in ("diameter", "radius"):
         # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value
         # (#1208). See `_bore_span_offsets`.
         info = _bore_info(rec)

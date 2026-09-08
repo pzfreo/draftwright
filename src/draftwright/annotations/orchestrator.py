@@ -54,6 +54,8 @@ from draftwright.annotations._common import (
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     ladder_plan_for,
+    queue_step_detail,
+    render_angular_dimensions,
     render_blends,
     render_boss_diameters,
     render_boss_heights,
@@ -163,7 +165,7 @@ def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
     return tuple(plans)
 
 
-def _queue_authored_details(a, ctx) -> None:
+def _queue_authored_details(dwg, a, ctx, plan) -> None:
     """Lower semantic ``detail_view(..., around=feature)`` constraints to crop requests."""
 
     constraints = a.view_constraints
@@ -181,6 +183,20 @@ def _queue_authored_details(a, ctx) -> None:
         if not (isinstance(target, tuple) and len(target) == 2 and target[0] == "feature"):
             raise ValueError(f"detail {item.spec.name!r} has no semantic feature target")
         feature = target[1]
+        label = item.spec.name.removeprefix("detail_").upper()
+        factor = item.spec.scale_factor or 2.0
+        if queue_step_detail(
+            dwg,
+            plan,
+            feature,
+            a,
+            ctx=ctx,
+            view_name=item.spec.name,
+            label=label,
+            factor=factor,
+            source=item.source,
+        ):
+            continue
         origin = feature.frame.origin
         axis = feature.frame.axis
         view_for_axis: dict[
@@ -204,8 +220,6 @@ def _queue_authored_details(a, ctx) -> None:
         half = max(3.0, (max(sizes) if sizes else 6.0) * 0.75)
         first, second = crop_axes
         fi, si = "xyz".index(first), "xyz".index(second)
-        label = item.spec.name.removeprefix("detail_").upper()
-        factor = item.spec.scale_factor or 2.0
         ctx.detail_requests.append(
             DetailRequest(
                 axis=first,
@@ -262,6 +276,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     # hole pattern (the pitch dim needs strip room the post-drain decoration slots lack)
     "slot_patterns",  # a through-slot ARRAY: same grouped callout + pitch, same pre-drain reason
     "through_steps",  # two section legs register with the shared corridor before its drain
+    "angles",
     "user_dims",  # finalize-only: pin/priority dims queue into the shared corridor
     "gdt",
     "pmi",
@@ -680,6 +695,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Two transverse open-section legs, independently identified and corridor-placed.
         render_through_steps(dwg, _compiled, a, ctx=ctx)
 
+    def _s_angles():
+        render_angular_dimensions(dwg, _compiled, a, ctx=ctx)
+
     def _s_flats():
         # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
         # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
@@ -857,7 +875,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
         # crowded turned heads alike — through the one generic detailer, now that all
         # views and main-view annotations are placed (so the detail avoids them).
-        _queue_authored_details(a, ctx)
+        _queue_authored_details(dwg, a, ctx, _compiled)
         _resolve_details(dwg, a, ctx=ctx)
 
     def _s_title_block():
@@ -909,6 +927,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "pocket_patterns": _s_pocket_patterns,
             "slot_patterns": _s_slot_patterns,
             "through_steps": _s_through_steps,
+            "angles": _s_angles,
             "off_axis_across": _s_off_axis_across,
             "envelope": _s_envelope,
             "detail_request": _s_detail_request,
@@ -946,7 +965,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 #: recorded by the pass that could not place the mark, which is the only place that knows WHY —
 #: which strip was full and who filled it. It is not the place that knows whether some LATER
 #: pass drew the measurement anyway.
-_WITHHOLDING_CODES = ("step_dim_withheld", "overall_dim_withheld")
+_WITHHOLDING_CODES = ("step_dim_withheld", "overall_dim_withheld", "step_dim_dropped")
 
 
 def _approved_per_measurement(plan) -> dict:

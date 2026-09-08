@@ -309,6 +309,23 @@ class TestCalloutRendering:
 
 
 class TestSheetTolerance:
+    @pytest.mark.parametrize("kind", ("step", "boss"))
+    def test_canonical_diameter_tolerance_targets_keep_source_and_reject_unknown_ids(self, kind):
+        sheet = Sheet(Cylinder(10, 20))
+        handle = (
+            sheet.step(diameter=20, length=20, at=(0, 0, 0), axis="z")
+            if kind == "step"
+            else sheet.diameter(diameter=20, at=(0, 0, 0), axis="z")
+        )
+        handle.tolerance(0.2, on=f"{kind}.diameter", source="authored", source_ids=("diameter-1",))
+        sheet.dimension(handle, f"{kind}.diameter")
+        model = sheet.model()
+        feature = model.features[0]
+        tolerance = model.decorations[(feature, "diameter")]
+        assert tolerance.value == 0.2 and tolerance.source_ids == ("diameter-1",)
+        with pytest.raises(ValueError, match="must name one parameter"):
+            handle.tolerance(0.2, on="unknown.length")
+
     @staticmethod
     def _stepped_shaft():
         # a genuine 2-diameter turned shaft: distinct shoulders → both a step chain and ⌀ leaders

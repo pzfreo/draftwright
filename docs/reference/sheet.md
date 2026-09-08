@@ -67,6 +67,86 @@ build. Build and lint still assess the resulting Sheet. A
 query never replaces an existing dimension request. Keep the original feature handle for edits;
 these reports do not introduce persistent feature identities or new lane, route or pin controls.
 
+## Angular measurements
+
+`Sheet.angle()` derives an included angle from a vertex and two witness points
+in model coordinates. Select its canonical `included.angle` measurement with
+`dimension()`. The engine chooses a true-angle principal view and places the arc,
+arrows and complete compiler-owned label through the shared corridor solver.
+
+```python
+from math import sqrt
+from build123d import Polygon, extrude
+from draftwright import Sheet
+
+part = extrude(Polygon((0, 0), (30, 0), (15, 15 * sqrt(3)), align=None), amount=3)
+sheet = Sheet(part).authored_dimensions()
+angle = sheet.angle(
+    vertex=(0, 0, 3), first=(15, 0, 3), second=(7.5, 7.5 * sqrt(3), 3),
+)
+angle.tolerance(0.05, on="included.angle")
+sheet.dimension(angle, "included.angle")
+drawing = sheet.build()
+for finding in drawing.lint():
+    print(finding.code, finding.message)
+```
+
+The default `sector="minor"` is the non-reflex angle towards the two witness
+points. `sector="opposite"` selects the vertically opposite sector, extending
+both supports through the vertex. It preserves the numerical angle and can keep
+an exterior dimension beside its corner. The engine never silently switches
+between these sectors or substitutes a supplementary angle.
+Reversing witness order preserves the selected angle. For extended supports meeting beyond
+a rounded corner, use `virtual_vertex=True`; this declares the virtual
+intersection without asserting that the vertex lies on a physical edge.
+Zero-length or collinear rays, oblique planes and unsupported sectors are
+rejected. Insufficient page space produces `angular_dimension_dropped` against
+the named measurement. Symmetric tolerances and lower/upper deviation magnitudes
+retain degree units, including small deviations when the nominal display is
+coarse. Omitting the dimension request suppresses the angle; generated scripts
+retain its reference geometry and tolerances.
+
+After building, `drawing.dimension(feature, "included.angle", pin=True, priority=2)`
+uses the shared corridor in live and deferred edits. As with other edits, use an
+exact feature from `drawing.model()`. Measurement comparison records the angular
+references, so equal-valued support substitutions cannot appear preserved merely
+because the labels match.
+
+`Sheet.angle_pattern(*references)` declares repeated coplanar corners using
+`AngularReference` values from `draftwright.model`. Each corner remains independently
+addressable as `included.angle.member1`, `included.angle.member2`, and so on, in
+declaration order. Request every member with `dimension()` to permit one quantity
+label such as `3× 60°`. Different member tolerances or side preferences produce
+individual labels; omitting one member suppresses that measurement without renumbering
+the others. The generated script retains the full member geometry and each request.
+
+After the conservative strip solve, curved dimensions have up to three
+corner-local radius alternatives at the existing tier spacing. The shared
+placement stage accepts a shorter radius or recovers a dropped candidate only
+when its actual lines and label clear fixed and same-batch ink and fit the page.
+Pinned dimensions retain their solved position.
+
+The lower-level `measured_dimension(kind="angular", ...)` route retains nominal
+author-supplied text. Its explicit `AngularReference` supplies the same ray
+geometry; plain Sheet-authored three-point `ref_pts` use `(first, vertex, second)`.
+Imported PMI requires explicit ordering. Structured tolerances on that raw route
+remain unsupported; use the canonical declaration for new authored angles.
+Lint compares degree values at their displayed resolution, inspects the visible
+angular ink and checks complete canonical labels against the compiler. Physical
+critique checks each claimed corner against finite supports in the cached provider
+evidence, including members represented by a quantity label. Unprovable correspondence
+produces `angular_support_unverifiable`; contradictory supports produce
+`angular_support_mismatch`.
+
+Automatic drawings derive outside-profile angular requirements from ordered face
+supports in Quiddity 0.2.6. Angles already defined by a recognised chamfer or
+regular-polygon callout do not add duplicate automatic requirements. This requires
+the same run's exact face or shared-edge evidence, not matching numerical angles;
+explicit angle declarations remain available on those corners.
+Verified profile repetitions can share a quantity label;
+equal numerical angles alone do not establish a pattern. The requirement audit retains
+one outcome per physical corner even when several share one mark.
+
 ## Selecting a hole location component
 
 Use `location` alone to request the usual location set. To select one component of a hole
@@ -170,6 +250,12 @@ omission suppresses a view. `add_view(...)`, `add_section_view(...)` and
 `add_detail_view(...)` augment an explicitly selected `auto_views()` source. `row(...)` and
 `column(...)` are shorthand for whole-view relations. A principal-view handle's `pin((x, y))`
 anchors its projection origin in page millimetres; it never positions an annotation.
+
+A detail around a turned step with an approved `step.length` uses a profile view
+and redraws that length through the shared dimension pass. For example,
+`s.detail_view("A", around=shoulder).scale(3)` retains its measurement identity and
+tolerance at three times the sheet scale. Omitted measurements stay omitted. An
+authored recovery detail that cannot place its dimension raises an error.
 
 Principal orthographic views share the sheet scale and reject `.scale(...)`. Detail and
 isometric handles may carry an independent positive factor. Infeasible relations, scales and

@@ -44,7 +44,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
 
     assert call_sites("from_model.py") | call_sites("holes.py") == {
         ("from_model.py", "render_diameters", False),
-        ("from_model.py", "_render_typed_diameter_leaders", True),
+        ("from_model.py", "_render_diameter_leaders", True),
         ("from_model.py", "render_chamfers", True),
         ("from_model.py", "_render_radius_callouts", True),
         ("from_model.py", "render_circular_blind_steps", True),

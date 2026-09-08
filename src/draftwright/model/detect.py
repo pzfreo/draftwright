@@ -95,6 +95,9 @@ from draftwright._geometry import (
 from draftwright.model.declare import circular_blind_step, control_frame, datum
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
+    AngleFeature,
+    AnglePatternFeature,
+    AngularReference,
     AuthoredDimension,
     BlendFeature,
     BossFeature,
@@ -137,6 +140,7 @@ from draftwright.oriented_slot_contract import (
     standalone_oriented_slots,
 )
 from draftwright.plate_correspondence import plate_owner_dependencies
+from draftwright.profile_angles import profile_angle_repetitions, profile_angle_requirements
 from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     require_unambiguous_groove_owner,
@@ -2643,6 +2647,48 @@ def build_part_model(
         features.append(
             RotationalFeature(frame=Frame((c.X, c.Y, c.Z), rot_axis), od=od, bores=tuple(bores))
         )
+
+    # Ordered face supports come from the same evidence acquisition as the
+    # recognised families. Their drafting requirements use the declared IR;
+    # source identity remains in the run-local ledger, outside that IR.
+    requirements = profile_angle_requirements(recognition_evidence)
+
+    def corner_key(requirement):
+        return id(requirement.source), requirement.first_index, requirement.second_index
+
+    by_key = {corner_key(requirement): requirement for requirement in requirements}
+    repeated = {}
+    for repetition in profile_angle_repetitions(recognition_evidence):
+        keys = tuple(corner_key(member) for member in repetition.members)
+        if any(key not in by_key or key in repeated for key in keys):
+            continue
+        for key in keys:
+            repeated[key] = keys
+    handled: set[tuple[int, int, int]] = set()
+    for requirement in requirements:
+        key = corner_key(requirement)
+        if key in handled:
+            continue
+        keys = repeated.get(key, (key,))
+        handled.update(keys)
+        angle_members = tuple(by_key[member_key] for member_key in keys)
+        references = tuple(
+            AngularReference(
+                vertex=member.vertex,
+                first=member.first,
+                second=member.second,
+                virtual_vertex=member.virtual_vertex,
+                sector="opposite",
+            )
+            for member in angle_members
+        )
+        feature = (
+            AnglePatternFeature(references) if len(references) > 1 else AngleFeature(references[0])
+        )
+        features.append(feature)
+        if ownership is not None:
+            for member, parameter in zip(angle_members, feature.parameters(), strict=True):
+                ownership.bind_profile_angle(member, feature, parameter_id=parameter.parameter_id)
 
     # STEP AP242 PMI — re-homed into drafting-concept IR where possible (#208).
     # Rendered directly by render_pmi; the planner adds nothing.

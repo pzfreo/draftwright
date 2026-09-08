@@ -154,6 +154,7 @@ _UNDECIDED_INVENTORIES: dict[str, str] = {
 }
 
 _AUDITED_FAMILIES = (
+    "outer_profile_angles",
     "section_recesses",
     "angled_steps",
     "blends",
@@ -246,6 +247,10 @@ _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 _FIDELITY_CODES = frozenset(
     {
         "label_vs_measured",
+        "angular_label_vs_geometry",
+        "angular_geometry_mismatch",
+        "angular_support_unverifiable",
+        "angular_support_mismatch",
         "radius_leader_target_mismatch",
         "radius_leader_target_unverifiable",
         "diameter_leader_target_mismatch",
@@ -402,6 +407,7 @@ _STAGE_ROUTED_CODES = frozenset(
 #: individually, so the prefix register governs only the interpolating sites — it can never
 #: reclassify a code somebody spelled out.
 _UNSCORED_CODE_PREFIXES = (
+    "angular_requirement_",
     "blend_requirement_",
     "chamfer_requirement_",
     "channel_requirement_",
@@ -629,6 +635,8 @@ def _completeness_component(
     *,
     dimension_plan=None,
     part=None,
+    evidence=None,
+    ownership=None,
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
 ) -> dict:
     unrecognised = sum(issue.code == _UNRECOGNISED_GEOMETRY_CODE for issue in issues)
@@ -647,6 +655,8 @@ def _completeness_component(
             omissions,
             dimension_plan=dimension_plan,
             part=part,
+            evidence=evidence,
+            ownership=ownership,
         )
     )
 
@@ -737,6 +747,8 @@ def quality_components(
     has_asserted_content: bool,
     dimension_plan=None,
     part=None,
+    evidence=None,
+    ownership=None,
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
     _aggregation=None,
 ) -> dict:
@@ -773,6 +785,8 @@ def quality_components(
             issues,
             dimension_plan=dimension_plan,
             part=part,
+            evidence=evidence,
+            ownership=ownership,
             requirement_outcomes=requirement_outcomes,
         ),
         "restraint": {

@@ -1,12 +1,28 @@
 """Unit tests for AnnotationRegistry — the single owner of annotation identity,
 ownership, pins, and build issues (#138 / ADR 1 (was 0005), Step 2)."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from draftwright.registry import AnnotationRegistry
 
 # Pure unit tests — no OCC builds — so they join the build-light `smoke` set (#153).
 pytestmark = pytest.mark.smoke
+
+
+def test_measurement_presence_requires_the_live_exact_owner_and_parameter():
+    owner = SimpleNamespace(diameter=40)
+    identity = SimpleNamespace(feature=owner, parameter="step.diameter")
+    registry = AnnotationRegistry()
+    registry.add(object(), "diameter", "front", measurement=identity)
+    assert registry.has_measurement(identity)
+    assert not registry.has_measurement(
+        SimpleNamespace(feature=SimpleNamespace(diameter=40), parameter="step.diameter")
+    )
+    assert not registry.has_measurement(SimpleNamespace(feature=owner, parameter="step.length"))
+    registry.remove("diameter")
+    assert not registry.has_measurement(identity)
 
 
 def test_add_records_name_and_view():

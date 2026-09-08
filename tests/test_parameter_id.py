@@ -69,6 +69,13 @@ def _plan(feature):
 # One MAXIMAL instance per feature type — every optional parameter populated, since
 # uniqueness is only stressed by a feature emitting its full parameter set.
 _SAMPLES: dict[str, ir.Feature] = {
+    "AngleFeature": ir.AngleFeature(ir.AngularReference((0, 0, 0), (10, 0, 0), (0, 10, 0))),
+    "AnglePatternFeature": ir.AnglePatternFeature(
+        (
+            ir.AngularReference((0, 0, 0), (10, 0, 0), (0, 10, 0)),
+            ir.AngularReference((20, 0, 0), (30, 0, 0), (20, 10, 0)),
+        )
+    ),
     "HoleFeature": ir.HoleFeature(
         _F,
         8.0,
@@ -267,6 +274,11 @@ _SAMPLES: dict[str, ir.Feature] = {
 # Re-blessing is a deliberate act — an id moving to a different quantity breaks every
 # intent aimed at it, silently.
 _SAMPLE_BINDINGS = {
+    "AngleFeature": (("included.angle", 90.0),),
+    "AnglePatternFeature": (
+        ("included.angle.member1", 90.0),
+        ("included.angle.member2", 90.0),
+    ),
     "HoleFeature": (
         ("bore.diameter", 8.0),
         ("bore.depth", 10.0),

@@ -39,6 +39,9 @@ from draftwright._geometry import (
 )
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
+    AngleFeature,
+    AnglePatternFeature,
+    AngularReference,
     AuthoredDimension,
     BlendFeature,
     BossFeature,
@@ -2402,6 +2405,21 @@ def _point3(name: str, p) -> Point:
     return (vals[0], vals[1], vals[2])
 
 
+def angle(*, vertex, first, second, sector="minor", virtual_vertex=False) -> AngleFeature:
+    """Declare the included angle between two model-space rays, deriving its value.
+
+    Witness points identify geometry, not annotation positions. The reference
+    plane must admit a true-angle principal projection. A virtual vertex states
+    that the oriented supports meet only when extended.
+    """
+    return AngleFeature(AngularReference(vertex, first, second, sector, virtual_vertex))
+
+
+def angle_pattern(*members: AngularReference) -> AnglePatternFeature:
+    """Declare repeated corners while keeping every included angle addressable."""
+    return AnglePatternFeature(tuple(members))
+
+
 def measured_dimension(
     *,
     kind: str,
@@ -2424,6 +2442,7 @@ def measured_dimension(
     cylindrical_refs=(),
     view: str | None = None,
     side: str | None = None,
+    angular_reference=None,
 ) -> AuthoredDimension:
     """A pre-authored drafting dimension from explicit measured values — the IR constructor
     behind :meth:`Sheet.measured_dimension` (#704: extracted so ``build_drawing(model=…)``
@@ -2434,13 +2453,45 @@ def measured_dimension(
     are mutually exclusive with deviation tolerances. ``source_id`` preserves an external
     record identity; ordinary Sheet declarations leave it blank. ``lowering_blockers`` retains
     why an imported requirement could not safely enrich a canonical feature parameter;
-    ``rendering_blockers`` retains why its source geometry cannot truthfully form a witness."""
+    ``rendering_blockers`` retains why its source geometry cannot truthfully form a witness.
+    ``angular_reference`` supplies an explicit vertex and two ray witnesses in model space;
+    it is an ``AngularReference`` or a mapping with the same fields. Its points populate
+    empty ``ref_pts`` or must agree with the supplied ``(first, vertex, second)`` points.
+    Sheet-authored three-point angles use that same order automatically. Imported generic
+    reference stations do not establish this ordering and require an explicit reference.
+    This retains angular meaning; it does not imply that the renderer supports the case."""
     _require_positive(value=value)
     dim_kind = str(kind).lower()
     if dim_kind not in AUTHORED_DIMENSION_KINDS:
         allowed = ", ".join(sorted(AUTHORED_DIMENSION_KINDS))
         raise ValueError(f"measured_dimension() kind must be one of: {allowed}")
     pts = tuple(_point3("ref_pts item", p) for p in ref_pts)
+    if (
+        dim_kind == "angular"
+        and angular_reference is None
+        and source == "sheet"
+        and not source_id
+        and len(pts) == 3
+        and not rendering_blockers
+    ):
+        angular_reference = AngularReference(vertex=pts[1], first=pts[0], second=pts[2])
+    if angular_reference is not None:
+        if isinstance(angular_reference, dict):
+            angular_reference = AngularReference(**angular_reference)
+        if not isinstance(angular_reference, AngularReference):
+            raise ValueError(
+                "measured_dimension() angular_reference must be a mapping or AngularReference"
+            )
+        if dim_kind != "angular":
+            raise ValueError("angular_reference requires an angular dimension")
+        angular_points = (
+            angular_reference.first,
+            angular_reference.vertex,
+            angular_reference.second,
+        )
+        if pts and pts != angular_points:
+            raise ValueError("angular ref_pts must agree with first, vertex, second")
+        pts = angular_points
     cylinders: list[CylindricalReference] = []
     for raw in cylindrical_refs:
         if isinstance(raw, CylindricalReference):
@@ -2475,7 +2526,14 @@ def measured_dimension(
         unresolved_bore = dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None
         if not (unresolved_import or unresolved_bore):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
-    validate_authored_dimension_placement(dim_kind, dom, view, side, owner="measured_dimension()")
+    validate_authored_dimension_placement(
+        dim_kind,
+        dom,
+        view,
+        side,
+        owner="measured_dimension()",
+        angular_reference=angular_reference,
+    )
     cylinder_axes = {reference.principal_axis for reference in cylinders}
     if cylinders and (len(cylinder_axes) != 1 or "?" in cylinder_axes):
         if not imported_blocked:
@@ -2533,4 +2591,5 @@ def measured_dimension(
         cylindrical_refs=tuple(cylinders),
         view=view,
         side=side,
+        angular_reference=angular_reference,
     )
