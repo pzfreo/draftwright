@@ -3985,9 +3985,7 @@ class Drawing:
                 issues += lint_claimed_representations(self._registry, dimension_plan)
             else:
                 dimension_plan = None
-            # Turned bosses/bands remain in the OD + axial-step policy; this check is
-            # specifically for a prismatic boss's independent projection height.
-            if model is not None and (a is None or (not a.is_rotational and not a.profiles)):
+            if model is not None:
                 issues += lint_boss_height_coverage(
                     working_part,
                     self,

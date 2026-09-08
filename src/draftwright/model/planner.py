@@ -474,6 +474,17 @@ def polygonal_stock_conveys_height(model: PartModel) -> bool:
     return any(f.kind == "polygonal_stock" for f in model.features)
 
 
+def _extent_can_convey(extent: DimParameter, parameter: DimParameter) -> bool:
+    """An overall extent may replace an untoleranced local measurement of the same planes.
+
+    A tolerance on the owner is acceptable; a toleranced local requirement stays explicit.
+    Owner availability is decided by the caller, not by geometric coincidence.
+    """
+    return parameter.tolerance is None and _same_support_planes(
+        _support_planes(extent), _support_planes(parameter)
+    )
+
+
 def rotational_od_conveys_height(model: PartModel) -> bool:
     """An X/Y rotational OD conveys the overall height, so it is not drawn separately."""
     rot = next((f for f in model.features if f.kind == "rotational"), None)
@@ -586,30 +597,9 @@ def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter)
         if envelope.kind != "envelope":
             continue
         for extent in envelope.parameters():
-            if not _same_support_planes(_support_planes(extent), planes):
+            if not _extent_can_convey(extent, param):
                 continue
             if not _owner_drawn(model, envelope, extent):
-                continue
-            if param.tolerance is not None:
-                # A toleranced dimension and an untoleranced one are not the same
-                # requirement, so the overall extent cannot state this fact on its behalf.
-                # Consolidating anyway DELETED a ±0.05 the author had written, silently and
-                # with nothing in lint (#1154 review) — the one case where the feature-local
-                # dimension is the one a machinist needs.
-                #
-                # ASYMMETRIC, and about the YIELDER alone. A tolerance on the OWNER is not a
-                # problem — it is the same two faces, so it is the same requirement and one
-                # dimension states it. The first cut refused whenever the two DIFFERED, which
-                # brought the duplicate `8` back for anyone who toleranced the overall
-                # thickness: this issue's own defect, re-opened by its fix (review r2).
-                #
-                # The correction then went one step too far and admitted "equal tolerances on
-                # both sides", on the premise that the receiving extent states the same
-                # requirement. It does not, ever: measured, an envelope decoration is not
-                # rendered on any axis, while `render_boss_heights` appends `_tol_suffix`, so
-                # a boss height toleranced identically to its envelope lost its ± anyway
-                # (review r3). Whether the owner happens to print a tolerance is not this
-                # rule's business — a toleranced measurement is simply never handed over.
                 continue
             return DimensionId(envelope, extent.parameter_id)
     return None

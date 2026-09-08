@@ -19,7 +19,7 @@ from draftwright.layout import _assign_leader_candidates
 from draftwright.model import FilletFeature, Frame, GrooveFeature, PartModel, pocket
 
 
-def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
+def test_joint_assignment_stays_scoped_to_registered_adapters():
     root = Path(__file__).parents[1] / "src" / "draftwright" / "annotations"
 
     def call_sites(filename):
@@ -43,7 +43,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         return sites
 
     assert call_sites("from_model.py") | call_sites("holes.py") == {
-        ("from_model.py", "render_diameters", False),
+        ("from_model.py", "render_diameters", True),
         ("from_model.py", "_render_diameter_leaders", True),
         ("from_model.py", "render_chamfers", True),
         ("from_model.py", "_render_radius_callouts", True),
@@ -94,8 +94,8 @@ def test_pre_drain_pattern_keeps_legacy_greedy_semantics(monkeypatch):
     assert [name for name in drawing.annotations() if name.startswith("dim_pocketpat_pitch")]
 
 
-def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypatch, tmp_path):
-    """The pre-drain semantic stage shares measurement but still emits immediately."""
+def test_y_diameter_joins_inventory_and_keeps_coverage_metadata(monkeypatch, tmp_path):
+    """A queued Y diameter retains identity and builds only the selected survivor."""
     from draftwright.annotations import from_model
 
     locations = ((18, 0), (-18, 0), (0, 18), (0, -18))
@@ -115,12 +115,21 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
     part = part.rotate(Axis.X, 90)
 
     constructed = []
+    from draftwright.annotations import orchestrator
+
+    real_render = orchestrator.render_diameters
+
+    def counted_pass(*args, **kwargs):
+        constructed.append([])
+        return real_render(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "render_diameters", counted_pass)
     real_leader = from_model.Leader
 
     def counted_leader(*args, **kwargs):
         leader = real_leader(*args, **kwargs)
         if str(leader.label) == "ø25":
-            constructed.append(leader)
+            constructed[-1].append(leader)
         return leader
 
     monkeypatch.setattr(from_model, "Leader", counted_leader)
@@ -135,14 +144,21 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
 
     diameter = drawing.get_annotation("m_dia_y0")
     assert diameter.label == "ø25"
-    assert constructed == [diameter], "only the selected analytical survivor builds OCC"
+    assert constructed and all(len(batch) == 1 for batch in constructed), (
+        "each placement pass builds only its selected analytical survivor"
+    )
+    assert constructed[-1] == [diameter]
     assert diameter.covers_diameters == (25.0,)
     assert drawing.measurement_keys("m_dia_y0")
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(
         item for item in trace["pass_events"] if item["label"] == "Y-axis step diameter_callouts"
     )
-    assert event["assignment"] == "greedy_stage_boundary"
+    assert event["assignment"] != "greedy_stage_boundary"
+    inventory = next(
+        item for item in trace["pass_events"] if item["label"] == "feature_leader_inventory"
+    )
+    assert any(item["name"] == "m_dia_y0" for item in inventory["items"])
     assert any(
         item["name"] == "m_dia_y0" and item["outcome"] == "placed" for item in event["items"]
     )

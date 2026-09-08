@@ -333,9 +333,8 @@ def test_only_the_bosses_that_land_right_are_counted(declare, expected, why):
     assert _n_right_strip_boss_heights(model) == expected, why
 
 
-def test_a_turned_model_reserves_no_boss_height_slots():
-    """``render_boss_heights`` returns early for a turned part, so reserving for one there
-    would be dead page space."""
+def test_a_turned_model_without_bosses_reserves_no_boss_height_slots():
+    """A declared step chain without bosses needs no additional boss-height slots."""
     a, b, c = _turned_shaft_parts()
     sheet = Sheet(a + b + c).auto_dimensions()
     sheet.step(a)

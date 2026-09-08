@@ -96,13 +96,9 @@ def _n_right_strip_boss_heights(model) -> int:
     declared path (#1022) removed that accident — a declared model that states a boss but no
     height ladder reserved one slot, needed two, and the height was dropped silently.
 
-    Mirrors ``render_boss_heights``' own guards: a turned model (any declared step) renders no
-    boss heights at all, and only the Z-axis ones land right — X/Y bosses go to the *above*
-    strips.  A rotational part that declares a Z boss over-reserves by one slot; that is the
-    conservative direction, and the same call the authored-Z-dim branch below makes.
+    Z-axis boss heights share this corridor even when a turned step chain is present.
+    X/Y heights reserve their profile-view above strips in ``_compose_anno_boxes``.
     """
-    if any(getattr(f, "kind", None) == "step" for f in model.features):
-        return 0
     occupants = [
         f
         for f in model.features
@@ -596,6 +592,37 @@ def _compose_anno_boxes(
             # in-plane ordinates, one in each strip.
             _reserve(view, "above")
             _reserve(view, "right")
+
+    # Axial boss sizes occupy the same profile corridors on detected and declared parts.
+    # Include them before view packing; a turned chain does not convey its end caps.
+    axial_corridors = set()
+    axial_features = [
+        feature
+        for feature in model.features
+        if feature.kind in ("boss", "polygonal_boss", "polygonal_stock")
+        and feature.frame.axis in ("x", "y")
+    ]
+    for group in plan_dimensions(model) if axial_features else ():
+        feature = group.feature
+        if feature.kind not in ("boss", "polygonal_boss", "polygonal_stock"):
+            continue
+        if feature.frame.axis not in ("x", "y"):
+            continue
+        view = "front" if feature.frame.axis == "x" else "side"
+        for dimension in group.dims:
+            if not dimension.suppressed and dimension.param.role in (
+                "boss_height",
+                "stock_length",
+            ):
+                _reserve(view, "above")
+                axial_corridors.add(view)
+    # The existing axial step chain already consumes one row in these corridors.
+    for view in sorted(axial_corridors):
+        axis = "x" if view == "front" else "y"
+        if any(
+            feature.kind == "step" and feature.frame.axis == axis for feature in model.features
+        ):
+            _reserve(view, "above")
 
     slot = _SLOT_DIM_STEP + _STRIP_SPACING
     # Front and plan occupy disjoint vertical ranges, so their left/right tiers are
