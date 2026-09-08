@@ -11,9 +11,11 @@ import math
 
 from build123d import (
     ArrowHead,
+    Axis,
     Box,
     Compound,
     Edge,
+    Face,
     GeomType,
     HeadType,
     Pos,
@@ -203,6 +205,12 @@ def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
     keep only the solids, so non-solid boolean artefacts can't crash the
     downstream hidden-line projection.
     """
+    result = _cut_with_history(body, cutter, fuzzy)
+    return None if result is None else result[0]
+
+
+def _cut_with_history(body, cutter, fuzzy: float = 1e-3):
+    """Keep the boolean's history beside its solid-only result until lowering."""
     args = TopTools_ListOfShape()
     args.Append(body.wrapped)
     tools = TopTools_ListOfShape()
@@ -211,13 +219,43 @@ def _fuzzy_cut(body, cutter, fuzzy: float = 1e-3):
     op.SetArguments(args)
     op.SetTools(tools)
     op.SetFuzzyValue(fuzzy)
+    op.SetToFillHistory(True)
     op.Build()
     if not op.IsDone():
         return None
     solids = Compound(op.Shape()).solids()
     if not solids:
         return None
-    return solids[0] if len(solids) == 1 else Compound(children=list(solids))
+    shape = solids[0] if len(solids) == 1 else Compound(children=list(solids))
+    return shape, op
+
+
+def _cut_section(body, cutter):
+    """Lower the positive-Y section and its actual cut faces from one boolean.
+
+    The large box removes the negative-Y half. Its upper face is the section
+    plane; the boolean's modified descendants of that face are the hatch regions.
+    Retained original faces behind the plane have no such provenance. History
+    stays local to this operation and does not enter the drawing or feature IR.
+    """
+    result = _cut_with_history(body, cutter)
+    if result is None:
+        return None
+    shape, op = result
+    cutting_face = cutter.faces().sort_by(Axis.Y)[-1]
+    # A coplanar original surface can also be a descendant of the tool face:
+    # it touched the cutter but was already exposed before cutting. Exclude
+    # those original boundaries and their splits by topology identity.
+    original_boundaries = []
+    for face in body.faces():
+        original_boundaries.append(face.wrapped)
+        original_boundaries.extend(op.Modified(face.wrapped))
+    faces = tuple(
+        Face(face)
+        for face in op.Modified(cutting_face.wrapped)
+        if not any(face.IsSame(boundary) for boundary in original_boundaries)
+    )
+    return shape, faces
 
 
 def _add_section_view(dwg, a: Analysis, section, *, ctx):
@@ -322,12 +360,18 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     try:
         # Fuzzy boolean: the exact `body - Box(...)` aborts uncatchably
         # (Standard_DomainError) on some cast geometry — see _fuzzy_cut / #20.
-        keep_behind = _fuzzy_cut(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
+        cut = _cut_section(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
         _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}", section=section)
         return
-    if keep_behind is None:
+    if cut is None:
         _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid", section=section)
+        return
+    keep_behind, cut_faces = cut
+    if not cut_faces:
+        _skip_section(
+            dwg, ctx, "cut_no_intersection", "cut plane creates no section faces", section=section
+        )
         return
     # Resolve the final cutting-plane ink before committing the section view.
     # Optional section furniture yields if a required landed feature leader
@@ -409,7 +453,6 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     SZ = a.proj.front_z
 
     hatch_spacing = dwg.draft.font_size * 1.5
-    cut_faces = [f for f in keep_behind.faces() if f.normal_at().Y < -0.9]
     hatch_edges = []
     for cf in cut_faces:
         hatch_edges.extend(_section_hatch_edges(cf, SX, SZ, hatch_spacing))
@@ -431,30 +474,33 @@ def _place_cutting_plane(dwg, y_page, x0, x1, *, section, ctx):
 def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, section, ctx):
     """ISO 128-44 cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
     thick wing stubs with solid filled arrowheads pointing in the viewing direction
-    (−Y). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
+    (+Y in the plan projection). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
     between the early row reservation (:func:`_reserve_section_row`) and the final
     section render (:func:`_add_section_view`, ADR 2 (was 0009) P5 strand 3)."""
     arrow_sz = dwg.draft.arrow_length
     _label, _view, prefix = _section_identity(section)
     wing_h = 2.5 * arrow_sz  # perpendicular stub length
     for x_end, side in ((x0, "left"), (x1, "right")):
-        tip_y = y_page - wing_h
+        # Put the tip on the cut line and the stem on the removed side. The
+        # vector points into retained +Y without occupying a new leader lane.
+        tip_y = y_page
+        tail_y = y_page - wing_h
         arrow = Pos(x_end, tip_y) * ArrowHead(
             arrow_sz,
             head_type=HeadType.STRAIGHT,
-            rotation=-90,
+            rotation=90,
         )
         arrow.fixed_ink_polygons = _leader_ink_polygons(
             (x_end, tip_y),
-            (x_end, y_page),
+            (x_end, tail_y),
             arrow_length=arrow_sz,
             line_width=0.0,
         )[-1:]
         ctx.place(arrow, f"{prefix}_arrow_{side}")
-        shaft_end_y = tip_y + arrow_sz
-        wing_segment = ((x_end, y_page), (x_end, shaft_end_y))
+        shaft_end_y = tip_y - arrow_sz
+        wing_segment = ((x_end, tail_y), (x_end, shaft_end_y))
         wing = Compound(
-            children=[Edge.make_line(Vector(x_end, y_page, 0), Vector(x_end, shaft_end_y, 0))]
+            children=[Edge.make_line(Vector(x_end, tail_y, 0), Vector(x_end, shaft_end_y, 0))]
         )
         wing.fixed_ink_polygons = (_stroke_polygon(*wing_segment, dwg.draft.line_width),)
         ctx.place(

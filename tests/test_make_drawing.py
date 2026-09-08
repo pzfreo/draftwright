@@ -4902,7 +4902,7 @@ class TestLocationDimsAndSection:
             assert len(wing.edges()) == 1
             # arrow is a filled solid (Arrow produces faces, not open barbs)
             assert len(list(arrow.faces())) >= 1
-        # wings are below the section line (tip_y < line y)
+        # Stems sit below the cutting line; the arrow tips point toward retained +Y.
         sl_y = plate_drawing.get_annotation("section_line").bounding_box().min.Y
         wl_y = plate_drawing.get_annotation("section_wing_left").bounding_box().min.Y
         assert wl_y < sl_y
