@@ -9794,11 +9794,23 @@ class TestTurnedDiameters:
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
+                "annotation_ink_overlap": 2,
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
                 "section_recess_recognition_refused": 4,
             }
         )
+
+        # PENDING #1512: restored 6/4 boss witnesses cross the repeated step label.
+        # Both bounded repair and deferred chain placement were tried without resolving
+        # this cross-pass pair. Policy B retains the requirements and reports the ink.
+        for drawing in (auto, replayed):
+            pairs = [
+                tuple(issue.message.split("'")[index] for index in (1, 3))
+                for issue in drawing.lint()
+                if issue.code == "annotation_ink_overlap"
+            ]
+            assert sorted(pairs) == [("4", "4× 2"), ("6", "4× 2")]
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"

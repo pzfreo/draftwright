@@ -474,6 +474,17 @@ def polygonal_stock_conveys_height(model: PartModel) -> bool:
     return any(f.kind == "polygonal_stock" for f in model.features)
 
 
+def _extent_can_convey(extent: DimParameter, parameter: DimParameter) -> bool:
+    """An overall extent may replace an untoleranced local measurement of the same planes.
+
+    A tolerance on the owner is acceptable; a toleranced local requirement stays explicit.
+    Owner availability is decided by the caller, not by geometric coincidence.
+    """
+    return parameter.tolerance is None and _same_support_planes(
+        _support_planes(extent), _support_planes(parameter)
+    )
+
+
 def rotational_od_conveys_height(model: PartModel) -> bool:
     """An X/Y rotational OD conveys the overall height, so it is not drawn separately."""
     rot = next((f for f in model.features if f.kind == "rotational"), None)
@@ -586,30 +597,9 @@ def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter)
         if envelope.kind != "envelope":
             continue
         for extent in envelope.parameters():
-            if not _same_support_planes(_support_planes(extent), planes):
+            if not _extent_can_convey(extent, param):
                 continue
             if not _owner_drawn(model, envelope, extent):
-                continue
-            if param.tolerance is not None:
-                # A toleranced dimension and an untoleranced one are not the same
-                # requirement, so the overall extent cannot state this fact on its behalf.
-                # Consolidating anyway DELETED a ±0.05 the author had written, silently and
-                # with nothing in lint (#1154 review) — the one case where the feature-local
-                # dimension is the one a machinist needs.
-                #
-                # ASYMMETRIC, and about the YIELDER alone. A tolerance on the OWNER is not a
-                # problem — it is the same two faces, so it is the same requirement and one
-                # dimension states it. The first cut refused whenever the two DIFFERED, which
-                # brought the duplicate `8` back for anyone who toleranced the overall
-                # thickness: this issue's own defect, re-opened by its fix (review r2).
-                #
-                # The correction then went one step too far and admitted "equal tolerances on
-                # both sides", on the premise that the receiving extent states the same
-                # requirement. It does not, ever: measured, an envelope decoration is not
-                # rendered on any axis, while `render_boss_heights` appends `_tol_suffix`, so
-                # a boss height toleranced identically to its envelope lost its ± anyway
-                # (review r3). Whether the owner happens to print a tolerance is not this
-                # rule's business — a toleranced measurement is simply never handed over.
                 continue
             return DimensionId(envelope, extent.parameter_id)
     return None
@@ -1659,6 +1649,101 @@ def angular_pattern_label(group: DimensionGroup) -> str | None:
     return f"{len(dimensions)}× {next(iter(labels))}"
 
 
+def _selected_chain_covers_extent(model, selected, axis) -> bool:
+    """Require adjoining approved measurements between both overall ends of one profile."""
+    axis_index = "xyz".index(axis)
+    intervals: dict[tuple[tuple[float, ...], object], list[tuple[float, float]]] = {}
+    step_profiles = set()
+    for feature, length in selected:
+        if feature.kind not in ("step", "groove") or feature.frame.axis != axis:
+            continue
+        frame = feature.frame
+        key = (
+            tuple(
+                round(float(value), 6) for i, value in enumerate(frame.origin) if i != axis_index
+            ),
+            feature.profile or feature.profile_group,
+        )
+        if feature.kind == "step":
+            if length.span is None:
+                continue
+            lo, hi = sorted(float(point[axis_index]) for point in length.span)
+            step_profiles.add(key)
+        else:
+            centre = float(frame.origin[axis_index])
+            lo, hi = centre - length.value / 2, centre + length.value / 2
+        intervals.setdefault(key, []).append((lo, hi))
+
+    # Emitted declarations round supports to 0.001 mm. Keep that numerical seam
+    # tolerance, but do not join different bodies or merely overlapping spans:
+    # 0..40 and 20..60 do not tell the reader the overall length.
+    tolerance = 1e-3 + 1e-9
+    bb = model.bbox
+    for key in step_profiles:
+        reachable = [float(tuple(bb.min)[axis_index])]
+        for lo, hi in sorted(intervals[key]):
+            if any(abs(lo - station) <= tolerance for station in reachable):
+                reachable.append(hi)
+        if any(
+            abs(station - float(tuple(bb.max)[axis_index])) <= tolerance for station in reachable
+        ):
+            return True
+    return False
+
+
+def _restore_uncovered_x_extent(model, groups):
+    """Settle X-width ownership after the complete selected chain is known, before sizing."""
+    if model.orientation != "x" or not any(group.feature.kind == "envelope" for group in groups):
+        return groups
+    if _selected_chain_covers_extent(
+        model,
+        [
+            (group.feature, dimension.param)
+            for group in groups
+            if group.feature.kind in ("step", "groove")
+            for dimension in group.dims
+            if not dimension.suppressed and dimension.param.kind == "length"
+        ],
+        "x",
+    ):
+        return groups
+    restored = []
+    widths = []
+    for group in groups:
+        dimensions = []
+        for dimension in group.dims:
+            if group.feature.kind == "envelope" and dimension.param.parameter_id == "width.length":
+                if dimension.reason == "X-turned (step-length chain conveys the length)":
+                    dimension = replace(dimension, suppressed=False, reason=None)
+                if not dimension.suppressed:
+                    widths.append((dimension.param, DimensionId(group.feature, "width.length")))
+            dimensions.append(dimension)
+        restored.append(replace(group, units=_addressable(group.feature, dimensions)))
+    result = []
+    for group in restored:
+        dimensions = []
+        for dimension in group.dims:
+            parameter = dimension.param
+            if (
+                group.feature.kind == "boss"
+                and parameter.parameter_id == "boss_height.length"
+                and _request_for(model, group.feature, parameter) is None
+                and _authored_for(model, group.feature, parameter) is None
+            ):
+                for extent, owner in widths:
+                    if _extent_can_convey(extent, parameter):
+                        dimension = replace(
+                            dimension,
+                            suppressed=True,
+                            reason=dimension.reason if dimension.suppressed else _CONSOLIDATED,
+                            conveyed_by=owner,
+                        )
+                        break
+            dimensions.append(dimension)
+        result.append(replace(group, units=_addressable(group.feature, dimensions)))
+    return result
+
+
 def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
@@ -1725,18 +1810,25 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                 )
             )
         if dims:
-            selected_view, selected_side = _group_placement(feature, dims, planned_views)
             groups.append(
                 DimensionGroup(
                     feature=feature,
-                    # Preserve a total internal record while collecting every uncovered
-                    # identity below.  The exception prevents this preferred fallback from
-                    # crossing the planner boundary when it is not actually selected.
-                    view=selected_view or _preferred_group_view(feature),
+                    view=_preferred_group_view(feature),
                     units=_addressable(feature, dims),
-                    side=selected_side,
                 )
             )
+    groups = _restore_uncovered_x_extent(model, groups)
+    for index, group in enumerate(groups):
+        # Validate the final content: a consolidated height must not reject a
+        # supported end-on view requested for the remaining diameter.
+        selected_view, selected_side = _group_placement(
+            group.feature, list(group.dims), planned_views
+        )
+        groups[index] = replace(
+            group,
+            view=selected_view or _preferred_group_view(group.feature),
+            side=selected_side,
+        )
     if planned_views is not None:
         uncovered = _uncovered_group_requirements(model, groups, planned_views)
         uncovered.extend(_uncovered_location_requirements(model, planned_views))

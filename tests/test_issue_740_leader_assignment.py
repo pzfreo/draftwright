@@ -138,6 +138,12 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
     assert constructed == [diameter], "only the selected analytical survivor builds OCC"
     assert diameter.covers_diameters == (25.0,)
     assert drawing.measurement_keys("m_dia_y0")
+    # The added boss heights must not displace existing callouts at this fixed page/scale.
+    assert len([name for name in drawing.annotations() if name.startswith("m_dia_y")]) == 8
+    assert len([name for name in drawing.annotations() if name.startswith("m_pad_height_")]) == 4
+    assert sorted(
+        mark.label for name, mark in drawing.iter_annotations() if name.startswith("m_bossheight")
+    ) == ["4", "6"]
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(
         item for item in trace["pass_events"] if item["label"] == "Y-axis step diameter_callouts"

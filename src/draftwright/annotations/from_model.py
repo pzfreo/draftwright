@@ -1790,7 +1790,8 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
     # to the clear side (the margin the feature sits at). Auto-pass only: the finalize
     # (only=) path replays recorded verbs and must not disturb pinned user dims.
     if only is None:
-        _reroute_crossing_diameters(dwg, ctx=ctx)
+        # Rerouting must see the principal dimensions that registered before this pass.
+        ctx.post_drain.append(lambda: _reroute_crossing_diameters(dwg, ctx=ctx))
     return placed
 
 
@@ -4123,9 +4124,7 @@ def render_polygonal_stock(dwg, plan, a, *, ctx) -> int:
 
 
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
-    """Queue prismatic boss heights and polygonal-stock lengths in a profile corridor."""
-    if a.is_rotational or a.profiles:
-        return 0
+    """Queue approved boss heights and polygonal-stock lengths in a profile corridor."""
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
     specs = {
         "z": ("front", "right", a.fv_zones.right, "x"),

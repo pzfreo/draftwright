@@ -72,9 +72,14 @@ from draftwright.model.ir import (
 )
 from draftwright.model.planner import (
     _AUTHORED_OMISSION,
+    _CONSOLIDATED,
     DimensionId,
+    _authored_for,
     _decorated,
+    _extent_can_convey,
     _is_zero_step_position,
+    _request_for,
+    _selected_chain_covers_extent,
     angular_pattern_label,
     authored_location_axis_omitted,
     authored_location_omitted,
@@ -1052,49 +1057,16 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 def _step_chain_covers_extent(
     model: PartModel, groups: list[ApprovedGroup], axis: Literal["x", "z"]
 ) -> bool:
-    """Require adjoining approved measurements between both overall ends of one profile."""
-    axis_index = "xyz".index(axis)
-    intervals: dict[tuple[tuple[float, ...], object], list[tuple[float, float]]] = {}
-    step_profiles = set()
-    for group in groups:
-        if group.feature_kind not in ("step", "groove") or group.facts.frame.axis != axis:
-            continue
-        length = group.dim(kind="length")
-        if length is None:
-            continue
-        feature = resolve_feature(group.ref)
-        frame = group.facts.frame
-        key = (
-            tuple(
-                round(float(value), 6) for i, value in enumerate(frame.origin) if i != axis_index
-            ),
-            feature.profile or feature.profile_group,
-        )
-        if group.feature_kind == "step":
-            if length.span is None:
-                continue
-            lo, hi = sorted(float(point[axis_index]) for point in length.span)
-            step_profiles.add(key)
-        else:
-            centre = float(frame.origin[axis_index])
-            lo, hi = centre - length.value / 2, centre + length.value / 2
-        intervals.setdefault(key, []).append((lo, hi))
-
-    # Emitted declarations round supports to 0.001 mm. Keep that numerical seam
-    # tolerance, but do not join different bodies or merely overlapping spans:
-    # 0..40 and 20..60 do not tell the reader the overall length.
-    tolerance = 1e-3 + 1e-9
-    bb: Any = model.bbox
-    for key in step_profiles:
-        reachable = [float(tuple(bb.min)[axis_index])]
-        for lo, hi in sorted(intervals[key]):
-            if any(abs(lo - station) <= tolerance for station in reachable):
-                reachable.append(hi)
-        if any(
-            abs(station - float(tuple(bb.max)[axis_index])) <= tolerance for station in reachable
-        ):
-            return True
-    return False
+    return _selected_chain_covers_extent(
+        model,
+        [
+            (resolve_feature(group.ref), length)
+            for group in groups
+            if group.feature_kind in ("step", "groove")
+            and (length := group.dim(kind="length")) is not None
+        ],
+        axis,
+    )
 
 
 def _compile_overall_height(
@@ -1633,6 +1605,19 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
     return approved, omissions
 
 
+def _dimension_witness_span(feature, parameter):
+    """Carry a boss's axial stations at its cylindrical silhouette, even without a diameter mark."""
+    span = parameter.span
+    if feature.kind != "boss" or parameter.parameter_id != "boss_height.length" or span is None:
+        return span
+    radial = 0 if feature.frame.axis == "z" else 2
+    rim = feature.frame.origin[radial] + feature.diameter / 2
+    return tuple(
+        tuple(rim if index == radial else value for index, value in enumerate(point))
+        for point in span
+    )
+
+
 def _compile_groups(
     planned, *, restore_width: bool = False
 ) -> tuple[list[ApprovedGroup], list[Omission]]:
@@ -1681,7 +1666,7 @@ def _compile_groups(
                 # the boundary instead of implying a nullable state renderers cannot handle.
                 value_text=_fmt(pd.param.value, pd.display_decimals),
                 value=float(pd.param.value),
-                span=pd.param.span,
+                span=_dimension_witness_span(g.feature, pd.param),
                 ref=FeatureRef(g.feature),
                 kind=pd.param.kind,
                 role=pd.param.role,
@@ -1795,6 +1780,9 @@ def compile_dimensions(
                 omission.feature is overall_feature and omission.parameter_id == "height.length"
             )
         ]
+    groups_out, group_omissions = _consolidate_boss_heights(
+        model, planned, groups_out, group_omissions, overall
+    )
     if overall is not None:
         ladders.append(overall)
     locations, location_omissions = _compile_locations(model)
@@ -1813,6 +1801,78 @@ def compile_dimensions(
             omissions, height_omissions, location_omissions, group_omissions
         ),
     )
+
+
+def _consolidate_boss_heights(model, planned, groups, omissions, overall):
+    """Reconcile boss heights with active extent owners, including synthetic and restored ones."""
+    owners = [
+        dimension
+        for group in groups
+        if group.feature_kind == "envelope"
+        for dimension in group.dims
+        if dimension.kind == "length" and dimension.role in ("width", "depth")
+    ]
+    if overall is not None:
+        owners.extend(overall.rungs)
+    extents = []
+    for owner in owners:
+        assert owner.id is not None
+        extent = replace(
+            next(
+                parameter
+                for parameter in owner.id.feature.parameters()
+                if parameter.parameter_id == owner.id.parameter
+            ),
+            value=owner.value,
+            span=owner.span,
+        )
+        extents.append((extent, owner.id))
+    shared = {}
+    for group in planned:
+        if group.feature.kind != "boss":
+            continue
+        for dimension in group.dims:
+            parameter = dimension.param
+            if (
+                parameter.parameter_id != "boss_height.length"
+                or _request_for(model, group.feature, parameter) is not None
+                or _authored_for(model, group.feature, parameter) is not None
+            ):
+                continue
+            for extent, owner_id in extents:
+                if _extent_can_convey(extent, parameter):
+                    shared[DimensionId(group.feature, parameter.parameter_id)] = (
+                        parameter,
+                        owner_id,
+                    )
+                    break
+    if not shared:
+        return groups, omissions
+    retained = []
+    for group in groups:
+        dims = tuple(dimension for dimension in group.dims if dimension.id not in shared)
+        if dims:
+            retained.append(replace(group, dims=dims))
+    updated = []
+    recorded = set()
+    for omission in omissions:
+        identity = _dim_id(omission.feature, omission.parameter_id)
+        if identity in shared:
+            omission = replace(omission, conveyed_by=shared[identity][1])
+            recorded.add(identity)
+        updated.append(omission)
+    for identity, (parameter, owner_id) in shared.items():
+        if identity not in recorded:
+            updated.append(
+                Omission(
+                    identity.feature,
+                    identity.parameter,
+                    parameter.value,
+                    _CONSOLIDATED,
+                    conveyed_by=owner_id,
+                )
+            )
+    return retained, updated
 
 
 def _share_unique_outer_diameter(groups: list[ApprovedGroup], planned) -> list[ApprovedGroup]:
