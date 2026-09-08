@@ -12,9 +12,9 @@ from dataclasses import dataclass, field
 from math import hypot
 from typing import Literal
 
-from quiddity import HoleSpec, RecognitionResult, countersink_matches_hole
+from quiddity import HoleRecord, HoleSpec, RecognitionResult, countersink_matches_hole
 
-from draftwright._core import _decode_hole_location_fact
+from draftwright._core import _decode_hole_location_fact, _fmt
 from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
 from draftwright.linting._registry import satisfaction_ids
 from draftwright.linting.issues import (
@@ -1297,12 +1297,23 @@ def lint_hole_coverage(
         if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
             continue
         noun = "hole" if outcome.source_kind == "hole" else f"{outcome.member_count}-hole pattern"
+        if outcome.source_records and isinstance(outcome.source_records[0], HoleRecord):
+            spec = HoleSpec.from_hole(outcome.source_records[0])
+            depth = "unavailable" if spec.depth is None else _fmt(spec.depth)
+            operation = "THRU" if spec.bottom == "through" else f"blind depth {depth}"
+            noun = (
+                f"{outcome.member_count}× ø{_fmt(spec.diameter)} {operation} "
+                f"holes, axis {spec.axis}"
+            )
         issues.append(
             LintIssue(
                 severity=severity,
                 code=f"hole_requirement_{outcome.state}",
                 message=(
                     f"{noun} at {outcome.source_at} {requirement_subject(outcome, noun='requirement')} {messages[outcome.state]}"
+                ),
+                hole_requirement_ids=tuple(
+                    (feature, outcome.parameter_id) for feature in outcome.features
                 ),
             )
         )

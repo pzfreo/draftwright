@@ -307,9 +307,18 @@ def test_duplicate_notes_do_not_multiply_one_requirement_identity_into_physical_
     sheet.note("INSPECT DIAMETER 6", through, satisfies=("bore.diameter",))
     drawing = sheet.build()
 
-    mismatch = [issue for issue in drawing.lint() if issue.code == "feature_count_mismatch"]
-    assert len(mismatch) == 1
-    assert "account for 1" in mismatch[0].message
+    issues = drawing.lint()
+    assert not any(issue.code == "feature_count_mismatch" for issue in issues)
+    blind = next(
+        feature
+        for feature in drawing.model().features
+        if feature.kind == "hole" and not feature.through
+    )
+    assert any(
+        issue.code == "hole_requirement_suppressed"
+        and (blind, "bore.diameter") in issue.hole_requirement_ids
+        for issue in issues
+    )
 
 
 def test_location_is_a_valid_synthesised_role_and_satisfies_both_required_axes():
@@ -574,10 +583,15 @@ def test_callout_and_note_on_one_diameter_do_not_cover_an_identical_sibling():
     sheet.dimension(first, "bore.diameter")
     sheet.of(first).note("DIAMETER 6", satisfies=("bore.diameter",))
 
-    warning = next(
-        issue for issue in sheet.build().lint() if issue.code == "feature_count_mismatch"
+    drawing = sheet.build()
+    issues = drawing.lint()
+    assert not any(issue.code == "feature_count_mismatch" for issue in issues)
+    sibling = next(feature for feature in holes if feature is not first)
+    assert any(
+        issue.code == "hole_requirement_suppressed"
+        and (sibling, "bore.diameter") in issue.hole_requirement_ids
+        for issue in issues
     )
-    assert "account for 1" in warning.message
 
 
 def test_pre_satisfaction_registry_shape_remains_a_valid_consumer_boundary():

@@ -8712,55 +8712,30 @@ class TestPlaceDim:
 class TestLintSuggestions:
     """#29: each LintIssue carries a `suggestion` (str | None) with a fix snippet."""
 
-    def test_feature_not_dimensioned_has_suggestion(self):
-        # auto_dims=False leaves the ø10 hole undimensioned → coverage lint fires.
+    def test_diameter_only_finding_has_advice_without_an_unproven_edit(self):
         part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
         dwg = build_drawing(part, auto_dims=False)
-        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
-        assert issues, "expected a feature_not_dimensioned issue"
-        sug = issues[0].suggestion
-        assert sug is not None
-        assert "dwg.model()" in sug
-        assert "dwg.callout(" in sug
-        assert (
-            ".member" in sug
-        )  # covers a pattern's bore (on .member.diameter), not just plain holes
+        issue = next(i for i in dwg.lint() if i.code == "feature_not_dimensioned")
+        assert "separate" in issue.suggestion
+        assert "dwg.callout(" not in issue.suggestion
 
-    def test_feature_not_dimensioned_suggestion_is_runnable(self):
-        # The headline #29 promise: paste the snippet and the lint resolves. Post-#817 the snippet
-        # is the DECLARATIVE door (find the IR feature, `dwg.callout(f)` — say WHAT, not WHERE),
-        # not a hand-built Leader through the now-private placement primitive.
-        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
-        dwg = build_drawing(part, auto_dims=False)
-        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
-
-        for f in dwg.model().features:
-            if f.kind not in ("hole", "pattern"):
-                continue
-            fd = f.diameter if f.kind == "hole" else f.member.diameter
-            if abs(fd - 10.0) < 0.16:
-                dwg.callout(f)
-
-        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
-
-    def test_feature_not_dimensioned_suggestion_is_runnable_for_a_pattern(self):
-        # A pattern feature carries its bore on `.member.diameter`, not `.diameter` — the snippet
-        # must read it there (and restrict to hole/pattern kinds so a same-ø step/boss is not
-        # called out instead), else the declarative recipe silently skips a patterned hole and
-        # never resolves the lint (Codex #821).
+    @pytest.mark.parametrize("pattern", [False, True])
+    def test_missing_bore_suggestion_executes_for_its_verified_owner(self, pattern):
         part = Box(120, 40, 20)
-        for x in (-40, -20, 0, 20, 40):
-            part = part - Pos(x, 0, 0) * Cylinder(4, 20)
+        for x in (-40, -20, 0, 20, 40) if pattern else (15,):
+            part -= Pos(x, 0, 0) * Cylinder(4, 20)
         dwg = build_drawing(part, auto_dims=False)
-        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
-
-        for f in dwg.model().features:
-            if f.kind not in ("hole", "pattern"):
-                continue
-            fd = f.diameter if f.kind == "hole" else f.member.diameter
-            if abs(fd - 8.0) < 0.16:
-                dwg.callout(f)
-
+        issue = next(
+            i
+            for i in dwg.lint()
+            if i.code == "hole_requirement_missing"
+            and any(parameter == "bore.diameter" for _, parameter in i.hole_requirement_ids)
+        )
+        assert {f.kind for f, _ in issue.hole_requirement_ids} == {
+            "pattern" if pattern else "hole"
+        }
+        assert "dwg.callout(" in issue.suggestion
+        exec(issue.suggestion, {"dwg": dwg})
         assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
     def test_clean_drawing_has_no_suggestions(self, plain_box_dwg):
@@ -8871,33 +8846,32 @@ class TestLintSuggestions:
         issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
         assert _suggest_fix(issue, dwg) is None
 
-    def test_non_integer_diameter_still_gets_suggestion(self):
-        # Regression guard for the 1e-6-vs-_fmt bug: radius 4.111 gives a raw
-        # diameter of 8.22, but the message reports the 1dp-rounded ø8.2 — a
-        # 0.02 gap that a 1e-6 match would drop. The diameter must round-trip
-        # with tolerance so the suggestion still appears.
+    def test_non_integer_diameter_suggestion_uses_identity_not_rounded_text(self):
         part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(4.111, 20)
         dwg = build_drawing(part, auto_dims=False)
-        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
-        assert issues
-        assert "ø8.2" in issues[0].message  # rounded, differs from raw 8.22
-        assert issues[0].suggestion is not None
-        assert "dwg.callout(" in issues[0].suggestion
+        issue = next(
+            i
+            for i in dwg.lint()
+            if i.code == "hole_requirement_missing"
+            and any(parameter == "bore.diameter" for _, parameter in i.hole_requirement_ids)
+        )
+        assert "ø8.2" in issue.message
+        assert "dwg.callout(" in issue.suggestion
+        exec(issue.suggestion, {"dwg": dwg})
+        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
-    def test_feature_count_mismatch_suggestion_sets_count(self, plain_box_dwg):
-        # The leading number is `need`; diameter digits (even fractional) must
-        # not interfere with the parse.
+    def test_feature_count_mismatch_cannot_suggest_a_diameter_total(self, plain_box_dwg):
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning",
             message="4 ø8.5 features on the part but callouts account for 1",
             code="feature_count_mismatch",
         )
-        sug = _suggest_fix(issue, dwg)
-        assert sug is not None
-        assert "count=4" in sug
+        suggestion = _suggest_fix(issue, plain_box_dwg)
+        assert "count=" not in suggestion
+        assert "HoleCallout(" not in suggestion
+        assert "distinct axes" in suggestion
 
 
 class TestRepair:
