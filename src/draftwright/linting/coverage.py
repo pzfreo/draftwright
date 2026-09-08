@@ -539,28 +539,24 @@ def lint_location_coverage(
     }
     for name, ann in dwg.iter_annotations():
         view = dwg.view_of(name)
-        if view is None:
-            continue
-        if isinstance(ann, CenterMark):
+        if view is not None and isinstance(ann, CenterMark):
             c = ann.center()
             marks.setdefault(view, []).append((c.X, c.Y))
-        elif isinstance(ann, Dimension):
-            facts = tuple(getattr(ann, "covers_hole_locations", ()))
-            # Structured compiler evidence is authoritative.  Letting the same
-            # annotation fall back to its witness geometry would allow a wrong
-            # feature/axis tag to self-certify merely by sharing an ordinate.
-            decoded = tuple(
-                parsed
-                for fact in facts
-                if (parsed := _decode_hole_location_fact(fact)) is not None
-            )
-            if not decoded:
-                dim_verts.setdefault(view, []).extend(_dim_vertices(ann))
-            for feature, parameter, point in decoded:
-                if getattr(feature, "kind", None) == "hole":
-                    structured_locations.add(
-                        (feature, str(parameter), _location_ref(feature, point))
-                    )
+        # A placed table carries the same feature/member/axis facts as a dimension,
+        # even when it is sheet furniture with no view. Read that shared evidence
+        # independently of the annotation's presentation type.
+        decoded = tuple(
+            parsed
+            for fact in getattr(ann, "covers_hole_locations", ())
+            if (parsed := _decode_hole_location_fact(fact)) is not None
+        )
+        # Structured evidence is authoritative: a wrong feature/axis tag must not
+        # self-certify through an accidentally coincident geometric witness.
+        if view is not None and isinstance(ann, Dimension) and not decoded:
+            dim_verts.setdefault(view, []).extend(_dim_vertices(ann))
+        for feature, parameter, point in decoded:
+            if getattr(feature, "kind", None) == "hole":
+                structured_locations.add((feature, str(parameter), _location_ref(feature, point)))
 
     # Index only semantic owners that placed facts actually carry. This avoids an
     # O(holes × model-features × members) rescan and preserves the documented
@@ -585,8 +581,14 @@ def lint_location_coverage(
         x, y, z = _xyz(h.location)
         axis = _axis_letter(h)
         view = _END_ON.get(axis, "plan")
-        px, py, *_ = dwg.at(view, x, y, z)
-        if not any(abs(cx - px) <= tol and abs(cy - py) <= tol for cx, cy in marks.get(view, ())):
+        available_views = getattr(dwg, "views", None)
+        projected = (
+            dwg.at(view, x, y, z) if available_views is None or view in available_views else None
+        )
+        if projected is None or not any(
+            abs(cx - projected[0]) <= tol and abs(cy - projected[1]) <= tol
+            for cx, cy in marks.get(view, ())
+        ):
             no_mark += 1
         # A hole coaxial with the part centre (the turning axis / a symmetry axis)
         # is located by centrelines, not a position dim — exempt from location.
@@ -605,8 +607,8 @@ def lint_location_coverage(
                 for owner, parameter, point in structured_locations
             )
             page_index = page_axes.index(model_axis)
-            geometric = any(
-                abs((vx, vy)[page_index] - (px, py)[page_index]) <= tol
+            geometric = projected is not None and any(
+                abs((vx, vy)[page_index] - projected[page_index]) <= tol
                 for vx, vy in dim_verts.get(view, ())
             )
             return semantic or geometric

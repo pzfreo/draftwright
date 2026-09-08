@@ -3585,7 +3585,7 @@ class Drawing:
             items=self.items,
             part_model=self._part_model,
         )
-        render_balloons(self, self._analysis, view, specs, ctx)
+        render_balloons(self, self._analysis, view, specs, ctx, avoid_annotation_labels=True)
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""

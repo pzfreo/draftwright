@@ -1210,6 +1210,7 @@ class Analysis:
     frame: bool = False
     # Projection-method symbol (#769): "third" / "first" (ISO 5456-2) or None (omit).
     projection: str | None = None
+    projection_convention: str = "third"
     # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
     zones: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so

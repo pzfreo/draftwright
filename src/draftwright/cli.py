@@ -133,7 +133,7 @@ def main(
     projection: str = typer.Option(
         "",
         "--projection",
-        help="Projection symbol: 'third' (default: none); 'first' is unsupported",
+        help="Projection convention: 'first' or 'third' (default: third-angle, no symbol)",
     ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"

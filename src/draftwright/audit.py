@@ -170,7 +170,7 @@ def compare_measurements(before, after, *, feature_pairs=()) -> dict:
 #: dismissed by a reader — never toward silence. Adding a genuinely new furniture type here is
 #: a deliberate act; forgetting to add a new measurement type to an allowlist was an accident
 #: waiting to happen, and had already happened once.
-_FURNITURE = frozenset({"TitleBlock", "Note", "CenterMark"})
+_FURNITURE = frozenset({"TitleBlock", "Note", "CenterMark", "ProjectionSymbol"})
 
 
 def _measurements(dwg) -> dict[str, str]:
