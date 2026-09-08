@@ -481,7 +481,10 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, section, ctx):
     _label, _view, prefix = _section_identity(section)
     wing_h = 2.5 * arrow_sz  # perpendicular stub length
     for x_end, side in ((x0, "left"), (x1, "right")):
-        tip_y = y_page + wing_h
+        # Put the tip on the cut line and the stem on the removed side. The
+        # vector points into retained +Y without occupying a new leader lane.
+        tip_y = y_page
+        tail_y = y_page - wing_h
         arrow = Pos(x_end, tip_y) * ArrowHead(
             arrow_sz,
             head_type=HeadType.STRAIGHT,
@@ -489,15 +492,15 @@ def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, section, ctx):
         )
         arrow.fixed_ink_polygons = _leader_ink_polygons(
             (x_end, tip_y),
-            (x_end, y_page),
+            (x_end, tail_y),
             arrow_length=arrow_sz,
             line_width=0.0,
         )[-1:]
         ctx.place(arrow, f"{prefix}_arrow_{side}")
         shaft_end_y = tip_y - arrow_sz
-        wing_segment = ((x_end, y_page), (x_end, shaft_end_y))
+        wing_segment = ((x_end, tail_y), (x_end, shaft_end_y))
         wing = Compound(
-            children=[Edge.make_line(Vector(x_end, y_page, 0), Vector(x_end, shaft_end_y, 0))]
+            children=[Edge.make_line(Vector(x_end, tail_y, 0), Vector(x_end, shaft_end_y, 0))]
         )
         wing.fixed_ink_polygons = (_stroke_polygon(*wing_segment, dwg.draft.line_width),)
         ctx.place(

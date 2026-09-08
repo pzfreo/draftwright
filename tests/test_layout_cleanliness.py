@@ -74,10 +74,6 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
     # DATUM WITNESS (both anchor y=81, the common base edge) — the same BENIGN
     # running-dimension corridor as plate_holes/holed_slot above.
     "bracket": {
-        # The structural oracle compares full annotation AABBs here.  The
-        # diagonal shaft and straight section head are polygon-disjoint; the
-        # final exact-ink preflight is the authoritative #1166 check.
-        frozenset({"hc_plan0", "section_arrow_left"}),
         frozenset({"m_locx0", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),
     },

@@ -3,8 +3,9 @@
 import pytest
 from build123d import Box, Compound, Cylinder, Plane, Pos, Rot, section
 
-from draftwright import Drawing, Sheet
+from draftwright import Sheet
 from draftwright.annotations.sections import _section_hatch_edges
+from draftwright.projection import project_view_geometry
 
 
 def _part():
@@ -36,19 +37,18 @@ def test_section_regions_camera_and_indicators_agree(monkeypatch, projection, tr
     expected = section(part, section_by=plane)
     captured_faces = []
     captured_views = []
-    add_view = Drawing._add_view
 
     def capture_hatch(face, sx, sz, spacing):
         captured_faces.append(face)
         return _section_hatch_edges(face, sx, sz, spacing)
 
-    def capture_view(drawing, name, shape, camera, up, position, **kwargs):
+    def capture_view(scale, name, shape, camera, up, position, **kwargs):
         if name == "section_aa":
-            captured_views.append((shape, camera, drawing.look_at))
-        return add_view(drawing, name, shape, camera, up, position, **kwargs)
+            captured_views.append((shape, camera, kwargs["look_at"]))
+        return project_view_geometry(scale, name, shape, camera, up, position, **kwargs)
 
     monkeypatch.setattr("draftwright.annotations.sections._section_hatch_edges", capture_hatch)
-    monkeypatch.setattr(Drawing, "_add_view", capture_view)
+    monkeypatch.setattr("draftwright.drawing.project_view_geometry", capture_view)
     drawing = _sheet(part, projection, cut_y).build()
 
     assert drawing.section_decision["status"] == "placed"
@@ -68,8 +68,8 @@ def test_section_regions_camera_and_indicators_agree(monkeypatch, projection, tr
     for side in ("left", "right"):
         arrow = drawing.get_annotation(f"section_arrow_{side}")
         wing = drawing.get_annotation(f"section_wing_{side}")
-        assert wing.bounding_box().min.Y == pytest.approx(line_y)
-        assert arrow.bounding_box().min.Y > line_y
+        assert wing.bounding_box().max.Y < line_y
+        assert arrow.bounding_box().max.Y == pytest.approx(line_y)
         # The arrow's unique leading vertex points in projected +Y too.
         vertices = [(v.X, v.Y) for v in arrow.vertices()]
         tip_y = max(y for _, y in vertices)

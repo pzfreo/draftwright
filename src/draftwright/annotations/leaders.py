@@ -1974,7 +1974,12 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 names.add(jobs[earlier_job].name)
         return tuple(sorted(names))
 
-    if not assignment.optimal:
+    # A complete incumbent already preserves every producer's possible semantic
+    # floor: no alternative can place more than every job. Keep that feasible
+    # result when the search cannot prove the best penalty/cost, and retain the
+    # normal geometry validation below. An incomplete incumbent has no such
+    # guarantee and must still replay the canonical producer floor.
+    if not assignment.optimal and any(choice is None for choice in assignment.choices):
         # The layout solver's bounded-search incumbent is seeded from the new
         # exact-ink candidate order, not from every producer's canonical
         # pre-#1166 lazy fallback.  Replaying that producer floor is the only
@@ -2019,7 +2024,11 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     # penalty as the major component so the refinement cannot trade a real
     # dimension/witness crossing for future optional furniture.  If either the
     # probe or exact-search budget is exhausted, retain the primary result.
-    provisional = bounded_fixed_obstacles(provisional=True)
+    provisional = (
+        bounded_fixed_obstacles(provisional=True)
+        if assignment.optimal
+        else {view: () for view in views}
+    )
     provisional_inventory_exhausted = provisional is _FIXED_INVENTORY_EXHAUSTED
     provisional_probes_by_view: dict[str, int] = {}
     if not provisional_inventory_exhausted:
@@ -2032,7 +2041,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         if provisional_inventory_exhausted
         else sum(provisional_probes_by_view.values())
     )
-    provisional_refinement = "not_needed"
+    provisional_refinement = "not_needed" if assignment.optimal else "primary_state_budget"
     provisional_blockers_by_job: list[list[tuple[str, ...]]] = [
         [() for _candidate in candidates] for candidates in viable_by_job
     ]
@@ -2245,8 +2254,8 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         else 0
     )
     set_assignment(
-        "joint",
-        optimal=True,
+        "joint" if assignment.optimal else "joint_state_budget",
+        optimal=assignment.optimal,
         states=assignment_states,
         fixed_probes=total_fixed_probes,
         fixed_probe_bound=total_fixed_probes,
