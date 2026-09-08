@@ -690,9 +690,20 @@ def _compose_anno_boxes(
         and feature.frame.axis == "y"
         and not authored_location_omitted(model, feature)
     )
-    if rear_locations:
+    rear_height = any(
+        group.feature.kind == "envelope"
+        and any(
+            not dimension.suppressed
+            and dimension.param.role == "height"
+            and dimension.view in (None, "rear")
+            and dimension.side != "left"
+            for dimension in group.dims
+        )
+        for group in plan_dimensions(model)
+    )
+    if rear_tiers := rear_locations + int(rear_height):
         tier = font_size + 2 * pad_around_text
-        boxes.append(AnnoBox("rear_right", _STRIP_GAP + rear_locations * (tier + _STRIP_SPACING)))
+        boxes.append(AnnoBox("rear_right", _STRIP_GAP + rear_tiers * (tier + _STRIP_SPACING)))
     if _will_balloon(model):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes

@@ -1287,7 +1287,7 @@ class Sheet:
         appeared in a release, so this refusal is the only notice it gets — a documented
         break (`docs/deprecations.md`).
 
-        ``view`` selects ``front``/``plan``/``side`` and ``side`` selects the corresponding
+        ``view`` selects ``front``/``plan``/``side``/``rear`` and ``side`` selects the corresponding
         ``above``/``below``/``left``/``right`` corridor where that dimension renderer supports
         it. They express authored placement intent, not page coordinates; invalid or
         unrenderable pairs fail clearly during planning.

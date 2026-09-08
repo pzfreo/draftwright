@@ -242,3 +242,225 @@ def test_rear_pattern_pitch_never_draws_in_an_absent_front_view(with_bore, conve
     ]
     assert len(pitches) == 1
     assert pitches[0].measured_length == pytest.approx(40)
+
+
+@pytest.mark.parametrize("convention", ["first", "third"])
+@pytest.mark.parametrize("explicit_dimensions", [False, True])
+def test_rear_envelope_width_and_height_keep_spans_and_identity(convention, explicit_dimensions):
+    from draftwright import Sheet
+
+    part = Pos(13, 7, -8) * Box(80, 40, 50)
+    sheet = Sheet(
+        part, page="A3", scale=1, scale_policy="strict", projection=convention
+    ).authored_dimensions()
+    envelope = sheet.envelope()
+    placement = {"view": "rear"} if explicit_dimensions else {}
+    sheet.dimension(envelope, "width.length", **placement)
+    sheet.dimension(envelope, "height.length", side="left", **placement)
+    sheet.view("rear")
+    drawing = sheet.build()
+    expected = {"m_env_width": ("80", 80), "dim_height": ("50", 50)}
+    for name, (label, length) in expected.items():
+        annotation = drawing.get_annotation(name)
+        assert drawing.view_of(name) == "rear"
+        assert annotation.label == label
+        assert annotation.measured_length == pytest.approx(length)
+        assert drawing.registry.measurement_of(name)
+    assert not drawing.lint()
+
+    from draftwright.view_plan import ViewPlanIncomplete
+
+    sheet.dimension(envelope, "depth.length")
+    with pytest.raises(ViewPlanIncomplete, match="envelope.depth.length.*side"):
+        sheet.build()
+
+
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_translated_rear_origin_pin_moves_the_complete_view(convention):
+    from draftwright import Sheet
+
+    part = Pos(13, 7, -8) * Box(80, 40, 50)
+
+    def declared(pin=None):
+        sheet = Sheet(
+            part, page="A3", scale=1, scale_policy="strict", projection=convention
+        ).authored_dimensions()
+        envelope = sheet.envelope()
+        sheet.dimension(envelope, "width.length")
+        sheet.dimension(envelope, "height.length")
+        view = sheet.view("rear")
+        if pin is not None:
+            view.pin(pin)
+        return sheet
+
+    baseline = declared().build()
+    origin = baseline.at("rear", 0, 0, 0)
+    target = (origin[0] + 10, origin[1] + 10)
+    moved = declared(target).build()
+    assert moved.at("rear", 0, 0, 0)[:2] == pytest.approx(target)
+    for name in ("m_env_width", "dim_height"):
+        before = baseline.get_annotation(name).bounding_box().center()
+        after = moved.get_annotation(name).bounding_box().center()
+        assert tuple(after - before) == pytest.approx((10, 10, 0))
+    assert not moved.lint()
+    with pytest.raises(ValueError, match="pin.*infeasible.*not relaxed"):
+        declared((-1000, target[1])).build()
+
+
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_rear_only_visibility_pressure_never_adds_an_automatic_rear(rear_enclosure, convention):
+    from draftwright import Sheet
+
+    # Native HLR proves the two bore rims are absent from visible front geometry.
+    visible, hidden = rear_enclosure.project_to_viewport((0, -1000, 0), look_at=(0, 0, 0))
+    assert not any(edge.geom_type == GeomType.CIRCLE for edge in visible)
+    assert any(edge.geom_type == GeomType.CIRCLE for edge in hidden)
+    sheet = Sheet(
+        rear_enclosure, projection=convention, page="A3", scale=1, scale_policy="permissive"
+    )
+    for diameter, x, z in ((4, -21, 11), (7, 14, -9)):
+        hole = sheet.hole(diameter=diameter, at=(x, 20, z), axis="y", through=False, depth=1.5)
+        sheet.dimension(hole, "bore.diameter")
+        sheet.dimension(hole, "bore.depth")
+        sheet.dimension(hole, "location")
+    drawing = sheet.auto_views().build()
+    assert "rear" not in drawing.views
+    assert "rear" not in drawing.view_plan.principal_names
+    # Requesting the same measurements in rear must fail when rear was not requested.
+    sheet = Sheet(rear_enclosure, projection=convention)
+    hole = sheet.hole(diameter=4, at=(-21, 20, 11), axis="y", through=False, depth=1.5)
+    sheet.dimension(hole, "bore.diameter", view="rear")
+    from draftwright.view_plan import ViewPlanIncomplete
+
+    with pytest.raises(ViewPlanIncomplete, match="rear"):
+        sheet.build()
+
+
+@pytest.mark.parametrize("deferred", [False, True])
+def test_rear_callout_and_furniture_edits_preserve_the_physical_view(rear_enclosure, deferred):
+    from contextlib import nullcontext
+
+    drawing = _rear_hole_sheet(rear_enclosure, "third").build()
+    hole = drawing.model().features[0]
+    drawing.drop(hole)
+    with drawing.deferred() if deferred else nullcontext():
+        name = drawing.callout(hole)
+        marks = drawing.furniture(hole)
+    claims = drawing.annotations_of(hole)
+    assert claims
+    assert all(drawing.view_of(name) == "rear" for name in claims)
+    if not deferred:
+        assert name in claims and set(marks) <= set(claims)
+    assert any(getattr(drawing.get_annotation(name), "label", "") == "⌀4 ↧ 1.5" for name in claims)
+    assert not [
+        issue for issue in drawing.lint() if issue.code == "diameter_leader_target_mismatch"
+    ]
+
+
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_epic_1508_combined_style_rear_and_wording_canary(rear_enclosure, convention, tmp_path):
+    from collections import Counter
+
+    from draftwright import Sheet, build_drawing
+    from draftwright.audit import compare_measurements
+    from draftwright.sheet_emit import emit_sheet_script
+
+    # The third hole passes through the 2 mm back wall; the other two remain blind.
+    part = rear_enclosure - Pos(0, 19, -16) * Rot(90, 0, 0) * Cylinder(2.5, 4)
+    assert not part.is_inside(Vector(0, 18.25, -16))
+    assert part.is_inside(Vector(-21, 18.25, 11))
+    options = dict(
+        page="A3",
+        scale=1,
+        scale_policy="strict",
+        projection=convention,
+        text_position="above",
+        text_orientation="horizontal",
+    )
+    sheet = Sheet(part, **options).authored_dimensions()
+    for diameter, x, z in ((4, -21, 11), (7, 14, -9)):
+        hole = sheet.hole(diameter=diameter, at=(x, 20, z), axis="y", through=False, depth=1.5)
+        sheet.dimension(hole, "bore.diameter")
+        sheet.dimension(hole, "bore.depth")
+        sheet.dimension(hole, "location")
+    through = sheet.hole(diameter=5, at=(0, 20, -16), axis="y").through("DURCH")
+    sheet.dimension(through, "bore.diameter")
+    sheet.dimension(through, "location")
+    envelope = sheet.envelope()
+    sheet.dimension(envelope, "width.length")
+    sheet.dimension(envelope, "height.length")
+    sheet.view("rear")
+    original = sheet.build()
+    direct = build_drawing(
+        part,
+        model=sheet.model(),
+        _views=("rear",),
+        _include_iso=False,
+        _view_constraints=sheet.view_constraints,
+        **options,
+    )
+    script = emit_sheet_script(
+        sheet.model(),
+        "part = supplied_part",
+        str(tmp_path / "epic"),
+        title="EPIC",
+        number="1508",
+        formats=("svg", "pdf", "dxf"),
+        view_constraints=sheet.view_constraints,
+        **options,
+    )
+    namespace = {"supplied_part": part}
+    exec(script, namespace)
+    replay = namespace["drawing"]
+    original_features = sheet.model().features
+    for drawing in (original, direct, replay):
+        labels = Counter(
+            annotation.label
+            for name, annotation in drawing.iter_annotations()
+            if drawing.view_of(name) == "rear" and getattr(annotation, "label", "")
+        )
+        assert labels == Counter(
+            ["⌀4 ↧ 1.5", "⌀7 ↧ 1.5", "⌀5 DURCH", "80", "50", "19", "54", "40", "16", "36", "9"]
+        )
+        assert drawing.view_plan.principal_names == ("rear",)
+        assert drawing.view_plan.convention == convention
+        assert drawing.draft.text_position == "above"
+        assert drawing.draft.text_orientation == "horizontal"
+        pairs = tuple(zip(original_features, drawing.model().features, strict=True))
+        assert (
+            compare_measurements(original, drawing, feature_pairs=pairs)["status"] == "preserved"
+        )
+        assert not [
+            issue
+            for issue in drawing.lint()
+            if issue.code
+            in {
+                "diameter_leader_target_mismatch",
+                "annotation_overlap",
+                "annotation_ink_overlap",
+                "callout_dropped",
+                "overall_dim_withheld",
+                "placement_unsatisfiable",
+                "bore_through_not_placed",
+            }
+        ]
+    assert all((tmp_path / f"epic.{ext}").stat().st_size > 100 for ext in ("svg", "pdf", "dxf"))
+
+
+@pytest.mark.parametrize("intent", ["authored", "requested"])
+def test_unrequested_rear_dimension_refuses_before_projection(rear_enclosure, intent, monkeypatch):
+    import draftwright.builder as builder
+    from draftwright import build_drawing
+    from draftwright.model import hole
+    from draftwright.model.ir import RequestedDimension
+    from draftwright.view_plan import ViewPlanIncomplete
+
+    feature = hole(diameter=4, at=(-21, 20, 11), axis="y", through=False, depth=1.5)
+    request = RequestedDimension(feature, "bore.diameter", view="rear")
+
+    def forbidden_projection(*args, **kwargs):
+        raise AssertionError("unshowable rear requirement reached projection")
+
+    monkeypatch.setattr(builder, "_assemble", forbidden_projection)
+    with pytest.raises(ViewPlanIncomplete, match="rear"):
+        build_drawing(rear_enclosure, model=[feature], **{intent: (request,)})

@@ -746,9 +746,9 @@ VIEW_AXES: dict[str, tuple[str, str]] = dict(_PRINCIPAL_PAGE_AXES)
 #: The first entry of each is the view that extent has always been placed in, so consulting
 #: this changes nothing while all three principals are planned.
 VIEWS_SHOWING: dict[str, tuple[str, ...]] = {
-    "x": ("plan", "front"),
+    "x": ("plan", "front", "rear"),
     "y": ("side", "plan"),
-    "z": ("front", "side"),
+    "z": ("front", "side", "rear"),
 }
 
 

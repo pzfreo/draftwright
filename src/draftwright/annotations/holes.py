@@ -140,7 +140,14 @@ def add_feature_callout(
             "callout(): feature is not from this drawing's model — "
             "pass one from dwg.model().features"
         )
-    group = next((g for g in plan_dimensions(model) if g.feature is feature), None)
+    group = next(
+        (
+            g
+            for g in plan_dimensions(model, planned_views=tuple(dwg.views))
+            if g.feature is feature
+        ),
+        None,
+    )
     spec = hole_callout_spec(group) if group is not None else None
     if spec is None:
         if any(o.feature is feature and o.authored for o in compile_dimensions(model).diagnostics):
@@ -165,9 +172,9 @@ def add_feature_callout(
     # bare path uses — not re-derived from len(members) (#414 review).
     callout = callout_from_spec(spec, draft, spec["count"])
     assert callout is not None  # spec is non-None here, so callout_from_spec returns one
-    view = view or _END_ON[feature.frame.axis]
-    if view not in _END_ON.values():  # front/plan/side — the ortho end-on views only
-        raise ValueError(f"callout(): view {view!r} is not a hole-callout view (front/plan/side)")
+    view = view or (group.view if group is not None else _END_ON[feature.frame.axis])
+    if view not in (*_END_ON.values(), "rear") or (view == "rear" and feature.frame.axis != "y"):
+        raise ValueError(f"callout(): view {view!r} is not a hole-callout view for this axis")
     gap = draft.pad_around_text
     w = callout.callout_width
     tier = draft.font_size + 2 * gap
@@ -179,8 +186,8 @@ def add_feature_callout(
     rep = max(members, key=lambda m: dwg.at(view, *m)[0])
     centre = dwg.at(view, *rep)[:2]
 
-    if view == "front":  # below the view (matches the auto-pass's front-callout side)
-        zones = a.fv_zones if a is not None else None
+    if view in ("front", "rear"):
+        zones = layout_frame(a).zones(view) if a is not None else None
         strip = zones.below if zones is not None else None
         elbow_y = vy0 - max(tier, 0.6 * (a.DIM_PAD if a is not None else 12.0))
         if strip is not None:
@@ -438,7 +445,11 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         )
     if a is None:
         raise ValueError("furniture(): no analysis — build the drawing first")
-    view = view or _END_ON[feature.frame.axis]
+    groups = plan_dimensions(model, planned_views=tuple(dwg.views))
+    group = next((g for g in groups if g.feature is feature), None)
+    view = view or (group.view if group is not None else _END_ON[feature.frame.axis])
+    if view == "rear" and feature.frame.axis != "y":
+        raise ValueError("furniture(): rear is not end-on for this hole axis")
     before = set(dwg.annotations())
 
     # Centre marks — one per member, mirroring render_centermarks' size/placement.
@@ -479,7 +490,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
             feature,
             lambda loc: dwg.at(view, *loc),
             ctx=ctx,
-            plan=compile_dimensions(model),
+            plan=compile_dimensions(model, groups=groups),
         )
 
     return sorted(set(dwg.annotations()) - before)
@@ -2468,20 +2479,34 @@ def _place_front_callouts(
     meta = {}
     measurements = {}
     tb_box = (tb_left, _TB_CLEAR, a.PAGE_W - _TB_CLEAR, tb_top)
+    # The location corridor runs after these leaders. Its approved X witnesses
+    # extend below the view through this band; prefer the text side they leave clear.
+    # Values and endpoints come from the same compiled entries the corridor consumes.
+    witness_x = {
+        to_page(point)[0]
+        for hole in _approved_off_axis_holes(plan)
+        if hole.view == view and "x" in hole.approved
+        for point in hole.approved["x"].span
+    }
     for i, (locs, dia, callout, feat) in enumerate(specs):
         w = callout.callout_width
         rep = max(locs, key=lambda loc: to_page(loc)[0])
         centre = to_page(rep)
+        text_sides = []
         if centre[0] + gap + w <= a.PAGE_W - a.margin:
-            side = "right"
-        elif centre[0] - gap - w >= a.margin:
-            side = "left"
-        else:
+            text_sides.append(("right", centre[0] + gap, centre[0] + gap + w))
+        if centre[0] - gap - w >= a.margin:
+            text_sides.append(("left", centre[0] - gap - w, centre[0] - gap))
+        if not text_sides:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
             _record_callout_drop(
                 ctx, dwg, view, dia, "no room beside the view", feat, callout=callout
             )
             continue
+        side, _, _ = min(
+            text_sides,
+            key=lambda candidate: sum(candidate[1] <= x <= candidate[2] for x in witness_x),
+        )
 
         name = _hc_name(only, view, i, hc_used)
 

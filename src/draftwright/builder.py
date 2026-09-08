@@ -1322,6 +1322,7 @@ def _build_drawing_once(
             model=model,
             decorations=decorations,
             authored=authored,
+            requested=requested,
             material=material,
             date=date,
             revision=revision,
@@ -1341,42 +1342,42 @@ def _build_drawing_once(
         )
 
     a = analyse(reuse=_analysis_base, views=_views)
-    if _views is not None:
-        # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
-        # plan_dimensions' requirement check.  An authored principal set is nevertheless
-        # a hard constraint: reject a measured mark targeting an absent projection before
-        # corridor placement can misreport the contradiction as a capacity drop.
-        explicit_model = (
-            _coerce_model(model, a.part, decorations, requested, authored)
-            if model is not None
-            else cast("PartModel", a.model if a.model is not None else build_model(a))
+    planned_principals = third_angle_view_names() if _views is None else _views
+    # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
+    # plan_dimensions' requirement check.  An authored principal set is nevertheless
+    # a hard constraint: reject a measured mark targeting an absent projection before
+    # corridor placement can misreport the contradiction as a capacity drop.
+    explicit_model = (
+        _coerce_model(model, a.part, decorations, requested, authored)
+        if model is not None
+        else cast("PartModel", a.model if a.model is not None else build_model(a))
+    )
+    uncovered_measured = []
+    for feature in explicit_model.features:
+        feature_view = authored_dimension_target_view(
+            getattr(feature, "dimension_kind", ""),
+            getattr(feature, "dominant_axis", ""),
+            getattr(feature, "view", None),
+            getattr(feature, "side", None),
+            getattr(feature, "angular_reference", None),
         )
-        uncovered_measured = []
-        for feature in explicit_model.features:
-            feature_view = authored_dimension_target_view(
-                getattr(feature, "dimension_kind", ""),
-                getattr(feature, "dominant_axis", ""),
-                getattr(feature, "view", None),
-                getattr(feature, "side", None),
-                getattr(feature, "angular_reference", None),
+        if (
+            getattr(feature, "kind", None) != "authored_dimension"
+            or not isinstance(feature_view, str)
+            or feature_view in set(planned_principals)
+        ):
+            continue
+        uncovered_measured.append(
+            UncoveredViewRequirement(
+                identity=feature,
+                label=getattr(feature, "source_id", "") or "measured_dimension",
+                preferred_view=feature_view,
+                eligible_views=(feature_view,),
+                reason=f"is explicitly placed in `{feature_view}`",
             )
-            if (
-                getattr(feature, "kind", None) != "authored_dimension"
-                or not isinstance(feature_view, str)
-                or feature_view in set(_views)
-            ):
-                continue
-            uncovered_measured.append(
-                UncoveredViewRequirement(
-                    identity=feature,
-                    label=getattr(feature, "source_id", "") or "measured_dimension",
-                    preferred_view=feature_view,
-                    eligible_views=(feature_view,),
-                    reason=f"is explicitly placed in `{feature_view}`",
-                )
-            )
-        if uncovered_measured:
-            raise ViewPlanIncomplete(_views, uncovered_measured)
+        )
+    if uncovered_measured:
+        raise ViewPlanIncomplete(planned_principals, uncovered_measured)
     view_attempts: tuple[dict[str, object], ...] = ()
     view_status = "selected"
     if _select_automatic_views and _views is None and auto_dims:

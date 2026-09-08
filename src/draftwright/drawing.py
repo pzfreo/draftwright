@@ -2961,10 +2961,10 @@ class Drawing:
                     self,
                     a,
                     build_view_of_axis(a),
-                    plan_dimensions(model),
+                    plan_dimensions(model, planned_views=tuple(self.views)),
                     feature_hole_keys(model, a),
                     ctx=ctx,
-                    plan=compile_dimensions(model),
+                    plan=compile_dimensions(model, planned_views=tuple(self.views)),
                     only=r.only_callout,
                     place_furniture=False,
                 )
@@ -2983,7 +2983,7 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_locations(
                     self,
-                    compile_dimensions(model),
+                    compile_dimensions(model, planned_views=tuple(self.views)),
                     a,
                     ctx=ctx,
                     only=r.only_loc,
@@ -2998,7 +2998,11 @@ class Drawing:
             if r.off_axis_loc_ids:
                 assert a is not None
                 _locate_off_axis_holes(
-                    self, ctx, a, which="across", plan=compile_dimensions(model)
+                    self,
+                    ctx,
+                    a,
+                    which="across",
+                    plan=compile_dimensions(model, planned_views=tuple(self.views)),
                 )
 
         def _s_off_axis_along():
@@ -3006,7 +3010,13 @@ class Drawing:
             # (mirrors the auto pass's off_axis_along stage; after the envelope candidates).
             if r.off_axis_loc_ids:
                 assert a is not None
-                _locate_off_axis_holes(self, ctx, a, which="along", plan=compile_dimensions(model))
+                _locate_off_axis_holes(
+                    self,
+                    ctx,
+                    a,
+                    which="along",
+                    plan=compile_dimensions(model, planned_views=tuple(self.views)),
+                )
 
         def _s_height_ladder():
             # Prismatic step-height ladder through the auto-pass renderer. (#636) This

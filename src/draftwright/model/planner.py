@@ -1434,11 +1434,11 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
         return ("front", "rear")
     if kind == "envelope":
         if role == "width":
-            return ("plan", "front")
+            return ("plan", "front", "rear")
         if role == "depth":
             return ("side",)
         if role == "height":
-            return ("front",)
+            return ("front", "rear")
     if role in {"boss_height", "stock_length"}:
         return (_PROFILE.get(axis, "front"),)
     if kind == "step_level" and role == "step_height":
