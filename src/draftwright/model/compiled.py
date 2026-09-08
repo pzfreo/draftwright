@@ -1049,6 +1049,54 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
     return approved, omissions
 
 
+def _step_chain_covers_extent(
+    model: PartModel, groups: list[ApprovedGroup], axis: Literal["x", "z"]
+) -> bool:
+    """Require adjoining approved measurements between both overall ends of one profile."""
+    axis_index = "xyz".index(axis)
+    intervals: dict[tuple[tuple[float, ...], object], list[tuple[float, float]]] = {}
+    step_profiles = set()
+    for group in groups:
+        if group.feature_kind not in ("step", "groove") or group.facts.frame.axis != axis:
+            continue
+        length = group.dim(kind="length")
+        if length is None:
+            continue
+        feature = resolve_feature(group.ref)
+        frame = group.facts.frame
+        key = (
+            tuple(
+                round(float(value), 6) for i, value in enumerate(frame.origin) if i != axis_index
+            ),
+            feature.profile or feature.profile_group,
+        )
+        if group.feature_kind == "step":
+            if length.span is None:
+                continue
+            lo, hi = sorted(float(point[axis_index]) for point in length.span)
+            step_profiles.add(key)
+        else:
+            centre = float(frame.origin[axis_index])
+            lo, hi = centre - length.value / 2, centre + length.value / 2
+        intervals.setdefault(key, []).append((lo, hi))
+
+    # Emitted declarations round supports to 0.001 mm. Keep that numerical seam
+    # tolerance, but do not join different bodies or merely overlapping spans:
+    # 0..40 and 20..60 do not tell the reader the overall length.
+    tolerance = 1e-3 + 1e-9
+    bb: Any = model.bbox
+    for key in step_profiles:
+        reachable = [float(tuple(bb.min)[axis_index])]
+        for lo, hi in sorted(intervals[key]):
+            if any(abs(lo - station) <= tolerance for station in reachable):
+                reachable.append(hi)
+        if any(
+            abs(station - float(tuple(bb.max)[axis_index])) <= tolerance for station in reachable
+        ):
+            return True
+    return False
+
+
 def _compile_overall_height(
     model: PartModel, marked, *, planned, include_overall: bool, step_chain_approved: bool
 ) -> tuple[ApprovedLadder | None, ApprovedContingency | None, list[Omission]]:
@@ -1585,7 +1633,9 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
     return approved, omissions
 
 
-def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
+def _compile_groups(
+    planned, *, restore_width: bool = False
+) -> tuple[list[ApprovedGroup], list[Omission]]:
     """Every planned group, reduced to what the compiler approved, plus what it withheld.
 
     The general path all remaining renderers migrate onto: same per-feature shape they
@@ -1602,6 +1652,17 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
     out: list[ApprovedGroup] = []
     omissions: list[Omission] = []
     for g in planned:
+        # The planner's X-chain redundancy decision precedes chain approval.
+        # Restore only that reason, preserving authored and unrelated omissions.
+        dims = tuple(
+            replace(pd, suppressed=False, reason=None)
+            if restore_width
+            and isinstance(g.feature, EnvelopeFeature)
+            and pd.param.parameter_id == "width.length"
+            and pd.reason == "X-turned (step-length chain conveys the length)"
+            else pd
+            for pd in g.dims
+        )
         omissions.extend(
             Omission(
                 g.feature,
@@ -1610,7 +1671,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 pd.reason or "suppressed",
                 conveyed_by=pd.conveyed_by,
             )
-            for pd in g.dims
+            for pd in dims
             if pd.suppressed
         )
         approved = tuple(
@@ -1636,7 +1697,7 @@ def _compile_groups(planned) -> tuple[list[ApprovedGroup], list[Omission]]:
                 view=pd.view,
                 side=pd.side,
             )
-            for pd in g.dims
+            for pd in dims
             if not pd.suppressed
             # A datum-coincident shoulder is not a zero-valued dimension the general group
             # may keep after the dedicated ladder rejected its identical endpoints. It is
@@ -1709,13 +1770,10 @@ def compile_dimensions(
     marked = _suppressed_dims(model, planned)
     ladders, omissions = _compile_step_ladders(model, marked)
     groups_out, group_omissions = _compile_groups(planned)
+    if model.orientation == "x" and not _step_chain_covers_extent(model, groups_out, "x"):
+        groups_out, group_omissions = _compile_groups(planned, restore_width=True)
     groups_out = _share_unique_outer_diameter(groups_out, planned)
-    step_chain_approved = any(
-        group.feature_kind == "step"
-        and group.facts.frame.axis == "z"
-        and group.dim(kind="length") is not None
-        for group in groups_out
-    )
+    step_chain_approved = _step_chain_covers_extent(model, groups_out, "z")
     overall, contingency, height_omissions = _compile_overall_height(
         model,
         marked,

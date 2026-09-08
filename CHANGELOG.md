@@ -478,6 +478,10 @@
 
 ### Fixed
 
+- Overall height and envelope width remain dimensioned when approved turned-step lengths
+  cover only part of the respective extent. Redundancy suppression now requires adjoining
+  measurements on one profile to reach both overall endpoints; STC618 retains its missing
+  62 mm height (#1509).
 - Non-1:1 orthographic and isometric projection now scales extracted solids about the world
   origin, matching the view-coordinate mapper and solver zones. Solids carrying a non-zero
   build123d `Location` no longer shift their silhouette away from dimensions and callouts.
