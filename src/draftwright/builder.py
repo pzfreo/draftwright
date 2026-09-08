@@ -64,6 +64,7 @@ from draftwright.annotations.orchestrator import (
 from draftwright.compose import (
     ViewBlock,
     _attribute_annotations,
+    _build_rear_zones,
     _build_zones,
     _layout_geometry,
     _view_geom,
@@ -704,6 +705,7 @@ def _assemble(
         "front": ((cxs, cys - dist, czs), (0, 0, 1)),
         "plan": ((cxs, cys, czs + dist), (0, 1, 0)),
         "side": ((cxs + dist, cys, czs), (0, 0, 1)),
+        "rear": ((cxs, cys + dist, czs), (0, 0, 1)),
     }
     dwg._build.view_plan = view_plan = resolve_from_analysis(a)
     for spec in view_plan.of_kind("principal"):
@@ -1001,6 +1003,8 @@ def _repack(
         abs(g.PV_Y - a.PV_Y),
         abs(g.SV_X - a.SV_X),
         abs(g.SV_Y - a.SV_Y),
+        abs(g.RV_X - a.RV_X) if "rear" in (a.planned_views or ()) else 0.0,
+        abs(g.RV_Y - a.RV_Y) if "rear" in (a.planned_views or ()) else 0.0,
     )
     # Seed fit warnings yield to the measured result; retain the explicit legibility
     # advisory only at the scale for which it was evaluated.
@@ -1037,6 +1041,9 @@ def _repack(
         PV_Y=g.PV_Y,
         SV_X=g.SV_X,
         SV_Y=g.SV_Y,
+        RV_X=g.RV_X,
+        RV_Y=g.RV_Y,
+        rv_zones=_build_rear_zones(g, a.margin, ph),
         fv_hw=g.fv_hw,
         fv_hh=g.fv_hh,
         pv_hh=g.pv_hh,
@@ -1055,6 +1062,8 @@ def _repack(
             sv_y=g.SV_Y,
             pv_x=g.PV_X,
             pv_y=g.PV_Y,
+            rv_x=g.RV_X,
+            rv_y=g.RV_Y,
             cx=a.cx,
             cy=a.cy,
             cz=a.cz,

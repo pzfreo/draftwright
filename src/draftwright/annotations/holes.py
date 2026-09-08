@@ -9,6 +9,7 @@ shared placement helpers come from annotations._common. Below annotate, no cycle
 from __future__ import annotations
 
 import math
+from functools import partial
 from typing import NamedTuple
 
 from build123d_drafting.helpers import (
@@ -33,6 +34,7 @@ from draftwright._core import (
     _fmt,
     _iso_bbox,
     _log,
+    layout_frame,
 )
 from draftwright._geometry import _leader_ink_crosses_box, plane_axes
 from draftwright.annotations._common import (
@@ -680,6 +682,7 @@ class _OffHole(NamedTuple):
     location: tuple
     feature: HoleFeature | PatternFeature
     approved: dict
+    view: str
 
 
 def _approved_off_axis_holes(plan) -> list[_OffHole]:
@@ -720,7 +723,9 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
         key = (entry.ref, member)
         hole = holes.get(key)
         if hole is None:
-            hole = holes[key] = _OffHole(entry.axis, member, resolve_feature(entry.ref), {})
+            group = plan.group_for(entry.ref)
+            view = group.view if group is not None else _END_ON[entry.axis]
+            hole = holes[key] = _OffHole(entry.axis, member, resolve_feature(entry.ref), {}, view)
         hole.approved[entry.discriminator] = entry
     return list(holes.values())
 
@@ -963,12 +968,12 @@ def _locate_across(dwg, ctx, a: Analysis, off):
     )
 
 
-def _locate_along_planar(dwg, ctx, a: Analysis, off):
+def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
     """The "along" phase's planar dim: a Y-axis hole's X position below the FRONT view, placed
     after the envelope + turned-diameter passes so it never evicts those from the contended
     front-below strip (#133). Promoted (#638)."""
     draft = dwg.draft
-    FX, FZ = a.proj.front_x, a.proj.front_z
+    FX, FZ = (a.proj.rear_x, a.proj.rear_z) if view == "rear" else (a.proj.front_x, a.proj.front_z)
     dx, dz = a.bb.min.X, a.bb.min.Z
     tier = draft.font_size + 2 * draft.pad_around_text
     xw = FZ(dz) - _WITNESS_LIFT_MM
@@ -985,7 +990,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         xo = round(entry.value, 2)
         if xo * a.SCALE < 1.0:
             continue
-        name = f"dim_loc_front_x{round(xo * 100)}"
+        name = f"dim_loc_{view}_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h)
         x_mids_by_name.setdefault(name, []).append(entry.id)
         x_coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
@@ -1010,21 +1015,21 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off):
         dwg,
         ctx,
         tier,
-        a.fv_zones.below,
-        "front",
+        layout_frame(a).zones(view).below,
+        view,
         "below",
         "y",
         x_cands,
         features=x_feats,
         measurements=x_measurements,
         on_drop=lambda nm: _off_axis_drop(
-            dwg, "x", "front", ctx=ctx, measurement=x_measurements.get(nm, ())
+            dwg, "x", view, ctx=ctx, measurement=x_measurements.get(nm, ())
         ),
         order_key=lambda nm, _i: order_x.get(nm, _i),
     )
 
 
-def _locate_along_z(dwg, ctx, a: Analysis, off):
+def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
     """The "along" phase's height dim: a hole's height (Z) is visible to the RIGHT of both the
     side and the front view. Neither right strip is universally free, so try the natural strip
     first, then RELOCATE to the other view if a bore-callout leader sits in the natural
@@ -1032,10 +1037,15 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
     same-feature crossing — never drop a real dim (policy B, #133). Promoted (#638)."""
     draft = dwg.draft
     SX, SZ = a.proj.side_x, a.proj.side_z
-    FX, FZ = a.proj.front_x, a.proj.front_z
+    FX, FZ = (
+        (a.proj.rear_x, a.proj.rear_z)
+        if front_view == "rear"
+        else (a.proj.front_x, a.proj.front_z)
+    )
     dz = a.bb.min.Z
     tier = draft.font_size + 2 * draft.pad_around_text
-    zr, zrf = SX(a.bb.max.Y), FX(a.bb.max.X)
+    zr = SX(a.bb.max.Y)
+    zrf = FX(a.bb.min.X if front_view == "rear" else a.bb.max.X)
     z_locs: dict = {}  # z-offset -> contributing hole locations (for provenance)
     z_mids: dict = {}
     z_coverage: dict = {}
@@ -1075,8 +1085,16 @@ def _locate_along_z(dwg, ctx, a: Analysis, off):
             return {f"dim_loc_{view}_z{round(_zo * 100)}": tuple(z_mids[_zo])}
 
         side_cand = (a.sv_zones.right, "side", (zr, SZ(dz), 0), (zr, SZ(hz), 0), zr)
-        front_cand = (a.fv_zones.right, "front", (zrf, FZ(dz), 0), (zrf, FZ(hz), 0), zrf)
-        order = (side_cand, front_cand) if h.axis == "x" else (front_cand, side_cand)
+        front_cand = (
+            layout_frame(a).zones(front_view).right,
+            front_view,
+            (zrf, FZ(dz), 0),
+            (zrf, FZ(hz), 0),
+            zrf,
+        )
+        order = [side_cand, front_cand] if h.axis == "x" else [front_cand, side_cand]
+        if a.planned_views is not None:
+            order = [candidate for candidate in order if candidate[1] in a.planned_views]
         primary, *alternates = order
         strip, view, p_lo, p_hi, edge = primary
         primary_cand = _zc(view, p_lo, p_hi, edge)
@@ -1239,8 +1257,11 @@ def _locate_off_axis_holes(dwg, ctx, a: Analysis, *, which, plan):
     if which == "across":
         _locate_across(dwg, ctx, a, off)
         return
-    _locate_along_planar(dwg, ctx, a, off)
-    _locate_along_z(dwg, ctx, a, off)
+    for view in ("front", "rear"):
+        selected = [h for h in off if (h.view == "rear") == (view == "rear")]
+        if selected:
+            _locate_along_planar(dwg, ctx, a, selected, view=view)
+            _locate_along_z(dwg, ctx, a, selected, front_view=view)
 
 
 def _add_furniture(
@@ -2516,8 +2537,8 @@ def _place_front_callouts(
 
     left = place_strip_candidates(
         dwg,
-        a.fv_zones.below,
-        "front",
+        layout_frame(a).zones(view).below,
+        view,
         "y",
         cands,
         min_gap,
@@ -3221,7 +3242,7 @@ def _annotate_holes(
     furnished: set[int] = set()
 
     for view, view_groups in by_view.items():
-        to_page = view_of_axis[{"plan": "z", "front": "y", "side": "x"}[view]][1]
+        to_page = partial(layout_frame(a).project, view)
         specs = list(view_groups)  # (locs, dia, callout, feat), from the IR groups
         # No fixed cap (#36): every spec is attempted; the per-view placement
         # bounds below (front-view shaft rows, plan/side strip Y-solver) are the
@@ -3230,7 +3251,7 @@ def _annotate_holes(
         # features win the available room.
         specs.sort(key=lambda s: s[1], reverse=True)
 
-        if view == "front":
+        if view in {"front", "rear"}:
             _place_front_callouts(
                 dwg,
                 a,

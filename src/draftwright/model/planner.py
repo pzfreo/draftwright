@@ -414,6 +414,12 @@ def _group_view(feature: Feature, planned_views=None) -> str | None:
     preferred = _preferred_group_view(feature)
     if planned_views is None or preferred in set(planned_views):
         return preferred
+    if (
+        isinstance(feature, HoleFeature | PatternFeature)
+        and feature.frame.axis == "y"
+        and "rear" in planned_views
+    ):
+        return "rear"
     if feature.kind == "envelope":
         return views_showing("x", planned_views, horizontal=True)
     return None
@@ -1256,6 +1262,7 @@ def _group_placement(feature: Feature, dims: list[PlannedDimension], planned_vie
             "plan": {"left", "right"},
             "side": {"left", "right"},
             "front": {"below"},
+            "rear": {"below"},
         }.get(selected_view or "", set())
         if (
             not isinstance(feature, HoleFeature | PatternFeature)
@@ -1423,6 +1430,8 @@ def _parameter_view_preferences(feature: Feature, pd: PlannedDimension) -> tuple
     role = pd.param.role
     kind = feature.kind
     axis = feature.frame.axis
+    if isinstance(feature, HoleFeature | PatternFeature) and axis == "y":
+        return ("front", "rear")
     if kind == "envelope":
         if role == "width":
             return ("plan", "front")
@@ -1602,7 +1611,7 @@ def _uncovered_location_requirements(
             continue
         parameters: tuple[str, ...]
         if isinstance(feature, HoleFeature | PatternFeature):
-            view = _END_ON[feature.frame.axis]
+            view = _group_view(feature, planned_views) or _END_ON[feature.frame.axis]
             bbox: Any = model.bbox
             datum = (float(bbox.min.X), float(bbox.min.Y), float(bbox.min.Z))
             parameters = tuple(

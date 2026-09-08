@@ -53,6 +53,7 @@ from draftwright._geometry import (
 )
 from draftwright.compose import (
     StripDepths,
+    _build_rear_zones,
     _build_zones,
     _est_hole_table_sizes,
     _est_planned_bore_callout_width,
@@ -132,15 +133,18 @@ def _apply_principal_view_pins(
         "plan": (geometry.PV_X, geometry.PV_Y),
         "side": (geometry.SV_X, geometry.SV_Y),
     }
+    if "rear" in planned:
+        centres["rear"] = (geometry.RV_X, geometry.RV_Y)
     cx, cy, cz = centre
     projected_centre = {
         "front": (cx * scale, cz * scale),
         "plan": (cx * scale, cy * scale),
         "side": (cy * scale, cz * scale),
+        "rear": (-cx * scale, cz * scale),
     }
     translations = []
     for pin in constraints.pins:
-        if pin.view not in centres:
+        if pin.view not in projected_centre:
             where = f" at {pin.source}" if pin.source is not None else ""
             raise ValueError(
                 f"whole-view pin{where} targets {pin.view!r}; this slice can anchor principal "
@@ -168,6 +172,9 @@ def _apply_principal_view_pins(
     geometry.PV_Y += dy
     geometry.SV_X += dx
     geometry.SV_Y += dy
+    if "rear" in planned:
+        geometry.RV_X += dx
+        geometry.RV_Y += dy
     geometry.sv_geometry_right += dx
     geometry.sv_right += dx
     geometry.sv_right_wall += dx
@@ -179,6 +186,8 @@ def _apply_principal_view_pins(
         "plan": (geometry.PV_X, geometry.PV_Y, geometry.fv_hw, geometry.pv_hh),
         "side": (geometry.SV_X, geometry.SV_Y, geometry.sv_hw, geometry.fv_hh),
     }
+    if "rear" in planned:
+        extents["rear"] = (geometry.RV_X, geometry.RV_Y, geometry.fv_hw, geometry.fv_hh)
     page_w, page_h = page
     for name in planned:
         x, y, hw, hh = extents[name]
@@ -1293,6 +1302,9 @@ def _analyse(
         arrangement=ARRANGEMENT,
         planned_views=_views,
         planned_iso=_include_iso,
+        RV_X=_g.RV_X,
+        RV_Y=_g.RV_Y,
+        rv_zones=_build_rear_zones(_g, margin, PAGE_H),
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
@@ -1354,6 +1366,8 @@ def _analyse(
             sv_y=SV_Y,
             pv_x=PV_X,
             pv_y=PV_Y,
+            rv_x=_g.RV_X,
+            rv_y=_g.RV_Y,
             cx=cx,
             cy=cy,
             cz=cz,

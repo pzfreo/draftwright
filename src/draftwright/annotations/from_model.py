@@ -1188,7 +1188,7 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
         hole = feat.member if isinstance(feat, PatternFeature) else feat
         dia = hole.diameter or 0.0
         size = max(2.5, dia * dwg.scale + 2.0)
-        view = _END_ON.get(feat.frame.axis, "plan")
+        view = g.view or _END_ON.get(feat.frame.axis, "plan")
         members = feat.members or (g.anchor,)
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)

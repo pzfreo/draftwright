@@ -132,6 +132,7 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     ViewRelation,
     ViewSpec,
+    third_angle_view_names,
     validate_projection,
 )
 
@@ -1963,6 +1964,7 @@ class Sheet:
             "front": "principal",
             "plan": "principal",
             "side": "principal",
+            "rear": "principal",
             "iso": "pictorial",
         }
         if name not in kinds:
@@ -2549,9 +2551,16 @@ class Sheet:
                 "views; call auto_views() first"
             )
         if self._principal_view_source != "authored":
+            additions = tuple(
+                record["name"]
+                for record in self._added_principal_views
+                if record["kind"] == "principal"
+            )
+            if additions:
+                return tuple(dict.fromkeys((*third_angle_view_names(), *additions))), True
             return None, True
         names = tuple(record["name"] for record in self._principal_views)
-        principals = tuple(name for name in names if name in {"front", "plan", "side"})
+        principals = tuple(name for name in names if name in {"front", "plan", "side", "rear"})
         if not principals:
             source = (
                 self._principal_views[0]["source"]
@@ -2560,7 +2569,7 @@ class Sheet:
             )
             raise ValueError(
                 f"the authored view set from {source} has no principal orthographic view; "
-                "add view('front'), view('plan'), or view('side')"
+                "add view('front'), view('plan'), view('side'), or view('rear')"
             )
         return principals, "iso" in names
 

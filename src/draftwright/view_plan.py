@@ -93,7 +93,12 @@ _PRINCIPAL_PAGE_AXES = {
     "front": ("x", "z"),
     "plan": ("x", "y"),
     "side": ("y", "z"),
+    "rear": ("x", "z"),
 }
+
+# Supported vocabulary is larger than the automatic candidate set. Rear is an
+# authored choice even when visibility or coverage would benefit from it.
+_AUTOMATIC_PRINCIPALS = ("front", "plan", "side")
 
 
 @dataclass(frozen=True)
@@ -345,9 +350,18 @@ def third_angle_principals() -> tuple[ViewSpec, ...]:
     caller. What this function fixes is the SET and its page-axis mapping — the part that was
     previously a sentence in `choose_scale`'s docstring.
     """
+    return principal_specs(_AUTOMATIC_PRINCIPALS)
+
+
+def principal_specs(names: tuple[str, ...]) -> tuple[ViewSpec, ...]:
+    """Describe an explicit principal set without expanding automatic candidates."""
+    unknown = set(names) - _PRINCIPAL_PAGE_AXES.keys()
+    if unknown:
+        raise ValueError(f"unknown principal views: {sorted(unknown)}")
     return tuple(
         ViewSpec(name=name, kind="principal", page_axes=axes)
         for name, axes in _PRINCIPAL_PAGE_AXES.items()
+        if name in names
     )
 
 
@@ -357,7 +371,7 @@ def third_angle_view_names() -> tuple[str, ...]:
     One source for "which views a candidate contains", so a candidate generator and the resolver
     cannot disagree about the set while both claiming to describe the same drawing.
     """
-    return tuple(_PRINCIPAL_PAGE_AXES)
+    return _AUTOMATIC_PRINCIPALS
 
 
 def principal_placements(analysis) -> dict[str, ViewPlacement]:
@@ -370,11 +384,16 @@ def principal_placements(analysis) -> dict[str, ViewPlacement]:
     The stub was right and the coupling was wrong; a consumer that needs placements should ask
     for placements.
     """
-    return {
+    placements = {
         "front": ViewPlacement(analysis.FV_X, analysis.FV_Y, analysis.fv_hw, analysis.fv_hh),
         "plan": ViewPlacement(analysis.PV_X, analysis.PV_Y, analysis.fv_hw, analysis.pv_hh),
         "side": ViewPlacement(analysis.SV_X, analysis.SV_Y, analysis.sv_hw, analysis.fv_hh),
     }
+    if "rear" in (getattr(analysis, "planned_views", None) or ()):
+        placements["rear"] = ViewPlacement(
+            analysis.RV_X, analysis.RV_Y, analysis.fv_hw, analysis.fv_hh
+        )
+    return placements
 
 
 def resolve_from_analysis(analysis) -> ResolvedViewPlan:
@@ -399,7 +418,7 @@ def resolve_from_analysis(analysis) -> ResolvedViewPlan:
     principals = third_angle_principals()
     wanted = getattr(analysis, "planned_views", None)
     if wanted is not None:
-        principals = tuple(spec for spec in principals if spec.name in set(wanted))
+        principals = principal_specs(wanted)
         placements = {name: place for name, place in placements.items() if name in set(wanted)}
     constraints = getattr(analysis, "view_constraints", None)
     requested_by_name = {}
@@ -714,6 +733,7 @@ VIEW_AXES: dict[str, tuple[str, str]] = {
     "front": ("x", "z"),
     "plan": ("x", "y"),
     "side": ("y", "z"),
+    "rear": ("x", "z"),
 }
 
 #: Axis letter -> the principal views that can carry a requirement about it, preference
