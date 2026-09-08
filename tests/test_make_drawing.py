@@ -2598,6 +2598,7 @@ class TestComposeThenPackRepack:
             _named=named,
             _anno_view=views,
             iter_annotations=lambda: named.items(),
+            get_annotation=lambda n: named.get(n),
             view_of=lambda n: views.get(n),
             annotations_in_view=lambda v: ((n, o) for n, o in named.items() if views.get(n) == v),
         )
@@ -2754,7 +2755,8 @@ class TestComposeThenPackRepack:
 
     # --- out-of-bounds escalation trigger (#92) ---------------------------
 
-    def test_out_of_bounds_trigger(self):
+    @pytest.mark.parametrize("overflow", [(20, 20, 40, 120), (9.95, 20, 40, 40)])
+    def test_out_of_bounds_trigger(self, overflow):
         # The second repack trigger: a view-owned annotation past the drawable
         # (e.g. a ballooned plan view overflowing the page top) escalates even
         # without a cross-view overlap. Untagged overflow is ignored — a repack
@@ -2766,9 +2768,9 @@ class TestComposeThenPackRepack:
         a = SimpleNamespace(margin=10.0, PAGE_W=200.0, PAGE_H=100.0)
         inb = self._fake_dwg({"d": self._line((20, 20, 40, 40))}, {"d": "plan"})
         assert not _annotations_out_of_bounds(inb, a)
-        over = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "plan"})
+        over = self._fake_dwg({"d": self._line(overflow)}, {"d": "plan"})
         assert _annotations_out_of_bounds(over, a)
-        untagged = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "iso"})
+        untagged = self._fake_dwg({"d": self._line(overflow)}, {"d": "iso"})
         assert not _annotations_out_of_bounds(untagged, a)
 
     # --- disjoint block packing ------------------------------------------
@@ -5707,10 +5709,9 @@ class TestLintSummaryAndDrops:
         assert 0 < n_locy < 10
 
     @pytest.mark.timeout(120)
-    def test_location_gate_ignores_datum_edge_hole(self):
-        # #43 follow-up: a hole on the datum edge is never dimensioned (its dim is
-        # ~zero), so the gate must not anchor a cluster on it and drop a real
-        # neighbour. Box centred at origin -> datum corner at (-40, -30).
+    def test_short_location_does_not_displace_its_legible_neighbour(self):
+        # A nonzero 0.7 mm location is too short to draw; report it honestly without
+        # anchoring the spacing cluster on it and dropping its legible neighbour.
         from build123d import Box, Cylinder, Pos
 
         from draftwright import build_drawing
@@ -5725,7 +5726,11 @@ class TestLintSummaryAndDrops:
         x_spacing_drops = [
             i for i in dwg.lint() if i.code == "location_ref_dropped" and "X location" in i.message
         ]
-        assert x_spacing_drops == []
+        assert len(x_spacing_drops) == 1
+        issue = x_spacing_drops[0]
+        assert "less than 1 mm" in issue.message
+        assert issue.measurement_ids
+        assert all(abs(mid.feature.frame.origin[0] + 39.3) < 1e-6 for mid in issue.measurement_ids)
 
     @pytest.mark.timeout(120)
     def test_auto_annotate_clears_stale_build_issues(self):
@@ -10860,6 +10865,12 @@ class TestHoleTable:
             FV_Y=20.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
         pt = a.PV_Y + a.pv_hh
         bare_obstacle = self._Boxed((35.0, pt + 2.0, 65.0, pt + 12.0))
 
@@ -10898,7 +10909,7 @@ class TestHoleTable:
             PV_Y=50.0,
             fv_hw=20.0,
             pv_hh=10.0,
-            SV_X=95.0,
+            SV_X=110.0,
             sv_hw=10.0,
             margin=0.0,
             PAGE_H=180.0,
@@ -10906,12 +10917,19 @@ class TestHoleTable:
             FV_Y=0.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
         pt = a.PV_Y + a.pv_hh
         obstacle = self._Boxed((47.0, pt + 2.0, 53.0, pt + 80.0))
 
         import draftwright.annotations.balloons as balloons
         from draftwright._core import _balloon_halo, _balloon_radius
 
+        assert a.pv_zones.right.outer_limit - (a.PV_X + a.fv_hw) > _balloon_halo(3.0)
         real_assign = balloons._assign_balloon_bands
         assignment_kwargs = []
 
@@ -11023,6 +11041,12 @@ class TestHoleTable:
             FV_Y=30.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
 
         import draftwright.annotations.balloons as balloons
 
@@ -11074,6 +11098,12 @@ class TestHoleTable:
             FV_Y=30.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
         right_obstacle = self._Boxed((71.0, 45.0, 115.0, 55.0))
 
         import draftwright.annotations.balloons as balloons
@@ -11100,13 +11130,17 @@ class TestHoleTable:
         assert [m[0] for m in left_members] == ["A"]
         assert right_members == []
 
-    def test_table_and_balloons_keep_lint_clean(self):
+    @pytest.mark.parametrize("method", ["first", "third"])
+    def test_table_and_balloons_keep_lint_clean(self, method):
         # One covers_diameters entry per physical bore lets coverage lint verify the
         # table's visible QTY, and the balloons are furniture (is_centerline) so they do
         # not trip overlap lint.
-        dwg = build_drawing(_multi_hole_plate())
+        dwg = build_drawing(_multi_hole_plate(), projection=method)
         before = {i.code for i in dwg.lint()}
+        assert before == set()
+        assert dwg.scale == 1
         dwg.add_hole_table("plan")
+        assert len([n for n in dwg.annotations() if n.startswith("balloon_plan")]) == 3
         assert {i.code for i in dwg.lint()} == before
         assert dwg.get_annotation("hole_table_plan").covers_diameters == (16.0, 10.0, 10.0)
 

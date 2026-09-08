@@ -42,6 +42,7 @@ from draftwright._core import (
     _log,
     _parse_page,
     _Projector,
+    _shape_box2d,
     _tb_width,
 )
 from draftwright._geometry import _scale_world
@@ -151,24 +152,7 @@ def _validate_authored_view_layout(dwg: Drawing, constraints) -> None:
         raise ValueError(f"authored layout names absent view {name!r}")
 
     for relation in constraints.relations:
-        sb = bounds(relation.subject)
-        rb = bounds(relation.reference)
-        gap = relation.gap or 0.0
-        checks = {
-            "left_of": sb[2] + gap <= rb[0] + 1e-6,
-            "right_of": sb[0] + 1e-6 >= rb[2] + gap,
-            "above": sb[1] + 1e-6 >= rb[3] + gap,
-            "below": sb[3] + gap <= rb[1] + 1e-6,
-            "align_x": abs((sb[0] + sb[2]) - (rb[0] + rb[2])) <= 1e-6,
-            "align_y": abs((sb[1] + sb[3]) - (rb[1] + rb[3])) <= 1e-6,
-        }
-        if not checks[relation.relation]:
-            where = f" at {relation.source}" if relation.source is not None else ""
-            raise ValueError(
-                f"authored view constraint{where} is infeasible: {relation.subject!r} "
-                f"must be {relation.relation} {relation.reference!r}"
-                + (f" with gap {gap:g} mm" if relation.gap is not None else "")
-            )
+        relation.validate(bounds(relation.subject), bounds(relation.reference))
 
     for pin in constraints.pins:
         if pin.view not in dwg.views:
@@ -311,7 +295,7 @@ def _inflate_box(box, clearance):
     )
 
 
-def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
+def _annotations_out_of_bounds(dwg, a, tol: float = 0.0) -> bool:
     """True when any view-owned annotation's footprint extends past the drawable
     area — the second repack trigger besides cross-view overlap.  A ballooned
     plan view can overflow the page top (the balloon ring) without crossing
@@ -345,18 +329,23 @@ def _measure_blocks(dwg, a) -> dict:
 
     Each view's four band depths are how far its annotations extend beyond its
     geometry box, **measured** from what the annotation passes produced — not
-    estimated. Every annotation is attributed to the nearest view (by its
-    label/box centre), and the band depth on a side is the furthest that view's
+    estimated. Every annotation is attributed to its recorded owning view,
+    and the band depth on a side is the furthest that view's
     annotations reach past the geometry edge there. Returns ``{view_name:
     ViewBlock}`` whose bands the packer can place disjoint, no ``_est_*`` needed.
     """
     geom = _view_geom(a)
     ext: dict = {v: None for v in geom}
     clearance = _annotation_clearance(dwg)
-    for _name, v, bb, label in _attribute_annotations(dwg, a):
+    for name, v, bb, label in _attribute_annotations(dwg, a):
         # A label's measured footprint includes the same external text clearance used by the
         # repack trigger.  Otherwise repack would notice the shortfall and then reproduce it.
         bb = _inflate_box(bb, clearance if label else 0.0)
+        # Outward arrows and extension lines also need paper. The overflow trigger reads
+        # full ink; measuring only labels could stall a repack with the arrows still off-page.
+        ink = _shape_box2d(dwg.get_annotation(name))
+        if ink is not None:
+            bb = (min(bb[0], ink[0]), min(bb[1], ink[1]), max(bb[2], ink[2]), max(bb[3], ink[3]))
         e = ext[v]
         ext[v] = (
             bb
@@ -936,6 +925,7 @@ def _repack(
             views=a.planned_views,
             include_iso=a.planned_iso,
             iso_scale_factor=a.planned_iso_scale,
+            convention=a.projection_convention,
         )
         _apply_principal_view_pins(
             geometry,
@@ -1015,7 +1005,15 @@ def _repack(
         for code, message in a.layout_advisories
         if code == "legibility_floor_breached" and s == a.SCALE
     ) + tuple(repack_advisories)
-    if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H and moved < _REPACK_TOL:
+    # Even a sub-millimetre correction matters when ink crosses the page boundary.
+    # Keep the ordinary convergence tolerance only for in-bounds content.
+    if (
+        s == a.SCALE
+        and pw == a.PAGE_W
+        and ph == a.PAGE_H
+        and moved < _REPACK_TOL
+        and (moved < 1e-6 or not _annotations_out_of_bounds(dwg, a))
+    ):
         dwg.registry.drop_issues({"page_fit_uncertain", "scale_fallback_applied"})
         for code, message in repack_advisories:
             dwg.registry.record_issue(_layout_advisory(code, message))
@@ -1876,8 +1874,8 @@ def build_drawing(
     unchanged from the one-pass builder.
 
     ``projection='third'`` adds the matching projection symbol. The default omits the
-    symbol but uses the same third-angle layout. ``projection='first'`` is refused until
-    first-angle layout is supported; it must not label a third-angle drawing as first-angle.
+    symbol but uses the same third-angle layout. ``projection='first'`` places plan below
+    front and side to its left, keeping the physical viewing directions unchanged.
     """
     validate_projection(projection)
     if scale_policy not in {"strict", "fallback", "permissive"}:

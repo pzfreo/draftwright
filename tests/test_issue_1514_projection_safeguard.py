@@ -1,4 +1,4 @@
-"""Unsupported first-angle intent must never become a third-angle drawing."""
+"""Unknown projection intent must be refused before loading drawing input."""
 
 from pathlib import Path
 
@@ -23,17 +23,12 @@ def asymmetric_plate():
 
 
 @pytest.mark.parametrize("entry", [build_drawing, make_drawing, Sheet, generate_sheet_script])
-def test_first_angle_refused_before_reading_input(entry, tmp_path):
+def test_unknown_projection_refused_before_reading_input(entry, tmp_path):
     missing = tmp_path / "missing.step"
     assert not missing.exists()
-    with pytest.raises(ValueError, match="first-angle.*not supported.*third"):
-        entry(str(missing), projection="first")
+    with pytest.raises(ValueError, match="unknown projection.*first.*third"):
+        entry(str(missing), projection="unknown")
     assert not list(tmp_path.iterdir())
-
-
-def test_asymmetric_plate_cannot_claim_first_angle(asymmetric_plate):
-    with pytest.raises(ValueError, match="first-angle.*not supported.*third"):
-        build_drawing(asymmetric_plate, projection="first", page="A3", scale=1)
 
 
 @pytest.mark.parametrize("projection", [None, "third"])
@@ -50,17 +45,19 @@ def test_supported_layout_retains_third_angle_relationships(asymmetric_plate, pr
 @pytest.mark.parametrize("script", [False, True])
 @pytest.mark.parametrize("source", ["missing.step", "missing_module:part"])
 def test_cli_refuses_before_loading_step_or_object(script, source, tmp_path):
-    args = [source, "--projection", "first", "--out", str(tmp_path / "drawing")]
+    args = [source, "--projection", "unknown", "--out", str(tmp_path / "drawing")]
     if script:
         args.append("--script")
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 2, result.output
-    assert "first-angle" in result.output and "not supported" in result.output
+    assert "unknown projection" in result.output
     assert "third" in result.output
     assert not list(tmp_path.iterdir())
 
 
-def test_edited_generated_script_cannot_claim_first_angle(asymmetric_plate, tmp_path, monkeypatch):
+def test_edited_generated_script_refuses_unknown_projection(
+    asymmetric_plate, tmp_path, monkeypatch
+):
     path = generate_sheet_script(
         asymmetric_plate,
         out=str(tmp_path / "drawing"),
@@ -69,9 +66,9 @@ def test_edited_generated_script_cannot_claim_first_angle(asymmetric_plate, tmp_
     )
     source = Path(path).read_text()
     assert source.count("projection='third'") == 1
-    edited = source.replace("projection='third'", "projection='first'")
+    edited = source.replace("projection='third'", "projection='unknown'")
     exports = []
     monkeypatch.setattr(Drawing, "export", lambda *a, **kw: exports.append(True))
-    with pytest.raises(ValueError, match="first-angle.*not supported.*third"):
+    with pytest.raises(ValueError, match="unknown projection.*first.*third"):
         exec(compile(edited, path, "exec"), {"supplied_part": asymmetric_plate})
     assert not exports

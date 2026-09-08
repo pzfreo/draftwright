@@ -33,12 +33,9 @@ from typing import Any
 
 
 def validate_projection(projection: str | None) -> None:
-    """Refuse first-angle intent until the layout supports its convention (#1515)."""
-    if projection == "first":
-        raise ValueError(
-            "first-angle layout is not supported yet; use projection='third' "
-            "for supported third-angle output"
-        )
+    """Validate the supported convention names before loading drawing input."""
+    if projection not in (None, "", "first", "third"):
+        raise ValueError(f"unknown projection {projection!r}; expected 'first' or 'third'")
 
 
 @dataclass(frozen=True)
@@ -196,6 +193,26 @@ class ViewRelation:
                 f"view relation gap must be finite and non-negative, got {self.gap!r}"
             )
 
+    def validate(self, subject_bounds, reference_bounds) -> None:
+        """Refuse a resolved pair that contradicts this authored relation."""
+        sb, rb = subject_bounds, reference_bounds
+        gap = self.gap or 0.0
+        checks = {
+            "left_of": sb[2] + gap <= rb[0] + 1e-6,
+            "right_of": sb[0] + 1e-6 >= rb[2] + gap,
+            "above": sb[1] + 1e-6 >= rb[3] + gap,
+            "below": sb[3] + gap <= rb[1] + 1e-6,
+            "align_x": abs((sb[0] + sb[2]) - (rb[0] + rb[2])) <= 1e-6,
+            "align_y": abs((sb[1] + sb[3]) - (rb[1] + rb[3])) <= 1e-6,
+        }
+        if not checks[self.relation]:
+            where = f" at {self.source}" if self.source is not None else ""
+            raise ValueError(
+                f"authored view constraint{where} is infeasible: {self.subject!r} "
+                f"must be {self.relation} {self.reference!r}"
+                + (f" with gap {gap:g} mm" if self.gap is not None else "")
+            )
+
 
 @dataclass(frozen=True)
 class ViewPin:
@@ -301,6 +318,7 @@ class ResolvedViewPlan:
     placements: Mapping[str, ViewPlacement]
     scale: float
     page: tuple[float, float]
+    convention: str = "third"
 
     def __post_init__(self) -> None:
         names = [spec.name for spec in self.specs]
@@ -417,6 +435,7 @@ def resolve_from_analysis(analysis) -> ResolvedViewPlan:
         placements=placements,
         scale=analysis.SCALE,
         page=(analysis.PAGE_W, analysis.PAGE_H),
+        convention=analysis.projection_convention,
     )
 
 
@@ -566,6 +585,7 @@ class LayoutCandidate:
     #: and title block to the right. Named rather than assumed so a second one can be proposed
     #: without the first becoming a special case.
     arrangement: str = "columns"
+    convention: str = "third"
 
     def __post_init__(self) -> None:
         if self.arrangement not in ARRANGEMENTS:

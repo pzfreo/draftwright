@@ -6,13 +6,24 @@ with an underscore.
 
 ## Projection convention
 
-Drawings currently use third-angle layout. `Sheet(part, projection="third")` adds its
-matching projection symbol; omitting `projection` keeps that layout without a symbol.
-`projection="first"` is refused before building or generating a script because first-angle
-layout is not yet supported. This is a safeguard against a misleading drawing, not
-first-angle support. The same restriction applies to `build_drawing` and the CLI's
-`--projection first`. Full convention-aware layout is tracked in
-[#1515](https://github.com/pzfreo/draftwright/issues/1515).
+Use `Sheet(part, projection="first")` or `build_drawing(part, projection="first")`
+for first-angle layout and its matching projection symbol. The CLI equivalent is
+`--projection first`. Explicit `"third"` selects third-angle layout and its symbol;
+omitting `projection` keeps third-angle layout without a symbol.
+
+View names retain their physical viewing directions in the working part frame. Changing
+convention changes sheet relationships, not which side of the part a name shows:
+
+| View | Viewed from | Page directions | Third-angle position | First-angle position |
+|---|---|---|---|---|
+| `front` | Negative Y | X right, Z up | Reference | Reference |
+| `plan` | Positive Z | X right, Y up | Above front | Below front |
+| `side` | Positive X | Y right, Z up | Right of front | Left of front |
+
+The resolved convention is available as `drawing.view_plan.convention`. Generated scripts
+retain the requested convention. Annotation footprints, scale/page selection and measured
+repacking use the same convention. An authored relation contradicting the principal layout
+fails before projection; a whole-view pin must preserve the convention's relationships.
 
 ## Grooves on coaxial bodies
 

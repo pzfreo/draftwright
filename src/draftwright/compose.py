@@ -148,7 +148,7 @@ def _est_pv_above_depth(
     if not distinct:
         return 0.0
     tier = font_size + 2 * pad_around_text
-    return (len(distinct) + 1) * tier  # +1 tier: pitch dim / rounding headroom
+    return (len(distinct) + 1) * tier
 
 
 def _est_plan_halo(font_size: float = _FONT_SIZE) -> float:
@@ -369,8 +369,9 @@ class StripDepths:
     pv_bottom: float = 0.0
     sv_top: float = 0.0
     sv_bottom: float = 0.0
-    sv_right: float = 0.0  # band outside the rightmost side view
+    sv_right: float = 0.0  # band to the right of the side view
     angular: tuple[AngularReservation, ...] = ()
+    pv_location_top: float = 0.0  # complete ladder depth for a facing plan/front corridor
 
 
 def _measure_strips(
@@ -666,6 +667,10 @@ def _compose_anno_boxes(
     above = _est_pv_above_depth(model, font_size, pad_around_text)
     if above > 0:
         boxes.append(AnnoBox("above", above))  # tiered X-location dims above PV (#121)
+        # The same tier inventory, with initial clearance and inter-tier spacing,
+        # provides the complete requirement for a bounded facing corridor.
+        full_depth = _STRIP_GAP + above * (1 + _STRIP_SPACING / (font_size + 2 * pad_around_text))
+        boxes.append(AnnoBox("plan_location_above", full_depth))
     if _will_balloon(model):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
@@ -685,6 +690,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
         right=deepest("right"),
         left=max(_DIM_PAD, deepest("left")),
         top=deepest("above"),
+        pv_location_top=deepest("plan_location_above"),
         pv_halo=deepest("plan_halo"),
         fv_top=deepest("front_above"),
         fv_bottom=deepest("front_below"),
@@ -716,6 +722,7 @@ def _fits(
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    convention: str = "third",
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
 
@@ -743,6 +750,7 @@ def _fits(
         views=views,
         include_iso=include_iso,
         iso_scale_factor=iso_scale_factor,
+        convention=convention,
     )
     return bool(g.fits if pack_iso_2d else g.auto_fits)
 
@@ -763,6 +771,7 @@ def _bisect_fit_scale(
     margin=_MARGIN,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    convention: str = "third",
 ):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
     the layout is monotone in scale (a smaller scale never fits worse). Used only as the
@@ -790,6 +799,7 @@ def _bisect_fit_scale(
             margin=margin,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
+            convention=convention,
         ):
             lo = mid
         else:
@@ -813,6 +823,7 @@ def choose_scale(
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    convention: str = "third",
     advisories: list[tuple[str, str]] | None = None,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
@@ -858,6 +869,7 @@ def choose_scale(
             margin=margin,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
+            convention=convention,
         ):
             if advisories is not None:
                 advisories.append(
@@ -916,6 +928,7 @@ def choose_scale(
             views=views,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
+            convention=convention,
         )
 
     def _candidate(cand, arrangement):
@@ -928,6 +941,7 @@ def choose_scale(
             page=(cand[1], cand[2]),
             title_block_width=cand[3],
             arrangement=arrangement,
+            convention=convention,
         )
 
     rejected: list = []
@@ -997,6 +1011,7 @@ def choose_scale(
             margin=margin,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
+            convention=convention,
         )
         if s is not None:
             if advisories is not None:
@@ -1148,7 +1163,7 @@ def _compose_view_blocks(
     pv_below = _est_pv_below_depth()
     # Top band above PV. When the plan view is ballooned, the ring sits beyond
     # the tiered X-location dims, so reserve their real depth (strip_top) plus a
-    # balloon row. When not ballooned, keep the historic DIM_PAD.
+    # balloon row. Outer-facing strips retain this seed and grow by measured repacking.
     pv_top = (max(DIM_PAD, strip_top) + halo) if halo > 0 else DIM_PAD
     if strips is not None:
         pv_top = max(pv_top, strips.pv_authored_top)
@@ -1216,6 +1231,7 @@ def _layout_geometry(
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    convention: str = "third",
 ):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -1288,6 +1304,32 @@ def _layout_geometry(
     col_left = max((b.left for b in _present), default=0.0)
     col_right = max((b.right for b in _present), default=0.0)
 
+    if convention not in {"first", "third"}:
+        raise ValueError(f"unknown projection convention {convention!r}")
+    first_angle = convention == "first"
+    # Plan's upper strip is bounded by front in this arrangement. Missing location
+    # candidates cannot grow measured ink, so reserve their complete ladder here.
+    if first_angle and has_front and has_plan and strips is not None:
+        pv = replace(pv, top=max(pv.top, strips.pv_location_top))
+    # Relative projection origins come from the convention and the facing annotation
+    # bands. Pack these complete blocks before building geometry; never move rendered views.
+    relative_plan_y = -(fv.hh + fv.bottom + pv.top + pv.hh)
+    relative_side_x = -(fv.hw + col_left + sv.right + sv.hw)
+    first_origins = {
+        "front": (0.0, 0.0),
+        "plan": (0.0, relative_plan_y if has_front else 0.0),
+        "side": (relative_side_x if has_column else 0.0, 0.0),
+    }
+    first_boxes = [
+        block.footprint(*first_origins[name])
+        for name, block, present in (
+            ("front", fv, has_front),
+            ("plan", pv, has_plan),
+            ("side", sv, has_side),
+        )
+        if present
+    ]
+
     # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). Estimated and
     # measured paths now use the same block footprint semantics: if the plan
     # view carries a bottom halo, that band is part of the stacked block layout
@@ -1309,6 +1351,8 @@ def _layout_geometry(
         column_h = 0.0
     side_h = (sv.bottom + 2 * sv.hh + sv.top) if has_side else 0.0
     total_h = 2 * margin + max(column_h, side_h)
+    if first_angle:
+        total_h = 2 * margin + max(b[3] for b in first_boxes) - min(b[1] for b in first_boxes)
     y_offset = max(0.0, (page_h - total_h) / 2)
 
     section_count = int(section)
@@ -1325,6 +1369,13 @@ def _layout_geometry(
         + (y_size * scale if has_side else 0.0)
         + max(2 * DIM_PAD, (sv.right + DIM_PAD) if has_side else 0.0, section_right_band)
     )
+    if first_angle:
+        ortho_row_w = (
+            max(b[2] for b in first_boxes)
+            - min(b[0] for b in first_boxes)
+            + DIM_PAD
+            + section_count * (10.0 + 2 * section_hw + DIM_PAD)
+        )
     iso_exact = iso_scale_factor is not None
     iso_factor = iso_scale_factor if iso_scale_factor is not None else 1.0
     iso_natural = (
@@ -1396,6 +1447,12 @@ def _layout_geometry(
     # estimator path (fv.right == pv.right == col_right, sv.left == 0).
     SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
+    if first_angle:
+        origin_x = margin + x_offset - min(b[0] for b in first_boxes)
+        origin_y = margin + y_offset - min(b[1] for b in first_boxes)
+        FV_X, FV_Y = origin_x, origin_y
+        PV_X, PV_Y = origin_x, origin_y + first_origins["plan"][1]
+        SV_X, SV_Y = origin_x + first_origins["side"][0], origin_y
     # Keep the side geometry edge separate from the packed outer footprint.  The
     # right strip starts at the former and consumes the reserved ``sv.right`` band;
     # anchoring it at the latter would move the strip out again on every measured
@@ -1404,9 +1461,14 @@ def _layout_geometry(
     sv_right = sv_geometry_right + sv.right
     SECTION_X = SV_X + sv.hw + sv.right + 10.0 + section_hw
     SECTION_Y = FV_Y
+    if first_angle:
+        SECTION_X = origin_x + max(b[2] for b in first_boxes) + 10.0 + section_hw
     sv_right_wall = (
         (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
     )
+    outer_right_wall = sv_right_wall
+    if first_angle and has_column:
+        sv_right_wall = FV_X - fv.hw - col_left
 
     drawable = (margin, margin, page_w - margin, page_h - margin)
 
@@ -1548,6 +1610,14 @@ def _layout_geometry(
     )
 
     return SimpleNamespace(
+        convention=convention,
+        planned_views=tuple(
+            name
+            for name, present in (("front", has_front), ("plan", has_plan), ("side", has_side))
+            if present
+        ),
+        outer_right_wall=outer_right_wall,
+        front_plan_wall=FV_Y - fv.hh - fv.bottom,
         x_offset=x_offset,
         fv_hw=fv_hw,
         fv_hh=fv_hh,
@@ -1609,6 +1679,33 @@ def _build_zones(g, margin, page_h):
     sv_top_edge = SV_Y + fv_hh  # side view has the same Z height as front
     # Outer limit for fv/pv right strips: must not enter the side view.
     sv_left_edge = SV_X - sv_hw  # = fv_right_edge + gap_fv_sv
+
+    if getattr(g, "convention", "third") == "first":
+        has_front = "front" in g.planned_views
+        has_plan = "plan" in g.planned_views
+        has_side = "side" in g.planned_views
+        column_left_wall = g.sv_right_wall if has_side else margin
+        fv_zones = ViewZones(
+            right=Strip(fv_right_edge, g.outer_right_wall, direction=1),
+            left=Strip(fv_left_edge, column_left_wall, direction=-1),
+            above=Strip(fv_top_edge, page_h - margin, direction=1),
+            below=Strip(fv_bottom_edge, g.front_plan_wall if has_plan else margin, direction=-1),
+        )
+        pv_zones = ViewZones(
+            right=Strip(pv_right_edge, g.outer_right_wall, direction=1),
+            left=Strip(pv_left_edge, column_left_wall, direction=-1),
+            above=Strip(
+                pv_top_edge, g.front_plan_wall if has_front else page_h - margin, direction=1
+            ),
+            below=Strip(pv_bottom_edge, margin, direction=-1),
+        )
+        sv_zones = ViewZones(
+            right=Strip(SV_X + sv_hw, g.sv_right_wall, direction=1),
+            left=None,
+            above=Strip(sv_top_edge, page_h - margin, direction=1),
+            below=Strip(SV_Y - fv_hh, margin, direction=-1),
+        )
+        return fv_zones, pv_zones, sv_zones
 
     fv_zones = ViewZones(
         right=Strip(fv_right_edge, sv_left_edge, direction=1),

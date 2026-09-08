@@ -871,6 +871,28 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             parameter = f"{parameter}.{measured_axis}"
         return (feature, parameter, point)
 
+    def _discard_short_refs(refs, coordinate, datum, view):
+        # Nearness on paper is not coincidence with the physical datum. A required
+        # nonzero span that cannot be drawn must remain a recorded placement failure.
+        short = [
+            ref
+            for ref in refs
+            if 1e-6 < abs(ref[coordinate] - datum) and abs(ref[coordinate] - datum) * a.SCALE < 1.0
+        ]
+        if short:
+            axis = "X" if coordinate == 0 else "Y"
+            ctx.record_issue(
+                "warning",
+                "location_ref_dropped",
+                f"{len(short)} {axis} location dim(s) project to less than 1 mm (use a detail view)",
+                measurement=tuple(mid for ref in short for mid in ref[4]),
+                hole_requirements=tuple(
+                    (feature, parameter) for ref in short for feature, parameter, _point in ref[5]
+                ),
+            )
+            ctx.escalations.append(Escalation("location", view, None, "illegible"))
+        return [ref for ref in refs if ref not in short]
+
     # --- X locations: tier above the plan view ---
     PX, PY = a.proj.plan_x, a.proj.plan_y
     x_refs: list = []
@@ -902,6 +924,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     else [],
                 ]
             )
+    x_refs = _discard_short_refs(x_refs, 0, datum_x, "plan")
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
     _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
@@ -1025,6 +1048,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     else [],
                 ]
             )
+    y_refs = _discard_short_refs(y_refs, 1, datum_y, "side" if side_planned else "plan")
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
     _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:

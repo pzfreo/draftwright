@@ -126,8 +126,10 @@ def render_balloons(
     # Plan-view page edges; the reserved bands sit just outside them.
     pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
     pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
-    sv_left = a.SV_X - a.sv_hw
     margin, ph, pw = a.margin, a.PAGE_H, a.PAGE_W
+    zones = a.pv_zones
+    left_limit, right_limit = zones.left.outer_limit, zones.right.outer_limit
+    bottom_limit, top_limit = zones.below.outer_limit, zones.above.outer_limit
 
     # Stack the balloon ring *beyond* the annotations already placed around the
     # plan view, not on top of them (#121). Measure the REAL depth every placed
@@ -158,14 +160,20 @@ def render_balloons(
     # the full bbox, for overlap), never the out_of_bounds error.
     left_dim = min(left_dim, max(0.0, pl - perimeter_extent - margin))
     right_dim = min(right_dim, max(0.0, pw - margin - pr - perimeter_extent))
-    top_dim = min(top_dim, max(0.0, ph - margin - pt - perimeter_extent))
-    bot_dim = min(bot_dim, max(0.0, pb - perimeter_extent - margin))
+    top_dim = min(top_dim, max(0.0, top_limit - pt - perimeter_extent))
+    bot_dim = min(bot_dim, max(0.0, pb - perimeter_extent - bottom_limit))
 
     # A bottom band (below PV, beyond the overall-width dim) is usable only
     # when the FV↔PV gap has room for the width dim *and* a balloon row;
     # otherwise bottom-edge holes fall back to the nearest side/top band.
     bottom_line = pb - bot_dim - centre_offset
-    has_bottom = pb - (a.FV_Y + a.fv_hh) > bot_dim + perimeter_extent
+    has_bottom = pb - bottom_limit > bot_dim + perimeter_extent
+    has_top = top_limit - pt >= top_dim + perimeter_extent
+    # An occupied corridor cannot be made usable by pulling its ring back through
+    # the occupant. Route those members through another available band instead.
+    has_left = pl - left_limit >= left_dim + perimeter_extent
+    has_right = right_limit - pr >= right_dim + perimeter_extent
+    available = {"left": has_left, "right": has_right, "top": has_top, "bottom": has_bottom}
 
     # left/right balloons vary in Y at a fixed X just outside the part; top
     # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
@@ -173,21 +181,19 @@ def render_balloons(
     band_defs = {
         "left": ("y", pl - left_dim - centre_offset, margin + r, ph - margin - r),
         "right": ("y", pr + right_dim + centre_offset, margin + r, ph - margin - r),
-        "top": ("x", pt + top_dim + centre_offset, pl - standoff, sv_left - r),
-        "bottom": ("x", bottom_line, pl - standoff, sv_left - r),
+        "top": ("x", pt + top_dim + centre_offset, pl - standoff, right_limit - r),
+        "bottom": ("x", bottom_line, pl - standoff, right_limit - r),
     }
 
     top_segments = None
-    if perimeter:
+    if perimeter and has_top:
         # A single remote label must not push the whole top row beyond the
         # deepest occupant (#125/#901).  Probe lanes at obstacle boundaries,
         # carve their horizontal free spans, and take the nearest lane that can
         # carry a balanced share of the ring.  This is measured render geometry;
         # ordered placement across the resulting segments remains in layout.py.
         top_lo, top_hi = band_defs["top"][2:]
-        other_band_names = ["left", "right"]
-        if has_bottom:
-            other_band_names.append("bottom")
+        other_band_names = [name for name in ("left", "right", "bottom") if available[name]]
         other_capacities = [
             _strip_capacity(*band_defs[name][2:], gap) for name in other_band_names
         ]
@@ -195,7 +201,7 @@ def render_balloons(
         layout_member_count = required_count or len(specs)
         top_target = _top_lane_target(layout_member_count, other_capacities, usable_band_count)
         first_line = pt + centre_offset
-        last_line = ph - margin - r
+        last_line = top_limit - r
         candidates = {first_line}
         for x0, _y0, x1, y1 in obstacles:
             if x1 > top_lo and x0 < top_hi and y1 >= pt:
@@ -250,11 +256,13 @@ def render_balloons(
     choices_by_member = []
     for tag, j, hole in specs:
         cx, cy = pp(*hole.location)
-        choices = {
-            "left": abs(cx - band_defs["left"][1]),
-            "right": abs(band_defs["right"][1] - cx),
-            "top": abs(band_defs["top"][1] - cy),
-        }
+        choices = {}
+        if has_left:
+            choices["left"] = abs(cx - band_defs["left"][1])
+        if has_right:
+            choices["right"] = abs(band_defs["right"][1] - cx)
+        if has_top:
+            choices["top"] = abs(band_defs["top"][1] - cy)
         if has_bottom:
             choices["bottom"] = abs(cy - band_defs["bottom"][1])
         members.append((tag, j, hole, cx, cy))
@@ -279,7 +287,9 @@ def render_balloons(
     }
     capacities = {
         name: (
-            sum(
+            0
+            if not available[name]
+            else sum(
                 _strip_capacity(seg_lo, seg_hi, band_gaps[name]) for seg_lo, seg_hi in top_segments
             )
             if name == "top" and top_segments is not None

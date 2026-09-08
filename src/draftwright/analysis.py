@@ -71,7 +71,7 @@ from draftwright.recognition_frame import (
     require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
-from draftwright.view_plan import ViewConstraints, arrangement_of
+from draftwright.view_plan import ViewConstraints, arrangement_of, principal_placements
 
 _log = logging.getLogger(__name__)
 
@@ -159,7 +159,7 @@ def _apply_principal_view_pins(
         if max(abs(other_dx - dx), abs(other_dy - dy)) > 0.05:
             raise ValueError(
                 f"whole-view pins at {first.source} and {pin.source} contradict the fixed "
-                "third-angle relationships; they imply different group translations"
+                f"{geometry.convention}-angle relationships; they imply different group translations"
             )
 
     geometry.FV_X += dx
@@ -171,6 +171,7 @@ def _apply_principal_view_pins(
     geometry.sv_geometry_right += dx
     geometry.sv_right += dx
     geometry.sv_right_wall += dx
+    geometry.front_plan_wall += dy
     # Geometry bounds are the minimum pre-projection feasibility gate. Annotation bands use
     # the shifted anchors below and remain subject to the ordinary completeness/lint gates.
     extents = {
@@ -680,6 +681,7 @@ def _validate_explicit_scale(
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    convention: str = "third",
 ) -> None:
     """Enforce the two scale floors when the caller pinned an explicit *scale* (#489, #590 split
     of :func:`_analyse`). An explicit scale is the user's call — honour it, subject to:
@@ -719,6 +721,7 @@ def _validate_explicit_scale(
         views=views,
         include_iso=include_iso,
         iso_scale_factor=iso_scale_factor,
+        convention=convention,
     )
     # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
     # legible) but the requested scale is below the floor. A part illegible at every
@@ -772,6 +775,7 @@ def _analyse(
 
     Returns an :class:`Analysis`.
     """
+    convention = projection or "third"
     # The zone-grid ruler (#768) draws its ticks on the frame, so it implies one.
     frame = frame or zones
     # The content margin — raised by the sheet-frame band (#767) so scale/page selection and
@@ -1149,6 +1153,7 @@ def _analyse(
             views=_views,
             include_iso=_include_iso,
             iso_scale_factor=planned_iso_scale,
+            convention=convention,
         )
 
     scale_pick, strips_i, n_for_sizing = _converge_step_sizing(
@@ -1181,6 +1186,7 @@ def _analyse(
         views=_views,
         include_iso=_include_iso,
         iso_scale_factor=planned_iso_scale,
+        convention=convention,
     )
     DIM_PAD = _DIM_PAD
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
@@ -1215,6 +1221,7 @@ def _analyse(
         views=_views,
         include_iso=_include_iso,
         iso_scale_factor=planned_iso_scale,
+        convention=convention,
     )
     _apply_principal_view_pins(
         _g,
@@ -1225,6 +1232,13 @@ def _analyse(
         margin=margin,
         views=_views,
     )
+    if isinstance(_view_constraints, ViewConstraints):
+        places = principal_placements(_g)
+        for relation in _view_constraints.relations:
+            if relation.subject in _g.planned_views and relation.reference in _g.planned_views:
+                relation.validate(
+                    places[relation.subject].bounds, places[relation.reference].bounds
+                )
     fv_hw = _g.fv_hw
     fv_hh = _g.fv_hh
     pv_hh = _g.pv_hh
@@ -1366,6 +1380,7 @@ def _analyse(
         company=company,
         frame=frame,
         projection=projection,
+        projection_convention=convention,
         zones=zones,
         out=out,
         pmi_report=pmi_report,

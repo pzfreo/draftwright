@@ -257,9 +257,9 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     side_right = max(dwg.view_bounds(name)[2] for name in row_views)
     row_y0 = a.FV_Y - half_h - 10
     row_y1 = a.FV_Y + half_h + 6
-    iso_x0, iso_y0, _, _ = _iso_bbox(dwg)
+    iso_x0, iso_y0, _, iso_y1 = _iso_bbox(dwg)
     right_limit = a.PAGE_W - a.margin
-    if a.FV_Y + half_h + 6 > iso_y0 - 2:
+    if row_y0 < iso_y1 + 2 and row_y1 > iso_y0 - 2:
         right_limit = min(right_limit, iso_x0 - 4)
     # Carve the row into free segments and take the leftmost that FITS, rather than
     # starting after the rightmost obstacle (#1190). The old rule let one remote
