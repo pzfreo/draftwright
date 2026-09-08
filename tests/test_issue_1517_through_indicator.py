@@ -26,7 +26,7 @@ def test_public_through_declaration_preserves_serialized_override(indicator):
     assert restored.through_indicator == indicator
     assert restored.diameter == 6
     # Unrelated edits keep the authored content.
-    handle.note("REAM").tolerance(0.02)
+    handle.note("FINISH BORE").tolerance(0.02)
     assert sheet.features[0].through_indicator == indicator
 
 
