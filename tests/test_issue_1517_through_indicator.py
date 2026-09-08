@@ -134,9 +134,14 @@ def test_wording_changes_preserve_measurements_and_printed_credit(indicator, dec
 
 
 @pytest.mark.parametrize(
-    "second_indicator,expected_count", [("THRU", 1), ("", 2), ("THROUGH ALL", 2)]
+    "second_indicator,expected_count,deferred",
+    [("THRU", 1, True), ("THRU", 1, False), ("", 2, True), ("THROUGH ALL", 2, True)],
 )
-def test_matching_wording_groups_without_collapsing_owners(second_indicator, expected_count):
+def test_matching_wording_groups_without_collapsing_owners(
+    second_indicator, expected_count, deferred
+):
+    from contextlib import nullcontext
+
     from build123d import Cylinder, Pos
 
     from draftwright.linting.hole_coverage import _index_hole_evidence
@@ -204,17 +209,18 @@ def test_matching_wording_groups_without_collapsing_owners(second_indicator, exp
             )
         callout.covers_count = 2
         drawing.pin(name)
-        with drawing.deferred():
+        with drawing.deferred() if deferred else nullcontext():
             # An unrelated pending edit must wait until the outer batch ends.
             drawing.locate(model.features[0], pin=True)
             removed = drawing.drop(model.features[1])
             assert name in removed
             assert not drawing.annotations_of(model.features[1])
-            assert not [
-                a
-                for _, a in drawing.iter_annotations()
-                if getattr(a, "covers_diameters", ()) == (6,)
-            ]
+            if deferred:
+                assert not [
+                    a
+                    for _, a in drawing.iter_annotations()
+                    if getattr(a, "covers_diameters", ()) == (6,)
+                ]
         assert drawing.registry.pinned_names()
         assert not drawing.registry.is_pinned(name)
         survivor = [
