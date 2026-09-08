@@ -1649,6 +1649,99 @@ def angular_pattern_label(group: DimensionGroup) -> str | None:
     return f"{len(dimensions)}× {next(iter(labels))}"
 
 
+def _selected_chain_covers_extent(model, selected, axis) -> bool:
+    """Require adjoining approved measurements between both overall ends of one profile."""
+    axis_index = "xyz".index(axis)
+    intervals: dict[tuple[tuple[float, ...], object], list[tuple[float, float]]] = {}
+    step_profiles = set()
+    for feature, length in selected:
+        if feature.kind not in ("step", "groove") or feature.frame.axis != axis:
+            continue
+        frame = feature.frame
+        key = (
+            tuple(
+                round(float(value), 6) for i, value in enumerate(frame.origin) if i != axis_index
+            ),
+            feature.profile or feature.profile_group,
+        )
+        if feature.kind == "step":
+            if length.span is None:
+                continue
+            lo, hi = sorted(float(point[axis_index]) for point in length.span)
+            step_profiles.add(key)
+        else:
+            centre = float(frame.origin[axis_index])
+            lo, hi = centre - length.value / 2, centre + length.value / 2
+        intervals.setdefault(key, []).append((lo, hi))
+
+    # Emitted declarations round supports to 0.001 mm. Keep that numerical seam
+    # tolerance, but do not join different bodies or merely overlapping spans:
+    # 0..40 and 20..60 do not tell the reader the overall length.
+    tolerance = 1e-3 + 1e-9
+    bb = model.bbox
+    for key in step_profiles:
+        reachable = [float(tuple(bb.min)[axis_index])]
+        for lo, hi in sorted(intervals[key]):
+            if any(abs(lo - station) <= tolerance for station in reachable):
+                reachable.append(hi)
+        if any(
+            abs(station - float(tuple(bb.max)[axis_index])) <= tolerance for station in reachable
+        ):
+            return True
+    return False
+
+
+def _restore_uncovered_x_extent(model, groups):
+    """Settle X-width ownership after the complete selected chain is known, before sizing."""
+    if model.orientation != "x" or _selected_chain_covers_extent(
+        model,
+        [
+            (group.feature, dimension.param)
+            for group in groups
+            if group.feature.kind in ("step", "groove")
+            for dimension in group.dims
+            if not dimension.suppressed and dimension.param.kind == "length"
+        ],
+        "x",
+    ):
+        return groups
+    restored = []
+    widths = []
+    for group in groups:
+        dimensions = []
+        for dimension in group.dims:
+            if group.feature.kind == "envelope" and dimension.param.parameter_id == "width.length":
+                if dimension.reason == "X-turned (step-length chain conveys the length)":
+                    dimension = replace(dimension, suppressed=False, reason=None)
+                if not dimension.suppressed:
+                    widths.append((dimension.param, DimensionId(group.feature, "width.length")))
+            dimensions.append(dimension)
+        restored.append(replace(group, units=_addressable(group.feature, dimensions)))
+    result = []
+    for group in restored:
+        dimensions = []
+        for dimension in group.dims:
+            parameter = dimension.param
+            if (
+                group.feature.kind == "boss"
+                and parameter.parameter_id == "boss_height.length"
+                and _request_for(model, group.feature, parameter) is None
+                and _authored_for(model, group.feature, parameter) is None
+            ):
+                for extent, owner in widths:
+                    if _extent_can_convey(extent, parameter):
+                        dimension = replace(
+                            dimension,
+                            suppressed=True,
+                            reason=dimension.reason if dimension.suppressed else _CONSOLIDATED,
+                            conveyed_by=owner,
+                        )
+                        break
+            dimensions.append(dimension)
+        result.append(replace(group, units=_addressable(group.feature, dimensions)))
+    return result
+
+
 def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGroup]:
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
@@ -1715,18 +1808,25 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                 )
             )
         if dims:
-            selected_view, selected_side = _group_placement(feature, dims, planned_views)
             groups.append(
                 DimensionGroup(
                     feature=feature,
-                    # Preserve a total internal record while collecting every uncovered
-                    # identity below.  The exception prevents this preferred fallback from
-                    # crossing the planner boundary when it is not actually selected.
-                    view=selected_view or _preferred_group_view(feature),
+                    view=_preferred_group_view(feature),
                     units=_addressable(feature, dims),
-                    side=selected_side,
                 )
             )
+    groups = _restore_uncovered_x_extent(model, groups)
+    for index, group in enumerate(groups):
+        # Validate the final content: a consolidated height must not reject a
+        # supported end-on view requested for the remaining diameter.
+        selected_view, selected_side = _group_placement(
+            group.feature, list(group.dims), planned_views
+        )
+        groups[index] = replace(
+            group,
+            view=selected_view or _preferred_group_view(group.feature),
+            side=selected_side,
+        )
     if planned_views is not None:
         uncovered = _uncovered_group_requirements(model, groups, planned_views)
         uncovered.extend(_uncovered_location_requirements(model, planned_views))

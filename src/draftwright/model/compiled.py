@@ -79,6 +79,7 @@ from draftwright.model.planner import (
     _extent_can_convey,
     _is_zero_step_position,
     _request_for,
+    _selected_chain_covers_extent,
     angular_pattern_label,
     authored_location_axis_omitted,
     authored_location_omitted,
@@ -1056,49 +1057,16 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 def _step_chain_covers_extent(
     model: PartModel, groups: list[ApprovedGroup], axis: Literal["x", "z"]
 ) -> bool:
-    """Require adjoining approved measurements between both overall ends of one profile."""
-    axis_index = "xyz".index(axis)
-    intervals: dict[tuple[tuple[float, ...], object], list[tuple[float, float]]] = {}
-    step_profiles = set()
-    for group in groups:
-        if group.feature_kind not in ("step", "groove") or group.facts.frame.axis != axis:
-            continue
-        length = group.dim(kind="length")
-        if length is None:
-            continue
-        feature = resolve_feature(group.ref)
-        frame = group.facts.frame
-        key = (
-            tuple(
-                round(float(value), 6) for i, value in enumerate(frame.origin) if i != axis_index
-            ),
-            feature.profile or feature.profile_group,
-        )
-        if group.feature_kind == "step":
-            if length.span is None:
-                continue
-            lo, hi = sorted(float(point[axis_index]) for point in length.span)
-            step_profiles.add(key)
-        else:
-            centre = float(frame.origin[axis_index])
-            lo, hi = centre - length.value / 2, centre + length.value / 2
-        intervals.setdefault(key, []).append((lo, hi))
-
-    # Emitted declarations round supports to 0.001 mm. Keep that numerical seam
-    # tolerance, but do not join different bodies or merely overlapping spans:
-    # 0..40 and 20..60 do not tell the reader the overall length.
-    tolerance = 1e-3 + 1e-9
-    bb: Any = model.bbox
-    for key in step_profiles:
-        reachable = [float(tuple(bb.min)[axis_index])]
-        for lo, hi in sorted(intervals[key]):
-            if any(abs(lo - station) <= tolerance for station in reachable):
-                reachable.append(hi)
-        if any(
-            abs(station - float(tuple(bb.max)[axis_index])) <= tolerance for station in reachable
-        ):
-            return True
-    return False
+    return _selected_chain_covers_extent(
+        model,
+        [
+            (resolve_feature(group.ref), length)
+            for group in groups
+            if group.feature_kind in ("step", "groove")
+            and (length := group.dim(kind="length")) is not None
+        ],
+        axis,
+    )
 
 
 def _compile_overall_height(

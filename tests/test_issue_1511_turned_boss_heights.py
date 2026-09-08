@@ -8,6 +8,8 @@ from build123d import Align, Compound, Cylinder, Pos, Rot
 from draftwright import build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.model.compiled import compile_dimensions
+from draftwright.model.declare import _envelope_from_bbox
+from draftwright.model.planner import plan_dimensions
 from draftwright.model.ir import RequestedDimension
 from draftwright.sheet_emit import emit_sheet_script
 
@@ -285,3 +287,54 @@ def test_an_inactive_overall_contingency_cannot_own_a_boss_height():
     assert not any(
         row.parameter_id == "boss_height.length" and row.conveyed_by for row in plan.diagnostics
     )
+
+
+def test_partial_x_chain_and_full_length_boss_reserve_the_same_space_in_script(tmp_path):
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    shaft = Cylinder(18, 25, align=align) + Pos(0, 0, 25) * Cylinder(16, 25, align=align)
+    part = Rot(0, 90, 0) * Compound(children=[shaft, Pos(0, 0, -6) * Cylinder(6, 62, align=align)])
+    model = detect_part_model(part)
+    model = replace(model, features=(*model.features, _envelope_from_bbox(model.bbox)))
+    original = build_drawing(
+        part, model=model, page="A3", scale=1, scale_policy="strict", title="T", number="N"
+    )
+    plan = compile_dimensions(original.model())
+    assert len(plan.of_kind("step")) == 2
+    assert sum(group.dim(kind="length").value for group in plan.of_kind("step")) == 50
+    omissions = [row for row in plan.diagnostics if row.parameter_id == "boss_height.length"]
+    assert len(omissions) == 1 and omissions[0].conveyed_by.parameter == "width.length"
+    source = emit_sheet_script(
+        original.model(),
+        "part",
+        str(tmp_path / "partial-x"),
+        title="T",
+        number="N",
+        page="A3",
+        scale=1,
+        scale_policy="strict",
+        formats=("svg",),
+    )
+    namespace = {"part": part}
+    exec(source, namespace)
+    replay = namespace["drawing"]
+    assert set(replay.views) == set(original.views)
+    for view in original.views:
+        assert replay.view_bounds(view) == pytest.approx(original.view_bounds(view))
+    assert sorted(replay.annotations()) == sorted(original.annotations())
+    for name, mark in original.iter_annotations():
+        assert getattr(replay.get_annotation(name), "label", None) == getattr(mark, "label", None)
+    assert replay.lint_summary()["by_code"] == original.lint_summary()["by_code"]
+
+
+def test_consolidated_x_height_does_not_reject_a_supported_diameter_view():
+    model = detect_part_model(Rot(0, 90, 0) * Cylinder(15, 80))
+    boss = next(feature for feature in model.features if feature.kind == "boss")
+    model = replace(
+        model, requested_dimensions=(RequestedDimension(boss, "boss.diameter", view="side"),)
+    )
+    group = next(group for group in plan_dimensions(model) if group.feature == boss)
+    assert group.view == "side"
+    height = next(dimension for dimension in group.dims if dimension.param.kind == "length")
+    assert height.suppressed and height.conveyed_by.parameter == "width.length"
+    diameter = next(dimension for dimension in group.dims if dimension.param.kind == "diameter")
+    assert not diameter.suppressed
