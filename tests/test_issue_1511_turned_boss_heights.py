@@ -9,8 +9,8 @@ from draftwright import build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.declare import _envelope_from_bbox
-from draftwright.model.planner import plan_dimensions
 from draftwright.model.ir import RequestedDimension
+from draftwright.model.planner import plan_dimensions
 from draftwright.sheet_emit import emit_sheet_script
 
 
