@@ -382,6 +382,8 @@ def _measure_strips(
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
     bore_callout_width: float = 0.0,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
 ) -> StripDepths:
     """Compute annotation strip depths from composed annotation boxes (Pass 1 of #131).
 
@@ -397,6 +399,8 @@ def _measure_strips(
             font_size=font_size,
             arrow_length=arrow_length,
             pad_around_text=pad_around_text,
+            text_position=text_position,
+            text_orientation=text_orientation,
         )
     )
 
@@ -432,6 +436,8 @@ def _compose_anno_boxes(
     font_size: float = _FONT_SIZE,
     arrow_length: float = 2.7,
     pad_around_text: float = 2.0,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
 ) -> list[AnnoBox]:
     """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
 
@@ -490,6 +496,8 @@ def _compose_anno_boxes(
             extension_gap=draft.extension_gap,
             pad_around_text=pad_around_text,
             line_width=draft.line_width,
+            text_position=text_position,
+            text_orientation=text_orientation,
         )
         axes = {"plan": (0, 1), "front": (0, 2), "side": (1, 2)}[view]
         centre = tuple(model.bbox.center())

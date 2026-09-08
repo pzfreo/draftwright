@@ -135,6 +135,10 @@ def main(
         "--projection",
         help="Projection convention: 'first' or 'third' (default: third-angle, no symbol)",
     ),
+    text_position: str = typer.Option("inline", help="Dimension text position: inline or above"),
+    text_orientation: str = typer.Option(
+        "aligned", help="Dimension text reading direction: aligned or horizontal"
+    ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
     ),
@@ -246,6 +250,8 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
+                text_position=text_position,
+                text_orientation=text_orientation,
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
@@ -270,6 +276,8 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
+                text_position=text_position,
+                text_orientation=text_orientation,
                 pmi=pmi.value if pmi is not None else "off",
                 formats=tuple(formats),
                 inspect=not no_report,
@@ -299,6 +307,8 @@ def main(
         company=company,
         frame=frame,
         projection=projection or None,
+        text_position=text_position,
+        text_orientation=text_orientation,
         zones=zones,
     )
     visual_paths = _emit(dwg, formats)

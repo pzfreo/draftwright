@@ -25,6 +25,30 @@ retain the requested convention. Annotation footprints, scale/page selection and
 repacking use the same convention. An authored relation contradicting the principal layout
 fails before projection; a whole-view pin must preserve the convention's relationships.
 
+## Dimension text style
+
+Position and reading direction are independent drawing-wide settings:
+
+```python
+sheet = Sheet(part, text_position="above", text_orientation="horizontal")
+# Declare features and dimensions as usual, then build.
+drawing = sheet.build()
+```
+
+`text_position="inline"` (the default) leaves a gap for the value in the dimension
+line; `"above"` keeps the line continuous and offsets the full value and tolerance.
+For angular dimensions, above means outside the arc. `text_orientation="aligned"`
+(the default) follows the dimension line or arc tangent; `"horizontal"` keeps text
+horizontal on the sheet. An aligned vertical value reads from the right. Short
+spans use outside arrows while retaining their complete text.
+
+The same options are accepted by `build_drawing()`, `make_drawing()`,
+`emit_sheet_script()` and `generate_sheet_script()`. The CLI flags are
+`--text-position` and `--text-orientation`. Generated scripts retain these settings;
+SVG, PDF and DXF export the same resolved ink. Unsupported values raise `ValueError`.
+The choices affect rendering and its placement footprint, not feature measurements
+or tolerances. These are explicit rendering choices, not a claim of standards conformity.
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 from build123d import (
     Align,
+    ArrowHead,
     BoundBox,
     Compound,
     Edge,
@@ -172,6 +173,24 @@ def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
+
+
+def _dimension_draft(text_position="inline", text_orientation="aligned"):
+    """One fixed typography preset, with helper-owned validation of text style."""
+    return draft_preset(
+        font_size=_FONT_SIZE,
+        decimal_precision=1,
+        font_path=PLEX_MONO,
+        text_position=text_position,
+        text_orientation=text_orientation,
+    )
+
+
+@functools.lru_cache(maxsize=128)
+def _dimension_head_bounds(arrow_length, head_type):
+    """Measure each fixed-size arrow style once, before candidate evaluation."""
+    box = ArrowHead(arrow_length, head_type=head_type, mode=Mode.PRIVATE).bounding_box()
+    return box.min.X, box.min.Y, box.max.X, box.max.Y
 
 
 _TB_H = 35.0
@@ -1211,6 +1230,8 @@ class Analysis:
     # Projection-method symbol (#769): "third" / "first" (ISO 5456-2) or None (omit).
     projection: str | None = None
     projection_convention: str = "third"
+    text_position: str = "inline"
+    text_orientation: str = "aligned"
     # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
     zones: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so

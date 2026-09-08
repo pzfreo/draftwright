@@ -82,7 +82,7 @@ class AngularDimension(Compound):
         text = text.moved(
             Location((-(box.min.X + box.max.X) / 2, -(box.min.Y + box.max.Y) / 2, 0))
         )
-        centre = ink.point(radius, ink.middle)
+        centre = ink.label_centre(radius)
         text = text.moved(Location((*centre, 0), (0, 0, degrees(ink.text_angle))))
         super().__init__(children=[*arrows, extensions, text], label=ink.label)
         self._angular_points = (ink.witnesses[0], ink.vertex, ink.witnesses[1])
