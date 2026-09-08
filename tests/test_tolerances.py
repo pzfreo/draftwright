@@ -4,9 +4,9 @@ A caller attaches a ± / limit tolerance to a declared dimension (via the ``deco
 side-layer or the ``Sheet.tolerance()`` handle); it rides ``DimParameter.tolerance`` through
 the planner and renders on **both** the linear ``Dimension`` path (step length) and the
 ``Leader`` / ``HoleCallout`` ⌀ path — the latter via draftwright's own ``_tol_suffix`` baked
-into the label string, matching what ``Dimension(tolerance=…)`` formats (helpers has no
-``tolerance=`` on ``Leader``/``HoleCallout`` yet). Tolerances render at the sheet's decimal
-precision (1 dp today), so tests use tolerances that survive 1 dp.
+into the label string. The owned formatter treats sheet precision as a minimum and
+preserves the supplied tolerance magnitude. The separate helper-owned numeric linear
+formatter is tracked in build123d-drafting-helpers#187; it does not define this contract.
 """
 
 import pytest
