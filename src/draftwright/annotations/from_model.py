@@ -1769,7 +1769,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
                     pd.id for gp in feature_groups for pd in gp.dims if pd.kind == "diameter"
                 )
                 jobs.append((name, "front", vb, label, candidates, mids))
-                covered_by_name[name] = (dia,)
+                covered_by_name[name] = dia
             placed += place_machined_leader_jobs(
                 dwg,
                 a,
@@ -1778,9 +1778,13 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
                 drop_code="diameter_dropped",
                 ctx=ctx,
                 geom_clear=True,
-                joint=True,
-                covers_diameters_by_name=covered_by_name,
             )
+            # Internal concentric-circle leaders legitimately exit the outer
+            # silhouette, like bore callouts. Retain their diameter coverage.
+            for name, dia in covered_by_name.items():
+                ann = ctx.registry.named(name)
+                if ann is not None:
+                    ann.covers_diameters = (dia,)
     # #798: a ⌀ leader the row/column solve sent DIAGONALLY into the body — cutting
     # the silhouette, or an end feature whose diagonal merely grazes it — is re-routed
     # to the clear side (the margin the feature sits at). Auto-pass only: the finalize
@@ -2183,7 +2187,6 @@ def place_machined_leader_jobs(
     joint=False,
     expand_lanes=True,
     source_ids_by_name=None,
-    covers_diameters_by_name=None,
 ) -> int:
     """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
 
@@ -2193,7 +2196,6 @@ def place_machined_leader_jobs(
     """
 
     source_ids_by_name = source_ids_by_name or {}
-    covers_diameters_by_name = covers_diameters_by_name or {}
     late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
     feature_jobs = []
     for name, view, silhouette, label, raw_candidates, measurement in jobs:
@@ -2230,18 +2232,8 @@ def place_machined_leader_jobs(
                         feature,
                     )
 
-        def _build(
-            tip,
-            elbow,
-            _feature,
-            *,
-            _label=label,
-            _covers=tuple(covers_diameters_by_name.get(name, ())),
-        ):
-            leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
-            if _covers:
-                leader.covers_diameters = _covers
-            return leader
+        def _build(tip, elbow, _feature, *, _label=label):
+            return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
 
         label_width, label_height = _text_size(
             str(label),

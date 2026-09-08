@@ -444,6 +444,14 @@ def _compose_anno_boxes(
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
+    if any(
+        feature.kind in ("boss", "step") and feature.frame.axis == "y"
+        for feature in model.features
+    ):
+        # The end-on radial fan needs clearance alongside the overall-height slot.
+        # This is a minimum band; deeper ladder/bore reservations still win by max.
+        radial_reach = font_size + 6 * pad_around_text
+        boxes.append(AnnoBox("right", _est_right_strip_depth(0) + radial_reach))
     requests = (
         model.authored_dimensions
         if model.authored_dimensions is not None
