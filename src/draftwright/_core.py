@@ -988,14 +988,14 @@ class DetailRequest:
 class _Projector:
     """Model → page coordinate projection for the orthographic views.
 
-    Each in-plane view axis projects as ``origin + (value - centroid) * scale``.
+    Each in-plane view axis projects from its centroid and page origin. Rear
+    reverses model X while keeping Z up, matching its camera from positive Y.
     Built once in :func:`_analyse` and hung off the analysis namespace as
     ``a.proj`` so the annotation passes share one projector instead of each
     re-deriving the ``FX``/``FZ``/``SX``/``SZ``/``PX``/``PY`` closures.
 
-    This deliberately mirrors those analysis-phase closures byte-for-byte (an
-    unsigned ``+1`` projection), so the consolidation is provably
-    behaviour-preserving. The helpers library's ``ViewCoordinates.px``/``.py``
+    The original three views retain their analysis-phase ``+1`` closures.
+    The helpers library's ``ViewCoordinates.px``/``.py``
     (already built per view as ``dwg._coords``) computes a *signed* projection
     from ``view_axes()``; routing through it would couple the annotation passes
     to render-order ``_coords`` population and could change output where a view
@@ -1017,6 +1017,8 @@ class _Projector:
     cy: float
     cz: float
     scale: float
+    rv_x: float = 0.0
+    rv_y: float = 0.0
 
     def front_x(self, x: float) -> float:
         return self.fv_x + (x - self.cx) * self.scale
@@ -1035,6 +1037,12 @@ class _Projector:
 
     def plan_y(self, y: float) -> float:
         return self.pv_y + (y - self.cy) * self.scale
+
+    def rear_x(self, x: float) -> float:
+        return self.rv_x - (x - self.cx) * self.scale
+
+    def rear_z(self, z: float) -> float:
+        return self.rv_y + (z - self.cz) * self.scale
 
 
 @dataclass(frozen=True)
@@ -1067,6 +1075,8 @@ class LayoutFrame:
     fv_zones: ViewZones
     pv_zones: ViewZones
     sv_zones: ViewZones
+    rear: tuple[float, float, float, float] | None = None
+    rv_zones: ViewZones | None = None
 
     def project(self, view: str, point) -> tuple[float, float]:
         """A part-space *point* in *view*'s page coordinates."""
@@ -1077,6 +1087,8 @@ class LayoutFrame:
             return self.proj.side_x(y), self.proj.side_z(z)
         if view == "plan":
             return self.proj.plan_x(x), self.proj.plan_y(y)
+        if view == "rear" and self.rear is not None:
+            return self.proj.rear_x(x), self.proj.rear_z(z)
         raise ValueError(f"unknown view {view!r}")
 
     def edges(self, view: str) -> tuple[float, float, float, float]:
@@ -1085,11 +1097,24 @@ class LayoutFrame:
         The stored endpoints come from projected world minima/maxima, whose handedness
         need not match page left/right. Normalise here so callers can rely on the names
         this API exposes rather than knowing projector orientation."""
-        x0, x1, y0, y1 = {"front": self.front, "plan": self.plan, "side": self.side}[view]
+        bounds = {"front": self.front, "plan": self.plan, "side": self.side, "rear": self.rear}[
+            view
+        ]
+        if bounds is None:
+            raise ValueError(f"view {view!r} has no planned layout frame")
+        x0, x1, y0, y1 = bounds
         return min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
 
     def zones(self, view: str) -> ViewZones:
-        return {"front": self.fv_zones, "plan": self.pv_zones, "side": self.sv_zones}[view]
+        zones = {
+            "front": self.fv_zones,
+            "plan": self.pv_zones,
+            "side": self.sv_zones,
+            "rear": self.rv_zones,
+        }[view]
+        if zones is None:
+            raise ValueError(f"view {view!r} has no planned annotation zones")
+        return zones
 
 
 def layout_frame(a: Analysis) -> LayoutFrame:
@@ -1124,6 +1149,15 @@ def layout_frame(a: Analysis) -> LayoutFrame:
         fv_zones=a.fv_zones,
         pv_zones=a.pv_zones,
         sv_zones=a.sv_zones,
+        rear=(
+            a.proj.rear_x(a.bb.min.X),
+            a.proj.rear_x(a.bb.max.X),
+            a.proj.rear_z(a.bb.min.Z),
+            a.proj.rear_z(a.bb.max.Z),
+        )
+        if a.rv_zones is not None
+        else None,
+        rv_zones=a.rv_zones,
     )
 
 
@@ -1288,6 +1322,9 @@ class Analysis:
     #: Coordinate-coherent PMI projection used by the compiler. ``None`` means the source
     #: report's records are already in working coordinates (raw and declared builds).
     pmi_working_records: tuple[object, ...] | None = None
+    RV_X: float = 0.0
+    RV_Y: float = 0.0
+    rv_zones: ViewZones | None = None
 
     @property
     def pmi(self) -> list:

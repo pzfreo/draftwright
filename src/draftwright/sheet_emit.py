@@ -65,7 +65,7 @@ from draftwright.model.ir import (
     ToleranceDecoration,
 )
 from draftwright.reporting import write_json_document
-from draftwright.view_plan import ViewConstraints, validate_projection
+from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, ViewConstraints, validate_projection
 
 _log = logging.getLogger(__name__)
 
@@ -1949,7 +1949,7 @@ def _adopted_view_block(constraints: ViewConstraints, names: Mapping[int, str]) 
         spec = item.spec
         reject_unexpressed_spec_fields(spec)
         expected_kind = "pictorial" if spec.name == "iso" else "principal"
-        if spec.name not in {"front", "plan", "side", "iso"} or spec.kind != expected_kind:
+        if spec.name not in (*PRINCIPAL_VIEW_NAMES, "iso") or spec.kind != expected_kind:
             raise ValueError(f"cannot emit principal view {spec.name!r} with kind {spec.kind!r}")
         if spec.target is not None:
             raise ValueError(f"cannot emit principal view {spec.name!r} with a target")

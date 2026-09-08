@@ -125,6 +125,7 @@ from draftwright.model.planner import (
 )
 from draftwright.model.planner import location_role as _location_role
 from draftwright.view_plan import (
+    PRINCIPAL_VIEW_NAMES,
     ConstraintSource,
     ViewConstraint,
     ViewConstraints,
@@ -132,6 +133,7 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     ViewRelation,
     ViewSpec,
+    third_angle_view_names,
     validate_projection,
 )
 
@@ -1285,7 +1287,7 @@ class Sheet:
         appeared in a release, so this refusal is the only notice it gets — a documented
         break (`docs/deprecations.md`).
 
-        ``view`` selects ``front``/``plan``/``side`` and ``side`` selects the corresponding
+        ``view`` selects ``front``/``plan``/``side``/``rear`` and ``side`` selects the corresponding
         ``above``/``below``/``left``/``right`` corridor where that dimension renderer supports
         it. They express authored placement intent, not page coordinates; invalid or
         unrenderable pairs fail clearly during planning.
@@ -1959,12 +1961,7 @@ class Sheet:
     @staticmethod
     def _principal_view_name(name) -> tuple[str, str]:
         name = str(name).strip().lower()
-        kinds = {
-            "front": "principal",
-            "plan": "principal",
-            "side": "principal",
-            "iso": "pictorial",
-        }
+        kinds = {**dict.fromkeys(PRINCIPAL_VIEW_NAMES, "principal"), "iso": "pictorial"}
         if name not in kinds:
             raise ValueError(
                 f"unknown view {name!r}; expected one of {tuple(kinds)}. "
@@ -2549,9 +2546,16 @@ class Sheet:
                 "views; call auto_views() first"
             )
         if self._principal_view_source != "authored":
+            additions = tuple(
+                record["name"]
+                for record in self._added_principal_views
+                if record["kind"] == "principal"
+            )
+            if additions:
+                return tuple(dict.fromkeys((*third_angle_view_names(), *additions))), True
             return None, True
         names = tuple(record["name"] for record in self._principal_views)
-        principals = tuple(name for name in names if name in {"front", "plan", "side"})
+        principals = tuple(name for name in names if name in PRINCIPAL_VIEW_NAMES)
         if not principals:
             source = (
                 self._principal_views[0]["source"]
@@ -2560,7 +2564,7 @@ class Sheet:
             )
             raise ValueError(
                 f"the authored view set from {source} has no principal orthographic view; "
-                "add view('front'), view('plan'), or view('side')"
+                "add view('front'), view('plan'), view('side'), or view('rear')"
             )
         return principals, "iso" in names
 

@@ -580,13 +580,18 @@ def lint_location_coverage(
     for h in holes:
         x, y, z = _xyz(h.location)
         axis = _axis_letter(h)
-        view = _END_ON.get(axis, "plan")
+        views = ("front", "rear") if axis == "y" else (_END_ON.get(axis, "plan"),)
         available_views = getattr(dwg, "views", None)
-        projected = (
-            dwg.at(view, x, y, z) if available_views is None or view in available_views else None
-        )
-        if projected is None or not any(
-            abs(cx - projected[0]) <= tol and abs(cy - projected[1]) <= tol
+        if available_views is None:
+            views = (_END_ON.get(axis, "plan"),)
+        projections = {
+            view: dwg.at(view, x, y, z)
+            for view in views
+            if available_views is None or view in available_views
+        }
+        if not any(
+            abs(cx - point[0]) <= tol and abs(cy - point[1]) <= tol
+            for view, point in projections.items()
             for cx, cy in marks.get(view, ())
         ):
             no_mark += 1
@@ -599,16 +604,16 @@ def lint_location_coverage(
             continue
 
         features = feature_index.get((axis, ref), set())
-        page_axes = VIEW_AXES[view]
 
         def _axis_covered(model_axis):
             semantic = any(owner in features for owner in satisfied_locations) or any(
                 owner in features and parameter.endswith(f".{model_axis}") and point == ref
                 for owner, parameter, point in structured_locations
             )
-            page_index = page_axes.index(model_axis)
-            geometric = projected is not None and any(
-                abs((vx, vy)[page_index] - projected[page_index]) <= tol
+            geometric = any(
+                abs((vx, vy)[page_index] - point[page_index]) <= tol
+                for view, point in projections.items()
+                for page_index in (VIEW_AXES[view].index(model_axis),)
                 for vx, vy in dim_verts.get(view, ())
             )
             return semantic or geometric

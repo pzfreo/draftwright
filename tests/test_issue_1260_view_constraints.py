@@ -417,7 +417,7 @@ class TestBuildEffects:
         hole = detail.hole(diameter=6, at=(0, 0, 0), axis="z")
         detail.view("front")
         detail.detail_view("A", around=hole)
-        with pytest.raises(ValueError, match="cannot be shown"):
+        with pytest.raises(ValueError, match="needs parent view.*plan"):
             detail.build()
 
     def test_exact_view_scales_fail_instead_of_relaxing(self, monkeypatch):

@@ -53,6 +53,7 @@ from draftwright._geometry import (
 )
 from draftwright.compose import (
     StripDepths,
+    _build_rear_zones,
     _build_zones,
     _est_hole_table_sizes,
     _est_planned_bore_callout_width,
@@ -71,7 +72,12 @@ from draftwright.recognition_frame import (
     require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
-from draftwright.view_plan import ViewConstraints, arrangement_of, principal_placements
+from draftwright.view_plan import (
+    ViewConstraints,
+    arrangement_of,
+    principal_placements,
+    third_angle_view_names,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -132,15 +138,18 @@ def _apply_principal_view_pins(
         "plan": (geometry.PV_X, geometry.PV_Y),
         "side": (geometry.SV_X, geometry.SV_Y),
     }
+    if "rear" in planned:
+        centres["rear"] = (geometry.RV_X, geometry.RV_Y)
     cx, cy, cz = centre
     projected_centre = {
         "front": (cx * scale, cz * scale),
         "plan": (cx * scale, cy * scale),
         "side": (cy * scale, cz * scale),
+        "rear": (-cx * scale, cz * scale),
     }
     translations = []
     for pin in constraints.pins:
-        if pin.view not in centres:
+        if pin.view not in projected_centre:
             where = f" at {pin.source}" if pin.source is not None else ""
             raise ValueError(
                 f"whole-view pin{where} targets {pin.view!r}; this slice can anchor principal "
@@ -168,6 +177,9 @@ def _apply_principal_view_pins(
     geometry.PV_Y += dy
     geometry.SV_X += dx
     geometry.SV_Y += dy
+    if "rear" in planned:
+        geometry.RV_X += dx
+        geometry.RV_Y += dy
     geometry.sv_geometry_right += dx
     geometry.sv_right += dx
     geometry.sv_right_wall += dx
@@ -179,6 +191,8 @@ def _apply_principal_view_pins(
         "plan": (geometry.PV_X, geometry.PV_Y, geometry.fv_hw, geometry.pv_hh),
         "side": (geometry.SV_X, geometry.SV_Y, geometry.sv_hw, geometry.fv_hh),
     }
+    if "rear" in planned:
+        extents["rear"] = (geometry.RV_X, geometry.RV_Y, geometry.fv_hw, geometry.fv_hh)
     page_w, page_h = page
     for name in planned:
         x, y, hw, hh = extents[name]
@@ -756,6 +770,7 @@ def _analyse(
     model=None,
     decorations=None,
     authored=None,
+    requested=None,
     material="",
     date="",
     revision="A",
@@ -1084,21 +1099,23 @@ def _analyse(
         if ownership_builder is not None
         else None
     )
-    # Authored omission affects annotation FOOTPRINT sizing, but the analysis model retains
-    # its historical automatic requirement inventory for view-feasibility preflight.  The
-    # builder applies the same authored tuple to the render model later.  Keeping this as a
-    # strip-only copy avoids letting a sparse authored dimension set erase semantic view
-    # requirements (for example the parent view needed by an authored detail), while ensuring
-    # suppressed pad bands cannot reduce the selected scale (#1392).
-    strip_sizing_model = (
-        replace(sizing_model, authored_dimensions=tuple(authored))
+    # Dimension feasibility and annotation footprints consume the authored set.
+    # Derived-view dependencies still use sizing_model below; omitting an unrelated
+    # envelope extent must not force its view back onto an authored sheet.
+    strip_sizing_model = replace(
+        sizing_model,
+        authored_dimensions=tuple(authored)
         if authored is not None
-        else sizing_model
+        else sizing_model.authored_dimensions,
+        requested_dimensions=tuple(requested) if requested else sizing_model.requested_dimensions,
     )
     # ADR 2 (was 0018) Phase 5.5: prove the chosen principal set can carry every approved
     # dimension before scale selection or projection.  A reduced view set is therefore a
     # re-plan, not the fixed three-view plan rendered into fewer views.
-    sizing_groups = plan_dimensions(sizing_model, planned_views=_views)
+    sizing_groups = plan_dimensions(
+        strip_sizing_model,
+        planned_views=third_angle_view_names() if _views is None else _views,
+    )
     bore_callout_width = _est_planned_bore_callout_width(
         sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
@@ -1293,6 +1310,9 @@ def _analyse(
         arrangement=ARRANGEMENT,
         planned_views=_views,
         planned_iso=_include_iso,
+        RV_X=_g.RV_X,
+        RV_Y=_g.RV_Y,
+        rv_zones=_build_rear_zones(_g, margin, PAGE_H),
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
@@ -1354,6 +1374,8 @@ def _analyse(
             sv_y=SV_Y,
             pv_x=PV_X,
             pv_y=PV_Y,
+            rv_x=_g.RV_X,
+            rv_y=_g.RV_Y,
             cx=cx,
             cy=cy,
             cz=cz,

@@ -64,6 +64,7 @@ from draftwright.annotations.orchestrator import (
 from draftwright.compose import (
     ViewBlock,
     _attribute_annotations,
+    _build_rear_zones,
     _build_zones,
     _layout_geometry,
     _view_geom,
@@ -89,6 +90,7 @@ from draftwright.projection import (
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    PRINCIPAL_VIEW_NAMES,
     UncoveredViewRequirement,
     ViewConstraints,
     ViewPlanIncomplete,
@@ -306,7 +308,7 @@ def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
     by escalating the sheet."""
     lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
     for name, o in dwg.iter_annotations():
-        if dwg.view_of(name) not in ("front", "plan", "side"):
+        if dwg.view_of(name) not in PRINCIPAL_VIEW_NAMES:
             continue
         # Match the lint, which tests each item's FULL bounding_box (extension
         # lines, arrowheads, leader + balloon ring) — not just the label rect —
@@ -541,18 +543,6 @@ def _assemble(
     # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
     # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
-    if model is None and (requested or authored is not None):
-        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
-        # builds its own. Silently dropping them would leave a caller's add_dimension() /
-        # dimension() with no effect and no diagnostic — the failure mode this project
-        # treats as worse than a visible error (#630/#631/#632). An authored set is the
-        # worse of the two to drop: the build would quietly revert to the automatic
-        # dimensions the author was replacing (#921 review).
-        verb = "requested=" if requested else "authored="
-        raise ValueError(
-            f"{verb} names declared features, so it needs model= too; a detected "
-            "model builds its own feature objects that no request can target"
-        )
     pm = (
         _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
@@ -704,6 +694,7 @@ def _assemble(
         "front": ((cxs, cys - dist, czs), (0, 0, 1)),
         "plan": ((cxs, cys, czs + dist), (0, 1, 0)),
         "side": ((cxs + dist, cys, czs), (0, 0, 1)),
+        "rear": ((cxs, cys + dist, czs), (0, 0, 1)),
     }
     dwg._build.view_plan = view_plan = resolve_from_analysis(a)
     for spec in view_plan.of_kind("principal"):
@@ -1001,6 +992,8 @@ def _repack(
         abs(g.PV_Y - a.PV_Y),
         abs(g.SV_X - a.SV_X),
         abs(g.SV_Y - a.SV_Y),
+        abs(g.RV_X - a.RV_X) if "rear" in (a.planned_views or ()) else 0.0,
+        abs(g.RV_Y - a.RV_Y) if "rear" in (a.planned_views or ()) else 0.0,
     )
     # Seed fit warnings yield to the measured result; retain the explicit legibility
     # advisory only at the scale for which it was evaluated.
@@ -1037,6 +1030,9 @@ def _repack(
         PV_Y=g.PV_Y,
         SV_X=g.SV_X,
         SV_Y=g.SV_Y,
+        RV_X=g.RV_X,
+        RV_Y=g.RV_Y,
+        rv_zones=_build_rear_zones(g, a.margin, ph),
         fv_hw=g.fv_hw,
         fv_hh=g.fv_hh,
         pv_hh=g.pv_hh,
@@ -1055,6 +1051,8 @@ def _repack(
             sv_y=g.SV_Y,
             pv_x=g.PV_X,
             pv_y=g.PV_Y,
+            rv_x=g.RV_X,
+            rv_y=g.RV_Y,
             cx=a.cx,
             cy=a.cy,
             cz=a.cz,
@@ -1298,6 +1296,19 @@ def _build_drawing_once(
     title = title or stem.replace("_", " ").upper()
     tracer = _resolve_trace(trace, out)
 
+    if model is None and (requested or authored is not None):
+        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
+        # builds its own. Silently dropping them would leave a caller's add_dimension() /
+        # dimension() with no effect and no diagnostic — the failure mode this project
+        # treats as worse than a visible error (#630/#631/#632). An authored set is the
+        # worse of the two to drop: the build would quietly revert to the automatic
+        # dimensions the author was replacing (#921 review).
+        verb = "requested=" if requested else "authored="
+        raise ValueError(
+            f"{verb} names declared features, so it needs model= too; a detected "
+            "model builds its own feature objects that no request can target"
+        )
+
     def analyse(*, reuse, views):
         return _analyse(
             step_file,
@@ -1312,6 +1323,7 @@ def _build_drawing_once(
             model=model,
             decorations=decorations,
             authored=authored,
+            requested=requested,
             material=material,
             date=date,
             revision=revision,
@@ -1331,42 +1343,63 @@ def _build_drawing_once(
         )
 
     a = analyse(reuse=_analysis_base, views=_views)
-    if _views is not None:
-        # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
-        # plan_dimensions' requirement check.  An authored principal set is nevertheless
-        # a hard constraint: reject a measured mark targeting an absent projection before
-        # corridor placement can misreport the contradiction as a capacity drop.
-        explicit_model = (
-            _coerce_model(model, a.part, decorations, requested, authored)
-            if model is not None
-            else cast("PartModel", a.model if a.model is not None else build_model(a))
+    planned_principals = third_angle_view_names() if _views is None else _views
+    # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
+    # plan_dimensions' requirement check.  An authored principal set is nevertheless
+    # a hard constraint: reject a measured mark targeting an absent projection before
+    # corridor placement can misreport the contradiction as a capacity drop.
+    explicit_model = (
+        _coerce_model(model, a.part, decorations, requested, authored)
+        if model is not None
+        else cast("PartModel", a.model if a.model is not None else build_model(a))
+    )
+    uncovered_measured = []
+    for feature in explicit_model.features:
+        feature_view = authored_dimension_target_view(
+            getattr(feature, "dimension_kind", ""),
+            getattr(feature, "dominant_axis", ""),
+            getattr(feature, "view", None),
+            getattr(feature, "side", None),
+            getattr(feature, "angular_reference", None),
         )
-        uncovered_measured = []
-        for feature in explicit_model.features:
-            feature_view = authored_dimension_target_view(
-                getattr(feature, "dimension_kind", ""),
-                getattr(feature, "dominant_axis", ""),
-                getattr(feature, "view", None),
-                getattr(feature, "side", None),
-                getattr(feature, "angular_reference", None),
+        if (
+            getattr(feature, "kind", None) != "authored_dimension"
+            or not isinstance(feature_view, str)
+            or feature_view in set(planned_principals)
+        ):
+            continue
+        uncovered_measured.append(
+            UncoveredViewRequirement(
+                identity=feature,
+                label=getattr(feature, "source_id", "") or "measured_dimension",
+                preferred_view=feature_view,
+                eligible_views=(feature_view,),
+                reason=f"is explicitly placed in `{feature_view}`",
             )
-            if (
-                getattr(feature, "kind", None) != "authored_dimension"
-                or not isinstance(feature_view, str)
-                or feature_view in set(_views)
-            ):
-                continue
-            uncovered_measured.append(
-                UncoveredViewRequirement(
-                    identity=feature,
-                    label=getattr(feature, "source_id", "") or "measured_dimension",
-                    preferred_view=feature_view,
-                    eligible_views=(feature_view,),
-                    reason=f"is explicitly placed in `{feature_view}`",
-                )
+        )
+    if uncovered_measured:
+        raise ViewPlanIncomplete(planned_principals, uncovered_measured)
+    if auto_dims and not {"front", "rear"}.intersection(planned_principals):
+        # A model without an envelope can still approve a synthetic bbox height.
+        # It has no feature parameter for plan_dimensions to check, so prove its
+        # compiled view requirement before projecting a reduced principal set.
+        from draftwright.model.compiled import compile_dimensions
+
+        overall = compile_dimensions(explicit_model).ladder("overall_height")
+        if overall is not None:
+            height = overall.rungs[0]
+            raise ViewPlanIncomplete(
+                planned_principals,
+                [
+                    UncoveredViewRequirement(
+                        identity=height.id,
+                        label="overall_height.length",
+                        preferred_view="front",
+                        eligible_views=("front", "rear"),
+                        reason="requires a planned front or rear view",
+                    )
+                ],
             )
-        if uncovered_measured:
-            raise ViewPlanIncomplete(_views, uncovered_measured)
     view_attempts: tuple[dict[str, object], ...] = ()
     view_status = "selected"
     if _select_automatic_views and _views is None and auto_dims:

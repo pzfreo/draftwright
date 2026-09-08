@@ -36,13 +36,14 @@ from draftwright._geometry import (
 from draftwright.blend_contract import register_blend_ir_types, validate_blend_fields
 from draftwright.feature_identity import register_oriented_slot_feature_type
 from draftwright.section_recess_contract import validate_pocket_mouth
+from draftwright.view_plan import PRINCIPAL_VIEW_NAMES
 
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
 
 Point = tuple[float, float, float]
 CylinderSense = Literal["external", "internal"]
-PLACEMENT_VIEWS = frozenset({"front", "plan", "side"})
+PLACEMENT_VIEWS = frozenset(PRINCIPAL_VIEW_NAMES)
 PLACEMENT_SIDES = frozenset({"above", "below", "left", "right"})
 
 

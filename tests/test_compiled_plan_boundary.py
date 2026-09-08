@@ -240,11 +240,18 @@ class TestTheRendererCannotSeeContent:
     def test_the_body_never_touches_the_feature_inventory(self):
         """Reads the source rather than trusting the signature: a renderer could still
         reach content through an argument that legitimately carries it."""
-        src = inspect.getsource(render_height_ladder)
-        tree = ast.parse(src)
+        tree = ast.parse(inspect.getsource(inspect.getmodule(render_height_ladder)))
+        renderers = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name in {"render_height_ladder", "_render_height_ladder_in_view"}
+        ]
+        assert len(renderers) == 2
         reads = {
             node.attr
-            for node in ast.walk(tree)
+            for renderer in renderers
+            for node in ast.walk(renderer)
             if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load)
         }
         # `_feature` is the FeatureRef escape hatch: resolving a provenance handle back to

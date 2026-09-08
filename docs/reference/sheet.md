@@ -315,6 +315,30 @@ detail = s.detail_view("B", around=hole).scale(2)
 dwg = s.build()
 ```
 
+Rear views are explicitly requested. `s.view("rear")` includes rear in an authored
+view set; `s.auto_views().add_view("rear")` adds it to the automatic baseline.
+Rear looks toward the part from +Y with Z upward, so increasing world X runs left
+on the page. This physical direction is the same under both projection conventions.
+When side is also present, rear sits beyond side in the unfolding direction: left
+for first-angle, right for third-angle.
+
+Y-axis hole and hole-pattern callouts, locations and pitch dimensions can use rear,
+as can overall width and height. For example:
+
+```python
+s = Sheet(part, projection="first").authored_dimensions()
+hole = s.hole(diameter=6, at=(10, 20, 5), axis="y").through("THRU")
+s.dimension(hole, "bore.diameter")
+s.dimension(hole, "location")
+s.view("rear")
+drawing = s.build()
+```
+
+Dimensions still use the shared placement solve. An unsupported measurement/view
+combination is refused; a required depth extent, for example, needs side. Rear is
+never added automatically to improve visibility, coverage or hidden lines. Generated
+scripts preserve an explicit rear request.
+
 `view(...)`, `section_view(...)` and `detail_view(...)` define complete authored sets;
 omission suppresses a view. `add_view(...)`, `add_section_view(...)` and
 `add_detail_view(...)` augment an explicitly selected `auto_views()` source. `row(...)` and
@@ -473,7 +497,7 @@ geometry cannot prove a complete chain or the provider aggregate's Fillet preced
 referential `DimensionIntent`. The handle never carries a replacement nominal and never chooses
 page coordinates. Use `format(decimals=n)` to preserve between 0 and 15 decimal places in the
 printed nominal while reconciliation, tolerance, suppression and provenance continue to read the
-numeric parameter from the feature. Optional `view="front|plan|side"` and
+numeric parameter from the feature. Optional `view="front|plan|side|rear"` and
 `side="above|below|left|right"` arguments select a supported semantic corridor when authored
 routing must override the derived default; the normal placement solve still chooses coordinates
 and reports capacity/crossing failures. Trailing zeroes are intentional manufacturing display text:

@@ -768,6 +768,8 @@ def test_pitch_fallback_rejects_unverifiable_real_geometry(
         margin=10.0,
         PAGE_W=210.0,
         PAGE_H=297.0,
+        SCALE=1.0,
+        rv_zones=None,
         bb=SimpleNamespace(min=point(50.0), max=point(130.0)),
         proj=project,
         pv_zones=zones,
