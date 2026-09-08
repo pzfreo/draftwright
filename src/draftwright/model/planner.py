@@ -1693,7 +1693,9 @@ def _selected_chain_covers_extent(model, selected, axis) -> bool:
 
 def _restore_uncovered_x_extent(model, groups):
     """Settle X-width ownership after the complete selected chain is known, before sizing."""
-    if model.orientation != "x" or _selected_chain_covers_extent(
+    if model.orientation != "x" or not any(group.feature.kind == "envelope" for group in groups):
+        return groups
+    if _selected_chain_covers_extent(
         model,
         [
             (group.feature, dimension.param)
