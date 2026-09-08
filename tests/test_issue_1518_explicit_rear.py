@@ -640,12 +640,12 @@ def test_rear_grid_and_bolt_circle_keep_pattern_measurements(kind, convention):
 
 @pytest.mark.parametrize("operation", ["project", "edges", "zones"])
 def test_absent_rear_has_no_fallback_layout_frame(operation):
-    from draftwright import build_drawing
     from draftwright._core import layout_frame
+    from draftwright.analysis import _analyse
 
-    drawing = build_drawing(Box(40, 30, 20), auto_dims=False)
-    assert "rear" not in drawing.views
-    frame = layout_frame(drawing._analysis)
+    analysis = _analyse(Box(40, 30, 20), "FRAME", "1518", 0.1, "", "")
+    frame = layout_frame(analysis)
+    assert frame.rear is None and frame.rv_zones is None
     arguments = ("rear", (1, 2, 3)) if operation == "project" else ("rear",)
     with pytest.raises(ValueError, match="rear"):
         getattr(frame, operation)(*arguments)
