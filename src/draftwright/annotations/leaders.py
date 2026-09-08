@@ -1974,12 +1974,22 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 names.add(jobs[earlier_job].name)
         return tuple(sorted(names))
 
-    # A complete incumbent already preserves every producer's possible semantic
-    # floor: no alternative can place more than every job. Keep that feasible
-    # result when the search cannot prove the best penalty/cost, and retain the
-    # normal geometry validation below. An incomplete incumbent has no such
-    # guarantee and must still replay the canonical producer floor.
-    if not assignment.optimal and any(choice is None for choice in assignment.choices):
+    # Override the established producer layout only for a proven cardinality
+    # improvement. A complete incumbent beats any floor with an empty job stream;
+    # otherwise the floor may place every job too, with different downstream
+    # section/table opportunities. Peek at most one raw candidate per job and
+    # restore each nonempty stream for the ordinary fallback/validation paths.
+    retain_complete_incumbent = False
+    if not assignment.optimal and all(choice is not None for choice in assignment.choices):
+        empty = object()
+        for job_index, fallback in enumerate(fallback_jobs):
+            first = next(fallback, empty)
+            if first is empty:
+                retain_complete_incumbent = True
+                break
+            fallback_jobs[job_index] = chain((first,), fallback)
+
+    if not assignment.optimal and not retain_complete_incumbent:
         # The layout solver's bounded-search incumbent is seeded from the new
         # exact-ink candidate order, not from every producer's canonical
         # pre-#1166 lazy fallback.  Replaying that producer floor is the only
