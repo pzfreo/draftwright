@@ -7977,10 +7977,14 @@ class TestFeatureEdits:
 
     def test_drop_feature_with_no_annotations_is_noop(self):
         dwg = build_drawing(_holed_plate())
-        # An envelope feature carries no centre marks (its dims aren't tagged yet).
-        env = next((f for f in dwg.model().features if f.kind == "envelope"), None)
-        if env is not None:
-            assert dwg.drop(env) == []
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        owned = set(dwg.annotations_of(env))
+        assert owned, "the envelope must own its overall dimensions"
+        unrelated = set(dwg.annotations()) - owned
+        assert set(dwg.drop(env)) == owned
+        assert set(dwg.annotations()) == unrelated
+        assert dwg.annotations_of(env) == {}
+        assert dwg.drop(env) == []
 
     def test_manual_add_records_feature_provenance(self):
         from build123d_drafting import CenterMark
