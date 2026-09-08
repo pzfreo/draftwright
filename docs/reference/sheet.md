@@ -304,16 +304,83 @@ View declarations are semantic constraints. They name projections, relationships
 anchors; the layout solve owns the resulting page positions. Authored views must be paired with
 authored dimensions so a deliberately omitted view cannot strand planner-selected annotations:
 
-```python
-s = Sheet(part).authored_dimensions().authored_views()
-front = s.view("front")
-plan = s.view("plan").above(front, gap=4).align_x(front)
-s.view("iso").scale(0.75)
+This runnable example includes the part, feature declarations, dimension discovery,
+three principal views and section A–A. The bore's location dimensions are deliberately
+omitted, and lint keeps those omissions visible.
 
-section = s.section_view("A", through=hole)
-detail = s.detail_view("B", around=hole).scale(2)
-dwg = s.build()
+<!-- example: authored-section -->
+```python
+from build123d import Box, Cylinder, Pos
+from draftwright import Sheet
+
+bore_tool = Pos(12, 0, 0) * Cylinder(3, 12)
+part = Box(60, 40, 12) - bore_tool
+sheet = Sheet(part, page="A3", scale=1, projection="third")
+sheet.authored_dimensions().authored_views()
+
+envelope = sheet.envelope(part)
+for parameter_id in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter_id)
+bore = sheet.hole(bore_tool)
+print(bore.dimension_ids())  # discover this handle's Sheet measurement IDs
+sheet.dimension(bore, "bore.diameter")
+
+for name in ("front", "plan", "side"):
+    sheet.view(name)
+sheet.section_view("A", through=bore)  # or at=0 for an explicit model-space Y plane
+
+drawing = sheet.build()
+issues = drawing.lint()
+for issue in issues:
+    print(issue.severity, issue.code, issue.message)
+# drawing.export("build/section", formats=("pdf", "svg"))
 ```
+
+On a Sheet handle, `dimension_ids()` lists dotted measurement IDs; use
+`sheet.dimension(bore, "bore.diameter")`. On a built Drawing, the second argument to
+`drawing.dimension(envelope_feature, "length", role="width")` is a parameter kind,
+with `role=` distinguishing measurements of the same kind. Hole diameter and depth
+are callout content: use `drawing.callout(bore_feature)` for those, not
+`drawing.dimension(...)`. These are different vocabularies.
+
+#### Augmenting automatic views
+
+`view()` and `section_view()` specify complete authored sets. `add_view()` and
+`add_section_view()` instead augment an explicitly automatic set. Choose the source
+before adding views; an authored set cannot be switched to automatic in place.
+
+This separate, runnable example keeps automatic principal and derived views and
+adds a section at model-space Y=0. Its dimensions are still explicitly authored:
+
+<!-- example: automatic-section -->
+```python
+from build123d import Box
+from draftwright import Sheet
+
+part = Box(60, 40, 12)
+sheet = Sheet(part, page="A3", scale=1).authored_dimensions()
+envelope = sheet.envelope(part)
+for parameter_id in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter_id)
+sheet.auto_views()
+sheet.add_section_view("A", at=0)
+drawing = sheet.build()
+issues = drawing.lint()
+for issue in issues:
+    print(issue.severity, issue.code, issue.message)
+```
+
+`auto_views()` emits `SoftDeprecationWarning`: it remains supported and has no removal
+date. The notice recommends the editable authored surface; it does not mean the
+augmentation example is invalid. Automatic dimensions remain supported too, but they
+cannot be paired with a complete authored view set.
+
+`Sheet.section()` is deprecated with removal targeted at 0.6.0. For an authored
+workflow replace it with `section_view("A", through=feature)` or `section_view("A", at=y)`;
+for automatic augmentation use `auto_views()` followed by `add_section_view(...)`.
+`Drawing.section()` is a separate automatic post-build operation and may add no section
+when the geometry does not warrant one.
+
 
 Rear views are explicitly requested. `s.view("rear")` includes rear in an authored
 view set; `s.auto_views().add_view("rear")` adds it to the automatic baseline.
