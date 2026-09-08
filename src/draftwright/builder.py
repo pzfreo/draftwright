@@ -38,6 +38,8 @@ from draftwright._core import (
     _add_sheet_frame,
     _add_title_block,
     _add_zone_grid,
+    _dimension_draft,
+    _dimension_head_bounds,
     _iso_bbox,
     _log,
     _parse_page,
@@ -67,7 +69,6 @@ from draftwright.compose import (
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
-from draftwright.fonts import PLEX_MONO
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.model import (
@@ -514,13 +515,16 @@ def _assemble(
     build state so the annotate + finalize paths thread it), or ``None``."""
     cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
     dist = a.bbox_max * a.SCALE + 100
+    draft = _dimension_draft(a.text_position, a.text_orientation)
+    if (a.text_position, a.text_orientation) != ("inline", "aligned"):
+        _dimension_head_bounds(draft.arrow_length, draft.head_type)
 
     dwg = Drawing(
         scale=a.SCALE,
         page_w=a.PAGE_W,
         page_h=a.PAGE_H,
         tb_w=a.TB_W,
-        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1, font_path=PLEX_MONO),
+        draft=draft,
         look_at=(cxs, cys, czs),
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),
@@ -1192,6 +1196,8 @@ def _build_drawing_once(
     zones: bool = False,
     reproducible: bool = False,
     framed_recognition: bool = False,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     _critique_recognition_cache=None,
@@ -1312,6 +1318,8 @@ def _build_drawing_once(
             company=company,
             frame=frame,
             projection=projection,
+            text_position=text_position,
+            text_orientation=text_orientation,
             zones=zones,
             _reuse=reuse,
             _required_tables=_required_tables,
@@ -1854,6 +1862,8 @@ def build_drawing(
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
     framed_recognition: bool = False,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     _post_build: Callable[[Drawing], Drawing] | None = None,
     _required_tables=(),
     _views: tuple[str, ...] | None = None,
@@ -1876,8 +1886,12 @@ def build_drawing(
     ``projection='third'`` adds the matching projection symbol. The default omits the
     symbol but uses the same third-angle layout. ``projection='first'`` places plan below
     front and side to its left, keeping the physical viewing directions unchanged.
+
+    ``text_position="inline"|"above"`` and ``text_orientation="aligned"|"horizontal"``
+    independently select dimension typography. Defaults preserve existing appearance.
     """
     validate_projection(projection)
+    _dimension_draft(text_position, text_orientation)
     if scale_policy not in {"strict", "fallback", "permissive"}:
         raise ValueError(
             f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
@@ -1907,6 +1921,8 @@ def build_drawing(
         company=company,
         frame=frame,
         projection=projection,
+        text_position=text_position,
+        text_orientation=text_orientation,
         zones=zones,
         reproducible=reproducible,
         framed_recognition=framed_recognition,
@@ -2773,6 +2789,8 @@ def make_drawing(
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
     framed_recognition: bool = False,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2837,6 +2855,8 @@ def make_drawing(
         company=company,
         frame=frame,
         projection=projection,
+        text_position=text_position,
+        text_orientation=text_orientation,
         zones=zones,
         reproducible=reproducible,
         framed_recognition=framed_recognition,

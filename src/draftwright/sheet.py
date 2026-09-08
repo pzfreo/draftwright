@@ -57,6 +57,7 @@ from collections.abc import MutableSequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal, cast
 
+from draftwright._core import _dimension_draft
 from draftwright._geometry import _solids_body
 from draftwright._warnings import SoftDeprecationWarning
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
@@ -1075,10 +1076,13 @@ class Sheet:
         company=None,
         frame=None,
         projection=None,
+        text_position="inline",
+        text_orientation="aligned",
         zones=None,
         detail_view=None,
     ):
         validate_projection(projection)
+        _dimension_draft(text_position, text_orientation)
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
         # view; handles hold tokens and resolve through it, so a reorder of the public
@@ -1161,6 +1165,8 @@ class Sheet:
             ("company", company),
             ("frame", frame),
             ("projection", projection),
+            ("text_position", text_position),
+            ("text_orientation", text_orientation),
             ("zones", zones),
             # The last build option the facade did not forward (#940). It matters now that the
             # Sheet script is the only generated script: the imperative one put a raw

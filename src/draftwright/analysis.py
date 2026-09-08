@@ -18,7 +18,6 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from build123d import Compound, Shape
-from build123d_drafting.helpers import draft_preset
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from quiddity import (
@@ -41,6 +40,7 @@ from draftwright._core import (
     _MIN_VIEW_MM,
     Analysis,
     _content_margin,
+    _dimension_draft,
     _legible_steps,
     _Projector,
 )
@@ -762,6 +762,8 @@ def _analyse(
     company="",
     frame: bool = False,
     projection: str | None = None,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     zones: bool = False,
     _reuse: Analysis | None = None,
     _required_tables=(),
@@ -990,7 +992,7 @@ def _analyse(
     # Construct the same draft preset used later in build_drawing() to read
     # arrow_length and pad_around_text from their authoritative source rather
     # than re-stating them as magic literals in the estimators.
-    _draft_est = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+    _draft_est = _dimension_draft(text_position, text_orientation)
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
     # Empty on the declared path — NOT "this part has no holes", but "nothing was detected".
@@ -1130,6 +1132,8 @@ def _analyse(
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
             bore_callout_width=bore_callout_width,
+            text_position=text_position,
+            text_orientation=text_orientation,
         )
 
     layout_advisories: list[tuple[str, str]] = []
@@ -1380,6 +1384,8 @@ def _analyse(
         company=company,
         frame=frame,
         projection=projection,
+        text_position=text_position,
+        text_orientation=text_orientation,
         projection_convention=convention,
         zones=zones,
         out=out,

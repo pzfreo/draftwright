@@ -44,6 +44,7 @@ from typing import Literal, cast
 
 from build123d import Shape
 
+from draftwright._core import _dimension_draft
 from draftwright.builder import (
     _detect_part_model_analysis,
     build_drawing,
@@ -2054,6 +2055,8 @@ def emit_sheet_script(
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     object_ref: bool = False,
     object_candidates: Mapping[str, Shape] | None = None,
     source_part: Shape | None = None,
@@ -2098,6 +2101,7 @@ def emit_sheet_script(
     declaration a person edits; evidence about the run that produced it belongs in the sidecar
     document beside it, where a reader can diff or re-read it without parsing Python (#1460)."""
     _validate_scale_policy(scale, scale_policy)
+    _dimension_draft(text_position, text_orientation)
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -2183,6 +2187,10 @@ def emit_sheet_script(
         ctor.append("zones=True")
     if projection:
         ctor.append(f"projection={projection!r}")
+    if text_position != "inline":
+        ctor.append(f"text_position={text_position!r}")
+    if text_orientation != "aligned":
+        ctor.append(f"text_orientation={text_orientation!r}")
     from draftwright.model.declare import _envelope_from_bbox
 
     object_refs = _object_references(model.features, source_part, object_candidates)
@@ -2442,6 +2450,8 @@ def generate_sheet_script(
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     pmi: Literal["off", "report", "annotate"] = "off",
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,
@@ -2462,6 +2472,7 @@ def generate_sheet_script(
     :func:`resolve_object_spec` so the script references a live module (#469)."""
     validate_projection(projection)
     _validate_scale_policy(scale, scale_policy)
+    _dimension_draft(text_position, text_orientation)
     is_shape = isinstance(step_file, Shape)
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
     for _ext in (".py", ".svg", ".dxf"):
@@ -2537,6 +2548,8 @@ def generate_sheet_script(
                 frame=frame,
                 zones=zones,
                 projection=projection,
+                text_position=text_position,
+                text_orientation=text_orientation,
                 pmi=pmi,
                 model=model,
             )
@@ -2564,6 +2577,8 @@ def generate_sheet_script(
             frame=frame,
             zones=zones,
             projection=projection,
+            text_position=text_position,
+            text_orientation=text_orientation,
             object_ref=is_shape,
             object_candidates=object_candidates,
             source_part=step_file if isinstance(step_file, Shape) else None,
