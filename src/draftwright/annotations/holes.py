@@ -106,6 +106,10 @@ def _profiled_callout_leader(*, callout, **kw):
     leader.pdf_text_relative_specs = tuple(getattr(callout, "pdf_text_relative_specs", ()))
     leader.covers_profiles = getattr(callout, "covers_profiles", ())
     leader.covers_hole_requirements = getattr(callout, "covers_hole_requirements", ())
+    leader.covers_hole_requirements_by_feature = getattr(
+        callout, "covers_hole_requirements_by_feature", ()
+    )
+    leader.source_features = tuple(getattr(callout, "source_features", ()))
     leader.source_ids = tuple(getattr(callout, "source_ids", ()))
     return leader
 
@@ -2349,63 +2353,48 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
 
 
 def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
-    """The ``by_view`` callout-assembly loop, promoted out of ``_annotate_holes`` (#638).
+    """Render shared presentation batches over the surviving original IR members."""
+    from draftwright.model.callout import hole_callout_batches
 
-    Returns ``(by_view, feat_of_callout, side_of_callout)`` — one
-    ``(locs, dia, callout, pat)`` spec per surviving hole/pattern group keyed by target view,
-    plus callout→feature and callout→authored-side ``id()`` maps.
-
-    The IR is the single grouping + geometry authority (#238 B2/B3, Amendment 6):
-    build_part_model already split the holes into one DimensionGroup per pattern +
-    one per machining-spec group of un-patterned holes. Iterate those groups and
-    assemble each view's callout specs from IR data only — *feature_keys* (the
-    surviving feature-hole positions, supplied by the orchestrator) gates which
-    members are dimensioned; no recogniser Hole/Pattern object is used.
-    """
+    eligible = []
+    members_by_owner = {}
+    for group in groups:
+        feature = group.feature
+        if not isinstance(feature, HoleFeature | PatternFeature):
+            continue
+        if only is not None and feature not in only:
+            continue
+        members = tuple(feature.members or (group.anchor,))
+        locations = tuple(point for point in members if HoleRef.of(point) in feature_keys)
+        if locations:
+            eligible.append(group)
+            members_by_owner[id(feature)] = locations
     by_view: dict = {}
-    # Callout → source IR feature, for provenance (#408 / ADR 5 (was 0010)). The callout object
-    # flows unchanged from here through the by_view/queue tuples to both emit sites, so an
-    # id() map tags it there without threading a feature through the placement machinery.
-    _feat_of_callout: dict[int, object] = {}
-    _side_of_callout: dict[int, str] = {}
-    for g in groups:
-        feat = g.feature
-        if not isinstance(feat, HoleFeature | PatternFeature):
-            continue
-        if only is not None and feat not in only:  # #426 finalize: recorded callout subset
-            continue
-        members = feat.members or (g.anchor,)
-        # surviving member *locations* (IR geometry — no recogniser Hole, Amendment 6)
-        locs = [m for m in members if HoleRef.of(m) in feature_keys]
-        if not locs:  # all members filtered out (e.g. concentric bore, rotational)
-            continue
-        # A pattern earns its sheet furniture (centre-line / pitch dims) only if ALL
-        # its members survived the feature-holes filter — the engine's feature_patterns
-        # gate. Otherwise the surviving members are placed as plain holes.
-        pat = feat if isinstance(feat, PatternFeature) and len(locs) == len(members) else None
-        spec = hole_callout_spec(g)
-        if spec is None:  # not a hole-bearing callout
-            continue
-        # A pattern only partially surviving the feature-holes filter (a member is a
-        # concentric bore on a rotational part) is rendered as plain holes — drop its
-        # pattern suffix too, so the callout doesn't claim "EQ SP ON … BC" / "(r×c)"
-        # for a subset with no centre-line/pitch furniture (#262; matches the engine).
-        if isinstance(feat, PatternFeature) and pat is None:
-            spec = {**spec, "suffix": None}
-        dia = spec["diameter"]  # bore diameter (mm), for the leader rim tip
-        count = len(locs) if len(locs) > 1 else None
+    feat_of_callout: dict[int, object] = {}
+    side_of_callout: dict[int, str] = {}
+    for batch in hole_callout_batches(eligible, member_locations=members_by_owner):
+        group = batch.groups[0]
+        feature = group.feature
+        complete = tuple(feature.members or (group.anchor,))
+        pattern = (
+            feature
+            if isinstance(feature, PatternFeature) and len(batch.locations) == len(complete)
+            else None
+        )
+        spec = batch.spec
+        count = spec["count"]
         callout = callout_from_spec(spec, draft, count)
         if callout is None:
             continue
-        # The planner has validated this semantic projection against the renderer.  With no
-        # authored intent it is the same axis-derived view as before; with one it is the
-        # requested projection, still placed through the normal corridor solve.
-        view = g.view
-        _feat_of_callout[id(callout)] = feat  # provenance (#408)
-        if g.side is not None:
-            _side_of_callout[id(callout)] = g.side
-        by_view.setdefault(view, []).append((locs, dia, callout, pat))
-    return by_view, _feat_of_callout, _side_of_callout
+        # A primary owner remains available to geometric routing. All owners and
+        # measurement identities travel with the callout through the placement seam.
+        feat_of_callout[id(callout)] = feature
+        if group.side is not None:
+            side_of_callout[id(callout)] = group.side
+        by_view.setdefault(group.view, []).append(
+            (list(batch.locations), spec["diameter"], callout, pattern)
+        )
+    return by_view, feat_of_callout, side_of_callout
 
 
 def _hc_name(only, view, i, hc_used):

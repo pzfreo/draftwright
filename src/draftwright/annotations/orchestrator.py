@@ -112,6 +112,7 @@ from draftwright.model import (
     plan_dimensions,
     plan_sections,
 )
+from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.repair import reconcile_witness_labels
@@ -1235,7 +1236,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         def _table_row(tag, hole):
             diameter_text = _approved_hole_text(hole, "bore.diameter")
             depth_text = (
-                "THRU"
+                resolved_through_indicator(hole.feature)
                 if hole.through and diameter_text
                 else _approved_hole_text(hole, "bore.depth")
             )

@@ -177,6 +177,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         dia,
         count=count,
         through=spec["through"],
+        through_indicator=spec.get("through_indicator", "THRU"),
         depth=depth,
         cbore_dia=cbore_dia,
         cbore_depth=cbore_depth,
@@ -199,7 +200,8 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         visible_tokens.append(("text", f"{count}×"))
     visible_tokens.extend((("sym", "diameter"), ("text", dia)))
     if spec["through"]:
-        visible_tokens.append(("text", "THRU"))
+        if indicator := spec.get("through_indicator", "THRU"):
+            visible_tokens.append(("text", indicator))
     elif depth is not None:
         visible_tokens.extend((("sym", "depth"), ("text", depth)))
     if cbore_dia is not None:
@@ -257,7 +259,8 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         terms.append(f"{count}×")
     terms.append(f"⌀{dia}")
     if spec["through"]:
-        terms.append("THRU")
+        if indicator := spec.get("through_indicator", "THRU"):
+            terms.append(indicator)
     elif depth is not None:
         terms.extend(("↧", depth))
     if cbore_dia is not None:
@@ -273,13 +276,22 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     callout.label = " ".join(terms)
     callout.measurements = tuple(spec.get("measurements", ()))
     callout.source_ids = tuple(spec.get("source_ids", ()))
+    callout.source_features = tuple(spec.get("source_features", ()))
     callout.covers_hole_requirements = tuple(
         requirement
         for requirement, covered in (
-            ("bore.through", spec["through"]),
+            ("bore.through", spec["through"] and bool(spec.get("through_indicator", "THRU"))),
             ("grouping.count", bool(count and count > 1)),
         )
         if covered
+    )
+    callout.covers_hole_requirements_by_feature = tuple(
+        (owner, requirement, owner_count)
+        for owner, owner_count in spec.get("owner_counts", ())
+        for requirement in (
+            "grouping.count",
+            *(("bore.through",) if "bore.through" in callout.covers_hole_requirements else ()),
+        )
     )
     profile_coverage = spec.get("profile_coverage")
     callout.covers_profiles = () if profile_coverage is None else (profile_coverage,)

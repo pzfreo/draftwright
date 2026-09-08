@@ -146,7 +146,25 @@ class AnnotationRegistry:
         offset). So two physically distinct features never compare equal. If a feature
         type is ever added that can be field-for-field equal for distinct instances,
         switch this to identity (``f is feature``)."""
-        return [n for n, f in self._anno_feature.items() if f == feature]
+        return [
+            name
+            for name in self._named
+            if any(owner == feature for owner in self.features_of(name))
+        ]
+
+    def features_of(self, name) -> tuple:
+        """Original feature owners of a mark, including shared callout members."""
+        primary = self.feature_of(name)
+        owners = (() if primary is None else (primary,)) + tuple(
+            getattr(self._named.get(name), "source_features", ())
+        )
+        seen = set()
+        unique = []
+        for owner in owners:
+            if id(owner) not in seen:
+                seen.add(id(owner))
+                unique.append(owner)
+        return tuple(unique)
 
     def iter_named(self):
         """Iterate ``(name, annotation object)`` for every named annotation — the

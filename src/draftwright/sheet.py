@@ -388,13 +388,13 @@ class _Hole(_Nameable):
         its feature through a reorder rather than naming whatever took its slot (#908)."""
         return self._sheet._index_of_token(self._token)
 
-    def through(self) -> _Hole:
-        """A through hole (the default) — ⌀ only."""
-        return self._set(through=True, depth=None)
+    def through(self, indicator: str | None = None) -> _Hole:
+        """Declare through, optionally choosing its printed indicator (``''`` omits it)."""
+        return self._set(through=True, depth=None, through_indicator=indicator)
 
     def depth(self, d: float) -> _Hole:
         """A blind hole *d* mm deep — adds a depth callout."""
-        return self._set(through=False, depth=d)
+        return self._set(through=False, depth=d, through_indicator=None)
 
     def tolerance(
         self,

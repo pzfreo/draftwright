@@ -637,18 +637,25 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             record_representation(feature, parameter)
             if parameter == "bore.diameter":
                 diameter_features.add(feature)
-        for feature, requirement, count in getattr(
-            annotation, "covers_hole_requirements_by_feature", ()
-        ):
+        explicit_requirements = tuple(
+            getattr(annotation, "covers_hole_requirements_by_feature", ())
+        )
+        explicit_keys = {
+            (feature, requirement) for feature, requirement, _count in explicit_requirements
+        }
+        for feature, requirement, count in explicit_requirements:
             requirement_counts[(feature, requirement)].add(int(count))
             record_representation(feature, requirement)
         for feature in diameter_features:
             for requirement in getattr(annotation, "covers_hole_requirements", ()):
+                if (feature, requirement) in explicit_keys:
+                    continue
                 requirement_counts[(feature, requirement)].add(1)
                 record_representation(feature, requirement)
-            requirement_counts[(feature, "grouping.count")].add(
-                int(getattr(annotation, "covers_count", 1) or 1)
-            )
+            if (feature, "grouping.count") not in explicit_keys:
+                requirement_counts[(feature, "grouping.count")].add(
+                    int(getattr(annotation, "covers_count", 1) or 1)
+                )
             record_representation(feature, "grouping.count")
         for fact in getattr(annotation, "covers_hole_locations", ()):
             decoded = _decode_hole_location_fact(fact)
@@ -1271,7 +1278,7 @@ def lint_hole_coverage(
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     messages = {
-        "suppressed": "was deliberately omitted by the authored dimension set",
+        "suppressed": "was deliberately omitted by authored intent",
         "missing": "has no placed, suppressed, or dropped measurement outcome",
         "unverifiable": "cannot be joined to measurement provenance without guessing",
     }

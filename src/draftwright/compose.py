@@ -58,7 +58,7 @@ from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
-from draftwright.model.callout import hole_callout_spec, hole_callout_suffix
+from draftwright.model.callout import hole_callout_batches, hole_callout_suffix
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import angular_pattern_label, plan_dimensions
 from draftwright.view_plan import (
@@ -262,14 +262,12 @@ def _est_planned_bore_callout_width(
     gap = 0.45 * font_size
     sym_w = font_size
     max_w = 0.0
-    for group in groups:
+    for batch in hole_callout_batches(groups):
         # ONE reading of the plan, shared with the renderer (#875 review). This function used to
         # re-derive bore/depth/cbore/suffix itself, and the two drifted: the copy here inferred
         # THRU from a missing depth (the inference #868 removed from the renderer) and ignored
         # `suppressed` entirely, so a callout could be reserved 33 mm and rendered at 14 mm.
-        spec = hole_callout_spec(group)
-        if spec is None:
-            continue
+        spec = batch.spec
         bore = spec["diameter"]
         depth = spec["depth"]
         cbore_dia, cbore_depth = spec["cbore_dia"], spec["cbore_depth"]
@@ -299,7 +297,8 @@ def _est_planned_bore_callout_width(
             )
 
         if spec["through"]:
-            token_w.append(_text_width("THRU", font_size))
+            if indicator := spec.get("through_indicator", "THRU"):
+                token_w.append(_text_width(indicator, font_size))
         elif depth is not None:
             token_w.append(sym_w)  # depth symbol
             token_w.append(_term(depth, "depth_tol", "depth_decimals"))

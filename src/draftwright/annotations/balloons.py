@@ -141,27 +141,29 @@ def render_balloons(
     obstacles = strip_obstacles(dwg, view=view)
     for x0, y0, x1, y1 in obstacles:
         if x1 > pl and x0 < pr:  # spans the plan's width → top/bottom bands
-            if y1 > pt:
+            if y1 > pt and y0 < top_limit:
                 top_dim = max(top_dim, y1 - pt)
-            if y0 < pb:
+            if y0 < pb and y1 > bottom_limit:
                 bot_dim = max(bot_dim, pb - y0)
         if y1 > pb and y0 < pt:  # spans the plan's height → left/right bands
-            if x0 < pl:
+            if x0 < pl and x1 > left_limit:
                 left_dim = max(left_dim, pl - x0)
-            if x1 > pr:
+            if x1 > pr and x0 < right_limit:
                 right_dim = max(right_dim, x1 - pr)
 
-    # A dense part can stack many pitch dims on one side (holes._place_pitch_dim
-    # pushes each successive one 10 mm further out, #92), so the measured depth
-    # can exceed the room between the view and the page edge. Clamp each band so
-    # its *ring itself* never lands off the drawable area (#349 follow-up) — the
-    # ring then sits at the margin and overlaps the far witness lines instead,
-    # which is only a tolerated warning (structural.py compares label_bbox, not
-    # the full bbox, for overlap), never the out_of_bounds error.
-    left_dim = min(left_dim, max(0.0, pl - perimeter_extent - margin))
-    right_dim = min(right_dim, max(0.0, pw - margin - pr - perimeter_extent))
-    top_dim = min(top_dim, max(0.0, top_limit - pt - perimeter_extent))
-    bot_dim = min(bot_dim, max(0.0, pb - perimeter_extent - bottom_limit))
+    # Keep the preferred standoff when it fits. A shorter standoff may use the
+    # reserved halo only if the entire glyph still clears the measured occupant.
+    # Remote obstacles remain in the final shaft/glyph collision checks; they do
+    # not set the depth of a band they cannot intersect.
+    def fitted_depth(occupied, room):
+        available = room - perimeter_extent
+        minimum = max(0.0, occupied + 2 * r + _STRIP_SPACING - perimeter_extent)
+        return min(occupied, available) if available >= minimum else occupied
+
+    left_dim = fitted_depth(left_dim, pl - left_limit)
+    right_dim = fitted_depth(right_dim, right_limit - pr)
+    top_dim = fitted_depth(top_dim, top_limit - pt)
+    bot_dim = fitted_depth(bot_dim, pb - bottom_limit)
 
     # A bottom band (below PV, beyond the overall-width dim) is usable only
     # when the FV↔PV gap has room for the width dim *and* a balloon row;
