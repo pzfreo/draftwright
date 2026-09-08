@@ -195,6 +195,14 @@ def test_matching_wording_groups_without_collapsing_owners(second_indicator, exp
     if expected_count == 1:
         name, callout = callouts[0]
         assert "2×" in callout.label
+        for inconsistent_count in (1, 3):
+            callout.covers_count = inconsistent_count
+            conflicting = _index_hole_evidence(drawing.registry)
+            assert all(
+                not conflicting.requirement_counts.get((feature, "grouping.count"))
+                for feature in model.features
+            )
+        callout.covers_count = 2
         drawing.pin(name)
         with drawing.deferred():
             # An unrelated pending edit must wait until the outer batch ends.
@@ -376,3 +384,84 @@ def test_grouping_respects_content_support_and_placement_constraints(difference)
     assert sum(batch.spec["count"] or 1 for batch in batches) == (
         3 if difference == "count" else 2
     )
+
+
+@pytest.mark.parametrize("side", range(4))
+@pytest.mark.parametrize("overshoot,expected", [(1e-13, False), (1e-6, True)])
+def test_page_bounds_ignore_only_numerical_roundoff(side, overshoot, expected):
+    from types import SimpleNamespace
+
+    from draftwright.builder import _annotations_out_of_bounds
+    from draftwright.linting.structural import _overshoots
+
+    bounds = (10.0, 10.0, 110.0, 90.0)
+    measured = list(bounds)
+    measured[side] += -overshoot if side < 2 else overshoot
+    shape = SimpleNamespace(
+        bounding_box=lambda: SimpleNamespace(
+            min=SimpleNamespace(X=measured[0], Y=measured[1]),
+            max=SimpleNamespace(X=measured[2], Y=measured[3]),
+        )
+    )
+    drawing = SimpleNamespace(
+        iter_annotations=lambda: iter([("edge", shape)]),
+        view_of=lambda _name: "plan",
+    )
+    analysis = SimpleNamespace(margin=10.0, PAGE_W=120.0, PAGE_H=100.0)
+    assert bool(_overshoots(measured, bounds)) is expected
+    assert _annotations_out_of_bounds(drawing, analysis) is expected
+
+
+@pytest.mark.parametrize("patterned", [False, True])
+@pytest.mark.parametrize("indicator", ["", "THROUGH ALL"])
+def test_profiled_bore_wording_replays_without_losing_profile(patterned, indicator, tmp_path):
+    from build123d import Cylinder, Pos
+
+    from draftwright.audit import compare_measurements
+    from draftwright.model import double_d_bore
+    from draftwright.sheet_emit import emit_sheet_script
+
+    tool = Cylinder(5, 20) & Box(7.2, 30, 20)
+    points = ((-12, 0, 0), (12, 0, 0)) if patterned else ((0, 0, 0),)
+    part = Box(50, 30, 10)
+    for point in points:
+        part -= Pos(*point) * tool
+    sheet = Sheet(part, page="A3", scale=1).authored_dimensions()
+    if patterned:
+        member = double_d_bore(tool, through_indicator=indicator)
+        handle = sheet.pattern(member, kind="linear", count=2, pitch=24, members=points)
+        sheet.dimension(handle, "pitch.length")
+    else:
+        handle = sheet.double_d_bore(tool, through_indicator=indicator)
+    sheet.dimension(handle, "bore.diameter")
+    sheet.dimension(handle, "profile_across_flats.length")
+    sheet.dimension(handle, "location")
+    direct = sheet.build()
+    script = emit_sheet_script(
+        sheet.model(),
+        "part = supplied_part",
+        str(tmp_path / "profile"),
+        title="PROFILE",
+        number="PROFILE",
+        page="A3",
+        scale=1,
+        formats=("svg",),
+    )
+    namespace = {"supplied_part": part}
+    exec(script, namespace)
+    replay = namespace["drawing"]
+    original = sheet.model().features[0]
+    recreated = namespace["sheet"].model().features[0]
+    bore = recreated.member if patterned else recreated
+    assert bore.through_indicator == indicator and bore.through
+    assert bore.profile == "double_d" and bore.across_flats == 7.2
+    assert (
+        compare_measurements(direct, replay, feature_pairs=((original, recreated),))["status"]
+        == "preserved"
+    )
+    marks = [
+        a for _, a in replay.iter_annotations() if getattr(a, "covers_diameters", ()) == (10,)
+    ]
+    assert len(marks) == 1 and marks[0].covers_count == len(points)
+    assert "7.2" in marks[0].label
+    assert (indicator in marks[0].label) if indicator else ("THRU" not in marks[0].label)

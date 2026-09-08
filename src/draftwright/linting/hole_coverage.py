@@ -643,7 +643,16 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         explicit_keys = {
             (feature, requirement) for feature, requirement, _count in explicit_requirements
         }
+        # A grouped callout's total printed quantity and member allocations must
+        # agree. Conflicting facts cannot certify a quantity for any batch owner.
+        shared_count_agrees = len(getattr(annotation, "source_features", ())) <= 1 or sum(
+            count
+            for _feature, requirement, count in explicit_requirements
+            if requirement == "grouping.count"
+        ) == getattr(annotation, "covers_count", None)
         for feature, requirement, count in explicit_requirements:
+            if requirement == "grouping.count" and not shared_count_agrees:
+                continue
             requirement_counts[(feature, requirement)].add(int(count))
             record_representation(feature, requirement)
         for feature in diameter_features:

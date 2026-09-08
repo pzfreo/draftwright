@@ -1889,8 +1889,9 @@ def test_retained_fit_leader_crossing_rolls_the_automatic_table_back():
     assert "hole_requirement_missing" not in {issue.code for issue in drawing.lint()}
 
 
+@pytest.mark.parametrize("projection", [None, "first", "third"])
 @pytest.mark.parametrize("indicator", ["", "THROUGH ALL"])
-def test_automatic_table_preserves_authored_through_wording(indicator):
+def test_automatic_table_preserves_authored_through_wording(indicator, projection):
     part = _dense_perimeter_plate()
     model = detect_part_model(part)
     holes = [feature for feature in model.features if feature.kind == "hole"]
@@ -1899,7 +1900,8 @@ def test_automatic_table_preserves_authored_through_wording(indicator):
         replace(feature, through_indicator=indicator) if feature.kind == "hole" else feature
         for feature in model.features
     ]
-    drawing = build_drawing(part, model=model, page="A3")
+    drawing = build_drawing(part, model=model, page="A3", projection=projection)
+    assert ("projection_symbol" in drawing.annotations()) is (projection is not None)
     assert "hole_table_plan" in drawing.annotations()
     table = drawing.get_annotation("hole_table_plan")
     depth_column = table.table_rows[0].index("DEPTH")

@@ -288,6 +288,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     callout.covers_hole_requirements_by_feature = tuple(
         (owner, requirement, owner_count)
         for owner, owner_count in spec.get("owner_counts", ())
+        if len(spec.get("owner_counts", ())) > 1
         for requirement in (
             "grouping.count",
             *(("bore.through",) if "bore.through" in callout.covers_hole_requirements else ()),

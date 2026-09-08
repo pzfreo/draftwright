@@ -307,10 +307,10 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "section",
     "details",
     "title_block",
+    "projection_symbol",
     "tabulate",
     "sheet_frame",
     "zone_grid",
-    "projection_symbol",
 )
 
 
@@ -901,7 +901,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_tabulate():
         # Escalate to a hole table when the plan view is too dense to dimension
         # every hole — runs last so the table avoids every placed annotation
-        # including the title block (#93).
+        # including the title block and projection symbol (#93/#1517).
         _maybe_tabulate_holes(dwg, a, ctx=ctx, plan=_compiled)
 
     run_stages(

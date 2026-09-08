@@ -428,9 +428,9 @@ class TestTheEstimatorAgreesWithTheRenderer:
     def test_the_estimator_sees_the_same_spec_the_renderer_does(self):
         """The structural claim, not just its two symptoms: one reading, two consumers."""
         import draftwright.compose as compose
-        from draftwright.model.callout import hole_callout_spec as canonical
+        from draftwright.model.callout import hole_callout_batches as canonical
 
-        assert compose.hole_callout_spec is canonical
+        assert compose.hole_callout_batches is canonical
 
 
 class TestFurnitureIsSizedByTheFeature:

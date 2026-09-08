@@ -2397,6 +2397,19 @@ def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
     return by_view, feat_of_callout, side_of_callout
 
 
+def _callout_member_owner(callout, location, fallback):
+    """Name the exact IR owner of the member selected by the placement candidate.
+
+    Batch membership supplies the correspondence; no nearest physical feature or
+    global location lookup may substitute a different owner after placement.
+    """
+    owners = tuple(getattr(callout, "source_features", ()))
+    if not owners:
+        return fallback
+    matches = [owner for owner in owners if location in (owner.members or (owner.frame.origin,))]
+    return matches[0] if len(matches) == 1 else None
+
+
 def _hc_name(only, view, i, hc_used):
     """The callout name for view *view* at index *i* (#638; the #430 first-free scheme).
 
@@ -2494,7 +2507,7 @@ def _place_front_callouts(
             )
 
         cands.append((name, _build))
-        features[name] = feat_of_callout.get(id(callout))
+        features[name] = _callout_member_owner(callout, rep, feat_of_callout.get(id(callout)))
         priorities[name] = dia
         forbid[name] = tb_box
         furniture[name] = (i, feat)
@@ -2703,7 +2716,7 @@ def _place_queue(
         i = start_i
         for s in queue:
             _locs, dia, callout, feat, natural_y, _rep = s
-            owner = feat_of_callout.get(id(callout))
+            owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
             requested_side = side_of_callout.get(id(callout))
             ys: list[float] = []
             for y in (
@@ -2947,7 +2960,7 @@ def _place_queue(
             leader,
             name,
             view=view,
-            feature=feat_of_callout.get(id(callout)),
+            feature=_callout_member_owner(callout, s[5], feat_of_callout.get(id(callout))),
             measurement=callout.measurements,
         )
         # A plain (unpatterned) plan callout is a scattered-hole-table candidate
