@@ -148,15 +148,22 @@ because it is what let a single call silently declare two dimensions.
 the **escape hatch of last resort** (ADR 0012) and is deprecated: it bypasses the
 layout solve, so nothing re-flows around it.
 
-**Add a diameter callout on a hole the auto-pass missed** — find the bore in the
-model IR and hand it to `callout()`. This is what the `feature_not_dimensioned`
-lint suggestion hands you (it emits `dwg.callout(f)` — say *what*, not *where*):
+**Add a callout on a hole the auto-pass missed** — inspect its semantic requirement
+finding first. Equal diameters can belong to different axes, blind depths, threads
+or fits; a diameter-total warning never authorises increasing a callout count.
 
 ```python
-for f in dwg.model().features:
-    if f.kind == "hole" and abs(f.diameter - 4.0) < 0.2:
-        dwg.callout(f)                   # engine picks the view, leader and elbow
+for issue in dwg.lint():
+    if issue.code.startswith("hole_requirement_"):
+        print(issue.message)
+        if issue.suggestion:
+            print(issue.suggestion)
 ```
+
+For a verified missing bore on an automatic model, the suggestion targets the exact
+feature with `dwg.callout(...)` through the shared solve. It applies to that Drawing;
+re-run lint after rebuilding. Authored omissions, unverified ownership and conflicting
+counts require inspection of the declared operation rather than an automatic count edit.
 
 **Free text** at a chosen point is `note()` — a domain verb, not an escape hatch:
 
