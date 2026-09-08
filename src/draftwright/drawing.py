@@ -83,6 +83,7 @@ from draftwright.export import (
     add_svg_metadata,
     canonicalize_svg,
     fix_svg_page_size,
+    highlight_svg_annotation,
     sanitize_svg_arcs,
     set_dxf_metadata,
     write_dxf,
@@ -137,7 +138,7 @@ from draftwright.linting import (
 )
 from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
-from draftwright.linting.quality import quality_components
+from draftwright.linting.quality import quality_components, review_explanation
 from draftwright.linting.section_recess_coverage import lint_section_recess_coverage
 from draftwright.projection import (
     part_material_mesh,
@@ -3459,6 +3460,37 @@ class Drawing:
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._registry.named(name)
 
+    def preview_annotation(self, name: str, path: str | os.PathLike) -> str:
+        """Write a diagnostic SVG highlighting a placed annotation and its drawn tip.
+
+        Includes the owning view when known. This is a snapshot of current ink, not a
+        physical-target certificate. It neither finalizes edits nor alters the drawing or
+        its export paths. Finish a deferred edit before requesting a preview. Unknown names
+        raise ``KeyError``; missing ink bounds or a non-SVG path raise ``ValueError``.
+        """
+        if self._defer_intents or self._intents:
+            raise ValueError("finish deferred edits before previewing an annotation")
+        annotation = self.get_annotation(name)
+        if annotation is None:
+            raise KeyError(name)
+        destination = os.fspath(path)
+        if os.path.splitext(destination)[1].lower() != ".svg":
+            raise ValueError("annotation previews require an .svg destination")
+        if not hasattr(annotation, "bounding_box"):
+            raise ValueError(f"{name}: annotation ink bounds unavailable")
+        box = annotation.bounding_box()
+        bounds = (box.min.X, box.min.Y, box.max.X, box.max.Y)
+        view = self.view_of(name)
+        context = self.view_bounds(view) if view is not None and view in self.views else bounds
+        tip = getattr(annotation, "tip", None)
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(destination) or ".") as temporary:
+            svg_path = self._write_svg(os.path.join(temporary, "preview"))
+            highlight_svg_annotation(
+                svg_path, name=name, view=view, bounds=bounds, context=context, tip=tip
+            )
+            os.replace(svg_path, destination)
+        return destination
+
     def note(self, text, at, *, view=None, rotation=0.0, name=None, align=None):
         """Add a free-form text **note** at page position *at* — ``(x, y)`` in mm from the sheet
         origin, the space :meth:`at` / :meth:`view_bounds` return (#817).
@@ -4314,6 +4346,7 @@ class Drawing:
           composite drawing-quality score is manufactured (#1127). Legibility's existing
           severity/code counts are raw findings; its ``primary_*`` counts and scalar group
           producer-identified pair findings by annotation and failure mechanism (#1147);
+        - ``review`` — concise explanations of those existing observations and their limits;
         - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
         - ``by_code`` — per-check counts;
         - ``geometry_issues`` — count of standards/geometry-correctness issues
@@ -4406,6 +4439,9 @@ class Drawing:
             "score": score,
             "diagnostic_score": score,
             "quality": quality,
+            "review": review_explanation(
+                quality=quality, errors=errors, warnings=warnings, score=score
+            ),
             "errors": errors,
             "warnings": warnings,
             "infos": infos,
@@ -4424,6 +4460,9 @@ class Drawing:
                         else {}
                     ),
                     **({"source_ids": i.source_ids} if i.source_ids else {}),
+                    **({"annotation_name": i.annotation_name} if i.annotation_name else {}),
+                    **({"view": i.view} if i.view is not None else {}),
+                    **({"evidence_reason": i.evidence_reason} if i.evidence_reason else {}),
                     **(
                         {"outcome_stage": i.outcome_stage}
                         if getattr(i, "outcome_stage", None) is not None

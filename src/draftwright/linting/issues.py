@@ -45,6 +45,11 @@ class LintIssue:
     # share it; this parallel tuple lets completeness distinguish which member was dropped.
     # Empty for families whose identity is already occurrence-specific.
     measurement_spans: tuple = ()
+    # Producer-recorded inspection references. Names belong to this Drawing's registry;
+    # they are not persistent feature or occurrence IDs and must never be parsed from text.
+    annotation_name: str | None = None
+    view: str | None = None
+    evidence_reason: str | None = None
 
 
 def is_placement_drop(issue: LintIssue) -> bool:
