@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from draftwright.model.declare import (
     angle,
+    angle_pattern,
     blend,
     boss,
     chamfer,
@@ -63,6 +64,7 @@ from draftwright.model.detect import build_part_model, build_pmi_features
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AngleFeature,
+    AnglePatternFeature,
     AngularReference,
     AuthoredDimension,
     BlendFeature,
@@ -127,7 +129,9 @@ from draftwright.view_plan import UncoveredViewRequirement, ViewPlanIncomplete
 
 __all__ = [
     "AngleFeature",
+    "AnglePatternFeature",
     "angle",
+    "angle_pattern",
     "AngularReference",
     "AuthoredDimension",
     "AUTHORED_DIMENSION_KINDS",

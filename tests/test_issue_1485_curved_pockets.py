@@ -218,9 +218,10 @@ def test_repeated_curved_pockets_keep_one_group_and_every_original_occurrence(tm
     drawing = build_drawing(part)
     recognition = drawing.recognition()
     assert len(recognition.section_recesses) == 3
-    # Released 0.2.3 repeats this exact assertion. Keep the aggregate intact while
-    # projecting one physical group, and retain all three source occurrence identities.
-    first, second = recognition.section_recess_patterns
+    # The released aggregate now emits this physical group once. Keep the
+    # consumer's exact-duplicate guard exercised with an equal-valued copy.
+    (first,) = recognition.section_recess_patterns
+    second = replace(first)
     assert first == second and first is not second
     from draftwright.section_recess_contract import distinct_section_recess_patterns
 

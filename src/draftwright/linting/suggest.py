@@ -109,11 +109,22 @@ def _suggest_fix(issue, dwg) -> str | None:
         )
 
     if code == "step_dim_dropped":
-        # Steps too closely spaced to dimension at sheet scale (#41/#42).
+        # This code covers two different measurement families. Prismatic
+        # height ladders have automatic detail recovery; turned axial chains
+        # need an authored profile detail. Use provenance, not message wording.
+        kinds = {identity.feature.kind for identity in issue.measurement_ids}
+        if kinds == {"step_level"}:
+            return (
+                "# Recover crowded prismatic heights in an enlarged detail view:\n"
+                "dwg = build_drawing(part, detail_view=True)"
+            )
+        if kinds != {"step"}:
+            return None
         return (
-            "# Re-build with an enlarged detail view so the crowded shoulders are "
-            "dimensionable:\n"
-            "dwg = build_drawing(part, detail_view=True)"
+            "# In the declared Sheet script, target the affected step handle with an\n"
+            "# authored profile detail. Its scale must fit the available sheet space:\n"
+            'sheet.detail_view("A", around=shoulder).scale(3)\n'
+            "dwg = sheet.build()"
         )
 
     if code == "plate_thickness_dropped":

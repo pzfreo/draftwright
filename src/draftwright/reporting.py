@@ -18,10 +18,11 @@ if TYPE_CHECKING:
     from quiddity.evidence import RecognitionEvidence
 
     from draftwright.model import PartModel
+    from draftwright.profile_angles import ProfileAngle
     from draftwright.recognition_ownership import RecognitionOwnership
 
 REPORT_SCHEMA = "draftwright-report"
-REPORT_SCHEMA_VERSION = 2
+REPORT_SCHEMA_VERSION = 3
 _DISPOSITIONS = (
     "represented",
     "absorbed",
@@ -194,6 +195,7 @@ def _annotation_names(index: _AnnotationIndex, outcome: object) -> list[str]:
 def _requirements(
     *,
     evidence: RecognitionEvidence,
+    ownership: RecognitionOwnership,
     model: PartModel,
     occurrences: list[dict[str, Any]],
     registry: object,
@@ -203,6 +205,8 @@ def _requirements(
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, list[str]], set[str]]:
     """Project the recognition-owned semantic denominator exactly once."""
+
+    from draftwright.profile_angles import profile_angle_requirements
 
     if requirement_outcomes is None:
         from draftwright.linting.requirements import recognized_requirement_outcomes
@@ -214,6 +218,25 @@ def _requirements(
             omissions,
             dimension_plan=dimension_plan,
             part=part,
+            evidence=evidence,
+            ownership=ownership,
+        )
+
+    expected_profiles = Counter(
+        (id(item.source), item.first_index, item.second_index)
+        for item in profile_angle_requirements(evidence)
+    )
+    reported_profiles = Counter(
+        (
+            id(item.source_profile.source),
+            item.source_profile.first_index,
+            item.source_profile.second_index,
+        )
+        for item in requirement_outcomes.get("outer_profile_angles", ())
+    )
+    if reported_profiles != expected_profiles:
+        raise ReportUnavailableError(
+            "profile requirement ledger differs from the issued denominator"
         )
 
     occurrence_ids: dict[int, tuple[object, str]] = {}
@@ -232,6 +255,8 @@ def _requirements(
     requirements: list[dict[str, Any]] = []
     by_occurrence: dict[str, list[str]] = {key: [] for key in occurrences_by_id}
     inapplicable_occurrences: set[str] = set()
+    profile_ids: dict[int, str] = {}
+    support_ids: dict[tuple[int, int], str] = {}
 
     for family, outcomes in requirement_outcomes.items():
         for outcome in outcomes:
@@ -241,7 +266,36 @@ def _requirements(
                     f"recognized requirement family {family!r} has invalid state {state!r}"
                 )
             source_records = _outcome_records(outcome)
-            if not source_records:
+            profile: ProfileAngle | None = getattr(outcome, "source_profile", None)
+            profile_source = None
+            if profile is not None:
+                if family != "outer_profile_angles" or source_records:
+                    raise ReportUnavailableError(
+                        "profile requirement has conflicting source kinds"
+                    )
+                source = profile.source
+                try:
+                    if evidence.planar_outer_profile(source.face) is not source:
+                        raise ValueError("profile does not belong to this evidence run")
+                    for index in (profile.first_index, profile.second_index):
+                        evidence.profile_edge(source, index)
+                except (AttributeError, TypeError, ValueError, IndexError) as exc:
+                    raise ReportUnavailableError(
+                        "profile requirement has no exact issued source"
+                    ) from exc
+                # Allocate document IDs on first use; no opaque reference or
+                # provider topology/support index is serialized.
+                profile_id = profile_ids.setdefault(id(source), f"profile:{len(profile_ids) + 1}")
+                pair_ids = [
+                    support_ids.setdefault((id(source), index), f"support:{len(support_ids) + 1}")
+                    for index in (profile.first_index, profile.second_index)
+                ]
+                profile_source = {
+                    "kind": "planar_outer_profile",
+                    "profile_id": profile_id,
+                    "support_ids": pair_ids,
+                }
+            if not source_records and profile_source is None:
                 raise ReportUnavailableError(
                     f"recognized requirement family {family!r} has no exact source records"
                 )
@@ -282,6 +336,17 @@ def _requirements(
                 },
                 key=owner_order.__getitem__,
             )
+            if profile_source is not None:
+                final_owners = _feature_ids(model)
+                owner_ids = []
+                for feature in getattr(outcome, "features", ()):
+                    matched = final_owners.get(id(feature))
+                    if matched is None or matched[0] is not feature:
+                        raise ReportUnavailableError(
+                            "profile requirement has a non-final IR owner"
+                        )
+                    owner_ids.append(matched[1]["id"])
+                owner_ids.sort(key=owner_order.__getitem__)
             annotations = _annotation_names(annotation_index, outcome)
             representation = getattr(outcome, "representation", None)
             representation_reason = getattr(outcome, "representation_reason", None)
@@ -307,6 +372,11 @@ def _requirements(
                         "annotations": annotations,
                         "representation": representation,
                         "representation_reason": representation_reason,
+                        **(
+                            {"profile_source": profile_source}
+                            if profile_source is not None
+                            else {}
+                        ),
                     }
                 )
                 for occurrence_id in source_ids:
@@ -355,7 +425,7 @@ def validate_report_inputs(
     if evidence is None or ownership is None or ownership.evidence is not evidence:
         raise ReportUnavailableError(
             "accepted occurrence ownership is unavailable for this drawing; "
-            "raw automatic recognition is required by report schema version 2"
+            "raw automatic recognition is required by report schema version 3"
         )
     if model is None:
         raise ReportUnavailableError("the drawing has no final IR model")
@@ -440,6 +510,7 @@ def project_occurrences(
     if registry is not None:
         requirements, by_occurrence, inapplicable = _requirements(
             evidence=evidence,
+            ownership=ownership,
             model=model,
             occurrences=projected,
             registry=registry,
@@ -486,7 +557,7 @@ def drawing_report(
     part: object | None = None,
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
 ) -> dict[str, object]:
-    """Build the strict schema-v2 report for one raw automatic drawing.
+    """Build the strict schema-v3 report for one raw automatic drawing.
 
     ``bounded-clear`` means only that this report found no known occurrence, semantic
     requirement, or lint blocker. It is deliberately not manufacturing readiness: recognition
@@ -523,9 +594,10 @@ def drawing_report(
         "source": _source(source),
         "outputs": {},
         "recognition": {
-            "coverage": "accepted-occurrences",
+            "coverage": "accepted-occurrences-and-profile-requirements",
             "identity_scope": "report-local",
             "occurrences": occurrences,
+            "owners": [owner for _feature, owner in _feature_ids(model).values()],
             "requirements": requirements,
             "summary": summary,
         },

@@ -64,6 +64,7 @@ from draftwright.compose import _est_table_size
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import angle as _angle
+from draftwright.model import angle_pattern as _angle_pattern
 from draftwright.model import blend as _blend
 from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
@@ -547,9 +548,20 @@ class _Dim(_Nameable):
     ) -> _Dim:
         """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
         limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
-        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD).
+        a multi-dim feature — a step's ``"length"`` (default) vs its ``"diameter"`` (OD),
+        or its canonical parameter id such as ``"step.length"``.
         ``source`` / ``source_ids`` retain provenance on generated imported requirements."""
-        self._sheet._tolerances[(self._token, on or self._kind)] = _tolerance_decoration(
+        parameters = self._sheet._features[self._i].parameters()
+        target = on or self._kind
+        exact = [parameter for parameter in parameters if parameter.parameter_id == target]
+        if len(exact) == 1:
+            target = exact[0].kind
+        if sum(parameter.kind == target for parameter in parameters) != 1:
+            raise ValueError(
+                f"on={on!r} must name one parameter of this feature; "
+                f"choose from {sorted(parameter.parameter_id for parameter in parameters)}"
+            )
+        self._sheet._tolerances[(self._token, target)] = _tolerance_decoration(
             lo, hi, source=source, source_ids=source_ids
         )
         return self
@@ -1765,6 +1777,16 @@ class Sheet:
         No number or annotation radius is authored.
         """
         self._features.append(_angle(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def angle_pattern(self, *members) -> _Params:
+        """Declare repeated AngularReference corners with independent member IDs.
+
+        The parameters are ``included.angle.member1``, ``member2``, etc. An
+        authored omission retains the other member identities; tolerances may
+        target one full parameter ID or the whole included-angle family.
+        """
+        self._features.append(_angle_pattern(*members))
         return _Params(self, len(self._features) - 1)
 
     def circular_blind_step(self, **kw) -> _Params:

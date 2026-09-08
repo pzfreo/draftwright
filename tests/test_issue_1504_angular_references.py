@@ -13,17 +13,20 @@ from draftwright.sheet_emit import _measured_dimension_line
 
 @pytest.mark.parametrize("angle", (12.850620352742, 30, 60, 90, 120, 179))
 @pytest.mark.parametrize("length", (0.001, 1, 1000))
-def test_reference_measures_the_selected_rays_in_degrees(angle, length):
+@pytest.mark.parametrize("sector", ("minor", "opposite"))
+def test_reference_measures_the_selected_rays_in_degrees(angle, length, sector):
     reference = AngularReference(
         vertex=(4, -3, 2),
         first=(4 + length, -3, 2),
         second=(4 + length * cos(radians(angle)), -3 + length * sin(radians(angle)), 2),
+        sector=sector,
     )
     assert reference.angle_degrees == pytest.approx(angle, abs=1e-8)
     assert reference.principal_axis == "Z"
     reversed_rays = replace(reference, first=reference.second, second=reference.first)
     assert reversed_rays.angle_degrees == pytest.approx(angle, abs=1e-8)
     assert reversed_rays.normal == pytest.approx(tuple(-v for v in reference.normal))
+    assert reference.rays[0][0] == (1 if sector == "minor" else -1)
 
 
 @pytest.mark.parametrize(
@@ -53,13 +56,15 @@ def test_oblique_plane_is_not_misidentified_as_a_principal_projection():
     assert reference.principal_axis == "?"
 
 
-def test_explicit_reference_survives_executed_sheet_emission():
+@pytest.mark.parametrize("sector", ("minor", "opposite"))
+def test_explicit_reference_survives_executed_sheet_emission(sector):
     # Short rays would lose their angle if the emitter rounded these points to 3dp.
     reference = AngularReference(
         vertex=(0, 0, 0),
         first=(0.000123456789, 0, 0),
         second=(0.0000617283945, 0.000106916715543, 0),
         virtual_vertex=True,
+        sector=sector,
     )
     original = measured_dimension(
         kind="angular",

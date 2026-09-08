@@ -206,6 +206,10 @@ def _label_reading(item, label: str) -> float | None:
     If another per-unit producer appears untagged it will report a large false discrepancy —
     loudly, as an error — which is the right failure mode for a missing tag.
     """
+    if getattr(item, "measured_angle", None) is not None:
+        # Repeated angles count corners; they never multiply the displayed
+        # degrees into a longer path. Read the actual label, not a value rider.
+        return _label_value(re.sub(r"^\s*[1-9]\d*\s*[×x]\s*", "", label))
     declared = getattr(item, "_dw_label_value", None)
     return float(declared) if declared is not None else _label_value(label)
 
@@ -1041,7 +1045,24 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
             else None
         )
 
-    return overlap((cl_min_x, cl_min_y, cl_max_x, cl_max_y))
+    result = overlap((cl_min_x, cl_min_y, cl_max_x, cl_max_y))
+    if result is None:
+        return None
+    # Circular helper strokes have no linear segment metadata. Their aggregate
+    # box includes the empty centre and the corners outside the ring. Check the
+    # rendered edges through the same geometric gate used for projected ink.
+    # Duck-typed items without inspectable edges keep the conservative fallback.
+    key = ("centerline_edges", id(cl_item))
+    token = _loc_token(cl_item)
+    hit = box_cache.get(key)
+    if hit is not None and hit[0] is cl_item and hit[1] == token:
+        edges = hit[2]
+    else:
+        edges = _view_edge_entries(cl_item, {})
+        box_cache[key] = (cl_item, token, edges)
+    if edges and not _edges_intersect_rect(edges, label_bbox):
+        return None
+    return result
 
 
 #: At or above this relative discrepancy a dimension does not merely round differently from

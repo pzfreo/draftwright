@@ -14,13 +14,13 @@ from draftwright.linting.angular import lint_angular_geometry
 from draftwright.model import AngularReference
 
 
-def _angle_sheet(angle=60, rotation=(0, 0, 0), **options):
+def _angle_sheet(angle=60, rotation=(0, 0, 0), *, sector="minor", **options):
     end = (30 * cos(radians(angle)), 30 * sin(radians(angle)))
     part = extrude(Polygon((0, 0), (30, 0), end, align=None), amount=3)
     transform = Rot(*rotation)
     points = ((0, 0, 3), (15, 0, 3), (end[0] / 2, end[1] / 2, 3))
     vertex, first, second = [tuple((transform * Vertex(*point)).center()) for point in points]
-    reference = AngularReference(vertex, first, second)
+    reference = AngularReference(vertex, first, second, sector=sector)
     part = transform * part
     sheet = Sheet(part, **options)
     sheet.measured_dimension(
@@ -56,8 +56,9 @@ def drawing_draft():
 )
 @pytest.mark.parametrize("angle", (60, 120))
 @pytest.mark.parametrize("scale", (1, 2))
-def test_declared_angles_use_true_views_at_each_scale(rotation, view, angle, scale):
-    sheet, _, reference = _angle_sheet(angle, rotation, scale=scale)
+@pytest.mark.parametrize("sector", ("minor", "opposite"))
+def test_declared_angles_use_true_views_at_each_scale(rotation, view, angle, scale, sector):
+    sheet, _, reference = _angle_sheet(angle, rotation, scale=scale, sector=sector)
     drawing = sheet.build()
     name, annotation = _angle_annotation(drawing)
     assert drawing.view_of(name) == view
@@ -77,7 +78,7 @@ def test_declared_angles_use_true_views_at_each_scale(rotation, view, angle, sca
             "annotation_out_of_bounds",
         }
     ]
-    assert [issue for issue in drawing.lint() if issue.code == "angular_support_unverifiable"]
+    assert not [issue for issue in drawing.lint() if issue.code.startswith("angular_support_")]
 
 
 def test_angular_intent_enters_the_shared_corridor_trace(tmp_path):
@@ -90,8 +91,34 @@ def test_angular_intent_enters_the_shared_corridor_trace(tmp_path):
         candidate["name"] == name for solve in data["solves"] for candidate in solve["candidates"]
     )
     fidelity = drawing.lint_summary()["quality"]["fidelity"]
-    assert fidelity["by_code"]["angular_support_unverifiable"] == 1
-    assert fidelity["score"] < 1
+    assert fidelity["by_code"].get("angular_support_unverifiable", 0) == 0
+    assert fidelity["score"] == 1
+
+
+def test_compaction_only_considers_the_current_candidate_set(monkeypatch):
+    from draftwright.annotations import _common
+
+    place = _common.place_strip_candidates
+    checked = []
+
+    def outside_batch():
+        pytest.fail("a retry must not compact an annotation outside its candidate set")
+
+    def with_shared_options(drawing, strip, view, axis, candidates, tier, **kwargs):
+        # Corridor retries share option maps with the original batch, while
+        # their candidate list contains only the unplaced remainder.
+        assert "already_placed_angle" not in {name for name, _build in candidates}
+        kwargs["compact_candidates"] = {
+            **(kwargs.get("compact_candidates") or {}),
+            "already_placed_angle": outside_batch,
+        }
+        checked.append(bool(candidates))
+        return place(drawing, strip, view, axis, candidates, tier, **kwargs)
+
+    monkeypatch.setattr(_common, "place_strip_candidates", with_shared_options)
+    sheet, _, _ = _angle_sheet()
+    _angle_annotation(sheet.build())
+    assert any(checked)
 
 
 def test_insufficient_arc_clearance_is_a_reported_drop_not_a_render_exception():
@@ -138,8 +165,9 @@ def test_moved_angular_metadata_tracks_its_visible_geometry():
     ]
 
 
-def test_lint_rejects_visible_ink_rotated_away_from_its_reference_sector():
-    sheet, _, _ = _angle_sheet()
+@pytest.mark.parametrize("sector", ("minor", "opposite"))
+def test_lint_rejects_visible_ink_rotated_away_from_its_reference_sector(sector):
+    sheet, _, _ = _angle_sheet(sector=sector)
     drawing = sheet.build()
     _, annotation = _angle_annotation(drawing)
     assert not [
@@ -166,8 +194,9 @@ def test_lint_rejects_visible_ink_rotated_away_from_its_reference_sector():
 @pytest.mark.parametrize("angle", (12.85062, 60, 120, 175))
 @pytest.mark.parametrize("extra_radius", (0, 15))
 @pytest.mark.parametrize("rotation", (0, 90, 180, 270))
+@pytest.mark.parametrize("sector", ("minor", "opposite"))
 def test_radius_dependent_footprint_contains_real_ink(
-    angle, extra_radius, rotation, drawing_draft
+    angle, extra_radius, rotation, drawing_draft, sector
 ):
     # Probe the primitive, not the planner's prediction, so an under-sized
     # footprint cannot make both sides of this check agree by construction.
@@ -177,6 +206,7 @@ def test_radius_dependent_footprint_contains_real_ink(
         (15 * cos(radians(angle + rotation)), 15 * sin(radians(angle + rotation))),
         f"{angle}°",
         drawing_draft,
+        sector=sector,
     )
     radius = ink.minimum_radius + extra_radius
     annotation = ink.build(radius)

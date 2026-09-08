@@ -91,8 +91,12 @@ for finding in drawing.lint():
     print(finding.code, finding.message)
 ```
 
-The supported sector is the non-reflex angle between the two directed rays.
-Reversing their order preserves that angle. For extended supports meeting beyond
+The default `sector="minor"` is the non-reflex angle towards the two witness
+points. `sector="opposite"` selects the vertically opposite sector, extending
+both supports through the vertex. It preserves the numerical angle and can keep
+an exterior dimension beside its corner. The engine never silently switches
+between these sectors or substitutes a supplementary angle.
+Reversing witness order preserves the selected angle. For extended supports meeting beyond
 a rounded corner, use `virtual_vertex=True`; this declares the virtual
 intersection without asserting that the vertex lies on a physical edge.
 Zero-length or collinear rays, oblique planes and unsupported sectors are
@@ -108,6 +112,20 @@ exact feature from `drawing.model()`. Measurement comparison records the angular
 references, so equal-valued support substitutions cannot appear preserved merely
 because the labels match.
 
+`Sheet.angle_pattern(*references)` declares repeated coplanar corners using
+`AngularReference` values from `draftwright.model`. Each corner remains independently
+addressable as `included.angle.member1`, `included.angle.member2`, and so on, in
+declaration order. Request every member with `dimension()` to permit one quantity
+label such as `3× 60°`. Different member tolerances or side preferences produce
+individual labels; omitting one member suppresses that measurement without renumbering
+the others. The generated script retains the full member geometry and each request.
+
+After the conservative strip solve, curved dimensions have up to three
+corner-local radius alternatives at the existing tier spacing. The shared
+placement stage accepts a shorter radius or recovers a dropped candidate only
+when its actual lines and label clear fixed and same-batch ink and fit the page.
+Pinned dimensions retain their solved position.
+
 The lower-level `measured_dimension(kind="angular", ...)` route retains nominal
 author-supplied text. Its explicit `AngularReference` supplies the same ray
 geometry; plain Sheet-authored three-point `ref_pts` use `(first, vertex, second)`.
@@ -115,10 +133,19 @@ Imported PMI requires explicit ordering. Structured tolerances on that raw route
 remain unsupported; use the canonical declaration for new authored angles.
 Lint compares degree values at their displayed resolution, inspects the visible
 angular ink and checks complete canonical labels against the compiler. Physical
-support correspondence remains `angular_support_unverifiable` pending the
-provider evidence contract in [Quiddity #579](https://github.com/pzfreo/quiddity/issues/579).
-Automatic profile-angle discovery remains tracked in
-[#1504](https://github.com/pzfreo/draftwright/issues/1504).
+critique checks each claimed corner against finite supports in the cached provider
+evidence, including members represented by a quantity label. Unprovable correspondence
+produces `angular_support_unverifiable`; contradictory supports produce
+`angular_support_mismatch`.
+
+Automatic drawings derive outside-profile angular requirements from ordered face
+supports in Quiddity 0.2.6. Angles already defined by a recognised chamfer or
+regular-polygon callout do not add duplicate automatic requirements. This requires
+the same run's exact face or shared-edge evidence, not matching numerical angles;
+explicit angle declarations remain available on those corners.
+Verified profile repetitions can share a quantity label;
+equal numerical angles alone do not establish a pattern. The requirement audit retains
+one outcome per physical corner even when several share one mark.
 
 ## Selecting a hole location component
 
@@ -223,6 +250,12 @@ omission suppresses a view. `add_view(...)`, `add_section_view(...)` and
 `add_detail_view(...)` augment an explicitly selected `auto_views()` source. `row(...)` and
 `column(...)` are shorthand for whole-view relations. A principal-view handle's `pin((x, y))`
 anchors its projection origin in page millimetres; it never positions an annotation.
+
+A detail around a turned step with an approved `step.length` uses a profile view
+and redraws that length through the shared dimension pass. For example,
+`s.detail_view("A", around=shoulder).scale(3)` retains its measurement identity and
+tolerance at three times the sheet scale. Omitted measurements stay omitted. An
+authored recovery detail that cannot place its dimension raises an error.
 
 Principal orthographic views share the sheet scale and reject `.scale(...)`. Detail and
 isometric handles may carry an independent positive factor. Infeasible relations, scales and

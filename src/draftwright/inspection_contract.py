@@ -11,12 +11,13 @@ import copy
 from importlib.metadata import version as distribution_version
 from typing import Any
 
+from quiddity.evidence import evidence_api_manifest
 from quiddity.inspection import inspection_api_manifest
 
 CONSUMER_INSPECTION_FORMAT = "draftwright-inspection-api"
 CONSUMER_INSPECTION_FORMAT_VERSION = 1
 SUPPORTED_INSPECTION_API_MAJOR = 1
-SUPPORTED_RECOGNISER_VERSION = "0.2.5"
+SUPPORTED_RECOGNISER_VERSION = "0.2.6"
 _DISTRIBUTION = "quiddity"
 _PROVIDER_FORMAT = "quiddity-inspection-api"
 _NAMESPACE = "quiddity.inspection"
@@ -190,6 +191,39 @@ def _require_equal(label: str, actual: object, expected: object) -> None:
         raise InspectionContractError(f"{label} mismatch: expected {expected!r}, got {actual!r}")
 
 
+def validate_profile_evidence_contract(package_manifest: dict[str, Any] | None = None) -> None:
+    """Check the released evidence surface consumed by face-profile drafting."""
+    package = evidence_api_manifest() if package_manifest is None else package_manifest
+    _require_equal("evidence format", package.get("format"), "quiddity-evidence-api")
+    _require_equal("evidence format version", package.get("format_version"), 1)
+    _require_equal(
+        "evidence package",
+        package.get("package"),
+        {"name": _DISTRIBUTION, "version": SUPPORTED_RECOGNISER_VERSION},
+    )
+    api = package.get("api")
+    if not isinstance(api, dict):
+        raise InspectionContractError("evidence api must be an object")
+    _require_equal("evidence API major", api.get("major"), 1)
+    _require_equal("evidence namespace", api.get("namespace"), "quiddity.evidence")
+    required = {
+        "RecognitionEvidence",
+        "PlanarOuterProfile",
+        "PlanarOuterProfileEvidence",
+        "ProfileLine",
+        "ProfileArc",
+        "RefusedPlanarOuterProfile",
+        "OuterProfileRefusalReason",
+    }
+    symbols = api.get("symbols")
+    if not isinstance(symbols, list) or not all(isinstance(symbol, str) for symbol in symbols):
+        raise InspectionContractError("evidence symbols must be a list of names")
+    if len(set(symbols)) != len(symbols) or not required.issubset(symbols):
+        raise InspectionContractError(
+            "required profile evidence symbols are missing or duplicated"
+        )
+
+
 def validate_inspection_contract(
     package_manifest: dict[str, Any] | None = None,
     declaration: dict[str, Any] | None = None,
@@ -241,3 +275,4 @@ def validate_inspection_contract(
             "contract": actual.get("contract"),
         }
         _require_equal(f"inspection symbol {name!r}", consumed, expected)
+    validate_profile_evidence_contract()

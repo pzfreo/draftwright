@@ -634,7 +634,7 @@ def _render_detail(
         _log.info("Detail %s skipped (non-finite scale required)", letter)
         return False
     if req.source_view not in dwg.views:
-        if req.keep_without_annotations:
+        if req.keep_without_annotations or req.view_name is not None:
             raise ValueError(
                 f"authored detail {letter!r} from {req.source} needs parent view "
                 f"{req.source_view!r}; add that principal view"
@@ -790,36 +790,26 @@ def _render_detail(
         return False
     dwg._set_view_coordinates(view_name, coords)
 
-    # Marker on the source orthographic view around the band + letter.
-    if req.source_view == "side":
-        zlo = req.cross_lo if req.cross_lo is not None else a.bb.min.Z
-        zhi = req.cross_hi if req.cross_hi is not None else a.bb.max.Z
-        corners = [dwg.at("side", a.bb.max.X, y, z) for y in (req.lo, req.hi) for z in (zlo, zhi)]
-        mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
-        my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
-    elif req.source_view == "plan":
-        corners = [
-            dwg.at("plan", x, y, a.bb.max.Z)
-            for x in (req.lo, req.hi)
-            for y in (
-                req.cross_lo if req.cross_lo is not None else a.bb.min.Y,
-                req.cross_hi if req.cross_hi is not None else a.bb.max.Y,
-            )
-        ]
-        mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
-        my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
-    else:
-        FX, FZ = a.proj.front_x, a.proj.front_z
-        if req.axis == "z":  # band runs along page-y
-            xlo = (
-                req.cross_lo if req.cross_axis == "x" and req.cross_lo is not None else a.bb.min.X
-            )
-            xhi = (
-                req.cross_hi if req.cross_axis == "x" and req.cross_hi is not None else a.bb.max.X
-            )
-            mx0, mx1, my0, my1 = FX(xlo), FX(xhi), FZ(req.lo), FZ(req.hi)
-        else:  # x band runs along page-x
-            mx0, mx1, my0, my1 = FX(req.lo), FX(req.hi), FZ(a.bb.min.Z), FZ(a.bb.max.Z)
+    # The marker uses the same two world-axis crop bands as the detail, on
+    # whichever principal camera supplied its profile.
+    axes = {"front": (0, 2), "side": (1, 2), "plan": (0, 1)}[req.source_view]
+    lower, upper = list(a.bb.min), list(a.bb.max)
+    axis_index = "xyz".index(req.axis)
+    lower[axis_index], upper[axis_index] = req.lo, req.hi
+    if req.cross_axis is not None:
+        cross_index = "xyz".index(req.cross_axis)
+        if req.cross_lo is not None:
+            lower[cross_index] = req.cross_lo
+        if req.cross_hi is not None:
+            upper[cross_index] = req.cross_hi
+    corners = []
+    for first in (lower[axes[0]], upper[axes[0]]):
+        for second in (lower[axes[1]], upper[axes[1]]):
+            point = list(a.bb.center())
+            point[axes[0]], point[axes[1]] = first, second
+            corners.append(dwg.at(req.source_view, *point))
+    mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
+    my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
     marker = Compound(
         children=[
             Edge.make_line(Vector(mx0, my0, 0), Vector(mx1, my0, 0)),
@@ -913,7 +903,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                 dwg.registry.reapply(hname, ident)
         if placed:
             used.add(letter)
-        elif req.keep_without_annotations:
+        elif req.keep_without_annotations or req.view_name is not None:
             raise ValueError(
                 f"authored detail {letter!r} from {req.source} is infeasible on this sheet; "
                 "its target, scale, or whole-view footprint was not relaxed"
@@ -1021,14 +1011,9 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     dropped (a real bug the escalation routing fixes as a side effect).
 
     Prismatic only, by construction: `render_height_ladder` never emits this
-    escalation for a turned part (no `StepLevelFeature`). A crowded **Z-turned**
-    step-length chain has its own, separate drop in `_draw_step_chain`'s vertical
-    branch (`return 0`) — this function no longer accidentally, unreliably papers
-    over that with prismatic-semantics dims (wrong anchor/labeling for a turned
-    chain). That drop is now reported (a `step_dim_dropped` lint warning, #362);
-    still outstanding is a Z-turned-appropriate *detail* remedy, analogous to the
-    X-turned crowded-head block + `DetailRequest` this docstring's sibling,
-    `render_step_lengths`, already has.
+    escalation for a turned part (no `StepLevelFeature`). Turned shoulder recovery
+    uses the approved axial length through `queue_step_detail` and the shared
+    chain pass; it never substitutes a prismatic height-above-datum measurement.
 
     The redraw draws only the approved rungs the source-view spacing gate omitted,
     at the enlarged scale. The escalation carries those exact compiled objects; this

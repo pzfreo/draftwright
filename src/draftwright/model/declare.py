@@ -40,6 +40,7 @@ from draftwright._geometry import (
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     AngleFeature,
+    AnglePatternFeature,
     AngularReference,
     AuthoredDimension,
     BlendFeature,
@@ -2412,6 +2413,11 @@ def angle(*, vertex, first, second, sector="minor", virtual_vertex=False) -> Ang
     that the oriented supports meet only when extended.
     """
     return AngleFeature(AngularReference(vertex, first, second, sector, virtual_vertex))
+
+
+def angle_pattern(*members: AngularReference) -> AnglePatternFeature:
+    """Declare repeated corners while keeping every included angle addressable."""
+    return AnglePatternFeature(tuple(members))
 
 
 def measured_dimension(

@@ -54,6 +54,7 @@ from draftwright.annotations._common import (
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.from_model import (
     ladder_plan_for,
+    queue_step_detail,
     render_angular_dimensions,
     render_blends,
     render_boss_diameters,
@@ -164,7 +165,7 @@ def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
     return tuple(plans)
 
 
-def _queue_authored_details(a, ctx) -> None:
+def _queue_authored_details(dwg, a, ctx, plan) -> None:
     """Lower semantic ``detail_view(..., around=feature)`` constraints to crop requests."""
 
     constraints = a.view_constraints
@@ -182,6 +183,20 @@ def _queue_authored_details(a, ctx) -> None:
         if not (isinstance(target, tuple) and len(target) == 2 and target[0] == "feature"):
             raise ValueError(f"detail {item.spec.name!r} has no semantic feature target")
         feature = target[1]
+        label = item.spec.name.removeprefix("detail_").upper()
+        factor = item.spec.scale_factor or 2.0
+        if queue_step_detail(
+            dwg,
+            plan,
+            feature,
+            a,
+            ctx=ctx,
+            view_name=item.spec.name,
+            label=label,
+            factor=factor,
+            source=item.source,
+        ):
+            continue
         origin = feature.frame.origin
         axis = feature.frame.axis
         view_for_axis: dict[
@@ -205,8 +220,6 @@ def _queue_authored_details(a, ctx) -> None:
         half = max(3.0, (max(sizes) if sizes else 6.0) * 0.75)
         first, second = crop_axes
         fi, si = "xyz".index(first), "xyz".index(second)
-        label = item.spec.name.removeprefix("detail_").upper()
-        factor = item.spec.scale_factor or 2.0
         ctx.detail_requests.append(
             DetailRequest(
                 axis=first,
@@ -862,7 +875,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
         # crowded turned heads alike — through the one generic detailer, now that all
         # views and main-view annotations are placed (so the detail avoids them).
-        _queue_authored_details(a, ctx)
+        _queue_authored_details(dwg, a, ctx, _compiled)
         _resolve_details(dwg, a, ctx=ctx)
 
     def _s_title_block():
@@ -952,7 +965,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 #: recorded by the pass that could not place the mark, which is the only place that knows WHY —
 #: which strip was full and who filled it. It is not the place that knows whether some LATER
 #: pass drew the measurement anyway.
-_WITHHOLDING_CODES = ("step_dim_withheld", "overall_dim_withheld")
+_WITHHOLDING_CODES = ("step_dim_withheld", "overall_dim_withheld", "step_dim_dropped")
 
 
 def _approved_per_measurement(plan) -> dict:

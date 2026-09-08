@@ -226,7 +226,7 @@ def test_equal_lengths_share_ink_but_keep_every_measurement_identity() -> None:
     assert {measurement.feature.length for measurement in measurements} == {10.0}
 
 
-def test_largest_band_od_can_use_exact_rotational_od_representation() -> None:
+def test_largest_band_identity_is_carried_by_its_exact_rotational_od_mark() -> None:
     from draftwright import build_drawing
     from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
     from draftwright.model.compiled import compile_dimensions
@@ -247,8 +247,11 @@ def test_largest_band_od_can_use_exact_rotational_od_representation() -> None:
     )
 
     assert maximum.state == "placed"
-    assert maximum.representation_feature.kind == "rotational"
-    assert maximum.representation_parameter == "od.diameter"
+    assert maximum.representation_feature is maximum.features[0]
+    assert maximum.representation_parameter == "step.diameter"
+    identities = drawing.registry.measurement_of("dim_od")
+    assert {identity.parameter for identity in identities} == {"od.diameter", "step.diameter"}
+    assert any(identity.feature is maximum.features[0] for identity in identities)
 
 
 @pytest.mark.parametrize("framed", [False, True])

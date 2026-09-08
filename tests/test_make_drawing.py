@@ -31,6 +31,7 @@ from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.linting import LintIssue
 from draftwright.make_drawing import lint_feature_coverage
+from draftwright.model import DimensionId
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
@@ -874,12 +875,13 @@ class TestGrooveCallout:
         assert dwg.get_annotation(names[0]).label == _groove_label(4, 16)
         # A groove's width is axial → it reads in a profile view (axis in-plane), not down it.
         assert dwg.view_of(names[0]) == "front"
-        # This fixture IS incomplete, and says so since #1250: the groove floor is a step
-        # level whose span the page cannot carry, so `step_dim_dropped` is a required
-        # placement failure and `plan_incomplete` summarises it at error severity. Asserting
-        # the exact set rather than filtering it out keeps the known loss visible here — the
-        # test is about which view the groove label reads in, not about completeness.
-        assert {i.code for i in dwg.lint() if i.severity == "error"} == {"plan_incomplete"}
+        # The shoulder recovery keeps both outer bands independently dimensioned.
+        assert sorted(
+            item.label for name, item in dwg.iter_annotations() if name.startswith("m_steplen")
+        ) == ["18", "18"]
+        completeness = dwg.lint_summary()["quality"]["completeness"]
+        assert completeness["requirements"] == completeness["placed"] == 6
+        assert not [issue for issue in dwg.lint() if issue.severity == "error"]
 
     def test_groove_floor_diameter_is_not_double_dimensioned(self):
         # The groove floor band's two walls read as shoulders, so recognise_turned_steps
@@ -9491,15 +9493,22 @@ class TestTurnedDiameters:
         assert y_diameters == {"ø25", "ø31", "ø42"}
         # #890: each queued radial leader retains its own StepFeature provenance;
         # a lazy generator previously captured the final loop iteration's owner.
-        steps_by_diameter = {}
-        for step in steps:
-            steps_by_diameter.setdefault(step.diameter, []).append(step)
+        diameter_owners = [
+            feature for feature in dwg.model().features if feature.kind in {"step", "boss"}
+        ]
+        assert len(diameter_owners) == 8
         for name in (n for n in dwg.annotations() if n.startswith("m_dia_y")):
             ann = dwg.get_annotation(name)
             owner = dwg.registry.feature_of(name)
             diameter = float(ann.label.removeprefix("ø"))
-            matches = steps_by_diameter[diameter]
-            assert owner is (matches[0] if len(matches) == 1 else None)
+            matches = [feature for feature in diameter_owners if feature.diameter == diameter]
+            assert any(owner is match for match in matches)
+            (identity,) = dwg.registry.measurement_of(name)
+            assert identity.feature is owner and identity.parameter == f"{owner.kind}.diameter"
+        assert all(
+            dwg.registry.has_measurement(DimensionId(owner, f"{owner.kind}.diameter"))
+            for owner in diameter_owners
+        )
 
         self._assert_y_diameter_leaders_clear_holes(dwg)
         step_labels = {dwg.get_annotation(n).label for n in dwg.annotations() if "steplen" in n}
@@ -9951,9 +9960,9 @@ class TestTurnedDiameters:
             assert "50" not in labels, f"{axis}: OD double-dimensioned as envelope"
             assert [i for i in dwg.lint() if i.severity != "info"] == []
 
-    def test_unfittable_row_skips_without_crashing(self, monkeypatch):
-        # When the labels do not fit the row, both solvers return None; the pass
-        # must skip gracefully, not crash the whole build on a None unpack.
+    def test_unfittable_row_recovers_diameters_without_crashing(self, monkeypatch):
+        # A failed row must reach the shared leader solve without crashing on
+        # a None unpack. Both physical diameter requirements remain covered.
         import sys
 
         # render_diameters looks the strip solvers up in its own module's namespace
@@ -9962,7 +9971,10 @@ class TestTurnedDiameters:
         monkeypatch.setattr(m, "_solve_strip_ys", lambda *a, **k: None)
         monkeypatch.setattr(m, "_greedy_strip_ys", lambda *a, **k: None)
         dwg = build_drawing(_x_stepped_shaft())  # must not raise
-        assert not any(n.startswith("m_dia") for n in dwg.annotations())
+        marks = [(name, item) for name, item in dwg.iter_annotations() if name.startswith("m_dia")]
+        assert {item.label for _, item in marks} == {"ø30", "ø16"}
+        assert all(dwg.registry.measurement_of(name) for name, _ in marks)
+        assert not [issue for issue in dwg.lint() if issue.code == "feature_not_dimensioned"]
 
     def test_nested_band_under_silhouette_gets_a_callout(self):
         # #298: a narrow ø6 external band sits under the ø30 flange silhouette, so
@@ -9982,10 +9994,9 @@ class TestTurnedDiameters:
         assert dwg.lint_summary()["by_code"].get("feature_not_dimensioned", 0) == 0
 
     def test_diameter_row_places_what_fits_not_all_or_nothing(self):
-        # #298 hardening: on a part too small to fit every ø callout in the row, the
-        # placer keeps the significant ODs and drops only the smallest — never the whole
-        # row (the pre-fix all-or-nothing dropped all three). The finest band honestly
-        # surfaces as feature_not_dimensioned.
+        # #298/#1505: a partial row retains the ODs that fit and sends the
+        # remaining band to the shared leader solve. No measurement disappears
+        # merely because the first presentation ran out of capacity.
         from build123d import Align
 
         def cyl(r, h, z):
@@ -9995,9 +10006,18 @@ class TestTurnedDiameters:
         part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(5, 1.7, 0.5) + cyl(4, 2.0, 2.2))
         dwg = build_drawing(part)
         labels = {o.label for n, o in dwg.iter_annotations() if n.startswith("m_dia")}
-        assert {"ø10", "ø8"} <= labels  # the significant ODs survive, not dropped wholesale
-        undim = {i.message.split()[2] for i in dwg.lint() if i.code == "feature_not_dimensioned"}
-        assert "ø6" in undim  # only the finest band falls to honest lint
+        assert {"ø10", "ø8", "ø6"} <= labels
+        assert not [issue for issue in dwg.lint() if issue.code == "feature_not_dimensioned"]
+        for feature in dwg.model().features:
+            if feature.kind not in {"step", "boss"}:
+                continue
+            matches = [
+                name
+                for name, _ in dwg.iter_annotations()
+                for identity in dwg.registry.measurement_of(name)
+                if identity.feature is feature and identity.parameter.endswith(".diameter")
+            ]
+            assert len(matches) == 1, "each physical diameter has exactly one owning mark"
 
     def test_leader_tip_on_the_edge_centred_on_the_feature_length(self, x_shaft_dwg):
         # The ø leader lands on the step's silhouette EDGE — a full radius off the
@@ -10053,26 +10073,33 @@ class TestTurnedDiameters:
         )
         assert abs(tip_x - origin_x) < 1e-6, "ø6 boss leader should anchor at its frame origin"
 
-    def test_shared_diameter_leader_centres_on_the_longest_disjoint_run(self):
-        # A ⌀ shared by DISJOINT, UNEQUAL steps (⌀20 len-5 · ⌀30 · ⌀20 len-20):
-        # the callout must centre on the LONGEST ⌀20 run (the prominent feature),
-        # not the first step in feature order — the short left run the pre-#794
-        # frame-origin anchor picked — nor the convex-hull midpoint, which falls
-        # in the ⌀30 gap, off any silhouette. This is the ONE case #794 changes:
-        # a single detected step's origin is already its own midpoint, so only a
-        # shared, unequal, disjoint ⌀ exercises the fix (fails on origin/main).
+    def test_equal_diameter_leaders_keep_each_disjoint_runs_own_support(self):
+        # The same diameter on two disjoint, unequal runs is independently
+        # editable. Each arrow must land on its own band's midpoint, never
+        # the convex-hull midpoint in the intervening larger-diameter band.
         part = (
             Cylinder(10, 5)
             + Pos(0, 0, 7.5) * Cylinder(15, 10)
             + Pos(0, 0, 22.5) * Cylinder(10, 20)
         )
         dwg = build_drawing(part, number="X")
-        o = next(o for n, o in dwg.iter_annotations() if str(getattr(o, "label", "")) == "ø20")
-        on_long = dwg.at("front", 0, 0, 22.5)[1]  # longest ⌀20 run (z 12.5..32.5) midpoint
-        on_short = dwg.at("front", 0, 0, 0)[1]  # short ⌀20 run (z -2.5..2.5) midpoint
-        in_gap = dwg.at("front", 0, 0, 7.5)[1]  # ⌀30 gap midpoint
-        assert abs(o.tip[1] - on_long) < 1e-6, "ø20 not centred on the longest run"
-        assert abs(o.tip[1] - on_short) > 1e-6 and abs(o.tip[1] - in_gap) > 1e-6
+        marks = [
+            (name, item)
+            for name, item in dwg.iter_annotations()
+            if str(getattr(item, "label", "")) == "ø20"
+        ]
+        assert len(marks) == 2
+        on_long = dwg.at("front", 0, 0, 22.5)[1]
+        on_short = dwg.at("front", 0, 0, 0)[1]
+        in_gap = dwg.at("front", 0, 0, 7.5)[1]
+        assert sorted(item.tip[1] for _, item in marks) == pytest.approx(
+            sorted((on_short, on_long))
+        )
+        for name, item in marks:
+            owner = dwg.registry.feature_of(name)
+            assert owner is not None
+            assert item.tip[1] == pytest.approx(dwg.at("front", *owner.frame.origin)[1])
+            assert abs(item.tip[1] - in_gap) > 1e-6
 
     def test_z_column_leader_lands_on_the_left_edge(self):
         # Cover the Z-turned column placer too (mirror of the X row): its tips sit

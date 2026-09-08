@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
+from draftwright.linting.angular import profile_angle_requirement_outcomes
 from draftwright.linting.blend_coverage import blend_requirement_outcomes
 from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
@@ -44,12 +45,17 @@ def recognized_requirement_outcomes(
     *,
     dimension_plan=None,
     part=None,
+    evidence=None,
+    ownership=None,
 ) -> Mapping[str, tuple[Any, ...]]:
     """Return typed physical-requirement ledgers shared by lint and reports.
 
     The denominator is recognition-owned: callers may project or count these outcomes,
     but must not reconstruct physical requirements from final IR parameters.
     """
+
+    if evidence is not None and evidence.result is not recognition:
+        raise ValueError("requirement evidence and recognition must belong to the same run")
 
     outcomes: dict[str, list] = {
         "section_recesses": unsupported_section_recess_outcomes(recognition),
@@ -105,4 +111,8 @@ def recognized_requirement_outcomes(
         outcomes[
             "hole_patterns" if hole_outcome.source_kind == "hole_pattern" else "holes"
         ].append(hole_outcome)
+    if evidence is not None:
+        outcomes["outer_profile_angles"] = profile_angle_requirement_outcomes(
+            evidence, ownership, features, registry, omissions
+        )
     return MappingProxyType({family: tuple(items) for family, items in outcomes.items()})

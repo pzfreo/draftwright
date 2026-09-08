@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 
-from build123d_drafting.helpers import format_drawing_scale
+from build123d_drafting.helpers import draft_preset, format_drawing_scale
 
 from draftwright._core import (
     _DIM_PAD,
@@ -49,15 +49,18 @@ from draftwright._core import (
     _table_metrics,
     _tag_sequence,
     _tb_width,
+    _text_size,
     _text_width,
     _tol_suffix,
     _wrap_rows,
 )
-from draftwright._geometry import _END_ON
+from draftwright._geometry import _END_ON, _fmt_angle
+from draftwright.angular_geometry import AngularGeometry, AngularStyle
+from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
 from draftwright.model.callout import hole_callout_spec, hole_callout_suffix
-from draftwright.model.compiled import compile_dimensions
 from draftwright.model.ir import authored_dimension_target_view
+from draftwright.model.planner import angular_pattern_label, plan_dimensions
 from draftwright.view_plan import (
     ARRANGEMENTS,
     LayoutCandidate,
@@ -333,6 +336,26 @@ def _est_planned_bore_callout_width(
     return max_w
 
 
+@dataclass(frozen=True)
+class AngularReservation:
+    """Unscaled view-relative supports and once-measured paper-space typography."""
+
+    view: str
+    points: tuple[tuple[float, float], ...]
+    sector: str
+    text_size: tuple[float, float]
+    style: AngularStyle
+
+    def footprint(self, scale):
+        vertex, first, second = (
+            tuple(component * scale for component in point) for point in self.points
+        )
+        geometry = AngularGeometry(
+            vertex, first, second, self.text_size, self.style, sector=self.sector
+        )
+        return geometry.footprint(geometry.minimum_radius)
+
+
 @dataclass
 class StripDepths:
     """Annotation strip depths (page-mm) computed before view positions are fixed.
@@ -351,6 +374,7 @@ class StripDepths:
     sv_top: float = 0.0
     sv_bottom: float = 0.0
     sv_right: float = 0.0  # band outside the rightmost side view
+    angular: tuple[AngularReservation, ...] = ()
 
 
 def _measure_strips(
@@ -364,8 +388,8 @@ def _measure_strips(
 ) -> StripDepths:
     """Compute annotation strip depths from composed annotation boxes (Pass 1 of #131).
 
-    All annotation sizes are scale-independent because font_size is a fixed
-    page-mm constant, so there is no circularity with choose_scale().
+    Typography is measured once at its fixed paper size. Angular supports retain
+    their model-space extent so scale trials can evaluate their analytic boxes.
     *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
     return _footprint_from_boxes(
@@ -401,6 +425,7 @@ class AnnoBox:
 
     side: str
     depth: float
+    angular: AngularReservation | None = None
 
 
 def _compose_anno_boxes(
@@ -453,13 +478,47 @@ def _compose_anno_boxes(
         key = (view, side)
         authored_corridors[key] = authored_corridors.get(key, 0) + 1
 
+    def reserve_angle(reference, view, label):
+        draft = draft_preset(font_size=font_size, decimal_precision=1)
+        style = AngularStyle(
+            arrow_length=arrow_length,
+            extension_gap=draft.extension_gap,
+            pad_around_text=pad_around_text,
+            line_width=draft.line_width,
+        )
+        axes = {"plan": (0, 1), "front": (0, 2), "side": (1, 2)}[view]
+        centre = tuple(model.bbox.center())
+        points = tuple(
+            tuple(point[index] - centre[index] for index in axes)
+            for point in (reference.vertex, reference.first, reference.second)
+        )
+        measured = _text_size(label, font_size, PLEX_MONO, draft.font, draft.font_style)
+        boxes.append(
+            AnnoBox(
+                "angular", 0.0, AngularReservation(view, points, reference.sector, measured, style)
+            )
+        )
+
     if any(feature.kind == "angle" for feature in model.features):
-        # Reserve only approved angles: an authored omission must not keep
-        # phantom bands. The arc's extent can reach both neighbouring corridors.
-        for group in compile_dimensions(model).of_kind("angle"):
-            for _approved in group.dims:
-                for side in ("above", "below", "left", "right"):
-                    _reserve(group.view, side)
+        # Sizing reads planned content without executing the compiler: the same
+        # compose path also serves read-only inspection. Share the complete text
+        # formatter so small authored tolerances reserve their actual footprint.
+        # Each curved footprint grows only the sides it actually reaches.
+        for group in plan_dimensions(model):
+            if group.feature.kind != "angle":
+                continue
+            shared_label = angular_pattern_label(group)
+            for planned in group.dims:
+                if not planned.suppressed:
+                    parameter = planned.param
+                    reserve_angle(
+                        parameter.angular_reference,
+                        group.view,
+                        shared_label
+                        or _fmt_angle(
+                            parameter.value, planned.display_decimals, parameter.tolerance
+                        ),
+                    )
 
     for feature in model.features:
         if getattr(feature, "kind", None) != "authored_dimension":
@@ -479,11 +538,12 @@ def _compose_anno_boxes(
         )
         if target_view is None:
             continue
+        if angular_reference is not None:
+            reserve_angle(angular_reference, target_view, feature.label)
+            continue
         sides: tuple[str, ...]
         if side_hint is not None:
             sides = (side_hint,)
-        elif angular_reference is not None:
-            sides = ("above", "below", "left", "right")
         elif kind in ("diameter", "radius") or axis == "X":
             sides = ("above", "below")
         elif axis == "Z":
@@ -598,6 +658,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
         sv_top=deepest("side_above"),
         sv_bottom=deepest("side_below"),
         sv_right=deepest("side_right"),
+        angular=tuple(box.angular for box in boxes if box.angular is not None),
     )
 
 
@@ -1062,7 +1123,7 @@ def _compose_view_blocks(
         strips.right if (section and strips) else 0.0,
     )
 
-    return {
+    result = {
         "front": ViewBlock(
             fv_hw,
             fv_hh,
@@ -1087,6 +1148,17 @@ def _compose_view_blocks(
             bottom=strips.sv_bottom if strips else 0.0,
         ),
     }
+    for reservation in strips.angular if strips else ():
+        block = result[reservation.view]
+        x0, y0, x1, y1 = reservation.footprint(scale)
+        result[reservation.view] = replace(
+            block,
+            left=max(block.left, -x0 - block.hw),
+            right=max(block.right, x1 - block.hw),
+            bottom=max(block.bottom, -y0 - block.hh),
+            top=max(block.top, y1 - block.hh),
+        )
+    return result
 
 
 def _layout_geometry(

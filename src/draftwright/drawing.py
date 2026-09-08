@@ -135,7 +135,7 @@ from draftwright.linting import (
     lint_through_step_coverage,
     pmi_stage_summary,
 )
-from draftwright.linting.angular import lint_angular_supports
+from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components
 from draftwright.linting.section_recess_coverage import lint_section_recess_coverage
@@ -241,6 +241,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "angular_label_vs_geometry",
         "angular_geometry_mismatch",
         "angular_support_unverifiable",
+        "angular_support_mismatch",
         "dim_inside_part",
         "callout_dropped",
         "location_ref_dropped",
@@ -1031,9 +1032,9 @@ class Drawing:
     def report(self) -> dict[str, object]:
         """Return the versioned machine-readable recognition and drawing report.
 
-        Schema version 2 projects accepted raw recognition occurrences, their exact run-local
+        Schema version 3 projects accepted raw recognition occurrences, their exact run-local
         consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
-        and the existing structured lint summary.
+        profile-support requirements, and the existing structured lint summary.
         Report IDs are deterministic within this document only; they are not topology or durable
         feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
         can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
@@ -1065,6 +1066,8 @@ class Drawing:
             self._build.omissions,
             dimension_plan=dimension_plan,
             part=self._working_part,
+            evidence=evidence,
+            ownership=ownership,
         )
 
         with _reuse_report_requirements(self, requirement_outcomes, dimension_plan):
@@ -1753,11 +1756,18 @@ class Drawing:
         from draftwright.model.compiled import compile_dimensions
         from draftwright.model.ir import RequestedDimension
 
-        if options["param"] not in ("angle", "included.angle") or options.get("role") not in (
-            None,
-            "included",
-        ):
-            raise ValueError("angle exposes only the included.angle measurement")
+        parameters = feature.parameters()
+        matches = [
+            parameter
+            for parameter in parameters
+            if options["param"] == parameter.parameter_id
+            or (options["param"] == "angle" and len(parameters) == 1)
+        ]
+        if len(matches) != 1 or options.get("role") not in (None, "included"):
+            raise ValueError(
+                "angle edit needs one included-angle measurement: "
+                + ", ".join(parameter.parameter_id for parameter in parameters)
+            )
         extra = set(options) - {"param", "role", "view", "side", "name", "pin", "priority"}
         if extra:
             raise ValueError(
@@ -1768,7 +1778,7 @@ class Drawing:
             raise ValueError("angular edit must name an exact feature in the drawing model")
         request = RequestedDimension(
             feature,
-            "included.angle",
+            matches[0].parameter_id,
             view=options.get("view"),
             side=options.get("side"),
         )
@@ -3870,7 +3880,7 @@ class Drawing:
             _aggregation=aggregation,
         )
         working_part = self._working_part
-        if physical:
+        if physical and working_part is None:
             issues += lint_angular_supports(self.items)
         if working_part is not None and physical:
             # Reuse the single feature inventory from the build (#244) when present,
@@ -3923,6 +3933,20 @@ class Drawing:
                 prof_kw = {}
             if recognition is None:
                 recognition = self._build.ensure_recognition(working_part)
+            issues += lint_angular_supports(
+                self.items,
+                registry=self._registry,
+                evidence=self._build.recognition_evidence,
+                ownership=self._build.recognition_ownership,
+                to_page=self.at,
+            )
+            issues += lint_profile_angle_coverage(
+                self._build.recognition_evidence,
+                self._build.recognition_ownership,
+                getattr(self._part_model, "features", ()),
+                self._registry,
+                self._build.omissions,
+            )
             profiled_bores = list(recognition.double_d_bores)
             issues += lint_feature_coverage(
                 working_part,
@@ -4294,6 +4318,8 @@ class Drawing:
             omissions=self._build.omissions,
             issues=issues,
             part=self._working_part,
+            evidence=self._build.recognition_evidence,
+            ownership=self._build.recognition_ownership,
             # Fidelity asks whether what the drawing SAYS is true, so a drawing that says
             # nothing measurable has no answer rather than a perfect one.
             #

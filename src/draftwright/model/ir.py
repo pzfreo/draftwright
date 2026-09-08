@@ -2898,8 +2898,10 @@ class RotationalFeature:
 class AngularReference:
     """Two oriented model-space rays bounding the non-reflex angular sector.
 
-    ``first`` and ``second`` are witness points on rays starting at ``vertex``.
-    Reversing their order reverses the plane normal, not the measured angle.
+    ``first`` and ``second`` are witness points on supports through ``vertex``.
+    ``minor`` selects the rays towards them; ``opposite`` extends both supports
+    through the vertex and selects the vertically opposite non-reflex sector.
+    Reversing witness order reverses the plane normal, not the measured angle.
     A virtual vertex explicitly describes intersecting extended supports; this
     declaration alone does not certify correspondence to physical part edges.
     No field describes annotation placement or an arc radius on the sheet.
@@ -2908,14 +2910,16 @@ class AngularReference:
     vertex: Point
     first: Point
     second: Point
-    sector: Literal["minor"] = "minor"
+    sector: Literal["minor", "opposite"] = "minor"
     virtual_vertex: bool = False
 
     def __post_init__(self) -> None:
         for name in ("vertex", "first", "second"):
             object.__setattr__(self, name, _finite_point3(name, getattr(self, name)))
-        if self.sector != "minor":
-            raise ValueError("angular reference supports only the minor (non-reflex) sector")
+        if self.sector not in ("minor", "opposite"):
+            raise ValueError(
+                "angular reference supports only minor or opposite non-reflex sectors"
+            )
         if type(self.virtual_vertex) is not bool:
             raise ValueError("angular reference virtual_vertex must be a bool")
         first, second = self.rays
@@ -2931,7 +2935,8 @@ class AngularReference:
             length = hypot(*ray)
             if not isfinite(length) or length <= 1e-9:
                 raise ValueError("angular reference needs two finite nonzero rays")
-            result.append((ray[0] / length, ray[1] / length, ray[2] / length))
+            sign = -1 if self.sector == "opposite" else 1
+            result.append((sign * ray[0] / length, sign * ray[1] / length, sign * ray[2] / length))
         return result[0], result[1]
 
     @staticmethod
@@ -3005,6 +3010,64 @@ class AngleFeature:
                 self.angular_reference.angle_degrees,
                 angular_reference=self.angular_reference,
             )
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class AnglePatternFeature:
+    """Declared repeated corners, each with an independently addressable angle.
+
+    The member order is part of the declaration: omitting or tolerancing one
+    measurement does not remove or renumber members. Recognition may create
+    this form only after proving the physical profile repetition.
+    """
+
+    members: tuple[AngularReference, ...]
+    kind: ClassVar[str] = "angle"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "members", tuple(self.members))
+        if len(self.members) < 2 or not all(
+            isinstance(member, AngularReference) for member in self.members
+        ):
+            raise ValueError("angle pattern requires at least two AngularReference members")
+        if len({member.vertex for member in self.members}) != len(self.members):
+            raise ValueError("angle pattern requires distinct corner references")
+        first = self.members[0]
+        if first.principal_axis == "?":
+            raise ValueError("angle pattern requires a true-angle principal projection")
+        axis = "XYZ".index(first.principal_axis)
+        if any(
+            member.principal_axis != first.principal_axis
+            or member.sector != first.sector
+            or abs(member.vertex[axis] - first.vertex[axis]) > 1e-6
+            or abs(member.angle_degrees - first.angle_degrees) > 1e-6
+            for member in self.members
+        ):
+            raise ValueError("angle pattern members must share a plane, sector and angle")
+
+    @property
+    def angular_reference(self) -> AngularReference:
+        """The first member establishes the common true-angle view."""
+        return self.members[0]
+
+    @property
+    def frame(self) -> Frame:
+        return Frame(self.angular_reference.vertex, self.angular_reference.principal_axis.lower())
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter(
+                "angle",
+                "included",
+                member.angle_degrees,
+                discriminator=f"member{index + 1}",
+                angular_reference=member,
+            )
+            for index, member in enumerate(self.members)
         ]
 
     def references(self) -> list[Datum]:

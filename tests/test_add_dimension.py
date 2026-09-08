@@ -1236,6 +1236,7 @@ class TestEveryFeatureVerbIsNameable:
     #: the API the way the first version's six-verb parametrization did.
     _CALLS: dict = {
         "angle": dict(vertex=(0, 0, 0), first=(10, 0, 0), second=(0, 10, 0)),
+        "angle_pattern": {},
         "hole": dict(diameter=6, at=(0, 0, 0), axis="z"),
         "double_d_bore": dict(
             major_diameter=10,
@@ -1394,6 +1395,13 @@ class TestEveryFeatureVerbIsNameable:
                     bbox_min=(-40.0, -25.0, -4.0),
                     bbox_max=(40.0, 25.0, 4.0),
                 )
+            )
+        if verb == "angle_pattern":
+            from draftwright.model import AngularReference
+
+            return sheet.angle_pattern(
+                AngularReference((0, 0, 0), (10, 0, 0), (0, 10, 0)),
+                AngularReference((20, 0, 0), (30, 0, 0), (20, 10, 0)),
             )
         if verb.endswith("pattern"):
             member = {

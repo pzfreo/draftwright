@@ -9,6 +9,7 @@ callouts is covered by the hole-callout tests in `test_make_drawing`; the test-o
 
 import math
 
+import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright.annotations.from_model import hole_callout_spec
@@ -182,12 +183,13 @@ class TestStepChainDrop:
     Must NOT emit an Escalation(kind='step') (that is the prismatic-detail consumer,
     wrong semantics for a turned chain)."""
 
-    def _stub_dwg(self):
-        from types import SimpleNamespace
+    def _stub_dwg(self, page_width):
+        from build123d_drafting.helpers import Draft
 
         class _Dwg:
             def __init__(s):
-                s.draft = SimpleNamespace(font_size=3.0, pad_around_text=0.5)
+                s.draft = Draft(font_size=3.0, pad_around_text=0.5)
+                s.page_w, s.page_h = page_width, 100.0
                 s.issues = []
                 # NOTE: deliberately no _escalations — if the code tried to append a
                 # step Escalation it would AttributeError, so a clean run proves it doesn't.
@@ -195,52 +197,57 @@ class TestStepChainDrop:
             def view_bounds(s, view):
                 return (0.0, 0.0, 100.0, 100.0)
 
+            def iter_annotations(s):
+                return iter(())
+
             def _record_build_issue(s, sev, code, msg):
                 s.issues.append((sev, code, msg))
 
         return _Dwg()
 
-    def test_crowded_vertical_chain_records_the_drop(self):
+    @pytest.mark.parametrize("page_width, expected", ((100, 0), (200, 1)))
+    def test_off_page_chain_members_report_only_their_own_drops(self, page_width, expected):
         from types import SimpleNamespace
 
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.from_model import _draw_step_chain
         from draftwright.registry import AnnotationRegistry
 
-        dwg = self._stub_dwg()
+        dwg = self._stub_dwg(page_width)
         # The drop lint routes through the ctx's registry now (#639), not the drawing.
-        ctx = PlacementContext(registry=AnnotationRegistry())
-        # Vertical (chain-to-the-right) segs whose shoulder Ys are 0.1 mm apart —
-        # far below tier_step (= font_size + 2*pad = 4). Values differ so the
-        # uniform-collapse path is not taken. The chain is dropped whole.
+        ctx = PlacementContext(registry=AnnotationRegistry(), items=[])
+        # The upper member is always off-page. A narrow page also loses the
+        # lower member; sufficient lateral space must preserve it (#1505).
         segs = [
             SimpleNamespace(
-                pa=(80.0, 10.0, 0),
-                pb=(80.0, 10.1, 0),
-                value=5.0,
+                pa=(80.0, 20.0, 0),
+                pb=(80.0, 42.0, 0),
+                value=22.0,
                 tolerance=None,
                 measurements=("step-a",),
                 label=None,
-                value_text="5",
+                value_text="22",
                 display_decimals=None,
             ),
             SimpleNamespace(
-                pa=(80.0, 10.1, 0),
-                pb=(80.0, 10.2, 0),
-                value=8.0,
+                pa=(80.0, 42.0, 0),
+                pb=(80.0, 105.0, 0),
+                value=63.0,
                 tolerance=None,
                 measurements=("step-b",),
                 label=None,
-                value_text="8",
+                value_text="63",
                 display_decimals=None,
             ),
         ]
         placed = _draw_step_chain(dwg, "front", segs, "m_steplen", ctx=ctx)
-        assert placed == 0
+        assert placed == expected == len(ctx.items)
         codes = [i.code for i in ctx.registry.issues]
         assert "step_dim_dropped" in codes, "silent drop no longer allowed (#362)"
-        drop = next(i for i in ctx.registry.issues if i.code == "step_dim_dropped")
-        assert drop.measurement_ids == ("step-a", "step-b")
+        drops = [i for i in ctx.registry.issues if i.code == "step_dim_dropped"]
+        assert [identity for drop in drops for identity in drop.measurement_ids] == (
+            ["step-b"] if expected else ["step-a", "step-b"]
+        )
         assert ctx.escalations == []  # _record_step_chain_drop records lint only, no Escalation
 
 

@@ -9,14 +9,34 @@ from pathlib import Path
 
 import pytest
 import quiddity.inspection as inspection
+from quiddity.evidence import evidence_api_manifest
 
 from draftwright.inspection_contract import (
     InspectionContractError,
     consumer_inspection_declaration,
     validate_inspection_contract,
+    validate_profile_evidence_contract,
 )
 
 ROOT = Path(__file__).parents[1]
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "PlanarOuterProfile",
+        "PlanarOuterProfileEvidence",
+        "ProfileLine",
+        "ProfileArc",
+        "RefusedPlanarOuterProfile",
+    ],
+)
+def test_missing_released_profile_evidence_is_refused(symbol):
+    manifest = evidence_api_manifest()
+    assert symbol in manifest["api"]["symbols"]
+    manifest["api"]["symbols"].remove(symbol)
+    with pytest.raises(InspectionContractError, match="profile evidence symbols"):
+        validate_profile_evidence_contract(manifest)
 
 
 def _manifest() -> dict:
@@ -26,7 +46,7 @@ def _manifest() -> dict:
 def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
     distribution = importlib.metadata.distribution("quiddity")
 
-    assert distribution.version == "0.2.5"
+    assert distribution.version == "0.2.6"
     assert distribution.read_text("direct_url.json") is None
     assert (
         Path(inspect.getfile(inspection.inspection_api_manifest))

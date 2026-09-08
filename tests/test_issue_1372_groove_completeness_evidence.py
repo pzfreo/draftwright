@@ -676,11 +676,11 @@ def test_deleting_groove_declaration_cannot_shrink_quality_denominator() -> None
     assert complete_quality["requirements"] == sparse_quality["requirements"] == 6
     assert complete_quality["by_family"]["grooves"] == 2
     assert complete_quality["by_family"]["turned_steps"] == 4
-    # One part-global OD cannot satisfy both equal outer bands: the groove callout is placed,
-    # both step lengths are explicit drops, and both native band diameters are genuinely missing.
-    assert complete_quality["placed"] == 2
-    assert complete_quality["dropped"] == 2
-    assert complete_quality["missing"] == 2
+    # Each outer band now retains its own length and diameter claims. The global
+    # OD does not stand in for either independent diameter when its mark is lost.
+    assert complete_quality["placed"] == 6
+    assert complete_quality["dropped"] == 0
+    assert complete_quality["missing"] == 0
     assert sparse_quality["unverifiable"] == 6
-    assert complete_quality["audited_score"] == pytest.approx(1 / 3)
+    assert complete_quality["audited_score"] == 1.0
     assert sparse_quality["audited_score"] == 0.0

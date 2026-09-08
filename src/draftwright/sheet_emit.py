@@ -983,6 +983,8 @@ def _feature_line(
             f"at={_pt(f.frame.origin)}{turned})"
         )
     if k == "angle":
+        if members := getattr(f, "members", ()):
+            return "sheet.angle_pattern(" + ", ".join(repr(member) for member in members) + ")"
         reference = f.angular_reference
         return (
             f"sheet.angle(vertex={reference.vertex!r}, first={reference.first!r}, "
@@ -1766,7 +1768,7 @@ def _feature_block(
                 # The broad tolerance still belongs on recess diameters; the role-specific fit
                 # then wins only on the bore. Preserve that public fluent ordering exactly.
                 tolerances = (broad_tolerance, role_tolerance)
-            for tolerance in tolerances:
+            for tolerance in () if f.kind in ("step", "boss") else tolerances:
                 if isinstance(tolerance, ToleranceDecoration | int | float | tuple):
                     value = (
                         tolerance.value
@@ -1795,6 +1797,8 @@ def _feature_block(
                     line += f".fit({tolerance.code!r}{show})"
 
             if f.kind in (
+                "step",
+                "boss",
                 "angle",
                 "through_step",
                 "pad",
@@ -1817,6 +1821,10 @@ def _feature_block(
                         tolerance = (decorations or {}).get((f, parameter.kind, parameter.role))
                     if tolerance is None:
                         tolerance = (decorations or {}).get((f, parameter.kind))
+                    if isinstance(tolerance, FitClass) and f.kind in ("step", "boss"):
+                        show = "" if tolerance.show == "class" else f", show={tolerance.show!r}"
+                        line += f".fit({tolerance.code!r}{show})"
+                        continue
                     if not isinstance(tolerance, ToleranceDecoration | int | float | tuple):
                         continue
                     value = (
@@ -2100,6 +2108,8 @@ def emit_sheet_script(
     # generated file uses, and a missing entry is a NameError on the first line that runs
     # (#957 review; pocket/slot patterns were emitting unrunnable scripts).
     model_imports = set()
+    if any(f.kind == "angle" and getattr(f, "members", ()) for f in model.features):
+        model_imports.add("AngularReference")
     if any(f.kind in ("hole", "pattern") for f in model.features):
         model_imports.add("hole")
     if any(

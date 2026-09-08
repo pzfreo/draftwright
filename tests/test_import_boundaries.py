@@ -88,6 +88,8 @@ _LAYERS: dict[str, int] = {
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
     "plate_correspondence": 0,
+    "profile_angles": 0,
+    "angular_geometry": 0,
     "recogniser_policy": 0,
     # Consumer-owned public record schema versions, shared by the report projector and the
     # rank-7 cross-repository validator without either leaf depending on the validator.
@@ -464,6 +466,7 @@ def test_classifier_is_binding_aware_and_context_correct(tmp_path):
 # ── model/ IR-waist guards (original #584 WP2 — kept; add the relative-import rejection) ──
 
 _MODEL_MAY_IMPORT = {
+    "profile_angles",
     "_geometry",
     "blend_contract",
     "fits",
