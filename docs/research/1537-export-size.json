@@ -1,0 +1,176 @@
+[
+  {
+    "file": "frame-features.dxf",
+    "bytes": 8548578,
+    "sha256": "15da19ec8cf408f5b5ce069e6626c0dc51c6551879c3d7bddbb47bd18a6f932a",
+    "gzip_bytes": 667005,
+    "sections": {
+      "HEADER": 6192,
+      "CLASSES": 1459,
+      "TABLES": 3375,
+      "BLOCKS": 426,
+      "ENTITIES": 8532652,
+      "OBJECTS": 4466,
+      "OUTSIDE": 8
+    },
+    "entities": {
+      "SPLINE": {
+        "count": 20265,
+        "bytes": 6273619
+      },
+      "LINE": {
+        "count": 13752,
+        "bytes": 2206445
+      },
+      "ELLIPSE": {
+        "count": 162,
+        "bytes": 36730
+      },
+      "ARC": {
+        "count": 76,
+        "bytes": 12495
+      },
+      "CIRCLE": {
+        "count": 30,
+        "bytes": 3327
+      }
+    },
+    "layers": {
+      "part": 679,
+      "hidden": 1607,
+      "dims": 31999
+    },
+    "layer_bytes": {
+      "part": 159119,
+      "hidden": 512723,
+      "dims": 7860774
+    },
+    "spline_degrees": {
+      "2": 20075,
+      "1": 178,
+      "3": 12
+    }
+  },
+  {
+    "file": "frame-features.pdf",
+    "bytes": 565358,
+    "sha256": "6dd6d2015cccc5a4f5aecd0996ebde23a568c9734f3615d81d54b597619dd256",
+    "gzip_bytes": 460903
+  },
+  {
+    "file": "frame-features.svg",
+    "bytes": 1479246,
+    "sha256": "8cf7a18f92d0de061dd37a1d5cc34d6358c3dc263b9d5eea60e3eda71fe19e08",
+    "gzip_bytes": 306272,
+    "elements": {
+      "svg": 1,
+      "metadata": 1,
+      "RDF": 1,
+      "Description": 1,
+      "creator": 1,
+      "source": 1,
+      "description": 1,
+      "g": 4,
+      "line": 1826,
+      "path": 2095,
+      "circle": 30,
+      "a": 1,
+      "rect": 1
+    },
+    "path_data_bytes": 1301474,
+    "path_commands": {
+      "M": 2588,
+      "Q": 20925,
+      "L": 14418,
+      "A": 238,
+      "C": 120
+    }
+  },
+  {
+    "file": "frame-general.dxf",
+    "bytes": 8743378,
+    "sha256": "3c458e81fe968fcd9bda60c15ed22da4503138a12a90e4133badad865804248a",
+    "gzip_bytes": 682691,
+    "sections": {
+      "HEADER": 6192,
+      "CLASSES": 1459,
+      "TABLES": 3375,
+      "BLOCKS": 426,
+      "ENTITIES": 8727452,
+      "OBJECTS": 4466,
+      "OUTSIDE": 8
+    },
+    "entities": {
+      "SPLINE": {
+        "count": 20311,
+        "bytes": 6308932
+      },
+      "LINE": {
+        "count": 14841,
+        "bytes": 2365004
+      },
+      "ELLIPSE": {
+        "count": 162,
+        "bytes": 36722
+      },
+      "ARC": {
+        "count": 76,
+        "bytes": 12147
+      },
+      "CIRCLE": {
+        "count": 42,
+        "bytes": 4611
+      }
+    },
+    "layers": {
+      "part": 740,
+      "hidden": 1995,
+      "dims": 32697
+    },
+    "layer_bytes": {
+      "part": 170899,
+      "hidden": 603635,
+      "dims": 7952882
+    },
+    "spline_degrees": {
+      "2": 20069,
+      "1": 230,
+      "3": 12
+    }
+  },
+  {
+    "file": "frame-general.pdf",
+    "bytes": 561741,
+    "sha256": "18ee4239e94c254710cd6c6f25c02d1c384a857965da3ed5885ade16dec5ec99",
+    "gzip_bytes": 458069
+  },
+  {
+    "file": "frame-general.svg",
+    "bytes": 1519262,
+    "sha256": "685528d32d10abc1623d23388203cd3ed84eb3d3e3d7e980f16667d8f9439b3f",
+    "gzip_bytes": 300672,
+    "elements": {
+      "svg": 1,
+      "metadata": 1,
+      "RDF": 1,
+      "Description": 1,
+      "creator": 1,
+      "source": 1,
+      "description": 1,
+      "g": 4,
+      "line": 2204,
+      "path": 2066,
+      "circle": 42,
+      "a": 1,
+      "rect": 1
+    },
+    "path_data_bytes": 1323976,
+    "path_commands": {
+      "M": 2604,
+      "Q": 20963,
+      "L": 15857,
+      "A": 238,
+      "C": 120
+    }
+  }
+]

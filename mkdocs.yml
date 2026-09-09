@@ -20,6 +20,7 @@ nav:
       - Sheet and fluent handles: reference/sheet.md
       - Drawing results: reference/drawing.md
       - Machine-readable reports: reference/reports.md
+      - Generated artifacts: reference/generated-artifacts.md
       - Read-only STEP inspection: reference/inspection.md
       - Feature declarations: reference/declarations.md
       - Recogniser capability contract: reference/recogniser-capabilities.md
