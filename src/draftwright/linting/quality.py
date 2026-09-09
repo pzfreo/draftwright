@@ -58,6 +58,7 @@ _LEGIBILITY_CODES = frozenset(
         "layout_repack_stalled",
         "scale_fallback_applied",
         "annotation_out_of_bounds",
+        "title_field_overflow",
         "annotation_overlap",
         "annotation_ink_overlap",
         "detail_unplaceable",

@@ -15,7 +15,7 @@ import re
 
 from build123d import GeomType
 
-from draftwright._core import _shape_box2d
+from draftwright._core import _shape_box2d, _text_size
 from draftwright._geometry import (
     BOUNDS_ROUNDOFF,
     MATERIAL_VISIBLE_FLOOR,
@@ -359,6 +359,7 @@ def lint_drawing(
         page_bbox = (p["min_x"], p["min_y"], p["max_x"], p["max_y"])
 
     for item in items:
+        _lint_title_fields(item, issues)
         if getattr(item, "elbow", None) is not None:
             _lint_leader(item, issues, box_cache, warned=warned_label_bbox)
         elif is_dimension_like(item):
@@ -728,6 +729,27 @@ def _view_edge_entries(vs, cache):
         entries = None
     cache[key] = (vs, entries)
     return entries
+
+
+def _lint_title_fields(item, issues) -> None:
+    """Check centred title-field ink against its helper-owned cell, in the build frame."""
+    for field, value, font_size, font_path in getattr(item, "title_field_specs", ()):
+        cell = item.cell_bbox(field)
+        width, height = _text_size(value, font_size, font_path)
+        if width > cell["width"] + BOUNDS_ROUNDOFF or height > cell["height"] + BOUNDS_ROUNDOFF:
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    code="title_field_overflow",
+                    message=(
+                        f"Title-block field {field!r} overflows its cell: text "
+                        f"{width:.2f} × {height:.2f} mm, cell "
+                        f"{cell['width']:.2f} × {cell['height']:.2f} mm. "
+                        "Use a concise field value and retain the full information in a notes "
+                        "block; text has not been shortened or shrunk."
+                    ),
+                )
+            )
 
 
 def _lint_view_shapes(

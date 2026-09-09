@@ -1419,6 +1419,13 @@ def _make_title_block(dwg, a: Analysis):
             )
         )
     tb.pdf_text_specs = tuple(specs)
+    # Keep the exact rendered field inputs for structural cell-overflow checks. Cell geometry
+    # remains owned by TitleBlock.cell_bbox(); it is not copied into a second layout model.
+    tb.title_field_specs = tuple(
+        (field, value, dwg.draft.font_size, PLEX_SANS_CONDENSED)
+        for field, value in fields
+        if value
+    )
     return tb, cell
 
 
