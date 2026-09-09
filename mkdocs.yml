@@ -15,6 +15,7 @@ exclude_docs: |
 
 nav:
   - Home: index.md
+  - Isolated installation: reference/isolated-execution.md
   - API reference:
       - Entry points: reference/entry-points.md
       - Sheet and fluent handles: reference/sheet.md
