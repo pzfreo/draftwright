@@ -12,7 +12,7 @@ import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos
 from build123d_drafting.helpers import Draft, Leader
 
-from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
+from draftwright import ScaleCompletenessWarning, Sheet, build_drawing, observe_build
 from draftwright._geometry import _segments_cross_or_overlap
 from draftwright.annotations._common import _box_hits, annotation_obstacle_boxes
 from draftwright.layout import _assign_leader_candidates
@@ -392,7 +392,9 @@ def test_public_render_is_crossing_free_and_pair_budget_is_legacy_floor(monkeypa
         0,
     )
     trace_path = tmp_path / "legacy.json"
-    legacy = build_drawing(part, model=model, page="A4", trace=trace_path)
+    progress = []
+    with observe_build(progress.append):
+        legacy = build_drawing(part, model=model, page="A4", trace=trace_path)
     legacy_names, _legacy_lengths, legacy_measurements = _groove_leader_evidence(legacy)
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "groove_callouts")
@@ -414,6 +416,10 @@ def test_public_render_is_crossing_free_and_pair_budget_is_legacy_floor(monkeypa
         for left, right in combinations(legacy_names, 2)
         for a0, a1 in legacy.get_annotation(left).segments
         for b0, b1 in legacy.get_annotation(right).segments
+    )
+    assert any(
+        event.phase == "budget" and dict(event.details)["reason"] == "greedy_pair_budget"
+        for event in progress
     )
     assert event["assignment"] == "greedy_pair_budget"
     assert event["optimal"] is False

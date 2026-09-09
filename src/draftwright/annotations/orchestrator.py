@@ -115,6 +115,7 @@ from draftwright.model import (
 from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.model.detect import _build_part_model_from_recognition
+from draftwright.progress import stage
 from draftwright.repair import reconcile_witness_labels
 from draftwright.view_plan import ViewConstraints
 
@@ -329,7 +330,8 @@ def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
     for name in sequence:
         fn = stages.get(name)
         if fn is not None:
-            fn()
+            with stage("placement." + name):
+                fn()
 
 
 def drain_and_reconcile(ctx, dwg) -> None:

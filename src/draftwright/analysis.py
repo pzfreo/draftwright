@@ -64,6 +64,7 @@ from draftwright.compose import (
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
 from draftwright.model.planner import plan_dimensions
+from draftwright.progress import observed_stage
 from draftwright.recognition_cache import _result_from_evidence
 from draftwright.recognition_frame import (
     FramedDetection,
@@ -84,6 +85,7 @@ _log = logging.getLogger(__name__)
 _ScalePick = tuple[float, float, float, float]
 
 
+@observed_stage("recognition")
 def _raw_recognition(
     part,
     *,
