@@ -139,4 +139,5 @@ feature-linked notes, measured dimensions, member PMI declarations and live edit
 current exact features with operation/cardinality assertions. It never means deserializing old
 IDs or treating an independently built Drawing or PDF as common authority.
 
-The complete two-sheet frame recipe and real-part canary are tracked in #1544.
+The [two-sheet frame example](frame-document.md) executes this workflow on a pinned real part,
+with a canary checking operation identities, section material, and loss of coverage after edits.
