@@ -27,6 +27,58 @@ fails before projection; a whole-view pin must preserve the convention's relatio
 
 ## Dimension text style
 
+### Title fields and notes at paper size
+
+Keep title-block values concise and put longer engineering information in a `notes()` block.
+`title_field_overflow` identifies text wider or taller than its title-block cell, even when the
+text remains inside the page. This is a legibility warning, like overlapping annotations;
+text outside the drawable page remains an `annotation_out_of_bounds` error. The full value
+stays rendered; the diagnostic does not truncate it, shrink the font or invent an abbreviation.
+`lint_summary()["passed"]` checks errors only, so inspect warnings and the legibility component
+as well. A title warning does not prevent scale recovery from restoring missing measurements.
+
+<!-- issue-1536-notes-example -->
+```python
+from build123d import Box
+from draftwright import Sheet
+
+sheet = Sheet(
+    Box(30, 20, 10), page="A4", scale=2,
+    title="FRAME - DFM REVIEW", number="REVIEW", material="SEE NOTES",
+    detail_view=False,
+)
+sheet.authored_dimensions()
+envelope = sheet.envelope()
+for parameter in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter)
+sheet.notes([
+    "QUOTATION / DFM REVIEW - NOT RELEASED",
+    "Material: TITANIUM - GRADE TBD",
+    "Hinge fit and pin retention: engineering decision required",
+], prefer="tr")
+drawing = sheet.build()
+for issue in drawing.lint():
+    print(issue.severity, issue.code, issue.message)
+```
+<!-- /issue-1536-notes-example -->
+
+`page` and `scale` control the sheet and model size. The current annotation preset has a fixed
+3 mm nominal paper font size; changing scale does not enlarge notes. `Sheet.notes()` and
+`Sheet.table()` have no font-size option. `text_position` and `text_orientation` below control
+dimension style, not note size. A smaller model scale makes notes larger relative to the part;
+a smaller page changes how much of the page they occupy. Neither changes their printed size.
+For the A2 frame trial, retain A2 and the requested scale unless the full package fits the new
+constraints with its required measurements intact; the small box example is not proof that
+the frame fits A4.
+
+`prefer="tr"` ranks available table positions near the top-right corner. The shared placement
+solve still measures the whole notes block and checks all occupied regions. If it cannot fit,
+`table_dropped` reports the failure. Split long prose into authored lines or choose an appropriate
+page; do not remove engineering content merely to silence a diagnostic. General notes remain
+uncredited text: they do not automatically satisfy missing dimensions or unsupported features.
+
+### Dimension position and reading direction
+
 Position and reading direction are independent drawing-wide settings:
 
 ```python
