@@ -91,7 +91,7 @@ timeout = 300
 # (minutes each), deselected by default. `smoke` is a curated, build-light subset
 # (~30 s) for a quick local "did I break something obvious" check — run it with
 # `uv run pytest -m smoke`. The default run is the full fast tier (`-m 'not slow'`,
-# runtime depends on worker count). CI runs one real-part canary before merge,
+# runtime depends on worker count). CI runs bounded real-part canaries before merge,
 # the full slow tier after merge, and the fast tier across its compatibility matrix.
 markers = [
     "slow: end-to-end integration builds, including CTC fixtures (deselected by default)",
