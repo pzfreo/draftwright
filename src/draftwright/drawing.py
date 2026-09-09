@@ -4178,7 +4178,7 @@ class Drawing:
                 self._build.recognition_evidence,
                 self._build.recognition_ownership,
                 getattr(self._part_model, "features", ()),
-                self._registry,
+                physical_registry,
                 self._build.omissions,
             )
             profiled_bores = list(recognition.double_d_bores)

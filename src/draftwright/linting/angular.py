@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 from build123d import GeomType
 
+from draftwright.linting._registry import cell_approvals_of
 from draftwright.linting.issues import LintIssue
 from draftwright.measurement_support import RequirementCarrier
 from draftwright.profile_angles import (
@@ -507,6 +508,12 @@ def profile_angle_requirement_outcomes(evidence, ownership, features, registry, 
                 for name in sorted(registry.names())
                 if hasattr(registry.named(name), "angular_points")
                 and any(matches_id(identity) for identity in registry.measurement_of(name))
+            )
+            measured += tuple(
+                RequirementCarrier(name, "angular_measurement", reference)
+                for name in sorted(registry.names())
+                for reference, cell in cell_approvals_of(registry, name)
+                if cell.measurement.kind == "angle" and matches_id(reference.measurement)
             )
             satisfied = tuple(
                 RequirementCarrier(name, "structured_note")

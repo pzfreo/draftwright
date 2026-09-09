@@ -542,3 +542,55 @@ def test_verified_schedule_cells_reconcile_legacy_geometric_coverage(
     content[target.row][target.column] = "999"
     monkeypatch.setattr(table, "table_rows", tuple(tuple(row) for row in content))
     assert any(issue.code == code for issue in drawing.lint())
+
+
+def test_angle_schedule_cells_keep_exact_physical_carriers_and_lose_corrupt_credit(
+    tmp_path, monkeypatch
+):
+    from build123d import RegularPolygon, extrude
+
+    source = tmp_path / "triangle.step"
+    export_step(extrude(RegularPolygon(30, 3), amount=4), source)
+    document = Document.from_part(source)
+    sheet = document.sheet("angles", page="A3", detail_view=False).authored_views()
+    sheet.view("front")
+    angles = [feature for feature in sheet.features if feature.kind == "angle"]
+    assert len(angles) == 3
+    sheet.schedule([(feature, ("included.angle",)) for feature in angles], name="angles")
+    result = document.build()
+    drawing = result.sheets["angles"]
+    outcomes = drawing.requirement_snapshot().outcomes["outer_profile_angles"]
+    assert len(outcomes) == 3 and all(row.state == "placed" for row in outcomes)
+    for row in outcomes:
+        (carrier,) = row.carriers
+        assert carrier.cell in drawing.registry.cells_of("angles")
+        assert carrier.cell.measurement.feature is row.features[0]
+    assert not any(issue.code.startswith("angular_requirement_") for issue in drawing.lint())
+    report_rows = [
+        row
+        for row in result.report()["recognition"]["requirements"]
+        if row["family"] == "outer_profile_angles"
+    ]
+    assert len(report_rows) == 3
+    assert all(row["coverage_credit"] == 1 for row in report_rows)
+    assert all(
+        ref["cell"] is not None for row in report_rows for ref in row["carrying_annotations"]
+    )
+
+    target = drawing.registry.cells_of("angles")[0]
+    table = drawing.get_annotation("angles")
+    content = [list(row) for row in table.table_rows]
+    content[target.row][target.column] = "99°"
+    monkeypatch.setattr(table, "table_rows", tuple(tuple(row) for row in content))
+    after = drawing.requirement_snapshot().outcomes["outer_profile_angles"]
+    missing = [row for row in after if row.state != "placed"]
+    assert len(missing) == 1
+    assert missing[0].features[0] is target.measurement.feature
+    assert not missing[0].carriers
+    assert sum(issue.code.startswith("angular_requirement_") for issue in drawing.lint()) == 1
+    report_rows = [
+        row
+        for row in result.report()["recognition"]["requirements"]
+        if row["family"] == "outer_profile_angles"
+    ]
+    assert sum(row["coverage_credit"] for row in report_rows) == 2
