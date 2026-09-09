@@ -77,6 +77,16 @@ class DocumentInput:
             raise ValueError("document members must use the exact common working solid")
         self.validate_features(features)
 
+    def validate_model(self, part, model):
+        """Member measurement references retain the common layout datum authority."""
+        self.validate(part, model.features)
+        expected = tuple(datum for datum in self._model.datums if datum.id == "datum_xy")
+        actual = tuple(datum for datum in model.datums if datum.id == "datum_xy")
+        if len(actual) != len(expected) or any(
+            first is not second for first, second in zip(expected, actual, strict=True)
+        ):
+            raise ValueError("document layout datum is sealed; retain the exact common datum")
+
     def model(self, features):
         """Copy mutable authoring containers while preserving exact source owners."""
         self.validate_features(features)

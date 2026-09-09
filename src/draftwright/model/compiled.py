@@ -268,6 +268,21 @@ class ApprovedDimension:
     equivalent_ids: tuple[DimensionId, ...] = ()
 
     @property
+    def is_location_measurement(self) -> bool:
+        """Location intent includes the existing length-valued off-axis members."""
+        return self.kind == "location" or self.location_member is not None
+
+    @property
+    def physical_location_component(self) -> str | None:
+        """The physical ledger spelling, separate from the finer member selector."""
+        if not self.is_location_measurement or self.discriminator not in {"x", "y", "z"}:
+            return None
+        feature = self.id.feature if self.id is not None else None
+        if isinstance(feature, HoleFeature) and self.axis != "z":
+            return f"{self.role}.{self.discriminator}"
+        return f"{self.role}.location.{self.discriminator}"
+
+    @property
     def measurement_ids(self) -> tuple[DimensionId, ...]:
         return ((self.id,) if self.id is not None else ()) + self.equivalent_ids
 

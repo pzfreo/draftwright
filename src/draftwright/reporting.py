@@ -389,6 +389,119 @@ def match_requirement_catalog(
     return tuple(aligned)
 
 
+@dataclass(frozen=True)
+class DocumentRequirementEvaluation:
+    requirement: CatalogRequirement
+    state: str
+    local: tuple
+    dependencies: tuple
+    combined: CatalogRequirement
+
+
+@dataclass(frozen=True)
+class DocumentEvaluation:
+    requirements: tuple[DocumentRequirementEvaluation, ...]
+    claims: tuple
+    conflicts: tuple
+    registry: object
+    annotation_refs: Mapping
+
+
+def evaluate_document_requirements(catalog, model, part, members, claims) -> DocumentEvaluation:
+    """Read shared physical ledgers over all member ink, retaining local outcomes.
+
+    The temporary registry holds the exact existing annotations. It does not add ink
+    to a drawing, merge models, recognize geometry, or use a sheet's score as evidence.
+    """
+    from types import SimpleNamespace
+
+    from draftwright.document_evidence import document_conflicts, document_support_proofs
+    from draftwright.linting.requirements import recognized_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    registry = AnnotationRegistry()
+    annotation_refs = {}
+    for index, (name, snapshot, _aligned) in enumerate(members):
+        for annotation in sorted(snapshot.registry.names()):
+            reference = f"{index}:{annotation}"
+            annotation_refs[reference] = (name, annotation)
+            registry.add(
+                snapshot.registry.named(annotation),
+                reference,
+                snapshot.registry.view_of(annotation),
+                feature=snapshot.registry.feature_of(annotation),
+                measurement=snapshot.registry.measurement_of(annotation),
+                satisfaction=snapshot.registry.satisfaction_of(annotation),
+            )
+    # Existing ledger verification reads approved values from these four collections.
+    # Each entry keeps its actual member compiler authority; nothing is recompiled here.
+    plan = SimpleNamespace(
+        **{
+            field: tuple(
+                item
+                for _name, snapshot, _aligned in members
+                for item in getattr(snapshot.dimension_plan, field, ())
+            )
+            for field in ("groups", "ladders", "locations", "contingencies")
+        }
+    )
+    outcomes = recognized_requirement_outcomes(
+        catalog.evidence.result,
+        tuple(model.features),
+        registry,
+        (),
+        dimension_plan=plan,
+        part=part,
+        evidence=catalog.evidence,
+        ownership=catalog.ownership,
+        datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
+    )
+    combined = build_requirement_catalog(
+        evidence=catalog.evidence,
+        ownership=catalog.ownership,
+        model=model,
+        part=part,
+        requirement_outcomes=outcomes,
+    )
+    aligned = match_requirement_catalog(catalog, combined)
+    conflicts = document_conflicts(claims)
+    evaluated = []
+    for index, (requirement, current) in enumerate(
+        zip(catalog.requirements, aligned, strict=True)
+    ):
+        local = tuple((name, rows[index].outcome) for name, _snapshot, rows in members)
+        proofs = document_support_proofs(requirement.dependency_alternatives, claims, conflicts)
+        observed = getattr(current.outcome, "state", None)
+        # A local direct representation remains direct even when the union makes a
+        # producer's conditional alternative applicable (notably opposite plates).
+        local_states = {getattr(outcome, "state", None) for _name, outcome in local}
+        if (
+            requirement.unsupported
+            or not requirement.requirement_count_known
+            or requirement.parameter_id is None
+        ):
+            state = "unresolved"
+        elif requirement.intrinsic_exclusion is not None:
+            state = "inapplicable"
+        elif "placed" in local_states and current.features:
+            state = "placed"
+        elif current.features and observed == "placed":
+            state = "placed"
+        elif current.features and (
+            "satisfied_by_structured_note" in local_states
+            or observed == "satisfied_by_structured_note"
+        ):
+            state = "satisfied_by_structured_note"
+        elif proofs:
+            state = "dependency-derived"
+        else:
+            state = "uncovered"
+        evaluated.append(DocumentRequirementEvaluation(requirement, state, local, proofs, current))
+    return DocumentEvaluation(
+        tuple(evaluated), tuple(claims), conflicts, registry, annotation_refs
+    )
+
+
 _DISPOSITIONS = (
     "represented",
     "absorbed",
@@ -1023,6 +1136,9 @@ __all__ = [
     "REPORT_SCHEMA",
     "REPORT_SCHEMA_VERSION",
     "CatalogRequirement",
+    "DocumentEvaluation",
+    "DocumentRequirementEvaluation",
+    "evaluate_document_requirements",
     "JsonValue",
     "RequirementCatalog",
     "RequirementSnapshot",

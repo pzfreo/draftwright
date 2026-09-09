@@ -28,7 +28,7 @@ reads; no cross-run provider identity is reconstructed or serialized.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,7 @@ class MeasurementClaim:
     meaning: tuple
     rendered: tuple
     witnesses: tuple = ()
+    approved: tuple = field(default=(), repr=False, compare=False, kw_only=True)
 
 
 @dataclass(frozen=True)

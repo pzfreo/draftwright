@@ -8,11 +8,13 @@ from tempfile import TemporaryDirectory
 from types import MappingProxyType
 
 from draftwright.builder import _detect_part_model_analysis
+from draftwright.document_evidence import bind_document_claims
 from draftwright.document_input import DocumentInput
 from draftwright.progress import BuildCancelled, stage
 from draftwright.reporting import (
     ReportUnavailableError,
     build_requirement_catalog,
+    evaluate_document_requirements,
     match_requirement_catalog,
 )
 from draftwright.sheet import Sheet
@@ -43,7 +45,7 @@ class DocumentResult:
         for name, drawing in self._sheets.items():
             try:
                 snapshot = drawing.requirement_snapshot()
-                self._source.validate(snapshot.part, snapshot.model.features)
+                self._source.validate_model(snapshot.part, snapshot.model)
                 catalog = build_requirement_catalog(
                     evidence=snapshot.evidence,
                     ownership=snapshot.ownership,
@@ -56,6 +58,20 @@ class DocumentResult:
                 raise ReportUnavailableError(f"document sheet {name!r}: {exc}") from exc
             members.append((name, snapshot, aligned))
         return tuple(members)
+
+    def _evaluate(self):
+        members = self._project_members()
+        claims = tuple(
+            bind_document_claims(name, drawing.measurement_snapshot(), drawing.registry)
+            for name, drawing in self._sheets.items()
+        )
+        return evaluate_document_requirements(
+            self._catalog,
+            self._source.model(self._source.initial_features()),
+            self._source.analysis.part,
+            members,
+            claims,
+        )
 
 
 class Document:

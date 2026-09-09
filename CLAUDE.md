@@ -65,6 +65,7 @@ Compact map, bottom to top:
   (the ADR 5 (was 0002) lint→repair safety net), `pmi.py` (STEP AP242 PMI), `linting/`
   (draftwright-owned lint and recognition requirement ledgers, ADR 3 (was 0007)), `reporting.py`
   (versioned projection over explicitly supplied finished-build state and those ledgers),
+  `document_evidence.py` (confirmed claim binding, engineering agreement and dependency proofs),
   `model/` (the ADR 1 (was 0015) IR waist: `ir`/`detect`/`planner`/`declare`/`compiled`),
   `drawing.py` (the `Drawing` result object; single-owner `BuildState`), and
   `annotations/` (the render passes; `orchestrator.py` owns `_PASS_SEQUENCE`, the one

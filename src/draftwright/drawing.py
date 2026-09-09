@@ -1436,6 +1436,7 @@ class Drawing:
                                 if feature is identity.feature
                             ),
                         ),
+                        approved=approved,
                     )
                 )
         return MeasurementSnapshot(tuple(model.features), tuple(claims), tuple(unknown))
