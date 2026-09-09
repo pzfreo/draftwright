@@ -186,20 +186,62 @@ parameter identity. Profile-angle requirements instead retain the issued profile
 its ordered support pair, as the existing report validates. Keys retain strong references and
 validate `is`, not just integer object addresses. Placeholder rows with unknown parameter IDs
 retain their full cardinality as opaque unresolved obligations; do not invent parameter names
-or use a sheet's row position to join them. Unsupported occurrences synthesized by the current
-report remain in the same catalog. Explicitly account for `inapplicable` outcomes too.
+or use a sheet's row position to join them. Retain whether cardinality is actually known:
+a producer's single aggregate contract-failure row does not mean one physical measurement.
+A corrupt aggregate without exact source authority continues to refuse strict reporting.
+Unsupported occurrences synthesized by the current report remain in the same catalog.
+Explicitly account for `inapplicable` outcomes too.
 
 Every sheet must project onto this catalog without changing source partitions, multiplicities
-or applicability. A contradictory catalog shape is a `ReportUnavailableError`, not a union,
-intersection or best-effort match. This is also the guard against a member losing a physical
-feature or a provider family gaining requirements the document projector does not understand.
-The implementation gate must cover every currently emitted ledger family, profile sources and
-unknown-cardinality placeholders; the frame alone does not prove that generality.
+or intrinsic applicability. A contradictory source-owned catalog shape is a
+`ReportUnavailableError`, not a union, intersection or best-effort match. This is also the guard
+against a member losing a physical feature or a provider family gaining requirements the
+projector does not understand. Local evidence-dependent outcomes may differ legitimately.
+
+In particular, the current plate ledger marks a wall thickness `inapplicable` when other
+placed dimensions or structured notes establish it. On `plate-u-additive.step`, the exact same
+recognition and physical objects produce `placed/inapplicable/placed` with supporting ink and
+`missing/missing/missing` with an empty registry. The middle row's three dependencies are
+reported only in the first case. The step-level alternate can even change the local parameter
+from `thickness.length` to `?` when its supporting ink is removed. Neither the current v3 JSON
+(which omits inapplicable rows) nor a catalog built by copying those local outcomes is enough.
+
+Extend the existing ledger producers to expose source-owned obligations and their permitted
+dependency alternatives before evaluating ink. Keep intrinsic non-applicability distinct from
+evidence-dependent derivation. Canonical physical identity, unknown cardinality and the exact
+dependency conjunction must remain available even on a member carrying none of the supporting
+facts. Derive these from the ledger's existing rules and common source/ownership, not a new
+parameter guess or numeric evaluator in the document projector. Preserve current single-sheet
+results through the existing outcome projection.
+
+Retain complete alternative recipes, not a flattened set of measurement IDs. The through-step
+ledger also has alternative representations whose conjunction terms carry axis and interval
+proof; flattening multiple alternatives loses which terms must hold together. Keep those
+producer-owned supports and the OR-of-AND structure. For grouped holes, preserve each required
+member's location components rather than mistaking one member's carrying claim for the whole
+group. Pattern-anchor rules retain their own producer semantics. The document evaluator may
+reuse these typed rules across member evidence; it must not invent geometry correspondence or
+weaken the producer's support checks.
+
+A conditional obligation stays in the common catalog. If every prerequisite in one
+producer-issued alternative has confirmed carrying evidence in the document, report that
+obligation separately as dependency-derived, with the rule and all supporting sheet/claim
+identities. It receives at most one coverage credit and is not relabelled as a directly placed
+measurement. Missing support removes that credit, not the obligation. Never infer a relation
+from text or matching numbers, and never let circular/unresolved prerequisites establish their
+own coverage. Intrinsic exclusions require a common source-owned reason; an isolated local
+`inapplicable` flag cannot shrink the denominator. Retain conflicts and uncertainty in the
+supporting engineering meanings alongside this coverage assessment.
+
+The implementation gate must cover every currently emitted ledger family, profile sources,
+unknown-cardinality placeholders, conditional plate and through-step alternatives, and group
+member obligations; the frame alone does not prove that generality.
 
 | Member outcomes for a catalog requirement | Package coverage | Information retained |
 |---|---|---|
 | One or more `placed` claims | One placed credit | All sheet/annotation/row identities |
 | No placed claim; a rendered structured note satisfies it | One authored-note credit | Author and exact satisfied parameter |
+| A producer-issued dependency alternative is fully carried | One dependency-derived credit | Exact relation and every supporting claim; no direct-placement claim |
 | Supported but no carrying claim | Uncovered, no credit | Every suppressed/dropped/missing/unverifiable reason |
 | Unsupported, deferred, or unprojected provider occurrence | Unresolved, no credit | Full count, disposition and limitation |
 | Contradictory or unverifiable repeated ink alongside a carrying claim | Coverage may exist; fidelity needs attention | The conflicting claim is never excused |
@@ -207,8 +249,9 @@ unknown-cardinality placeholders; the frame alone does not prove that generality
 A sheet's local `suppressed` state stays suppressed even when another sheet carries the fact.
 The document records the relation to that other claim rather than rescoring the first sheet.
 Repeated dimensions contribute at most one credit, while all claims remain inspectable. An
-inapplicable requirement is excluded only by the common ledger's existing applicability rule,
-not by omission on a member. No `max(score)` or averaging of single-sheet diagnostics.
+intrinsically inapplicable requirement is excluded only by the common source-owned rule,
+not by omission or conditional derivation on a member. No `max(score)` or averaging of
+single-sheet diagnostics.
 
 Reconciliation also checks engineering meaning across members; retaining each sheet's lint
 alone is insufficient. For each exact common owner and canonical parameter, collect confirmed
@@ -218,6 +261,14 @@ location member and angular reference. Extend that seam for typed schedule cells
 raw rendered text, annotation names, paper coordinates or whole before/after snapshots: sheets
 intentionally carry different subsets and may present the same fact differently. The comparison
 contributes no requirement denominator and performs no geometric correspondence search.
+
+Normalize presentation-only fields through the existing typed measurement seam before comparing
+engineering meanings. For example, confirmed `H7` class and signed-deviation displays retain
+the same fit code and limits, but the current snapshot's `FitClass.show` makes raw tuple
+equality differ. Ignore that display choice for document agreement while retaining the fit
+code and limits; retain rendered text separately for its existing verification and diagnostics.
+Do not loosen the existing edit comparison, which deliberately also detects presentation
+changes, or use label parsing to manufacture semantic equivalence.
 
 Different confirmed meanings for the same owner/parameter produce a document fidelity conflict,
 attributed to both sheets and all participating annotations/cells. For example, Ø2.4 ±0.02 on
@@ -273,8 +324,15 @@ After design review, create focused implementation children under #1535 and link
    common denominator; remove it from both and lose the credit; retain a bad duplicate as a
    fidelity finding. Test locally confirmed ±0.02/±0.05 cross-sheet conflict, equal engineering
    meaning with different presentation, and unknown claims that cannot establish agreement.
-   Refuse foreign/equal clones and stale physical membership. Exercise all
-   ledger families and unknown-cardinality/profile counterexamples before claiming genericity.
+   Refuse foreign/equal clones and stale physical membership. Exercise all ledger families
+   and unknown-cardinality/profile counterexamples before claiming genericity. For the additive
+   U-channel and step-level alternate, preserve the exact source-owned catalog with and without
+   supporting ink, including when its prerequisite measurements are distributed across members.
+   Remove a prerequisite everywhere and lose derived credit without losing the obligation;
+   preserve local outcomes and retain conflicting/unconfirmed supporting claims. Verify H7
+   class/deviation agreement separately from changed fit limits and changed tolerances.
+   Through-step alternatives must not gain credit from incomplete terms taken from different
+   alternatives or wrong axis/interval support; a grouped location must retain every member.
 2. **Typed schedules and linked-note integration.** Extend the existing compiler and table
    placement/provenance. Verify per-member locations, toleranced values, through versus blind
    content, authored-note distinction, table overflow/drop and interrupted placement. Mutating
