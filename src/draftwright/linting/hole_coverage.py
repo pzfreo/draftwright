@@ -1241,6 +1241,14 @@ def lint_hole_leader_targets(
             for edge in evidence.face(face).edges()
         )
         if not edges:
+            if not valid_evidence:
+                reason = "same-run recognition evidence unavailable"
+            elif view is None:
+                reason = "annotation view unavailable"
+            elif not refs:
+                reason = "exact physical occurrence ownership unavailable"
+            else:
+                reason = "named occurrence has no defining boundary edges"
             issues.append(
                 LintIssue(
                     severity="warning",
@@ -1248,6 +1256,9 @@ def lint_hole_leader_targets(
                     message=f"{name}: the diameter leader's physical boundary cannot be verified",
                     location=tip,
                     measurement_ids=measurements,
+                    annotation_name=name,
+                    view=view,
+                    evidence_reason=reason,
                 )
             )
         elif (
@@ -1264,6 +1275,9 @@ def lint_hole_leader_targets(
                     message=f"{name}: the diameter leader tip does not touch its named physical boundary",
                     location=tip,
                     measurement_ids=measurements,
+                    annotation_name=name,
+                    view=view,
+                    evidence_reason="drawn tip is outside the named physical boundary tolerance",
                 )
             )
     return issues

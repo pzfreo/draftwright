@@ -130,6 +130,17 @@ def test_lint_requires_the_named_holes_physical_authority(monkeypatch, withdraw)
     (issue,) = lint_hole_leader_targets(**kwargs)
     assert issue.code == "diameter_leader_target_unverifiable"
     assert issue.measurement_ids
+    _, name, _ = _hole_leader(drawing)
+    assert issue.annotation_name == name
+    assert issue.view == drawing.view_of(name)
+    expected = {
+        "faces": "named occurrence has no defining boundary edges",
+        "ownership": "exact physical occurrence ownership unavailable",
+        "foreign_evidence": "same-run recognition evidence unavailable",
+        "owner": "exact physical occurrence ownership unavailable",
+        "view": "annotation view unavailable",
+    }
+    assert issue.evidence_reason == expected[withdraw]
 
 
 @pytest.mark.parametrize("declared", [False, True])

@@ -78,6 +78,8 @@ def test_lint_rejects_centre_bore_and_untrimmed_circle_extension(
     assert name in issues[0].message
     assert issues[0].location == tip
     assert issues[0].measurement_ids == automatic.registry.measurement_of(name)
+    assert issues[0].annotation_name == name and issues[0].view == "side"
+    assert "outside the trimmed physical profile arc tolerance" in issues[0].evidence_reason
 
 
 @pytest.mark.parametrize("mode", ["live", "deferred", "retained"])
@@ -184,6 +186,15 @@ def test_lint_reports_unverifiable_target_authority(automatic, monkeypatch, with
     assert len(issues) == 2
     assert all(issue.code == "radius_leader_target_unverifiable" for issue in issues)
     assert all(issue.measurement_ids for issue in issues)
+    for issue in issues:
+        assert issue.annotation_name in automatic.annotations()
+        assert issue.view == registry.view_of(issue.annotation_name)
+        if withdraw in {"owner", "wrong_owner"}:
+            assert issue.evidence_reason == "feature-backed blend measurement unavailable"
+        elif withdraw == "view":
+            assert issue.evidence_reason == "annotation view unavailable"
+        else:
+            assert issue.evidence_reason == "trimmed profile arc evidence unavailable"
 
 
 @pytest.mark.parametrize("defect", ["radius", "side", "direction", "axis", "station", "ambiguous"])

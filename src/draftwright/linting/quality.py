@@ -818,4 +818,45 @@ def quality_components(
     }
 
 
-__all__ = ["quality_components"]
+def review_explanation(*, quality: dict, errors: int, warnings: int, score: float) -> dict:
+    """Explain existing observations without creating a score or requirement inventory."""
+    completeness = quality["completeness"]
+    if completeness["available"]:
+        coverage = (
+            f"Of {completeness['requirements']} audited recognized requirements: "
+            + ", ".join(
+                f"{completeness[state]} {state.replace('_', ' ')}"
+                for state in _OUTCOME_STATES
+                if state != "inapplicable"
+            )
+            + ". This is partial coverage; see quality.completeness for excluded evidence."
+        )
+    else:
+        coverage = f"Coverage unavailable: {completeness['reason']}."
+
+    def describe_axis(name: str) -> str:
+        component = quality[name]
+        if not component["available"]:
+            return f"Unavailable: {component['reason']}."
+        return (
+            f"{component['raw_issues']} findings in the checks performed "
+            f"(score {component['score']:g}); absence of findings is not proof beyond those checks."
+        )
+
+    return {
+        "summary": (
+            f"{errors} errors, {warnings} warnings. passed={str(errors == 0).lower()}; "
+            f"passed is true only with no error-severity findings. diagnostic_score={score:g} is the legacy "
+            "severity penalty, not a drawing-quality or completeness score."
+        ),
+        "coverage": coverage,
+        "legibility": describe_axis("legibility"),
+        "fidelity": describe_axis("fidelity"),
+        "manufacturing_intent": (
+            "Not assessed: material, process, finish, thread, fit and tolerance intent require "
+            "author input. Free text does not establish requirement coverage."
+        ),
+    }
+
+
+__all__ = ["quality_components", "review_explanation"]
