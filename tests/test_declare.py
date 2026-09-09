@@ -1423,15 +1423,20 @@ class TestModelSeam:
         assert warns == [], [i.code for i in warns]
 
     def test_partial_declaration_is_flagged_by_coverage_lint(self):
-        # ADR 4 (was 0011) caveat: the coverage lint re-detects, so a partial declaration is
-        # correctly flagged for the geometry it left undimensioned.
+        # Physical critique keeps the recognised denominator when a declaration is partial.
         plate = Box(80, 50, 8)
         h1 = Pos(20, 10, 0) * Cylinder(3, 8)
         h2 = Pos(-20, 10, 0) * Cylinder(3, 8)
         part = plate - h1 - h2
         dwg = build_drawing(part, model=[envelope(plate), hole(h1)])
-        codes = {i.code for i in dwg.lint() if i.severity in ("warning", "error")}
-        assert "feature_count_mismatch" in codes
+        issues = dwg.lint()
+        assert len(dwg.recognition().holes) == 2
+        assert len([f for f in dwg.model().features if f.kind == "hole"]) == 1
+        unresolved = [i for i in issues if i.code == "hole_requirement_unverifiable"]
+        assert len(unresolved) == 1 and unresolved[0].severity == "warning"
+        assert "2× ø6 THRU" in unresolved[0].message
+        assert unresolved[0].hole_requirement_ids == ()
+        assert "dwg.callout(" not in unresolved[0].suggestion
 
     def test_orientation_inferred_from_step(self):
         shaft = Rot(0, 90, 0) * Cylinder(4, 30)  # a round bar along x

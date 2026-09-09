@@ -4004,6 +4004,8 @@ class Drawing:
                 # where detect also falls back to the aggregate.
                 **({"turned_profiles": prof_kw["profiles"]} if "profiles" in prof_kw else {}),
                 registry=self._registry,
+                # Counts belong to lint_hole_coverage's operation/ownership ledger.
+                check_hole_counts=False,
             )
             issues += lint_axial_coverage(
                 working_part,

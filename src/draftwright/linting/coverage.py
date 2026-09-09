@@ -284,6 +284,7 @@ def lint_feature_coverage(
     recognition_evidence=None,
     turned_profiles=_UNSET,
     registry=None,
+    check_hole_counts: bool = True,
 ) -> list:
     """Coarse completeness check: report part diameters with no callout (#80).
 
@@ -333,6 +334,10 @@ def lint_feature_coverage(
     A placed feature-linked note may instead carry explicit ``DimensionId``
     satisfaction provenance. Only canonical diameter parameters on that exact
     feature contribute; the note's prose is never parsed for this purpose (#1351).
+
+    ``check_hole_counts=False`` leaves count reconciliation to the semantic hole
+    ledger, as used by Drawing.lint. The default diameter-total check is only a
+    coarse fallback for standalone callers; it cannot identify drilling operations.
     """
     z_cyls, cross_cyls = cyls if cyls is not None else analyse_cylinders(part)
     if holes is None:
@@ -456,6 +461,9 @@ def lint_feature_coverage(
         if not any(abs(d - v) <= tol for v in mentioned)
         and not any(abs(d - e) <= tol for e in exclude)
     ]
+
+    if not check_hole_counts:
+        return issues
 
     required: dict[float, int] = {}
     for h in holes:
