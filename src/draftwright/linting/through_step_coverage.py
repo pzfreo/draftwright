@@ -9,16 +9,22 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from quiddity import RecognitionResult, ThroughStep
 
 from draftwright._geometry import _fmt
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    exact_measurement_carriers,
+    measurement_carrier_index,
+    satisfaction_ids,
+    satisfaction_of,
+)
 from draftwright.linting.evidence import compiled_values, rendered_numbers
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.structural import _label_reading
+from draftwright.measurement_support import MeasurementSupport, RequirementCarrier
 
 ThroughStepRequirementState = Literal[
     "placed",
@@ -41,32 +47,11 @@ class ThroughStepRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     measurement_ids: tuple[tuple[object, str], ...] = ()
+    dependency_alternatives: tuple[tuple[MeasurementSupport, ...], ...] = field(
+        default=(), kw_only=True
+    )
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
-
-
-@dataclass(frozen=True)
-class _LegacyTerm:
-    """One exact member of a legacy dimension grammar.
-
-    ``DimensionId`` deliberately addresses an entire correlated ladder, so it cannot by
-    itself distinguish (for example) a 10 mm step rung from a 15 mm rung.  The physical
-    interval retained here selects the exact compiled member and prevents another member of
-    the same ladder from receiving credit for a through-step leg.
-    """
-
-    feature: object
-    parameter_id: str
-    axis: str
-    lo: float
-    hi: float
-
-    @property
-    def identity(self) -> tuple[object, str]:
-        return (self.feature, self.parameter_id)
-
-    @property
-    def value(self) -> float:
-        return abs(self.hi - self.lo)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -147,11 +132,13 @@ def _source_leg_intervals(source) -> tuple[tuple[str, float, float], ...]:
     return tuple(intervals)
 
 
-def _legacy_owner_plans(source, features) -> dict[str, list[tuple[_LegacyTerm, ...]]]:
+def _legacy_owner_plans(source, features) -> dict[str, list[tuple[MeasurementSupport, ...]]]:
     """Alternative measurement identities that prove each physical source leg."""
     parameters = _parameter_ids(source)
     legs = dict(zip(parameters, _source_leg_intervals(source), strict=True))
-    plans: dict[str, list[tuple[_LegacyTerm, ...]]] = {parameter: [] for parameter in parameters}
+    plans: dict[str, list[tuple[MeasurementSupport, ...]]] = {
+        parameter: [] for parameter in parameters
+    }
     envelope = next(
         (candidate for candidate in features if getattr(candidate, "kind", None) == "envelope"),
         None,
@@ -170,7 +157,9 @@ def _legacy_owner_plans(source, features) -> dict[str, list[tuple[_LegacyTerm, .
             owner = (feature.axis, *sorted((feature.lo, feature.hi)))
             for parameter, leg in legs.items():
                 if _matches(owner, leg):
-                    plans[parameter].append((_LegacyTerm(feature, "thickness.length", *owner),))
+                    plans[parameter].append(
+                        (MeasurementSupport(feature, "thickness.length", *owner),)
+                    )
                 if envelope is not None:
                     axis = feature.axis
                     bound_lo = envelope.bbox_min["xyz".index(axis)]
@@ -184,8 +173,8 @@ def _legacy_owner_plans(source, features) -> dict[str, list[tuple[_LegacyTerm, .
                     if any(_matches(complement, leg) for complement in complements):
                         plans[parameter].append(
                             (
-                                _LegacyTerm(feature, "thickness.length", *owner),
-                                _LegacyTerm(
+                                MeasurementSupport(feature, "thickness.length", *owner),
+                                MeasurementSupport(
                                     envelope,
                                     envelope_parameters[axis],
                                     axis,
@@ -207,14 +196,14 @@ def _legacy_owner_plans(source, features) -> dict[str, list[tuple[_LegacyTerm, .
                 for parameter, leg in legs.items():
                     if _matches(direct, leg):
                         plans[parameter].append(
-                            (_LegacyTerm(feature, "step_height.length", *direct),)
+                            (MeasurementSupport(feature, "step_height.length", *direct),)
                         )
                     if complement is not None and _matches(complement, leg):
                         assert envelope is not None
                         plans[parameter].append(
                             (
-                                _LegacyTerm(feature, "step_height.length", *direct),
-                                _LegacyTerm(
+                                MeasurementSupport(feature, "step_height.length", *direct),
+                                MeasurementSupport(
                                     envelope,
                                     envelope_parameters["z"],
                                     "z",
@@ -236,14 +225,14 @@ def _legacy_owner_plans(source, features) -> dict[str, list[tuple[_LegacyTerm, .
                 for parameter, leg in legs.items():
                     if _matches(direct, leg):
                         plans[parameter].append(
-                            (_LegacyTerm(feature, "step_position.length", *direct),)
+                            (MeasurementSupport(feature, "step_position.length", *direct),)
                         )
                     if complement is not None and _matches(complement, leg):
                         assert envelope is not None
                         plans[parameter].append(
                             (
-                                _LegacyTerm(feature, "step_position.length", *direct),
-                                _LegacyTerm(
+                                MeasurementSupport(feature, "step_position.length", *direct),
+                                MeasurementSupport(
                                     envelope,
                                     envelope_parameters[axis],
                                     axis,
@@ -285,7 +274,9 @@ def _has_parameters(feature, expected: tuple[str, str]) -> bool:
         return False
 
 
-def _interval_matches(term: _LegacyTerm, span) -> bool:
+def _interval_matches(term: MeasurementSupport, span) -> bool:
+    if term.axis not in ("x", "y", "z") or term.lo is None or term.hi is None:
+        return False
     try:
         if span is None or len(span) != 2:
             return False
@@ -304,11 +295,11 @@ def _interval_matches(term: _LegacyTerm, span) -> bool:
     return abs(lo - term.lo) < 0.5 and abs(hi - term.hi) < 0.5
 
 
-def _span_matches(term: _LegacyTerm, approved) -> bool:
+def _span_matches(term: MeasurementSupport, approved) -> bool:
     return _interval_matches(term, getattr(approved, "span", None))
 
 
-def _term_values(term: _LegacyTerm, approved_by_id) -> frozenset[float]:
+def _term_values(term: MeasurementSupport, approved_by_id) -> frozenset[float]:
     """Compiler-approved labels for the exact correlated member named by *term*."""
     entries = (
         tuple(
@@ -518,7 +509,7 @@ def through_step_requirement_outcomes(
     # be judged on the legacy proof itself, not on the richer recogniser record key: legacy
     # dimensions encode the section intervals but not necessarily the run anchor, so two
     # differently anchored sources can otherwise reuse the same two pieces of ink.
-    legacy_plans: dict[int, dict[str, list[tuple[_LegacyTerm, ...]]]] = {}
+    legacy_plans: dict[int, dict[str, list[tuple[MeasurementSupport, ...]]]] = {}
     legacy_signature_counts: dict[tuple, int] = defaultdict(int)
     for index, (source, _key, record_parameters) in enumerate(keyed_sources):
         if record_parameters is None or source.axis not in ("x", "y"):
@@ -562,6 +553,7 @@ def through_step_requirement_outcomes(
                             for alternative in plans[parameter]
                             for term in alternative
                         ),
+                        dependency_alternatives=tuple(plans[parameter]),
                         source_records=(source,),
                     )
                     for parameter in expected
@@ -612,7 +604,18 @@ def through_step_requirement_outcomes(
                     source_records=(source,),
                 )
             )
-    return outcomes
+    index = measurement_carrier_index(registry)
+    # Alternate support needs complete interval/value proofs, not the flattened IDs.
+    # Document evaluation supplies those proofs through DocumentSupportProof.
+    return [
+        replace(
+            outcome,
+            carriers=()
+            if outcome.dependency_alternatives
+            else exact_measurement_carriers(index, outcome.measurement_ids),
+        )
+        for outcome in outcomes
+    ]
 
 
 def lint_through_step_coverage(

@@ -19,13 +19,18 @@ from typing import Literal
 
 from quiddity import PolygonalStock, RecognitionResult
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.measurement_support import RequirementCarrier
 
 PolygonalStockState = Literal[
     "placed",
@@ -56,6 +61,8 @@ _SUPPORT_TRANSVERSE_MODEL_TOLERANCE = 0.2
 @dataclass(frozen=True)
 class PolygonalStockOutcome:
     """The observable engine outcome of one whole-stock measurement."""
+
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
     source_at: Point | None
     parameter_id: str
@@ -415,7 +422,7 @@ def polygonal_stock_outcomes(
                 source_records=(source,),
             )
         ]
-    return [
+    outcomes = [
         PolygonalStockOutcome(
             at,
             parameter,
@@ -433,6 +440,7 @@ def polygonal_stock_outcomes(
         )
         for parameter in parameter_ids
     ]
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_polygonal_stock_coverage(

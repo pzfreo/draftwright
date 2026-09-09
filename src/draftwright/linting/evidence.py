@@ -55,7 +55,7 @@ ClaimState = Literal["confirmed", "value_absent", "unresolved", "unreadable", "n
 _VALUE_TOL = 1e-6
 
 
-def _expected_numbers(approved) -> frozenset[float]:
+def _expected_numbers(approved, *, location_component=None) -> frozenset[float]:
     """Every number the sheet may legitimately show for *approved*.
 
     From ``value_text``, NOT ``value``. The compiler formats for display — a 13.649 mm extent
@@ -107,6 +107,12 @@ def _expected_numbers(approved) -> frozenset[float]:
     # intent rather than this inference (#1218 review round 2).
     excluded = "xyz".index(axis) if axis in ("x", "y", "z") else None
     indices = [i for i in range(3) if i != excluded]
+    if location_component is not None:
+        # A document may bind one recorded component of a legacy coarse location.
+        # Narrow this existing compiler-span check; never accept its sibling offset.
+        if location_component not in "xyz" or len(location_component) != 1:
+            return frozenset()
+        indices = [i for i in indices if "xyz"[i] == location_component]
     return frozenset(
         float(_fmt(abs(float(end[index]) - float(start[index])))) for index in indices
     )
@@ -239,7 +245,7 @@ def rendered_numbers(annotation) -> frozenset[float] | None:
     return frozenset(float(match.group()) for text in texts for match in _NUMBER_RE.finditer(text))
 
 
-def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
+def verify_measurement_claims(registry, plan, *, location_components=None) -> list[ClaimOutcome]:
     """Resolve every annotation's measurement claims against what it renders.
 
     **Four limits, all measured rather than reasoned about** (#1218 review found each of them
@@ -357,7 +363,15 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
                 continue
             expected = tuple(entry.value_text for entry in entries)
             wanted = (
-                frozenset().union(*(_expected_numbers(entry) for entry in entries))
+                frozenset().union(
+                    *(
+                        _expected_numbers(
+                            entry,
+                            location_component=(location_components or {}).get(name),
+                        )
+                        for entry in entries
+                    )
+                )
                 if entries
                 else frozenset()
             )

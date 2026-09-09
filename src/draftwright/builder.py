@@ -654,7 +654,9 @@ def _assemble(
     dwg._build.attach_recognition(
         a.recognition,
         evidence=a.recognition_evidence,
-        cache=critique_recognition_cache if a.recognition is None else None,
+        cache=critique_recognition_cache
+        if a.recognition is None and a.recognition_evidence is None
+        else None,
         ownership=a.recognition_ownership,
     )
     dwg._build.part_model = pm
@@ -1208,6 +1210,7 @@ def _build_drawing_once(
     _view_constraints=None,
     _required_tables=(),
     _select_automatic_views: bool = False,
+    _document_input=None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1343,6 +1346,7 @@ def _build_drawing_once(
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
             _framed_recognition=framed_recognition,
+            _document_input=_document_input,
         )
 
     with stage("analysis"):
@@ -1907,6 +1911,7 @@ def build_drawing(
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _document_input=None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1967,6 +1972,7 @@ def build_drawing(
         _required_tables=_required_tables,
         _include_iso=_include_iso,
         _view_constraints=_view_constraints,
+        _document_input=_document_input,
     )
     analysis_base = None
     build_attempt = 0
@@ -2036,6 +2042,8 @@ def build_drawing(
             _select_automatic_views=select_automatic_views,
         )
         _validate_authored_view_layout(built, _view_constraints)
+        if _document_input is not None:
+            _document_input.validate(built.working_part, built.model().features)
         return _post_build(built) if _post_build is not None else built
 
     def scale_blockers_for(built: Drawing) -> tuple[dict, ...]:

@@ -53,6 +53,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from draftwright._geometry import _fmt, _fmt_angle
+from draftwright.location_contract import coincident_location_axes
 from draftwright.model.ir import (
     AngularReference,
     EnvelopeFeature,
@@ -265,6 +266,21 @@ class ApprovedDimension:
     #: Other approved identities for the same physical measurement. This is
     #: compiler-owned equivalence, never inferred from already printed numbers.
     equivalent_ids: tuple[DimensionId, ...] = ()
+
+    @property
+    def is_location_measurement(self) -> bool:
+        """Location intent includes the existing length-valued off-axis members."""
+        return self.kind == "location" or self.location_member is not None
+
+    @property
+    def physical_location_component(self) -> str | None:
+        """The physical ledger spelling, separate from the finer member selector."""
+        if not self.is_location_measurement or self.discriminator not in {"x", "y", "z"}:
+            return None
+        feature = self.id.feature if self.id is not None else None
+        if isinstance(feature, HoleFeature) and self.axis != "z":
+            return f"{self.role}.{self.discriminator}"
+        return f"{self.role}.location.{self.discriminator}"
 
     @property
     def measurement_ids(self) -> tuple[DimensionId, ...]:
@@ -1390,11 +1406,12 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             # site that consumed it would have printed an empty label the moment it read
             # `value_text` (#925). The Z-normal ladder below is the remaining exception and
             # is listed as such.
+            coincident = coincident_location_axes(feature, span)
             for meas in (feature.long_axis, feature.width_axis):
                 index = "xyz".index(meas)
                 value = abs(span[1][index] - span[0][index])
                 parameter_id = f"{pd.param.role}.{meas}"
-                if value <= 1e-6:
+                if meas in coincident:
                     omissions.append(
                         Omission(
                             feature,
@@ -1422,10 +1439,11 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                 )
             continue
         if isinstance(feature, PocketFeature) and axis == "z":
+            coincident = coincident_location_axes(feature, span)
             for measured_axis in ("x", "y"):
                 index = "xyz".index(measured_axis)
                 value = abs(span[1][index] - span[0][index])
-                if value <= 1e-6:
+                if measured_axis in coincident:
                     omissions.append(
                         Omission(
                             feature,

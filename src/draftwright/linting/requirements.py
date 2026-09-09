@@ -36,6 +36,64 @@ from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
 from draftwright.linting.turned_step_coverage import turned_step_requirement_outcomes
 
+# Source-family coverage of this collector, independent of which outcomes survived
+# projection. Parameter grammars remain exclusively in their existing producers.
+REQUIREMENT_SOURCE_FAMILIES = frozenset(
+    {
+        "section_recesses",
+        "chamfers",
+        "blends",
+        "channels",
+        "circular_blind_steps",
+        "fillets",
+        "paired_ramp_steps",
+        "through_steps",
+        "turned_steps",
+        "flats",
+        "grooves",
+        "holes",
+        "hole_patterns",
+        "oriented_slots",
+        "pads",
+        "plates",
+        "polygonal_bosses",
+        "polygonal_stock",
+        "pockets",
+        "pocket_patterns",
+        "rectangular_blind_slots",
+        "round_bottom_blind_slots",
+        "slots",
+        "slot_patterns",
+    }
+)
+
+
+def requirement_source_census(evidence, ownership):
+    """Exact accepted records whose families have a physical requirement ledger."""
+    if ownership.evidence is not evidence:
+        raise ValueError("requirement census needs the same ownership authority")
+    required = []
+    for reference in evidence.features:
+        family = evidence.family(reference)
+        if family not in REQUIREMENT_SOURCE_FAMILIES:
+            continue
+        binding = ownership.binding_for(reference)
+        reason = binding.reason_code if binding is not None else None
+        # Exact conversion-owned absorption proofs account for these records in a
+        # different physical grammar; they do not acquire another parameter ledger.
+        if (family, reason) in {
+            ("section_recesses", "channel_step_level_owner"),
+            ("turned_steps", "turned_step_groove_owner"),
+        }:
+            continue
+        if family == "section_recesses" and ownership.status(reference) == "unexpectedly_missing":
+            # An unresolved accepted recess has no established drafting grammar.
+            # Its source and missing-owner disposition remain in the occurrence
+            # report and cannot earn credit or a bounded-clear result.
+            continue
+        required.append((reference, evidence.record(reference)))
+    return tuple(required)
+
 
 def recognized_requirement_outcomes(
     recognition,
@@ -47,6 +105,7 @@ def recognized_requirement_outcomes(
     part=None,
     evidence=None,
     ownership=None,
+    datum=None,
 ) -> Mapping[str, tuple[Any, ...]]:
     """Return typed physical-requirement ledgers shared by lint and reports.
 
@@ -82,7 +141,7 @@ def recognized_requirement_outcomes(
         "oriented_slots": oriented_slot_requirement_outcomes(
             recognition, features, registry, omissions
         ),
-        "pads": pad_requirement_outcomes(recognition, features, registry, omissions),
+        "pads": pad_requirement_outcomes(recognition, features, registry, omissions, datum=datum),
         "plates": plate_requirement_outcomes(
             recognition, features, registry, omissions, part=part
         ),
@@ -90,7 +149,9 @@ def recognized_requirement_outcomes(
             recognition, features, registry, omissions
         ),
         "polygonal_stock": polygonal_stock_outcomes(recognition, features, registry, omissions),
-        "pockets": pocket_requirement_outcomes(recognition, features, registry, omissions),
+        "pockets": pocket_requirement_outcomes(
+            recognition, features, registry, omissions, datum=datum
+        ),
         "pocket_patterns": pocket_pattern_requirement_outcomes(
             recognition, features, registry, omissions
         ),

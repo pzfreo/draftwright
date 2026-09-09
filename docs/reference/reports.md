@@ -1,5 +1,9 @@
 # Machine-readable reports
 
+For common-source multi-sheet reports, see [Shared drawing documents](document.md).
+`DocumentResult.report()` uses document scope/version 4; the single-sheet version-3
+contract described below remains unchanged.
+
 `Drawing.report()` returns a JSON-compatible Draftwright report. Version 3 is a
 bounded contract: it projects the accepted occurrences from one raw automatic recognition
 run, their exact consumer dispositions and final IR owners, the recognition-owned semantic

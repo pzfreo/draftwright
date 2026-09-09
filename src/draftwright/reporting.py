@@ -6,7 +6,10 @@ import json
 import os
 from collections import Counter
 from collections.abc import Mapping
+from dataclasses import dataclass
 from importlib.metadata import version as distribution_version
+from math import isfinite
+from numbers import Real
 from os import PathLike
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -23,6 +26,484 @@ if TYPE_CHECKING:
 
 REPORT_SCHEMA = "draftwright-report"
 REPORT_SCHEMA_VERSION = 3
+
+
+@dataclass(frozen=True)
+class RequirementSnapshot:
+    """Live typed report inputs captured through the drawing's existing ledger pass.
+
+    This is run-local evidence, not a serialized document or an independent build.
+    Callers serialize edits and reads; mutable drawing objects are not frozen by it.
+    """
+
+    evidence: RecognitionEvidence
+    ownership: RecognitionOwnership
+    model: PartModel
+    source: str | PathLike[str] | None
+    registry: object
+    omissions: tuple
+    dimension_plan: object
+    part: object
+    outcomes: Mapping[str, tuple[Any, ...]]
+    lint: Mapping | None = None
+
+
+@dataclass(frozen=True, eq=False)
+class CatalogRequirement:
+    """A source-owned obligation retained before any member's ink is evaluated."""
+
+    family: str
+    source_records: tuple[object, ...]
+    source_profile: object | None
+    parameter_id: str | None
+    requirement_count: int
+    requirement_count_known: bool
+    features: tuple[object, ...]
+    members: tuple
+    dependency_alternatives: tuple
+    intrinsic_exclusion: object | None
+    unsupported: bool = False
+    representation_alternatives: tuple = ()
+    outcome: object | None = None
+
+
+@dataclass(frozen=True, eq=False)
+class RequirementCatalog:
+    """One run's typed denominator; these references are never persistence IDs."""
+
+    evidence: object
+    ownership: object
+    features: tuple[object, ...]
+    families: tuple[str, ...]
+    requirements: tuple[CatalogRequirement, ...]
+
+
+def build_requirement_catalog(
+    *, evidence, ownership, model, part, requirement_outcomes=None
+) -> RequirementCatalog:
+    """Use the existing ledger producers and strict source projection before authoring."""
+    from draftwright.linting.requirements import (
+        REQUIREMENT_SOURCE_FAMILIES,
+        recognized_requirement_outcomes,
+        requirement_source_census,
+    )
+    from draftwright.registry import AnnotationRegistry
+
+    evidence, ownership, model = validate_report_inputs(evidence, ownership, model)
+    registry = AnnotationRegistry()
+    outcomes = requirement_outcomes
+    if outcomes is None:
+        outcomes = recognized_requirement_outcomes(
+            evidence.result,
+            tuple(model.features),
+            registry,
+            (),
+            part=part,
+            evidence=evidence,
+            ownership=ownership,
+            datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
+        )
+    if set(outcomes) != REQUIREMENT_SOURCE_FAMILIES | {"outer_profile_angles"}:
+        raise ReportUnavailableError("catalog requirement family roster changed")
+    # Reuse the strict projection's authority, profile-denominator, source-set and
+    # unsupported-disposition checks. The typed rows below come from the producers;
+    # serialized IDs, annotation rows and local coverage counts are not their input.
+    project_occurrences(
+        evidence,
+        ownership,
+        model,
+        registry=registry,
+        part=part,
+        requirement_outcomes=outcomes,
+    )
+    records = tuple(evidence.record(reference) for reference in evidence.features)
+    record_order = {id(record): index for index, record in enumerate(records)}
+    feature_order = {id(feature): feature for feature in model.features}
+    if any(
+        feature_order.get(id(feature)) is not feature
+        for binding in ownership.bindings
+        for feature in binding.features
+    ):
+        raise ReportUnavailableError("catalog lost an exact conversion-time physical owner")
+    entries = []
+    keys = set()
+    projected_records: set[int] = set()
+    for family, rows in outcomes.items():
+        for row in rows:
+            sources_by_id = {id(record): record for record in _outcome_records(row)}
+            sources = tuple(
+                sorted(sources_by_id.values(), key=lambda record: record_order[id(record)])
+            )
+            profile = getattr(row, "source_profile", None)
+            parameter = getattr(row, "catalog_parameter_id", row.parameter_id)
+            count = getattr(row, "requirement_count", 1)
+            known = getattr(row, "requirement_count_known", True)
+            if (
+                type(parameter) is not str
+                or not parameter
+                or type(count) is not int
+                or count < 1
+                or type(known) is not bool
+                or (parameter != "?" and count != 1)
+            ):
+                raise ReportUnavailableError(
+                    "invalid source-owned catalog identity or cardinality"
+                )
+            source_key = tuple(id(record) for record in sources)
+            profile_key = (
+                (id(profile.source), profile.first_index, profile.second_index)
+                if profile is not None
+                else None
+            )
+            key = (family, source_key, profile_key, parameter)
+            if key in keys:
+                raise ReportUnavailableError(
+                    "ambiguous duplicate source-owned catalog requirement"
+                )
+            keys.add(key)
+            projected_records.update(source_key)
+            features = tuple(getattr(row, "features", ()))
+            if any(feature_order.get(id(feature)) is not feature for feature in features):
+                raise ReportUnavailableError("catalog requirement has a foreign physical owner")
+            alternatives = tuple(getattr(row, "dependency_alternatives", ()))
+            _validate_catalog_supports(alternatives, feature_order)
+            representations = tuple(getattr(row, "representation_alternatives", ()))
+            _validate_catalog_supports(tuple((term,) for term in representations), feature_order)
+            exclusion = getattr(row, "intrinsic_exclusion", None)
+            if exclusion is not None:
+                for record in exclusion.source_records:
+                    index = record_order.get(id(record))
+                    if index is None or records[index] is not record:
+                        raise ReportUnavailableError(
+                            "catalog exclusion has foreign source evidence"
+                        )
+                datum = getattr(exclusion, "datum", None)
+                if datum is not None and not any(datum is item for item in model.datums):
+                    raise ReportUnavailableError("catalog exclusion has a foreign datum")
+            entries.append(
+                CatalogRequirement(
+                    family,
+                    sources,
+                    profile,
+                    None if parameter == "?" else parameter,
+                    count,
+                    known,
+                    features,
+                    tuple(getattr(row, "members", ())),
+                    alternatives,
+                    exclusion,
+                    row.state == "unsupported",
+                    representations,
+                    row,
+                )
+            )
+    for reference, record in requirement_source_census(evidence, ownership):
+        if (
+            ownership.status(reference) not in {"unsupported", "deferred", "evidence_only"}
+            and id(record) not in projected_records
+        ):
+            raise ReportUnavailableError("recognized requirement source has no ledger outcome")
+    for reference, record in zip(evidence.features, records, strict=True):
+        if ownership.status(reference) == "unsupported" and id(record) not in projected_records:
+            entries.append(
+                CatalogRequirement(
+                    evidence.family(reference),
+                    (record,),
+                    None,
+                    None,
+                    1,
+                    True,
+                    (),
+                    (),
+                    (),
+                    None,
+                    True,
+                )
+            )
+    return RequirementCatalog(
+        evidence, ownership, tuple(model.features), tuple(outcomes), tuple(entries)
+    )
+
+
+def _validate_catalog_supports(alternatives, feature_order):
+    from draftwright.measurement_support import MeasurementSupport, RequirementAlternative
+
+    for alternative in alternatives:
+        if isinstance(alternative, RequirementAlternative):
+            identities, terms = alternative.measurements, alternative.supports
+        else:
+            terms = tuple(alternative)
+            if any(not isinstance(term, MeasurementSupport) for term in terms):
+                raise ReportUnavailableError("catalog dependency has an invalid support type")
+            identities = tuple(term.identity for term in terms)
+        if not identities:
+            raise ReportUnavailableError("catalog dependency has an empty conjunction")
+        for feature, parameter in identities:
+            if (
+                feature_order.get(id(feature)) is not feature
+                or type(parameter) is not str
+                or not parameter
+            ):
+                raise ReportUnavailableError("catalog dependency has a foreign physical owner")
+        for term in terms:
+            if (
+                not isinstance(term, MeasurementSupport)
+                or feature_order.get(id(term.feature)) is not term.feature
+                or not any(
+                    owner is term.feature and parameter == term.parameter_id
+                    for owner, parameter in identities
+                )
+            ):
+                raise ReportUnavailableError("catalog support has a foreign or unrelated owner")
+            interval = term.lo is not None or term.hi is not None
+            point = term.location_point
+            if (
+                term.axis not in {None, "x", "y", "z"}
+                or (
+                    interval
+                    and (
+                        term.axis is None
+                        or term.lo is None
+                        or term.hi is None
+                        or not _finite_support_number(term.lo)
+                        or not _finite_support_number(term.hi)
+                        or term.lo > term.hi
+                    )
+                )
+                or (
+                    point is not None
+                    and (
+                        term.axis is None
+                        or type(point) is not tuple
+                        or len(point) != 3
+                        or not all(_finite_support_number(value) for value in point)
+                    )
+                )
+            ):
+                raise ReportUnavailableError("catalog support has an invalid physical witness")
+        if terms:
+            required = Counter((id(owner), parameter) for owner, parameter in identities)
+            for (owner_id, parameter), count in required.items():
+                witnesses = {
+                    (term.axis, term.lo, term.hi, term.location_point)
+                    for term in terms
+                    if id(term.feature) == owner_id and term.parameter_id == parameter
+                }
+                if len(witnesses) < count:
+                    raise ReportUnavailableError(
+                        "catalog dependency lost a distinct measurement witness"
+                    )
+
+
+def _finite_support_number(value):
+    try:
+        return not isinstance(value, bool) and isinstance(value, Real) and isfinite(value)
+    except (OverflowError, TypeError, ValueError):
+        return False
+
+
+def _catalog_key(row):
+    profile = row.source_profile
+    return (
+        row.family,
+        frozenset(id(record) for record in row.source_records),
+        (id(profile.source), profile.first_index, profile.second_index)
+        if profile is not None
+        else None,
+        row.parameter_id,
+    )
+
+
+def _support_signature(term):
+    return (
+        id(term.feature),
+        term.parameter_id,
+        term.axis,
+        term.lo,
+        term.hi,
+        term.location_point,
+    )
+
+
+def _alternative_signature(alternative):
+    from draftwright.measurement_support import RequirementAlternative
+
+    if isinstance(alternative, RequirementAlternative):
+        identities, terms = alternative.measurements, alternative.supports
+    else:
+        terms = tuple(alternative)
+        identities = tuple(term.identity for term in terms)
+    return (
+        frozenset(Counter((id(owner), parameter) for owner, parameter in identities).items()),
+        frozenset(Counter(_support_signature(term) for term in terms).items()),
+    )
+
+
+def _catalog_shape(row):
+    exclusion = row.intrinsic_exclusion
+    return (
+        row.requirement_count,
+        row.requirement_count_known,
+        frozenset(Counter(id(feature) for feature in row.features).items()),
+        row.members,
+        frozenset(_alternative_signature(recipe) for recipe in row.dependency_alternatives),
+        frozenset(_support_signature(term) for term in row.representation_alternatives),
+        (
+            exclusion.reason_code,
+            frozenset(id(record) for record in exclusion.source_records),
+            id(getattr(exclusion, "datum", None)),
+            getattr(exclusion, "span", None),
+        )
+        if exclusion is not None
+        else None,
+        row.unsupported,
+    )
+
+
+def match_requirement_catalog(
+    expected: RequirementCatalog, actual: RequirementCatalog
+) -> tuple[CatalogRequirement, ...]:
+    """Align live outcomes to the sealed source catalog, refusing a changed denominator.
+
+    Both catalogs retain their exact objects. Object addresses here are temporary index
+    keys into those strongly held, validated references, never exported identities.
+    Local evidence states and selected representations deliberately do not define shape.
+    """
+    if actual.evidence is not expected.evidence or actual.ownership is not expected.ownership:
+        raise ReportUnavailableError("document member has a different recognition authority")
+    if set(actual.families) != set(expected.families):
+        raise ReportUnavailableError("document member changed the requirement family roster")
+    expected_by_key = {_catalog_key(row): row for row in expected.requirements}
+    actual_by_key = {_catalog_key(row): row for row in actual.requirements}
+    if (
+        len(expected_by_key) != len(expected.requirements)
+        or len(actual_by_key) != len(actual.requirements)
+        or expected_by_key.keys() != actual_by_key.keys()
+    ):
+        raise ReportUnavailableError("document member changed source-owned requirement identities")
+    aligned = []
+    for key, baseline in expected_by_key.items():
+        current = actual_by_key[key]
+        if _catalog_shape(current) != _catalog_shape(baseline):
+            raise ReportUnavailableError("document member changed source-owned requirement shape")
+        aligned.append(current)
+    return tuple(aligned)
+
+
+@dataclass(frozen=True)
+class DocumentRequirementEvaluation:
+    requirement: CatalogRequirement
+    state: str
+    local: tuple
+    dependencies: tuple
+    combined: CatalogRequirement
+
+
+@dataclass(frozen=True)
+class DocumentEvaluation:
+    requirements: tuple[DocumentRequirementEvaluation, ...]
+    claims: tuple
+    conflicts: tuple
+    registry: object
+    annotation_refs: Mapping
+    members: tuple
+
+
+def evaluate_document_requirements(catalog, model, part, members, claims) -> DocumentEvaluation:
+    """Read shared physical ledgers over all member ink, retaining local outcomes.
+
+    The temporary registry holds the exact existing annotations. It does not add ink
+    to a drawing, merge models, recognize geometry, or use a sheet's score as evidence.
+    """
+    from types import SimpleNamespace
+
+    from draftwright.document_evidence import document_conflicts, document_support_proofs
+    from draftwright.linting.requirements import recognized_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    registry = AnnotationRegistry()
+    annotation_refs = {}
+    for index, (name, snapshot, _aligned) in enumerate(members):
+        for annotation in sorted(snapshot.registry.names()):
+            reference = f"{index}:{annotation}"
+            annotation_refs[reference] = (name, annotation)
+            registry.add(
+                snapshot.registry.named(annotation),
+                reference,
+                snapshot.registry.view_of(annotation),
+                feature=snapshot.registry.feature_of(annotation),
+                measurement=snapshot.registry.measurement_of(annotation),
+                satisfaction=snapshot.registry.satisfaction_of(annotation),
+            )
+    # Existing ledger verification reads approved values from these four collections.
+    # Each entry keeps its actual member compiler authority; nothing is recompiled here.
+    plan = SimpleNamespace(
+        **{
+            field: tuple(
+                item
+                for _name, snapshot, _aligned in members
+                for item in getattr(snapshot.dimension_plan, field, ())
+            )
+            for field in ("groups", "ladders", "locations", "contingencies")
+        }
+    )
+    outcomes = recognized_requirement_outcomes(
+        catalog.evidence.result,
+        tuple(model.features),
+        registry,
+        (),
+        dimension_plan=plan,
+        part=part,
+        evidence=catalog.evidence,
+        ownership=catalog.ownership,
+        datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
+    )
+    combined = build_requirement_catalog(
+        evidence=catalog.evidence,
+        ownership=catalog.ownership,
+        model=model,
+        part=part,
+        requirement_outcomes=outcomes,
+    )
+    aligned = match_requirement_catalog(catalog, combined)
+    conflicts = document_conflicts(claims)
+    evaluated = []
+    for index, (requirement, current) in enumerate(
+        zip(catalog.requirements, aligned, strict=True)
+    ):
+        local = tuple((name, rows[index].outcome) for name, _snapshot, rows in members)
+        proofs = document_support_proofs(requirement.dependency_alternatives, claims, conflicts)
+        observed = getattr(current.outcome, "state", None)
+        # A local direct representation remains direct even when the union makes a
+        # producer's conditional alternative applicable (notably opposite plates).
+        local_states = {getattr(outcome, "state", None) for _name, outcome in local}
+        if (
+            requirement.unsupported
+            or not requirement.requirement_count_known
+            or requirement.parameter_id is None
+        ):
+            state = "unresolved"
+        elif requirement.intrinsic_exclusion is not None:
+            state = "inapplicable"
+        elif "placed" in local_states and current.features:
+            state = "placed"
+        elif current.features and observed == "placed":
+            state = "placed"
+        elif current.features and (
+            "satisfied_by_structured_note" in local_states
+            or observed == "satisfied_by_structured_note"
+        ):
+            state = "satisfied_by_structured_note"
+        elif proofs:
+            state = "dependency-derived"
+        else:
+            state = "uncovered"
+        evaluated.append(DocumentRequirementEvaluation(requirement, state, local, proofs, current))
+    return DocumentEvaluation(
+        tuple(evaluated), tuple(claims), conflicts, registry, annotation_refs, tuple(members)
+    )
+
+
 _DISPOSITIONS = (
     "represented",
     "absorbed",
@@ -135,17 +616,9 @@ def _outcome_records(outcome: object) -> tuple[object, ...]:
 
 
 def _outcome_measurements(outcome: object) -> tuple[tuple[object, str], ...]:
-    explicit = tuple(getattr(outcome, "measurement_ids", ()))
-    if explicit:
-        return explicit
-    representation = getattr(outcome, "representation_feature", None)
-    representation_parameter = getattr(outcome, "representation_parameter", None)
-    if representation is not None and isinstance(representation_parameter, str):
-        return ((representation, representation_parameter),)
-    parameter = getattr(outcome, "parameter_id", None)
-    if not isinstance(parameter, str) or parameter == "?":
-        return ()
-    return tuple((feature, parameter) for feature in getattr(outcome, "features", ()))
+    from draftwright.linting._registry import requirement_measurements
+
+    return requirement_measurements(outcome)
 
 
 # Private: read only by the two `_annotation_*` helpers below. A published name is a
@@ -190,6 +663,23 @@ def _annotation_names(index: _AnnotationIndex, outcome: object) -> list[str]:
         if candidate is not None and candidate[0] is feature:
             result.update(candidate[1])
     return sorted(result)
+
+
+def _profile_source(evidence, profile, profile_ids, support_ids):
+    source = profile.source
+    try:
+        if evidence.planar_outer_profile(source.face) is not source:
+            raise ValueError("profile does not belong to this evidence run")
+        for index in (profile.first_index, profile.second_index):
+            evidence.profile_edge(source, index)
+    except (AttributeError, TypeError, ValueError, IndexError) as exc:
+        raise ReportUnavailableError("profile requirement has no exact issued source") from exc
+    profile_id = profile_ids.setdefault(id(source), f"profile:{len(profile_ids) + 1}")
+    pair_ids = [
+        support_ids.setdefault((id(source), index), f"support:{len(support_ids) + 1}")
+        for index in (profile.first_index, profile.second_index)
+    ]
+    return {"kind": "planar_outer_profile", "profile_id": profile_id, "support_ids": pair_ids}
 
 
 def _requirements(
@@ -273,28 +763,7 @@ def _requirements(
                     raise ReportUnavailableError(
                         "profile requirement has conflicting source kinds"
                     )
-                source = profile.source
-                try:
-                    if evidence.planar_outer_profile(source.face) is not source:
-                        raise ValueError("profile does not belong to this evidence run")
-                    for index in (profile.first_index, profile.second_index):
-                        evidence.profile_edge(source, index)
-                except (AttributeError, TypeError, ValueError, IndexError) as exc:
-                    raise ReportUnavailableError(
-                        "profile requirement has no exact issued source"
-                    ) from exc
-                # Allocate document IDs on first use; no opaque reference or
-                # provider topology/support index is serialized.
-                profile_id = profile_ids.setdefault(id(source), f"profile:{len(profile_ids) + 1}")
-                pair_ids = [
-                    support_ids.setdefault((id(source), index), f"support:{len(support_ids) + 1}")
-                    for index in (profile.first_index, profile.second_index)
-                ]
-                profile_source = {
-                    "kind": "planar_outer_profile",
-                    "profile_id": profile_id,
-                    "support_ids": pair_ids,
-                }
+                profile_source = _profile_source(evidence, profile, profile_ids, support_ids)
             if not source_records and profile_source is None:
                 raise ReportUnavailableError(
                     f"recognized requirement family {family!r} has no exact source records"
@@ -605,6 +1074,400 @@ def drawing_report(
     }
 
 
+def _engineering_meaning(meaning):
+    from draftwright.fits import FitClass
+
+    value, tolerance, span, axis, discriminator, member, angular = meaning
+    if isinstance(tolerance, FitClass):
+        tolerance = {
+            "kind": "fit",
+            "code": tolerance.code,
+            "lower": tolerance.lower,
+            "upper": tolerance.upper,
+        }
+    return {
+        "value": value,
+        "tolerance": tolerance,
+        "span": span,
+        "axis": axis,
+        "discriminator": discriminator,
+        "location_member": member,
+        "angular_reference": angular,
+    }
+
+
+def _document_intents(model, owner_id):
+    def projected(items):
+        return [
+            {
+                "owner_id": owner_id(item.feature),
+                "role": item.role,
+                "discriminator": item.discriminator,
+                "member": item.member,
+                "display_decimals": item.display_decimals,
+                "view": item.view,
+                "side": item.side,
+            }
+            for item in items
+        ]
+
+    return {
+        "source": "automatic" if model.authored_dimensions is None else "authored",
+        "authored": None
+        if model.authored_dimensions is None
+        else projected(model.authored_dimensions),
+        "requested": projected(model.requested_dimensions),
+    }
+
+
+def _document_views(constraints, owner_id):
+    from dataclasses import asdict, replace
+
+    def projected(item):
+        target = item.spec.target
+        if target is not None and target[0] == "feature":
+            target = ("owner", owner_id(target[1]))
+        return asdict(replace(item, spec=replace(item.spec, target=target)))
+
+    return {
+        "principal_source": constraints.principal_source,
+        "derived_source": constraints.derived_source,
+        "principals": [projected(item) for item in constraints.principals],
+        "added_principals": [projected(item) for item in constraints.added_principals],
+        "derived": [projected(item) for item in constraints.derived],
+        "added_derived": [projected(item) for item in constraints.added_derived],
+        "relations": [asdict(item) for item in constraints.relations],
+        "pins": [asdict(item) for item in constraints.pins],
+    }
+
+
+def document_report(
+    *, catalog, evaluation, model, source, run_options, member_recipes, resolved
+) -> dict[str, object]:
+    """Project one schema-v4 document read; no report-local identity survives this value.
+
+    Carrier attribution is producer-owned. A missing producer projection stays explicit
+    and prevents bounded clearance; ordinary owner/parameter associations are not proof.
+    """
+    if len(evaluation.requirements) != len(catalog.requirements) or any(
+        row.requirement is not expected
+        for row, expected in zip(evaluation.requirements, catalog.requirements, strict=True)
+    ):
+        raise ReportUnavailableError("document evaluation lost its exact catalog")
+    occurrences, _unused, occurrence_summary = project_occurrences(
+        catalog.evidence, catalog.ownership, model
+    )
+    occurrence_ids = {
+        id(catalog.evidence.record(reference)): (catalog.evidence.record(reference), item["id"])
+        for reference, item in zip(catalog.evidence.features, occurrences, strict=True)
+    }
+    owners = _feature_ids(model)
+
+    def owner_id(feature):
+        candidate = owners.get(id(feature))
+        if candidate is None or candidate[0] is not feature:
+            raise ReportUnavailableError("document claim has no exact common owner")
+        return candidate[1]["id"]
+
+    members = evaluation.members
+    sheet_ids = {
+        name: f"sheet:{index + 1}" for index, (name, _snapshot, _rows) in enumerate(members)
+    }
+    if not sheet_ids or len(sheet_ids) != len(members):
+        raise ReportUnavailableError("document member identities are absent or repeated")
+    refs = set(evaluation.annotation_refs.values())
+
+    def annotation_ref(sheet, name):
+        if sheet not in sheet_ids or (sheet, name) not in refs:
+            raise ReportUnavailableError("document evidence refers to an absent member annotation")
+        return {"sheet_id": sheet_ids[sheet], "annotation": name}
+
+    def combined_ref(name):
+        if name not in evaluation.annotation_refs:
+            raise ReportUnavailableError("requirement carrier names an absent annotation")
+        return annotation_ref(*evaluation.annotation_refs[name])
+
+    claims: list[dict[str, Any]] = []
+    claim_ids = {}
+    for snapshot in evaluation.claims:
+        for claim in snapshot.claims:
+            key = f"claim:{len(claims) + 1}"
+            claim_ids[id(claim)] = key
+            claims.append(
+                {
+                    "id": key,
+                    **annotation_ref(claim.sheet, claim.annotation),
+                    "owner_id": owner_id(claim.owner),
+                    "parameter_id": claim.parameter,
+                    "address": claim.address,
+                    "meaning": _engineering_meaning(claim.meaning),
+                    "rendered": claim.rendered,
+                    "verification": "confirmed-within-measurement-verifier-scope",
+                }
+            )
+
+    def claim_id(claim):
+        result = claim_ids.get(id(claim))
+        if result is None:
+            raise ReportUnavailableError("document proof refers to an absent confirmed claim")
+        return result
+
+    conflicts = [
+        {
+            "code": "conflicting_engineering_meanings",
+            "claim_ids": [claim_id(claim) for claim in conflict.claims],
+        }
+        for conflict in evaluation.conflicts
+    ]
+    unknown = [
+        {**annotation_ref(sheet, annotation), "reason_code": reason}
+        for snapshot in evaluation.claims
+        for sheet, annotation, reason in snapshot.unknown
+    ]
+    requirements: list[dict[str, Any]] = []
+    profile_ids: dict[int, str] = {}
+    support_ids: dict[tuple[int, int], str] = {}
+    attributed_by_occurrence: dict[str, list[str]] = {item["id"]: [] for item in occurrences}
+    for evaluated in evaluation.requirements:
+        row = evaluated.requirement
+        if evaluated.state not in {
+            "placed",
+            "satisfied_by_structured_note",
+            "dependency-derived",
+            "inapplicable",
+            "unresolved",
+            "uncovered",
+        }:
+            raise ReportUnavailableError("document requirement has an invalid evaluation state")
+        key = f"requirement:{len(requirements) + 1}"
+        source_ids = [
+            _exact_occurrence_id(record, occurrence_ids) for record in row.source_records
+        ]
+        local = [
+            {
+                "sheet_id": sheet_ids[name],
+                "state": getattr(outcome, "state", "unsupported"),
+                "reason_code": _REQUIREMENT_REASON.get(
+                    getattr(outcome, "state", "unsupported"), "source_owned_inapplicability"
+                ),
+            }
+            for name, outcome in evaluated.local
+        ]
+        proofs = [
+            {
+                "alternative": proof.alternative,
+                "supports": [
+                    [claim_id(claim) for claim in carriers] for carriers in proof.carriers
+                ],
+                "distinct_witnesses": [claim_id(claim) for claim in proof.witnesses],
+            }
+            for proof in evaluated.dependencies
+        ]
+        # Populated by each existing ledger's acceptance point. Until a producer
+        # supplies it, retain the absence instead of guessing from annotation names.
+        carriers = getattr(evaluated.combined.outcome, "carriers", None)
+        attributed = carriers is not None
+        carrying = (
+            []
+            if carriers is None
+            else [
+                {**combined_ref(carrier.annotation), "evidence_kind": carrier.kind}
+                for carrier in carriers
+            ]
+        )
+        if evaluated.state == "dependency-derived":
+            attributed = bool(proofs)
+            carrying = []
+        elif evaluated.state not in {"placed", "satisfied_by_structured_note"}:
+            attributed = True
+            carrying = []
+        elif not carrying:
+            attributed = False
+        result = {
+            "id": key,
+            "family": row.family,
+            "occurrence_ids": source_ids,
+            "owner_ids": [owner_id(feature) for feature in row.features],
+            "parameter_id": row.parameter_id,
+            "requirement_count": row.requirement_count,
+            "requirement_count_known": row.requirement_count_known,
+            "state": evaluated.state,
+            "coverage_credit": int(
+                evaluated.state in {"placed", "satisfied_by_structured_note", "dependency-derived"}
+            ),
+            "local_outcomes": local,
+            "carrying_annotations": carrying,
+            "carrier_attribution": "available" if attributed else "unavailable",
+            "dependency_proofs": proofs,
+            "intrinsic_exclusion": None
+            if row.intrinsic_exclusion is None
+            else {
+                "reason_code": row.intrinsic_exclusion.reason_code,
+                "occurrence_ids": [
+                    _exact_occurrence_id(record, occurrence_ids)
+                    for record in row.intrinsic_exclusion.source_records
+                ],
+                "span": getattr(row.intrinsic_exclusion, "span", None),
+            },
+        }
+        if row.source_profile is not None:
+            result["profile_source"] = _profile_source(
+                catalog.evidence, row.source_profile, profile_ids, support_ids
+            )
+        requirements.append(result)
+        for identity in source_ids:
+            attributed_by_occurrence[identity].append(key)
+    for occurrence in occurrences:
+        identities = attributed_by_occurrence[occurrence["id"]]
+        occurrence["requirements"] = {
+            "coverage": "ledger" if identities else "not-projected",
+            "ids": identities,
+        }
+
+    sheets = []
+    for name, snapshot, _rows in members:
+        if snapshot.lint is None or name not in resolved or name not in member_recipes:
+            raise ReportUnavailableError(f"document sheet {name!r} lacks lint or run options")
+        options = {
+            key: str(value) if isinstance(value, PathLike) else value
+            for key, value in member_recipes[name]["options"].items()
+        }
+        sheets.append(
+            {
+                "id": sheet_ids[name],
+                "name": name,
+                "options": options,
+                "resolved": resolved[name],
+                "dimension_intents": _document_intents(snapshot.model, owner_id),
+                "view_intents": _document_views(member_recipes[name]["views"], owner_id),
+                "table_intents": member_recipes[name]["tables"],
+                "lint": snapshot.lint,
+            }
+        )
+
+    def axis_summary(axis):
+        values = [sheet["lint"].get("quality", {}).get(axis, {}) for sheet in sheets]
+        unavailable = [
+            sheet["id"]
+            for sheet, value in zip(sheets, values, strict=True)
+            if not value.get("available", False)
+        ]
+        affected = [
+            sheet["id"]
+            for sheet, value in zip(sheets, values, strict=True)
+            if value.get("raw_issues", 0)
+        ]
+        return {
+            "status": "needs-attention"
+            if affected
+            else "unassessed"
+            if unavailable
+            else "clear-within-lint-scope",
+            "affected_sheets": affected,
+            "unassessed_sheets": unavailable,
+        }
+
+    layout = axis_summary("legibility")
+    fidelity = {
+        **axis_summary("fidelity"),
+        "conflicts": conflicts,
+        "unknown_claims": unknown,
+        "scope": "verified-measurement-claims-and-member-fidelity-lint",
+        "unassessed_scope": [
+            "authored-note-prose",
+            "manufacturing-intent",
+            "engineering-content-without-typed-verified-claims",
+        ],
+    }
+    if conflicts or unknown:
+        fidelity["status"] = "needs-attention"
+    unknown_counts = sum(not row["requirement_count_known"] for row in requirements)
+    applicable = [row for row in requirements if row["state"] != "inapplicable"]
+    denominator = sum(
+        row["requirement_count"] for row in applicable if row["requirement_count_known"]
+    )
+    credit = sum(row["coverage_credit"] for row in applicable)
+    unresolved = [row["id"] for row in applicable if not row["coverage_credit"]]
+    unattributed = [row["id"] for row in applicable if row["carrier_attribution"] == "unavailable"]
+    coverage = {
+        "scope": "accepted-occurrences-and-profile-requirements",
+        "known_requirement_count": denominator,
+        "unknown_cardinality_rows": unknown_counts,
+        "credited_requirements": credit,
+        "audited_score": credit / denominator if denominator and not unknown_counts else None,
+        "uncovered_or_unresolved": unresolved,
+        "unattributed_carriers": unattributed,
+        "excludes": ["unrecognised-geometry", "manufacturing-readiness"],
+    }
+    unresolved_occurrences = [
+        item["id"]
+        for item in occurrences
+        if item["disposition"] in _ATTENTION_DISPOSITIONS
+        or item["requirements"]["coverage"] == "not-projected"
+    ]
+    attention = bool(
+        unresolved
+        or unattributed
+        or unknown_counts
+        or unresolved_occurrences
+        or conflicts
+        or unknown
+    )
+    attention = (
+        attention
+        or layout["status"] != "clear-within-lint-scope"
+        or fidelity["status"] != "clear-within-lint-scope"
+    )
+    report = {
+        "schema": REPORT_SCHEMA,
+        "schema_version": 4,
+        "scope": "document",
+        "status": "needs-attention" if attention else "bounded-clear",
+        "producer": producer(),
+        "source": source,
+        "run_options": run_options,
+        "outputs": {},
+        "recognition": {
+            "identity_scope": "document-local",
+            "occurrences": occurrences,
+            "owners": [owner for _feature, owner in owners.values()],
+            "requirements": requirements,
+            "summary": occurrence_summary,
+            "unresolved_occurrences": unresolved_occurrences,
+        },
+        "sheets": sheets,
+        "claims": claims,
+        "assessment": {
+            "coverage": coverage,
+            "layout": layout,
+            "fidelity": fidelity,
+            "manufacturing": {"status": "unassessed", "readiness": "not-certified"},
+        },
+        "replay": {
+            "identity_lifetime": "this-report-only",
+            "source_snapshot": "immutable-step-bytes",
+            "member_reads": "live-at-report-call",
+            "requires": "source-recipe-and-current-inventory-assertions",
+            "durable_feature_identity": False,
+            "serialized_declaration_scope": [
+                "dimension-selection",
+                "view-constraints",
+                "table-text",
+            ],
+            "source_recipe_required_for": [
+                "feature-decorations",
+                "gdt",
+                "authored-notes",
+                "measured-dimensions",
+                "member-pmi-declarations",
+                "live-edits",
+            ],
+            "script_deserialization": False,
+        },
+    }
+    return cast(dict[str, object], json_value(report))
+
+
 def write_json_document(report: Mapping[str, object], path: str | PathLike[str]) -> str:
     """Atomically write one strict, deterministic UTF-8 JSON document.
 
@@ -656,9 +1519,18 @@ def write_json_document(report: Mapping[str, object], path: str | PathLike[str])
 __all__ = [
     "REPORT_SCHEMA",
     "REPORT_SCHEMA_VERSION",
+    "CatalogRequirement",
+    "DocumentEvaluation",
+    "DocumentRequirementEvaluation",
+    "evaluate_document_requirements",
     "JsonValue",
+    "RequirementCatalog",
+    "RequirementSnapshot",
     "ReportUnavailableError",
+    "build_requirement_catalog",
+    "match_requirement_catalog",
     "drawing_report",
+    "document_report",
     # The shared occurrence projector (#1461). Three schema'd public documents are built
     # from these — the drawing report, the STEP inspection document, and the sidecar the
     # script emitter writes — so their shape is a contract, not an implementation detail.

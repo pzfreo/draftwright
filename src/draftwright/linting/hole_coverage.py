@@ -8,7 +8,7 @@ suppressed, and dropped outcomes. Rendered labels and annotation names are never
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import hypot
 from typing import Literal
 
@@ -16,7 +16,11 @@ from quiddity import HoleRecord, HoleSpec, RecognitionResult, countersink_matche
 
 from draftwright._core import _decode_hole_location_fact, _fmt
 from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
-from draftwright.linting._registry import satisfaction_ids
+from draftwright.linting._registry import (
+    exact_measurement_carriers,
+    record_measurement_carrier,
+    satisfaction_of,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
@@ -24,6 +28,7 @@ from draftwright.linting.issues import (
     requirement_subject,
 )
 from draftwright.linting.profiled_bore_coverage import profiled_bore_target_sources
+from draftwright.measurement_support import RequirementCarrier
 
 HoleRequirementState = Literal[
     "placed",
@@ -63,6 +68,7 @@ class HoleRequirementOutcome:
     members: tuple[tuple[float, float, float], ...] = ()
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -550,6 +556,10 @@ class _HoleEvidence:
     centers: dict[object, set[tuple[tuple[float, float, float], str]]]
     representations: dict[tuple[object, str], set[tuple[str, str]]]
     unmarked_representations: set[tuple[object, str]]
+    count_names: dict = field(default_factory=dict)
+    location_names: dict = field(default_factory=dict)
+    center_names: dict = field(default_factory=dict)
+    carrier_index: dict = field(default_factory=dict)
 
 
 def _normalised_location(feature, point) -> tuple[float, float, float]:
@@ -586,17 +596,26 @@ def _member_location_drop_parameter(parameter: str) -> str | None:
 def _index_hole_evidence(registry) -> _HoleEvidence:
     placed = set()
     satisfied: set[tuple[object, str]] = set()
-    for identity in satisfaction_ids(registry):
-        feature = getattr(identity, "feature", None)
-        parameter = getattr(identity, "parameter", None)
-        if feature is not None and isinstance(parameter, str):
-            satisfied.add((feature, parameter))
+    carrier_index: dict = {}
     requirement_counts: dict[tuple[object, str], set[int]] = defaultdict(set)
     locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
     centers: dict[object, set[tuple[tuple[float, float, float], str]]] = defaultdict(set)
     representations: dict[tuple[object, str], set[tuple[str, str]]] = defaultdict(set)
     unmarked_representations: set[tuple[object, str]] = set()
+    count_names, location_names, center_names = (
+        defaultdict(set),
+        defaultdict(set),
+        defaultdict(set),
+    )
     for name in registry.names():
+        for identity in satisfaction_of(registry, name):
+            feature = getattr(identity, "feature", None)
+            parameter = getattr(identity, "parameter", None)
+            if feature is not None and isinstance(parameter, str):
+                satisfied.add((feature, parameter))
+                record_measurement_carrier(
+                    carrier_index, name, feature, parameter, "structured_note"
+                )
         annotation = registry.named(name)
         representation = getattr(annotation, "hole_representation", None)
         representation_reason = getattr(annotation, "hole_representation_reason", None)
@@ -634,6 +653,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             if feature is None or parameter is None:
                 continue
             placed.add((feature, parameter))
+            record_measurement_carrier(carrier_index, name, feature, parameter, "measurement")
             record_representation(feature, parameter)
             if parameter == "bore.diameter":
                 diameter_features.add(feature)
@@ -654,17 +674,19 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             if requirement == "grouping.count" and not shared_count_agrees:
                 continue
             requirement_counts[(feature, requirement)].add(int(count))
+            count_names[(feature, requirement, int(count))].add(name)
             record_representation(feature, requirement)
         for feature in diameter_features:
             for requirement in getattr(annotation, "covers_hole_requirements", ()):
                 if (feature, requirement) in explicit_keys:
                     continue
                 requirement_counts[(feature, requirement)].add(1)
+                count_names[(feature, requirement, 1)].add(name)
                 record_representation(feature, requirement)
             if (feature, "grouping.count") not in explicit_keys:
-                requirement_counts[(feature, "grouping.count")].add(
-                    int(getattr(annotation, "covers_count", 1) or 1)
-                )
+                count = int(getattr(annotation, "covers_count", 1) or 1)
+                requirement_counts[(feature, "grouping.count")].add(count)
+                count_names[(feature, "grouping.count", count)].add(name)
             record_representation(feature, "grouping.count")
         for fact in getattr(annotation, "covers_hole_locations", ()):
             decoded = _decode_hole_location_fact(fact)
@@ -672,11 +694,15 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
                 continue
             feature, parameter, point = decoded
             if getattr(feature, "kind", None) in {"hole", "pattern"}:
-                locations[(feature, parameter)].add(_normalised_location(feature, point))
+                normalized = _normalised_location(feature, point)
+                locations[(feature, parameter)].add(normalized)
+                location_names[(feature, parameter, normalized)].add(name)
                 record_representation(feature, parameter)
         for feature, point, view in getattr(annotation, "covers_hole_centers", ()):
             if getattr(feature, "kind", None) in {"hole", "pattern"}:
-                centers[feature].add((_normalised_location(feature, point), view))
+                normalized = _normalised_location(feature, point)
+                centers[feature].add((normalized, view))
+                center_names[(feature, normalized, view)].add(name)
     dropped = {
         (feature, parameter)
         for issue in registry.issues
@@ -708,6 +734,10 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         centers,
         representations,
         unmarked_representations,
+        count_names,
+        location_names,
+        center_names,
+        carrier_index,
     )
 
 
@@ -727,7 +757,9 @@ def _placed_representation(evidence, features, parameter, state):
     return next(iter(markers))
 
 
-def _structured_locations_placed(evidence, features, parameter: str, turned_axis_centers) -> bool:
+def _structured_locations_placed(
+    evidence, features, parameter: str, turned_axis_centers, *, names=None
+) -> bool:
     if parameter.startswith("location_pattern.location."):
         for feature in features:
             if getattr(feature, "pattern", None) == "bolt_circle":
@@ -738,8 +770,12 @@ def _structured_locations_placed(evidence, features, parameter: str, turned_axis
                 # the rest. Fine member addressing does not make every member's absolute
                 # position a separate physical requirement for a pattern.
                 valid = {_normalised_location(feature, point) for point in _members(feature)}
-            if not valid.intersection(evidence.locations.get((feature, parameter), ())):
+            carried = valid.intersection(evidence.locations.get((feature, parameter), ()))
+            if not carried:
                 return False
+            if names is not None:
+                for point in carried:
+                    names.update(evidence.location_names.get((feature, parameter, point), ()))
         return bool(features)
     expected = {
         (feature, point) for feature in features for point in _location_members(feature, parameter)
@@ -757,19 +793,69 @@ def _structured_locations_placed(evidence, features, parameter: str, turned_axis
                 continue
             if _member_coaxial_with_turned_profile(feature, point, turned_axis_centers):
                 covered.add((feature, point))
+                if names is not None and (feature, point) in expected:
+                    names.update(evidence.center_names.get((feature, point, view), ()))
+    if names is not None:
+        for feature, point in expected & covered:
+            names.update(evidence.location_names.get((feature, parameter, point), ()))
     return bool(expected) and expected <= covered
 
 
-def _synthetic_placed(evidence, features, parameter: str, member_count: int) -> bool:
+def _synthetic_placed(
+    evidence, features, parameter: str, member_count: int, *, names=None
+) -> bool:
     if parameter == "bore.through":
+        if names is not None:
+            for feature in features:
+                for count in evidence.requirement_counts.get((feature, parameter), ()):
+                    names.update(evidence.count_names.get((feature, parameter, count), ()))
         return any((feature, parameter) in evidence.requirement_counts for feature in features)
     if parameter != "grouping.count":
         return False
     expected = {feature: len(_members(feature)) for feature in features}
-    return sum(expected.values()) == member_count and all(
+    carried = sum(expected.values()) == member_count and all(
         count in evidence.requirement_counts.get((feature, parameter), ())
         for feature, count in expected.items()
     )
+    if carried and names is not None:
+        for feature, count in expected.items():
+            names.update(evidence.count_names.get((feature, parameter, count), ()))
+    return carried
+
+
+def _hole_carriers(outcome, evidence, registry_index, turned_axis_centers):
+    features, parameter = outcome.features, outcome.parameter_id
+    names: set[str] = set()
+    if parameter.startswith(
+        ("location.location.", "location_pattern.location.", "location_off_axis.")
+    ):
+        if not _structured_locations_placed(
+            evidence, features, parameter, turned_axis_centers, names=names
+        ):
+            names.clear()
+        carriers = [RequirementCarrier(name, "physical_location") for name in sorted(names)]
+    elif parameter in {"bore.through", "grouping.count"}:
+        if not _synthetic_placed(evidence, features, parameter, outcome.member_count, names=names):
+            names.clear()
+        carriers = [RequirementCarrier(name, "physical_requirement") for name in sorted(names)]
+    else:
+        carriers = list(
+            exact_measurement_carriers(
+                registry_index, ((feature, _evidence_parameter(parameter)) for feature in features)
+            )
+        )
+    satisfaction = _satisfaction_parameter(parameter)
+    if satisfaction is not None:
+        satisfied = [(feature, satisfaction) in evidence.satisfied for feature in features]
+        if (all(satisfied) if "location" in parameter else any(satisfied)) and features:
+            carriers.extend(
+                carrier
+                for carrier in exact_measurement_carriers(
+                    registry_index, ((feature, satisfaction) for feature in features)
+                )
+                if carrier.kind == "structured_note"
+            )
+    return tuple(dict.fromkeys(carriers))
 
 
 def _state(features, parameter, *, member_count, evidence_index, suppressed, turned_axis_centers):
@@ -1160,7 +1246,15 @@ def hole_requirement_outcomes(
             )
             for parameter in ("countersink.diameter", "countersink.angle")
         )
-    return outcomes
+    return [
+        replace(
+            outcome,
+            carriers=_hole_carriers(
+                outcome, evidence_index, evidence_index.carrier_index, turned_axis_centers
+            ),
+        )
+        for outcome in outcomes
+    ]
 
 
 def lint_hole_leader_targets(

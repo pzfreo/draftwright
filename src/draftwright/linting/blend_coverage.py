@@ -18,8 +18,13 @@ from draftwright.blend_contract import (
     is_exact_blend_feature,
     validate_blend_fields,
 )
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.measurement_support import RequirementCarrier
 
 BlendRequirementState = Literal[
     "placed",
@@ -41,6 +46,7 @@ class BlendRequirementOutcome:
     features: tuple = ()
     parameter_id: str = "blend.radius"
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _source_at(key: tuple | None) -> tuple[float, float, float]:
@@ -189,7 +195,7 @@ def blend_requirement_outcomes(
                 source_records=(source_record,),
             )
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_blend_coverage(

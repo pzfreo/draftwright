@@ -17,8 +17,13 @@ from typing import Literal
 
 from quiddity import RecognitionResult, TurnedProfile, TurnedProfileKey
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID, is_placement_drop
+from draftwright.measurement_support import MeasurementSupport, RequirementCarrier
 from draftwright.recognition_frame import (
     AmbiguousTurnedOwnershipError,
     groove_owns_turned_step_band,
@@ -54,6 +59,8 @@ class TurnedStepRequirementOutcome:
     representation_feature: object | None = None
     representation_parameter: str | None = None
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    representation_alternatives: tuple[MeasurementSupport, ...] = field(default=(), kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _number(value, *, digits: int | None = 6) -> float:
@@ -475,7 +482,8 @@ def turned_step_requirement_outcomes(
             representation = feature
             representation_parameter = parameter
             state = evidence_state(feature, parameter)
-            if parameter == "step.diameter" and state == "missing":
+            alternatives: tuple[MeasurementSupport, ...] = ()
+            if parameter == "step.diameter":
                 # A part-global OD can stand in for one profile's unique largest band only when
                 # axis line + diameter identify exactly one physical occurrence. It carries no
                 # axial span or profile token, so equal disjoint bands must keep their native
@@ -499,8 +507,9 @@ def turned_step_requirement_outcomes(
                 rotational_matches = rotational_by_key.get((key[0], key[1], key[3]), ())
                 if is_unique_profile_maximum and globally_unique and len(rotational_matches) == 1:
                     alternate = rotational_matches[0]
+                    alternatives = (MeasurementSupport(alternate, "od.diameter"),)
                     alternate_state = evidence_state(alternate, "od.diameter")
-                    if alternate_state in {
+                    if state == "missing" and alternate_state in {
                         "placed",
                         "satisfied_by_structured_note",
                         "suppressed",
@@ -520,6 +529,7 @@ def turned_step_requirement_outcomes(
                     representation_feature=representation,
                     representation_parameter=representation_parameter,
                     source_records=(source,),
+                    representation_alternatives=alternatives,
                 )
             )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)

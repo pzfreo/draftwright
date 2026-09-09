@@ -84,11 +84,8 @@ def _hole_location_coverage_fact(location):
         feature = location.id.feature
     assert feature is not None and location.span is not None
     if isinstance(feature, HoleFeature | PatternFeature):
-        parameter = (
-            f"{location.role}.{location.discriminator}"
-            if isinstance(feature, HoleFeature) and location.axis != "z"
-            else f"{location.role}.location.{location.discriminator}"
-        )
+        parameter = location.physical_location_component
+        assert parameter is not None
         return (feature, parameter, tuple(location.span[1]))
     parameter = location.id.parameter if location.id is not None else location.parameter_id
     if (

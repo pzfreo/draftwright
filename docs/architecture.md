@@ -11,7 +11,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
 top: leaf modules (`progress.py`, `layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`plate_correspondence.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary) →
 `_core.py` → stage modules (`export.py`,
@@ -226,6 +226,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   owners, and settled
   unsupported/deferred/evidence-only occurrences are classified; remaining conditional
   cross-family records stay unclassified.
+- **`measurement_support.py`** — run-local producer-issued measurement, interval and member witnesses.
+- **`location_contract.py`** — shared pocket/pad datum reference and coincidence predicates.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
 - **`profile_angles.py`** — bounded face-profile angle requirements projected from Quiddity's
   ordered supports, with issued body/profile identity retained outside the IR. The detection
@@ -245,6 +247,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`recogniser_schema.py`** — the rank-0 Draftwright-owned table of public provider record
   schema versions consumed by adapters. The report projector and rank-7 cross-repository
   validator share this leaf, so the engine never imports the validator to learn schema metadata.
+- **`document_evidence.py`** — rank-2 binding of confirmed member claims to exact interval/member
+  witnesses, engineering agreement and producer-issued dependency proof evaluation.
 - **`reporting.py`** — the rank-2 pure schema-v1 report projector, and the named seam
   (`project_occurrences`, `json_value`, `producer`, `write_json_document`) that the
   drawing report and the STEP-inspection document are both built from (#1461). The
@@ -277,6 +281,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   reads. It validates inspection manifest format 1/API major 1, the exact installed recogniser
   release, and only the stable `quiddity.inspection` symbols and value schemas consumed
   by `model/declare.py`. It deliberately does not declare recognition-family semantics.
+- **`document_input.py`** — rank-1 common intake authority: exact raw recognition/ownership,
+  sealed physical membership and copies of member authoring containers. It retains source bytes
+  and the original analysis for reuse through the existing builder.
+- **`document.py`** — rank-7 explicit document facade. It takes one STEP snapshot, binds member
+  Sheets to the common source, and builds them through the existing pipeline with named failures.
+  Live member snapshots reach `reporting.py` for schema-v4 coverage, carrier attribution and
+  engineering conflict assessment; ordinary Drawing reports retain schema v3.
 - **`inspection.py`** — the rank-7 public read-only STEP inspection surface (`inspect_step`).
   It hashes one immutable source-byte snapshot, drives the shared one-run
   `_detect_part_model_analysis` seam over a private copy of those bytes, and projects the

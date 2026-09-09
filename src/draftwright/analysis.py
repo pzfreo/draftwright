@@ -789,11 +789,22 @@ def _analyse(
     _include_iso: bool = True,
     _view_constraints=None,
     _framed_recognition: bool = False,
+    _document_input=None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
     Returns an :class:`Analysis`.
     """
+    if _document_input is not None:
+        if model is None or _framed_recognition:
+            raise ValueError("document members require their sealed raw model")
+        _document_input.validate(
+            step_file, model.features if isinstance(model, PartModel) else model
+        )
+        if _reuse is None:
+            _reuse = _document_input.analysis
+        elif _reuse.part is not _document_input.analysis.part:
+            raise ValueError("document analysis reuse names a foreign working solid")
     convention = projection or "third"
     # The zone-grid ruler (#768) draws its ticks on the frame, so it implies one.
     frame = frame or zones
@@ -1101,6 +1112,11 @@ def _analyse(
         if ownership_builder is not None
         else None
     )
+    if _document_input is not None:
+        # Declared sizing still reads only the member's authored model. Critique receives
+        # the original conversion authority rather than acquiring another recognition run.
+        recognition_evidence = _document_input.analysis.recognition_evidence
+        recognition_ownership = _document_input.analysis.recognition_ownership
     # Dimension feasibility and annotation footprints consume the authored set.
     # Derived-view dependencies still use sizing_model below; omitting an unrelated
     # envelope extent must not force its view back onto an authored sheet.

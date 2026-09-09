@@ -1052,45 +1052,70 @@ class Drawing:
         shrinking the denominator. Calling this method never changes rendered drawing content.
         """
 
-        from draftwright.reporting import drawing_report, validate_report_inputs
+        from draftwright.reporting import drawing_report
+
+        snapshot = self.requirement_snapshot()
+        with _reuse_report_requirements(self, snapshot.outcomes, snapshot.dimension_plan):
+            lint = self.lint_summary()
+        return drawing_report(
+            evidence=snapshot.evidence,
+            ownership=snapshot.ownership,
+            model=snapshot.model,
+            lint=lint,
+            source=snapshot.source,
+            registry=snapshot.registry,
+            omissions=snapshot.omissions,
+            dimension_plan=snapshot.dimension_plan,
+            part=snapshot.part,
+            requirement_outcomes=snapshot.outcomes,
+        )
+
+    def requirement_snapshot(self, *, include_lint=False):
+        """Capture live source-owned outcomes for single-sheet and document review.
+
+        This reuses the report's exact-authority validation and existing producers.
+        It neither recognizes geometry nor derives requirements from the compiled plan.
+        The returned references belong to this build and must not be persisted or
+        combined with another recognition run. Serialize edits and snapshot reads.
+        """
+        from draftwright.reporting import RequirementSnapshot, validate_report_inputs
 
         analysis = self._analysis
         source = getattr(analysis, "step_file", None) if analysis is not None else None
-        evidence = self.recognition_evidence()
-        ownership = self.recognition_ownership()
-        model = self.model()
-        # Preserve schema-v1's fail-before-critique boundary. In particular, a declared drawing
-        # with no conversion-time ownership must refuse without lint lazily running recognition.
-        evidence, ownership, model = validate_report_inputs(evidence, ownership, model)
+        evidence, ownership, model = validate_report_inputs(
+            self.recognition_evidence(), self.recognition_ownership(), self.model()
+        )
         from draftwright.linting.requirements import recognized_requirement_outcomes
         from draftwright.model.compiled import compile_dimensions
 
         dimension_plan = compile_dimensions(model)
-        requirement_outcomes = recognized_requirement_outcomes(
+        omissions = tuple(self._build.omissions)
+        outcomes = recognized_requirement_outcomes(
             evidence.result,
             tuple(model.features),
             self.registry,
-            self._build.omissions,
+            omissions,
             dimension_plan=dimension_plan,
             part=self._working_part,
             evidence=evidence,
             ownership=ownership,
+            datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
         )
-
-        with _reuse_report_requirements(self, requirement_outcomes, dimension_plan):
-            lint = self.lint_summary()
-
-        return drawing_report(
-            evidence=evidence,
-            ownership=ownership,
-            model=model,
-            lint=lint,
-            source=source,
-            registry=self.registry,
-            omissions=self._build.omissions,
-            dimension_plan=dimension_plan,
-            part=self._working_part,
-            requirement_outcomes=requirement_outcomes,
+        lint = None
+        if include_lint:
+            with _reuse_report_requirements(self, outcomes, dimension_plan):
+                lint = self.lint_summary()
+        return RequirementSnapshot(
+            evidence,
+            ownership,
+            model,
+            source,
+            self.registry,
+            omissions,
+            dimension_plan,
+            self._working_part,
+            outcomes,
+            lint,
         )
 
     def write_report(self, path: str | os.PathLike[str]) -> str:
@@ -1416,6 +1441,7 @@ class Drawing:
                                 if feature is identity.feature
                             ),
                         ),
+                        approved=approved,
                     )
                 )
         return MeasurementSnapshot(tuple(model.features), tuple(claims), tuple(unknown))

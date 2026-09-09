@@ -14,8 +14,13 @@ from typing import Literal
 from quiddity import RecognitionResult
 
 from draftwright._geometry import _canonical_axis_direction
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue
+from draftwright.measurement_support import RequirementCarrier
 
 FlatRequirementState = Literal[
     "placed",
@@ -49,6 +54,7 @@ class FlatRequirementOutcome:
     features: tuple = ()
     parameter_id: str = "flat.length"
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded_pair(values) -> tuple[float, float]:
@@ -191,7 +197,7 @@ def flat_requirement_outcomes(
                 source_records=tuple(source_records[requirement]),
             )
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_flat_coverage(
