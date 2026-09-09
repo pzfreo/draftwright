@@ -749,6 +749,13 @@ def test_remaining_ladder_rungs_cannot_cover_removed_exact_legacy_members() -> N
     drawing.lint()  # populate the declared build's one recognition aggregate
     assert drawing.scale == 1
     assert "dim_detail_a_step0" in drawing.annotations(), drawing.annotations()
+    before = through_step_requirement_outcomes(
+        drawing.recognition(),
+        drawing.model().features,
+        drawing.registry,
+        plan=compile_dimensions(drawing.model()),
+    )
+    assert {row.state for row in before} == {"inapplicable"}
     drawing.remove("dim_detail_a_step0")
     drawing.remove("dim_shoulder_x1")
 
@@ -761,6 +768,16 @@ def test_remaining_ladder_rungs_cannot_cover_removed_exact_legacy_members() -> N
     )
 
     assert [outcome.state for outcome in outcomes] == ["missing", "missing"]
+    for carried, missing in zip(before, outcomes, strict=True):
+        assert carried.source_records[0] is missing.source_records[0]
+        assert carried.dependency_alternatives == missing.dependency_alternatives
+        assert missing.dependency_alternatives
+        for alternative in missing.dependency_alternatives:
+            assert alternative
+            for term in alternative:
+                assert term.axis in "xyz" and term.hi > term.lo
+                assert term.identity in missing.measurement_ids
+                assert any(owner is term.feature for owner in drawing.model().features)
     assert {
         issue.code for issue in drawing.lint() if issue.code.startswith("through_step_requirement")
     } == {"through_step_requirement_missing"}

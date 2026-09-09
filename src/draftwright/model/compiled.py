@@ -53,6 +53,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from draftwright._geometry import _fmt, _fmt_angle
+from draftwright.location_contract import coincident_location_axes
 from draftwright.model.ir import (
     AngularReference,
     EnvelopeFeature,
@@ -1390,11 +1391,12 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             # site that consumed it would have printed an empty label the moment it read
             # `value_text` (#925). The Z-normal ladder below is the remaining exception and
             # is listed as such.
+            coincident = coincident_location_axes(feature, span)
             for meas in (feature.long_axis, feature.width_axis):
                 index = "xyz".index(meas)
                 value = abs(span[1][index] - span[0][index])
                 parameter_id = f"{pd.param.role}.{meas}"
-                if value <= 1e-6:
+                if meas in coincident:
                     omissions.append(
                         Omission(
                             feature,
@@ -1422,10 +1424,11 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                 )
             continue
         if isinstance(feature, PocketFeature) and axis == "z":
+            coincident = coincident_location_axes(feature, span)
             for measured_axis in ("x", "y"):
                 index = "xyz".index(measured_axis)
                 value = abs(span[1][index] - span[0][index])
-                if value <= 1e-6:
+                if measured_axis in coincident:
                     omissions.append(
                         Omission(
                             feature,

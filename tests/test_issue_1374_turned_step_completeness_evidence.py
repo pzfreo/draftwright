@@ -277,6 +277,7 @@ def test_global_od_cannot_multiply_across_disjoint_coaxial_profiles(framed: bool
     assert not [
         outcome for outcome in largest if outcome.representation_parameter == "od.diameter"
     ]
+    assert all(not outcome.representation_alternatives for outcome in largest)
     assert len(
         {outcome.representation_feature for outcome in largest if outcome.state == "placed"}
     ) == sum(outcome.state == "placed" for outcome in largest)
@@ -307,6 +308,13 @@ def test_native_step_diameter_evidence_precedes_global_od_alternate() -> None:
             if outcome.parameter_id == "step.diameter" and step in outcome.features
         )
 
+    empty = diameter_outcome(AnnotationRegistry())
+    assert empty.state == "missing"
+    assert len(empty.representation_alternatives) == 1
+    support = empty.representation_alternatives[0]
+    assert support.feature is rotational
+    assert support.parameter_id == "od.diameter"
+
     direct = AnnotationRegistry()
     direct.add(
         object(),
@@ -319,10 +327,14 @@ def test_native_step_diameter_evidence_precedes_global_od_alternate() -> None:
         "placed",
         step,
     )
+    assert (
+        diameter_outcome(direct).representation_alternatives == empty.representation_alternatives
+    )
 
     omission = SimpleNamespace(feature=step, parameter_id="step.diameter", authored=True)
     suppressed = diameter_outcome(AnnotationRegistry(), (omission,))
     assert (suppressed.state, suppressed.representation_feature) == ("suppressed", step)
+    assert suppressed.representation_alternatives == empty.representation_alternatives
 
     dropped_registry = AnnotationRegistry()
     dropped_registry.record_issue(
@@ -335,6 +347,7 @@ def test_native_step_diameter_evidence_precedes_global_od_alternate() -> None:
     )
     dropped = diameter_outcome(dropped_registry)
     assert (dropped.state, dropped.representation_feature) == ("dropped", step)
+    assert dropped.representation_alternatives == empty.representation_alternatives
 
     alternate = AnnotationRegistry()
     alternate.add(
@@ -349,6 +362,7 @@ def test_native_step_diameter_evidence_precedes_global_od_alternate() -> None:
         "placed",
         rotational,
     )
+    assert alternate_outcome.representation_alternatives == empty.representation_alternatives
 
 
 def test_turned_step_ledger_tracks_two_requirements_per_physical_band() -> None:

@@ -25,6 +25,8 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.location_contract import datum_location_exclusion
+from draftwright.measurement_support import RequirementExclusion
 
 _PAD_LOCATION_DATUM_COINCIDENT_CODE = "pad_location_coincident_with_datum"
 _PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
@@ -50,6 +52,7 @@ class PadRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    intrinsic_exclusion: RequirementExclusion | None = field(default=None, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -280,6 +283,8 @@ def pad_requirement_outcomes(
     features,
     registry,
     omissions=(),
+    *,
+    datum=None,
 ) -> list[PadRequirementOutcome]:
     """Follow every recognised raised-pad requirement to its semantic outcome."""
     if recognition is None:
@@ -353,6 +358,7 @@ def pad_requirement_outcomes(
                 ),
                 features=(feature,),
                 source_records=(source,),
+                intrinsic_exclusion=datum_location_exclusion(feature, source, parameter, datum),
             )
             for parameter in parameter_ids
         )

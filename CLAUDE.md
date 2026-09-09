@@ -41,6 +41,8 @@ Compact map, bottom to top:
   lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
   final-IR binding, group/pattern absorption, and settled ownerless consumer policy),
   `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
+  `measurement_support.py` (producer-issued exact measurement and member witnesses),
+  `location_contract.py` (shared pocket/pad datum reference and coincidence rules),
   `profile_angles.py` (face-profile drafting requirements from issued ordered supports),
   `angular_geometry.py` (analytic angular ink boxes shared by sizing and rendering),
   `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
@@ -55,6 +57,8 @@ Compact map, bottom to top:
   `_warnings.py`, and `_pmi_part21.py`.
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
   page/slot/margin constants.
+- **`document_input.py`** — common source/analysis authority and sealed physical membership,
+  beside `_core`; member models copy authoring containers while retaining exact owners.
 - **Stage modules** — `analysis.py` (classification + one-shot feature inventory),
   `projection.py` (HLR + material lowering), `compose.py` (the ADR 2 (was 0004) outer
   compose-then-pack layout), `export.py` (SVG→PDF→PNG chain, DXF), `repair.py`
@@ -67,7 +71,8 @@ Compact map, bottom to top:
   canonical stage order; `_common.py` owns the corridor solve + late-furniture seam).
 - **`builder.py`** — build orchestration: `build_drawing`, `make_drawing`.
 - **Facades / top layer** — `make_drawing.py` + `annotate.py` (thin compat),
-  `sheet.py` (the fluent `Sheet` facade, ADR 4 (was 0011)), `sheet_emit.py` (the `--script`
+  `sheet.py` (the fluent `Sheet` facade, ADR 4 (was 0011)),
+  `document.py` (explicit member sheets over a common source and conversion authority), `sheet_emit.py` (the `--script`
   emitter — it also writes the `inspection.py` document as a sidecar from its own
   single detect run), `cli.py` (Typer; engine imported lazily inside command bodies, #313),
   `_build_profile.py` (developer-only pytest/runner profiling support),

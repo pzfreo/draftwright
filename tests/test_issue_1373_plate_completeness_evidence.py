@@ -429,6 +429,43 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
     )
     assert len(slot_outcomes) == 5
     assert {outcome.state for outcome in slot_outcomes} == {"inapplicable"}
+    from draftwright.plate_correspondence import plate_dependency_alternatives
+
+    recipes = [
+        recipe
+        for source in slot_recognition.plates
+        for recipe in plate_dependency_alternatives(source, slot_drawing.model().features)
+        if any(getattr(owner, "kind", None) == "slot_pattern" for owner, _ in recipe.measurements)
+    ]
+    assert recipes
+    owner = next(
+        feature for feature in slot_drawing.model().features if feature.kind == "slot_pattern"
+    )
+    centre = tuple(owner.frame.origin)
+    assert centre not in owner.members
+    claims = slot_drawing.measurement_snapshot().claims
+    for recipe in recipes:
+        locations = [term for term in recipe.supports if term.location_point is not None]
+        assert len(locations) == 2
+        assert {term.axis for term in locations} == {"x", "y"}
+        assert {term.location_point for term in locations} == {centre}
+        assert all(term.feature is owner for term in locations)
+        assert any(term.parameter_id == "pitch.length" for term in recipe.supports)
+        for term in locations:
+            carrying = [
+                claim
+                for claim in claims
+                if claim.owner is owner and claim.parameter == term.parameter_id
+            ]
+            assert carrying
+            assert any((term.parameter_id, centre) in claim.witnesses[1] for claim in carrying)
+    (pattern,) = slot_recognition.slot_patterns
+    for outcome in slot_outcomes:
+        assert outcome.intrinsically_inapplicable
+        assert outcome.intrinsic_exclusion.reason_code == "slot_pattern_owns_material_web"
+        retained = outcome.intrinsic_exclusion.source_records
+        assert len(retained) == len(pattern.slots)
+        assert all(a is b for a, b in zip(retained, pattern.slots, strict=True))
 
     boss_part = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
         Pos(13, -7, 5) * Rot(0, 0, 11) * extrude(RegularPolygon(20, 6), 30)
@@ -443,6 +480,10 @@ def test_exact_overlapping_family_owners_do_not_create_a_second_plate_denominato
         boss_recognition, envelope_only, AnnotationRegistry(), part=boss_part
     )
     assert boss_outcome.state == "inapplicable"
+    assert boss_outcome.intrinsically_inapplicable
+    assert boss_outcome.intrinsic_exclusion.reason_code == "polygonal_boss_owns_supporting_slab"
+    (retained_boss,) = boss_outcome.intrinsic_exclusion.source_records
+    assert retained_boss is boss_recognition.polygonal_bosses[0]
 
     malformed = replace(boss_recognition, polygonal_bosses=(object(),))
     (failed_closed,) = plate_requirement_outcomes(
@@ -990,11 +1031,9 @@ def test_provider_hexagon_invariant_does_not_narrow_public_owner_geometry() -> N
     from math import cos, pi, sin
 
     from draftwright import build_drawing
-    from draftwright.linting.plate_coverage import (
-        _polygonal_boss_dependencies,
-        _without_provider_owned_ir,
-    )
+    from draftwright.linting.plate_coverage import _without_provider_owned_ir
     from draftwright.model import polygonal_boss
+    from draftwright.plate_correspondence import _polygonal_boss_dependencies
 
     part = Box(100, 80, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)) + (
         Pos(0, 0, 5) * extrude(RegularPolygon(10, 8), 20)
@@ -1139,6 +1178,30 @@ def test_step_level_alternate_must_land_before_plate_intervals_are_inapplicable(
     assert len(complete) == len(missing) == 2
     assert {outcome.state for outcome in complete} == {"inapplicable"}
     assert {outcome.state for outcome in missing} == {"unverifiable"}
+    for carried, absent in zip(complete, missing, strict=True):
+        assert carried.source_records[0] is absent.source_records[0]
+        assert carried.catalog_parameter_id == absent.catalog_parameter_id == "thickness.length"
+        assert carried.parameter_id != absent.parameter_id
+        assert not carried.intrinsically_inapplicable and not absent.intrinsically_inapplicable
+        assert carried.dependency_alternatives == absent.dependency_alternatives
+        assert len(absent.dependency_alternatives) == 1
+        terms = absent.dependency_alternatives[0].measurements
+        assert [parameter for _, parameter in terms] == [
+            "depth.length",
+            "step_position.length",
+            "step_position.length",
+        ]
+        assert terms[1][0] is terms[2][0]
+        supports = absent.dependency_alternatives[0].supports
+        assert len(supports) == 3
+        assert supports[0].identity == terms[0]
+        rungs = supports[1:]
+        assert all(term.axis == "y" and term.lo == -30 for term in rungs)
+        assert sorted(term.hi for term in rungs) == [-10, 10]
+        assert all(term.feature is terms[1][0] for term in rungs)
+        assert all(
+            any(owner is feature for feature in drawing.model().features) for owner, _ in terms
+        )
 
 
 def test_derived_plate_drawing_credit_requires_verified_dependency_ink() -> None:
@@ -1156,6 +1219,21 @@ def test_derived_plate_drawing_credit_requires_verified_dependency_ink() -> None
             for identity in drawing.registry.measurement_of(name)
         )
     )
+    from draftwright.linting.plate_coverage import plate_requirement_outcomes
+    from draftwright.registry import AnnotationRegistry
+
+    carried = plate_requirement_outcomes(recognition, drawing.model().features, drawing.registry)
+    absent = plate_requirement_outcomes(
+        recognition, drawing.model().features, AnnotationRegistry()
+    )
+    assert [row.state for row in carried].count("inapplicable") == 1
+    assert {row.state for row in absent} == {"missing"}
+    derived = [row for row in absent if row.dependency_alternatives]
+    assert len(derived) == 1 and len(derived[0].dependency_alternatives[0].supports) == 3
+    for before, after in zip(carried, absent, strict=True):
+        assert before.dependency_alternatives == after.dependency_alternatives
+        assert before.source_records[0] is after.source_records[0]
+        assert not after.intrinsically_inapplicable
     drawing.registry.named(name).label = "999"
 
     outcomes = _plate_drawing_outcomes(tuple(recognition.plates), drawing)

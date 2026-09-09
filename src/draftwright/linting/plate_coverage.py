@@ -24,17 +24,16 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.measurement_support import RequirementAlternative
 from draftwright.plate_correspondence import (
     _between,
     _depth_axis,
     _envelope,
-    _envelope_owned_dependencies,
-    _polygonal_boss_dependencies,
     _rounded,
     _same,
-    _slot_pattern_dependencies,
-    _step_level_dependencies,
     plate_center,
+    plate_dependency_alternatives,
+    plate_dependency_supports,
     plate_key,
     plate_span,
 )
@@ -52,6 +51,12 @@ Point = tuple[float, float, float]
 
 
 @dataclass(frozen=True)
+class PlateExclusion:
+    reason_code: Literal["polygonal_boss_owns_supporting_slab", "slot_pattern_owns_material_web"]
+    source_records: tuple[object, ...] = field(repr=False, compare=False)
+
+
+@dataclass(frozen=True)
 class PlateRequirementOutcome:
     """The observable engine outcome of one physical slab-thickness requirement."""
 
@@ -61,7 +66,14 @@ class PlateRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     dependencies: tuple[tuple[object, str], ...] = ()
+    catalog_parameter_id: str = field(default="thickness.length", kw_only=True)
+    intrinsic_exclusion: PlateExclusion | None = field(default=None, kw_only=True)
+    dependency_alternatives: tuple[RequirementAlternative, ...] = field(default=(), kw_only=True)
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+
+    @property
+    def intrinsically_inapplicable(self) -> bool:
+        return self.intrinsic_exclusion is not None
 
 
 def _parameter_id(feature, source) -> str | None:
@@ -337,23 +349,15 @@ def _shares_one_solid(membership, source, boss) -> bool:
         return False
 
 
-def _alternate_dependencies(
-    source,
-    features,
-    counts,
-    satisfied,
-) -> tuple[tuple[object, str], ...]:
-    for establish in (
-        _envelope_owned_dependencies,
-        _step_level_dependencies,
-        _polygonal_boss_dependencies,
-        _slot_pattern_dependencies,
-    ):
-        if (dependencies := establish(source, features)) and _dependencies_are_evidenced(
-            dependencies, counts, satisfied
-        ):
-            return dependencies
-    return ()
+def _alternate_dependencies(alternatives, counts, satisfied) -> tuple[tuple[object, str], ...]:
+    return next(
+        (
+            recipe.measurements
+            for recipe in alternatives
+            if _dependencies_are_evidenced(recipe.measurements, counts, satisfied)
+        ),
+        (),
+    )
 
 
 def _without_provider_owned_ir(recognition, features, validation_cache=None) -> tuple:
@@ -439,17 +443,17 @@ def _dependencies_are_evidenced(dependencies, counts, satisfied) -> bool:
     )
 
 
-def _recognition_owner_supersedes_plate(
+def _intrinsic_plate_exclusion(
     source,
     recognition,
     features,
     membership=None,
     validation_cache=None,
-) -> bool:
+) -> PlateExclusion | None:
     """Exact aggregate ownership keeps derived Plate fragments out of a second denominator."""
     envelope = _envelope(features)
     if envelope is None:
-        return False
+        return None
     try:
         axis = str(source.axis)
         index = "xyz".index(axis)
@@ -474,7 +478,7 @@ def _recognition_owner_supersedes_plate(
                 and source_interval[1] == envelope_interval[1]
             )
             if (supports_below or supports_above) and _shares_one_solid(membership, source, boss):
-                return True
+                return PlateExclusion("polygonal_boss_owns_supporting_slab", (boss,))
 
         for pattern in recognition.slot_patterns:
             slots = tuple(pattern.slots)
@@ -517,10 +521,12 @@ def _recognition_owner_supersedes_plate(
             if cursor < pattern_interval[1]:
                 material.append((cursor, pattern_interval[1]))
             if source_interval in material:
-                return True
+                # SlotArray is a derived grouping; the accepted occurrences are its
+                # exact Slot members, as in the slot requirement ledger's source set.
+                return PlateExclusion("slot_pattern_owns_material_web", slots)
     except (AttributeError, TypeError, ValueError):
-        return False
-    return False
+        return None
+    return None
 
 
 def _derived_opposite_wall_dependencies(features, feature) -> tuple[tuple[object, str], ...]:
@@ -667,9 +673,13 @@ def plate_requirement_outcomes(
         feature: dependencies
         for feature in features
         if (dependencies := _derived_opposite_wall_dependencies(features, feature))
-        and all(dependency in evidenced for dependency in dependencies)
     }
-    inapplicable = {(feature, "thickness.length") for feature in derived_dependencies}
+    carried_dependencies = {
+        feature: dependencies
+        for feature, dependencies in derived_dependencies.items()
+        if all(dependency in evidenced for dependency in dependencies)
+    }
+    inapplicable = {(feature, "thickness.length") for feature in carried_dependencies}
     membership = _SolidMembership(part) if part is not None else None
     pattern_validations: dict[int, object | None] = {}
     alternate_features = _without_provider_owned_ir(recognition, features, pattern_validations)
@@ -681,33 +691,38 @@ def plate_requirement_outcomes(
         )
         parameter = _parameter_id(feature, source_record) if feature is not None else None
         if parameter is None:
-            recognised_owner = _recognition_owner_supersedes_plate(
+            exclusion = _intrinsic_plate_exclusion(
                 source_record,
                 recognition,
                 features,
                 membership,
                 pattern_validations,
             )
-            dependencies = _alternate_dependencies(
-                source_record,
-                alternate_features,
-                placed_counts,
-                satisfied,
-            )
-            if dependencies or recognised_owner:
+            alternatives = plate_dependency_alternatives(source_record, alternate_features)
+            dependencies = _alternate_dependencies(alternatives, placed_counts, satisfied)
+            if dependencies or exclusion is not None:
                 outcomes.append(
                     PlateRequirementOutcome(
                         at,
                         "thickness.length",
                         "inapplicable",
                         dependencies=dependencies,
+                        intrinsic_exclusion=exclusion,
+                        dependency_alternatives=alternatives,
                         source_records=(source_record,),
                     )
                 )
                 continue
             outcomes.append(
                 PlateRequirementOutcome(
-                    at, UNJOINED_PARAMETER_ID, "unverifiable", source_records=(source_record,)
+                    at,
+                    UNJOINED_PARAMETER_ID,
+                    "unverifiable",
+                    catalog_parameter_id=(
+                        "thickness.length" if key is not None else UNJOINED_PARAMETER_ID
+                    ),
+                    dependency_alternatives=alternatives,
+                    source_records=(source_record,),
                 )
             )
             continue
@@ -726,7 +741,19 @@ def plate_requirement_outcomes(
                     registry=registry,
                 ),
                 features=(feature,),
-                dependencies=derived_dependencies.get(feature, ()),
+                dependencies=carried_dependencies.get(feature, ()),
+                dependency_alternatives=(
+                    (
+                        RequirementAlternative(
+                            derived_dependencies[feature],
+                            plate_dependency_supports(
+                                source_record, derived_dependencies[feature]
+                            ),
+                        ),
+                    )
+                    if feature in derived_dependencies
+                    else ()
+                ),
                 source_records=(source_record,),
             )
         )

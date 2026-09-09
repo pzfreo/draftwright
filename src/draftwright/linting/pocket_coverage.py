@@ -22,6 +22,8 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.location_contract import datum_location_exclusion
+from draftwright.measurement_support import RequirementExclusion
 from draftwright.section_recess_contract import (
     pocket_mouth_key,
     recesses_with_kind,
@@ -52,6 +54,7 @@ class PocketRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    intrinsic_exclusion: RequirementExclusion | None = field(default=None, kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -233,6 +236,8 @@ def pocket_requirement_outcomes(
     features,
     registry,
     omissions=(),
+    *,
+    datum=None,
 ) -> list[PocketRequirementOutcome]:
     """Follow every recognised lone-pocket requirement to its semantic outcome."""
     if recognition is None:
@@ -295,7 +300,13 @@ def pocket_requirement_outcomes(
             if section_recess_fields(source)[1]["edge_anchored"]:
                 outcomes.extend(
                     PocketRequirementOutcome(
-                        at, parameter, "inapplicable", source_records=(source,)
+                        at,
+                        parameter,
+                        "inapplicable",
+                        source_records=(source,),
+                        intrinsic_exclusion=RequirementExclusion(
+                            "pocket_edge_anchored", (source,)
+                        ),
                     )
                     for parameter in (
                         "location_pocket.location.x",
@@ -325,6 +336,12 @@ def pocket_requirement_outcomes(
                 ),
                 features=(feature,),
                 source_records=(source,),
+                intrinsic_exclusion=(
+                    RequirementExclusion("pocket_edge_anchored", (source,))
+                    if _is_location(parameter)
+                    and section_recess_fields(source)[1]["edge_anchored"]
+                    else datum_location_exclusion(feature, source, parameter, datum)
+                ),
             )
             for parameter in parameter_ids
         )

@@ -30,6 +30,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef, _fmt_angle
+from draftwright.location_contract import pocket_location_reference
 from draftwright.model.ir import (
     PLACEMENT_SIDES,
     PLACEMENT_VIEWS,
@@ -1027,12 +1028,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             # the length callout fully defines the long position: printing half the
             # length as a datum-to-centre offset is redundant and opaque (a datum-starting
             # 62.1 mm pocket otherwise acquires a seemingly arbitrary 31.1 mm mark).
-            ref_point = list(f.frame.origin)
-            long_index = "xyz".index(f.long_axis)
-            datum_coord = (dx, dy, dz)[long_index]
-            ref_point[long_index] = f.lo if abs(f.lo - datum_coord) <= 1e-6 else (f.lo + f.hi) / 2
-            ref_point["xyz".index(f.width_axis)] = f.w_center
-            ref = (ref_point[0], ref_point[1], ref_point[2])
+            ref = pocket_location_reference(f, datum.at)
             refs.append((ref, role, f, None, None))
         else:
             refs.append((f.frame.origin, role, f, None, None))

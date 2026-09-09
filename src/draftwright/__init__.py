@@ -37,6 +37,9 @@ _LAZY = {
     "InspectionUnavailableError": "draftwright.inspection",
     "inspect_step": "draftwright.inspection",
     "Sheet": "draftwright.sheet",
+    "Document": "draftwright.document",
+    "DocumentResult": "draftwright.document",
+    "DocumentBuildError": "draftwright.document",
     "lint_feature_coverage": "draftwright.linting",
     "PmiExtractionReport": "draftwright.pmi",
     "PmiRecord": "draftwright.pmi",
@@ -92,6 +95,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
     from draftwright._warnings import ScaleCompletenessWarning, SoftDeprecationWarning
     from draftwright.builder import ScaleIncompatibilityError, build_drawing, make_drawing
     from draftwright.compose import choose_scale
+    from draftwright.document import Document, DocumentBuildError, DocumentResult
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.inspection import (
         INSPECTION_SCHEMA,
@@ -127,6 +131,9 @@ __all__ = [
     "INSPECTION_SCHEMA",
     "INSPECTION_SCHEMA_VERSION",
     "Drawing",
+    "Document",
+    "DocumentResult",
+    "DocumentBuildError",
     "SoftDeprecationWarning",
     "FeatureInfo",
     "InspectionUnavailableError",

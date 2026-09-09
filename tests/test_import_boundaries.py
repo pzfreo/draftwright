@@ -89,6 +89,8 @@ _LAYERS: dict[str, int] = {
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
     "plate_correspondence": 0,
+    "measurement_support": 0,
+    "location_contract": 0,
     "profile_angles": 0,
     "angular_geometry": 0,
     "recogniser_policy": 0,
@@ -108,6 +110,7 @@ _LAYERS: dict[str, int] = {
     "model": 0,  # the ADR 1 (was 0008) IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,
+    "document_input": 1,
     # 2 — core-consumers: depend on _core, sit below the stages
     "linting": 2,
     # Schema-v1 projection over explicitly supplied finished-build state. It consumes linting's
@@ -130,6 +133,7 @@ _LAYERS: dict[str, int] = {
     # 7 — the user-facing surfaces
     "make_drawing": 7,
     "sheet": 7,
+    "document": 7,
     "sheet_emit": 7,
     # Developer-only pytest/runner support. It patches the user-facing builder bindings at
     # runtime and is therefore a top-layer consumer, never an engine dependency.
@@ -481,6 +485,8 @@ _MODEL_MAY_IMPORT = {
     "recognition_frame",
     "oriented_slot_contract",
     "section_recess_contract",
+    # Shared pure pocket/pad datum geometry used by both compiler and ledger producers.
+    "location_contract",
     # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
     # conversion site. The leaf ledger depends on neither the model nor any upper stage.
     "recognition_ownership",

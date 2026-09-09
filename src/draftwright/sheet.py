@@ -53,7 +53,7 @@ from __future__ import annotations
 import inspect
 import math
 import warnings
-from collections.abc import MutableSequence
+from collections.abc import Callable, MutableSequence, Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -62,6 +62,7 @@ from draftwright._geometry import _solids_body
 from draftwright._warnings import SoftDeprecationWarning
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
+from draftwright.document_input import DocumentInput
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import angle as _angle
@@ -250,7 +251,7 @@ class _FeatureView(MutableSequence):
     instead of detectable.
     """
 
-    __slots__ = ("_entries", "_next_token")
+    __slots__ = ("_entries", "_next_token", "validate_change")
 
     def __init__(self, entries: list) -> None:
         self._entries = entries
@@ -261,6 +262,11 @@ class _FeatureView(MutableSequence):
         # process-wide counter would make those keys depend on how many other sheets
         # happened to be built first.
         self._next_token = 0
+        self.validate_change: Callable[[Sequence], None] | None = None
+
+    def _validate(self, values):
+        if self.validate_change is not None:
+            self.validate_change(values)
 
     def _mint(self) -> int:
         token = self._next_token
@@ -290,6 +296,11 @@ class _FeatureView(MutableSequence):
         # references fail loudly instead. To reorder while keeping identity, use
         # `reverse()` / `sort()`, which move whole entries. Internal rebuilding goes
         # through `_rebind`, which is the only path that preserves a token.
+        current = list(self)
+        if isinstance(i, slice):
+            value = list(value)
+        current[i] = value
+        self._validate(current)
         if isinstance(i, slice):
             self._entries[i] = [(self._mint(), f) for f in value]
             return
@@ -301,16 +312,34 @@ class _FeatureView(MutableSequence):
         The only identity-preserving write. Used by the size verbs, whose frozen
         dataclasses are replaced wholesale on every `.depth()` / `.cbore()` / `.thread()`.
         """
+        current = list(self)
+        current[index] = feature
+        self._validate(current)
         self._entries[index] = (self._entries[index][0], feature)
 
     def __delitem__(self, i) -> None:
+        current = list(self)
+        del current[i]
+        self._validate(current)
         del self._entries[i]
+
+    def clear(self) -> None:
+        self._validate([])
+        self._entries.clear()
 
     def __len__(self) -> int:
         return len(self._entries)
 
     def insert(self, i, value) -> None:
+        current = list(self)
+        current.insert(i, value)
+        self._validate(current)
         self._entries.insert(i, (self._mint(), value))
+
+    def extend(self, values) -> None:
+        values = list(values)
+        self._validate([*self, *values])
+        self._entries.extend((self._mint(), value) for value in values)
 
     # Reordering must move ENTRIES, not values. `MutableSequence` implements `reverse`
     # in terms of `__setitem__`, which here keeps each slot's token — right for a size
@@ -1091,6 +1120,7 @@ class Sheet:
         # list moves each token with its feature instead of stranding references.
         self._entries: list[tuple[int, object]] = []
         self._features = _FeatureView(self._entries)
+        self._document_input: DocumentInput | None = None
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
         # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
         self._tolerances: dict = {}
@@ -1179,6 +1209,24 @@ class Sheet:
         ):
             if _v is not None:
                 self._opts[_k] = _v
+
+    def _bind_document(self, source) -> None:
+        if self._entries or self._document_input is not None:
+            raise ValueError("document binding requires a new empty Sheet")
+        source.validate(self._part, source.initial_features())
+        self._features.extend(source.initial_features())
+        self._document_input = source
+        self._features.validate_change = source.validate_features
+
+    def _snapshot_for_document(self):
+        from copy import deepcopy
+
+        if self._document_input is None:
+            raise ValueError("only a bound document Sheet has common input authority")
+        source = self._document_input
+        source.validate(self._part, self._features)
+        shared = (source, self._part, *source.features)
+        return deepcopy(self, {id(value): value for value in shared})
 
     @classmethod
     def from_part(cls, part, **opts) -> Sheet:
@@ -1607,6 +1655,8 @@ class Sheet:
             for i, f in enumerate(self._features):
                 if f is ref:  # identity — an EQUAL feature from elsewhere is not this one
                     return self._token_at(i)
+            if self._document_input is not None:
+                raise ValueError(f"{verb}: use an exact feature from this document's inventory")
             return None  # a Feature this sheet does not manage
         return None  # build123d geometry, or something else entirely
 
@@ -2420,6 +2470,8 @@ class Sheet:
 
     def _prepare(self) -> None:
         """Resolve deferred GD&T state before handing features to the engine."""
+        if self._document_input is not None:
+            self._document_input.validate(self._part, self._features)
         self._materialize_gdt()
         self._validate_datums()
 
@@ -3023,6 +3075,11 @@ class Sheet:
             )
         return cut_y
 
+    def _build_model_input(self):
+        if self._document_input is not None:
+            return self._document_input.model(self._features)
+        return self._features
+
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the
         declared features into a :class:`PartModel` **without** rendering a drawing (#453):
@@ -3039,7 +3096,7 @@ class Sheet:
         self._prepare()
         self._check_dimension_source()
         return _coerce_model(
-            self._features,
+            self._build_model_input(),
             _solids_body(self._part),
             self._decorations(),
             self._requested_dimensions(),
@@ -3102,7 +3159,8 @@ class Sheet:
         try:
             return build_drawing(
                 self._part,
-                model=self._features,
+                model=self._build_model_input(),
+                _document_input=self._document_input,
                 decorations=self._decorations(
                     section_request,
                     suppress_auto_sections=self._derived_view_source == "authored",
