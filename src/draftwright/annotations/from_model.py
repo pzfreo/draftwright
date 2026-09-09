@@ -64,6 +64,7 @@ from draftwright._core import (
 )
 from draftwright._geometry import (
     _blend_profile_arcs,
+    _fmt_chamfer,
     _segment_clips_box,
     _straight_blend_faces,
     _turned_profile_site,
@@ -1961,12 +1962,10 @@ def _chamfer_label(leg_text, leg, ch) -> str:
     while *leg* is the number the equal-leg comparison needs. The feature supplies only the
     geometric form discriminators (``leg2``/``angle``), and a ``ChamferFeature`` stays pure
     data (ADR 3 (was 0013 §7))."""
-    if abs(leg - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
-        return f"C{leg_text}"
     # `ch.angle` is a FORM discriminator, not a planned parameter — `ChamferFeature.
     # parameters()` emits only the leg — so it has no approved text to consume. That is the
     # IR gap `_FACTS` records, and it is why this line stays in the provenance budget.
-    return f"{leg_text} × {_fmt(ch.angle)}°"
+    return _fmt_chamfer(leg_text, leg, ch.leg2, ch.angle)
 
 
 # ── Shared machined-feature leader-callout pass (#637) ──────────────────────────────────

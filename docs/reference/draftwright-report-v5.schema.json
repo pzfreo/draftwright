@@ -1,0 +1,1257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-report-v5.schema.json",
+  "title": "Draftwright common-source document report v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "scope",
+    "status",
+    "producer",
+    "source",
+    "run_options",
+    "outputs",
+    "recognition",
+    "sheets",
+    "claims",
+    "assessment",
+    "replay"
+  ],
+  "properties": {
+    "schema": {
+      "const": "draftwright-report"
+    },
+    "schema_version": {
+      "const": 5
+    },
+    "scope": {
+      "const": "document"
+    },
+    "status": {
+      "enum": [
+        "needs-attention",
+        "bounded-clear"
+      ]
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "draftwright",
+        "quiddity"
+      ],
+      "properties": {
+        "draftwright": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quiddity": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "name",
+        "sha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "step"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "run_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pmi",
+        "frame"
+      ],
+      "properties": {
+        "pmi": {
+          "enum": [
+            "off",
+            "report",
+            "annotate"
+          ]
+        },
+        "frame": {
+          "const": "raw"
+        }
+      }
+    },
+    "outputs": {
+      "type": "object"
+    },
+    "recognition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_scope",
+        "occurrences",
+        "owners",
+        "requirements",
+        "summary",
+        "unresolved_occurrences"
+      ],
+      "properties": {
+        "identity_scope": {
+          "const": "document-local"
+        },
+        "occurrences": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/occurrence"
+          }
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/owner"
+          }
+        },
+        "requirements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requirement"
+          }
+        },
+        "summary": {
+          "$ref": "#/$defs/summary"
+        },
+        "unresolved_occurrences": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "sheets": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sheet"
+      }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/claim"
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage",
+        "layout",
+        "fidelity",
+        "manufacturing"
+      ],
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/coverage"
+        },
+        "layout": {
+          "$ref": "#/$defs/axis_assessment"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/fidelity"
+        },
+        "manufacturing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "readiness"
+          ],
+          "properties": {
+            "status": {
+              "const": "unassessed"
+            },
+            "readiness": {
+              "const": "not-certified"
+            }
+          }
+        }
+      }
+    },
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_lifetime",
+        "source_snapshot",
+        "member_reads",
+        "requires",
+        "durable_feature_identity",
+        "serialized_declaration_scope",
+        "source_recipe_required_for",
+        "script_deserialization"
+      ],
+      "properties": {
+        "identity_lifetime": {
+          "const": "this-report-only"
+        },
+        "source_snapshot": {
+          "const": "immutable-step-bytes"
+        },
+        "member_reads": {
+          "const": "live-at-report-call"
+        },
+        "requires": {
+          "const": "source-recipe-and-current-inventory-assertions"
+        },
+        "durable_feature_identity": {
+          "const": false
+        },
+        "serialized_declaration_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_recipe_required_for": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "script_deserialization": {
+          "const": false
+        }
+      }
+    }
+  },
+  "$defs": {
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "occurrence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "record_type",
+        "record_schema_version",
+        "record",
+        "disposition",
+        "reason_code",
+        "tracking",
+        "owners",
+        "requirements"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "record_schema_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "record": {
+          "type": "object"
+        },
+        "disposition": {
+          "enum": [
+            "represented",
+            "absorbed",
+            "unsupported",
+            "deferred",
+            "evidence_only",
+            "unexpectedly_missing"
+          ]
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tracking": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owners": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/owner"
+          }
+        },
+        "requirements": {
+          "$ref": "#/$defs/requirement_refs"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "represented",
+        "absorbed",
+        "unsupported",
+        "deferred",
+        "evidence_only",
+        "unexpectedly_missing"
+      ],
+      "properties": {
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "represented": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "absorbed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unsupported": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deferred": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evidence_only": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unexpectedly_missing": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "requirement_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage",
+        "ids"
+      ],
+      "properties": {
+        "coverage": {
+          "enum": [
+            "ledger",
+            "not-projected",
+            "not-applicable",
+            "deferred",
+            "unavailable"
+          ]
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "annotation_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sheet_id",
+        "annotation"
+      ],
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotation": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "carrier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sheet_id",
+        "annotation",
+        "evidence_kind",
+        "cell"
+      ],
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence_kind": {
+          "enum": [
+            "measurement",
+            "structured_note",
+            "angular_measurement",
+            "physical_location",
+            "physical_requirement"
+          ]
+        },
+        "cell": {
+          "$ref": "#/$defs/cell"
+        }
+      }
+    },
+    "local_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sheet_id",
+        "state",
+        "reason_code"
+      ],
+      "properties": {
+        "sheet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alternative",
+        "supports",
+        "distinct_witnesses"
+      ],
+      "properties": {
+        "alternative": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "supports": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "distinct_witnesses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "occurrence_ids",
+        "owner_ids",
+        "parameter_id",
+        "requirement_count",
+        "requirement_count_known",
+        "state",
+        "coverage_credit",
+        "local_outcomes",
+        "carrying_annotations",
+        "carrier_attribution",
+        "dependency_proofs",
+        "intrinsic_exclusion"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "family": {
+          "type": "string",
+          "minLength": 1
+        },
+        "occurrence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "owner_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "parameter_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "requirement_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "requirement_count_known": {
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "placed",
+            "satisfied_by_structured_note",
+            "dependency-derived",
+            "inapplicable",
+            "unresolved",
+            "uncovered"
+          ]
+        },
+        "coverage_credit": {
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "local_outcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/local_outcome"
+          }
+        },
+        "carrying_annotations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/carrier"
+          }
+        },
+        "carrier_attribution": {
+          "enum": [
+            "available",
+            "unavailable"
+          ]
+        },
+        "dependency_proofs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/proof"
+          }
+        },
+        "intrinsic_exclusion": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason_code",
+                "occurrence_ids",
+                "span"
+              ],
+              "properties": {
+                "reason_code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "occurrence_ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "span": {}
+              }
+            }
+          ]
+        },
+        "profile_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "profile_id",
+            "support_ids"
+          ],
+          "properties": {
+            "kind": {
+              "const": "planar_outer_profile"
+            },
+            "profile_id": {
+              "type": "string",
+              "pattern": "^profile:[1-9][0-9]*$"
+            },
+            "support_ids": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^support:[1-9][0-9]*$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "meaning": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "tolerance",
+        "span",
+        "axis",
+        "discriminator",
+        "location_member",
+        "angular_reference"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tolerance": {},
+        "span": {},
+        "axis": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "discriminator": {},
+        "location_member": {},
+        "angular_reference": {}
+      }
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sheet_id",
+        "annotation",
+        "owner_id",
+        "parameter_id",
+        "address",
+        "meaning",
+        "rendered",
+        "verification",
+        "cell"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sheet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "annotation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "owner_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parameter_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "address": {
+          "type": "array",
+          "items": {}
+        },
+        "meaning": {
+          "$ref": "#/$defs/meaning"
+        },
+        "rendered": {
+          "type": "array",
+          "items": {}
+        },
+        "verification": {
+          "const": "confirmed-within-measurement-verifier-scope"
+        },
+        "cell": {
+          "$ref": "#/$defs/cell"
+        }
+      }
+    },
+    "dimension_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_id",
+        "role",
+        "discriminator",
+        "member",
+        "display_decimals",
+        "view",
+        "side"
+      ],
+      "properties": {
+        "owner_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1
+        },
+        "discriminator": {},
+        "member": {},
+        "display_decimals": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "view": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "side": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "dimension_intents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "authored",
+        "requested"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "authored",
+            "automatic"
+          ]
+        },
+        "authored": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/dimension_intent"
+              }
+            }
+          ]
+        },
+        "requested": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/dimension_intent"
+          }
+        }
+      }
+    },
+    "view_intents": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "principal_source",
+        "derived_source",
+        "principals",
+        "added_principals",
+        "derived",
+        "added_derived",
+        "relations",
+        "pins"
+      ],
+      "properties": {
+        "principal_source": {
+          "enum": [
+            null,
+            "authored",
+            "automatic"
+          ]
+        },
+        "derived_source": {
+          "enum": [
+            null,
+            "authored",
+            "automatic"
+          ]
+        },
+        "principals": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "added_principals": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "derived": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "added_derived": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "options",
+        "resolved",
+        "dimension_intents",
+        "view_intents",
+        "table_intents",
+        "lint",
+        "schedule_intents"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "object"
+        },
+        "resolved": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scale",
+            "page_mm",
+            "scale_decision",
+            "view_decision"
+          ],
+          "properties": {
+            "scale": {
+              "type": "number"
+            },
+            "page_mm": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "type": "number"
+              }
+            },
+            "scale_decision": {},
+            "view_decision": {}
+          }
+        },
+        "dimension_intents": {
+          "$ref": "#/$defs/dimension_intents"
+        },
+        "view_intents": {
+          "$ref": "#/$defs/view_intents"
+        },
+        "table_intents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "rows",
+              "prefer",
+              "name",
+              "block_cols"
+            ],
+            "properties": {
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "prefer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "block_cols": {}
+            }
+          }
+        },
+        "lint": {
+          "type": "object"
+        },
+        "schedule_intents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/schedule_intent"
+          }
+        }
+      }
+    },
+    "axis_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "affected_sheets",
+        "unassessed_sheets"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "needs-attention",
+            "unassessed",
+            "clear-within-lint-scope"
+          ]
+        },
+        "affected_sheets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unassessed_sheets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "affected_sheets",
+        "unassessed_sheets",
+        "conflicts",
+        "unknown_claims",
+        "scope",
+        "unassessed_scope"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "needs-attention",
+            "unassessed",
+            "clear-within-lint-scope"
+          ]
+        },
+        "affected_sheets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unassessed_sheets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "conflicts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "claim_ids"
+            ],
+            "properties": {
+              "code": {
+                "const": "conflicting_engineering_meanings"
+              },
+              "claim_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        },
+        "unknown_claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sheet_id",
+              "annotation",
+              "reason_code",
+              "cell"
+            ],
+            "properties": {
+              "sheet_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "annotation": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cell": {
+                "$ref": "#/$defs/cell"
+              }
+            }
+          }
+        },
+        "scope": {
+          "const": "verified-measurement-claims-and-member-fidelity-lint"
+        },
+        "unassessed_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "known_requirement_count",
+        "unknown_cardinality_rows",
+        "credited_requirements",
+        "audited_score",
+        "uncovered_or_unresolved",
+        "unattributed_carriers",
+        "excludes"
+      ],
+      "properties": {
+        "scope": {
+          "const": "accepted-occurrences-and-profile-requirements"
+        },
+        "known_requirement_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unknown_cardinality_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "credited_requirements": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "audited_score": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "uncovered_or_unresolved": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "unattributed_carriers": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "excludes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "cell": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "row",
+            "column"
+          ],
+          "properties": {
+            "row": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "column": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "schedule_intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "prefer",
+        "rows"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "owner_id",
+              "parameters"
+            ],
+            "properties": {
+              "owner_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "parameters": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -113,15 +113,18 @@ from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import (
     ControlFrame,
     DatumRef,
+    FeatureSchedule,
     NominalRequirement,
     Note,
     RequestedDimension,
+    ScheduleRow,
     ToleranceDecoration,
 )
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
 from draftwright.model.planner import (
     dimension_placement_options,
     location_components,
+    schedule_row_dimensions,
     validate_dimension_placement,
 )
 from draftwright.model.planner import location_role as _location_role
@@ -1133,6 +1136,7 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
+        self._schedules: list[dict] = []
         # ADR 4 (was 0016) augmenting dimension intents (#872), token-keyed for the same reason as
         # `_tolerances`: a handle may be recorded before a later size verb replaces the
         # feature, and a position would then name whatever moved into the slot.
@@ -1219,13 +1223,14 @@ class Sheet:
         self._features.validate_change = source.validate_features
 
     def _document_recipe(self):
-        """Snapshot options, view intent and ordinary tables before a member build."""
+        """Snapshot options, view intent and both table declarations before a member build."""
         from copy import deepcopy
 
         return {
             "options": deepcopy(self._opts),
             "views": self.view_constraints,
             "tables": deepcopy(self._tables),
+            "schedules": self._resolved_schedules(),
         }
 
     def _snapshot_for_document(self):
@@ -2487,6 +2492,32 @@ class Sheet:
 
     # -- corner-block tables (notes / revision / BOM / schedule) --------------
 
+    def schedule(
+        self, rows, *, name: str, prefer: Literal["tr", "tl", "br", "bl"] = "tr"
+    ) -> Sheet:
+        """Declare a measured table from ``(feature, parameter_ids)`` rows.
+
+        ``location`` selects every addressable hole member's transverse distances.
+        Explicit canonical IDs select individual measurements. Values, units and
+        tolerances come from the compiler; the existing table solve owns placement.
+        This declares authored dimension intent, like :meth:`dimension`.
+        """
+        records = []
+        resolved = []
+        for feature, parameters in rows:
+            token = self._feature_token(feature)
+            target = self._features[self._index_of_token(token)]
+            row = ScheduleRow(target, parameters)
+            schedule_row_dimensions(row)
+            resolved.append(row)
+            records.append((token, row.parameters))
+        FeatureSchedule(name, tuple(resolved), prefer)
+        if any(schedule["name"] == name for schedule in self._schedules):
+            raise ValueError(f"duplicate schedule name {name!r}")
+        self._schedules.append({"name": name, "prefer": prefer, "rows": tuple(records)})
+        self._authored_source = True
+        return self
+
     def table(
         self, rows, *, prefer: str = "tr", name: str | None = None, block_cols=None
     ) -> Sheet:
@@ -3085,10 +3116,28 @@ class Sheet:
             )
         return cut_y
 
+    def _resolved_schedules(self):
+        return tuple(
+            FeatureSchedule(
+                entry["name"],
+                tuple(
+                    ScheduleRow(self._features[self._index_of_token(token)], parameters)
+                    for token, parameters in entry["rows"]
+                ),
+                entry["prefer"],
+            )
+            for entry in self._schedules
+        )
+
     def _build_model_input(self):
         if self._document_input is not None:
-            return self._document_input.model(self._features)
-        return self._features
+            model = self._document_input.model(self._features)
+        else:
+            model = self._features
+        if not self._schedules:
+            return model
+        model = _coerce_model(model, _solids_body(self._part), authored=self._authored_set())
+        return replace(model, schedules=self._resolved_schedules())
 
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the

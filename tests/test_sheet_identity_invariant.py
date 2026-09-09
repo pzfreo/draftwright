@@ -84,7 +84,8 @@ def _canonical(model) -> tuple:
     features = sorted(repr(f) for f in model.features)
     decorations = sorted((repr(k), repr(v)) for k, v in getattr(model, "decorations", {}).items())
     requested = sorted(repr(r) for r in getattr(model, "requested_dimensions", ()))
-    return (features, decorations, requested)
+    schedules = sorted(repr(schedule) for schedule in getattr(model, "schedules", ()))
+    return (features, decorations, requested, schedules)
 
 
 def _canonical_sheet(sheet) -> tuple:
@@ -173,6 +174,13 @@ def _scn_dimension(s):
     return a, lambda a: s.dimension(a, "bore.diameter")
 
 
+def _scn_schedule(s):
+    """A retained schedule must follow its exact owner through reorder and aspect edits."""
+    handle, _drive = _scn_dimension(s)
+    s.schedule([(handle, ("bore.diameter",))], name="operations")
+    return handle, lambda handle: handle.tolerance(0.025)
+
+
 def _scn_add_dimension(s):
     """Retain a `DimensionIntent`, reorder, then apply its display policy.
 
@@ -233,6 +241,7 @@ _SCENARIOS = {
     "datum": _scn_datum,
     "note": _scn_note,
     "dimension": _scn_dimension,
+    "schedule": _scn_schedule,
     "section_view": _scn_section_view,
     "add_section_view": _scn_add_section_view,
 }
@@ -671,6 +680,7 @@ _STATE_CARRYING_FEATURE_REFS = frozenset(
         "_section",
         "_added_dimensions",
         "_authored",
+        "_schedules",
         "_derived_views",
         "_added_derived_views",
     }

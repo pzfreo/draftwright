@@ -2896,6 +2896,8 @@ _PLAN_DIMENSIONAL_FIELDS = {
     "(`_LADDER_ROLE`), so the emitter no longer carries its own copy (#975)",
     "contingencies": "walked as approved alternative ladders; generated authored scripts "
     "must retain a fallback even when the automatic build leaves it inactive",
+    "schedules": "walked as exact approved cell measurements; emitted with original owned "
+    "schedule rows rather than duplicating their measurements as ordinary annotations",
     "diagnostics": "NOT dimensional — the omissions channel; nothing to mirror by definition",
 }
 

@@ -50,7 +50,7 @@ from draftwright._core import (
     _fmt,
     _xyz,
 )
-from draftwright.linting._registry import annotation_owner, satisfaction_ids
+from draftwright.linting._registry import annotation_owner, cell_approvals_of, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 from draftwright.linting.profiled_bore_coverage import profiled_bore_key
@@ -432,6 +432,14 @@ def lint_feature_coverage(
             value = float(parameter.value)
             mentioned.add(value)
             provide(value, getattr(feature, "count", 1), feature)
+    if registry is not None:
+        for name in registry.names():
+            for reference, cell in cell_approvals_of(registry, name):
+                approved = cell.measurement
+                if approved.kind == "diameter" and approved.role != "bolt_circle":
+                    feature = reference.measurement.feature
+                    mentioned.add(float(approved.value))
+                    provide(approved.value, getattr(feature, "count", 1), feature)
     for ann in annotations:
         if isinstance(ann, TitleBlock):
             continue
@@ -496,6 +504,7 @@ def lint_location_coverage(
     holes=None,
     patterns=None,
     profiled_bores=None,
+    registry=None,
 ) -> list:
     """Report holes with no **centre mark** or no **locating dimension**.
 
@@ -539,7 +548,7 @@ def lint_location_coverage(
     marks: dict[str, list] = {}
     dim_verts: dict[str, list] = {}
     structured_locations: set[tuple[object, str, HoleRef]] = set()
-    registry = getattr(dwg, "registry", None)
+    registry = registry if registry is not None else getattr(dwg, "registry", None)
     satisfied_locations = {
         identity.feature
         for identity in satisfaction_ids(registry)
@@ -553,9 +562,11 @@ def lint_location_coverage(
         # A placed table carries the same feature/member/axis facts as a dimension,
         # even when it is sheet furniture with no view. Read that shared evidence
         # independently of the annotation's presentation type.
+        named = getattr(registry, "named", None)
+        evidence_annotation = named(name) if callable(named) else ann
         decoded = tuple(
             parsed
-            for fact in getattr(ann, "covers_hole_locations", ())
+            for fact in getattr(evidence_annotation, "covers_hole_locations", ())
             if (parsed := _decode_hole_location_fact(fact)) is not None
         )
         # Structured evidence is authoritative: a wrong feature/axis tag must not
@@ -1355,6 +1366,7 @@ def lint_prismatic_coverage(
     tol: float = 0.6,
     features=(),
     recognition=None,
+    registry=None,
 ) -> list:
     """Report undefined prismatic features.
 
@@ -1366,7 +1378,8 @@ def lint_prismatic_coverage(
         assembly = len(part.solids()) > 1
     severity: Literal["info", "warning"] = "info" if assembly else "warning"
     pairs_by_view: dict[str, list] = {}
-    registry = getattr(dwg, "registry", None)
+    if registry is None:
+        registry = getattr(dwg, "registry", None)
     placed_ids = (
         {identity for name in registry.names() for identity in registry.measurement_of(name)}
         if registry is not None
@@ -1446,45 +1459,43 @@ def lint_prismatic_coverage(
             # Legacy Z-normal drawings may predate structured satisfaction authority, so
             # retain the geometric fallback for their footprint/location marks. The local
             # pad height is new compiler-owned evidence and must retain its exact identity.
+            size_x = satisfied(owner, "pad_length.length")
+            size_y = satisfied(owner, "pad_width.length")
+            located_x = location_note_satisfied(owner) or (
+                abs(pad.x0 - bb.min.X) <= tol or abs(pad.x1 - bb.max.X) <= tol
+            )
+            located_y = location_note_satisfied(owner) or (
+                abs(pad.y0 - bb.min.Y) <= tol or abs(pad.y1 - bb.max.Y) <= tol
+            )
             yc = (pad.y0 + pad.y1) / 2
             xc = (pad.x0 + pad.x1) / 2
-            x0, _, *_ = dwg.at("plan", pad.x0, yc, pad.z1)
-            x1, _, *_ = dwg.at("plan", pad.x1, yc, pad.z1)
-            xc_page, _, *_ = dwg.at("plan", xc, yc, pad.z1)
-            _, y0, *_ = dwg.at("plan", xc, pad.y0, pad.z1)
-            _, y1, *_ = dwg.at("plan", xc, pad.y1, pad.z1)
-            bx0, _, *_ = dwg.at("plan", bb.min.X, yc, pad.z1)
-            bx1, _, *_ = dwg.at("plan", bb.max.X, yc, pad.z1)
-            sy0, _, *_ = dwg.at("side", xc, pad.y0, pad.z1)
-            sy1, _, *_ = dwg.at("side", xc, pad.y1, pad.z1)
-            syc, _, *_ = dwg.at("side", xc, yc, pad.z1)
-            sby0, _, *_ = dwg.at("side", xc, bb.min.Y, pad.z1)
-            sby1, _, *_ = dwg.at("side", xc, bb.max.Y, pad.z1)
-            ps = pairs("plan")
-            size_x = _pair_covers(ps, 0, x0, x1, tol, owner=owner) or satisfied(
-                owner, "pad_length.length"
-            )
-            size_y = _pair_covers(ps, 1, y0, y1, tol, owner=owner) or satisfied(
-                owner, "pad_width.length"
-            )
-            located_x = location_note_satisfied(owner) or (
-                abs(pad.x0 - bb.min.X) <= tol
-                or abs(pad.x1 - bb.max.X) <= tol
-                or any(
+            if "plan" in dwg.views and not (size_x and size_y and located_x):
+                x0, _, *_ = dwg.at("plan", pad.x0, yc, pad.z1)
+                x1, _, *_ = dwg.at("plan", pad.x1, yc, pad.z1)
+                xc_page, _, *_ = dwg.at("plan", xc, yc, pad.z1)
+                _, y0, *_ = dwg.at("plan", xc, pad.y0, pad.z1)
+                _, y1, *_ = dwg.at("plan", xc, pad.y1, pad.z1)
+                bx0, _, *_ = dwg.at("plan", bb.min.X, yc, pad.z1)
+                bx1, _, *_ = dwg.at("plan", bb.max.X, yc, pad.z1)
+                ps = pairs("plan")
+                size_x |= _pair_covers(ps, 0, x0, x1, tol, owner=owner)
+                size_y |= _pair_covers(ps, 1, y0, y1, tol, owner=owner)
+                located_x |= any(
                     _pair_covers(ps, 0, edge, bound, tol)
                     for edge in (bx0, bx1)
                     for bound in (x0, x1, xc_page)
                 )
-            )
-            located_y = location_note_satisfied(owner) or (
-                abs(pad.y0 - bb.min.Y) <= tol
-                or abs(pad.y1 - bb.max.Y) <= tol
-                or any(
+            if "side" in dwg.views and not located_y:
+                sy0, _, *_ = dwg.at("side", xc, pad.y0, pad.z1)
+                sy1, _, *_ = dwg.at("side", xc, pad.y1, pad.z1)
+                syc, _, *_ = dwg.at("side", xc, yc, pad.z1)
+                sby0, _, *_ = dwg.at("side", xc, bb.min.Y, pad.z1)
+                sby1, _, *_ = dwg.at("side", xc, bb.max.Y, pad.z1)
+                located_y |= any(
                     _pair_covers(pairs("side"), 0, edge, bound, tol)
                     for edge in (sby0, sby1)
                     for bound in (sy0, sy1, syc)
                 )
-            )
             height = satisfied(owner, "pad_height.length")
             if not (size_x and size_y and height and located_x and located_y):
                 undefined += 1
@@ -1587,24 +1598,24 @@ def lint_prismatic_coverage(
         view = _END_ON.get(pocket["axis"], "plan")
         x, y, z = pocket["origin"]
         if pocket["axis"] == "z":
-            datum_plan, target_plan = (
-                dwg.at("plan", bb.min.X, y, z),
-                dwg.at("plan", x, y, z),
-            )
-            datum_side, target_side = (
-                dwg.at("side", x, bb.min.Y, z),
-                dwg.at("side", x, y, z),
-            )
-            covered_x = abs(x - centre.X) <= 1.0 or _pair_covers(
-                pairs("plan"), 0, datum_plan[0], target_plan[0], tol
-            )
-            covered_y = abs(y - centre.Y) <= 1.0 or _pair_covers(
-                pairs("side"), 0, datum_side[0], target_side[0], tol
-            )
+            covered_x = abs(x - centre.X) <= 1.0
+            covered_y = abs(y - centre.Y) <= 1.0
+            if "plan" in dwg.views and not covered_x:
+                datum_plan, target_plan = (
+                    dwg.at("plan", bb.min.X, y, z),
+                    dwg.at("plan", x, y, z),
+                )
+                covered_x = _pair_covers(pairs("plan"), 0, datum_plan[0], target_plan[0], tol)
+            if "side" in dwg.views and not covered_y:
+                datum_side, target_side = (
+                    dwg.at("side", x, bb.min.Y, z),
+                    dwg.at("side", x, y, z),
+                )
+                covered_y = _pair_covers(pairs("side"), 0, datum_side[0], target_side[0], tol)
             if not (covered_x and covered_y):
                 unlocated += 1
             continue
-        ps = pairs(view)
+        ps = pairs(view) if view in dwg.views else []
         # A datum-starting pocket needs no redundant long-axis centre dimension: the
         # coincident edge plus the length callout defines it. Ordinary inset pockets
         # retain their established centre-location scheme. Keep critique on the same
@@ -1628,23 +1639,31 @@ def lint_prismatic_coverage(
                 (target_world["z"], centre.Z, bb.min.Z),
             ),
         }[view]
-        datum_page = dwg.at(view, bb.min.X, bb.min.Y, bb.min.Z)
-        target_page = dwg.at(
-            view,
-            target_world["x"],
-            target_world["y"],
-            target_world["z"],
+        datum_page = dwg.at(view, bb.min.X, bb.min.Y, bb.min.Z) if view in dwg.views else None
+        target_page = (
+            dwg.at(
+                view,
+                target_world["x"],
+                target_world["y"],
+                target_world["z"],
+            )
+            if view in dwg.views
+            else None
         )
         covered = []
         for axis, (coord, mid, datum) in enumerate(coordinates):
             symmetric = abs(coord - mid) <= 1.0
             datum_coincident = abs(coord - datum) <= tol
-            witnessed = _pair_covers(
-                ps,
-                axis,
-                datum_page[axis],
-                target_page[axis],
-                tol,
+            witnessed = (
+                datum_page is not None
+                and target_page is not None
+                and _pair_covers(
+                    ps,
+                    axis,
+                    datum_page[axis],
+                    target_page[axis],
+                    tol,
+                )
             )
             covered.append(symmetric or datum_coincident or witnessed)
         if not all(covered):
@@ -1999,13 +2018,14 @@ def _lint_one_axial_profile(
     recognition,
     sibling_profiles=(),
     profile_label="",
+    registry=None,
 ) -> list:
     """Report missing axial coverage for one body-local turned profile.
 
     A turned part can have every diameter called out yet be unmanufacturable: with
     no shoulder located, the lengths are unknown (the drive-screw gap). A complete
-    chain dimensions all ``n`` steps; coverage is counted from placed drawing witnesses or
-    placed structured-note provenance joined to the same physical spans, not a build-time
+    chain dimensions all ``n`` steps; coverage is counted from placed drawing witnesses,
+    verified schedule cells or structured-note provenance joined to the same physical spans, not a build-time
     side channel — so it judges any producer. A shortfall yields one
     ``axial_length_missing`` issue.
 
@@ -2020,14 +2040,21 @@ def _lint_one_axial_profile(
     """
     n = len(prof.steps)
     covered_steps = _axial_covered_from_drawing(part, dwg, prof, sibling_profiles=sibling_profiles)
-    registry = getattr(dwg, "registry", None)
+    if registry is None:
+        registry = getattr(dwg, "registry", None)
     placed_ids = (
         {identity for name in registry.names() for identity in registry.measurement_of(name)}
         if registry is not None
         else set()
     )
     satisfied_ids = satisfaction_ids(registry)
-    # Match structured step-length authority back to the recognition-owned physical band by
+    if registry is not None:
+        satisfied_ids |= {
+            reference.measurement
+            for name in registry.names()
+            for reference, _approval in cell_approvals_of(registry, name)
+        }
+    # Match verified cells and structured step-length authority to the recognition-owned band by
     # its axial span. This preserves the denominator and prevents an unrelated declared step
     # from certifying one merely because both share the same role (#1351, ADR 3 (was 0017)).
     axis_index = "xyz".index(prof.axis)
@@ -2142,6 +2169,7 @@ def lint_axial_coverage(
     recognition=None,
     *,
     profiles=_UNSET,
+    registry=None,
 ) -> list:
     """Report every body-local turned profile whose axial chain is incomplete.
 
@@ -2200,18 +2228,21 @@ def lint_axial_coverage(
                 recognition=recognition,
                 sibling_profiles=profiles,
                 profile_label=label,
+                registry=registry,
             )
         )
     return issues
 
 
-def lint_boss_height_coverage(part, dwg, features, assembly=None, omissions=()) -> list:
+def lint_boss_height_coverage(
+    part, dwg, features, assembly=None, omissions=(), *, registry=None
+) -> list:
     """Report modeled boss heights that have no rendered linear dimension (#632).
 
     Coverage is reconciled from the drawing registry's feature provenance, not a
     renderer side channel: a boss is covered only when one of its live annotations
-    is a ``Dimension``. Boss diameter annotations are leaders, so they cannot mask a
-    missing axial height. Bosses without a modeled height retain the historical
+    is a ``Dimension`` or its exact height has verified cell/structured-note evidence.
+    Boss diameter annotations cannot mask a missing axial height. Bosses without a modeled height retain the historical
     diameter-only contract and are outside this check.
 
     A height the compiler **consolidated** onto an overall extent (#1154 — the boss spans
@@ -2233,13 +2264,20 @@ def lint_boss_height_coverage(part, dwg, features, assembly=None, omissions=()) 
         if getattr(feature, "kind", None) == "boss"
         and getattr(feature, "height", None) is not None
     ]
-    registry = getattr(dwg, "registry", None)
+    if registry is None:
+        registry = getattr(dwg, "registry", None)
     placed = (
         {measurement for name in registry.names() for measurement in registry.measurement_of(name)}
         if registry is not None
         else set()
     )
     satisfied = satisfaction_ids(registry)
+    if registry is not None:
+        satisfied |= {
+            reference.measurement
+            for name in registry.names()
+            for reference, _approval in cell_approvals_of(registry, name)
+        }
     conveyed = {
         omission.feature
         for omission in omissions

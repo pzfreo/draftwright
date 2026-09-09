@@ -62,6 +62,7 @@ from draftwright.model.callout import hole_callout_batches, hole_callout_suffix
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import (
     angular_pattern_label,
+    annotation_groups,
     authored_location_omitted,
     plan_dimensions,
 )
@@ -521,7 +522,7 @@ def _compose_anno_boxes(
         # compose path also serves read-only inspection. Share the complete text
         # formatter so small authored tolerances reserve their actual footprint.
         # Each curved footprint grows only the sides it actually reaches.
-        for group in plan_dimensions(model):
+        for group in annotation_groups(model, plan_dimensions(model)):
             if group.feature.kind != "angle":
                 continue
             shared_label = angular_pattern_label(group)
@@ -623,7 +624,7 @@ def _compose_anno_boxes(
         if feature.kind in ("boss", "polygonal_boss", "polygonal_stock")
         and feature.frame.axis in ("x", "y")
     ]
-    for group in plan_dimensions(model) if axial_features else ():
+    for group in annotation_groups(model, plan_dimensions(model)) if axial_features else ():
         feature = group.feature
         if feature.kind not in ("boss", "polygonal_boss", "polygonal_stock"):
             continue
@@ -683,12 +684,13 @@ def _compose_anno_boxes(
         # provides the complete requirement for a bounded facing corridor.
         full_depth = _STRIP_GAP + above * (1 + _STRIP_SPACING / (font_size + 2 * pad_around_text))
         boxes.append(AnnoBox("plan_location_above", full_depth))
+    ordinary_model = replace(model, schedules=()) if model.schedules else model
     rear_locations = sum(
         len(feature.members or (feature.frame.origin,))
         for feature in model.features
         if feature.kind in {"hole", "pattern"}
         and feature.frame.axis == "y"
-        and not authored_location_omitted(model, feature)
+        and not authored_location_omitted(ordinary_model, feature)
     )
     rear_height = any(
         group.feature.kind == "envelope"
@@ -699,7 +701,7 @@ def _compose_anno_boxes(
             and dimension.side != "left"
             for dimension in group.dims
         )
-        for group in plan_dimensions(model)
+        for group in annotation_groups(model, plan_dimensions(model))
     )
     if rear_tiers := rear_locations + int(rear_height):
         tier = font_size + 2 * pad_around_text

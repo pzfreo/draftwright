@@ -588,6 +588,29 @@ def _fmt(v: float, decimals: int | None = None) -> str:
     return str(r) if abs(v - r) < 1e-6 else f"{v:.1f}"
 
 
+def _fmt_tolerance(tolerance, decimal_precision: int = 1) -> str:
+    """Shared numeric tolerance suffix, preserving every authored deviation digit."""
+    if tolerance is None:
+        return ""
+
+    def magnitude(value):
+        decimal = Decimal(str(value))
+        precision = max(decimal_precision, -int(decimal.as_tuple().exponent))
+        return f"{decimal:.{precision}f}"
+
+    if isinstance(tolerance, (int, float)):
+        return f" ±{magnitude(tolerance)}"
+    lo, hi = tolerance
+    return f" +{magnitude(hi)} -{magnitude(lo)}"
+
+
+def _fmt_chamfer(leg_text, leg, other_leg, angle) -> str:
+    """Shared chamfer form: equal 45-degree legs use C, asymmetric legs state the angle."""
+    if abs(leg - other_leg) < 0.05 and abs(angle - 45.0) < 0.5:
+        return f"C{leg_text}"
+    return f"{leg_text} × {_fmt(angle)}°"
+
+
 def _fmt_angle(value, decimals=None, tolerance=None) -> str:
     """Complete angular text shared by footprint sizing and compilation.
 

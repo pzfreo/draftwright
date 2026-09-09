@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 from draftwright._geometry import _fmt
 from draftwright.model.ir import HoleFeature, PatternFeature, ThreadOperation, ThreadRequirement
-from draftwright.model.planner import DimensionGroup, DimensionId
+from draftwright.model.planner import _SCHEDULE_REPRESENTATION, DimensionGroup, DimensionId
 
 
 def resolved_through_indicator(feature) -> str:
@@ -329,7 +329,10 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     # and omitting `bore.diameter` produce neither the 50 mm BCD nor a diagnostic — the
     # requested dimension vanished (#925 review).
     riders: list[str] = []
-    if not authored_omission_in(group):
+    if not authored_omission_in(group) and not any(
+        dimension.suppressed and dimension.reason == _SCHEDULE_REPRESENTATION
+        for dimension in group.dims
+    ):
         hole = feat.member if isinstance(feat, PatternFeature) else feat
         thread = getattr(hole, "thread", None)
         if thread:

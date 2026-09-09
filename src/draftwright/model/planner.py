@@ -57,6 +57,7 @@ from draftwright.model.ir import (
     RectangularBlindSlotFeature,
     RequestedDimension,
     RoundBottomBlindSlotFeature,
+    ScheduleRow,
     SlotFeature,
     SlotPatternFeature,
     StepLevelFeature,
@@ -72,6 +73,7 @@ from draftwright.view_plan import (
 #: omission, as opposed to a rule-set suppression. Defined here, beside the code that
 #: sets it, and re-exported by `model/compiled.py` so the two cannot drift.
 _AUTHORED_OMISSION = "not in the authored dimension set"
+_SCHEDULE_REPRESENTATION = "selected for a feature schedule"
 
 
 def _is_zero_step_position(value: float) -> bool:
@@ -848,11 +850,123 @@ def location_components(feature) -> list[dict]:
     ]
 
 
+def schedule_row_dimensions(row: ScheduleRow) -> tuple[RequestedDimension, ...]:
+    """Resolve schedule selectors using the existing parameter/member vocabulary.
+
+    This is selection only: values and formatting still enter through the ordinary
+    dimension compiler. A location alias selects physical members; the optional
+    bolt-circle centre remains available by its explicit canonical ID.
+    """
+    feature = row.feature
+    parameters = {parameter.parameter_id: parameter for parameter in feature.parameters()}
+    components = {
+        component["parameter_id"]: component for component in location_components(feature)
+    }
+    requests: list[RequestedDimension] = []
+    selected: set[str] = set()
+    for selector in row.parameters:
+        targets = (
+            tuple(key for key, value in components.items() if value["member"] != "centre")
+            if selector == LOCATION_ROLE
+            else (selector,)
+        )
+        if not targets:
+            raise ValueError(
+                f"schedule location has no addressable member components for {feature.kind}"
+            )
+        for target in targets:
+            if target in selected:
+                raise ValueError(f"schedule row repeats measurement {target!r}")
+            selected.add(target)
+            if target in components and location_role(feature) is not None:
+                component = components[target]
+                requests.append(
+                    RequestedDimension(
+                        feature,
+                        LOCATION_ROLE,
+                        discriminator=component["axis"],
+                        member=component["member"],
+                    )
+                )
+            elif target in parameters and parameters[target].kind != "location":
+                requests.append(RequestedDimension(feature, target))
+            else:
+                raise ValueError(
+                    f"schedule parameter {target!r} is not an addressable canonical "
+                    f"measurement on {feature.kind}; choose from "
+                    f"{sorted(set(parameters) | set(components))}"
+                )
+    return tuple(requests)
+
+
+def authored_dimension_requests(model: PartModel) -> tuple[RequestedDimension, ...] | None:
+    """The authored selection, retaining schedule intent on the original model.
+
+    Ordinary dimensions precede scheduled representations so their explicit display
+    policy remains authoritative when both present the same measurement.
+    """
+    if not model.schedules:
+        return model.authored_dimensions
+    model._validate_schedule_origins()
+    if model.authored_dimensions is None or model.requested_dimensions:
+        raise ValueError("feature schedules require an authored dimension set")
+    return model.authored_dimensions + tuple(
+        request
+        for schedule in model.schedules
+        for row in schedule.rows
+        for request in schedule_row_dimensions(row)
+    )
+
+
+def _selection_model(model: PartModel, selection) -> PartModel:
+    # A pass-local view lets existing selection helpers read the expanded authored set.
+    # The caller's model retains its schedules and is revalidated on the next plan.
+    return (
+        replace(model, authored_dimensions=selection, schedules=()) if model.schedules else model
+    )
+
+
+def annotation_requested(model: PartModel, feature: Feature, parameter) -> bool:
+    """Whether a measurement also has ordinary annotation intent, independent of tables."""
+    return model.authored_dimensions is None or any(
+        _authored_addresses(request, feature, parameter) for request in model.authored_dimensions
+    )
+
+
+def annotation_groups(model: PartModel, groups) -> list[DimensionGroup]:
+    """Ordinary ink projection of one plan, retaining table-only parameters as withheld.
+
+    Sizing and legacy compound-callout consumers use this projection; the compiler
+    receives the complete planned selection to approve both representations once.
+    """
+    if not model.schedules:
+        return list(groups)
+    return [
+        replace(
+            group,
+            units=tuple(
+                replace(
+                    unit,
+                    members=tuple(
+                        dimension
+                        if dimension.suppressed
+                        or annotation_requested(model, group.feature, dimension.param)
+                        else replace(dimension, suppressed=True, reason=_SCHEDULE_REPRESENTATION)
+                        for dimension in unit.members
+                    ),
+                )
+                for unit in group.units
+            ),
+        )
+        for group in groups
+    ]
+
+
 def _location_requests(model: PartModel, feature):
     return tuple(
         request
         for request in (
-            model.authored_dimensions
+            (authored_dimension_requests(model) or ())
             if model.authored_dimensions is not None
             else model.requested_dimensions
         )
@@ -951,6 +1065,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     - Everything else is unchanged when no set is authored: every ref survives, so the
       dedup sees the same input it always did.
     """
+    model = _selection_model(model, authored_dimension_requests(model))
     datum = next((d for d in model.datums if d.id == "datum_xy"), None)
     if datum is None:
         # No datum to measure from — but every otherwise-eligible feature still HAD a location
@@ -1130,7 +1245,7 @@ def _authored_for(model, feature, param):
     what differs is what the answer means. `add_dimension` ADDS to the planner's set, so a
     miss leaves the rule set's own decision standing. `dimension` DECLARES the set, so a miss
     is an omission and the measurement is suppressed."""
-    for authored in model.authored_dimensions or ():
+    for authored in authored_dimension_requests(model) or ():
         if _authored_addresses(authored, feature, param):
             return authored
     return None
@@ -1338,7 +1453,7 @@ def _authored_location_for(model, feature):
     Separate from :func:`_authored_for` because a location has no `DimParameter` to match
     against: it is synthesized from the feature and the datum, so the entry names the
     feature and the coarse role and nothing else (see :data:`LOCATION_ROLE`)."""
-    for authored in model.authored_dimensions or ():
+    for authored in authored_dimension_requests(model) or ():
         if authored.feature is feature and authored.role == LOCATION_ROLE:
             return authored
     return None
@@ -1361,7 +1476,7 @@ def _check_authored_targets(model: PartModel) -> None:
     `_request_for`: two equal-valued features are two distinct targets, so structural
     equality would make an authored dimension on one of a pair of identical holes
     ambiguous). What changes is that a miss now says so."""
-    for authored in model.authored_dimensions or ():
+    for authored in authored_dimension_requests(model) or ():
         if authored.role == LOCATION_ROLE and any(
             f is authored.feature and location_role(f) is not None for f in model.features
         ):
@@ -1475,7 +1590,11 @@ def _uncovered_group_requirements(
     uncovered: list[UncoveredViewRequirement] = []
     for group in groups:
         for unit in group.units:
-            approved = [pd for pd in unit.members if not pd.suppressed]
+            approved = [
+                pd
+                for pd in unit.members
+                if not pd.suppressed and annotation_requested(model, group.feature, pd.param)
+            ]
             if not approved:
                 continue
             if isinstance(group.feature, StepLevelFeature) and unit.id == "step_position.length":
@@ -1753,7 +1872,10 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
     """Plan each feature's parameters into one `DimensionGroup` (anchor + single
     view + planned dims, each carrying its render intent — convention, model-level
     suppression, datum). No cross- or within-feature value de-duplication."""
+    declared_model = model
+    selection = authored_dimension_requests(model)  # validate even without scalar parameters
     _check_intent_policy_conflicts(model)
+    model = _selection_model(model, selection)
     if model.authored_dimensions is not None:
         _check_authored_targets(model)
     groups: list[DimensionGroup] = []
@@ -1827,7 +1949,13 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
         # Validate the final content: a consolidated height must not reject a
         # supported end-on view requested for the remaining diameter.
         selected_view, selected_side = _group_placement(
-            group.feature, list(group.dims), planned_views
+            group.feature,
+            [
+                pd
+                for pd in group.dims
+                if annotation_requested(declared_model, group.feature, pd.param)
+            ],
+            planned_views,
         )
         groups[index] = replace(
             group,
@@ -1835,8 +1963,15 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             side=selected_side,
         )
     if planned_views is not None:
-        uncovered = _uncovered_group_requirements(model, groups, planned_views)
-        uncovered.extend(_uncovered_location_requirements(model, planned_views))
+        uncovered = _uncovered_group_requirements(declared_model, groups, planned_views)
+        uncovered.extend(
+            _uncovered_location_requirements(
+                replace(declared_model, schedules=())
+                if declared_model.schedules
+                else declared_model,
+                planned_views,
+            )
+        )
         if uncovered:
             raise ViewPlanIncomplete(planned_views, uncovered)
     return groups

@@ -17,6 +17,7 @@ from quiddity import HoleRecord, HoleSpec, RecognitionResult, countersink_matche
 from draftwright._core import _decode_hole_location_fact, _fmt
 from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
 from draftwright.linting._registry import (
+    cell_approvals_of,
     exact_measurement_carriers,
     record_measurement_carrier,
     satisfaction_of,
@@ -560,6 +561,7 @@ class _HoleEvidence:
     location_names: dict = field(default_factory=dict)
     center_names: dict = field(default_factory=dict)
     carrier_index: dict = field(default_factory=dict)
+    physical_carriers: dict = field(default_factory=dict)
 
 
 def _normalised_location(feature, point) -> tuple[float, float, float]:
@@ -597,6 +599,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
     placed = set()
     satisfied: set[tuple[object, str]] = set()
     carrier_index: dict = {}
+    physical_carriers: dict = defaultdict(list)
     requirement_counts: dict[tuple[object, str], set[int]] = defaultdict(set)
     locations: dict[tuple[object, str], set[tuple[float, float, float]]] = defaultdict(set)
     centers: dict[object, set[tuple[tuple[float, float, float], str]]] = defaultdict(set)
@@ -608,6 +611,18 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         defaultdict(set),
     )
     for name in registry.names():
+        measured_cells: dict = defaultdict(list)
+        for reference, cell in cell_approvals_of(registry, name):
+            feature = reference.measurement.feature
+            measured_cells[(id(feature), reference.measurement.parameter)].append(reference)
+            for parameter, count in cell.hole_requirements:
+                physical_carriers[(name, feature, parameter, count)].append(
+                    RequirementCarrier(name, "physical_requirement", reference)
+                )
+            for parameter, point in cell.hole_locations:
+                physical_carriers[
+                    (name, feature, parameter, _normalised_location(feature, point))
+                ].append(RequirementCarrier(name, "physical_location", reference))
         for identity in satisfaction_of(registry, name):
             feature = getattr(identity, "feature", None)
             parameter = getattr(identity, "parameter", None)
@@ -653,7 +668,10 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
             if feature is None or parameter is None:
                 continue
             placed.add((feature, parameter))
-            record_measurement_carrier(carrier_index, name, feature, parameter, "measurement")
+            for reference in measured_cells.get((id(feature), parameter), ()) or (None,):
+                record_measurement_carrier(
+                    carrier_index, name, feature, parameter, "measurement", cell=reference
+                )
             record_representation(feature, parameter)
             if parameter == "bore.diameter":
                 diameter_features.add(feature)
@@ -738,6 +756,7 @@ def _index_hole_evidence(registry) -> _HoleEvidence:
         location_names,
         center_names,
         carrier_index,
+        physical_carriers,
     )
 
 
@@ -757,8 +776,18 @@ def _placed_representation(evidence, features, parameter, state):
     return next(iter(markers))
 
 
+def _retain_physical_carriers(evidence, carriers, names, feature, parameter, value, kind):
+    if carriers is None:
+        return
+    for name in sorted(names):
+        carriers.extend(
+            evidence.physical_carriers.get((name, feature, parameter, value))
+            or (RequirementCarrier(name, kind),)
+        )
+
+
 def _structured_locations_placed(
-    evidence, features, parameter: str, turned_axis_centers, *, names=None
+    evidence, features, parameter: str, turned_axis_centers, *, names=None, carriers=None
 ) -> bool:
     if parameter.startswith("location_pattern.location."):
         for feature in features:
@@ -775,7 +804,17 @@ def _structured_locations_placed(
                 return False
             if names is not None:
                 for point in carried:
-                    names.update(evidence.location_names.get((feature, parameter, point), ()))
+                    accepted = evidence.location_names.get((feature, parameter, point), ())
+                    names.update(accepted)
+                    _retain_physical_carriers(
+                        evidence,
+                        carriers,
+                        accepted,
+                        feature,
+                        parameter,
+                        point,
+                        "physical_location",
+                    )
         return bool(features)
     expected = {
         (feature, point) for feature in features for point in _location_members(feature, parameter)
@@ -794,21 +833,41 @@ def _structured_locations_placed(
             if _member_coaxial_with_turned_profile(feature, point, turned_axis_centers):
                 covered.add((feature, point))
                 if names is not None and (feature, point) in expected:
-                    names.update(evidence.center_names.get((feature, point, view), ()))
+                    accepted = evidence.center_names.get((feature, point, view), ())
+                    names.update(accepted)
+                    if carriers is not None:
+                        carriers.extend(
+                            RequirementCarrier(name, "physical_location")
+                            for name in sorted(accepted)
+                        )
     if names is not None:
         for feature, point in expected & covered:
-            names.update(evidence.location_names.get((feature, parameter, point), ()))
+            accepted = evidence.location_names.get((feature, parameter, point), ())
+            names.update(accepted)
+            _retain_physical_carriers(
+                evidence, carriers, accepted, feature, parameter, point, "physical_location"
+            )
     return bool(expected) and expected <= covered
 
 
 def _synthetic_placed(
-    evidence, features, parameter: str, member_count: int, *, names=None
+    evidence, features, parameter: str, member_count: int, *, names=None, carriers=None
 ) -> bool:
     if parameter == "bore.through":
         if names is not None:
             for feature in features:
                 for count in evidence.requirement_counts.get((feature, parameter), ()):
-                    names.update(evidence.count_names.get((feature, parameter, count), ()))
+                    accepted = evidence.count_names.get((feature, parameter, count), ())
+                    names.update(accepted)
+                    _retain_physical_carriers(
+                        evidence,
+                        carriers,
+                        accepted,
+                        feature,
+                        parameter,
+                        count,
+                        "physical_requirement",
+                    )
         return any((feature, parameter) in evidence.requirement_counts for feature in features)
     if parameter != "grouping.count":
         return False
@@ -819,25 +878,30 @@ def _synthetic_placed(
     )
     if carried and names is not None:
         for feature, count in expected.items():
-            names.update(evidence.count_names.get((feature, parameter, count), ()))
+            accepted = evidence.count_names.get((feature, parameter, count), ())
+            names.update(accepted)
+            _retain_physical_carriers(
+                evidence, carriers, accepted, feature, parameter, count, "physical_requirement"
+            )
     return carried
 
 
 def _hole_carriers(outcome, evidence, registry_index, turned_axis_centers):
     features, parameter = outcome.features, outcome.parameter_id
     names: set[str] = set()
+    carriers: list[RequirementCarrier] = []
     if parameter.startswith(
         ("location.location.", "location_pattern.location.", "location_off_axis.")
     ):
         if not _structured_locations_placed(
-            evidence, features, parameter, turned_axis_centers, names=names
+            evidence, features, parameter, turned_axis_centers, names=names, carriers=carriers
         ):
-            names.clear()
-        carriers = [RequirementCarrier(name, "physical_location") for name in sorted(names)]
+            carriers.clear()
     elif parameter in {"bore.through", "grouping.count"}:
-        if not _synthetic_placed(evidence, features, parameter, outcome.member_count, names=names):
-            names.clear()
-        carriers = [RequirementCarrier(name, "physical_requirement") for name in sorted(names)]
+        if not _synthetic_placed(
+            evidence, features, parameter, outcome.member_count, names=names, carriers=carriers
+        ):
+            carriers.clear()
     else:
         carriers = list(
             exact_measurement_carriers(

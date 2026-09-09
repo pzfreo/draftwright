@@ -81,6 +81,7 @@ from draftwright.model.ir import (
     EnvelopeFeature,
     ExternalSpurGearFeature,
     Feature,
+    FeatureSchedule,
     FilletFeature,
     FlatFeature,
     Frame,
@@ -105,6 +106,7 @@ from draftwright.model.ir import (
     RectangularBlindSlotFeature,
     RotationalFeature,
     RoundBottomBlindSlotFeature,
+    ScheduleRow,
     SlotFeature,
     SlotPatternFeature,
     StepFeature,
@@ -128,6 +130,8 @@ from draftwright.model.planner import (
 from draftwright.view_plan import UncoveredViewRequirement, ViewPlanIncomplete
 
 __all__ = [
+    "FeatureSchedule",
+    "ScheduleRow",
     "AngleFeature",
     "AnglePatternFeature",
     "angle",

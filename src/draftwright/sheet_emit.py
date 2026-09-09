@@ -1550,7 +1550,8 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
-        "# THIS IS THE COMPLETE SET (ADR 4 (was 0016)). A measurement with no line here is omitted",
+        "# THIS IS THE COMPLETE SET (ADR 4 (was 0016)), including feature schedules below.",
+        "# A measurement with no dimension or schedule declaration is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
         # The role vocabulary was undiscoverable from the artefact: an editor had to guess a
         # string or read the source (#963). Typing narrows it now, but a generated file is
@@ -1597,6 +1598,26 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         if display_decimals is not None:
             line += f".format(decimals={display_decimals})"
         out.append(line)
+    return out
+
+
+def _schedule_block(model, names: dict[int, str]) -> list[str]:
+    """Retain authored table representations using the same emitted owner bindings."""
+    if not model.schedules:
+        return []
+    model._validate_schedule_origins()
+    out = ["", "# Feature schedules select measurements; the compiler supplies cell content."]
+    for schedule in model.schedules:
+        out.append("sheet.schedule([")
+        for row in schedule.rows:
+            name = names.get(id(row.feature))
+            if name is None:
+                raise ValueError(
+                    f"emit_sheet_script(): cannot name the {row.feature.kind} carrying "
+                    f"schedule {schedule.name!r}; it has no emitted feature binding"
+                )
+            out.append(f"    ({name}, {row.parameters!r}),")
+        out.append(f"], name={schedule.name!r}, prefer={schedule.prefer!r})")
     return out
 
 
@@ -2264,6 +2285,7 @@ def emit_sheet_script(
         *feature_lines,
         "",
         *_dimension_block(model, _names, _synth_env),
+        *_schedule_block(model, _names),
         "",
         "# ── Views ─────────────────────────────────────────────────────────────────────",
     ]

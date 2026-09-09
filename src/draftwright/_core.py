@@ -20,7 +20,6 @@ import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
 from dataclasses import dataclass
-from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal
@@ -63,6 +62,7 @@ from draftwright._geometry import (  # noqa: F401
     HoleRef,
     _axis_letter,
     _fmt,
+    _fmt_tolerance,
     _xyz,
 )
 from draftwright.fits import FitClass
@@ -110,6 +110,7 @@ def place_annotation(
     feature=None,
     measurement=None,
     satisfaction=None,
+    cells=(),
 ):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one
@@ -126,7 +127,7 @@ def place_annotation(
         items.remove(displaced)
     annotate(obj, name)
     items.append(obj)
-    registry.add(obj, name, view, feature, measurement, satisfaction)
+    registry.add(obj, name, view, feature, measurement, satisfaction, cells=cells)
     return obj
 
 
@@ -357,15 +358,7 @@ def _tol_suffix(tolerance, draft) -> str:
     if isinstance(tolerance, FitClass):
         return tolerance.suffix()
 
-    def magnitude(value):
-        decimal = Decimal(str(value))
-        precision = max(draft.decimal_precision, -int(decimal.as_tuple().exponent))
-        return f"{decimal:.{precision}f}"
-
-    if isinstance(tolerance, (int, float)):
-        return f" ±{magnitude(tolerance)}"
-    lo, hi = tolerance
-    return f" +{magnitude(hi)} -{magnitude(lo)}"
+    return _fmt_tolerance(tolerance, draft.decimal_precision)
 
 
 def _tag_sequence(n):

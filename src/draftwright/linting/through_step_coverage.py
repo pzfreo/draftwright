@@ -16,6 +16,7 @@ from quiddity import RecognitionResult, ThroughStep
 
 from draftwright._geometry import _fmt
 from draftwright.linting._registry import (
+    cell_approvals_of,
     exact_measurement_carriers,
     measurement_carrier_index,
     satisfaction_ids,
@@ -405,6 +406,19 @@ def _index_evidence(registry):
     rendered: dict[tuple[object, str], list[tuple[float, object]]] = defaultdict(list)
     for name in registry.names():
         annotation = registry.named(name)
+        cells = cell_approvals_of(registry, name)
+        if cells:
+            for reference, cell in cells:
+                approved = cell.measurement
+                try:
+                    value = float(approved.value_text)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if math.isfinite(value):
+                    rendered[
+                        (reference.measurement.feature, reference.measurement.parameter)
+                    ].append((value, approved.span))
+            continue
         label = str(getattr(annotation, "label", "") or "")
         primary = _label_reading(annotation, label) if label else None
         for identity in registry.measurement_of(name):

@@ -1353,7 +1353,12 @@ class Drawing:
         """
         from copy import deepcopy
 
-        from draftwright.audit import _FURNITURE, MeasurementClaim, MeasurementSnapshot
+        from draftwright.audit import (
+            _FURNITURE,
+            MeasurementCellUncertainty,
+            MeasurementClaim,
+            MeasurementSnapshot,
+        )
         from draftwright.linting.evidence import compiled_values, verify_measurement_claims
         from draftwright.linting.structural import dimension_path_measurement
         from draftwright.model.compiled import compile_dimensions
@@ -1363,9 +1368,11 @@ class Drawing:
             return MeasurementSnapshot((), (), (("", "model_unavailable"),))
         plan = compile_dimensions(model)
         values = compiled_values(plan)
+        schedules = {schedule.name: schedule for schedule in plan.schedules}
         outcomes = verify_measurement_claims(self.registry, plan)
         claims = []
         unknown = []
+        cell_unknown = []
         for name, type_name in self.annotations().items():
             if type_name in _FURNITURE:
                 continue
@@ -1378,6 +1385,72 @@ class Drawing:
             identities = self.registry.measurement_of(name)
             if not identities:
                 unknown.append((name, "measurement_identity_unavailable"))
+            cells = self.registry.cells_of(name)
+            if cells:
+                for reference in cells:
+                    identity = reference.measurement
+                    address = (reference.row, reference.column)
+                    evidence = [
+                        item
+                        for item in outcomes
+                        if item.annotation == name
+                        and item.cell == address
+                        and item.measurement is not None
+                        and getattr(item.measurement, "feature", None) is identity.feature
+                        and item.parameter_id == identity.parameter
+                    ]
+                    if not evidence or any(item.state != "confirmed" for item in evidence):
+                        unknown.append((name, "compiled_claim_unconfirmed"))
+                        cell_unknown.append(
+                            MeasurementCellUncertainty(name, address, "compiled_claim_unconfirmed")
+                        )
+                        continue
+                    schedule = schedules[reference.schedule]
+                    approved_cell = schedule.rows[reference.row][reference.column]
+                    item = approved_cell.measurement
+                    # Verification has bound the actual cell to this exact approval.
+                    # Other cells sharing a coarse ID cannot enlarge its meaning.
+                    assert item is not None
+                    rows = annotation.table_rows
+                    claims.append(
+                        MeasurementClaim(
+                            identity.feature,
+                            identity.parameter,
+                            name,
+                            (
+                                (
+                                    item.value,
+                                    deepcopy(item.tolerance),
+                                    item.span,
+                                    item.axis,
+                                    item.discriminator,
+                                    item.location_member,
+                                    item.angular_reference.measurement_key
+                                    if item.angular_reference is not None
+                                    else None,
+                                ),
+                            ),
+                            (
+                                str(rows[reference.row][reference.column]),
+                                str(rows[0][reference.column]),
+                                tuple(
+                                    (column, str(rows[reference.row][column]))
+                                    for column, cell in enumerate(schedule.rows[reference.row])
+                                    if cell.measurement is None
+                                ),
+                            ),
+                            approved=(item,),
+                            cell=address,
+                        )
+                    )
+                # Retain unsliced claims as uncertainty, just as the common verifier
+                # does. No successful neighbour grants them an implicit address.
+                if any(
+                    item.annotation == name and item.cell is None and item.state != "confirmed"
+                    for item in outcomes
+                ):
+                    unknown.append((name, "compiled_claim_unconfirmed"))
+                continue
             for identity in identities:
                 approved = tuple(
                     item
@@ -1444,7 +1517,12 @@ class Drawing:
                         approved=approved,
                     )
                 )
-        return MeasurementSnapshot(tuple(model.features), tuple(claims), tuple(unknown))
+        return MeasurementSnapshot(
+            tuple(model.features),
+            tuple(claims),
+            tuple(unknown),
+            cell_unknown=tuple(cell_unknown),
+        )
 
     @property
     def solve_trace(self):
@@ -1623,7 +1701,7 @@ class Drawing:
         )
 
     # -- annotations ----------------------------------------------------------
-    def _add(self, obj, name=None, view=None, feature=None, measurement=None):
+    def _add(self, obj, name=None, view=None, feature=None, measurement=None, *, cells=()):
         """Register an annotation so lint and export include it; returns ``obj``. The
         annotation-placement **primitive** (#817) — private, because the public door is the
         placement verbs (:meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/…) and
@@ -1644,6 +1722,7 @@ class Drawing:
             view,
             feature,
             measurement,
+            cells=cells,
         )
 
     @deprecated(
@@ -1684,8 +1763,18 @@ class Drawing:
 
         Use a feature from :meth:`model`: ``dwg.drop(dwg.model().features[0])``. Removing
         a feature's callout/centre-mark/size-dims is a page-level edit; call
-        :func:`finalize_drawing` afterwards (when available) to recompose the sheet."""
+        :func:`finalize_drawing` afterwards (when available) to recompose the sheet.
+        A measured schedule shared by other features requires editing its declared
+        rows and rebuilding; partial removal refuses before changing any ink."""
         names = self._registry.names_for_feature(feature)
+        for name in names:
+            if any(
+                cell.measurement.feature is not feature for cell in self._registry.cells_of(name)
+            ):
+                raise ValueError(
+                    f"schedule {name!r} also measures other features; edit its declared "
+                    "rows and rebuild, or remove the whole table explicitly by name"
+                )
         survivors: list = []
         for name in names:
             for owner in getattr(self._registry.named(name), "source_features", ()):
@@ -3558,7 +3647,14 @@ class Drawing:
         return name
 
     def add_table(
-        self, rows, *, prefer="tr", name="table", block_cols=None, _source_id: str | None = None
+        self,
+        rows,
+        *,
+        prefer="tr",
+        name="table",
+        block_cols=None,
+        _source_id: str | None = None,
+        _cells=(),
     ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
 
@@ -3575,6 +3671,8 @@ class Drawing:
         """
         if not rows:
             return None
+        if _cells and name in self._registry:
+            raise ValueError(f"measured schedule name {name!r} already belongs to an annotation")
         table = _build_table(rows, self.draft, block_cols=block_cols)
         # Keep the rows the table draws, so its content is readable back off the annotation
         # (#1217). A table renders as compound geometry with no `label`, so without this a
@@ -3582,6 +3680,8 @@ class Drawing:
         # claims it carries are exactly the ones coverage relies on when the engine withdraws
         # the individual callouts. Mirrors `gear_requirement_rows`.
         table.table_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
+        if _cells:
+            table.measurement_schedule = _cells[0].schedule
         table.table_block_cols = block_cols
         w, h = table.table_size
         a = self._analysis
@@ -3633,10 +3733,23 @@ class Drawing:
                         f"{measured}; {detail}"
                     ),
                     source_ids=(_source_id,) if _source_id is not None else (),
+                    measurement_ids=tuple(cell.measurement for cell in _cells),
                 )
             )
             return None
-        return self._add(table.locate(Location((pos[0], pos[1], 0))), name)
+        placed = table.locate(Location((pos[0], pos[1], 0)))
+        if not _cells:
+            return self._add(placed, name)
+        snapshot = self._registry.snapshot()
+        items = list(self.items)
+        issues = self._registry.issues
+        try:
+            return self._add(placed, name, cells=_cells)
+        except BaseException:
+            self.items[:] = items
+            self._registry.restore(snapshot)
+            self._registry.restore_issues(issues)
+            raise
 
     def _hole_spec_groups(self, view):
         """Ordered ``(tag, [holes], count)`` spec-groups of *view*'s holes (tags A, B,
@@ -4037,6 +4150,23 @@ class Drawing:
                 prof_kw = {}
             if recognition is None:
                 recognition = self._build.ensure_recognition(working_part)
+            model = self._part_model
+            if model is not None:
+                # Every annotation's measurement claims, resolved against what it renders
+                # (#1217). Coverage believes these claims; this is the only thing that
+                # checks them. Cheap — pure Python over the IR and the registry, no
+                # geometry — and it needs the compiled plan because the value an annotation
+                # SHOULD show is the compiler's, never a renderer's own formatting
+                # (ADR 4 (was 0016 Amendment 1)).
+                from draftwright.model.compiled import compile_dimensions
+
+                dimension_plan = compile_dimensions(model)
+                issues += lint_claimed_representations(self._registry, dimension_plan)
+            else:
+                dimension_plan = None
+            from draftwright.linting.schedule_evidence import verified_schedule_registry
+
+            physical_registry = verified_schedule_registry(self._registry, dimension_plan)
             issues += lint_angular_supports(
                 self.items,
                 registry=self._registry,
@@ -4048,7 +4178,7 @@ class Drawing:
                 self._build.recognition_evidence,
                 self._build.recognition_ownership,
                 getattr(self._part_model, "features", ()),
-                self._registry,
+                physical_registry,
                 self._build.omissions,
             )
             profiled_bores = list(recognition.double_d_bores)
@@ -4066,7 +4196,7 @@ class Drawing:
                 # is one decision rather than two that can disagree. `prof_kw` is empty only
                 # where detect also falls back to the aggregate.
                 **({"turned_profiles": prof_kw["profiles"]} if "profiles" in prof_kw else {}),
-                registry=self._registry,
+                registry=physical_registry,
                 # Counts belong to lint_hole_coverage's operation/ownership ledger.
                 check_hole_counts=False,
             )
@@ -4074,29 +4204,17 @@ class Drawing:
                 working_part,
                 self,
                 assembly=self.assembly,
+                registry=physical_registry,
                 recognition=recognition,
                 **prof_kw,
             )
-            model = self._part_model
-            if model is not None:
-                # Every annotation's measurement claims, resolved against what it renders
-                # (#1217). Coverage believes these claims; this is the only thing that
-                # checks them. Cheap — pure Python over the IR and the registry, no
-                # geometry — and it needs the compiled plan because the value an annotation
-                # SHOULD show is the compiler's, never a renderer's own formatting
-                # (ADR 4 (was 0016 Amendment 1)).
-                from draftwright.model.compiled import compile_dimensions
-
-                dimension_plan = compile_dimensions(model)
-                issues += lint_claimed_representations(self._registry, dimension_plan)
-            else:
-                dimension_plan = None
             if model is not None:
                 issues += lint_boss_height_coverage(
                     working_part,
                     self,
                     getattr(model, "features", ()),
                     assembly=self.assembly,
+                    registry=physical_registry,
                     omissions=self._build.omissions,
                 )
             issues += lint_location_coverage(
@@ -4107,11 +4225,13 @@ class Drawing:
                 holes=holes,
                 patterns=patterns,
                 profiled_bores=profiled_bores,
+                registry=physical_registry,
             )
             issues += lint_prismatic_coverage(
                 working_part,
                 self,
                 assembly=self.assembly,
+                registry=physical_registry,
                 pads=pads,
                 section_recesses=recognition.section_recesses,
                 bbox=a.bb if a is not None else None,
@@ -4122,7 +4242,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4130,7 +4250,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4138,7 +4258,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4169,7 +4289,7 @@ class Drawing:
                 self.items,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 dropped_profiles=self._coverage.dropped_profiles,
                 dropped_profile_evidence=self._coverage.dropped_profile_evidence,
                 assembly=self.assembly,
@@ -4178,7 +4298,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4186,7 +4306,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4194,7 +4314,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4202,12 +4322,12 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
             issues += lint_blend_leader_targets(
-                registry=self._registry,
+                registry=physical_registry,
                 cylinders=cyls,
                 project=self.at,
                 evidence=self._build.recognition_evidence,
@@ -4217,7 +4337,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4225,7 +4345,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4233,7 +4353,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4241,7 +4361,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4249,7 +4369,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4257,7 +4377,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4265,7 +4385,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
                 plan=dimension_plan,
@@ -4274,7 +4394,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4282,7 +4402,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
                 project=self.at,
@@ -4294,7 +4414,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4302,7 +4422,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4310,7 +4430,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4318,13 +4438,13 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
             issues += lint_declared_gear_coverage(
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 profiles=getattr(recognition, "repeating_radial_profiles", None),
                 assembly=self.assembly,
             )

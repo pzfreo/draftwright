@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from math import isfinite
 from numbers import Real
 from types import SimpleNamespace
 
 from draftwright._core import _decode_hole_location_fact
+from draftwright.audit import MeasurementCellUncertainty
 from draftwright.fits import FitClass
 from draftwright.linting.evidence import verify_measurement_claims
 from draftwright.registry import AnnotationRegistry
@@ -25,12 +26,16 @@ class DocumentClaim:
     meaning: tuple
     rendered: tuple
     witnesses: tuple
+    cell: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
 class DocumentClaimSnapshot:
     claims: tuple[DocumentClaim, ...]
     unknown: tuple[tuple[str, str, str], ...]
+    cell_unknown: tuple[tuple[str, MeasurementCellUncertainty], ...] = field(
+        default=(), kw_only=True
+    )
 
 
 @dataclass(frozen=True)
@@ -164,6 +169,11 @@ def _bind_claim(claim):
 
 
 def _narrowed_claim_confirmed(claim, address, meaning, registry):
+    if claim.cell is not None:
+        # The snapshot already verified this exact table cell against its one
+        # approval. Sending it through the legacy numeric-pool verifier would
+        # discard that evidence address and weaken the proof.
+        return len(claim.approved) == len(claim.meaning) == 1
     location_axis = address[1].rsplit(".", 1)[-1] if address and address[0] == "location" else None
     if len(_normalised_meanings(claim)) == 1 and location_axis is None:
         return True
@@ -222,10 +232,15 @@ def bind_document_claims(sheet, snapshot, registry=None) -> DocumentClaimSnapsho
                 meaning,
                 claim.rendered,
                 claim.witnesses,
+                claim.cell,
             )
             for address, meaning in bindings
         )
-    return DocumentClaimSnapshot(tuple(claims), tuple(dict.fromkeys(unknown)))
+    return DocumentClaimSnapshot(
+        tuple(claims),
+        tuple(dict.fromkeys(unknown)),
+        cell_unknown=tuple((sheet, item) for item in snapshot.cell_unknown),
+    )
 
 
 def document_conflicts(snapshots) -> tuple[DocumentConflict, ...]:

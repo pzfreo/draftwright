@@ -415,6 +415,7 @@ def evaluate_document_requirements(catalog, model, part, members, claims) -> Doc
     The temporary registry holds the exact existing annotations. It does not add ink
     to a drawing, merge models, recognize geometry, or use a sheet's score as evidence.
     """
+    from dataclasses import replace
     from types import SimpleNamespace
 
     from draftwright.document_evidence import document_conflicts, document_support_proofs
@@ -432,10 +433,14 @@ def evaluate_document_requirements(catalog, model, part, members, claims) -> Doc
                 reference,
                 snapshot.registry.view_of(annotation),
                 feature=snapshot.registry.feature_of(annotation),
-                measurement=snapshot.registry.measurement_of(annotation),
+                measurement=snapshot.registry.identity_of(annotation)["measurement"],
                 satisfaction=snapshot.registry.satisfaction_of(annotation),
+                cells=tuple(
+                    replace(cell, schedule=f"{index}:{cell.schedule}")
+                    for cell in snapshot.registry.cells_of(annotation)
+                ),
             )
-    # Existing ledger verification reads approved values from these four collections.
+    # Existing ledger verification reads each member's approved values and cells.
     # Each entry keeps its actual member compiler authority; nothing is recompiled here.
     plan = SimpleNamespace(
         **{
@@ -445,7 +450,12 @@ def evaluate_document_requirements(catalog, model, part, members, claims) -> Doc
                 for item in getattr(snapshot.dimension_plan, field, ())
             )
             for field in ("groups", "ladders", "locations", "contingencies")
-        }
+        },
+        schedules=tuple(
+            replace(schedule, name=f"{index}:{schedule.name}")
+            for index, (_name, snapshot, _aligned) in enumerate(members)
+            for schedule in getattr(snapshot.dimension_plan, "schedules", ())
+        ),
     )
     outcomes = recognized_requirement_outcomes(
         catalog.evidence.result,
@@ -1141,10 +1151,38 @@ def _document_views(constraints, owner_id):
     }
 
 
+def _document_cell(cell):
+    if cell is None:
+        return None
+    if (
+        not isinstance(cell, tuple)
+        or len(cell) != 2
+        or any(isinstance(item, bool) or not isinstance(item, int) for item in cell)
+        or cell[0] < 1
+        or cell[1] < 0
+    ):
+        raise ReportUnavailableError("document evidence has an invalid cell address")
+    return {"row": cell[0], "column": cell[1]}
+
+
+def _document_schedules(schedules, owner_id):
+    return [
+        {
+            "name": schedule.name,
+            "prefer": schedule.prefer,
+            "rows": [
+                {"owner_id": owner_id(row.feature), "parameters": row.parameters}
+                for row in schedule.rows
+            ],
+        }
+        for schedule in schedules
+    ]
+
+
 def document_report(
     *, catalog, evaluation, model, source, run_options, member_recipes, resolved
 ) -> dict[str, object]:
-    """Project one schema-v4 document read; no report-local identity survives this value.
+    """Project a document read; authored schedules select schema v5, otherwise v4.
 
     Carrier attribution is producer-owned. A missing producer projection stays explicit
     and prevents bounded clearance; ordinary owner/parameter associations are not proof.
@@ -1170,6 +1208,11 @@ def document_report(
         return candidate[1]["id"]
 
     members = evaluation.members
+    cell_schema = any(
+        snapshot.model.schedules or member_recipes.get(name, {}).get("schedules")
+        for name, snapshot, _rows in members
+    )
+    member_registries = {name: snapshot.registry for name, snapshot, _rows in members}
     sheet_ids = {
         name: f"sheet:{index + 1}" for index, (name, _snapshot, _rows) in enumerate(members)
     }
@@ -1187,6 +1230,30 @@ def document_report(
             raise ReportUnavailableError("requirement carrier names an absent annotation")
         return annotation_ref(*evaluation.annotation_refs[name])
 
+    def claim_cell(claim):
+        if claim.cell is not None and not any(
+            (reference.row, reference.column) == claim.cell
+            and reference.measurement.feature is claim.owner
+            and reference.measurement.parameter == claim.parameter
+            for reference in member_registries[claim.sheet].cells_of(claim.annotation)
+        ):
+            raise ReportUnavailableError("document claim refers to an absent exact cell")
+        return _document_cell(claim.cell)
+
+    def carrying_ref(carrier):
+        reference: dict[str, Any] = {
+            **combined_ref(carrier.annotation),
+            "evidence_kind": carrier.kind,
+        }
+        if cell_schema:
+            cell = carrier.cell
+            if cell is not None and not any(
+                actual is cell for actual in evaluation.registry.cells_of(carrier.annotation)
+            ):
+                raise ReportUnavailableError("requirement carrier names a foreign cell")
+            reference["cell"] = _document_cell(None if cell is None else (cell.row, cell.column))
+        return reference
+
     claims: list[dict[str, Any]] = []
     claim_ids = {}
     for snapshot in evaluation.claims:
@@ -1203,6 +1270,7 @@ def document_report(
                     "meaning": _engineering_meaning(claim.meaning),
                     "rendered": claim.rendered,
                     "verification": "confirmed-within-measurement-verifier-scope",
+                    **({"cell": claim_cell(claim)} if cell_schema else {}),
                 }
             )
 
@@ -1220,10 +1288,24 @@ def document_report(
         for conflict in evaluation.conflicts
     ]
     unknown = [
-        {**annotation_ref(sheet, annotation), "reason_code": reason}
+        {
+            **annotation_ref(sheet, annotation),
+            "reason_code": reason,
+            **({"cell": None} if cell_schema else {}),
+        }
         for snapshot in evaluation.claims
         for sheet, annotation, reason in snapshot.unknown
     ]
+    if cell_schema:
+        unknown.extend(
+            {
+                **annotation_ref(sheet, item.annotation),
+                "reason_code": item.reason,
+                "cell": _document_cell(item.cell),
+            }
+            for snapshot in evaluation.claims
+            for sheet, item in snapshot.cell_unknown
+        )
     requirements: list[dict[str, Any]] = []
     profile_ids: dict[int, str] = {}
     support_ids: dict[tuple[int, int], str] = {}
@@ -1267,14 +1349,7 @@ def document_report(
         # supplies it, retain the absence instead of guessing from annotation names.
         carriers = getattr(evaluated.combined.outcome, "carriers", None)
         attributed = carriers is not None
-        carrying = (
-            []
-            if carriers is None
-            else [
-                {**combined_ref(carrier.annotation), "evidence_kind": carrier.kind}
-                for carrier in carriers
-            ]
-        )
+        carrying = [] if carriers is None else [carrying_ref(carrier) for carrier in carriers]
         if evaluated.state == "dependency-derived":
             attributed = bool(proofs)
             carrying = []
@@ -1328,6 +1403,8 @@ def document_report(
     for name, snapshot, _rows in members:
         if snapshot.lint is None or name not in resolved or name not in member_recipes:
             raise ReportUnavailableError(f"document sheet {name!r} lacks lint or run options")
+        if cell_schema and "schedules" not in member_recipes[name]:
+            raise ReportUnavailableError(f"document sheet {name!r} lacks schedule intent")
         options = {
             key: str(value) if isinstance(value, PathLike) else value
             for key, value in member_recipes[name]["options"].items()
@@ -1341,6 +1418,15 @@ def document_report(
                 "dimension_intents": _document_intents(snapshot.model, owner_id),
                 "view_intents": _document_views(member_recipes[name]["views"], owner_id),
                 "table_intents": member_recipes[name]["tables"],
+                **(
+                    {
+                        "schedule_intents": _document_schedules(
+                            member_recipes[name]["schedules"], owner_id
+                        )
+                    }
+                    if cell_schema
+                    else {}
+                ),
                 "lint": snapshot.lint,
             }
         )
@@ -1420,7 +1506,7 @@ def document_report(
     )
     report = {
         "schema": REPORT_SCHEMA,
-        "schema_version": 4,
+        "schema_version": 5 if cell_schema else 4,
         "scope": "document",
         "status": "needs-attention" if attention else "bounded-clear",
         "producer": producer(),
@@ -1453,6 +1539,7 @@ def document_report(
                 "dimension-selection",
                 "view-constraints",
                 "table-text",
+                *(["feature-schedules"] if cell_schema else []),
             ],
             "source_recipe_required_for": [
                 "feature-decorations",

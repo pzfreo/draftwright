@@ -42,6 +42,16 @@ class MeasurementClaim:
     rendered: tuple
     witnesses: tuple = ()
     approved: tuple = field(default=(), repr=False, compare=False, kw_only=True)
+    cell: tuple[int, int] | None = field(default=None, kw_only=True)
+
+
+@dataclass(frozen=True)
+class MeasurementCellUncertainty:
+    """An unconfirmed measured cell; its table-level unknown remains compatible."""
+
+    annotation: str
+    cell: tuple[int, int]
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -51,6 +61,7 @@ class MeasurementSnapshot:
     owners: tuple
     claims: tuple[MeasurementClaim, ...]
     unknown: tuple[tuple[str, str], ...] = ()
+    cell_unknown: tuple[MeasurementCellUncertainty, ...] = field(default=(), kw_only=True)
 
 
 def compare_measurements(before, after, *, feature_pairs=()) -> dict:
