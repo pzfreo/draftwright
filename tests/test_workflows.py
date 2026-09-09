@@ -316,6 +316,7 @@ def test_real_part_canary_runs_once_with_an_execution_budget():
     assert "timeout-minutes: 10" in job
     assert (
         "run: uv run pytest tests/test_issue_827_real_part_canary.py "
+        "tests/test_issue_1544_frame_document_canary.py "
         "-m real_part_canary -v -s --durations=1"
     ) in job
 

@@ -53,14 +53,16 @@ from __future__ import annotations
 import inspect
 import math
 import warnings
-from collections.abc import MutableSequence
+from collections.abc import Callable, MutableSequence, Sequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal, cast
 
+from draftwright._core import _dimension_draft
 from draftwright._geometry import _solids_body
 from draftwright._warnings import SoftDeprecationWarning
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
+from draftwright.document_input import DocumentInput
 from draftwright.fits import fit_class
 from draftwright.model import DimensionParameterId, Feature
 from draftwright.model import angle as _angle
@@ -111,19 +113,23 @@ from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import (
     ControlFrame,
     DatumRef,
+    FeatureSchedule,
     NominalRequirement,
     Note,
     RequestedDimension,
+    ScheduleRow,
     ToleranceDecoration,
 )
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
 from draftwright.model.planner import (
     dimension_placement_options,
     location_components,
+    schedule_row_dimensions,
     validate_dimension_placement,
 )
 from draftwright.model.planner import location_role as _location_role
 from draftwright.view_plan import (
+    PRINCIPAL_VIEW_NAMES,
     ConstraintSource,
     ViewConstraint,
     ViewConstraints,
@@ -131,6 +137,8 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     ViewRelation,
     ViewSpec,
+    third_angle_view_names,
+    validate_projection,
 )
 
 _SOURCE_CHOICES = ("automatic", "authored")
@@ -246,7 +254,7 @@ class _FeatureView(MutableSequence):
     instead of detectable.
     """
 
-    __slots__ = ("_entries", "_next_token")
+    __slots__ = ("_entries", "_next_token", "validate_change")
 
     def __init__(self, entries: list) -> None:
         self._entries = entries
@@ -257,6 +265,11 @@ class _FeatureView(MutableSequence):
         # process-wide counter would make those keys depend on how many other sheets
         # happened to be built first.
         self._next_token = 0
+        self.validate_change: Callable[[Sequence], None] | None = None
+
+    def _validate(self, values):
+        if self.validate_change is not None:
+            self.validate_change(values)
 
     def _mint(self) -> int:
         token = self._next_token
@@ -286,6 +299,11 @@ class _FeatureView(MutableSequence):
         # references fail loudly instead. To reorder while keeping identity, use
         # `reverse()` / `sort()`, which move whole entries. Internal rebuilding goes
         # through `_rebind`, which is the only path that preserves a token.
+        current = list(self)
+        if isinstance(i, slice):
+            value = list(value)
+        current[i] = value
+        self._validate(current)
         if isinstance(i, slice):
             self._entries[i] = [(self._mint(), f) for f in value]
             return
@@ -297,16 +315,34 @@ class _FeatureView(MutableSequence):
         The only identity-preserving write. Used by the size verbs, whose frozen
         dataclasses are replaced wholesale on every `.depth()` / `.cbore()` / `.thread()`.
         """
+        current = list(self)
+        current[index] = feature
+        self._validate(current)
         self._entries[index] = (self._entries[index][0], feature)
 
     def __delitem__(self, i) -> None:
+        current = list(self)
+        del current[i]
+        self._validate(current)
         del self._entries[i]
+
+    def clear(self) -> None:
+        self._validate([])
+        self._entries.clear()
 
     def __len__(self) -> int:
         return len(self._entries)
 
     def insert(self, i, value) -> None:
+        current = list(self)
+        current.insert(i, value)
+        self._validate(current)
         self._entries.insert(i, (self._mint(), value))
+
+    def extend(self, values) -> None:
+        values = list(values)
+        self._validate([*self, *values])
+        self._entries.extend((self._mint(), value) for value in values)
 
     # Reordering must move ENTRIES, not values. `MutableSequence` implements `reverse`
     # in terms of `__setitem__`, which here keeps each slot's token — right for a size
@@ -386,13 +422,13 @@ class _Hole(_Nameable):
         its feature through a reorder rather than naming whatever took its slot (#908)."""
         return self._sheet._index_of_token(self._token)
 
-    def through(self) -> _Hole:
-        """A through hole (the default) — ⌀ only."""
-        return self._set(through=True, depth=None)
+    def through(self, indicator: str | None = None) -> _Hole:
+        """Declare through, optionally choosing its printed indicator (``''`` omits it)."""
+        return self._set(through=True, depth=None, through_indicator=indicator)
 
     def depth(self, d: float) -> _Hole:
         """A blind hole *d* mm deep — adds a depth callout."""
-        return self._set(through=False, depth=d)
+        return self._set(through=False, depth=d, through_indicator=None)
 
     def tolerance(
         self,
@@ -1074,15 +1110,20 @@ class Sheet:
         company=None,
         frame=None,
         projection=None,
+        text_position="inline",
+        text_orientation="aligned",
         zones=None,
         detail_view=None,
     ):
+        validate_projection(projection)
+        _dimension_draft(text_position, text_orientation)
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
         # view; handles hold tokens and resolve through it, so a reorder of the public
         # list moves each token with its feature instead of stranding references.
         self._entries: list[tuple[int, object]] = []
         self._features = _FeatureView(self._entries)
+        self._document_input: DocumentInput | None = None
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
         # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
         self._tolerances: dict = {}
@@ -1095,6 +1136,7 @@ class Sheet:
         # engine's generic auto-placed Drawing.add_table, AFTER the drawing is built so they sit
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
+        self._schedules: list[dict] = []
         # ADR 4 (was 0016) augmenting dimension intents (#872), token-keyed for the same reason as
         # `_tolerances`: a handle may be recorded before a later size verb replaces the
         # feature, and a position would then name whatever moved into the slot.
@@ -1159,6 +1201,8 @@ class Sheet:
             ("company", company),
             ("frame", frame),
             ("projection", projection),
+            ("text_position", text_position),
+            ("text_orientation", text_orientation),
             ("zones", zones),
             # The last build option the facade did not forward (#940). It matters now that the
             # Sheet script is the only generated script: the imperative one put a raw
@@ -1169,6 +1213,35 @@ class Sheet:
         ):
             if _v is not None:
                 self._opts[_k] = _v
+
+    def _bind_document(self, source) -> None:
+        if self._entries or self._document_input is not None:
+            raise ValueError("document binding requires a new empty Sheet")
+        source.validate(self._part, source.initial_features())
+        self._features.extend(source.initial_features())
+        self._document_input = source
+        self._features.validate_change = source.validate_features
+
+    def _document_recipe(self):
+        """Snapshot options, view intent and both table declarations before a member build."""
+        from copy import deepcopy
+
+        return {
+            "options": deepcopy(self._opts),
+            "views": self.view_constraints,
+            "tables": deepcopy(self._tables),
+            "schedules": self._resolved_schedules(),
+        }
+
+    def _snapshot_for_document(self):
+        from copy import deepcopy
+
+        if self._document_input is None:
+            raise ValueError("only a bound document Sheet has common input authority")
+        source = self._document_input
+        source.validate(self._part, self._features)
+        shared = (source, self._part, *source.features)
+        return deepcopy(self, {id(value): value for value in shared})
 
     @classmethod
     def from_part(cls, part, **opts) -> Sheet:
@@ -1277,7 +1350,7 @@ class Sheet:
         appeared in a release, so this refusal is the only notice it gets — a documented
         break (`docs/deprecations.md`).
 
-        ``view`` selects ``front``/``plan``/``side`` and ``side`` selects the corresponding
+        ``view`` selects ``front``/``plan``/``side``/``rear`` and ``side`` selects the corresponding
         ``above``/``below``/``left``/``right`` corridor where that dimension renderer supports
         it. They express authored placement intent, not page coordinates; invalid or
         unrenderable pairs fail clearly during planning.
@@ -1597,6 +1670,8 @@ class Sheet:
             for i, f in enumerate(self._features):
                 if f is ref:  # identity — an EQUAL feature from elsewhere is not this one
                     return self._token_at(i)
+            if self._document_input is not None:
+                raise ValueError(f"{verb}: use an exact feature from this document's inventory")
             return None  # a Feature this sheet does not manage
         return None  # build123d geometry, or something else entirely
 
@@ -1951,12 +2026,7 @@ class Sheet:
     @staticmethod
     def _principal_view_name(name) -> tuple[str, str]:
         name = str(name).strip().lower()
-        kinds = {
-            "front": "principal",
-            "plan": "principal",
-            "side": "principal",
-            "iso": "pictorial",
-        }
+        kinds = {**dict.fromkeys(PRINCIPAL_VIEW_NAMES, "principal"), "iso": "pictorial"}
         if name not in kinds:
             raise ValueError(
                 f"unknown view {name!r}; expected one of {tuple(kinds)}. "
@@ -2266,8 +2336,10 @@ class Sheet:
         part centre. The section renders last (its room check clears the right-of-side-view
         band), so declare it after the per-feature verbs. Chainable."""
         warnings.warn(
-            "Sheet.section() is deprecated; use add_section_view('A', through=...) or "
-            "add_section_view('A', at=...). Removal target 0.6.0.",
+            "Sheet.section() is deprecated; for authored derived views with authored dimensions use "
+            "section_view('A', through=...) or section_view('A', at=...). "
+            "To augment automatic views, select auto_views() and use add_section_view(...). "
+            "Removal target 0.6.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -2413,10 +2485,38 @@ class Sheet:
 
     def _prepare(self) -> None:
         """Resolve deferred GD&T state before handing features to the engine."""
+        if self._document_input is not None:
+            self._document_input.validate(self._part, self._features)
         self._materialize_gdt()
         self._validate_datums()
 
     # -- corner-block tables (notes / revision / BOM / schedule) --------------
+
+    def schedule(
+        self, rows, *, name: str, prefer: Literal["tr", "tl", "br", "bl"] = "tr"
+    ) -> Sheet:
+        """Declare a measured table from ``(feature, parameter_ids)`` rows.
+
+        ``location`` selects every addressable hole member's transverse distances.
+        Explicit canonical IDs select individual measurements. Values, units and
+        tolerances come from the compiler; the existing table solve owns placement.
+        This declares authored dimension intent, like :meth:`dimension`.
+        """
+        records = []
+        resolved = []
+        for feature, parameters in rows:
+            token = self._feature_token(feature)
+            target = self._features[self._index_of_token(token)]
+            row = ScheduleRow(target, parameters)
+            schedule_row_dimensions(row)
+            resolved.append(row)
+            records.append((token, row.parameters))
+        FeatureSchedule(name, tuple(resolved), prefer)
+        if any(schedule["name"] == name for schedule in self._schedules):
+            raise ValueError(f"duplicate schedule name {name!r}")
+        self._schedules.append({"name": name, "prefer": prefer, "rows": tuple(records)})
+        self._authored_source = True
+        return self
 
     def table(
         self, rows, *, prefer: str = "tr", name: str | None = None, block_cols=None
@@ -2536,14 +2636,26 @@ class Sheet:
             )
         if self._added_derived_views and self._derived_view_source != "automatic":
             source = self._added_derived_views[0]["source"]
+            guidance = (
+                "use section_view()/detail_view() for the authored view set"
+                if "authored" in (self._principal_view_source, self._derived_view_source)
+                else "call auto_views() first"
+            )
             raise ValueError(
                 f"add_section_view()/add_detail_view() at {source} augment automatic derived "
-                "views; call auto_views() first"
+                f"views; {guidance}"
             )
         if self._principal_view_source != "authored":
+            additions = tuple(
+                record["name"]
+                for record in self._added_principal_views
+                if record["kind"] == "principal"
+            )
+            if additions:
+                return tuple(dict.fromkeys((*third_angle_view_names(), *additions))), True
             return None, True
         names = tuple(record["name"] for record in self._principal_views)
-        principals = tuple(name for name in names if name in {"front", "plan", "side"})
+        principals = tuple(name for name in names if name in PRINCIPAL_VIEW_NAMES)
         if not principals:
             source = (
                 self._principal_views[0]["source"]
@@ -2552,7 +2664,7 @@ class Sheet:
             )
             raise ValueError(
                 f"the authored view set from {source} has no principal orthographic view; "
-                "add view('front'), view('plan'), or view('side')"
+                "add view('front'), view('plan'), view('side'), or view('rear')"
             )
         return principals, "iso" in names
 
@@ -2570,7 +2682,8 @@ class Sheet:
         if self._section is not None and records:
             raise ValueError(
                 "deprecated section() cannot be combined with section_view()/detail_view() "
-                "constraints; migrate the legacy call to add_section_view()"
+                "constraints; remove the legacy call and keep section_view() for authored "
+                "derived views or add_section_view() for automatic derived views"
             )
         for record in sections:
             target = record["target"]
@@ -3003,6 +3116,29 @@ class Sheet:
             )
         return cut_y
 
+    def _resolved_schedules(self):
+        return tuple(
+            FeatureSchedule(
+                entry["name"],
+                tuple(
+                    ScheduleRow(self._features[self._index_of_token(token)], parameters)
+                    for token, parameters in entry["rows"]
+                ),
+                entry["prefer"],
+            )
+            for entry in self._schedules
+        )
+
+    def _build_model_input(self):
+        if self._document_input is not None:
+            model = self._document_input.model(self._features)
+        else:
+            model = self._features
+        if not self._schedules:
+            return model
+        model = _coerce_model(model, _solids_body(self._part), authored=self._authored_set())
+        return replace(model, schedules=self._resolved_schedules())
+
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the
         declared features into a :class:`PartModel` **without** rendering a drawing (#453):
@@ -3019,7 +3155,7 @@ class Sheet:
         self._prepare()
         self._check_dimension_source()
         return _coerce_model(
-            self._features,
+            self._build_model_input(),
             _solids_body(self._part),
             self._decorations(),
             self._requested_dimensions(),
@@ -3082,7 +3218,8 @@ class Sheet:
         try:
             return build_drawing(
                 self._part,
-                model=self._features,
+                model=self._build_model_input(),
+                _document_input=self._document_input,
                 decorations=self._decorations(
                     section_request,
                     suppress_auto_sections=self._derived_view_source == "authored",

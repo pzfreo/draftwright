@@ -29,6 +29,42 @@ draftwright and carries no behaviour beyond the bookkeeping moved out of
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Protocol
+
+
+class _MeasurementIdentity(Protocol):
+    @property
+    def feature(self) -> object: ...
+
+    @property
+    def parameter(self) -> str: ...
+
+
+@dataclass(frozen=True)
+class MeasurementCell:
+    """Exact measured cell provenance; numeric content remains in the compiled plan."""
+
+    schedule: str
+    row: int
+    column: int
+    measurement: _MeasurementIdentity
+
+    def __post_init__(self):
+        if not isinstance(self.schedule, str) or not self.schedule:
+            raise ValueError("measurement cell requires a schedule name")
+        if (
+            isinstance(self.row, bool)
+            or not isinstance(self.row, int)
+            or self.row < 1
+            or isinstance(self.column, bool)
+            or not isinstance(self.column, int)
+            or self.column < 0
+        ):
+            raise ValueError("measurement cell requires a data row and nonnegative column")
+        if self.measurement is None:
+            raise ValueError("measurement cell requires a measurement identity")
+
 
 def _as_ids(measurement) -> tuple:
     """Normalise a caller's *measurement* to a tuple of ids (#1002).
@@ -74,6 +110,7 @@ class AnnotationRegistry:
         # would have to be widened again later, and worse, would make the audit's
         # "exact when present" promise false for a callout's other measurements.
         self._anno_measurement: dict = {}
+        self._anno_cells: dict[str, tuple[MeasurementCell, ...]] = {}
         # name -> DimensionIds a placed structured note explicitly satisfies (#1351).
         # Separate from ``_anno_measurement`` because a note carries manufacturing authority
         # without pretending to be dimensional ink; coverage and quality reports must retain
@@ -117,7 +154,11 @@ class AnnotationRegistry:
         `tests/test_audit_differential.py` rather than described here — the prose version of
         that set was wrong when first written (Codex #1002 r1)."""
         ids: tuple = self._anno_measurement.get(name, ())
-        return ids
+        return ids + tuple(cell.measurement for cell in self.cells_of(name))
+
+    def cells_of(self, name) -> tuple[MeasurementCell, ...]:
+        """The registered data-cell addresses of a live measured table."""
+        return self._anno_cells.get(name, ())
 
     def has_measurement(self, identity) -> bool:
         """Whether a live mark carries this exact feature/parameter identity."""
@@ -146,7 +187,27 @@ class AnnotationRegistry:
         offset). So two physically distinct features never compare equal. If a feature
         type is ever added that can be field-for-field equal for distinct instances,
         switch this to identity (``f is feature``)."""
-        return [n for n, f in self._anno_feature.items() if f == feature]
+        return [
+            name
+            for name in self._named
+            if any(owner == feature for owner in self.features_of(name))
+        ]
+
+    def features_of(self, name) -> tuple:
+        """Original feature owners of a mark, including shared callout members."""
+        primary = self.feature_of(name)
+        owners = (
+            (() if primary is None else (primary,))
+            + tuple(getattr(self._named.get(name), "source_features", ()))
+            + tuple(cell.measurement.feature for cell in self.cells_of(name))
+        )
+        seen = set()
+        unique = []
+        for owner in owners:
+            if id(owner) not in seen:
+                seen.add(id(owner))
+                unique.append(owner)
+        return tuple(unique)
 
     def iter_named(self):
         """Iterate ``(name, annotation object)`` for every named annotation — the
@@ -170,6 +231,7 @@ class AnnotationRegistry:
             "anno_view": dict(self._anno_view),
             "anno_feature": dict(self._anno_feature),
             "anno_measurement": dict(self._anno_measurement),
+            "anno_cells": dict(self._anno_cells),
             "anno_satisfaction": dict(self._anno_satisfaction),
             "pinned": set(self._pinned),
         }
@@ -184,6 +246,8 @@ class AnnotationRegistry:
         self._anno_feature.update(snap.get("anno_feature", {}))
         self._anno_measurement.clear()
         self._anno_measurement.update(snap.get("anno_measurement", {}))
+        self._anno_cells.clear()
+        self._anno_cells.update(snap.get("anno_cells", {}))
         self._anno_satisfaction.clear()
         self._anno_satisfaction.update(snap.get("anno_satisfaction", {}))
         self._pinned.clear()
@@ -208,6 +272,7 @@ class AnnotationRegistry:
             "view": self._anno_view.get(name),
             "feature": self._anno_feature.get(name),
             "measurement": self._anno_measurement.get(name, ()),
+            "cells": self._anno_cells.get(name, ()),
             "satisfaction": self._anno_satisfaction.get(name, ()),
             "pinned": name in self._pinned,
         }
@@ -238,6 +303,11 @@ class AnnotationRegistry:
             self._anno_measurement[name] = ids
         else:
             self._anno_measurement.pop(name, None)
+        cells = tuple(identity.get("cells", ()))
+        if cells:
+            self._anno_cells[name] = cells
+        else:
+            self._anno_cells.pop(name, None)
         satisfactions = _as_ids(identity.get("satisfaction"))
         if satisfactions:
             self._anno_satisfaction[name] = satisfactions
@@ -248,7 +318,7 @@ class AnnotationRegistry:
         else:
             self._pinned.discard(name)
 
-    def add(self, obj, name, view, feature=None, measurement=None, satisfaction=None):
+    def add(self, obj, name, view, feature=None, measurement=None, satisfaction=None, cells=()):
         """Register *obj* under *name* and record its owning *view* (and source *feature*).
 
         Returns the object previously registered under *name* (so the caller can
@@ -282,6 +352,10 @@ class AnnotationRegistry:
                 self._anno_measurement[name] = ids
             else:
                 self._anno_measurement.pop(name, None)
+            if cells:
+                self._anno_cells[name] = tuple(cells)
+            else:
+                self._anno_cells.pop(name, None)
             satisfactions = _as_ids(satisfaction)
             if satisfactions:
                 self._anno_satisfaction[name] = satisfactions
@@ -297,6 +371,7 @@ class AnnotationRegistry:
             self._anno_view.pop(name, None)
             self._anno_feature.pop(name, None)
             self._anno_measurement.pop(name, None)
+            self._anno_cells.pop(name, None)
             self._anno_satisfaction.pop(name, None)
         return obj
 
@@ -310,6 +385,7 @@ class AnnotationRegistry:
         self._anno_view = {n: v for n, v in self._anno_view.items() if n in keep_set}
         self._anno_feature = {n: f for n, f in self._anno_feature.items() if n in keep_set}
         self._anno_measurement = {n: m for n, m in self._anno_measurement.items() if n in keep_set}
+        self._anno_cells = {n: c for n, c in self._anno_cells.items() if n in keep_set}
         self._anno_satisfaction = {
             n: s for n, s in self._anno_satisfaction.items() if n in keep_set
         }

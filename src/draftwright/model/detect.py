@@ -141,6 +141,7 @@ from draftwright.oriented_slot_contract import (
 )
 from draftwright.plate_correspondence import plate_owner_dependencies
 from draftwright.profile_angles import profile_angle_repetitions, profile_angle_requirements
+from draftwright.progress import stage
 from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     require_unambiguous_groove_owner,
@@ -1584,16 +1585,17 @@ def build_part_model(
                 sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
                 centre=(centre.X, centre.Y, centre.Z),
             )
-            recognition_evidence = build_recognition_evidence(
-                part,
-                cylinders=cyls,
-                rotational=(
-                    rotational is not None
-                    or (profiles is not _UNSET and bool(profiles))
-                    or (prof is not _UNSET and prof is not None)
-                    or cylinder_class.is_rotational
-                ),
-            )
+            with stage("recognition"):
+                recognition_evidence = build_recognition_evidence(
+                    part,
+                    cylinders=cyls,
+                    rotational=(
+                        rotational is not None
+                        or (profiles is not _UNSET and bool(profiles))
+                        or (prof is not _UNSET and prof is not None)
+                        or cylinder_class.is_rotational
+                    ),
+                )
             recognition = recognition_evidence.result
         else:
             cyls = recognition.cylinders

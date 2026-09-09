@@ -29,9 +29,9 @@ verbs existed then, and the dotted parameter ids in Step 2 are new in 0.4.0.)
 everything automatically** (placement is constraint-based; you never compute page
 coordinates). When the first pass isn't perfect, you drive a **build → critique
 → fix** loop (Step "Lint → critique → fix" below), not a hand-layout edit. The
-rationale lives in `docs/adr/`: 0001 (deterministic generation over an editable
-DSL), 0002 (the lint critique → domain-repair loop), 0003 (the constraint-based
-layout engine). Edit through the domain API; treat `Placeable`/page mechanics as
+rationale lives in the five current records in `docs/adr/`: ADR 1 (compiler pipeline),
+ADR 2 (layout and view planning), ADR 3 (recognition), ADR 4 (declared intent), and
+ADR 5 (trust and honest failure). Edit through the domain API; treat `Placeable`/page mechanics as
 internals.
 
 ---
@@ -145,18 +145,25 @@ rather than the bare family role (`"width"`): the bare spelling is deprecated,
 because it is what let a single call silently declare two dimensions.
 
 `place_dim(p1, p2, side, view, …)` still exists for raw page coordinates, but it is
-the **escape hatch of last resort** (ADR 0012) and is deprecated: it bypasses the
+the **escape hatch of last resort** (ADR 4) and is deprecated: it bypasses the
 layout solve, so nothing re-flows around it.
 
-**Add a diameter callout on a hole the auto-pass missed** — find the bore in the
-model IR and hand it to `callout()`. This is what the `feature_not_dimensioned`
-lint suggestion hands you (it emits `dwg.callout(f)` — say *what*, not *where*):
+**Add a callout on a hole the auto-pass missed** — inspect its semantic requirement
+finding first. Equal diameters can belong to different axes, blind depths, threads
+or fits; a diameter-total warning never authorises increasing a callout count.
 
 ```python
-for f in dwg.model().features:
-    if f.kind == "hole" and abs(f.diameter - 4.0) < 0.2:
-        dwg.callout(f)                   # engine picks the view, leader and elbow
+for issue in dwg.lint():
+    if issue.code.startswith("hole_requirement_"):
+        print(issue.message)
+        if issue.suggestion:
+            print(issue.suggestion)
 ```
+
+For a verified missing bore on an automatic model, the suggestion targets the exact
+feature with `dwg.callout(...)` through the shared solve. It applies to that Drawing;
+re-run lint after rebuilding. Authored omissions, unverified ownership and conflicting
+counts require inspection of the declared operation rather than an automatic count edit.
 
 **Free text** at a chosen point is `note()` — a domain verb, not an escape hatch:
 
@@ -183,23 +190,55 @@ warn from 0.4.0. See `docs/deprecations.md`.
 `make_drawing(...)` is `build_drawing(...).export(formats=("svg", "dxf"))`, unpacked to a
 tuple — not a bare `.export()`, which is the deprecated shape above.
 
-**Section views** come from the section verb rather than from projecting a view by
-hand. The two entry points are *not* equivalent:
+**Authored section views** use `section_view()` alongside an explicit dimension and
+view set. This complete example declares the bore diameter and overall extents;
+it deliberately leaves the bore's location dimensions unrequested:
 
+<!-- example: authored-section -->
 ```python
+from build123d import Box, Cylinder, Pos
 from draftwright import Sheet
 
-# Sheet.section() FORCES a cut, wherever you point it.
-cut = Sheet.from_part(part, number="DWG-042").section().build()
-"section_aa" in cut.views                 # True
-# section(feature) cuts through that feature; section(at=y) at an explicit Y.
+bore_tool = Pos(12, 0, 0) * Cylinder(3, 12)
+part = Box(60, 40, 12) - bore_tool
+sheet = Sheet(part, page="A3", scale=1, projection="third")
+sheet.authored_dimensions().authored_views()
 
-# Drawing.section() adds only the AUTOMATIC A–A, which fires just for qualifying
-# hidden internal geometry (a counterbore, spotface, or blind bottom). It returns
-# the placed annotation names, or [] when no section is warranted — so on a plain
-# through-holed block it does nothing at all.
-dwg.section()
+envelope = sheet.envelope(part)
+for parameter_id in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter_id)
+bore = sheet.hole(bore_tool)
+print(bore.dimension_ids())  # discover this handle's Sheet measurement IDs
+sheet.dimension(bore, "bore.diameter")
+
+for name in ("front", "plan", "side"):
+    sheet.view(name)
+sheet.section_view("A", through=bore)  # or at=0 for an explicit model-space Y plane
+
+drawing = sheet.build()
+issues = drawing.lint()
+for issue in issues:
+    print(issue.severity, issue.code, issue.message)
+# drawing.export("build/section", formats=("pdf", "svg"))
 ```
+
+`dimension_ids()` lists the Sheet handle's dotted IDs: use `"bore.diameter"` here.
+Drawing.dimension instead takes a kind and optional role, such as `"length"` with
+`role="width"` for an envelope. Hole diameter/depth use Drawing.callout, not
+Drawing.dimension. Inspect `issues`: authored omissions
+remain visible, so a successfully built section does not prove a complete drawing.
+
+`view()` and `section_view()` define complete authored principal and derived sets.
+To augment automatic views instead, start a new Sheet, explicitly select
+`auto_views()`, and use `add_section_view("A", through=...)` or `at=...`.
+That mode remains supported; `auto_views()` emits a soft-deprecation notice with
+no removal date. Do not switch an already-authored view set to `auto_views()`.
+See the runnable augmentation example in `docs/reference/sheet.md`.
+
+`Sheet.section()` is deprecated with removal targeted at 0.6.0. Migrate it to the
+method for your view source above. `Drawing.section()` remains the automatic
+post-build section operation: it may return no section when the geometry does not
+warrant one. It does not replace an explicit authored section request.
 
 Arbitrary **auxiliary** views have no public verb: `add_view()` was the way to
 project one and is deprecated, so a custom viewing direction is not currently part
@@ -311,7 +350,7 @@ for i in dwg.lint():
 dwg.repair()
 
 # Pin a deliberate placement so repair won't move it (the constraint solver will
-# honour it too as it lands — ADR 0003):
+# honour it too as it lands — ADR 2):
 dwg.pin(name)             # name from dwg.annotations(); dwg.unpin(name) to release
 ```
 

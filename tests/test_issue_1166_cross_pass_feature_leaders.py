@@ -2070,13 +2070,28 @@ def test_resource_fallback_never_bypasses_hard_boundaries(monkeypatch, tmp_path,
     assert set(rejected[0]["blockers"]) == {target, "fixed_probe_budget"}
 
 
-def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch):
+def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch, tmp_path):
     part = _overfull_distinct_hole_strip_part()
+    trace_path = tmp_path / "complete-state-budget.json"
 
     with pytest.warns(ScaleCompletenessWarning):
-        joint = build_drawing(part, page="A4", scale=1, scale_policy="permissive")
+        joint = build_drawing(
+            part, page="A4", scale=1, scale_policy="permissive", trace=trace_path
+        )
     assert len([name for name in joint.annotations() if name.startswith("hc_plan")]) == 12
     assert not [issue for issue in joint.registry.issues if issue.code == "callout_dropped"]
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text())["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+    # Correct section indicators expose more routes and exhaust the optimality
+    # proof budget. All twelve jobs already fit: discarding that feasible
+    # incumbent for the six-job producer floor would lose real measurements.
+    assert event["assignment"] == "joint_state_budget"
+    assert event["optimal"] is False
+    assert event["objective"]["placed"] == event["inventory_jobs"] == 12
+    assert event["provisional_refinement"] == "primary_state_budget"
 
     monkeypatch.setattr(
         "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",

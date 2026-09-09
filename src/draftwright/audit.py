@@ -28,7 +28,7 @@ reads; no cross-run provider identity is reconstructed or serialized.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -41,6 +41,17 @@ class MeasurementClaim:
     meaning: tuple
     rendered: tuple
     witnesses: tuple = ()
+    approved: tuple = field(default=(), repr=False, compare=False, kw_only=True)
+    cell: tuple[int, int] | None = field(default=None, kw_only=True)
+
+
+@dataclass(frozen=True)
+class MeasurementCellUncertainty:
+    """An unconfirmed measured cell; its table-level unknown remains compatible."""
+
+    annotation: str
+    cell: tuple[int, int]
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -50,6 +61,7 @@ class MeasurementSnapshot:
     owners: tuple
     claims: tuple[MeasurementClaim, ...]
     unknown: tuple[tuple[str, str], ...] = ()
+    cell_unknown: tuple[MeasurementCellUncertainty, ...] = field(default=(), kw_only=True)
 
 
 def compare_measurements(before, after, *, feature_pairs=()) -> dict:
@@ -170,7 +182,7 @@ def compare_measurements(before, after, *, feature_pairs=()) -> dict:
 #: dismissed by a reader — never toward silence. Adding a genuinely new furniture type here is
 #: a deliberate act; forgetting to add a new measurement type to an allowlist was an accident
 #: waiting to happen, and had already happened once.
-_FURNITURE = frozenset({"TitleBlock", "Note", "CenterMark"})
+_FURNITURE = frozenset({"TitleBlock", "Note", "CenterMark", "ProjectionSymbol"})
 
 
 def _measurements(dwg) -> dict[str, str]:

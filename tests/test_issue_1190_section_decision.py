@@ -114,7 +114,7 @@ class TestTheReasonCodeIsTheRealReason:
         )
 
     def test_a_failed_cut_is_reported_as_a_failed_cut(self, monkeypatch):
-        monkeypatch.setattr(sections_module, "_fuzzy_cut", lambda *_a, **_k: None)
+        monkeypatch.setattr(sections_module, "_cut_with_history", lambda *_a, **_k: None)
         dwg = build_drawing(_counterbored_block(), page="A3")
         assert dwg.section_decision["reason"] == "cut_empty"
 
@@ -124,7 +124,7 @@ class TestTheReasonCodeIsTheRealReason:
         def explode(*_args, **_kwargs):
             raise RuntimeError("Standard_DomainError")
 
-        monkeypatch.setattr(sections_module, "_fuzzy_cut", explode)
+        monkeypatch.setattr(sections_module, "_cut_with_history", explode)
         dwg = build_drawing(_counterbored_block(), page="A3")
         assert dwg.section_decision["reason"] == "cut_failed"
         assert "Standard_DomainError" in dwg.section_decision["detail"]
@@ -209,7 +209,7 @@ class TestASkippedSectionIsNeverAScaleBlocker:
         ("reason", "attribute", "replacement"),
         [
             ("no_room", "carve_free_segments", lambda *_a, **_k: []),
-            ("cut_empty", "_fuzzy_cut", lambda *_a, **_k: None),
+            ("cut_empty", "_cut_with_history", lambda *_a, **_k: None),
         ],
     )
     def test_no_skip_reason_is_a_placement_drop(self, monkeypatch, reason, attribute, replacement):

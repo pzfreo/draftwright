@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
+from draftwright.measurement_support import MeasurementSupport, RequirementAlternative
+
 Point = tuple[float, float, float]
 
 
@@ -316,3 +320,84 @@ def plate_owner_dependencies(source, features) -> tuple[tuple[object, str], ...]
         if dependencies := establish(source, features):
             return dependencies
     return ()
+
+
+def plate_dependency_supports(source, dependencies) -> tuple[MeasurementSupport, ...]:
+    """Retain the exact correlated members used by an established Plate recipe.
+
+    The correspondence predicates select the recipe. This projection retains its
+    member witnesses before a local ledger discards them into coarse DimensionIds.
+    Missing witness data leaves the recipe unproved for document reconciliation.
+    """
+    supports: list[MeasurementSupport] = []
+    seen = set()
+    counts = Counter((id(feature), parameter) for feature, parameter in dependencies)
+    try:
+        for feature, parameter in dependencies:
+            identity = (id(feature), parameter)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            if getattr(feature, "kind", None) == "step_level":
+                axis = str(source.axis)
+                index = "xyz".index(axis)
+                if parameter == "step_height.length" and axis == "z":
+                    datum = float(feature.base)
+                    targets = [
+                        float(level)
+                        for level in feature.levels
+                        if _rounded(level) in {_rounded(source.lo), _rounded(source.hi)}
+                        and not _same(level, datum)
+                    ]
+                elif parameter == "step_position.length" and axis in ("x", "y"):
+                    datum = float(feature.datum[index])
+                    targets = [
+                        float(position)
+                        for shoulder_axis, position in feature.shoulders
+                        if str(shoulder_axis) == axis
+                    ]
+                else:
+                    return ()
+                if len(targets) != counts[identity]:
+                    return ()
+                supports.extend(
+                    MeasurementSupport(
+                        feature, parameter, axis, min(datum, target), max(datum, target)
+                    )
+                    for target in targets
+                )
+            elif ".location." in parameter:
+                axis = parameter.rsplit(".", 1)[-1]
+                if axis not in ("x", "y", "z") or getattr(feature, "kind", None) != "slot_pattern":
+                    return ()
+                # The existing slot-pattern grammar locates its centre; pitch and slot
+                # size in this same conjunction establish the repeated cuts.
+                supports.append(
+                    MeasurementSupport(
+                        feature, parameter, axis, location_point=tuple(feature.frame.origin)
+                    )
+                )
+            else:
+                # A unique scalar parameter needs no correlated-member selection. Its
+                # compiled value and engineering meaning are verified at the carrying sheet.
+                matching = [p for p in feature.parameters() if p.parameter_id == parameter]
+                if len(matching) != 1 or counts[identity] != 1:
+                    return ()
+                supports.append(MeasurementSupport(feature, parameter))
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return ()
+    return tuple(supports)
+
+
+def plate_dependency_alternatives(source, features) -> tuple[RequirementAlternative, ...]:
+    """All producer-permitted conjunctions, independent of current annotation ink."""
+    return tuple(
+        RequirementAlternative(dependencies, plate_dependency_supports(source, dependencies))
+        for establish in (
+            _envelope_owned_dependencies,
+            _step_level_dependencies,
+            _polygonal_boss_dependencies,
+            _slot_pattern_dependencies,
+        )
+        if (dependencies := establish(source, features))
+    )

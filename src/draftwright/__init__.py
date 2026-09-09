@@ -27,6 +27,9 @@ _LAZY = {
     "ScaleIncompatibilityError": "draftwright.builder",
     "make_drawing": "draftwright.builder",
     "Drawing": "draftwright.drawing",
+    "BuildEvent": "draftwright.progress",
+    "BuildCancelled": "draftwright.progress",
+    "observe_build": "draftwright.progress",
     "FeatureInfo": "draftwright.drawing",
     "ReportUnavailableError": "draftwright.reporting",
     "INSPECTION_SCHEMA": "draftwright.inspection",
@@ -34,6 +37,9 @@ _LAZY = {
     "InspectionUnavailableError": "draftwright.inspection",
     "inspect_step": "draftwright.inspection",
     "Sheet": "draftwright.sheet",
+    "Document": "draftwright.document",
+    "DocumentResult": "draftwright.document",
+    "DocumentBuildError": "draftwright.document",
     "lint_feature_coverage": "draftwright.linting",
     "PmiExtractionReport": "draftwright.pmi",
     "PmiRecord": "draftwright.pmi",
@@ -89,6 +95,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
     from draftwright._warnings import ScaleCompletenessWarning, SoftDeprecationWarning
     from draftwright.builder import ScaleIncompatibilityError, build_drawing, make_drawing
     from draftwright.compose import choose_scale
+    from draftwright.document import Document, DocumentBuildError, DocumentResult
     from draftwright.drawing import Drawing, FeatureInfo
     from draftwright.inspection import (
         INSPECTION_SCHEMA,
@@ -104,6 +111,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
         extract_pmi,
         extract_pmi_report,
     )
+    from draftwright.progress import BuildCancelled, BuildEvent, observe_build
     from draftwright.reporting import ReportUnavailableError
     from draftwright.sheet import Sheet
     from draftwright.view_plan import ViewConstraints, ViewPlanIncomplete, ViewSpec
@@ -117,9 +125,15 @@ def __dir__():
 
 
 __all__ = [
+    "BuildEvent",
+    "BuildCancelled",
+    "observe_build",
     "INSPECTION_SCHEMA",
     "INSPECTION_SCHEMA_VERSION",
     "Drawing",
+    "Document",
+    "DocumentResult",
+    "DocumentBuildError",
     "SoftDeprecationWarning",
     "FeatureInfo",
     "InspectionUnavailableError",

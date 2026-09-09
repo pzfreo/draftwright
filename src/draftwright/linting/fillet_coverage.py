@@ -14,8 +14,13 @@ from typing import Literal
 
 from quiddity import RecognitionResult
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.measurement_support import RequirementCarrier
 
 FilletRequirementState = Literal[
     "placed",
@@ -37,6 +42,7 @@ class FilletRequirementOutcome:
     features: tuple = ()
     parameter_id: str = "fillet.radius"
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -157,7 +163,7 @@ def fillet_requirement_outcomes(
         outcomes.append(
             FilletRequirementOutcome(key[1], state, features=(feature,), source_records=(source,))
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_fillet_coverage(

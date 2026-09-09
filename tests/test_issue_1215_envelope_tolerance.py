@@ -52,7 +52,7 @@ def _label(drawing, name):
 class TestTheDecorationReachesAllThreeExtents:
     @pytest.mark.parametrize("axis", _AXES)
     def test_the_decorated_extent_prints_its_tolerance(self, axis):
-        assert _label(_built(axis), _ANNOTATION[axis]) == f"{_BARE[axis]} ±0.1"
+        assert _label(_built(axis), _ANNOTATION[axis]) == f"{_BARE[axis]} ±0.05"
 
     @pytest.mark.parametrize("axis", _AXES)
     def test_the_other_two_extents_stay_bare(self, axis):
@@ -85,7 +85,7 @@ class TestTheDecorationReachesAllThreeExtents:
         sheet.auto_dimensions()
         drawing = sheet.build()
         for axis in _AXES:
-            assert _label(drawing, _ANNOTATION[axis]) == f"{_BARE[axis]} ±0.1", axis
+            assert _label(drawing, _ANNOTATION[axis]) == f"{_BARE[axis]} ±0.05", axis
 
     def test_a_limit_pair_prints_both_limits(self):
         assert _label(_built("height", 0.1, 0.2), "dim_height") == "10 +0.2 -0.1"
@@ -100,7 +100,7 @@ class TestTheTwoPathsAgree:
         suffixes = {
             axis: _label(_built(axis), _ANNOTATION[axis]).split(" ", 1)[1] for axis in _AXES
         }
-        assert set(suffixes.values()) == {"±0.1"}, suffixes
+        assert set(suffixes.values()) == {"±0.05"}, suffixes
 
 
 class TestTheToleranceReachesTheInk:
@@ -127,25 +127,11 @@ class TestTheToleranceReachesTheInk:
 
 
 class TestTheCostOnACrowdedSheet:
-    """A longer label grows ALONG the dimension line when the label is rotated.
+    """Tolerances grow the label along its dimension line.
 
-    The height dim is `side="right"`, so its label is rotated and the suffix extends it in Y —
-    the direction the corridor does not reserve, since the strip's depth runs in X. Measured on
-    `Sheet(Box(30, 20, 10)).envelope().tolerance(0.05, on="height")`:
-
-        label bbox height  3.273 -> 12.300
-        annotation bbox    (64.95, 85.05) -> unchanged
-
-    The annotation's own `bounding_box()` not moving is why a bbox comparison misses this
-    entirely, and why the corridor solve does not account for it.
-
-    **What this class does NOT assert is the lint outcome.** On this machine the fixture goes
-    from `view_annotation_inside_extents` (info) to `view_annotation_overlap` (warning), and
-    `repair()` does not clear it. On CI it produces neither — `codes` is the empty set. I first
-    pinned the warning and it failed on three ubuntu shards: whether the taller label actually
-    crosses the front view's edge depends on the solved offset, which differs by platform. The
-    geometry is the durable fact; the lint code is not, and asserting it was pinning my own
-    machine (#1234 review r2, and its CI run).
+    The complete annotation bounds must enclose that ink, including when preserving
+    the tolerance's decimal places makes the text longer than the measured span.
+    Assert geometry rather than a platform-dependent placement or lint outcome.
     """
 
     @staticmethod
@@ -159,13 +145,15 @@ class TestTheCostOnACrowdedSheet:
         # ...and NOT across it: the strip depth is unchanged, which is the whole problem.
         assert round(tol[2] - tol[0], 3) == round(bare[2] - bare[0], 3), (bare, tol)
 
-    def test_the_annotations_own_bounding_box_does_not_move(self):
-        # Why this went unnoticed: the obvious check sees nothing.
-        def box(drawing):
-            b = drawing.registry.named("dim_height").bounding_box()
-            return (round(b.min.Y, 2), round(b.max.Y, 2))
-
-        assert box(_built(axis=None)) == box(_built("height"))
+    def test_the_annotation_bounds_enclose_the_complete_tolerance_label(self):
+        drawing = _built("height")
+        annotation = drawing.registry.named("dim_height")
+        bounds = annotation.bounding_box()
+        x0, y0, x1, y1 = annotation.label_bbox
+        assert bounds.min.X <= x0 + 0.1
+        assert bounds.max.X >= x1 - 0.1
+        assert bounds.min.Y <= y0 + 0.1
+        assert bounds.max.Y >= y1 - 0.1
 
     def test_an_unrotated_extent_grows_the_other_way(self):
         # The contrast that makes the ROTATION the cause rather than the suffix: `m_env_width`
@@ -210,7 +198,7 @@ class TestTheSuffixDoesNotBreakLabelIdentity:
     def test_the_height_dim_is_still_found_when_it_carries_a_tolerance(self):
         from draftwright.annotations.sections import _overall_height_name
 
-        for axis, expected in ((None, "10"), ("height", "10 ±0.1")):
+        for axis, expected in ((None, "10"), ("height", "10 ±0.05")):
             drawing = _built(axis) if axis else _built(axis=None)
             assert _label(drawing, "dim_height") == expected, axis
             found = _overall_height_name(drawing, self._analysis_for(drawing))
@@ -255,7 +243,7 @@ class TestTheGeneralisedFallbackMatchesToo:
         from draftwright.annotations.sections import _overall_height_name
 
         drawing = _built("height")
-        assert _label(drawing, "dim_height") == "10 ±0.1"
+        assert _label(drawing, "dim_height") == "10 ±0.05"
         envelope = next(f for f in drawing.model().features if f.kind == "envelope")
         drawing.remove("dim_height")
         assert "dim_height" not in drawing.registry.names()
@@ -271,7 +259,7 @@ class TestTheGeneralisedFallbackMatchesToo:
             label="10",
             tolerance=0.05,
         )
-        assert str(drawing.get_annotation("dim_length7").label) == "10 ±0.1"
+        assert str(drawing.get_annotation("dim_length7").label) == "10 ±0.05"
         found = _overall_height_name(
             drawing, TestTheSuffixDoesNotBreakLabelIdentity._analysis_for(drawing)
         )

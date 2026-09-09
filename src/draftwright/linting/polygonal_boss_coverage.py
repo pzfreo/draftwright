@@ -18,13 +18,18 @@ from typing import Literal
 
 from quiddity import PolygonalBoss, RecognitionResult
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.measurement_support import RequirementCarrier
 
 PolygonalBossRequirementState = Literal[
     "placed",
@@ -48,6 +53,7 @@ class PolygonalBossRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -354,7 +360,7 @@ def polygonal_boss_requirement_outcomes(
             )
             for parameter in parameter_ids
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_polygonal_boss_coverage(

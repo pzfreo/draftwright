@@ -154,27 +154,32 @@ def repair_drawing(dwg, max_iter: int = 3, *, ink_candidates=None):
             break
         snap_annotations = list(dwg.items)
         snap_registry = dwg.registry.snapshot()
-        changed = False
-        for issue in before:
-            if issue.code not in _REPAIRABLE_CODES:
-                continue
-            if issue.code == "dim_inside_part":
-                labels = _QUOTED_RE.findall(issue.message)
-                key = labels[0] if labels else None
-                if key in flipped:
+        accepted = False
+        try:
+            changed = False
+            for issue in before:
+                if issue.code not in _REPAIRABLE_CODES:
                     continue
-                if _repair_dim_inside_part(dwg, issue):
-                    flipped.add(key)
-                    changed = True
-        if not changed:
-            break
-        after = dwg.lint(physical=False)
-        if len(after) > len(before):
-            # Preserve the wrong-side handler's existing rollback contract. Ink
-            # candidates below use the stricter per-code/severity comparison.
-            dwg.items[:] = snap_annotations
-            dwg.registry.restore(snap_registry)
-            break
+                if issue.code == "dim_inside_part":
+                    labels = _QUOTED_RE.findall(issue.message)
+                    key = labels[0] if labels else None
+                    if key in flipped:
+                        continue
+                    if _repair_dim_inside_part(dwg, issue):
+                        flipped.add(key)
+                        changed = True
+            if not changed:
+                break
+            after = dwg.lint(physical=False)
+            if len(after) > len(before):
+                # Preserve the wrong-side handler's existing rollback contract. Ink
+                # candidates below use the stricter per-code/severity comparison.
+                break
+            accepted = True
+        finally:
+            if not accepted:
+                dwg.items[:] = snap_annotations
+                dwg.registry.restore(snap_registry)
         before = after
     if ink_candidates is not None:
         _repair_annotation_ink(dwg, ink_candidates, before)

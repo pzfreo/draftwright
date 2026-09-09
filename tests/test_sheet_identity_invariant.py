@@ -41,9 +41,9 @@ import pickle
 from pathlib import Path
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, Pos, export_step
 
-from draftwright import Sheet
+from draftwright import Document, Sheet
 from draftwright.model import Frame, HoleFeature
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.py"
@@ -84,7 +84,8 @@ def _canonical(model) -> tuple:
     features = sorted(repr(f) for f in model.features)
     decorations = sorted((repr(k), repr(v)) for k, v in getattr(model, "decorations", {}).items())
     requested = sorted(repr(r) for r in getattr(model, "requested_dimensions", ()))
-    return (features, decorations, requested)
+    schedules = sorted(repr(schedule) for schedule in getattr(model, "schedules", ()))
+    return (features, decorations, requested, schedules)
 
 
 def _canonical_sheet(sheet) -> tuple:
@@ -173,6 +174,13 @@ def _scn_dimension(s):
     return a, lambda a: s.dimension(a, "bore.diameter")
 
 
+def _scn_schedule(s):
+    """A retained schedule must follow its exact owner through reorder and aspect edits."""
+    handle, _drive = _scn_dimension(s)
+    s.schedule([(handle, ("bore.diameter",))], name="operations")
+    return handle, lambda handle: handle.tolerance(0.025)
+
+
 def _scn_add_dimension(s):
     """Retain a `DimensionIntent`, reorder, then apply its display policy.
 
@@ -233,6 +241,7 @@ _SCENARIOS = {
     "datum": _scn_datum,
     "note": _scn_note,
     "dimension": _scn_dimension,
+    "schedule": _scn_schedule,
     "section_view": _scn_section_view,
     "add_section_view": _scn_add_section_view,
 }
@@ -671,10 +680,16 @@ _STATE_CARRYING_FEATURE_REFS = frozenset(
         "_section",
         "_added_dimensions",
         "_authored",
+        "_schedules",
         "_derived_views",
         "_added_derived_views",
     }
 )
+
+#: Exact common owners cannot be deleted/replaced. Their separate scenario below tests
+#: reorder and authoring while the document lifecycle tests exercise atomic refusals.
+_STATE_CARRYING_SEALED_FEATURE_REFS = frozenset({"_document_input"})
+
 
 #: `Sheet` state that stores no feature reference, so a reorder cannot affect it.
 _STATE_WITHOUT_FEATURE_REFS = frozenset(
@@ -742,7 +757,11 @@ def test_every_sheet_state_field_is_classified():
     that is what the invariant is actually about. A new field forces a classification, and
     classifying it as reference-carrying forces a scenario via the test below.
     """
-    assert _sheet_state_fields() == _STATE_CARRYING_FEATURE_REFS | _STATE_WITHOUT_FEATURE_REFS, (
+    assert _sheet_state_fields() == (
+        _STATE_CARRYING_FEATURE_REFS
+        | _STATE_CARRYING_SEALED_FEATURE_REFS
+        | _STATE_WITHOUT_FEATURE_REFS
+    ), (
         "Sheet grew or lost state — classify each new field as carrying feature references "
         "(and give it a scenario in _SCENARIOS) or not carrying them"
     )
@@ -761,6 +780,29 @@ def test_every_reference_carrying_state_field_is_exercised():
         f"no scenario populates {sorted(_STATE_CARRYING_FEATURE_REFS - reached)} — a reference "
         "stored there would not be covered by the reorder matrix"
     )
+
+
+def test_sealed_reference_state_preserves_common_owners_across_reorder(tmp_path):
+    path = tmp_path / "common.step"
+    export_step(_part(), path)
+    document = Document.from_part(path)
+    sheet = document.sheet("features").authored_dimensions()
+    reached = {field for field in _STATE_CARRYING_SEALED_FEATURE_REFS if getattr(sheet, field)}
+    assert reached == _STATE_CARRYING_SEALED_FEATURE_REFS
+    holes = [feature for feature in document.features if feature.kind == "hole"]
+    assert len(holes) == 2 and holes[0] is not holes[1]
+    handle = sheet.of(holes[0])
+    sheet.dimension(handle, "bore.diameter")
+    before = _canonical_sheet(sheet)
+    order = _order(sheet)
+    sheet.features.reverse()
+    assert _order(sheet) != order
+    assert _canonical_sheet(sheet) == before
+    handle.tolerance(0.02)
+    model = sheet.model()
+    assert all(any(feature is owner for feature in model.features) for owner in document.features)
+    assert len(model.decorations) == 1
+    assert next(iter(model.decorations))[0] is holes[0]
 
 
 def test_dimension_intent_verb_roster_is_closed():

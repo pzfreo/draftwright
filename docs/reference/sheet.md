@@ -4,6 +4,142 @@
 are documented here because they are part of normal use even though their Python names begin
 with an underscore.
 
+## Projection convention
+
+Use `Sheet(part, projection="first")` or `build_drawing(part, projection="first")`
+for first-angle layout and its matching projection symbol. The CLI equivalent is
+`--projection first`. Explicit `"third"` selects third-angle layout and its symbol;
+omitting `projection` keeps third-angle layout without a symbol.
+
+View names retain their physical viewing directions in the working part frame. Changing
+convention changes sheet relationships, not which side of the part a name shows:
+
+| View | Viewed from | Page directions | Third-angle position | First-angle position |
+|---|---|---|---|---|
+| `front` | Negative Y | X right, Z up | Reference | Reference |
+| `plan` | Positive Z | X right, Y up | Above front | Below front |
+| `side` | Positive X | Y right, Z up | Right of front | Left of front |
+
+The resolved convention is available as `drawing.view_plan.convention`. Generated scripts
+retain the requested convention. Annotation footprints, scale/page selection and measured
+repacking use the same convention. An authored relation contradicting the principal layout
+fails before projection; a whole-view pin must preserve the convention's relationships.
+
+## Dimension text style
+
+### Title fields and notes at paper size
+
+Keep title-block values concise and put longer engineering information in a `notes()` block.
+`title_field_overflow` identifies text wider or taller than its title-block cell, even when the
+text remains inside the page. This is a legibility warning, like overlapping annotations;
+text outside the drawable page remains an `annotation_out_of_bounds` error. The full value
+stays rendered; the diagnostic does not truncate it, shrink the font or invent an abbreviation.
+`lint_summary()["passed"]` checks errors only, so inspect warnings and the legibility component
+as well. A title warning does not prevent scale recovery from restoring missing measurements.
+
+<!-- issue-1536-notes-example -->
+```python
+from build123d import Box
+from draftwright import Sheet
+
+sheet = Sheet(
+    Box(30, 20, 10), page="A4", scale=2,
+    title="FRAME - DFM REVIEW", number="REVIEW", material="SEE NOTES",
+    detail_view=False,
+)
+sheet.authored_dimensions()
+envelope = sheet.envelope()
+for parameter in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter)
+sheet.notes([
+    "QUOTATION / DFM REVIEW - NOT RELEASED",
+    "Material: TITANIUM - GRADE TBD",
+    "Hinge fit and pin retention: engineering decision required",
+], prefer="tr")
+drawing = sheet.build()
+for issue in drawing.lint():
+    print(issue.severity, issue.code, issue.message)
+```
+<!-- /issue-1536-notes-example -->
+
+`page` and `scale` control the sheet and model size. The current annotation preset has a fixed
+3 mm nominal paper font size; changing scale does not enlarge notes. `Sheet.notes()` and
+`Sheet.table()` have no font-size option. `text_position` and `text_orientation` below control
+dimension style, not note size. A smaller model scale makes notes larger relative to the part;
+a smaller page changes how much of the page they occupy. Neither changes their printed size.
+For the A2 frame trial, retain A2 and the requested scale unless the full package fits the new
+constraints with its required measurements intact; the small box example is not proof that
+the frame fits A4.
+
+`prefer="tr"` ranks available table positions near the top-right corner. The shared placement
+solve still measures the whole notes block and checks all occupied regions. If it cannot fit,
+`table_dropped` reports the failure. Split long prose into authored lines or choose an appropriate
+page; do not remove engineering content merely to silence a diagnostic. General notes remain
+uncredited text: they do not automatically satisfy missing dimensions or unsupported features.
+
+### Dimension position and reading direction
+
+Position and reading direction are independent drawing-wide settings:
+
+```python
+sheet = Sheet(part, text_position="above", text_orientation="horizontal")
+# Declare features and dimensions as usual, then build.
+drawing = sheet.build()
+```
+
+`text_position="inline"` (the default) leaves a gap for the value in the dimension
+line; `"above"` keeps the line continuous and offsets the full value and tolerance.
+For angular dimensions, above means outside the arc. `text_orientation="aligned"`
+(the default) follows the dimension line or arc tangent; `"horizontal"` keeps text
+horizontal on the sheet. An aligned vertical value reads from the right. Short
+spans use outside arrows while retaining their complete text.
+
+The same options are accepted by `build_drawing()`, `make_drawing()`,
+`emit_sheet_script()` and `generate_sheet_script()`. The CLI flags are
+`--text-position` and `--text-orientation`. Generated scripts retain these settings;
+SVG, PDF and DXF export the same resolved ink. Unsupported values raise `ValueError`.
+The choices affect rendering and its placement footprint, not feature measurements
+or tolerances. These are explicit rendering choices, not a claim of standards conformity.
+
+## Through-hole wording
+
+The optional argument to a hole handle's `through()` controls its printed indicator:
+
+```python
+hole.through()                # default THRU
+hole.through("THRU")          # explicit wording
+hole.through("")              # omit the printed indicator
+hole.through("THROUGH ALL")   # alternative wording
+```
+
+Each declares a through hole and clears any blind depth. Diameter, tolerances, fits and
+measurement identities remain unchanged. The empty string is an explicit display omission;
+it remains visible in the suppression ledger and does not count as a printed through
+qualifier. `.depth(4)` makes the hole blind and clears the override; a later `.through()`
+returns to the default.
+
+The override is also accepted as `through_indicator=` by `Sheet.hole()` and the IR `hole()`
+constructor, including pattern members. Generated scripts preserve the difference between
+no override, explicit default wording and an empty string. Callouts and hole tables measure
+the selected wording before placement. Compatible holes can share a callout when their
+resolved wording, machining specifications and placement constraints agree; original feature
+owners and measurement identities remain separate. Removing one owner of a shared callout
+rebuilds the survivors through the placement solver.
+
+## Feature schedules
+
+`sheet.schedule([(feature, ("bore.diameter", "location"))], name="holes")` declares a measured
+table through the same IR/compiler as ordinary dimensions. Features may be fluent handles or
+exact owned IR objects. Values, tolerances, units and through/blind wording come from the
+compiler. `location` expands the addressable member coordinates; explicit canonical IDs select
+individual components. Use `prefer="tr"`, `"tl"`, `"br"` or `"bl"` to rank the existing table
+placement candidates.
+
+Schedules establish authored dimension intent. Add `sheet.dimension(...)` declarations when a
+measurement should also appear beside a view. Ordinary `table(...)` text has no measurement
+authority. See [shared drawing documents](document.md#feature-schedules) for an executable
+recipe, verified cell evidence and the document report contract.
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`
@@ -234,16 +370,107 @@ View declarations are semantic constraints. They name projections, relationships
 anchors; the layout solve owns the resulting page positions. Authored views must be paired with
 authored dimensions so a deliberately omitted view cannot strand planner-selected annotations:
 
-```python
-s = Sheet(part).authored_dimensions().authored_views()
-front = s.view("front")
-plan = s.view("plan").above(front, gap=4).align_x(front)
-s.view("iso").scale(0.75)
+This runnable example includes the part, feature declarations, dimension discovery,
+three principal views and section A–A. The bore's location dimensions are deliberately
+omitted, and lint keeps those omissions visible.
 
-section = s.section_view("A", through=hole)
-detail = s.detail_view("B", around=hole).scale(2)
-dwg = s.build()
+<!-- example: authored-section -->
+```python
+from build123d import Box, Cylinder, Pos
+from draftwright import Sheet
+
+bore_tool = Pos(12, 0, 0) * Cylinder(3, 12)
+part = Box(60, 40, 12) - bore_tool
+sheet = Sheet(part, page="A3", scale=1, projection="third")
+sheet.authored_dimensions().authored_views()
+
+envelope = sheet.envelope(part)
+for parameter_id in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter_id)
+bore = sheet.hole(bore_tool)
+print(bore.dimension_ids())  # discover this handle's Sheet measurement IDs
+sheet.dimension(bore, "bore.diameter")
+
+for name in ("front", "plan", "side"):
+    sheet.view(name)
+sheet.section_view("A", through=bore)  # or at=0 for an explicit model-space Y plane
+
+drawing = sheet.build()
+issues = drawing.lint()
+for issue in issues:
+    print(issue.severity, issue.code, issue.message)
+# drawing.export("build/section", formats=("pdf", "svg"))
 ```
+
+On a Sheet handle, `dimension_ids()` lists dotted measurement IDs; use
+`sheet.dimension(bore, "bore.diameter")`. On a built Drawing, the second argument to
+`drawing.dimension(envelope_feature, "length", role="width")` is a parameter kind,
+with `role=` distinguishing measurements of the same kind. Hole diameter and depth
+are callout content: use `drawing.callout(bore_feature)` for those, not
+`drawing.dimension(...)`. These are different vocabularies.
+
+#### Augmenting automatic views
+
+`view()` and `section_view()` specify complete authored sets. `add_view()` and
+`add_section_view()` instead augment an explicitly automatic set. Choose the source
+before adding views; an authored set cannot be switched to automatic in place.
+
+This separate, runnable example keeps automatic principal and derived views and
+adds a section at model-space Y=0. Its dimensions are still explicitly authored:
+
+<!-- example: automatic-section -->
+```python
+from build123d import Box
+from draftwright import Sheet
+
+part = Box(60, 40, 12)
+sheet = Sheet(part, page="A3", scale=1).authored_dimensions()
+envelope = sheet.envelope(part)
+for parameter_id in envelope.dimension_ids():
+    sheet.dimension(envelope, parameter_id)
+sheet.auto_views()
+sheet.add_section_view("A", at=0)
+drawing = sheet.build()
+issues = drawing.lint()
+for issue in issues:
+    print(issue.severity, issue.code, issue.message)
+```
+
+`auto_views()` emits `SoftDeprecationWarning`: it remains supported and has no removal
+date. The notice recommends the editable authored surface; it does not mean the
+augmentation example is invalid. Automatic dimensions remain supported too, but they
+cannot be paired with a complete authored view set.
+
+`Sheet.section()` is deprecated with removal targeted at 0.6.0. For an authored
+workflow replace it with `section_view("A", through=feature)` or `section_view("A", at=y)`;
+for automatic augmentation use `auto_views()` followed by `add_section_view(...)`.
+`Drawing.section()` is a separate automatic post-build operation and may add no section
+when the geometry does not warrant one.
+
+
+Rear views are explicitly requested. `s.view("rear")` includes rear in an authored
+view set; `s.auto_views().add_view("rear")` adds it to the automatic baseline.
+Rear looks toward the part from +Y with Z upward, so increasing world X runs left
+on the page. This physical direction is the same under both projection conventions.
+When side is also present, rear sits beyond side in the unfolding direction: left
+for first-angle, right for third-angle.
+
+Y-axis hole and hole-pattern callouts, locations and pitch dimensions can use rear,
+as can overall width and height. For example:
+
+```python
+s = Sheet(part, projection="first").authored_dimensions()
+hole = s.hole(diameter=6, at=(10, 20, 5), axis="y").through("THRU")
+s.dimension(hole, "bore.diameter")
+s.dimension(hole, "location")
+s.view("rear")
+drawing = s.build()
+```
+
+Dimensions still use the shared placement solve. An unsupported measurement/view
+combination is refused; a required depth extent, for example, needs side. Rear is
+never added automatically to improve visibility, coverage or hidden lines. Generated
+scripts preserve an explicit rear request.
 
 `view(...)`, `section_view(...)` and `detail_view(...)` define complete authored sets;
 omission suppresses a view. `add_view(...)`, `add_section_view(...)` and
@@ -403,7 +630,7 @@ geometry cannot prove a complete chain or the provider aggregate's Fillet preced
 referential `DimensionIntent`. The handle never carries a replacement nominal and never chooses
 page coordinates. Use `format(decimals=n)` to preserve between 0 and 15 decimal places in the
 printed nominal while reconciliation, tolerance, suppression and provenance continue to read the
-numeric parameter from the feature. Optional `view="front|plan|side"` and
+numeric parameter from the feature. Optional `view="front|plan|side|rear"` and
 `side="above|below|left|right"` arguments select a supported semantic corridor when authored
 routing must override the derived default; the normal placement solve still chooses coordinates
 and reports capacity/crossing failures. Trailing zeroes are intentional manufacturing display text:

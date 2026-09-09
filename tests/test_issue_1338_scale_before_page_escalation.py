@@ -59,6 +59,13 @@ def test_automatic_recovers_on_a4_at_a_larger_scale_instead_of_escalating_the_sh
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (*A4, 5.0)
     assert "iso" in drawing.views
     assert _requirement_failures(drawing) == []
+    # A long default title still overflows its cell at the recovered scale. Reporting this
+    # as a structural error would reject the recovery and return missing axial measurements.
+    overflow = [issue for issue in drawing.lint() if issue.code == "title_field_overflow"]
+    assert overflow and all(issue.severity == "warning" for issue in overflow)
+    legibility = drawing.lint_summary()["quality"]["legibility"]
+    assert legibility["by_code"]["title_field_overflow"] == 1
+    assert legibility["score"] < 1
 
     assert drawing.scale_decision["status"] == "automatic_replanned"
     assert [

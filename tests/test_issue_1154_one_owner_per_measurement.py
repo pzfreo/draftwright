@@ -405,7 +405,7 @@ class TestConsolidationMovesTheFactOrDoesNotHappen:
         assert not [o for o in compile_dimensions(drawing.model()).diagnostics if o.conveyed_by], (
             "a toleranced height was consolidated onto an extent that cannot carry it"
         )
-        assert "8 ±0.1" in _labels(drawing), _labels(drawing)
+        assert "8 ±0.05" in _labels(drawing), _labels(drawing)
 
     def test_an_owner_the_rule_set_withholds_is_refused(self):
         # A z-rotational part suppresses its envelope width and depth (the OD conveys them),
@@ -554,7 +554,7 @@ class TestTheToleranceRuleIsAsymmetric:
         return [label for label in _labels(sheet.build()) if label.startswith("8")]
 
     def test_tolerancing_the_yielding_dimension_keeps_both(self):
-        assert self._z_hub_labels(on_boss=True) == ["8", "8 ±0.1"]
+        assert self._z_hub_labels(on_boss=True) == ["8", "8 ±0.05"]
 
     def test_tolerancing_the_owner_still_consolidates(self):
         # The first cut compared the two tolerances and refused whenever they differed, so an
@@ -564,7 +564,7 @@ class TestTheToleranceRuleIsAsymmetric:
         #
         # The label gained its ± in #1215; the RULE is untouched. What this test guards is the
         # COUNT — one label, not two — and that is unchanged.
-        assert self._z_hub_labels(on_envelope=True) == ["8 ±0.1"]
+        assert self._z_hub_labels(on_envelope=True) == ["8 ±0.05"]
 
     def test_equal_tolerances_on_both_sides_still_keep_both(self):
         # The r2 correction then went one step too far and admitted "equal tolerances", on
@@ -581,4 +581,4 @@ class TestTheToleranceRuleIsAsymmetric:
         # changes just because it now can. #1215's last acceptance line proposes revisiting
         # whether transferring beats refusing; that is a separate decision, and this test keeps
         # guarding the count either way.
-        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8 ±0.1", "8 ±0.1"]
+        assert self._z_hub_labels(on_boss=True, on_envelope=True) == ["8 ±0.05", "8 ±0.05"]

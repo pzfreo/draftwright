@@ -349,8 +349,8 @@ jobs:
           retention-days: 14
 
   test-real-part-canary:
-    # One real STEP build checks fixed occurrence/measurement expectations and exports
-    # before merge (#827). Linux/Python 3.12 matches the post-merge slow-suite kernel;
+    # Bounded real STEP builds check fixed occurrence/measurement expectations and exports
+    # before merge (#827, #1544). Linux/Python 3.12 matches the post-merge slow-suite kernel;
     # the compatibility matrix covers the other supported Python/kernel resolutions.
     # Run once, outside that matrix. The test has a 120 s execution budget; this
     # job limit also bounds installation and a native-kernel hang.
@@ -369,7 +369,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Check real-part semantics and production exports
-        run: uv run pytest tests/test_issue_827_real_part_canary.py -m real_part_canary -v -s --durations=1
+        run: uv run pytest tests/test_issue_827_real_part_canary.py tests/test_issue_1544_frame_document_canary.py -m real_part_canary -v -s --durations=1
 
   test-slow:
     # Heavy end-to-end CTC fixture builds (minutes each); run once, not across

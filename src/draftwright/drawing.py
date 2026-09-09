@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
     from draftwright.recognition_ownership import RecognitionOwnership
 
+from draftwright.progress import observed_stage
+
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
 # which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
 # (only in 3.13+ typeshed).
@@ -83,6 +85,7 @@ from draftwright.export import (
     add_svg_metadata,
     canonicalize_svg,
     fix_svg_page_size,
+    highlight_svg_annotation,
     sanitize_svg_arcs,
     set_dxf_metadata,
     write_dxf,
@@ -137,7 +140,7 @@ from draftwright.linting import (
 )
 from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
-from draftwright.linting.quality import quality_components
+from draftwright.linting.quality import quality_components, review_explanation
 from draftwright.linting.section_recess_coverage import lint_section_recess_coverage
 from draftwright.projection import (
     part_material_mesh,
@@ -147,6 +150,7 @@ from draftwright.projection import (
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
+from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, VIEW_AXES
 
 
 def _exact_vertex_rotation(source_vertices, target_vertices) -> float | None:
@@ -930,7 +934,7 @@ class Drawing:
         annotatable from that view):
 
         - ``"plan"``  → Z-axis holes
-        - ``"front"`` → Y-axis holes
+        - ``"front"`` / ``"rear"`` → Y-axis holes
         - ``"side"``  → X-axis holes
 
         Returns an empty list when no analysis is available or the view name
@@ -940,7 +944,10 @@ class Drawing:
         if a is None:
             return []
 
-        _axis_for_view = {"plan": "z", "front": "y", "side": "x"}
+        _axis_for_view = {
+            name: next(axis for axis in "xyz" if axis not in axes)
+            for name, axes in VIEW_AXES.items()
+        }
         target_axis = _axis_for_view.get(view)
         if target_axis is None:
             return []
@@ -1045,45 +1052,70 @@ class Drawing:
         shrinking the denominator. Calling this method never changes rendered drawing content.
         """
 
-        from draftwright.reporting import drawing_report, validate_report_inputs
+        from draftwright.reporting import drawing_report
+
+        snapshot = self.requirement_snapshot()
+        with _reuse_report_requirements(self, snapshot.outcomes, snapshot.dimension_plan):
+            lint = self.lint_summary()
+        return drawing_report(
+            evidence=snapshot.evidence,
+            ownership=snapshot.ownership,
+            model=snapshot.model,
+            lint=lint,
+            source=snapshot.source,
+            registry=snapshot.registry,
+            omissions=snapshot.omissions,
+            dimension_plan=snapshot.dimension_plan,
+            part=snapshot.part,
+            requirement_outcomes=snapshot.outcomes,
+        )
+
+    def requirement_snapshot(self, *, include_lint=False):
+        """Capture live source-owned outcomes for single-sheet and document review.
+
+        This reuses the report's exact-authority validation and existing producers.
+        It neither recognizes geometry nor derives requirements from the compiled plan.
+        The returned references belong to this build and must not be persisted or
+        combined with another recognition run. Serialize edits and snapshot reads.
+        """
+        from draftwright.reporting import RequirementSnapshot, validate_report_inputs
 
         analysis = self._analysis
         source = getattr(analysis, "step_file", None) if analysis is not None else None
-        evidence = self.recognition_evidence()
-        ownership = self.recognition_ownership()
-        model = self.model()
-        # Preserve schema-v1's fail-before-critique boundary. In particular, a declared drawing
-        # with no conversion-time ownership must refuse without lint lazily running recognition.
-        evidence, ownership, model = validate_report_inputs(evidence, ownership, model)
+        evidence, ownership, model = validate_report_inputs(
+            self.recognition_evidence(), self.recognition_ownership(), self.model()
+        )
         from draftwright.linting.requirements import recognized_requirement_outcomes
         from draftwright.model.compiled import compile_dimensions
 
         dimension_plan = compile_dimensions(model)
-        requirement_outcomes = recognized_requirement_outcomes(
+        omissions = tuple(self._build.omissions)
+        outcomes = recognized_requirement_outcomes(
             evidence.result,
             tuple(model.features),
             self.registry,
-            self._build.omissions,
+            omissions,
             dimension_plan=dimension_plan,
             part=self._working_part,
             evidence=evidence,
             ownership=ownership,
+            datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
         )
-
-        with _reuse_report_requirements(self, requirement_outcomes, dimension_plan):
-            lint = self.lint_summary()
-
-        return drawing_report(
-            evidence=evidence,
-            ownership=ownership,
-            model=model,
-            lint=lint,
-            source=source,
-            registry=self.registry,
-            omissions=self._build.omissions,
-            dimension_plan=dimension_plan,
-            part=self._working_part,
-            requirement_outcomes=requirement_outcomes,
+        lint = None
+        if include_lint:
+            with _reuse_report_requirements(self, outcomes, dimension_plan):
+                lint = self.lint_summary()
+        return RequirementSnapshot(
+            evidence,
+            ownership,
+            model,
+            source,
+            self.registry,
+            omissions,
+            dimension_plan,
+            self._working_part,
+            outcomes,
+            lint,
         )
 
     def write_report(self, path: str | os.PathLike[str]) -> str:
@@ -1321,7 +1353,12 @@ class Drawing:
         """
         from copy import deepcopy
 
-        from draftwright.audit import _FURNITURE, MeasurementClaim, MeasurementSnapshot
+        from draftwright.audit import (
+            _FURNITURE,
+            MeasurementCellUncertainty,
+            MeasurementClaim,
+            MeasurementSnapshot,
+        )
         from draftwright.linting.evidence import compiled_values, verify_measurement_claims
         from draftwright.linting.structural import dimension_path_measurement
         from draftwright.model.compiled import compile_dimensions
@@ -1331,9 +1368,11 @@ class Drawing:
             return MeasurementSnapshot((), (), (("", "model_unavailable"),))
         plan = compile_dimensions(model)
         values = compiled_values(plan)
+        schedules = {schedule.name: schedule for schedule in plan.schedules}
         outcomes = verify_measurement_claims(self.registry, plan)
         claims = []
         unknown = []
+        cell_unknown = []
         for name, type_name in self.annotations().items():
             if type_name in _FURNITURE:
                 continue
@@ -1346,6 +1385,72 @@ class Drawing:
             identities = self.registry.measurement_of(name)
             if not identities:
                 unknown.append((name, "measurement_identity_unavailable"))
+            cells = self.registry.cells_of(name)
+            if cells:
+                for reference in cells:
+                    identity = reference.measurement
+                    address = (reference.row, reference.column)
+                    evidence = [
+                        item
+                        for item in outcomes
+                        if item.annotation == name
+                        and item.cell == address
+                        and item.measurement is not None
+                        and getattr(item.measurement, "feature", None) is identity.feature
+                        and item.parameter_id == identity.parameter
+                    ]
+                    if not evidence or any(item.state != "confirmed" for item in evidence):
+                        unknown.append((name, "compiled_claim_unconfirmed"))
+                        cell_unknown.append(
+                            MeasurementCellUncertainty(name, address, "compiled_claim_unconfirmed")
+                        )
+                        continue
+                    schedule = schedules[reference.schedule]
+                    approved_cell = schedule.rows[reference.row][reference.column]
+                    item = approved_cell.measurement
+                    # Verification has bound the actual cell to this exact approval.
+                    # Other cells sharing a coarse ID cannot enlarge its meaning.
+                    assert item is not None
+                    rows = annotation.table_rows
+                    claims.append(
+                        MeasurementClaim(
+                            identity.feature,
+                            identity.parameter,
+                            name,
+                            (
+                                (
+                                    item.value,
+                                    deepcopy(item.tolerance),
+                                    item.span,
+                                    item.axis,
+                                    item.discriminator,
+                                    item.location_member,
+                                    item.angular_reference.measurement_key
+                                    if item.angular_reference is not None
+                                    else None,
+                                ),
+                            ),
+                            (
+                                str(rows[reference.row][reference.column]),
+                                str(rows[0][reference.column]),
+                                tuple(
+                                    (column, str(rows[reference.row][column]))
+                                    for column, cell in enumerate(schedule.rows[reference.row])
+                                    if cell.measurement is None
+                                ),
+                            ),
+                            approved=(item,),
+                            cell=address,
+                        )
+                    )
+                # Retain unsliced claims as uncertainty, just as the common verifier
+                # does. No successful neighbour grants them an implicit address.
+                if any(
+                    item.annotation == name and item.cell is None and item.state != "confirmed"
+                    for item in outcomes
+                ):
+                    unknown.append((name, "compiled_claim_unconfirmed"))
+                continue
             for identity in identities:
                 approved = tuple(
                     item
@@ -1409,9 +1514,15 @@ class Drawing:
                                 if feature is identity.feature
                             ),
                         ),
+                        approved=approved,
                     )
                 )
-        return MeasurementSnapshot(tuple(model.features), tuple(claims), tuple(unknown))
+        return MeasurementSnapshot(
+            tuple(model.features),
+            tuple(claims),
+            tuple(unknown),
+            cell_unknown=tuple(cell_unknown),
+        )
 
     @property
     def solve_trace(self):
@@ -1475,7 +1586,7 @@ class Drawing:
                 convert world coordinates.
             p2: second page-coordinate tuple ``(px, py, 0)``.
             side: ``"above"``, ``"below"``, ``"left"``, or ``"right"``.
-            view: ``"front"``, ``"plan"``, or ``"side"``.
+            view: ``"front"``, ``"plan"``, ``"side"``, or ``"rear"``.
             draft: the drawing's :attr:`draft` preset.
             name: optional annotation name for later :meth:`remove` / replace.
             slot: strip slot depth (mm); the perpendicular space reserved per dim.
@@ -1531,7 +1642,12 @@ class Drawing:
         behaviour notes.
         """
         a = self._analysis
-        _view_zones = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
+        _view_zones = {
+            "front": "fv_zones",
+            "plan": "pv_zones",
+            "side": "sv_zones",
+            "rear": "rv_zones",
+        }
         strip = None
         if a is not None:
             zones = getattr(a, _view_zones.get(view, ""), None)
@@ -1585,7 +1701,7 @@ class Drawing:
         )
 
     # -- annotations ----------------------------------------------------------
-    def _add(self, obj, name=None, view=None, feature=None, measurement=None):
+    def _add(self, obj, name=None, view=None, feature=None, measurement=None, *, cells=()):
         """Register an annotation so lint and export include it; returns ``obj``. The
         annotation-placement **primitive** (#817) — private, because the public door is the
         placement verbs (:meth:`callout`/:meth:`dimension`/:meth:`note`/:meth:`add_table`/…) and
@@ -1606,6 +1722,7 @@ class Drawing:
             view,
             feature,
             measurement,
+            cells=cells,
         )
 
     @deprecated(
@@ -1646,10 +1763,35 @@ class Drawing:
 
         Use a feature from :meth:`model`: ``dwg.drop(dwg.model().features[0])``. Removing
         a feature's callout/centre-mark/size-dims is a page-level edit; call
-        :func:`finalize_drawing` afterwards (when available) to recompose the sheet."""
+        :func:`finalize_drawing` afterwards (when available) to recompose the sheet.
+        A measured schedule shared by other features requires editing its declared
+        rows and rebuilding; partial removal refuses before changing any ink."""
         names = self._registry.names_for_feature(feature)
+        for name in names:
+            if any(
+                cell.measurement.feature is not feature for cell in self._registry.cells_of(name)
+            ):
+                raise ValueError(
+                    f"schedule {name!r} also measures other features; edit its declared "
+                    "rows and rebuild, or remove the whole table explicitly by name"
+                )
+        survivors: list = []
+        for name in names:
+            for owner in getattr(self._registry.named(name), "source_features", ()):
+                if owner != feature and not any(owner is existing for existing in survivors):
+                    survivors.append(owner)
         for n in names:
             self.remove(n)
+        if survivors:
+            # A shared callout is indivisible ink. Re-emit only its other owners
+            # through the same deferred callout path after removing that ink.
+            if self._defer_intents:
+                for owner in survivors:
+                    self.callout(owner)
+            else:
+                with self.deferred():
+                    for owner in survivors:
+                        self.callout(owner)
         return names
 
     @staticmethod
@@ -1682,7 +1824,7 @@ class Drawing:
 
     def _resolve_dimension_span(self, feature, param, *, role=None, view=None):
         """Return ``(param_record, view, p1, p2)`` for a feature linear dimension."""
-        _ortho = ("front", "plan", "side")
+        _ortho = PRINCIPAL_VIEW_NAMES
         if view is not None and view not in _ortho:
             raise ValueError(
                 f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
@@ -1718,7 +1860,7 @@ class Drawing:
         (lo, hi) = span
         p1 = p2 = None
         chosen = view
-        automatic_views: tuple[str, ...] = _ortho
+        automatic_views = tuple(name for name in _ortho if name in self.views)
         if view is None and getattr(feature, "kind", None) == "through_step":
             automatic_views = (_END_ON[feature.axis],)
         for v in [view] if view else automatic_views:
@@ -1816,7 +1958,12 @@ class Drawing:
 
         side = it.kwargs.get("side")
         view = it.kwargs.get("view")
-        zones_name = {"front": "fv_zones", "plan": "pv_zones", "side": "sv_zones"}
+        zones_name = {
+            "front": "fv_zones",
+            "plan": "pv_zones",
+            "side": "sv_zones",
+            "rear": "rv_zones",
+        }
         rec, view, p1, p2 = self._resolve_dimension_span(
             it.feature,
             it.kwargs["param"],
@@ -1957,11 +2104,11 @@ class Drawing:
         an exact parameter id/discriminator to pick one — an ambiguous kind raises rather
         than guessing.
 
-        ``view`` is chosen automatically as the orthographic view (``"front"``/``"plan"``/
-        ``"side"``) where the span projects non-degenerate — a length along the turning
+        ``view`` is chosen from the selected principal views (``"front"``/``"plan"``/
+        ``"side"``/``"rear"``) where the span projects non-degenerate — a length along the turning
         axis vanishes in its end-on view, so the view follows the geometry. Through-step legs
         share their semantic axis end view and natural outside-corner sides. Pass ``view=``
-        to force one of those three (a non-orthographic view foreshortens the span and is
+        to select a principal explicitly (a non-orthographic view foreshortens the span and is
         rejected). An implicit ``side`` is ``"above"`` except for through-step legs, whose
         missing corner selects the natural outside corridor. ``kwargs`` forward to the dimension
         — except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
@@ -2646,6 +2793,7 @@ class Drawing:
             return False
         return True
 
+    @observed_stage("edit")
     def finalize(self) -> None:
         """Drain the recorded placement intents (#426).
 
@@ -2946,10 +3094,10 @@ class Drawing:
                     self,
                     a,
                     build_view_of_axis(a),
-                    plan_dimensions(model),
+                    plan_dimensions(model, planned_views=tuple(self.views)),
                     feature_hole_keys(model, a),
                     ctx=ctx,
-                    plan=compile_dimensions(model),
+                    plan=compile_dimensions(model, planned_views=tuple(self.views)),
                     only=r.only_callout,
                     place_furniture=False,
                 )
@@ -2968,7 +3116,7 @@ class Drawing:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable
                 render_locations(
                     self,
-                    compile_dimensions(model),
+                    compile_dimensions(model, planned_views=tuple(self.views)),
                     a,
                     ctx=ctx,
                     only=r.only_loc,
@@ -2983,7 +3131,11 @@ class Drawing:
             if r.off_axis_loc_ids:
                 assert a is not None
                 _locate_off_axis_holes(
-                    self, ctx, a, which="across", plan=compile_dimensions(model)
+                    self,
+                    ctx,
+                    a,
+                    which="across",
+                    plan=compile_dimensions(model, planned_views=tuple(self.views)),
                 )
 
         def _s_off_axis_along():
@@ -2991,7 +3143,13 @@ class Drawing:
             # (mirrors the auto pass's off_axis_along stage; after the envelope candidates).
             if r.off_axis_loc_ids:
                 assert a is not None
-                _locate_off_axis_holes(self, ctx, a, which="along", plan=compile_dimensions(model))
+                _locate_off_axis_holes(
+                    self,
+                    ctx,
+                    a,
+                    which="along",
+                    plan=compile_dimensions(model, planned_views=tuple(self.views)),
+                )
 
         def _s_height_ladder():
             # Prismatic step-height ladder through the auto-pass renderer. (#636) This
@@ -3405,7 +3563,7 @@ class Drawing:
         return self._registry.iter_named()
 
     def view_of(self, name):
-        """The owning orthographic view for *name* ("front"/"plan"/"side"), or
+        """The owning orthographic view for *name* ("front"/"plan"/"side"/"rear"), or
         ``None`` — instead of reading ``dwg._anno_view`` directly (#241)."""
         return self._registry.view_of(name)
 
@@ -3419,6 +3577,37 @@ class Drawing:
     def get_annotation(self, name):
         """Return the named annotation object, or ``None`` if no such name (#27)."""
         return self._registry.named(name)
+
+    def preview_annotation(self, name: str, path: str | os.PathLike) -> str:
+        """Write a diagnostic SVG highlighting a placed annotation and its drawn tip.
+
+        Includes the owning view when known. This is a snapshot of current ink, not a
+        physical-target certificate. It neither finalizes edits nor alters the drawing or
+        its export paths. Finish a deferred edit before requesting a preview. Unknown names
+        raise ``KeyError``; missing ink bounds or a non-SVG path raise ``ValueError``.
+        """
+        if self._defer_intents or self._intents:
+            raise ValueError("finish deferred edits before previewing an annotation")
+        annotation = self.get_annotation(name)
+        if annotation is None:
+            raise KeyError(name)
+        destination = os.fspath(path)
+        if os.path.splitext(destination)[1].lower() != ".svg":
+            raise ValueError("annotation previews require an .svg destination")
+        if not hasattr(annotation, "bounding_box"):
+            raise ValueError(f"{name}: annotation ink bounds unavailable")
+        box = annotation.bounding_box()
+        bounds = (box.min.X, box.min.Y, box.max.X, box.max.Y)
+        view = self.view_of(name)
+        context = self.view_bounds(view) if view is not None and view in self.views else bounds
+        tip = getattr(annotation, "tip", None)
+        with tempfile.TemporaryDirectory(dir=os.path.dirname(destination) or ".") as temporary:
+            svg_path = self._write_svg(os.path.join(temporary, "preview"))
+            highlight_svg_annotation(
+                svg_path, name=name, view=view, bounds=bounds, context=context, tip=tip
+            )
+            os.replace(svg_path, destination)
+        return destination
 
     def note(self, text, at, *, view=None, rotation=0.0, name=None, align=None):
         """Add a free-form text **note** at page position *at* — ``(x, y)`` in mm from the sheet
@@ -3458,7 +3647,14 @@ class Drawing:
         return name
 
     def add_table(
-        self, rows, *, prefer="tr", name="table", block_cols=None, _source_id: str | None = None
+        self,
+        rows,
+        *,
+        prefer="tr",
+        name="table",
+        block_cols=None,
+        _source_id: str | None = None,
+        _cells=(),
     ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
 
@@ -3475,6 +3671,8 @@ class Drawing:
         """
         if not rows:
             return None
+        if _cells and name in self._registry:
+            raise ValueError(f"measured schedule name {name!r} already belongs to an annotation")
         table = _build_table(rows, self.draft, block_cols=block_cols)
         # Keep the rows the table draws, so its content is readable back off the annotation
         # (#1217). A table renders as compound geometry with no `label`, so without this a
@@ -3482,6 +3680,8 @@ class Drawing:
         # claims it carries are exactly the ones coverage relies on when the engine withdraws
         # the individual callouts. Mirrors `gear_requirement_rows`.
         table.table_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
+        if _cells:
+            table.measurement_schedule = _cells[0].schedule
         table.table_block_cols = block_cols
         w, h = table.table_size
         a = self._analysis
@@ -3533,10 +3733,23 @@ class Drawing:
                         f"{measured}; {detail}"
                     ),
                     source_ids=(_source_id,) if _source_id is not None else (),
+                    measurement_ids=tuple(cell.measurement for cell in _cells),
                 )
             )
             return None
-        return self._add(table.locate(Location((pos[0], pos[1], 0))), name)
+        placed = table.locate(Location((pos[0], pos[1], 0)))
+        if not _cells:
+            return self._add(placed, name)
+        snapshot = self._registry.snapshot()
+        items = list(self.items)
+        issues = self._registry.issues
+        try:
+            return self._add(placed, name, cells=_cells)
+        except BaseException:
+            self.items[:] = items
+            self._registry.restore(snapshot)
+            self._registry.restore_issues(issues)
+            raise
 
     def _hole_spec_groups(self, view):
         """Ordered ``(tag, [holes], count)`` spec-groups of *view*'s holes (tags A, B,
@@ -3585,7 +3798,7 @@ class Drawing:
             items=self.items,
             part_model=self._part_model,
         )
-        render_balloons(self, self._analysis, view, specs, ctx)
+        render_balloons(self, self._analysis, view, specs, ctx, avoid_annotation_labels=True)
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""
@@ -3602,6 +3815,8 @@ class Drawing:
         table visibly states. Returns the table, or ``None`` when *view* has no holes or it
         will not fit.
         """
+        from draftwright.model.callout import resolved_through_indicator
+
         groups = self._hole_spec_groups(view)
         if not groups:
             return None
@@ -3661,7 +3876,7 @@ class Drawing:
             # escalated table does (`orchestrator._table_row`): a bare `ø` with no number, or a
             # `THRU` qualifying a diameter that is not printed, states less than nothing.
             depth = (
-                ("THRU" if dia else "")
+                (resolved_through_indicator(owner) if dia else "")
                 if h.through
                 else (_cell(owner, "bore.depth", _fmt(h.depth)) if h.depth else "")
             )
@@ -3779,6 +3994,7 @@ class Drawing:
         )
 
     # -- repair ---------------------------------------------------------------
+    @observed_stage("repair")
     def repair(self, max_iter: int = 3):
         """Close the lint→repair loop: act on violations, don't only report them.
 
@@ -3816,6 +4032,7 @@ class Drawing:
         return repair_drawing(self, max_iter, ink_candidates=ink_candidates)
 
     # -- output ---------------------------------------------------------------
+    @observed_stage("lint")
     def lint(self, *, physical: bool = True):
         """Lint all annotations against all views; returns the list of issues.
 
@@ -3933,6 +4150,23 @@ class Drawing:
                 prof_kw = {}
             if recognition is None:
                 recognition = self._build.ensure_recognition(working_part)
+            model = self._part_model
+            if model is not None:
+                # Every annotation's measurement claims, resolved against what it renders
+                # (#1217). Coverage believes these claims; this is the only thing that
+                # checks them. Cheap — pure Python over the IR and the registry, no
+                # geometry — and it needs the compiled plan because the value an annotation
+                # SHOULD show is the compiler's, never a renderer's own formatting
+                # (ADR 4 (was 0016 Amendment 1)).
+                from draftwright.model.compiled import compile_dimensions
+
+                dimension_plan = compile_dimensions(model)
+                issues += lint_claimed_representations(self._registry, dimension_plan)
+            else:
+                dimension_plan = None
+            from draftwright.linting.schedule_evidence import verified_schedule_registry
+
+            physical_registry = verified_schedule_registry(self._registry, dimension_plan)
             issues += lint_angular_supports(
                 self.items,
                 registry=self._registry,
@@ -3944,7 +4178,7 @@ class Drawing:
                 self._build.recognition_evidence,
                 self._build.recognition_ownership,
                 getattr(self._part_model, "features", ()),
-                self._registry,
+                physical_registry,
                 self._build.omissions,
             )
             profiled_bores = list(recognition.double_d_bores)
@@ -3962,35 +4196,25 @@ class Drawing:
                 # is one decision rather than two that can disagree. `prof_kw` is empty only
                 # where detect also falls back to the aggregate.
                 **({"turned_profiles": prof_kw["profiles"]} if "profiles" in prof_kw else {}),
-                registry=self._registry,
+                registry=physical_registry,
+                # Counts belong to lint_hole_coverage's operation/ownership ledger.
+                check_hole_counts=False,
             )
             issues += lint_axial_coverage(
                 working_part,
                 self,
                 assembly=self.assembly,
+                registry=physical_registry,
                 recognition=recognition,
                 **prof_kw,
             )
-            model = self._part_model
-            if model is not None:
-                # Every annotation's measurement claims, resolved against what it renders
-                # (#1217). Coverage believes these claims; this is the only thing that
-                # checks them. Cheap — pure Python over the IR and the registry, no
-                # geometry — and it needs the compiled plan because the value an annotation
-                # SHOULD show is the compiler's, never a renderer's own formatting
-                # (ADR 4 (was 0016 Amendment 1)).
-                from draftwright.model.compiled import compile_dimensions
-
-                dimension_plan = compile_dimensions(model)
-                issues += lint_claimed_representations(self._registry, dimension_plan)
-            else:
-                dimension_plan = None
             if model is not None:
                 issues += lint_boss_height_coverage(
                     working_part,
                     self,
                     getattr(model, "features", ()),
                     assembly=self.assembly,
+                    registry=physical_registry,
                     omissions=self._build.omissions,
                 )
             issues += lint_location_coverage(
@@ -4001,11 +4225,13 @@ class Drawing:
                 holes=holes,
                 patterns=patterns,
                 profiled_bores=profiled_bores,
+                registry=physical_registry,
             )
             issues += lint_prismatic_coverage(
                 working_part,
                 self,
                 assembly=self.assembly,
+                registry=physical_registry,
                 pads=pads,
                 section_recesses=recognition.section_recesses,
                 bbox=a.bb if a is not None else None,
@@ -4016,7 +4242,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4024,7 +4250,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4032,7 +4258,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4063,7 +4289,7 @@ class Drawing:
                 self.items,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 dropped_profiles=self._coverage.dropped_profiles,
                 dropped_profile_evidence=self._coverage.dropped_profile_evidence,
                 assembly=self.assembly,
@@ -4072,7 +4298,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4080,7 +4306,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4088,7 +4314,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4096,12 +4322,12 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
             issues += lint_blend_leader_targets(
-                registry=self._registry,
+                registry=physical_registry,
                 cylinders=cyls,
                 project=self.at,
                 evidence=self._build.recognition_evidence,
@@ -4111,7 +4337,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4119,7 +4345,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4127,7 +4353,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4135,7 +4361,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4143,7 +4369,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4151,7 +4377,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4159,7 +4385,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
                 plan=dimension_plan,
@@ -4168,7 +4394,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4176,7 +4402,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
                 project=self.at,
@@ -4188,7 +4414,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4196,7 +4422,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4204,7 +4430,7 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
@@ -4212,13 +4438,13 @@ class Drawing:
                 working_part,
                 recognition=recognition,
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 omissions=self._build.omissions,
                 assembly=self.assembly,
             )
             issues += lint_declared_gear_coverage(
                 features=getattr(model, "features", ()) if model is not None else (),
-                registry=self._registry,
+                registry=physical_registry,
                 profiles=getattr(recognition, "repeating_radial_profiles", None),
                 assembly=self.assembly,
             )
@@ -4271,6 +4497,7 @@ class Drawing:
           composite drawing-quality score is manufactured (#1127). Legibility's existing
           severity/code counts are raw findings; its ``primary_*`` counts and scalar group
           producer-identified pair findings by annotation and failure mechanism (#1147);
+        - ``review`` — concise explanations of those existing observations and their limits;
         - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
         - ``by_code`` — per-check counts;
         - ``geometry_issues`` — count of standards/geometry-correctness issues
@@ -4363,6 +4590,9 @@ class Drawing:
             "score": score,
             "diagnostic_score": score,
             "quality": quality,
+            "review": review_explanation(
+                quality=quality, errors=errors, warnings=warnings, score=score
+            ),
             "errors": errors,
             "warnings": warnings,
             "infos": infos,
@@ -4381,6 +4611,9 @@ class Drawing:
                         else {}
                     ),
                     **({"source_ids": i.source_ids} if i.source_ids else {}),
+                    **({"annotation_name": i.annotation_name} if i.annotation_name else {}),
+                    **({"view": i.view} if i.view is not None else {}),
+                    **({"evidence_reason": i.evidence_reason} if i.evidence_reason else {}),
                     **(
                         {"outcome_stage": i.outcome_stage}
                         if getattr(i, "outcome_stage", None) is not None
@@ -5038,6 +5271,7 @@ class Drawing:
                 groups.append((-box.max.Y, box.min.X, ordinal, runs))
         return tuple(run for _top, _left, _ordinal, runs in sorted(groups) for run in runs)
 
+    @observed_stage("export")
     def export(
         self,
         out=None,
@@ -5128,7 +5362,7 @@ class Drawing:
                 f"formats= is given — this call writes formats={tuple(want)!r}. Drop it, or "
                 "put the format in formats=. Removed in 0.5.0.",
                 DeprecationWarning,
-                stacklevel=2,
+                stacklevel=3,  # Skip the public operation observer wrapper too.
             )
 
         # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
@@ -5149,7 +5383,7 @@ class Drawing:
                     f"Drawing.export(svg=…, dxf=…) is deprecated; pass formats={_wanted!r} and "
                     "read the {format: path} dict. Removed in 0.5.0.",
                     DeprecationWarning,
-                    stacklevel=2,
+                    stacklevel=3,  # Skip the public operation observer wrapper too.
                 )
             else:
                 warnings.warn(
@@ -5158,7 +5392,7 @@ class Drawing:
                     "{format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
                     "Removed in 0.5.0.",
                     DeprecationWarning,
-                    stacklevel=2,
+                    stacklevel=3,  # Skip the public operation observer wrapper too.
                 )
             svg_path = (
                 self._write_svg(out, reproducible=reproducible) if (svg is None or svg) else None

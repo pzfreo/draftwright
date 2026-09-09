@@ -1,5 +1,7 @@
 """Regression coverage for #885: sparse recognition must not imply completeness."""
 
+import json
+
 from build123d import Align, Box, Cylinder, Plane, Pos, SlotOverall, extrude
 from quiddity import recognise_rectangular_pads
 
@@ -84,8 +86,9 @@ def test_pad_declaration_and_sheet_emission_round_trip_surface():
     ]
 
 
-def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
-    drawing = build_drawing(_case_study())
+def test_auto_drawing_defines_pad_footprints_and_pocket_locations(tmp_path):
+    trace_path = tmp_path / "pad-producer-floor.json"
+    drawing = build_drawing(_case_study(), trace=trace_path)
     detected = detect_part_model(_case_study())
     assert tuple(detected.features) == tuple(drawing.model().features)
     assert [f.kind for f in drawing.model().features].count("pad") == 4
@@ -96,6 +99,21 @@ def test_auto_drawing_defines_pad_footprints_and_pocket_locations():
     assert "pad_footprint_not_defined" not in summary["by_code"]
     assert "pocket_not_located" not in summary["by_code"]
     assert summary["score"] == 1.0
+    # Every producer can place a leader here. An unproven alternate assignment
+    # offers no cardinality gain and loses the section; retain the known floor.
+    assert drawing.section_decision["status"] == "placed"
+    event = next(
+        item
+        for item in json.loads(trace_path.read_text())["pass_events"]
+        if item["label"] == "feature_leader_inventory"
+    )
+    assert event["assignment"] == "greedy_state_budget"
+    assert event["objective"]["placed"] == event["inventory_jobs"] == 7
+    assert all(
+        item["producer_fallback"]["candidates_tried"] > 0
+        and item["producer_fallback"]["selected"] is not None
+        for item in event["items"]
+    )
 
 
 def test_removing_one_pad_size_is_not_credited_from_an_aligned_sibling():

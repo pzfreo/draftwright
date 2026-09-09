@@ -9,14 +9,52 @@ home the event-stream / TUI work (#276) wraps its sink + renderer around.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+from contextlib import contextmanager
 from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 import typer
+
+
+@contextmanager
+def _progress_display(*, verbose: bool, disabled: bool = False):
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+
+    from draftwright.progress import observe_build
+
+    console = Console(stderr=True)
+    live = not disabled and console.is_terminal
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("{task.description}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+        redirect_stdout=False,
+        redirect_stderr=True,
+        disable=not live,
+    )
+    with progress:
+        task = progress.add_task("Starting drawing", total=None)
+
+        def display(event):
+            label = " / ".join(event.stage)
+            detail = ", ".join(f"{key}={value}" for key, value in event.details)
+            message = f"{label}: {event.phase}" + (f" ({detail})" if detail else "")
+            if live:
+                progress.update(task, description=message)
+            elif verbose and not disabled:
+                console.print(f"[{event.elapsed_seconds:.1f}s] {message}", markup=False)
+
+        with observe_build(display) as control:
+            yield control
+
 
 app = typer.Typer(
     add_completion=True,
@@ -131,7 +169,13 @@ def main(
         False, "--frame", help="Draw a sheet border; content reserves clearance inside it"
     ),
     projection: str = typer.Option(
-        "", "--projection", help="Projection-method symbol: 'third' or 'first' (default: none)"
+        "",
+        "--projection",
+        help="Projection convention: 'first' or 'third' (default: third-angle, no symbol)",
+    ),
+    text_position: str = typer.Option("inline", help="Dimension text position: inline or above"),
+    text_orientation: str = typer.Option(
+        "aligned", help="Dimension text reading direction: aligned or horizontal"
     ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
@@ -177,6 +221,11 @@ def main(
         help="Skip the default JSON sidecar: the report beside rendered output, or the "
         "recognition evidence beside a generated --script",
     ),
+    no_progress: bool = typer.Option(
+        False,
+        "--no-progress",
+        help="Disable terminal activity display and verbose stage events.",
+    ),
     verbose: bool = typer.Option(
         False,
         "-v",
@@ -192,9 +241,16 @@ def main(
     ),
 ) -> None:
     """Generate a fully-annotated technical drawing from a STEP file."""
-    logging.basicConfig(level=logging.INFO if verbose else logging.WARNING, format="%(message)s")
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    logging.getLogger("draftwright").setLevel(logging.INFO if verbose else logging.WARNING)
 
     formats = _parse_formats(output_format)
+    from draftwright.view_plan import validate_projection
+
+    try:
+        validate_projection(projection)
+    except ValueError as error:
+        raise typer.BadParameter(str(error), param_hint="--projection") from error
     if script and style != "sheet":
         # validate before the ~5 s engine import so a typo fails fast
         raise typer.BadParameter("--style must be 'sheet'", param_hint="--style")
@@ -238,6 +294,8 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
+                text_position=text_position,
+                text_orientation=text_orientation,
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
@@ -262,6 +320,8 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
+                text_position=text_position,
+                text_orientation=text_orientation,
                 pmi=pmi.value if pmi is not None else "off",
                 formats=tuple(formats),
                 inspect=not no_report,
@@ -274,30 +334,39 @@ def main(
             print(sidecar)
         return
 
-    dwg = build_drawing(
-        step_file=step_file,
-        out=out,
-        title=title,
-        number=number,
-        tolerance=tolerance,
-        drawn_by=drawn_by,
-        scale=scale,
-        scale_policy=scale_policy.value,
-        page=page,
-        pmi=pmi.value if pmi is not None else None,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        frame=frame,
-        projection=projection or None,
-        zones=zones,
-    )
-    visual_paths = _emit(dwg, formats)
-    for path in visual_paths:
-        print(path)
-    if not no_report:
-        print(_write_report_sidecar(dwg, visual_paths))
+    from draftwright.progress import BuildCancelled
+
+    try:
+        with _progress_display(verbose=verbose, disabled=no_progress):
+            dwg = build_drawing(
+                step_file=step_file,
+                out=out,
+                title=title,
+                number=number,
+                tolerance=tolerance,
+                drawn_by=drawn_by,
+                scale=scale,
+                scale_policy=scale_policy.value,
+                page=page,
+                pmi=pmi.value if pmi is not None else None,
+                material=material,
+                date=date,
+                revision=revision,
+                company=company,
+                frame=frame,
+                projection=projection or None,
+                text_position=text_position,
+                text_orientation=text_orientation,
+                zones=zones,
+            )
+            visual_paths = _emit(dwg, formats)
+            for path in visual_paths:
+                print(path)
+            if not no_report:
+                print(_write_report_sidecar(dwg, visual_paths))
+    except BuildCancelled as error:
+        typer.echo(json.dumps(error.diagnostic), err=True)
+        raise typer.Exit(130) from error
 
 
 def _cli() -> None:

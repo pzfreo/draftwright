@@ -55,7 +55,7 @@ ClaimState = Literal["confirmed", "value_absent", "unresolved", "unreadable", "n
 _VALUE_TOL = 1e-6
 
 
-def _expected_numbers(approved) -> frozenset[float]:
+def _expected_numbers(approved, *, location_component=None) -> frozenset[float]:
     """Every number the sheet may legitimately show for *approved*.
 
     From ``value_text``, NOT ``value``. The compiler formats for display — a 13.649 mm extent
@@ -107,6 +107,12 @@ def _expected_numbers(approved) -> frozenset[float]:
     # intent rather than this inference (#1218 review round 2).
     excluded = "xyz".index(axis) if axis in ("x", "y", "z") else None
     indices = [i for i in range(3) if i != excluded]
+    if location_component is not None:
+        # A document may bind one recorded component of a legacy coarse location.
+        # Narrow this existing compiler-span check; never accept its sibling offset.
+        if location_component not in "xyz" or len(location_component) != 1:
+            return frozenset()
+        indices = [i for i in indices if "xyz"[i] == location_component]
     return frozenset(
         float(_fmt(abs(float(end[index]) - float(start[index])))) for index in indices
     )
@@ -151,6 +157,7 @@ class ClaimOutcome:
     #: The claim itself, so a consumer can join on the FEATURE as well as the parameter
     #: name. `parameter_id` alone says `bore.diameter` without saying whose (#1217 PR 2).
     measurement: object | None = None
+    cell: tuple[int, int] | None = None
 
 
 def compiled_values(plan) -> dict:
@@ -181,6 +188,11 @@ def compiled_values(plan) -> dict:
     for contingency in getattr(plan, "contingencies", ()):
         for approved in getattr(contingency.fallback, "rungs", ()):
             values[approved.id].append(approved)
+    for schedule in getattr(plan, "schedules", ()):
+        for row in schedule.rows:
+            for cell in row:
+                if cell.measurement is not None:
+                    values[cell.measurement.id].append(cell.measurement)
     return {key: tuple(entries) for key, entries in values.items()}
 
 
@@ -239,10 +251,65 @@ def rendered_numbers(annotation) -> frozenset[float] | None:
     return frozenset(float(match.group()) for text in texts for match in _NUMBER_RE.finditer(text))
 
 
-def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
+def _verify_cell_claim(registry, name, reference, schedules):
+    """Bind one actual cell to its compiler approval, never another cell's numbers."""
+    claim = reference.measurement
+    parameter = str(getattr(claim, "parameter", claim))
+    outcome = dict(measurement=claim, cell=(reference.row, reference.column))
+    schedule = schedules.get(reference.schedule)
+    if schedule is None:
+        return ClaimOutcome(name, parameter, "unresolved", **outcome)
+    try:
+        approved_row = schedule.rows[reference.row]
+        approved_cell = approved_row[reference.column]
+    except IndexError:
+        return ClaimOutcome(name, parameter, "unresolved", **outcome)
+    approved = approved_cell.measurement
+    if (
+        approved is None
+        or approved.id is None
+        or approved.id.feature is not getattr(claim, "feature", None)
+        or approved.id.parameter != parameter
+    ):
+        return ClaimOutcome(name, parameter, "unresolved", **outcome)
+    expected = (approved_cell.text,)
+    try:
+        rows = getattr(registry.named(name), "table_rows", None)
+        if rows is None:
+            return ClaimOutcome(name, parameter, "unreadable", expected, **outcome)
+        actual_row = rows[reference.row]
+        rendered = str(actual_row[reference.column])
+        context_matches = (
+            len(actual_row) == len(approved_row)
+            and tuple(str(cell) for cell in rows[0])
+            == tuple(cell.text for cell in schedule.rows[0])
+            and all(
+                cell.measurement is not None or str(actual_row[index]) == cell.text
+                for index, cell in enumerate(approved_row)
+            )
+        )
+    except Exception:
+        return ClaimOutcome(name, parameter, "unreadable", expected, **outcome)
+    return ClaimOutcome(
+        name,
+        parameter,
+        "confirmed" if context_matches and rendered == approved_cell.text else "value_absent",
+        expected,
+        rendered,
+        **outcome,
+    )
+
+
+def verify_measurement_claims(registry, plan, *, location_components=None) -> list[ClaimOutcome]:
     """Resolve every annotation's measurement claims against what it renders.
 
-    **Four limits, all measured rather than reasoned about** (#1218 review found each of them
+    Typed feature schedules bind each registered row/column to one compiler-approved
+    measurement. Exact cell text, headings and row context are checked, including
+    tolerances, through/blind content and quantity. Other numeric cells cannot supply
+    evidence. A missing cell address cannot downgrade a known schedule to the legacy
+    numeric-pool check below. This still reads renderer-recorded text, not exported glyphs.
+
+    **Legacy annotation limits, all measured rather than reasoned about** (#1218 review found each of them
     by relabelling a real drawing and watching this function stay silent):
 
     1. **Presence, not attribution.** It proves the approved value appears among the numbers
@@ -305,6 +372,7 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
     genuinely the drawn content. Verifying export-visible text is #1217's step 5.
     """
     approved = compiled_values(plan)
+    schedules = {schedule.name: schedule for schedule in getattr(plan, "schedules", ())}
     outcomes: list[ClaimOutcome] = []
     # `sorted`, because `registry.names()` is a set: without it the emitted issue ORDER varies
     # run to run on the same drawing (measured: five orderings in five processes), against
@@ -313,6 +381,30 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
     for name in sorted(registry.names()):
         claims = registry.measurement_of(name)
         if not claims:
+            continue
+        cells = getattr(registry, "cells_of", lambda _name: ())(name)
+        if not cells and (
+            name in schedules
+            or getattr(registry.named(name), "measurement_schedule", None) is not None
+        ):
+            outcomes.extend(
+                ClaimOutcome(name, str(claim.parameter), "unresolved", measurement=claim)
+                for claim in claims
+            )
+            continue
+        if cells:
+            outcomes.extend(_verify_cell_claim(registry, name, cell, schedules) for cell in cells)
+            # Any extra unsliced table claim has no evidence address. It must not borrow
+            # a number from a verified neighbour or from a quantity column.
+            for claim in claims:
+                if not any(
+                    cell.measurement.feature is claim.feature
+                    and cell.measurement.parameter == claim.parameter
+                    for cell in cells
+                ):
+                    outcomes.append(
+                        ClaimOutcome(name, str(claim.parameter), "unresolved", measurement=claim)
+                    )
             continue
         numbers = rendered_numbers(registry.named(name))
         shared_angular_labels = tuple(
@@ -357,7 +449,15 @@ def verify_measurement_claims(registry, plan) -> list[ClaimOutcome]:
                 continue
             expected = tuple(entry.value_text for entry in entries)
             wanted = (
-                frozenset().union(*(_expected_numbers(entry) for entry in entries))
+                frozenset().union(
+                    *(
+                        _expected_numbers(
+                            entry,
+                            location_component=(location_components or {}).get(name),
+                        )
+                        for entry in entries
+                    )
+                )
                 if entries
                 else frozenset()
             )

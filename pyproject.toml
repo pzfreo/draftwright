@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "draftwright"
-version = "0.4.25.dev0"
+version = "0.4.27.dev0"
 description = "Automated technical-drawing generation for build123d"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -22,7 +22,7 @@ dependencies = [
     # This novtk release lacks OCP.GccEnt on macOS. The exclusion must reach
     # published wheels, not only uv's development resolver constraints.
     "cadquery-ocp-novtk!=7.9.3.1.1 ; python_full_version >= '3.13'",
-    "build123d-drafting-helpers>=0.14.2",
+    "build123d-drafting-helpers>=0.15.1",
     "quiddity==0.2.6",
     "numpy>=1.24",
     # PNG raster export (SVG→PDF→PNG). Both permissively licensed (Pillow HPND; pypdfium2
@@ -38,6 +38,7 @@ dependencies = [
     "antlr4-python3-runtime<4.10",
     "svglib>=1.5",
     "typer>=0.12",
+    "rich>=10.11",
     # PEP 702 @deprecated: stdlib `warnings.deprecated` lands in 3.13; backport for 3.10–3.12.
     "typing_extensions>=4.5 ; python_full_version < '3.13'",
 ]
@@ -90,7 +91,7 @@ timeout = 300
 # (minutes each), deselected by default. `smoke` is a curated, build-light subset
 # (~30 s) for a quick local "did I break something obvious" check — run it with
 # `uv run pytest -m smoke`. The default run is the full fast tier (`-m 'not slow'`,
-# runtime depends on worker count). CI runs one real-part canary before merge,
+# runtime depends on worker count). CI runs bounded real-part canaries before merge,
 # the full slow tier after merge, and the fast tier across its compatibility matrix.
 markers = [
     "slow: end-to-end integration builds, including CTC fixtures (deselected by default)",

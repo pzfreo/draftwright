@@ -16,7 +16,14 @@ from draftwright.model.compiled import (
     RenderableDimensionPlan,
     compile_dimensions,
 )
-from draftwright.model.ir import EnvelopeFeature, Frame, RequestedDimension, StepFeature
+from draftwright.model.ir import (
+    EnvelopeFeature,
+    FeatureSchedule,
+    Frame,
+    RequestedDimension,
+    ScheduleRow,
+    StepFeature,
+)
 from draftwright.model.planner import plan_dimensions
 
 
@@ -59,6 +66,35 @@ def test_the_compiler_owns_the_z_turned_height_contingency():
     released = plan.release_contingency("step_length")
     assert released.ladder("overall_height") == contingency.fallback
     assert _height_rows(released) == []
+
+
+@pytest.mark.parametrize("ordinary_height", [False, True])
+def test_scheduled_height_cannot_release_an_unrequested_ordinary_fallback(ordinary_height):
+    model = detect_part_model(_crowded_grooved_shaft())
+    envelope = _envelope_for(model)
+    requests = tuple(
+        RequestedDimension(feature, parameter.parameter_id)
+        for feature in model.features
+        if feature.kind in ("step", "groove")
+        for parameter in feature.parameters()
+        if parameter.kind == "length"
+    )
+    model = replace(
+        model,
+        features=[*model.features, envelope],
+        authored_dimensions=requests
+        + ((RequestedDimension(envelope, "height.length"),) if ordinary_height else ()),
+        schedules=(FeatureSchedule("height", (ScheduleRow(envelope, ("height.length",)),)),),
+    )
+    plan = compile_dimensions(model)
+    cells = [
+        cell for row in plan.schedules[0].rows for cell in row if cell.measurement is not None
+    ]
+    assert len(cells) == 1 and cells[0].measurement.value == 60
+    assert bool(plan.contingency("step_length")) is ordinary_height
+    released = plan.release_contingency("step_length")
+    assert bool(released.ladder("overall_height")) is ordinary_height
+    assert not _height_rows(released)
 
 
 def test_an_unregistered_contingency_kind_fails_closed():

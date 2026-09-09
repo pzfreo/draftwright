@@ -18,7 +18,6 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from build123d import Compound, Shape
-from build123d_drafting.helpers import draft_preset
 from OCP.IFSelect import IFSelect_ReturnStatus
 from OCP.STEPControl import STEPControl_Reader
 from quiddity import (
@@ -41,6 +40,7 @@ from draftwright._core import (
     _MIN_VIEW_MM,
     Analysis,
     _content_margin,
+    _dimension_draft,
     _legible_steps,
     _Projector,
 )
@@ -53,16 +53,20 @@ from draftwright._geometry import (
 )
 from draftwright.compose import (
     StripDepths,
+    _build_rear_zones,
     _build_zones,
     _est_hole_table_sizes,
     _est_planned_bore_callout_width,
+    _est_table_size,
     _layout_geometry,
     _measure_strips,
     choose_scale,
 )
+from draftwright.model.compiled import compile_dimensions
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
-from draftwright.model.planner import plan_dimensions
+from draftwright.model.planner import annotation_groups, plan_dimensions
+from draftwright.progress import observed_stage
 from draftwright.recognition_cache import _result_from_evidence
 from draftwright.recognition_frame import (
     FramedDetection,
@@ -71,13 +75,19 @@ from draftwright.recognition_frame import (
     require_unambiguous_groove_owner,
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
-from draftwright.view_plan import ViewConstraints, arrangement_of
+from draftwright.view_plan import (
+    ViewConstraints,
+    arrangement_of,
+    principal_placements,
+    third_angle_view_names,
+)
 
 _log = logging.getLogger(__name__)
 
 _ScalePick = tuple[float, float, float, float]
 
 
+@observed_stage("recognition")
 def _raw_recognition(
     part,
     *,
@@ -132,15 +142,18 @@ def _apply_principal_view_pins(
         "plan": (geometry.PV_X, geometry.PV_Y),
         "side": (geometry.SV_X, geometry.SV_Y),
     }
+    if "rear" in planned:
+        centres["rear"] = (geometry.RV_X, geometry.RV_Y)
     cx, cy, cz = centre
     projected_centre = {
         "front": (cx * scale, cz * scale),
         "plan": (cx * scale, cy * scale),
         "side": (cy * scale, cz * scale),
+        "rear": (-cx * scale, cz * scale),
     }
     translations = []
     for pin in constraints.pins:
-        if pin.view not in centres:
+        if pin.view not in projected_centre:
             where = f" at {pin.source}" if pin.source is not None else ""
             raise ValueError(
                 f"whole-view pin{where} targets {pin.view!r}; this slice can anchor principal "
@@ -159,7 +172,7 @@ def _apply_principal_view_pins(
         if max(abs(other_dx - dx), abs(other_dy - dy)) > 0.05:
             raise ValueError(
                 f"whole-view pins at {first.source} and {pin.source} contradict the fixed "
-                "third-angle relationships; they imply different group translations"
+                f"{geometry.convention}-angle relationships; they imply different group translations"
             )
 
     geometry.FV_X += dx
@@ -168,9 +181,13 @@ def _apply_principal_view_pins(
     geometry.PV_Y += dy
     geometry.SV_X += dx
     geometry.SV_Y += dy
+    if "rear" in planned:
+        geometry.RV_X += dx
+        geometry.RV_Y += dy
     geometry.sv_geometry_right += dx
     geometry.sv_right += dx
     geometry.sv_right_wall += dx
+    geometry.front_plan_wall += dy
     # Geometry bounds are the minimum pre-projection feasibility gate. Annotation bands use
     # the shifted anchors below and remain subject to the ordinary completeness/lint gates.
     extents = {
@@ -178,6 +195,8 @@ def _apply_principal_view_pins(
         "plan": (geometry.PV_X, geometry.PV_Y, geometry.fv_hw, geometry.pv_hh),
         "side": (geometry.SV_X, geometry.SV_Y, geometry.sv_hw, geometry.fv_hh),
     }
+    if "rear" in planned:
+        extents["rear"] = (geometry.RV_X, geometry.RV_Y, geometry.fv_hw, geometry.fv_hh)
     page_w, page_h = page
     for name in planned:
         x, y, hw, hh = extents[name]
@@ -680,6 +699,7 @@ def _validate_explicit_scale(
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
+    convention: str = "third",
 ) -> None:
     """Enforce the two scale floors when the caller pinned an explicit *scale* (#489, #590 split
     of :func:`_analyse`). An explicit scale is the user's call — honour it, subject to:
@@ -719,6 +739,7 @@ def _validate_explicit_scale(
         views=views,
         include_iso=include_iso,
         iso_scale_factor=iso_scale_factor,
+        convention=convention,
     )
     # Warn only when omitting the scale would truly give a legible fit (auto scale itself is
     # legible) but the requested scale is below the floor. A part illegible at every
@@ -753,12 +774,15 @@ def _analyse(
     model=None,
     decorations=None,
     authored=None,
+    requested=None,
     material="",
     date="",
     revision="A",
     company="",
     frame: bool = False,
     projection: str | None = None,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     zones: bool = False,
     _reuse: Analysis | None = None,
     _required_tables=(),
@@ -767,11 +791,23 @@ def _analyse(
     _include_iso: bool = True,
     _view_constraints=None,
     _framed_recognition: bool = False,
+    _document_input=None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
     Returns an :class:`Analysis`.
     """
+    if _document_input is not None:
+        if model is None or _framed_recognition:
+            raise ValueError("document members require their sealed raw model")
+        _document_input.validate(
+            step_file, model.features if isinstance(model, PartModel) else model
+        )
+        if _reuse is None:
+            _reuse = _document_input.analysis
+        elif _reuse.part is not _document_input.analysis.part:
+            raise ValueError("document analysis reuse names a foreign working solid")
+    convention = projection or "third"
     # The zone-grid ruler (#768) draws its ticks on the frame, so it implies one.
     frame = frame or zones
     # The content margin — raised by the sheet-frame band (#767) so scale/page selection and
@@ -986,7 +1022,7 @@ def _analyse(
     # Construct the same draft preset used later in build_drawing() to read
     # arrow_length and pad_around_text from their authoritative source rather
     # than re-stating them as magic literals in the estimators.
-    _draft_est = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
+    _draft_est = _dimension_draft(text_position, text_orientation)
     _arrow_length = _draft_est.arrow_length
     _pad_around_text = _draft_est.pad_around_text
     # Empty on the declared path — NOT "this part has no holes", but "nothing was detected".
@@ -1078,21 +1114,34 @@ def _analyse(
         if ownership_builder is not None
         else None
     )
-    # Authored omission affects annotation FOOTPRINT sizing, but the analysis model retains
-    # its historical automatic requirement inventory for view-feasibility preflight.  The
-    # builder applies the same authored tuple to the render model later.  Keeping this as a
-    # strip-only copy avoids letting a sparse authored dimension set erase semantic view
-    # requirements (for example the parent view needed by an authored detail), while ensuring
-    # suppressed pad bands cannot reduce the selected scale (#1392).
-    strip_sizing_model = (
-        replace(sizing_model, authored_dimensions=tuple(authored))
+    if _document_input is not None:
+        # Declared sizing still reads only the member's authored model. Critique receives
+        # the original conversion authority rather than acquiring another recognition run.
+        recognition_evidence = _document_input.analysis.recognition_evidence
+        recognition_ownership = _document_input.analysis.recognition_ownership
+    # Dimension feasibility and annotation footprints consume the authored set.
+    # Derived-view dependencies still use sizing_model below; omitting an unrelated
+    # envelope extent must not force its view back onto an authored sheet.
+    strip_sizing_model = replace(
+        sizing_model,
+        authored_dimensions=tuple(authored)
         if authored is not None
-        else sizing_model
+        else sizing_model.authored_dimensions,
+        requested_dimensions=tuple(requested) if requested else sizing_model.requested_dimensions,
     )
     # ADR 2 (was 0018) Phase 5.5: prove the chosen principal set can carry every approved
     # dimension before scale selection or projection.  A reduced view set is therefore a
     # re-plan, not the fixed three-view plan rendered into fewer views.
-    sizing_groups = plan_dimensions(sizing_model, planned_views=_views)
+    sizing_groups = plan_dimensions(
+        strip_sizing_model,
+        planned_views=third_angle_view_names() if _views is None else _views,
+    )
+    schedule_tables = (
+        compile_dimensions(strip_sizing_model, groups=sizing_groups).schedules
+        if strip_sizing_model.schedules
+        else ()
+    )
+    sizing_groups = annotation_groups(strip_sizing_model, sizing_groups)
     bore_callout_width = _est_planned_bore_callout_width(
         sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
@@ -1109,7 +1158,17 @@ def _analyse(
     layout_table_sizes = _est_hole_table_sizes(
         sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
-    layout_required_tables = tuple(_required_tables)
+    layout_required_tables = tuple(_required_tables) + tuple(
+        (
+            _est_table_size(
+                tuple(tuple(cell.text for cell in row) for row in schedule.rows),
+                font_size=_FONT_SIZE,
+                pad_around_text=_pad_around_text,
+            ),
+            schedule.prefer,
+        )
+        for schedule in schedule_tables
+    )
     planned_iso_scale = _planned_iso_scale(_view_constraints)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
@@ -1126,6 +1185,8 @@ def _analyse(
             arrow_length=_arrow_length,
             pad_around_text=_pad_around_text,
             bore_callout_width=bore_callout_width,
+            text_position=text_position,
+            text_orientation=text_orientation,
         )
 
     layout_advisories: list[tuple[str, str]] = []
@@ -1149,6 +1210,7 @@ def _analyse(
             views=_views,
             include_iso=_include_iso,
             iso_scale_factor=planned_iso_scale,
+            convention=convention,
         )
 
     scale_pick, strips_i, n_for_sizing = _converge_step_sizing(
@@ -1181,6 +1243,7 @@ def _analyse(
         views=_views,
         include_iso=_include_iso,
         iso_scale_factor=planned_iso_scale,
+        convention=convention,
     )
     DIM_PAD = _DIM_PAD
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
@@ -1215,6 +1278,7 @@ def _analyse(
         views=_views,
         include_iso=_include_iso,
         iso_scale_factor=planned_iso_scale,
+        convention=convention,
     )
     _apply_principal_view_pins(
         _g,
@@ -1225,6 +1289,13 @@ def _analyse(
         margin=margin,
         views=_views,
     )
+    if isinstance(_view_constraints, ViewConstraints):
+        places = principal_placements(_g)
+        for relation in _view_constraints.relations:
+            if relation.subject in _g.planned_views and relation.reference in _g.planned_views:
+                relation.validate(
+                    places[relation.subject].bounds, places[relation.reference].bounds
+                )
     fv_hw = _g.fv_hw
     fv_hh = _g.fv_hh
     pv_hh = _g.pv_hh
@@ -1275,6 +1346,9 @@ def _analyse(
         arrangement=ARRANGEMENT,
         planned_views=_views,
         planned_iso=_include_iso,
+        RV_X=_g.RV_X,
+        RV_Y=_g.RV_Y,
+        rv_zones=_build_rear_zones(_g, margin, PAGE_H),
         planned_iso_scale=planned_iso_scale,
         view_constraints=_view_constraints,
         part=part,
@@ -1336,6 +1410,8 @@ def _analyse(
             sv_y=SV_Y,
             pv_x=PV_X,
             pv_y=PV_Y,
+            rv_x=_g.RV_X,
+            rv_y=_g.RV_Y,
             cx=cx,
             cy=cy,
             cz=cz,
@@ -1366,6 +1442,9 @@ def _analyse(
         company=company,
         frame=frame,
         projection=projection,
+        text_position=text_position,
+        text_orientation=text_orientation,
+        projection_convention=convention,
         zones=zones,
         out=out,
         pmi_report=pmi_report,

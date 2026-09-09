@@ -6,15 +6,8 @@ hint a caller or LLM can paste and fill in via the public domain API.
 
 from __future__ import annotations
 
-import re
-
-from draftwright._core import _DIAM_RE, _QUOTED_RE, _fmt
+from draftwright._core import _QUOTED_RE
 from draftwright.linting.issues import LintIssue  # noqa: F401 — re-exported for callers
-
-# Tolerance for matching a lint message's reported diameter (dedup representative
-# at tol 0.15, formatted to 1 dp) back to a raw feature diameter when generating a
-# fix snippet (#29).
-_DIAM_MATCH_TOL = 0.2
 
 
 def _suggest_fix(issue, dwg) -> str | None:
@@ -27,43 +20,59 @@ def _suggest_fix(issue, dwg) -> str | None:
     """
     code = issue.code
 
-    if code == "feature_not_dimensioned":
-        # Message: "cylindrical feature ø8 has no diameter callout on the sheet".
-        m = _DIAM_RE.search(issue.message)
-        if m is None:
-            return None
-        d = float(m.group(1))
-        # The reported diameter is the dedup representative (tol 0.15) formatted
-        # to 1 dp, so match raw feature diameters with that combined slack — a
-        # 1e-6 match would silently miss every non-integer bore.
-        for view in ("plan", "front", "side"):
-            if any(abs(f.diameter - d) < _DIAM_MATCH_TOL for f in dwg.features(view)):
-                return (
-                    f"# ø{_fmt(d)} has no callout. Find the bore in the model IR and let the\n"
-                    f"# engine place its callout (say WHAT, not WHERE):\n"
-                    f"for f in dwg.model().features:\n"
-                    f"    if f.kind not in ('hole', 'pattern'):\n"
-                    f"        continue  # a step/boss can share a diameter; the lint is about bores\n"
-                    f"    # a plain hole carries its bore on .diameter; a pattern on .member.diameter\n"
-                    f"    fd = f.diameter if f.kind == 'hole' else f.member.diameter\n"
-                    f"    if abs(fd - {_fmt(d)}) < {_DIAM_MATCH_TOL}:\n"
-                    f"        dwg.callout(f)  # feature-backed ø callout, auto-placed"
-                )
-        return None
-
-    if code == "feature_count_mismatch":
-        # Message: "4 ø8 features on the part but callouts account for 1".
-        # `need` is the leading count; anchor it so diameter digits never
-        # interfere regardless of message word order.
-        m = _DIAM_RE.search(issue.message)
-        need_m = re.match(r"\s*(\d+)", issue.message)
-        if m is None or need_m is None:
-            return None
-        need = need_m.group(1)
+    if code in {"feature_not_dimensioned", "feature_count_mismatch"}:
         return (
-            f"# Only some ø{m.group(1)} holes are counted. Set count={need} on the "
-            f"callout so it covers them all:\n"
-            f"# HoleCallout(..., count={need}, draft=dwg.draft)"
+            "# Diameter totals do not identify drilling operations. Inspect the separate\n"
+            "# hole_requirement_* findings and their feature provenance before editing.\n"
+            "# Keep distinct axes, through/blind depths, threads and fits separate;\n"
+            "# do not increase a callout count to cover a different operation."
+        )
+
+    if code == "hole_requirement_missing":
+        identities = issue.hole_requirement_ids
+        model = dwg.model()
+        if (
+            not identities
+            or any(parameter != "bore.diameter" for _feature, parameter in identities)
+            or model is None
+            or model.authored_dimensions is not None
+        ):
+            return (
+                "# Inspect this requirement on its declared feature. Preserve authored\n"
+                "# omissions and correct any conflicting existing callout before rebuilding;\n"
+                "# a missing count is not permission to add a larger or duplicate callout."
+            )
+        indices = []
+        for feature, _parameter in identities:
+            index = next(
+                (i for i, current in enumerate(model.features) if current is feature), None
+            )
+            if index is None or getattr(feature, "kind", None) not in {"hole", "pattern"}:
+                return None
+            # Existing diameter ink could carry contradictory quantity evidence. Adding
+            # another callout is not a repair for that claim.
+            if any(
+                getattr(identity, "feature", None) is feature
+                and getattr(identity, "parameter", None) == "bore.diameter"
+                for name in dwg.registry.names()
+                for identity in dwg.registry.measurement_of(name)
+            ):
+                return None
+            if index not in indices:
+                indices.append(index)
+        return (
+            "# These exact features belong to this Drawing; re-run lint after rebuilding.\n"
+            "# Restore their own callouts through the shared placement solver.\n"
+            "with dwg.deferred():\n"
+            + "\n".join(f"    dwg.callout(dwg.model().features[{i}])" for i in indices)
+        )
+
+    if code == "hole_requirement_unverifiable":
+        return (
+            "# This recognised operation has no verified measurement ownership. Inspect\n"
+            "# its members and declare the separate hole/group in Sheet with its own\n"
+            "# axis, through/blind depth and known thread/fit intent, then rebuild.\n"
+            "# Do not change another operation's count or infer manufacturing intent."
         )
 
     if code == "annotation_ink_overlap":

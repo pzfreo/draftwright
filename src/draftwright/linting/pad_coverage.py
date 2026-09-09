@@ -18,13 +18,19 @@ from typing import Literal
 from quiddity import RecognitionResult
 
 from draftwright._core import _decode_hole_location_fact
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    RequirementCarrierEvidence,
+    satisfaction_ids,
+    satisfaction_of,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.location_contract import datum_location_exclusion
+from draftwright.measurement_support import RequirementCarrier, RequirementExclusion
 
 _PAD_LOCATION_DATUM_COINCIDENT_CODE = "pad_location_coincident_with_datum"
 _PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
@@ -50,6 +56,8 @@ class PadRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    intrinsic_exclusion: RequirementExclusion | None = field(default=None, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -196,7 +204,7 @@ def _is_location(parameter: str) -> bool:
     return parameter.startswith("location_pad.")
 
 
-def _index_evidence(registry):
+def _index_evidence(registry, *, carriers=None):
     placed = {
         (measurement.feature, measurement.parameter)
         for name in registry.names()
@@ -212,6 +220,10 @@ def _index_evidence(registry):
             feature, parameter, point = decoded
             if getattr(feature, "kind", None) == "pad":
                 locations[(feature, parameter)].add(_point(point))
+                if carriers is not None:
+                    carriers.locations[(feature, parameter, _point(point))].append(
+                        RequirementCarrier(name, "physical_location")
+                    )
     satisfied = {
         (identity.feature, identity.parameter)
         for identity in satisfaction_ids(registry)
@@ -247,20 +259,33 @@ def _state(
     inapplicable,
     dropped,
     registry,
+    carriers=None,
 ):
     evidence_parameter = _evidence_parameter(parameter)
     if (feature, parameter) in inapplicable:
         return "inapplicable"
-    if _is_location(parameter):
-        if point in locations.get((feature, parameter), ()):
-            return "placed"
-        if (feature, parameter) in placed:
-            return "placed"
-        if (feature, "location") in satisfied:
-            return "satisfied_by_structured_note"
-    elif (feature, parameter) in placed:
+    location = _is_location(parameter)
+    point_placed = location and point in locations.get((feature, parameter), ())
+    exact_placed = (feature, parameter) in placed
+    note_parameter = "location" if location else parameter
+    note_satisfied = (feature, note_parameter) in satisfied
+    if carriers is not None:
+        carriers.accept(
+            feature,
+            parameter,
+            "placed",
+            parameters=(parameter,) if exact_placed else (),
+            physical=carriers.locations[(feature, parameter, point)] if point_placed else (),
+        )
+        carriers.accept(
+            feature,
+            parameter,
+            "satisfied_by_structured_note",
+            parameters=(note_parameter,) if note_satisfied else (),
+        )
+    if point_placed or exact_placed:
         return "placed"
-    elif (feature, parameter) in satisfied:
+    if note_satisfied:
         return "satisfied_by_structured_note"
     if (feature, evidence_parameter) in suppressed:
         return "suppressed"
@@ -280,6 +305,8 @@ def pad_requirement_outcomes(
     features,
     registry,
     omissions=(),
+    *,
+    datum=None,
 ) -> list[PadRequirementOutcome]:
     """Follow every recognised raised-pad requirement to its semantic outcome."""
     if recognition is None:
@@ -304,7 +331,8 @@ def pad_requirement_outcomes(
                 # A malformed IR record cannot establish correspondence.
                 continue
 
-    placed, locations, satisfied, dropped = _index_evidence(registry)
+    carriers = RequirementCarrierEvidence(registry)
+    placed, locations, satisfied, dropped = _index_evidence(registry, carriers=carriers)
     suppressed = {
         (omission.feature, omission.parameter_id)
         for omission in omissions
@@ -350,13 +378,15 @@ def pad_requirement_outcomes(
                     inapplicable=inapplicable,
                     dropped=dropped,
                     registry=registry,
+                    carriers=carriers,
                 ),
                 features=(feature,),
                 source_records=(source,),
+                intrinsic_exclusion=datum_location_exclusion(feature, source, parameter, datum),
             )
             for parameter in parameter_ids
         )
-    return outcomes
+    return carriers.attach(outcomes)
 
 
 def lint_pad_coverage(

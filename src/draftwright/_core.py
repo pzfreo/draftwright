@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 from build123d import (
     Align,
+    ArrowHead,
     BoundBox,
     Compound,
     Edge,
@@ -61,6 +62,7 @@ from draftwright._geometry import (  # noqa: F401
     HoleRef,
     _axis_letter,
     _fmt,
+    _fmt_tolerance,
     _xyz,
 )
 from draftwright.fits import FitClass
@@ -108,6 +110,7 @@ def place_annotation(
     feature=None,
     measurement=None,
     satisfaction=None,
+    cells=(),
 ):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one
@@ -124,7 +127,7 @@ def place_annotation(
         items.remove(displaced)
     annotate(obj, name)
     items.append(obj)
-    registry.add(obj, name, view, feature, measurement, satisfaction)
+    registry.add(obj, name, view, feature, measurement, satisfaction, cells=cells)
     return obj
 
 
@@ -172,6 +175,24 @@ def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
+
+
+def _dimension_draft(text_position="inline", text_orientation="aligned"):
+    """One fixed typography preset, with helper-owned validation of text style."""
+    return draft_preset(
+        font_size=_FONT_SIZE,
+        decimal_precision=1,
+        font_path=PLEX_MONO,
+        text_position=text_position,
+        text_orientation=text_orientation,
+    )
+
+
+@functools.lru_cache(maxsize=128)
+def _dimension_head_bounds(arrow_length, head_type):
+    """Measure each fixed-size arrow style once, before candidate evaluation."""
+    box = ArrowHead(arrow_length, head_type=head_type, mode=Mode.PRIVATE).bounding_box()
+    return box.min.X, box.min.Y, box.max.X, box.max.Y
 
 
 _TB_H = 35.0
@@ -321,9 +342,9 @@ def _build_table(rows, draft, block_cols=None):
 
 def _tol_suffix(tolerance, draft) -> str:
     """The ``±`` / limit tolerance suffix to append to a **callout** label (a ø leader
-    or a hole callout), matching byte-for-byte what ``Dimension(tolerance=…)`` renders
-    on a linear dim (helpers ``_format_label``): a symmetric ``float`` → ``" ±t"``; an
-    ``(lower, upper)`` pair → ``" +upper -lower"`` — all rounded to the draft precision.
+    or a hole callout): a symmetric ``float`` → ``" ±t"``; an ``(lower, upper)`` pair
+    → ``" +upper -lower"``. Draft precision is a minimum; supplied tolerance
+    magnitudes must never be rounded into different engineering requirements.
 
     draftwright owns this suffix ONLY because the pinned helpers' ``Leader`` /
     ``HoleCallout`` take no ``tolerance=`` yet, so we bake it into the label string
@@ -336,11 +357,8 @@ def _tol_suffix(tolerance, draft) -> str:
         return ""
     if isinstance(tolerance, FitClass):
         return tolerance.suffix()
-    prec = draft.decimal_precision
-    if isinstance(tolerance, (int, float)):
-        return f" ±{round(tolerance, prec):.{prec}f}"
-    lo, hi = tolerance
-    return f" +{round(hi, prec):.{prec}f} -{round(lo, prec):.{prec}f}"
+
+    return _fmt_tolerance(tolerance, draft.decimal_precision)
 
 
 def _tag_sequence(n):
@@ -963,14 +981,14 @@ class DetailRequest:
 class _Projector:
     """Model → page coordinate projection for the orthographic views.
 
-    Each in-plane view axis projects as ``origin + (value - centroid) * scale``.
+    Each in-plane view axis projects from its centroid and page origin. Rear
+    reverses model X while keeping Z up, matching its camera from positive Y.
     Built once in :func:`_analyse` and hung off the analysis namespace as
     ``a.proj`` so the annotation passes share one projector instead of each
     re-deriving the ``FX``/``FZ``/``SX``/``SZ``/``PX``/``PY`` closures.
 
-    This deliberately mirrors those analysis-phase closures byte-for-byte (an
-    unsigned ``+1`` projection), so the consolidation is provably
-    behaviour-preserving. The helpers library's ``ViewCoordinates.px``/``.py``
+    The original three views retain their analysis-phase ``+1`` closures.
+    The helpers library's ``ViewCoordinates.px``/``.py``
     (already built per view as ``dwg._coords``) computes a *signed* projection
     from ``view_axes()``; routing through it would couple the annotation passes
     to render-order ``_coords`` population and could change output where a view
@@ -992,6 +1010,8 @@ class _Projector:
     cy: float
     cz: float
     scale: float
+    rv_x: float = 0.0
+    rv_y: float = 0.0
 
     def front_x(self, x: float) -> float:
         return self.fv_x + (x - self.cx) * self.scale
@@ -1010,6 +1030,12 @@ class _Projector:
 
     def plan_y(self, y: float) -> float:
         return self.pv_y + (y - self.cy) * self.scale
+
+    def rear_x(self, x: float) -> float:
+        return self.rv_x - (x - self.cx) * self.scale
+
+    def rear_z(self, z: float) -> float:
+        return self.rv_y + (z - self.cz) * self.scale
 
 
 @dataclass(frozen=True)
@@ -1042,6 +1068,8 @@ class LayoutFrame:
     fv_zones: ViewZones
     pv_zones: ViewZones
     sv_zones: ViewZones
+    rear: tuple[float, float, float, float] | None = None
+    rv_zones: ViewZones | None = None
 
     def project(self, view: str, point) -> tuple[float, float]:
         """A part-space *point* in *view*'s page coordinates."""
@@ -1052,6 +1080,8 @@ class LayoutFrame:
             return self.proj.side_x(y), self.proj.side_z(z)
         if view == "plan":
             return self.proj.plan_x(x), self.proj.plan_y(y)
+        if view == "rear" and self.rear is not None:
+            return self.proj.rear_x(x), self.proj.rear_z(z)
         raise ValueError(f"unknown view {view!r}")
 
     def edges(self, view: str) -> tuple[float, float, float, float]:
@@ -1060,11 +1090,24 @@ class LayoutFrame:
         The stored endpoints come from projected world minima/maxima, whose handedness
         need not match page left/right. Normalise here so callers can rely on the names
         this API exposes rather than knowing projector orientation."""
-        x0, x1, y0, y1 = {"front": self.front, "plan": self.plan, "side": self.side}[view]
+        bounds = {"front": self.front, "plan": self.plan, "side": self.side, "rear": self.rear}[
+            view
+        ]
+        if bounds is None:
+            raise ValueError(f"view {view!r} has no planned layout frame")
+        x0, x1, y0, y1 = bounds
         return min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
 
     def zones(self, view: str) -> ViewZones:
-        return {"front": self.fv_zones, "plan": self.pv_zones, "side": self.sv_zones}[view]
+        zones = {
+            "front": self.fv_zones,
+            "plan": self.pv_zones,
+            "side": self.sv_zones,
+            "rear": self.rv_zones,
+        }[view]
+        if zones is None:
+            raise ValueError(f"view {view!r} has no planned annotation zones")
+        return zones
 
 
 def layout_frame(a: Analysis) -> LayoutFrame:
@@ -1099,6 +1142,15 @@ def layout_frame(a: Analysis) -> LayoutFrame:
         fv_zones=a.fv_zones,
         pv_zones=a.pv_zones,
         sv_zones=a.sv_zones,
+        rear=(
+            a.proj.rear_x(a.bb.min.X),
+            a.proj.rear_x(a.bb.max.X),
+            a.proj.rear_z(a.bb.min.Z),
+            a.proj.rear_z(a.bb.max.Z),
+        )
+        if a.rv_zones is not None
+        else None,
+        rv_zones=a.rv_zones,
     )
 
 
@@ -1210,6 +1262,9 @@ class Analysis:
     frame: bool = False
     # Projection-method symbol (#769): "third" / "first" (ISO 5456-2) or None (omit).
     projection: str | None = None
+    projection_convention: str = "third"
+    text_position: str = "inline"
+    text_orientation: str = "aligned"
     # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
     zones: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
@@ -1260,6 +1315,9 @@ class Analysis:
     #: Coordinate-coherent PMI projection used by the compiler. ``None`` means the source
     #: report's records are already in working coordinates (raw and declared builds).
     pmi_working_records: tuple[object, ...] | None = None
+    RV_X: float = 0.0
+    RV_Y: float = 0.0
+    rv_zones: ViewZones | None = None
 
     @property
     def pmi(self) -> list:
@@ -1354,6 +1412,13 @@ def _make_title_block(dwg, a: Analysis):
             )
         )
     tb.pdf_text_specs = tuple(specs)
+    # Keep the exact rendered field inputs for structural cell-overflow checks. Cell geometry
+    # remains owned by TitleBlock.cell_bbox(); it is not copied into a second layout model.
+    tb.title_field_specs = tuple(
+        (field, value, dwg.draft.font_size, PLEX_SANS_CONDENSED)
+        for field, value in fields
+        if value
+    )
     return tb, cell
 
 

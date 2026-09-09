@@ -44,6 +44,7 @@ from typing import Literal, cast
 
 from build123d import Shape
 
+from draftwright._core import _dimension_draft
 from draftwright.builder import (
     _detect_part_model_analysis,
     build_drawing,
@@ -64,7 +65,7 @@ from draftwright.model.ir import (
     ToleranceDecoration,
 )
 from draftwright.reporting import write_json_document
-from draftwright.view_plan import ViewConstraints
+from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, ViewConstraints, validate_projection
 
 _log = logging.getLogger(__name__)
 
@@ -355,6 +356,8 @@ def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None 
             kw.append(f"depth={_n(f.depth)}")
         if f.profile_direction is not None:
             kw.append(f"profile_direction={_direction(f.profile_direction)}")
+        if f.through_indicator is not None:
+            kw.append(f"through_indicator={f.through_indicator!r}")
         kw.extend(_hole_group_args(f))
         return f"sheet.double_d_bore({', '.join(kw)})"
     kw = (
@@ -390,6 +393,8 @@ def _hole_line(f, object_ref: str | None = None, *, exact_parameter: str | None 
         # annotation: the callout reads THRU either way, checked. `.depth()` is not usable
         # here because it also sets `through=False`, which would invert the very fact above.
         kw.append(f"depth={_n(f.depth)}")
+    if f.through_indicator is not None:
+        kw.append(f"through_indicator={f.through_indicator!r}")
     line = f"sheet.hole({', '.join(kw)})"
     if not f.through and f.depth is not None:
         line += f".depth({_n(f.depth)})"  # sets through=False too
@@ -413,6 +418,8 @@ def _member_hole_str(m, *, exact_parameter: str | None = None) -> str:
             kw.append(f"depth={_n(m.depth)}")
         if m.profile_direction is not None:
             kw.append(f"profile_direction={_direction(m.profile_direction)}")
+        if m.through_indicator is not None:
+            kw.append(f"through_indicator={m.through_indicator!r}")
         return f"double_d_bore({', '.join(kw)})"
     kw = [
         f"diameter={_parameter_n(m.diameter, 'bore.diameter', exact_parameter)}",
@@ -438,6 +445,8 @@ def _member_hole_str(m, *, exact_parameter: str | None = None) -> str:
         # fixed, which the model-fidelity oracle missed because its corpus carried no hole
         # pattern (#967 review). The two templates diverging is the recurring shape here.
         kw.append(f"depth={_n(m.depth)}")
+    if m.through_indicator is not None:
+        kw.append(f"through_indicator={m.through_indicator!r}")
     return f"hole({', '.join(kw)})"
 
 
@@ -1541,7 +1550,8 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     )
     out = [
         "# ── Dimensions ────────────────────────────────────────────────────────────────",
-        "# THIS IS THE COMPLETE SET (ADR 4 (was 0016)). A measurement with no line here is omitted",
+        "# THIS IS THE COMPLETE SET (ADR 4 (was 0016)), including feature schedules below.",
+        "# A measurement with no dimension or schedule declaration is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
         # The role vocabulary was undiscoverable from the artefact: an editor had to guess a
         # string or read the source (#963). Typing narrows it now, but a generated file is
@@ -1588,6 +1598,26 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         if display_decimals is not None:
             line += f".format(decimals={display_decimals})"
         out.append(line)
+    return out
+
+
+def _schedule_block(model, names: dict[int, str]) -> list[str]:
+    """Retain authored table representations using the same emitted owner bindings."""
+    if not model.schedules:
+        return []
+    model._validate_schedule_origins()
+    out = ["", "# Feature schedules select measurements; the compiler supplies cell content."]
+    for schedule in model.schedules:
+        out.append("sheet.schedule([")
+        for row in schedule.rows:
+            name = names.get(id(row.feature))
+            if name is None:
+                raise ValueError(
+                    f"emit_sheet_script(): cannot name the {row.feature.kind} carrying "
+                    f"schedule {schedule.name!r}; it has no emitted feature binding"
+                )
+            out.append(f"    ({name}, {row.parameters!r}),")
+        out.append(f"], name={schedule.name!r}, prefer={schedule.prefer!r})")
     return out
 
 
@@ -1940,7 +1970,7 @@ def _adopted_view_block(constraints: ViewConstraints, names: Mapping[int, str]) 
         spec = item.spec
         reject_unexpressed_spec_fields(spec)
         expected_kind = "pictorial" if spec.name == "iso" else "principal"
-        if spec.name not in {"front", "plan", "side", "iso"} or spec.kind != expected_kind:
+        if spec.name not in (*PRINCIPAL_VIEW_NAMES, "iso") or spec.kind != expected_kind:
             raise ValueError(f"cannot emit principal view {spec.name!r} with kind {spec.kind!r}")
         if spec.target is not None:
             raise ValueError(f"cannot emit principal view {spec.name!r} with a target")
@@ -2054,6 +2084,8 @@ def emit_sheet_script(
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     object_ref: bool = False,
     object_candidates: Mapping[str, Shape] | None = None,
     source_part: Shape | None = None,
@@ -2098,6 +2130,7 @@ def emit_sheet_script(
     declaration a person edits; evidence about the run that produced it belongs in the sidecar
     document beside it, where a reader can diff or re-read it without parsing Python (#1460)."""
     _validate_scale_policy(scale, scale_policy)
+    _dimension_draft(text_position, text_orientation)
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -2183,6 +2216,10 @@ def emit_sheet_script(
         ctor.append("zones=True")
     if projection:
         ctor.append(f"projection={projection!r}")
+    if text_position != "inline":
+        ctor.append(f"text_position={text_position!r}")
+    if text_orientation != "aligned":
+        ctor.append(f"text_orientation={text_orientation!r}")
     from draftwright.model.declare import _envelope_from_bbox
 
     object_refs = _object_references(model.features, source_part, object_candidates)
@@ -2248,6 +2285,7 @@ def emit_sheet_script(
         *feature_lines,
         "",
         *_dimension_block(model, _names, _synth_env),
+        *_schedule_block(model, _names),
         "",
         "# ── Views ─────────────────────────────────────────────────────────────────────",
     ]
@@ -2442,6 +2480,8 @@ def generate_sheet_script(
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     pmi: Literal["off", "report", "annotate"] = "off",
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,
@@ -2460,7 +2500,9 @@ def generate_sheet_script(
     surface (flagged inline).
     *part_expr*, when given, overrides the ``part = …`` seam — e.g. the import seam from
     :func:`resolve_object_spec` so the script references a live module (#469)."""
+    validate_projection(projection)
     _validate_scale_policy(scale, scale_policy)
+    _dimension_draft(text_position, text_orientation)
     is_shape = isinstance(step_file, Shape)
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
     for _ext in (".py", ".svg", ".dxf"):
@@ -2536,6 +2578,8 @@ def generate_sheet_script(
                 frame=frame,
                 zones=zones,
                 projection=projection,
+                text_position=text_position,
+                text_orientation=text_orientation,
                 pmi=pmi,
                 model=model,
             )
@@ -2563,6 +2607,8 @@ def generate_sheet_script(
             frame=frame,
             zones=zones,
             projection=projection,
+            text_position=text_position,
+            text_orientation=text_orientation,
             object_ref=is_shape,
             object_candidates=object_candidates,
             source_part=step_file if isinstance(step_file, Shape) else None,

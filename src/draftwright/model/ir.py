@@ -36,13 +36,14 @@ from draftwright._geometry import (
 from draftwright.blend_contract import register_blend_ir_types, validate_blend_fields
 from draftwright.feature_identity import register_oriented_slot_feature_type
 from draftwright.section_recess_contract import validate_pocket_mouth
+from draftwright.view_plan import PRINCIPAL_VIEW_NAMES
 
 if TYPE_CHECKING:
     from draftwright.fits import FitClass
 
 Point = tuple[float, float, float]
 CylinderSense = Literal["external", "internal"]
-PLACEMENT_VIEWS = frozenset({"front", "plan", "side"})
+PLACEMENT_VIEWS = frozenset(PRINCIPAL_VIEW_NAMES)
 PLACEMENT_SIDES = frozenset({"above", "below", "left", "right"})
 
 
@@ -793,6 +794,9 @@ class HoleFeature:
     # Canonical unit normal to the parallel flats in part coordinates. This is orientation,
     # not a printable measurement, and is retained for declaration/script fidelity.
     profile_direction: Point | None = None
+    # None uses default wording; an explicitly empty string omits only the
+    # printed indicator. This is declared content, separate from through/blind.
+    through_indicator: str | None = None
     kind: ClassVar[str] = "hole"
 
     def __post_init__(self) -> None:
@@ -802,6 +806,18 @@ class HoleFeature:
         (ADR 4 (was 0011)). Validating here prevents a direct model from planning ``DOUBLE-D`` with
         no A/F value, or carrying an orientation that the profile cannot have.
         """
+        if self.through_indicator is not None:
+            if not self.through:
+                raise ValueError("a blind hole cannot carry a through_indicator")
+            if not isinstance(self.through_indicator, str) or (
+                self.through_indicator
+                and (
+                    not self.through_indicator.isprintable() or not self.through_indicator.strip()
+                )
+            ):
+                raise ValueError(
+                    "through_indicator must be printable single-line text, or '' to omit"
+                )
         if (
             isinstance(self.thread, ThreadOperation)
             and self.depth is not None
@@ -3411,6 +3427,48 @@ class RequestedDimension:
             )
 
 
+@dataclass(frozen=True)
+class ScheduleRow:
+    """An exact feature and measurement selectors, with no authored numeric content.
+
+    ``location`` expands to addressable member components in the planner. Other
+    selectors are canonical parameter IDs, rather than potentially ambiguous roles.
+    """
+
+    feature: Feature
+    parameters: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if isinstance(self.parameters, str):
+            raise ValueError("schedule parameters must be a sequence of parameter IDs")
+        object.__setattr__(self, "parameters", tuple(self.parameters))
+        if not self.parameters or any(
+            not isinstance(parameter, str) or not parameter.strip()
+            for parameter in self.parameters
+        ):
+            raise ValueError("schedule row requires nonempty parameter IDs")
+        if len(set(self.parameters)) != len(self.parameters):
+            raise ValueError("schedule row repeats a parameter selector")
+
+
+@dataclass(frozen=True)
+class FeatureSchedule:
+    """Authored table representation; the compiler supplies its measured cells."""
+
+    name: str
+    rows: tuple[ScheduleRow, ...]
+    prefer: Literal["tr", "tl", "br", "bl"] = "tr"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("schedule requires a nonempty name")
+        object.__setattr__(self, "rows", tuple(self.rows))
+        if not self.rows or any(not isinstance(row, ScheduleRow) for row in self.rows):
+            raise ValueError("schedule requires at least one ScheduleRow")
+        if self.prefer not in ("tr", "tl", "br", "bl"):
+            raise ValueError("schedule prefer must be tr, tl, br or bl")
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""
@@ -3439,9 +3497,28 @@ class PartModel:
     # authored set is planned with ``suppressed=True`` and keeps its value, so the group
     # retains its engineering data and a later pass can still see what was left out.
     authored_dimensions: tuple[RequestedDimension, ...] | None = None
+    # Table representations belong to authored intent, not the physical inventory.
+    schedules: tuple[FeatureSchedule, ...] = ()
 
     def __post_init__(self) -> None:
         self._validate_structured_note_origins()
+        self._validate_schedule_origins()
+
+    def _validate_schedule_origins(self) -> None:
+        """Check exact ownership again at planning, since features is mutable."""
+        names: set[str] = set()
+        for schedule in self.schedules:
+            if not isinstance(schedule, FeatureSchedule):
+                raise ValueError("PartModel.schedules requires FeatureSchedule entries")
+            if schedule.name in names:
+                raise ValueError(f"duplicate schedule name {schedule.name!r}")
+            names.add(schedule.name)
+            for row in schedule.rows:
+                if not any(feature is row.feature for feature in self.features):
+                    raise ValueError(
+                        f"schedule {schedule.name!r} row must target the identical feature "
+                        "in PartModel.features"
+                    )
 
     def _validate_structured_note_origins(self) -> None:
         """Require every authority-bearing note to target this exact mutable inventory."""

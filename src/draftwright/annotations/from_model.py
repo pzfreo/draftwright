@@ -60,9 +60,11 @@ from draftwright._core import (
     _text_size,
     _title_block_box,
     _tol_suffix,
+    layout_frame,
 )
 from draftwright._geometry import (
     _blend_profile_arcs,
+    _fmt_chamfer,
     _segment_clips_box,
     _straight_blend_faces,
     _turned_profile_site,
@@ -177,6 +179,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         dia,
         count=count,
         through=spec["through"],
+        through_indicator=spec.get("through_indicator", "THRU"),
         depth=depth,
         cbore_dia=cbore_dia,
         cbore_depth=cbore_depth,
@@ -199,7 +202,8 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         visible_tokens.append(("text", f"{count}×"))
     visible_tokens.extend((("sym", "diameter"), ("text", dia)))
     if spec["through"]:
-        visible_tokens.append(("text", "THRU"))
+        if indicator := spec.get("through_indicator", "THRU"):
+            visible_tokens.append(("text", indicator))
     elif depth is not None:
         visible_tokens.extend((("sym", "depth"), ("text", depth)))
     if cbore_dia is not None:
@@ -257,7 +261,8 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         terms.append(f"{count}×")
     terms.append(f"⌀{dia}")
     if spec["through"]:
-        terms.append("THRU")
+        if indicator := spec.get("through_indicator", "THRU"):
+            terms.append(indicator)
     elif depth is not None:
         terms.extend(("↧", depth))
     if cbore_dia is not None:
@@ -273,13 +278,23 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     callout.label = " ".join(terms)
     callout.measurements = tuple(spec.get("measurements", ()))
     callout.source_ids = tuple(spec.get("source_ids", ()))
+    callout.source_features = tuple(spec.get("source_features", ()))
     callout.covers_hole_requirements = tuple(
         requirement
         for requirement, covered in (
-            ("bore.through", spec["through"]),
+            ("bore.through", spec["through"] and bool(spec.get("through_indicator", "THRU"))),
             ("grouping.count", bool(count and count > 1)),
         )
         if covered
+    )
+    callout.covers_hole_requirements_by_feature = tuple(
+        (owner, requirement, owner_count)
+        for owner, owner_count in spec.get("owner_counts", ())
+        if len(spec.get("owner_counts", ())) > 1
+        for requirement in (
+            "grouping.count",
+            *(("bore.through",) if "bore.through" in callout.covers_hole_requirements else ()),
+        )
     )
     profile_coverage = spec.get("profile_coverage")
     callout.covers_profiles = () if profile_coverage is None else (profile_coverage,)
@@ -871,6 +886,28 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             parameter = f"{parameter}.{measured_axis}"
         return (feature, parameter, point)
 
+    def _discard_short_refs(refs, coordinate, datum, view):
+        # Nearness on paper is not coincidence with the physical datum. A required
+        # nonzero span that cannot be drawn must remain a recorded placement failure.
+        short = [
+            ref
+            for ref in refs
+            if 1e-6 < abs(ref[coordinate] - datum) and abs(ref[coordinate] - datum) * a.SCALE < 1.0
+        ]
+        if short:
+            axis = "X" if coordinate == 0 else "Y"
+            ctx.record_issue(
+                "warning",
+                "location_ref_dropped",
+                f"{len(short)} {axis} location dim(s) project to less than 1 mm (use a detail view)",
+                measurement=tuple(mid for ref in short for mid in ref[4]),
+                hole_requirements=tuple(
+                    (feature, parameter) for ref in short for feature, parameter, _point in ref[5]
+                ),
+            )
+            ctx.escalations.append(Escalation("location", view, None, "illegible"))
+        return [ref for ref in refs if ref not in short]
+
     # --- X locations: tier above the plan view ---
     PX, PY = a.proj.plan_x, a.proj.plan_y
     x_refs: list = []
@@ -902,6 +939,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     else [],
                 ]
             )
+    x_refs = _discard_short_refs(x_refs, 0, datum_x, "plan")
     _x_drawable = {r[0] for r in x_refs if abs(r[0] - datum_x) * a.SCALE >= 1.0}
     _kept_x, _n_x_close = _legible_locations(_x_drawable, a.SCALE)
     if _n_x_close:
@@ -1025,6 +1063,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     else [],
                 ]
             )
+    y_refs = _discard_short_refs(y_refs, 1, datum_y, "side" if side_planned else "plan")
     _y_drawable = {r[1] for r in y_refs if abs(r[1] - datum_y) * a.SCALE >= 1.0}
     _kept_y, _n_y_close = _legible_locations(_y_drawable, a.SCALE)
     if _n_y_close:
@@ -1151,7 +1190,11 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
         hole = feat.member if isinstance(feat, PatternFeature) else feat
         dia = hole.diameter or 0.0
         size = max(2.5, dia * dwg.scale + 2.0)
-        view = _END_ON.get(feat.frame.axis, "plan")
+        view = g.view or _END_ON.get(feat.frame.axis, "plan")
+        if view not in getattr(dwg, "views", (view,)) and all(
+            dimension.suppressed for dimension in g.dims
+        ):
+            continue  # No value-bearing requirement earned furniture in this projection.
         members = feat.members or (g.anchor,)
         for loc in members:
             px, py, *_ = dwg.at(view, *loc)
@@ -1919,12 +1962,10 @@ def _chamfer_label(leg_text, leg, ch) -> str:
     while *leg* is the number the equal-leg comparison needs. The feature supplies only the
     geometric form discriminators (``leg2``/``angle``), and a ``ChamferFeature`` stays pure
     data (ADR 3 (was 0013 §7))."""
-    if abs(leg - ch.leg2) < 0.05 and abs(ch.angle - 45.0) < 0.5:
-        return f"C{leg_text}"
     # `ch.angle` is a FORM discriminator, not a planned parameter — `ChamferFeature.
     # parameters()` emits only the leg — so it has no approved text to consume. That is the
     # IR gap `_FACTS` records, and it is why this line stays in the provenance budget.
-    return f"{leg_text} × {_fmt(ch.angle)}°"
+    return _fmt_chamfer(leg_text, leg, ch.leg2, ch.angle)
 
 
 # ── Shared machined-feature leader-callout pass (#637) ──────────────────────────────────
@@ -4671,6 +4712,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         tier,
                         ctx=ctx,
                         measurements={nm: _mid},
+                        features={nm: env.ref},
                         trace=ctx.trace,
                         trace_label=f"{nm}_above_fallthrough",
                     ):
@@ -4694,6 +4736,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 on_drop=_drop,
                 priority=_MANDATORY_OVERALL_PRIORITY,
                 force=True,
+                feature=env.ref,
                 measurement=measurement,  # which envelope extent this is (#1002)
                 footprint=footprint,  # analytical measure — no probe build (#602)
             ),
@@ -4704,7 +4747,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
     # view, which is why dropping the plan view raised `ViewNotPlanned` from here instead of
     # re-homing the width dim. `views_showing` prefers the view each has always used, so
     # nothing moves while all three principals are planned.
-    zones_for_view = {"front": a.fv_zones, "plan": a.pv_zones, "side": a.sv_zones}
+    frame = layout_frame(a)
     for role, axis, slot, ann_name in (
         ("width", "x", _SLOT_DIM_WIDTH, "m_env_width"),
         ("depth", "y", _SLOT_DIM_DEPTH, "m_env_depth"),
@@ -4737,7 +4780,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         )
         p1, p2 = dwg.at(view, *start_pt), dwg.at(view, *end_pt)
         witness = p1[1] - _WITNESS_LIFT_MM
-        zones = zones_for_view[view]
+        zones = frame.zones(view)
         _queue(
             ann_name,
             zones.below,
@@ -5875,6 +5918,48 @@ def ladder_plan_for(plan, *, step_height: bool, overall: bool):
 
 
 def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) -> int:
+    """Route approved ladders through the shared vertical-strip placement pass.
+
+    Step rungs retain their front-view renderer. The independent overall height
+    may use an explicitly selected rear view, with its own corridor and witnesses.
+    """
+    overall = plan.ladder("overall_height")
+    height_view: str | None = "front"
+    if overall is not None:
+        height_view = overall.rungs[0].view or next(
+            (name for name in ("front", "rear") if name in getattr(dwg, "views", ("front",))),
+            None,
+        )
+        if height_view is None:
+            height = overall.rungs[0]
+            ctx.record_issue(
+                "error",
+                "placement_unsatisfiable",
+                "overall height cannot be shown: no planned front or rear view",
+                measurement=height.id,
+                measurement_span=height.span,
+                outcome_stage="placement",
+            )
+            plan = ladder_plan_for(plan, step_height=True, overall=False)
+            if plan.ladder("step_height") is None:
+                return 0
+            height_view = "front"
+    if height_view == "front":
+        return _render_height_ladder_in_view(
+            dwg, plan, frame, ctx=ctx, detail_view=detail_view, view="front"
+        )
+    count = 0
+    for view, steps, height in (("front", True, False), (height_view, False, True)):
+        selected = ladder_plan_for(plan, step_height=steps, overall=height)
+        if selected.ladder("step_height") is None and selected.ladder("overall_height") is None:
+            continue
+        count += _render_height_ladder_in_view(
+            dwg, selected, frame, ctx=ctx, detail_view=detail_view, view=view
+        )
+    return count
+
+
+def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -> int:
     """Front-view ladder: prismatic step heights stacked inner→outer, then the overall
     height outermost. The overall height can be authored on the left; candidates enter
     the shared corridor for their side. The leapfrog witness cursor (#237) survives as a
@@ -5896,7 +5981,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
     the plan's diagnostics) and this pass's drop (arrived, did not fit; reported as
     ``placement_unsatisfiable``). Returns the count REGISTERED."""
     draft = dwg.draft
-    _left, right, _bottom, _top = frame.edges("front")
+    _left, right, _bottom, _top = frame.edges(view)
     edge2 = right + 2
     tier = draft.font_size + 2 * draft.pad_around_text
 
@@ -5910,8 +5995,8 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
         review). The span is the compiler's statement of what is being measured; projecting
         both ends of it is what keeps line and label the same claim."""
         return (
-            frame.project("front", entry.span[0])[1],
-            frame.project("front", entry.span[1])[1],
+            frame.project(view, entry.span[0])[1],
+            frame.project(view, entry.span[1])[1],
         )
 
     rung_set = plan.ladder("step_height")
@@ -6009,7 +6094,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             ctx.escalations.append(
                 Escalation(
                     kind="step",
-                    view="front",
+                    view=view,
                     feature=step,
                     reason="illegible",
                     targets=crowded,
@@ -6087,7 +6172,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
         side = sides[name]
         direction = 1 if side == "right" else -1
         edge = edge2 if side == "right" else _left - 2
-        strip = frame.fv_zones.right if side == "right" else frame.fv_zones.left
+        strip = frame.zones(view).right if side == "right" else frame.zones(view).left
         predecessors = [pn for pn in names[:k] if sides[pn] == side]
 
         def _witness_base(pos, predecessors=predecessors, direction=direction, edge=edge):
@@ -6159,7 +6244,9 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
 
         def _drop(
             nm,
-            drop_msg=drop_msg.replace("right strip", f"{side} strip"),
+            drop_msg=drop_msg.replace("front-view", f"{view}-view").replace(
+                "right strip", f"{side} strip"
+            ),
             strip=strip,
             name=name,
             measurement=mid,
@@ -6168,7 +6255,7 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             solved.pop(name, None)
             # Name what filled the strip (#736): the #733 diagnosis becomes a glance at the
             # lint message.
-            msg = full_strip_message(drop_msg, dwg, strip, "front", "x")
+            msg = full_strip_message(drop_msg, dwg, strip, view, "x")
             ctx.record_issue(
                 "error",
                 "placement_unsatisfiable",
@@ -6180,9 +6267,9 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
 
         register_corridor(
             ctx,
-            ("front", side),
+            (view, side),
             strip,
-            "front",
+            view,
             "x",
             tier,
             CorridorCandidate(
@@ -6202,7 +6289,11 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
                 # …and when it IS physically full, they outrank ordinary auto dims rather
                 # than tying with them at 0 and losing on the generated key (#894).
                 priority=_PRINCIPAL_CHAIN_PRIORITY,
-                feature=step if name != "dim_height" else None,
+                feature=step
+                if name != "dim_height"
+                else overall.ref
+                if overall is not None
+                else None,
                 measurement=mid,  # the rung's own compiled id (#1002)
                 footprint=_foot,
             ),
@@ -6235,8 +6326,8 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
             msg = full_strip_message(
                 "short step-height dimension dropped (front-view left strip full)",
                 dwg,
-                frame.fv_zones.left,
-                "front",
+                frame.zones(view).left,
+                view,
                 "x",
             )
             ctx.record_issue(
@@ -6250,9 +6341,9 @@ def render_height_ladder(dwg, plan, frame, *, ctx, detail_view: bool = False) ->
 
         register_corridor(
             ctx,
-            ("front", "left"),
-            frame.fv_zones.left,
-            "front",
+            (view, "left"),
+            frame.zones(view).left,
+            view,
             "x",
             tier,
             CorridorCandidate(

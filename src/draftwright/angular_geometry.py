@@ -14,6 +14,8 @@ class AngularStyle:
     extension_gap: float
     pad_around_text: float
     line_width: float
+    text_position: str = "inline"
+    text_orientation: str = "aligned"
 
 
 def _box(points, padding=0.0):
@@ -73,15 +75,31 @@ class AngularGeometry:
         self.text_size = text_size
         tangent = (self.middle + pi / 2) % (2 * pi)
         self.text_angle = tangent - pi if pi / 2 < tangent <= 3 * pi / 2 else tangent
+        self.text_position = getattr(draft, "text_position", "inline")
+        if getattr(draft, "text_orientation", "aligned") == "horizontal":
+            self.text_angle = 0.0
         width, height = self.text_size
+        relative = self.text_angle - self.middle
+        self.radial_half = abs(cos(relative)) * width / 2 + abs(sin(relative)) * height / 2
+        self.tangent_half = abs(sin(relative)) * width / 2 + abs(cos(relative)) * height / 2
         # This bound leaves room for both arrow shafts and the full text. It also
         # keeps extension lines beyond their physical witness points. Opposite
         # witnesses have negative stations: their extensions cross the vertex.
         self.minimum_radius = max(
             max(lengths) + draft.extension_gap + draft.arrow_length,
-            (width + height + 2 * draft.pad_around_text + 4 * draft.arrow_length) / self.sweep
-            + height / 2
-            + draft.pad_around_text,
+            (
+                4 * draft.arrow_length / self.sweep
+                if self.text_position == "above"
+                else (
+                    2 * self.tangent_half
+                    + 2 * self.radial_half
+                    + 2 * draft.pad_around_text
+                    + 4 * draft.arrow_length
+                )
+                / self.sweep
+                + self.radial_half
+                + draft.pad_around_text
+            ),
         )
 
     @property
@@ -94,7 +112,7 @@ class AngularGeometry:
 
     def label_polygon(self, radius):
         width, height = self.text_size
-        centre = self.point(radius, self.middle)
+        centre = self.label_centre(radius)
         return tuple(
             tuple(a + b for a, b in zip(centre, _rotate(point, self.text_angle), strict=True))
             for point in (
@@ -104,6 +122,11 @@ class AngularGeometry:
                 (-width / 2, height / 2),
             )
         )
+
+    def label_centre(self, radius):
+        if self.text_position == "above":
+            radius += self.radial_half + self.draft.pad_around_text + self.draft.arrow_length
+        return self.point(radius, self.middle)
 
     def extension_segments(self, radius):
         end_radius = radius + self.draft.extension_gap
@@ -118,10 +141,13 @@ class AngularGeometry:
         )
 
     def arc_intervals(self, radius):
-        width, height = self.text_size
-        gap = atan2(
-            width / 2 + self.draft.pad_around_text,
-            radius - height / 2 - self.draft.pad_around_text,
+        gap = (
+            0.0
+            if self.text_position == "above"
+            else atan2(
+                self.tangent_half + self.draft.pad_around_text,
+                radius - self.radial_half - self.draft.pad_around_text,
+            )
         )
         intervals = ((self.start, self.middle - gap), (self.middle + gap, self.start + self.sweep))
         if any((end - start) * radius <= self.draft.arrow_length for start, end in intervals):

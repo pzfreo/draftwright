@@ -112,8 +112,12 @@ from draftwright.model import (
     plan_dimensions,
     plan_sections,
 )
+from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.model.detect import _build_part_model_from_recognition
+from draftwright.model.planner import annotation_groups
+from draftwright.progress import stage
+from draftwright.registry import MeasurementCell
 from draftwright.repair import reconcile_witness_labels
 from draftwright.view_plan import ViewConstraints
 
@@ -306,10 +310,10 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "section",
     "details",
     "title_block",
+    "projection_symbol",
     "tabulate",
     "sheet_frame",
     "zone_grid",
-    "projection_symbol",
 )
 
 
@@ -328,7 +332,8 @@ def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
     for name in sequence:
         fn = stages.get(name)
         if fn is not None:
-            fn()
+            with stage("placement." + name):
+                fn()
 
 
 def drain_and_reconcile(ctx, dwg) -> None:
@@ -548,6 +553,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # ladder, the shoulders and the detail escalation each hold a separately
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
+    _groups = annotation_groups(_model, _groups)
     for omission in _compiled.diagnostics:
         if omission.code != "step_position_coincident_with_datum":
             continue
@@ -900,8 +906,22 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     def _s_tabulate():
         # Escalate to a hole table when the plan view is too dense to dimension
         # every hole — runs last so the table avoids every placed annotation
-        # including the title block (#93).
+        # including the title block and projection symbol (#93/#1517).
         _maybe_tabulate_holes(dwg, a, ctx=ctx, plan=_compiled)
+        for schedule in _compiled.schedules:
+            cells = tuple(
+                MeasurementCell(schedule.name, ri, ci, cell.measurement.id)
+                for ri, row in enumerate(schedule.rows)
+                for ci, cell in enumerate(row)
+                if cell.measurement is not None and cell.measurement.id is not None
+            )
+            dwg.add_table(
+                tuple(tuple(cell.text for cell in row) for row in schedule.rows),
+                name=schedule.name,
+                prefer=schedule.prefer,
+                _source_id=f"schedule:{schedule.name}",
+                _cells=cells,
+            )
 
     run_stages(
         {
@@ -1235,7 +1255,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         def _table_row(tag, hole):
             diameter_text = _approved_hole_text(hole, "bore.diameter")
             depth_text = (
-                "THRU"
+                resolved_through_indicator(hole.feature)
                 if hole.through and diameter_text
                 else _approved_hole_text(hole, "bore.depth")
             )

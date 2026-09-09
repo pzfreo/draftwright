@@ -7,8 +7,13 @@ from typing import Literal
 
 from quiddity import RecognitionResult, SectionRecess, has_multi_axis_plates
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue
+from draftwright.measurement_support import RequirementCarrier
 from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 ChannelRequirementState = Literal[
@@ -30,6 +35,7 @@ class ChannelRequirementOutcome:
     state: ChannelRequirementState
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -188,7 +194,7 @@ def channel_requirement_outcomes(
                     source_records=(source,),
                 )
             )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_channel_coverage(

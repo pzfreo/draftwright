@@ -130,6 +130,17 @@ def test_lint_requires_the_named_holes_physical_authority(monkeypatch, withdraw)
     (issue,) = lint_hole_leader_targets(**kwargs)
     assert issue.code == "diameter_leader_target_unverifiable"
     assert issue.measurement_ids
+    _, name, _ = _hole_leader(drawing)
+    assert issue.annotation_name == name
+    assert issue.view == drawing.view_of(name)
+    expected = {
+        "faces": "named occurrence has no defining boundary edges",
+        "ownership": "exact physical occurrence ownership unavailable",
+        "foreign_evidence": "same-run recognition evidence unavailable",
+        "owner": "exact physical occurrence ownership unavailable",
+        "view": "annotation view unavailable",
+    }
+    assert issue.evidence_reason == expected[withdraw]
 
 
 @pytest.mark.parametrize("declared", [False, True])
@@ -151,14 +162,21 @@ def test_double_d_target_uses_trimmed_profile_including_flats(declared, monkeypa
     assert any(i.code == "diameter_leader_target_mismatch" for i in drawing.lint())
 
 
-def test_split_declared_holes_cannot_claim_the_other_members_rim(monkeypatch):
+@pytest.mark.parametrize("grouped", [False, True])
+def test_split_declared_holes_cannot_claim_the_other_members_rim(monkeypatch, grouped):
     part = Box(50, 30, 5) - Pos(-10, 0, 0) * Cylinder(4, 5) - Pos(10, 0, 0) * Cylinder(4, 5)
     automatic = build_drawing(part)
     (group,) = [f for f in automatic.model().features if f.kind == "hole"]
     assert group.count == 2
     singles = [
-        replace(group, frame=replace(group.frame, origin=point), count=1, members=(point,))
-        for point in group.members
+        replace(
+            group,
+            frame=replace(group.frame, origin=point),
+            count=1,
+            members=(point,),
+            through_indicator=None if grouped else ("THRU", "THROUGH ALL")[index],
+        )
+        for index, point in enumerate(group.members)
     ]
     model = replace(
         automatic.model(),
@@ -170,7 +188,22 @@ def test_split_declared_holes_cannot_claim_the_other_members_rim(monkeypatch):
         n for n in drawing.annotations_of(singles[0]) if hasattr(drawing.get_annotation(n), "tip")
     ]
     leader = drawing.get_annotation(name)
-    other = singles[1].frame.origin
+    target_owner = drawing.registry.feature_of(name)
+    assert target_owner in singles
+    if grouped:
+        assert (
+            len(
+                {
+                    n
+                    for f in singles
+                    for n in drawing.annotations_of(f)
+                    if hasattr(drawing.get_annotation(n), "tip")
+                }
+            )
+            == 1
+        )
+        assert leader.covers_count == 2
+    other = next(feature for feature in singles if feature is not target_owner).frame.origin
     tip = drawing.at(drawing.view_of(name), other[0] + 4, other[1], other[2])
     monkeypatch.setattr(
         leader,

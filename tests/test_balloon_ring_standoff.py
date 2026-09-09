@@ -17,6 +17,7 @@ tracking the bug.
 
 from __future__ import annotations
 
+import pytest
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
@@ -57,14 +58,17 @@ def test_balloon_ring_clears_the_plan_view_after_escalation():
     assert max(tops) > plan_top + _MIN_STANDOFF_MM
 
 
-def test_the_dense_plate_actually_escalates():
+@pytest.mark.parametrize("method", ["first", "third"])
+def test_the_dense_plate_actually_escalates(method):
     """Guard on the fixture itself, so the standoff test above cannot pass for the
     wrong reason. If a future change stops this part escalating, that test would
     'pass' by having no balloons at all — this fails loudly instead."""
-    drawing = build_drawing(_dense_plate())
+    drawing = build_drawing(_dense_plate(), projection=method)
+    assert len([f for f in drawing.model().features if f.kind == "hole"]) == 18
     names = set(drawing.annotations())
-    assert any(n.startswith("balloon_plan") for n in names), "expected balloons"
+    assert len([n for n in names if n.startswith("balloon_plan")]) == 18
     assert any("table" in n for n in names), "expected the hole table"
+    assert not [i for i in drawing.lint() if i.severity in {"warning", "error"}]
 
 
 def test_identical_holes_do_not_escalate():

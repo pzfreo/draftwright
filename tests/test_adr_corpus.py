@@ -112,6 +112,7 @@ def test_no_live_document_cites_an_archived_record_as_authority():
         _ROOT / "AGENTS.md",
         _ROOT / "CLAUDE.md",
         _ROOT / "README.md",
+        _ROOT / "skills" / "SKILL.md",
     ]
     for root in roots:
         files = root.rglob("*") if root.is_dir() else [root]

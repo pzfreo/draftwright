@@ -4,9 +4,9 @@ A caller attaches a ± / limit tolerance to a declared dimension (via the ``deco
 side-layer or the ``Sheet.tolerance()`` handle); it rides ``DimParameter.tolerance`` through
 the planner and renders on **both** the linear ``Dimension`` path (step length) and the
 ``Leader`` / ``HoleCallout`` ⌀ path — the latter via draftwright's own ``_tol_suffix`` baked
-into the label string, matching what ``Dimension(tolerance=…)`` formats (helpers has no
-``tolerance=`` on ``Leader``/``HoleCallout`` yet). Tolerances render at the sheet's decimal
-precision (1 dp today), so tests use tolerances that survive 1 dp.
+into the label string. The owned formatter treats sheet precision as a minimum and
+preserves the supplied tolerance magnitude. The separate helper-owned numeric linear
+formatter is tracked in build123d-drafting-helpers#187; it does not define this contract.
 """
 
 import pytest
@@ -49,15 +49,15 @@ def _spec(diameter, **over):
 
 
 class TestTolSuffix:
-    """The owned callout formatter — must byte-match helpers' ``_format_label`` suffix."""
+    """The owned callout formatter preserves the supplied engineering magnitudes."""
 
     def test_symmetric_float(self):
         d = draft_preset(font_size=2.5, decimal_precision=2)
         assert _tol_suffix(0.05, d) == " ±0.05"
 
-    def test_symmetric_respects_precision(self):
+    def test_symmetric_does_not_coarsen_authored_magnitude(self):
         d1 = draft_preset(font_size=2.5, decimal_precision=1)
-        assert _tol_suffix(0.05, d1) == " ±0.1"  # rounds to the draft precision, like Dimension
+        assert _tol_suffix(0.05, d1) == " ±0.05"
 
     def test_limit_pair_is_plus_upper_minus_lower(self):
         d = draft_preset(font_size=2.5, decimal_precision=1)
@@ -501,7 +501,7 @@ class TestSheetTolerance:
             label="CUSTOM",
             tolerance=0.05,
         )
-        assert str(dwg.get_annotation("u0").label) == "CUSTOM ±0.1"
+        assert str(dwg.get_annotation("u0").label) == "CUSTOM ±0.05"
 
     @pytest.mark.parametrize("extra", [{}, {"pin": True}, {"priority": 5.0}])
     def test_a_deferred_dimension_renders_its_tolerance(self, extra):
@@ -551,7 +551,7 @@ class TestSheetTolerance:
         """
         from draftwright.sheet import Sheet as _S
 
-        for tol, expected in ((None, {"15", "30"}), (0.05, {"15 ±0.1", "30 ±0.1"})):
+        for tol, expected in ((None, {"15", "30"}), (0.05, {"15 ±0.05", "30 ±0.05"})):
             sheet = _S(self._staircase(), title="T", number="N")
             handle = sheet.step_level(self._staircase())
             if tol is not None:

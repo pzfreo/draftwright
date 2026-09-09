@@ -17,6 +17,7 @@ from itertools import chain
 from pathlib import Path
 from typing import Any
 
+from build123d import FontStyle
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
@@ -24,6 +25,7 @@ from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
     _anno_box,
     _decode_hole_location_fact,
     _dim,
+    _dimension_head_bounds,
     _text_size,
     place_annotation,
 )
@@ -82,11 +84,8 @@ def _hole_location_coverage_fact(location):
         feature = location.id.feature
     assert feature is not None and location.span is not None
     if isinstance(feature, HoleFeature | PatternFeature):
-        parameter = (
-            f"{location.role}.{location.discriminator}"
-            if isinstance(feature, HoleFeature) and location.axis != "z"
-            else f"{location.role}.location.{location.discriminator}"
-        )
+        parameter = location.physical_location_component
+        assert parameter is not None
         return (feature, parameter, tuple(location.span[1]))
     parameter = location.id.parameter if location.id is not None else location.parameter_id
     if (
@@ -816,7 +815,13 @@ def dim_footprint(p1, p2, side, distance, draft, label):
         draft.font_size,
         getattr(draft, "font_path", DEFAULT_FONT_PATH),
         getattr(draft, "font", "Arial"),
+        getattr(draft, "font_style", FontStyle.REGULAR),
     )
+    if (
+        getattr(draft, "text_position", "inline"),
+        getattr(draft, "text_orientation", "aligned"),
+    ) != ("inline", "aligned"):
+        return _styled_dimension_footprint(p1, p2, side, distance, draft, (w, h))
     hx, hy = (h / 2.0, w / 2.0) if abs(dyp) > abs(dxp) else (w / 2.0, h / 2.0)
     lcx = (p1[0] + p2[0]) / 2.0 + sx * off
     lcy = (p1[1] + p2[1]) / 2.0 + sy * off
@@ -843,6 +848,72 @@ def dim_footprint(p1, p2, side, distance, draft, label):
         ys += [p1[1] + sy * far, p2[1] + sy * far]
     pad = draft.line_width / 2.0
     return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
+
+
+def _styled_dimension_footprint(p1, p2, side, distance, draft, text_size):
+    """Conservative full-ink hull with the helper's resolved orientation and offset.
+
+    The builder warms the fixed arrow envelope before placement; candidates use
+    scalar arithmetic and cached typography. Unclipped witness extents are a
+    conservative bound, followed by the existing actual-ink acceptance check.
+    """
+    width, height = text_size
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    ux, uy = dx / length, dy / length
+    sign = 1 if uy * side[0] - ux * side[1] >= 0 else -1
+    wx, wy = sign * uy, -sign * ux
+    off = abs(distance)
+    ends = [(point[0] + wx * off, point[1] + wy * off) for point in (p1, p2)]
+    angle = math.atan2(uy, ux)
+    aligned = (
+        angle if -math.pi / 2 < angle <= math.pi / 2 else angle - math.copysign(math.pi, angle)
+    )
+    reading = aligned if draft.text_orientation == "aligned" else 0.0
+    relative = reading - angle
+    along = abs(math.cos(relative)) * width / 2 + abs(math.sin(relative)) * height / 2
+    normal = abs(math.sin(relative)) * width / 2 + abs(math.cos(relative)) * height / 2
+    cx, cy = ((ends[0][index] + ends[1][index]) / 2 for index in (0, 1))
+    head_box = _dimension_head_bounds(draft.arrow_length, draft.head_type)
+    head_height = max(abs(head_box[1]), abs(head_box[3]))
+    if draft.text_position == "above":
+        offset = normal + draft.pad_around_text + max(head_height, draft.line_width / 2)
+        cx -= math.sin(aligned) * offset
+        cy += math.cos(aligned) * offset
+    hx = abs(math.cos(reading)) * width / 2 + abs(math.sin(reading)) * height / 2
+    hy = abs(math.sin(reading)) * width / 2 + abs(math.cos(reading)) * height / 2
+    points = [(cx - hx, cy - hy), (cx + hx, cy + hy)]
+    for point in (p1, p2):
+        points.extend(
+            (point[0] + wx * t, point[1] + wy * t)
+            for t in (draft.extension_gap, off + draft.extension_gap)
+        )
+    fits = (
+        2 * along + 2 * draft.arrow_length < length
+        and length / 2 - along - draft.pad_around_text > draft.arrow_length / 2
+    )
+    # Local arrow heads extend behind their tip. Rotate the complete envelope:
+    # separate tip/shaft and transverse extrema miss oblique body corners.
+    for end, direction in zip(ends, (-1, 1) if fits else (1, -1), strict=True):
+        points.extend(
+            (
+                end[0] + direction * (ux * x - uy * y),
+                end[1] + direction * (uy * x + ux * y),
+            )
+            for x in (head_box[0], head_box[2])
+            for y in (head_box[1], head_box[3])
+        )
+    if not fits:
+        points.extend(
+            (
+                end[0] + ux * direction * 2 * draft.arrow_length,
+                end[1] + uy * direction * 2 * draft.arrow_length,
+            )
+            for end, direction in zip(ends, (-1, 1), strict=True)
+        )
+    xs, ys = zip(*points, strict=True)
+    pad = draft.line_width / 2
+    return min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad
 
 
 def leader_callout_geometry(tip, elbow, draft, *, text_side="auto", callout_box=None):
@@ -2917,6 +2988,7 @@ def place_strip_candidates(
     # solve, try a bounded contraction using actual segments and labels against
     # both committed ink and this batch. Never move an anchored dimension.
     active_names = {name for name, _build in cands}
+    label_clear = view_label_clearance(dwg, view) if compact_candidates else None
     for name, alternatives in (compact_candidates or {}).items():
         if name not in active_names:
             continue
@@ -2936,6 +3008,7 @@ def place_strip_candidates(
                 or box[2] > dwg.page_w - _MARGIN
                 or box[3] > dwg.page_h - _MARGIN
                 or ((forbid or {}).get(name) is not None and _box_hits(box, (forbid[name],)))
+                or (label_clear is not None and not label_clear(candidate.label_bbox))
                 or not annotation_ink_clear(dwg, candidate, additional=others)
             ):
                 continue

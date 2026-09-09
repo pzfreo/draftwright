@@ -38,13 +38,16 @@ from draftwright._core import (
     _add_sheet_frame,
     _add_title_block,
     _add_zone_grid,
+    _dimension_draft,
+    _dimension_head_bounds,
     _iso_bbox,
     _log,
     _parse_page,
     _Projector,
+    _shape_box2d,
     _tb_width,
 )
-from draftwright._geometry import _scale_world
+from draftwright._geometry import BOUNDS_ROUNDOFF, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotations._common import (
@@ -61,12 +64,12 @@ from draftwright.annotations.orchestrator import (
 from draftwright.compose import (
     ViewBlock,
     _attribute_annotations,
+    _build_rear_zones,
     _build_zones,
     _layout_geometry,
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
-from draftwright.fonts import PLEX_MONO
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.model import (
@@ -79,6 +82,7 @@ from draftwright.model import (
 )
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import plan_dimensions
+from draftwright.progress import activity, build_operation, observed_stage, stage
 from draftwright.projection import (
     _bbox_within,
     _fit_iso_view,
@@ -87,11 +91,13 @@ from draftwright.projection import (
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    PRINCIPAL_VIEW_NAMES,
     UncoveredViewRequirement,
     ViewConstraints,
     ViewPlanIncomplete,
     resolve_from_analysis,
     third_angle_view_names,
+    validate_projection,
 )
 
 # A view centre must move by more than this (mm) for the measure-and-repack
@@ -150,24 +156,7 @@ def _validate_authored_view_layout(dwg: Drawing, constraints) -> None:
         raise ValueError(f"authored layout names absent view {name!r}")
 
     for relation in constraints.relations:
-        sb = bounds(relation.subject)
-        rb = bounds(relation.reference)
-        gap = relation.gap or 0.0
-        checks = {
-            "left_of": sb[2] + gap <= rb[0] + 1e-6,
-            "right_of": sb[0] + 1e-6 >= rb[2] + gap,
-            "above": sb[1] + 1e-6 >= rb[3] + gap,
-            "below": sb[3] + gap <= rb[1] + 1e-6,
-            "align_x": abs((sb[0] + sb[2]) - (rb[0] + rb[2])) <= 1e-6,
-            "align_y": abs((sb[1] + sb[3]) - (rb[1] + rb[3])) <= 1e-6,
-        }
-        if not checks[relation.relation]:
-            where = f" at {relation.source}" if relation.source is not None else ""
-            raise ValueError(
-                f"authored view constraint{where} is infeasible: {relation.subject!r} "
-                f"must be {relation.relation} {relation.reference!r}"
-                + (f" with gap {gap:g} mm" if relation.gap is not None else "")
-            )
+        relation.validate(bounds(relation.subject), bounds(relation.reference))
 
     for pin in constraints.pins:
         if pin.view not in dwg.views:
@@ -310,7 +299,7 @@ def _inflate_box(box, clearance):
     )
 
 
-def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
+def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
     """True when any view-owned annotation's footprint extends past the drawable
     area — the second repack trigger besides cross-view overlap.  A ballooned
     plan view can overflow the page top (the balloon ring) without crossing
@@ -320,7 +309,7 @@ def _annotations_out_of_bounds(dwg, a, tol: float = 1.0) -> bool:
     by escalating the sheet."""
     lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
     for name, o in dwg.iter_annotations():
-        if dwg.view_of(name) not in ("front", "plan", "side"):
+        if dwg.view_of(name) not in PRINCIPAL_VIEW_NAMES:
             continue
         # Match the lint, which tests each item's FULL bounding_box (extension
         # lines, arrowheads, leader + balloon ring) — not just the label rect —
@@ -344,18 +333,23 @@ def _measure_blocks(dwg, a) -> dict:
 
     Each view's four band depths are how far its annotations extend beyond its
     geometry box, **measured** from what the annotation passes produced — not
-    estimated. Every annotation is attributed to the nearest view (by its
-    label/box centre), and the band depth on a side is the furthest that view's
+    estimated. Every annotation is attributed to its recorded owning view,
+    and the band depth on a side is the furthest that view's
     annotations reach past the geometry edge there. Returns ``{view_name:
     ViewBlock}`` whose bands the packer can place disjoint, no ``_est_*`` needed.
     """
     geom = _view_geom(a)
     ext: dict = {v: None for v in geom}
     clearance = _annotation_clearance(dwg)
-    for _name, v, bb, label in _attribute_annotations(dwg, a):
+    for name, v, bb, label in _attribute_annotations(dwg, a):
         # A label's measured footprint includes the same external text clearance used by the
         # repack trigger.  Otherwise repack would notice the shortfall and then reproduce it.
         bb = _inflate_box(bb, clearance if label else 0.0)
+        # Outward arrows and extension lines also need paper. The overflow trigger reads
+        # full ink; measuring only labels could stall a repack with the arrows still off-page.
+        ink = _shape_box2d(dwg.get_annotation(name))
+        if ink is not None:
+            bb = (min(bb[0], ink[0]), min(bb[1], ink[1]), max(bb[2], ink[2]), max(bb[3], ink[3]))
         e = ext[v]
         ext[v] = (
             bb
@@ -502,6 +496,7 @@ def _layout_advisory(code: str, message: str) -> LintIssue:
     raise ValueError(f"unknown layout advisory: {code!r}")
 
 
+@observed_stage("assemble")
 def _assemble(
     a,
     out,
@@ -524,13 +519,16 @@ def _assemble(
     build state so the annotate + finalize paths thread it), or ``None``."""
     cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
     dist = a.bbox_max * a.SCALE + 100
+    draft = _dimension_draft(a.text_position, a.text_orientation)
+    if (a.text_position, a.text_orientation) != ("inline", "aligned"):
+        _dimension_head_bounds(draft.arrow_length, draft.head_type)
 
     dwg = Drawing(
         scale=a.SCALE,
         page_w=a.PAGE_W,
         page_h=a.PAGE_H,
         tb_w=a.TB_W,
-        draft=draft_preset(font_size=_FONT_SIZE, decimal_precision=1, font_path=PLEX_MONO),
+        draft=draft,
         look_at=(cxs, cys, czs),
         dist=dist,
         centroid=(a.cx, a.cy, a.cz),
@@ -547,18 +545,6 @@ def _assemble(
     # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
     # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
-    if model is None and (requested or authored is not None):
-        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
-        # builds its own. Silently dropping them would leave a caller's add_dimension() /
-        # dimension() with no effect and no diagnostic — the failure mode this project
-        # treats as worse than a visible error (#630/#631/#632). An authored set is the
-        # worse of the two to drop: the build would quietly revert to the automatic
-        # dimensions the author was replacing (#921 review).
-        verb = "requested=" if requested else "authored="
-        raise ValueError(
-            f"{verb} names declared features, so it needs model= too; a detected "
-            "model builds its own feature objects that no request can target"
-        )
     pm = (
         _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
@@ -668,7 +654,9 @@ def _assemble(
     dwg._build.attach_recognition(
         a.recognition,
         evidence=a.recognition_evidence,
-        cache=critique_recognition_cache if a.recognition is None else None,
+        cache=critique_recognition_cache
+        if a.recognition is None and a.recognition_evidence is None
+        else None,
         ownership=a.recognition_ownership,
     )
     dwg._build.part_model = pm
@@ -710,6 +698,7 @@ def _assemble(
         "front": ((cxs, cys - dist, czs), (0, 0, 1)),
         "plan": ((cxs, cys, czs + dist), (0, 1, 0)),
         "side": ((cxs + dist, cys, czs), (0, 0, 1)),
+        "rear": ((cxs, cys + dist, czs), (0, 0, 1)),
     }
     dwg._build.view_plan = view_plan = resolve_from_analysis(a)
     for spec in view_plan.of_kind("principal"):
@@ -935,6 +924,7 @@ def _repack(
             views=a.planned_views,
             include_iso=a.planned_iso,
             iso_scale_factor=a.planned_iso_scale,
+            convention=a.projection_convention,
         )
         _apply_principal_view_pins(
             geometry,
@@ -1006,6 +996,8 @@ def _repack(
         abs(g.PV_Y - a.PV_Y),
         abs(g.SV_X - a.SV_X),
         abs(g.SV_Y - a.SV_Y),
+        abs(g.RV_X - a.RV_X) if "rear" in (a.planned_views or ()) else 0.0,
+        abs(g.RV_Y - a.RV_Y) if "rear" in (a.planned_views or ()) else 0.0,
     )
     # Seed fit warnings yield to the measured result; retain the explicit legibility
     # advisory only at the scale for which it was evaluated.
@@ -1014,7 +1006,15 @@ def _repack(
         for code, message in a.layout_advisories
         if code == "legibility_floor_breached" and s == a.SCALE
     ) + tuple(repack_advisories)
-    if s == a.SCALE and pw == a.PAGE_W and ph == a.PAGE_H and moved < _REPACK_TOL:
+    # Even a sub-millimetre correction matters when ink crosses the page boundary.
+    # Keep the ordinary convergence tolerance only for in-bounds content.
+    if (
+        s == a.SCALE
+        and pw == a.PAGE_W
+        and ph == a.PAGE_H
+        and moved < _REPACK_TOL
+        and (moved < 1e-6 or not _annotations_out_of_bounds(dwg, a))
+    ):
         dwg.registry.drop_issues({"page_fit_uncertain", "scale_fallback_applied"})
         for code, message in repack_advisories:
             dwg.registry.record_issue(_layout_advisory(code, message))
@@ -1034,6 +1034,9 @@ def _repack(
         PV_Y=g.PV_Y,
         SV_X=g.SV_X,
         SV_Y=g.SV_Y,
+        RV_X=g.RV_X,
+        RV_Y=g.RV_Y,
+        rv_zones=_build_rear_zones(g, a.margin, ph),
         fv_hw=g.fv_hw,
         fv_hh=g.fv_hh,
         pv_hh=g.pv_hh,
@@ -1052,6 +1055,8 @@ def _repack(
             sv_y=g.SV_Y,
             pv_x=g.PV_X,
             pv_y=g.PV_Y,
+            rv_x=g.RV_X,
+            rv_y=g.RV_Y,
             cx=a.cx,
             cy=a.cy,
             cz=a.cz,
@@ -1078,6 +1083,7 @@ def _repack(
     return a2, dwg2
 
 
+@observed_stage("repack")
 def _repack_to_fixed_point(
     a,
     dwg,
@@ -1193,6 +1199,8 @@ def _build_drawing_once(
     zones: bool = False,
     reproducible: bool = False,
     framed_recognition: bool = False,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     _analysis_base=None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     _critique_recognition_cache=None,
@@ -1202,6 +1210,7 @@ def _build_drawing_once(
     _view_constraints=None,
     _required_tables=(),
     _select_automatic_views: bool = False,
+    _document_input=None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1293,6 +1302,19 @@ def _build_drawing_once(
     title = title or stem.replace("_", " ").upper()
     tracer = _resolve_trace(trace, out)
 
+    if model is None and (requested or authored is not None):
+        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
+        # builds its own. Silently dropping them would leave a caller's add_dimension() /
+        # dimension() with no effect and no diagnostic — the failure mode this project
+        # treats as worse than a visible error (#630/#631/#632). An authored set is the
+        # worse of the two to drop: the build would quietly revert to the automatic
+        # dimensions the author was replacing (#921 review).
+        verb = "requested=" if requested else "authored="
+        raise ValueError(
+            f"{verb} names declared features, so it needs model= too; a detected "
+            "model builds its own feature objects that no request can target"
+        )
+
     def analyse(*, reuse, views):
         return _analyse(
             step_file,
@@ -1307,12 +1329,15 @@ def _build_drawing_once(
             model=model,
             decorations=decorations,
             authored=authored,
+            requested=requested,
             material=material,
             date=date,
             revision=revision,
             company=company,
             frame=frame,
             projection=projection,
+            text_position=text_position,
+            text_orientation=text_orientation,
             zones=zones,
             _reuse=reuse,
             _required_tables=_required_tables,
@@ -1321,45 +1346,68 @@ def _build_drawing_once(
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
             _framed_recognition=framed_recognition,
+            _document_input=_document_input,
         )
 
-    a = analyse(reuse=_analysis_base, views=_views)
-    if _views is not None:
-        # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
-        # plan_dimensions' requirement check.  An authored principal set is nevertheless
-        # a hard constraint: reject a measured mark targeting an absent projection before
-        # corridor placement can misreport the contradiction as a capacity drop.
-        explicit_model = (
-            _coerce_model(model, a.part, decorations, requested, authored)
-            if model is not None
-            else cast("PartModel", a.model if a.model is not None else build_model(a))
+    with stage("analysis"):
+        a = analyse(reuse=_analysis_base, views=_views)
+    planned_principals = third_angle_view_names() if _views is None else _views
+    # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
+    # plan_dimensions' requirement check.  An authored principal set is nevertheless
+    # a hard constraint: reject a measured mark targeting an absent projection before
+    # corridor placement can misreport the contradiction as a capacity drop.
+    explicit_model = (
+        _coerce_model(model, a.part, decorations, requested, authored)
+        if model is not None
+        else cast("PartModel", a.model if a.model is not None else build_model(a))
+    )
+    uncovered_measured = []
+    for feature in explicit_model.features:
+        feature_view = authored_dimension_target_view(
+            getattr(feature, "dimension_kind", ""),
+            getattr(feature, "dominant_axis", ""),
+            getattr(feature, "view", None),
+            getattr(feature, "side", None),
+            getattr(feature, "angular_reference", None),
         )
-        uncovered_measured = []
-        for feature in explicit_model.features:
-            feature_view = authored_dimension_target_view(
-                getattr(feature, "dimension_kind", ""),
-                getattr(feature, "dominant_axis", ""),
-                getattr(feature, "view", None),
-                getattr(feature, "side", None),
-                getattr(feature, "angular_reference", None),
+        if (
+            getattr(feature, "kind", None) != "authored_dimension"
+            or not isinstance(feature_view, str)
+            or feature_view in set(planned_principals)
+        ):
+            continue
+        uncovered_measured.append(
+            UncoveredViewRequirement(
+                identity=feature,
+                label=getattr(feature, "source_id", "") or "measured_dimension",
+                preferred_view=feature_view,
+                eligible_views=(feature_view,),
+                reason=f"is explicitly placed in `{feature_view}`",
             )
-            if (
-                getattr(feature, "kind", None) != "authored_dimension"
-                or not isinstance(feature_view, str)
-                or feature_view in set(_views)
-            ):
-                continue
-            uncovered_measured.append(
-                UncoveredViewRequirement(
-                    identity=feature,
-                    label=getattr(feature, "source_id", "") or "measured_dimension",
-                    preferred_view=feature_view,
-                    eligible_views=(feature_view,),
-                    reason=f"is explicitly placed in `{feature_view}`",
-                )
+        )
+    if uncovered_measured:
+        raise ViewPlanIncomplete(planned_principals, uncovered_measured)
+    if auto_dims and not {"front", "rear"}.intersection(planned_principals):
+        # A model without an envelope can still approve a synthetic bbox height.
+        # It has no feature parameter for plan_dimensions to check, so prove its
+        # compiled view requirement before projecting a reduced principal set.
+        from draftwright.model.compiled import compile_dimensions
+
+        overall = compile_dimensions(explicit_model).ladder("overall_height")
+        if overall is not None:
+            height = overall.rungs[0]
+            raise ViewPlanIncomplete(
+                planned_principals,
+                [
+                    UncoveredViewRequirement(
+                        identity=height.id,
+                        label="overall_height.length",
+                        preferred_view="front",
+                        eligible_views=("front", "rear"),
+                        reason="requires a planned front or rear view",
+                    )
+                ],
             )
-        if uncovered_measured:
-            raise ViewPlanIncomplete(_views, uncovered_measured)
     view_attempts: tuple[dict[str, object], ...] = ()
     view_status = "selected"
     if _select_automatic_views and _views is None and auto_dims:
@@ -1826,6 +1874,7 @@ def _is_expected_candidate_build_failure(exc: Exception) -> bool:
     )
 
 
+@build_operation
 def build_drawing(
     step_file: str | Path | Shape,
     out: str | None = None,
@@ -1855,11 +1904,14 @@ def build_drawing(
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
     framed_recognition: bool = False,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
     _post_build: Callable[[Drawing], Drawing] | None = None,
     _required_tables=(),
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _document_input=None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1873,7 +1925,16 @@ def build_drawing(
     Pass ``framed_recognition=True`` to opt an automatic build into the provider-owned local
     recognition frame. Raw remains the default. Other arguments and return semantics are
     unchanged from the one-pass builder.
+
+    ``projection='third'`` adds the matching projection symbol. The default omits the
+    symbol but uses the same third-angle layout. ``projection='first'`` places plan below
+    front and side to its left, keeping the physical viewing directions unchanged.
+
+    ``text_position="inline"|"above"`` and ``text_orientation="aligned"|"horizontal"``
+    independently select dimension typography. Defaults preserve existing appearance.
     """
+    validate_projection(projection)
+    _dimension_draft(text_position, text_orientation)
     if scale_policy not in {"strict", "fallback", "permissive"}:
         raise ValueError(
             f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
@@ -1903,14 +1964,18 @@ def build_drawing(
         company=company,
         frame=frame,
         projection=projection,
+        text_position=text_position,
+        text_orientation=text_orientation,
         zones=zones,
         reproducible=reproducible,
         framed_recognition=framed_recognition,
         _required_tables=_required_tables,
         _include_iso=_include_iso,
         _view_constraints=_view_constraints,
+        _document_input=_document_input,
     )
     analysis_base = None
+    build_attempt = 0
     latest_analysis = None
     critique_recognition_cache = None
 
@@ -1923,8 +1988,10 @@ def build_drawing(
         include_iso: bool | None = None,
         page_override: str | tuple | None = None,
         select_automatic_views: bool = False,
+        retry_reason: str = "initial",
     ) -> Drawing:
-        nonlocal analysis_base
+        nonlocal analysis_base, build_attempt
+        build_attempt += 1
 
         # Default to the REQUESTED view set, not to None. Any rebuild — the arrangement
         # gate's fallback, a scale retry — must carry the decisions the attempt was made
@@ -1954,6 +2021,14 @@ def build_drawing(
             if analysis_base is None:
                 analysis_base = value
 
+        if build_attempt > 1:
+            activity(
+                "retry",
+                reason=retry_reason,
+                attempt=build_attempt,
+                scale=candidate_scale,
+                page=str(page if page_override is None else page_override),
+            )
         built = one_pass(
             scale=candidate_scale,
             page=page if page_override is None else page_override,
@@ -1967,6 +2042,8 @@ def build_drawing(
             _select_automatic_views=select_automatic_views,
         )
         _validate_authored_view_layout(built, _view_constraints)
+        if _document_input is not None:
+            _document_input.validate(built.working_part, built.model().features)
         return _post_build(built) if _post_build is not None else built
 
     def scale_blockers_for(built: Drawing) -> tuple[dict, ...]:
@@ -2059,7 +2136,7 @@ def build_drawing(
                     "blockers": candidate_blockers,
                     **({"annotations": absent_owners} if absent_owners else {}),
                 }
-                drawing = _build(None, views=third_angle_view_names())
+                drawing = _build(None, views=third_angle_view_names(), retry_reason=reason)
                 settled_principal_views = _principal_names(drawing)
                 view_status = "retained_after_rejection"
             else:
@@ -2085,6 +2162,7 @@ def build_drawing(
                     candidate_scale,
                     arrangements,
                     views=settled_principal_views,
+                    retry_reason="arrangement_preserve_requirements",
                 ),
                 lambda built: _scale_blockers(built, physical=False),
             )
@@ -2191,6 +2269,7 @@ def build_drawing(
                         views=settled_principal_views,
                         include_iso=include_iso,
                         page_override=page_name,
+                        retry_reason=reason,
                     )
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
@@ -2253,6 +2332,7 @@ def build_drawing(
                         arrangements=(settled_arrangement,),
                         views=settled_principal_views,
                         page_override=original_page,
+                        retry_reason=reason,
                     )
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
@@ -2414,6 +2494,7 @@ def build_drawing(
                         arrangements=(settled_arrangement,),
                         views=settled_principal_views,
                         include_iso=False,
+                        retry_reason="remove_optional_iso",
                     )
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
@@ -2445,6 +2526,7 @@ def build_drawing(
                                 arrangements=(settled_arrangement,),
                                 views=settled_principal_views,
                                 include_iso=False,
+                                retry_reason="remove_optional_iso",
                                 page_override=original_page,
                             )
                         except (ValueError, Standard_Failure) as exc:
@@ -2580,7 +2662,7 @@ def build_drawing(
                 "blockers": candidate_blockers,
                 **({"annotations": absent_owners} if absent_owners else {}),
             }
-            drawing = _build(requested_scale, views=third_angle_view_names())
+            drawing = _build(requested_scale, views=third_angle_view_names(), retry_reason=reason)
             settled_principal_views = _principal_names(drawing)
             view_status = "retained_after_rejection"
         else:
@@ -2634,7 +2716,7 @@ def build_drawing(
             f"requested scale {requested_scale:g} dropped required annotation outcomes "
             f"({codes}); returning the incomplete drawing because scale_policy='permissive'",
             ScaleCompletenessWarning,
-            stacklevel=2,
+            stacklevel=3,  # Skip the public operation observer wrapper too.
         )
         return drawing
 
@@ -2673,7 +2755,9 @@ def build_drawing(
     for candidate in (item for item in _SCALES if item < requested_scale):
         attempted.append(candidate)
         try:
-            fallback = _build(candidate, views=settled_principal_views)
+            fallback = _build(
+                candidate, views=settled_principal_views, retry_reason="scale_completeness"
+            )
         except ValueError as exc:
             # Once a smaller scale hits the hard rendering floor, every following candidate
             # is smaller still. Do not hide any unrelated build error.
@@ -2710,7 +2794,7 @@ def build_drawing(
             f"requested scale {requested_scale:g} dropped required annotation outcomes; "
             f"using complete fallback scale {fallback.scale:g}",
             ScaleCompletenessWarning,
-            stacklevel=2,
+            stacklevel=3,  # Skip the public operation observer wrapper too.
         )
         return fallback
 
@@ -2769,6 +2853,8 @@ def make_drawing(
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
     reproducible: bool = False,
     framed_recognition: bool = False,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2833,6 +2919,8 @@ def make_drawing(
         company=company,
         frame=frame,
         projection=projection,
+        text_position=text_position,
+        text_orientation=text_orientation,
         zones=zones,
         reproducible=reproducible,
         framed_recognition=framed_recognition,

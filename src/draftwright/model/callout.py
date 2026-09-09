@@ -19,9 +19,118 @@ feature. `through` is read off the feature for exactly this reason.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from draftwright._geometry import _fmt
 from draftwright.model.ir import HoleFeature, PatternFeature, ThreadOperation, ThreadRequirement
-from draftwright.model.planner import DimensionGroup, DimensionId
+from draftwright.model.planner import _SCHEDULE_REPRESENTATION, DimensionGroup, DimensionId
+
+
+def resolved_through_indicator(feature) -> str:
+    """Resolve printed content without changing the feature's through/blind fact."""
+    hole = feature.member if isinstance(feature, PatternFeature) else feature
+    if not hole.through:
+        return ""
+    override = hole.through_indicator
+    return "THRU" if override is None else override
+
+
+@dataclass(frozen=True)
+class HoleCalloutBatch:
+    """One presentation over unchanged source groups and their selected member sites."""
+
+    groups: tuple
+    locations: tuple
+    spec: dict
+
+
+def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutBatch, ...]:
+    """Group compatible printed content without replacing any feature or identity.
+
+    Composition uses the complete inventory; rendering may supply already-filtered
+    member sites. Pattern furniture and profiled supports remain independent. A
+    batch never combines overlapping member sites or incomplete count inventories.
+    """
+    buckets: dict[tuple, list[list]] = {}
+    ordered: list[list] = []
+    for group in groups:
+        feature = group.feature
+        spec = hole_callout_spec(group)
+        if spec is None:
+            continue
+        complete = tuple(feature.members or (group.anchor,))
+        locations = complete if member_locations is None else member_locations.get(id(feature), ())
+        if not locations:
+            continue
+        if isinstance(feature, PatternFeature) and len(locations) != len(complete):
+            spec = {**spec, "pattern_suffix": None}
+        count = feature.count if len(locations) == len(complete) else len(locations)
+        # Resolved display wording participates through the spec. Raw overrides
+        # stay on each original feature, including None versus explicit THRU.
+        compatible = (
+            isinstance(feature, HoleFeature)
+            and feature.profile is None
+            and feature.count == len(complete)
+        )
+        key = (
+            (
+                group.view,
+                group.side,
+                feature.frame.axis,
+                # Hidden/omitted callout terms still distinguish physical machining.
+                # Equal selected text must not merge a recessed and plain bore.
+                feature.diameter,
+                feature.through,
+                feature.depth,
+                feature.cbore,
+                feature.spotface,
+                feature.csink,
+                feature.thread,
+                feature.frame.origin["xyz".index(feature.frame.axis)],
+                tuple(
+                    (name, value)
+                    for name, value in spec.items()
+                    if name not in {"count", "measurements", "source_ids"}
+                ),
+            )
+            if compatible
+            else (id(feature),)
+        )
+        candidates = buckets.setdefault(key, [])
+        batch = next(
+            (
+                candidate
+                for candidate in candidates
+                if not any(set(locations).intersection(entry[1]) for entry in candidate)
+            ),
+            None,
+        )
+        if batch is None:
+            batch = []
+            candidates.append(batch)
+            ordered.append(batch)
+        batch.append((group, tuple(locations), count, spec))
+    result = []
+    for batch in ordered:
+        spec = dict(batch[0][3])
+        count = sum(entry[2] for entry in batch)
+        spec["count"] = count if count > 1 else None
+        spec["measurements"] = tuple(
+            identity for entry in batch for identity in entry[3]["measurements"]
+        )
+        spec["source_ids"] = tuple(
+            dict.fromkeys(source for entry in batch for source in entry[3].get("source_ids", ()))
+        )
+        spec["source_features"] = tuple(entry[0].feature for entry in batch)
+        spec["owner_counts"] = tuple((entry[0].feature, entry[2]) for entry in batch)
+        result.append(
+            HoleCalloutBatch(
+                tuple(entry[0] for entry in batch),
+                tuple(location for entry in batch for location in entry[1]),
+                spec,
+            )
+        )
+    return tuple(result)
 
 
 def _planned(group: DimensionGroup, kind: str, *roles: str):
@@ -220,7 +329,10 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     # and omitting `bore.diameter` produce neither the 50 mm BCD nor a diagnostic — the
     # requested dimension vanished (#925 review).
     riders: list[str] = []
-    if not authored_omission_in(group):
+    if not authored_omission_in(group) and not any(
+        dimension.suppressed and dimension.reason == _SCHEDULE_REPRESENTATION
+        for dimension in group.dims
+    ):
         hole = feat.member if isinstance(feat, PatternFeature) else feat
         thread = getattr(hole, "thread", None)
         if thread:
@@ -437,6 +549,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "diameter_decimals": _display_decimals(group, "diameter", "bore"),
         "count": count if count and count > 1 else None,
         "through": hole.through,  # the feature's fact, not the param list's shape (#868)
+        "through_indicator": resolved_through_indicator(hole),
         "depth": depth,
         "depth_decimals": _display_decimals(group, "depth", "bore"),
         # counterbore precedence, spotface fallback — the engine's mapping

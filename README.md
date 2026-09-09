@@ -34,6 +34,10 @@ annotation placed by the engine.*
 pip install draftwright
 ```
 
+Already using a CAD project environment? Use a [separate drawing environment](docs/reference/isolated-execution.md)
+and pass an exported STEP file between the two. The guide includes interpreter, dependency and
+import checks for local Python and CAD MCP workflows.
+
 ### Command line
 
 Point it at a STEP file — that's the whole workflow:

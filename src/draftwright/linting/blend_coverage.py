@@ -18,8 +18,13 @@ from draftwright.blend_contract import (
     is_exact_blend_feature,
     validate_blend_fields,
 )
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.measurement_support import RequirementCarrier
 
 BlendRequirementState = Literal[
     "placed",
@@ -41,6 +46,7 @@ class BlendRequirementOutcome:
     features: tuple = ()
     parameter_id: str = "blend.radius"
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _source_at(key: tuple | None) -> tuple[float, float, float]:
@@ -189,7 +195,7 @@ def blend_requirement_outcomes(
                 source_records=(source_record,),
             )
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_blend_coverage(
@@ -270,6 +276,12 @@ def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ow
             )
             arcs = _blend_profile_arcs(faces, feature.radius)
         if not arcs:
+            if key is None:
+                reason = "feature-backed blend measurement unavailable"
+            elif view is None:
+                reason = "annotation view unavailable"
+            else:
+                reason = "trimmed profile arc evidence unavailable"
             issues.append(
                 LintIssue(
                     severity="warning",
@@ -277,6 +289,9 @@ def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ow
                     message=f"{name}: the radius leader's physical profile arc cannot be verified",
                     location=tip,
                     measurement_ids=measurements,
+                    annotation_name=name,
+                    view=view,
+                    evidence_reason=reason,
                 )
             )
         elif (
@@ -293,6 +308,9 @@ def lint_blend_leader_targets(*, registry, cylinders, project, evidence=None, ow
                     message=f"{name}: the radius leader tip does not touch its trimmed profile arc",
                     location=tip,
                     measurement_ids=measurements,
+                    annotation_name=name,
+                    view=view,
+                    evidence_reason="drawn tip is outside the trimmed physical profile arc tolerance",
                 )
             )
     return issues

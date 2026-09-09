@@ -2247,7 +2247,7 @@ class TestComposeViewBlocks:
         )
 
         blocks = _compose_view_blocks(60.0, 40.0, 20.0, 2.0, None, n_steps=3)
-        assert set(blocks) == {"front", "plan", "side"}
+        assert set(blocks) == {"front", "plan", "side", "rear"}
         assert blocks["front"].hw == pytest.approx(60.0)
         assert blocks["front"].hh == pytest.approx(20.0)
         assert blocks["front"].right == pytest.approx(_est_right_strip_depth(3))
@@ -2598,6 +2598,7 @@ class TestComposeThenPackRepack:
             _named=named,
             _anno_view=views,
             iter_annotations=lambda: named.items(),
+            get_annotation=lambda n: named.get(n),
             view_of=lambda n: views.get(n),
             annotations_in_view=lambda v: ((n, o) for n, o in named.items() if views.get(n) == v),
         )
@@ -2754,7 +2755,8 @@ class TestComposeThenPackRepack:
 
     # --- out-of-bounds escalation trigger (#92) ---------------------------
 
-    def test_out_of_bounds_trigger(self):
+    @pytest.mark.parametrize("overflow", [(20, 20, 40, 120), (9.95, 20, 40, 40)])
+    def test_out_of_bounds_trigger(self, overflow):
         # The second repack trigger: a view-owned annotation past the drawable
         # (e.g. a ballooned plan view overflowing the page top) escalates even
         # without a cross-view overlap. Untagged overflow is ignored — a repack
@@ -2766,9 +2768,9 @@ class TestComposeThenPackRepack:
         a = SimpleNamespace(margin=10.0, PAGE_W=200.0, PAGE_H=100.0)
         inb = self._fake_dwg({"d": self._line((20, 20, 40, 40))}, {"d": "plan"})
         assert not _annotations_out_of_bounds(inb, a)
-        over = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "plan"})
+        over = self._fake_dwg({"d": self._line(overflow)}, {"d": "plan"})
         assert _annotations_out_of_bounds(over, a)
-        untagged = self._fake_dwg({"d": self._line((20, 20, 40, 120))}, {"d": "iso"})
+        untagged = self._fake_dwg({"d": self._line(overflow)}, {"d": "iso"})
         assert not _annotations_out_of_bounds(untagged, a)
 
     # --- disjoint block packing ------------------------------------------
@@ -4900,7 +4902,7 @@ class TestLocationDimsAndSection:
             assert len(wing.edges()) == 1
             # arrow is a filled solid (Arrow produces faces, not open barbs)
             assert len(list(arrow.faces())) >= 1
-        # wings are below the section line (tip_y < line y)
+        # Stems sit below the cutting line; the arrow tips point toward retained +Y.
         sl_y = plate_drawing.get_annotation("section_line").bounding_box().min.Y
         wl_y = plate_drawing.get_annotation("section_wing_left").bounding_box().min.Y
         assert wl_y < sl_y
@@ -5459,6 +5461,7 @@ class TestLintSummaryAndDrops:
             "score",
             "diagnostic_score",
             "quality",
+            "review",
             "errors",
             "warnings",
             "infos",
@@ -5707,10 +5710,9 @@ class TestLintSummaryAndDrops:
         assert 0 < n_locy < 10
 
     @pytest.mark.timeout(120)
-    def test_location_gate_ignores_datum_edge_hole(self):
-        # #43 follow-up: a hole on the datum edge is never dimensioned (its dim is
-        # ~zero), so the gate must not anchor a cluster on it and drop a real
-        # neighbour. Box centred at origin -> datum corner at (-40, -30).
+    def test_short_location_does_not_displace_its_legible_neighbour(self):
+        # A nonzero 0.7 mm location is too short to draw; report it honestly without
+        # anchoring the spacing cluster on it and dropping its legible neighbour.
         from build123d import Box, Cylinder, Pos
 
         from draftwright import build_drawing
@@ -5725,7 +5727,11 @@ class TestLintSummaryAndDrops:
         x_spacing_drops = [
             i for i in dwg.lint() if i.code == "location_ref_dropped" and "X location" in i.message
         ]
-        assert x_spacing_drops == []
+        assert len(x_spacing_drops) == 1
+        issue = x_spacing_drops[0]
+        assert "less than 1 mm" in issue.message
+        assert issue.measurement_ids
+        assert all(abs(mid.feature.frame.origin[0] + 39.3) < 1e-6 for mid in issue.measurement_ids)
 
     @pytest.mark.timeout(120)
     def test_auto_annotate_clears_stale_build_issues(self):
@@ -7972,10 +7978,14 @@ class TestFeatureEdits:
 
     def test_drop_feature_with_no_annotations_is_noop(self):
         dwg = build_drawing(_holed_plate())
-        # An envelope feature carries no centre marks (its dims aren't tagged yet).
-        env = next((f for f in dwg.model().features if f.kind == "envelope"), None)
-        if env is not None:
-            assert dwg.drop(env) == []
+        env = next(f for f in dwg.model().features if f.kind == "envelope")
+        owned = set(dwg.annotations_of(env))
+        assert owned, "the envelope must own its overall dimensions"
+        unrelated = set(dwg.annotations()) - owned
+        assert set(dwg.drop(env)) == owned
+        assert set(dwg.annotations()) == unrelated
+        assert dwg.annotations_of(env) == {}
+        assert dwg.drop(env) == []
 
     def test_manual_add_records_feature_provenance(self):
         from build123d_drafting import CenterMark
@@ -8703,55 +8713,30 @@ class TestPlaceDim:
 class TestLintSuggestions:
     """#29: each LintIssue carries a `suggestion` (str | None) with a fix snippet."""
 
-    def test_feature_not_dimensioned_has_suggestion(self):
-        # auto_dims=False leaves the ø10 hole undimensioned → coverage lint fires.
+    def test_diameter_only_finding_has_advice_without_an_unproven_edit(self):
         part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
         dwg = build_drawing(part, auto_dims=False)
-        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
-        assert issues, "expected a feature_not_dimensioned issue"
-        sug = issues[0].suggestion
-        assert sug is not None
-        assert "dwg.model()" in sug
-        assert "dwg.callout(" in sug
-        assert (
-            ".member" in sug
-        )  # covers a pattern's bore (on .member.diameter), not just plain holes
+        issue = next(i for i in dwg.lint() if i.code == "feature_not_dimensioned")
+        assert "separate" in issue.suggestion
+        assert "dwg.callout(" not in issue.suggestion
 
-    def test_feature_not_dimensioned_suggestion_is_runnable(self):
-        # The headline #29 promise: paste the snippet and the lint resolves. Post-#817 the snippet
-        # is the DECLARATIVE door (find the IR feature, `dwg.callout(f)` — say WHAT, not WHERE),
-        # not a hand-built Leader through the now-private placement primitive.
-        part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(5, 20)
-        dwg = build_drawing(part, auto_dims=False)
-        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
-
-        for f in dwg.model().features:
-            if f.kind not in ("hole", "pattern"):
-                continue
-            fd = f.diameter if f.kind == "hole" else f.member.diameter
-            if abs(fd - 10.0) < 0.16:
-                dwg.callout(f)
-
-        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
-
-    def test_feature_not_dimensioned_suggestion_is_runnable_for_a_pattern(self):
-        # A pattern feature carries its bore on `.member.diameter`, not `.diameter` — the snippet
-        # must read it there (and restrict to hole/pattern kinds so a same-ø step/boss is not
-        # called out instead), else the declarative recipe silently skips a patterned hole and
-        # never resolves the lint (Codex #821).
+    @pytest.mark.parametrize("pattern", [False, True])
+    def test_missing_bore_suggestion_executes_for_its_verified_owner(self, pattern):
         part = Box(120, 40, 20)
-        for x in (-40, -20, 0, 20, 40):
-            part = part - Pos(x, 0, 0) * Cylinder(4, 20)
+        for x in (-40, -20, 0, 20, 40) if pattern else (15,):
+            part -= Pos(x, 0, 0) * Cylinder(4, 20)
         dwg = build_drawing(part, auto_dims=False)
-        assert any(i.code == "feature_not_dimensioned" for i in dwg.lint())
-
-        for f in dwg.model().features:
-            if f.kind not in ("hole", "pattern"):
-                continue
-            fd = f.diameter if f.kind == "hole" else f.member.diameter
-            if abs(fd - 8.0) < 0.16:
-                dwg.callout(f)
-
+        issue = next(
+            i
+            for i in dwg.lint()
+            if i.code == "hole_requirement_missing"
+            and any(parameter == "bore.diameter" for _, parameter in i.hole_requirement_ids)
+        )
+        assert {f.kind for f, _ in issue.hole_requirement_ids} == {
+            "pattern" if pattern else "hole"
+        }
+        assert "dwg.callout(" in issue.suggestion
+        exec(issue.suggestion, {"dwg": dwg})
         assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
     def test_clean_drawing_has_no_suggestions(self, plain_box_dwg):
@@ -8862,33 +8847,32 @@ class TestLintSuggestions:
         issue = LintIssue(severity="info", message="something", code="some_unhandled_code")
         assert _suggest_fix(issue, dwg) is None
 
-    def test_non_integer_diameter_still_gets_suggestion(self):
-        # Regression guard for the 1e-6-vs-_fmt bug: radius 4.111 gives a raw
-        # diameter of 8.22, but the message reports the 1dp-rounded ø8.2 — a
-        # 0.02 gap that a 1e-6 match would drop. The diameter must round-trip
-        # with tolerance so the suggestion still appears.
+    def test_non_integer_diameter_suggestion_uses_identity_not_rounded_text(self):
         part = Box(80, 60, 20) - Pos(20, 15, 0) * Cylinder(4.111, 20)
         dwg = build_drawing(part, auto_dims=False)
-        issues = [i for i in dwg.lint() if i.code == "feature_not_dimensioned"]
-        assert issues
-        assert "ø8.2" in issues[0].message  # rounded, differs from raw 8.22
-        assert issues[0].suggestion is not None
-        assert "dwg.callout(" in issues[0].suggestion
+        issue = next(
+            i
+            for i in dwg.lint()
+            if i.code == "hole_requirement_missing"
+            and any(parameter == "bore.diameter" for _, parameter in i.hole_requirement_ids)
+        )
+        assert "ø8.2" in issue.message
+        assert "dwg.callout(" in issue.suggestion
+        exec(issue.suggestion, {"dwg": dwg})
+        assert not any(i.code == "feature_not_dimensioned" for i in dwg.lint())
 
-    def test_feature_count_mismatch_suggestion_sets_count(self, plain_box_dwg):
-        # The leading number is `need`; diameter digits (even fractional) must
-        # not interfere with the parse.
+    def test_feature_count_mismatch_cannot_suggest_a_diameter_total(self, plain_box_dwg):
         from draftwright.linting import LintIssue, _suggest_fix
 
-        dwg = plain_box_dwg
         issue = LintIssue(
             severity="warning",
             message="4 ø8.5 features on the part but callouts account for 1",
             code="feature_count_mismatch",
         )
-        sug = _suggest_fix(issue, dwg)
-        assert sug is not None
-        assert "count=4" in sug
+        suggestion = _suggest_fix(issue, plain_box_dwg)
+        assert "count=" not in suggestion
+        assert "HoleCallout(" not in suggestion
+        assert "distinct axes" in suggestion
 
 
 class TestRepair:
@@ -10860,6 +10844,12 @@ class TestHoleTable:
             FV_Y=20.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
         pt = a.PV_Y + a.pv_hh
         bare_obstacle = self._Boxed((35.0, pt + 2.0, 65.0, pt + 12.0))
 
@@ -10898,7 +10888,7 @@ class TestHoleTable:
             PV_Y=50.0,
             fv_hw=20.0,
             pv_hh=10.0,
-            SV_X=95.0,
+            SV_X=110.0,
             sv_hw=10.0,
             margin=0.0,
             PAGE_H=180.0,
@@ -10906,12 +10896,19 @@ class TestHoleTable:
             FV_Y=0.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
         pt = a.PV_Y + a.pv_hh
         obstacle = self._Boxed((47.0, pt + 2.0, 53.0, pt + 80.0))
 
         import draftwright.annotations.balloons as balloons
         from draftwright._core import _balloon_halo, _balloon_radius
 
+        assert a.pv_zones.right.outer_limit - (a.PV_X + a.fv_hw) > _balloon_halo(3.0)
         real_assign = balloons._assign_balloon_bands
         assignment_kwargs = []
 
@@ -11023,6 +11020,12 @@ class TestHoleTable:
             FV_Y=30.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
 
         import draftwright.annotations.balloons as balloons
 
@@ -11074,6 +11077,12 @@ class TestHoleTable:
             FV_Y=30.0,
             fv_hh=5.0,
         )
+        a.pv_zones = SimpleNamespace(
+            left=SimpleNamespace(outer_limit=a.margin),
+            right=SimpleNamespace(outer_limit=a.SV_X - a.sv_hw),
+            below=SimpleNamespace(outer_limit=a.FV_Y + a.fv_hh),
+            above=SimpleNamespace(outer_limit=a.PAGE_H - a.margin),
+        )
         right_obstacle = self._Boxed((71.0, 45.0, 115.0, 55.0))
 
         import draftwright.annotations.balloons as balloons
@@ -11100,13 +11109,17 @@ class TestHoleTable:
         assert [m[0] for m in left_members] == ["A"]
         assert right_members == []
 
-    def test_table_and_balloons_keep_lint_clean(self):
+    @pytest.mark.parametrize("method", ["first", "third"])
+    def test_table_and_balloons_keep_lint_clean(self, method):
         # One covers_diameters entry per physical bore lets coverage lint verify the
         # table's visible QTY, and the balloons are furniture (is_centerline) so they do
         # not trip overlap lint.
-        dwg = build_drawing(_multi_hole_plate())
+        dwg = build_drawing(_multi_hole_plate(), projection=method)
         before = {i.code for i in dwg.lint()}
+        assert before == set()
+        assert dwg.scale == 1
         dwg.add_hole_table("plan")
+        assert len([n for n in dwg.annotations() if n.startswith("balloon_plan")]) == 3
         assert {i.code for i in dwg.lint()} == before
         assert dwg.get_annotation("hole_table_plan").covers_diameters == (16.0, 10.0, 10.0)
 
@@ -11248,19 +11261,18 @@ class TestProjectionSymbol:
         assert "projection_symbol" not in dwg.annotations()
         assert dwg._analysis.projection is None
 
-    def test_third_and_first_render_in_the_title_block_band(self):
+    def test_third_renders_in_the_title_block_band(self):
         from draftwright._core import _TB_CLEAR, _TB_H
 
-        for method in ("third", "first"):
-            dwg = build_drawing(Box(80, 60, 20), projection=method)
-            ps = dwg.get_annotation("projection_symbol")
-            assert ps is not None and getattr(ps, "is_projection_symbol", False)
-            b = ps.bounding_box()
-            a = dwg._analysis
-            # within the page, and in the reserved title-block column/band (above the block)
-            assert b.min.X >= _MARGIN and b.max.X <= a.PAGE_W - _MARGIN
-            assert b.min.Y <= _TB_CLEAR + _TB_H and b.max.Y <= _TB_CLEAR + _TB_H
-            assert b.min.X >= a.PAGE_W - a.TB_W - _TB_CLEAR  # the title-block column
+        dwg = build_drawing(Box(80, 60, 20), projection="third")
+        ps = dwg.get_annotation("projection_symbol")
+        assert ps is not None and getattr(ps, "is_projection_symbol", False)
+        b = ps.bounding_box()
+        a = dwg._analysis
+        # within the page, and in the reserved title-block column/band (above the block)
+        assert b.min.X >= _MARGIN and b.max.X <= a.PAGE_W - _MARGIN
+        assert b.min.Y <= _TB_CLEAR + _TB_H and b.max.Y <= _TB_CLEAR + _TB_H
+        assert b.min.X >= a.PAGE_W - a.TB_W - _TB_CLEAR  # the title-block column
 
     def test_projection_build_is_lint_clean(self):
         dwg = build_drawing(Box(80, 60, 20), projection="third")

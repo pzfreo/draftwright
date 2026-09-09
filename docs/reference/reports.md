@@ -1,5 +1,9 @@
 # Machine-readable reports
 
+For common-source multi-sheet reports, see [Shared drawing documents](document.md).
+`DocumentResult.report()` uses document scope/version 4; the single-sheet version-3
+contract described below remains unchanged.
+
 `Drawing.report()` returns a JSON-compatible Draftwright report. Version 3 is a
 bounded contract: it projects the accepted occurrences from one raw automatic recognition
 run, their exact consumer dispositions and final IR owners, the recognition-owned semantic
@@ -89,6 +93,64 @@ scan. Declared reconciliation and framed evidence remain explicit later contract
 holes disguised as an empty report.
 
 
+
+## Reviewing one sheet
+
+`drawing.lint_summary()` works on both automatic and declared drawings. Its `review`
+field explains the existing observations together:
+
+```python
+summary = drawing.lint_summary()
+for topic, explanation in summary["review"].items():
+    print(topic, explanation)
+```
+
+`passed` only tests whether error-severity findings are absent. Warnings can therefore
+reduce the legacy `score` (also named `diagnostic_score`) to zero while `passed` remains
+true. This penalty is not a composite drawing-quality score. The separate `quality`
+components retain their existing meanings; the explanatory text derives from them without
+changing their scores or the recognized requirement denominator.
+
+Coverage lists placed, structured-note satisfaction, suppressed, dropped, missing,
+unverifiable and unsupported outcomes separately. Its scope remains the audited recognized
+requirements, with exclusions in `quality.completeness`. Legibility and fidelity explain the
+checks performed; neither a clean layout nor an absence of detected contradictions proves
+manufacturing readiness. The report does not assess whether all material, process, finish,
+thread, fit or tolerance decisions have been authored. Ordinary notes receive no inferred
+coverage, and layout repair cannot supply missing physical ownership.
+
+For declared drawings, use this summary and `drawing.lint()`; `drawing.report()` retains its
+stricter raw automatic ownership requirement. On supported automatic drawings,
+`report["recognition"]["requirements"]` supplies the existing occurrence/owner/annotation
+links for individual outcomes. This is single-sheet review, not cross-sheet reconciliation.
+
+### Inspecting a leader target
+
+Diameter and straight-blend radius leader-target findings carry `annotation_name`, an available `view`, and an
+`evidence_reason` explaining a mismatch or the missing physical evidence. Their existing
+`measurement_ids` on `LintIssue` retain feature/parameter references for live inspection;
+these object references are not serialized as persistent IDs. The annotation name belongs
+to the current Drawing registry and must not be reused across builds.
+
+```python
+for issue in drawing.lint():
+    if "leader_target_" in issue.code and issue.annotation_name:
+        print(issue.annotation_name, issue.view, issue.evidence_reason)
+        print(issue.measurement_ids)
+        drawing.preview_annotation(issue.annotation_name, "leader-review.svg")
+        break
+```
+
+`preview_annotation(name, path)` writes an SVG crop including the annotation and its owning
+view when known. Orange marks identify the current ink bounds and drawn leader tip; the
+caption explicitly says the physical target is not certified. A drawn tip remains inspectable
+even when physical ownership is unavailable. The preview does not infer a correct target,
+move annotations, change coverage, finalize queued edits or update the Drawing's export paths.
+Finish a deferred edit first. Unknown names raise `KeyError`; unavailable ink bounds or a
+non-SVG destination raise `ValueError`. The destination's parent directory must exist.
+
+The `review` and diagnostic reference fields are additive inside version 3's open `lint`
+payload. The report-owned schema, existing scores and ownership refusals are unchanged.
 
 `generate_sheet_script(...)` writes its recognition evidence to
 `<stem>.draftwright-inspection.json` beside the generated script — a different document with a

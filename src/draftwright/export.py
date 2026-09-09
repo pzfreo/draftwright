@@ -124,6 +124,93 @@ def _semantic_font_name(font_path: str) -> str:
 _SVG_NS = "{http://www.w3.org/2000/svg}"
 
 
+def highlight_svg_annotation(svg_path, *, name, view, bounds, context, tip) -> None:
+    """Crop exported ink and add a visibly diagnostic overlay in page coordinates."""
+    x0, y0, x1, y1 = bounds
+    cx0, cy0, cx1, cy1 = context
+    values = (*bounds, *context, *(tip if tip is not None else ()))
+    if not all(math.isfinite(value) for value in values) or x1 < x0 or y1 < y0:
+        raise ValueError("annotation preview geometry is invalid")
+    left, bottom = min(x0, cx0) - 5, min(y0, cy0) - 5
+    right, top = max(x1, cx1) + 5, max(y1, cy1) + 5
+    if tip is not None:
+        left, bottom = min(left, tip[0] - 5), min(bottom, tip[1] - 5)
+        right, top = max(right, tip[0] + 5), max(top, tip[1] + 5)
+    # Reserve a caption above the crop. Coordinates retain the export's page Y-up → SVG
+    # Y-down mapping, so the marker overlays the actual rendered tip at every sheet scale.
+    right = max(right, left + 150)
+    top += 15
+    tree = ET.parse(svg_path)
+    root = tree.getroot()
+    root.set("viewBox", f"{left} {-top} {right - left} {top - bottom}")
+    root.set("width", f"{right - left}mm")
+    root.set("height", f"{top - bottom}mm")
+    root.insert(
+        0,
+        ET.Element(
+            _SVG_NS + "rect",
+            {
+                "x": str(left),
+                "y": str(-top),
+                "width": str(right - left),
+                "height": str(top - bottom),
+                "fill": "white",
+            },
+        ),
+    )
+    overlay = ET.SubElement(root, _SVG_NS + "g", {"id": "draftwright-diagnostic"})
+    title = f"DIAGNOSTIC: {name} (view: {view or 'unavailable'})"
+    ET.SubElement(overlay, _SVG_NS + "title").text = title
+    ET.SubElement(
+        overlay,
+        _SVG_NS + "rect",
+        {
+            "x": str(left),
+            "y": str(-top),
+            "width": str(right - left),
+            "height": "14",
+            "fill": "white",
+        },
+    )
+    for offset, text in (
+        (5, title),
+        (10, "Orange: annotation bounds / drawn tip. Physical target not certified."),
+    ):
+        ET.SubElement(
+            overlay,
+            _SVG_NS + "text",
+            {"x": str(left + 2), "y": str(-top + offset), "font-size": "3", "fill": "#9a3412"},
+        ).text = text
+    ET.SubElement(
+        overlay,
+        _SVG_NS + "rect",
+        {
+            "x": str(x0),
+            "y": str(-y1),
+            "width": str(x1 - x0),
+            "height": str(y1 - y0),
+            "fill": "none",
+            "stroke": "#ea580c",
+            "stroke-width": "0.4",
+            "stroke-dasharray": "2 1",
+        },
+    )
+    if tip is not None:
+        ET.SubElement(
+            overlay,
+            _SVG_NS + "circle",
+            {
+                "cx": str(tip[0]),
+                "cy": str(-tip[1]),
+                "r": "2",
+                "fill": "none",
+                "stroke": "#ea580c",
+                "stroke-width": "0.6",
+            },
+        )
+    tree.write(svg_path, encoding="utf-8", xml_declaration=True)
+
+
 def canonicalize_svg(svg_path: str) -> None:
     """Emit the elements of each layer in an order that does not depend on the run.
 

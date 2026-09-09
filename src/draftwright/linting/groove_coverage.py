@@ -16,13 +16,18 @@ from typing import Literal
 
 from quiddity import RecognitionResult
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.measurement_support import RequirementCarrier
 from draftwright.recognition_frame import validated_groove_geometry
 
 GrooveRequirementState = Literal[
@@ -48,6 +53,7 @@ class GrooveRequirementOutcome:
     requirement_count_known: bool = True
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def groove_key(groove) -> tuple:
@@ -231,7 +237,7 @@ def groove_requirement_outcomes(
             )
             for parameter in parameter_ids
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_groove_coverage(
