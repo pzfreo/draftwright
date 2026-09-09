@@ -43,3 +43,11 @@ class RequirementExclusion:
     source_records: tuple[object, ...]
     datum: object | None = None
     span: tuple | None = None
+
+
+@dataclass(frozen=True)
+class RequirementCarrier:
+    """A named annotation accepted by a physical requirement producer."""
+
+    annotation: str
+    kind: str

@@ -1218,6 +1218,16 @@ class Sheet:
         self._document_input = source
         self._features.validate_change = source.validate_features
 
+    def _document_recipe(self):
+        """Snapshot options, view intent and ordinary tables before a member build."""
+        from copy import deepcopy
+
+        return {
+            "options": deepcopy(self._opts),
+            "views": self.view_constraints,
+            "tables": deepcopy(self._tables),
+        }
+
     def _snapshot_for_document(self):
         from copy import deepcopy
 

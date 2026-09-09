@@ -17,14 +17,18 @@ from typing import Literal
 
 from quiddity import RecognitionResult
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.measurement_support import RequirementAlternative
+from draftwright.measurement_support import RequirementAlternative, RequirementCarrier
 from draftwright.plate_correspondence import (
     _between,
     _depth_axis,
@@ -74,6 +78,8 @@ class PlateRequirementOutcome:
     @property
     def intrinsically_inapplicable(self) -> bool:
         return self.intrinsic_exclusion is not None
+
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _parameter_id(feature, source) -> str | None:
@@ -757,7 +763,7 @@ def plate_requirement_outcomes(
                 source_records=(source_record,),
             )
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_plate_coverage(

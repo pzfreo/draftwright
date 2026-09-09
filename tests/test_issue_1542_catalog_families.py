@@ -48,15 +48,19 @@ _CASES = (
 )
 
 
+def family_part(case):
+    _family, source, factory = case
+    if factory is not None:
+        return getattr(import_module(source), factory)()
+    if source is not None:
+        return Path(__file__).parent / "fixtures/evaluation" / source
+    return extrude(RegularPolygon(30, 3), amount=4)
+
+
 @pytest.fixture(scope="module", params=_CASES, ids=[case[0] for case in _CASES])
 def family_intake(request):
-    family, source, factory = request.param
-    if factory is not None:
-        part = getattr(import_module(source), factory)()
-    elif source is not None:
-        part = Path(__file__).parent / "fixtures/evaluation" / source
-    else:
-        part = extrude(RegularPolygon(30, 3), amount=4)
+    family = request.param[0]
+    part = family_part(request.param)
     model, analysis = _detect_part_model_analysis(part)
     return family, model, analysis
 

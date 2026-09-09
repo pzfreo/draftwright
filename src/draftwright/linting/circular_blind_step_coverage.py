@@ -16,8 +16,13 @@ from typing import Literal
 from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.measurement_support import RequirementCarrier
 
 CircularBlindStepRequirementState = Literal[
     "placed",
@@ -39,6 +44,7 @@ class CircularBlindStepRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -315,7 +321,7 @@ def circular_blind_step_requirement_outcomes(
                     source_records=(source,),
                 )
             )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_circular_blind_step_coverage(

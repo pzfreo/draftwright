@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import atan2, degrees, dist, fsum, hypot, isfinite, pi
 from statistics import median
 from types import SimpleNamespace
@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from build123d import GeomType
 
 from draftwright.linting.issues import LintIssue
+from draftwright.measurement_support import RequirementCarrier
 from draftwright.profile_angles import (
     ProfileAngle,
     profile_angle_repetitions,
@@ -446,6 +447,7 @@ class ProfileAngleOutcome:
     state: str
     features: tuple = ()
     parameter_id: str = "included.angle"
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def profile_angle_requirement_outcomes(evidence, ownership, features, registry, omissions=()):
@@ -491,6 +493,7 @@ def profile_angle_requirement_outcomes(evidence, ownership, features, registry, 
                 parameter_id = representations[0][1]
         final = tuple(owner for owner in owners if any(owner is feature for feature in features))
         state = "unverifiable"
+        carriers: tuple[RequirementCarrier, ...] = ()
         if owners and not final:
             state = "missing"
         elif final:
@@ -499,17 +502,21 @@ def profile_angle_requirement_outcomes(evidence, ownership, features, registry, 
             def matches_id(identity):
                 return identity.feature is owner and identity.parameter == parameter_id
 
-            if any(
-                hasattr(registry.named(name), "angular_points")
+            measured = tuple(
+                RequirementCarrier(name, "angular_measurement")
+                for name in sorted(registry.names())
+                if hasattr(registry.named(name), "angular_points")
                 and any(matches_id(identity) for identity in registry.measurement_of(name))
-                for name in registry.names()
-            ):
+            )
+            satisfied = tuple(
+                RequirementCarrier(name, "structured_note")
+                for name in sorted(registry.names())
+                if any(matches_id(identity) for identity in registry.satisfaction_of(name))
+            )
+            carriers = measured + satisfied
+            if measured:
                 state = "placed"
-            elif any(
-                matches_id(identity)
-                for name in registry.names()
-                for identity in registry.satisfaction_of(name)
-            ):
+            elif satisfied:
                 state = "satisfied_by_structured_note"
             elif any(
                 omission.feature is owner
@@ -527,7 +534,9 @@ def profile_angle_requirement_outcomes(evidence, ownership, features, registry, 
                 state = "dropped"
             else:
                 state = "missing"
-        outcomes.append(ProfileAngleOutcome(requirement, state, final, parameter_id))
+        outcomes.append(
+            ProfileAngleOutcome(requirement, state, final, parameter_id, carriers=carriers)
+        )
     return outcomes
 
 

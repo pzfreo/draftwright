@@ -9,17 +9,22 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from quiddity import RecognitionResult, ThroughStep
 
 from draftwright._geometry import _fmt
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    exact_measurement_carriers,
+    measurement_carrier_index,
+    satisfaction_ids,
+    satisfaction_of,
+)
 from draftwright.linting.evidence import compiled_values, rendered_numbers
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.structural import _label_reading
-from draftwright.measurement_support import MeasurementSupport
+from draftwright.measurement_support import MeasurementSupport, RequirementCarrier
 
 ThroughStepRequirementState = Literal[
     "placed",
@@ -46,6 +51,7 @@ class ThroughStepRequirementOutcome:
         default=(), kw_only=True
     )
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -598,7 +604,18 @@ def through_step_requirement_outcomes(
                     source_records=(source,),
                 )
             )
-    return outcomes
+    index = measurement_carrier_index(registry)
+    # Alternate support needs complete interval/value proofs, not the flattened IDs.
+    # Document evaluation supplies those proofs through DocumentSupportProof.
+    return [
+        replace(
+            outcome,
+            carriers=()
+            if outcome.dependency_alternatives
+            else exact_measurement_carriers(index, outcome.measurement_ids),
+        )
+        for outcome in outcomes
+    ]
 
 
 def lint_through_step_coverage(

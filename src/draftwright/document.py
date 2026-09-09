@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import MappingProxyType
@@ -14,8 +15,10 @@ from draftwright.progress import BuildCancelled, stage
 from draftwright.reporting import (
     ReportUnavailableError,
     build_requirement_catalog,
+    document_report,
     evaluate_document_requirements,
     match_requirement_catalog,
+    write_json_document,
 )
 from draftwright.sheet import Sheet
 
@@ -31,20 +34,21 @@ class DocumentBuildError(RuntimeError):
 class DocumentResult:
     """Live member drawings and the authority under which they were built."""
 
-    def __init__(self, source: DocumentInput, sheets: Mapping, catalog):
+    def __init__(self, source: DocumentInput, sheets: Mapping, catalog, member_recipes=None):
         self._source = source
         self._sheets = MappingProxyType(dict(sheets))
         self._catalog = catalog
+        self._member_recipes = dict(member_recipes or {})
 
     @property
     def sheets(self):
         return self._sheets
 
-    def _project_members(self):
+    def _project_members(self, *, include_lint=False):
         members = []
         for name, drawing in self._sheets.items():
             try:
-                snapshot = drawing.requirement_snapshot()
+                snapshot = drawing.requirement_snapshot(include_lint=include_lint)
                 self._source.validate_model(snapshot.part, snapshot.model)
                 catalog = build_requirement_catalog(
                     evidence=snapshot.evidence,
@@ -59,8 +63,8 @@ class DocumentResult:
             members.append((name, snapshot, aligned))
         return tuple(members)
 
-    def _evaluate(self):
-        members = self._project_members()
+    def _evaluate(self, *, include_lint=False):
+        members = self._project_members(include_lint=include_lint)
         claims = tuple(
             bind_document_claims(name, drawing.measurement_snapshot(), drawing.registry)
             for name, drawing in self._sheets.items()
@@ -72,6 +76,41 @@ class DocumentResult:
             members,
             claims,
         )
+
+    def report(self) -> dict[str, object]:
+        """Read a schema-v4 document report over live members and one source catalog.
+
+        IDs belong only to this report. A returned JSON value does not change when
+        members are edited; call again for new evidence. Bounded clearance is not
+        manufacturing readiness. Missing common authority raises ReportUnavailableError.
+        """
+        evaluation = self._evaluate(include_lint=True)
+        resolved = {
+            name: {
+                "scale": drawing.scale,
+                "page_mm": (drawing.page_w, drawing.page_h),
+                "scale_decision": drawing.scale_decision,
+                "view_decision": drawing.view_decision,
+            }
+            for name, drawing in self._sheets.items()
+        }
+        return document_report(
+            catalog=self._catalog,
+            evaluation=evaluation,
+            model=self._source.model(self._source.initial_features()),
+            source={
+                "kind": "step",
+                "name": self._source.source_name,
+                "sha256": sha256(self._source.source_bytes).hexdigest(),
+            },
+            run_options={"pmi": self._source.analysis.pmi_mode, "frame": "raw"},
+            member_recipes=self._member_recipes,
+            resolved=resolved,
+        )
+
+    def write_report(self, path) -> str:
+        """Atomically write the strict document report without exporting drawing ink."""
+        return write_json_document(self.report(), path)
 
 
 class Document:
@@ -122,11 +161,12 @@ class Document:
         members = []
         for name, sheet in tuple(self._sheets.items()):
             try:
-                members.append((name, sheet._snapshot_for_document()))
+                snapshot = sheet._snapshot_for_document()
+                members.append((name, snapshot, snapshot._document_recipe()))
             except Exception as exc:
                 raise DocumentBuildError(name, exc) from exc
         drawings = {}
-        for name, sheet in members:
+        for name, sheet, _recipe in members:
             try:
                 with stage(f"document sheet {name}"):
                     drawings[name] = sheet.build()
@@ -136,4 +176,9 @@ class Document:
                 raise
             except Exception as exc:
                 raise DocumentBuildError(name, exc) from exc
-        return DocumentResult(self._source, drawings, self._catalog)
+        return DocumentResult(
+            self._source,
+            drawings,
+            self._catalog,
+            {name: recipe for name, _sheet, recipe in members},
+        )

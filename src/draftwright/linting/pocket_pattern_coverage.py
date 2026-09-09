@@ -17,13 +17,18 @@ from typing import Literal
 from quiddity import RecognitionResult, SectionRecess, SectionRecessArray, SectionRecessGrid
 
 from draftwright._core import _decode_hole_location_fact
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    RequirementCarrierEvidence,
+    satisfaction_ids,
+    satisfaction_of,
+)
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
     is_placement_drop,
     requirement_subject,
 )
+from draftwright.measurement_support import RequirementCarrier
 from draftwright.section_recess_contract import (
     distinct_section_recess_patterns,
     pocket_mouth_key,
@@ -54,6 +59,7 @@ class PocketPatternRequirementOutcome:
     members: tuple[tuple[float, float, float], ...] = ()
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _rounded(value) -> float:
@@ -225,7 +231,7 @@ def _evidence_parameter(parameter: str) -> str:
     return parameter
 
 
-def _index_evidence(registry):
+def _index_evidence(registry, *, carriers=None):
     placed = {
         (measurement.feature, measurement.parameter)
         for name in registry.names()
@@ -239,6 +245,10 @@ def _index_evidence(registry):
         count = getattr(annotation, "covers_count", None)
         if getattr(owner, "kind", None) == "pocket_pattern" and isinstance(count, int):
             counts[owner].add(count)
+            if carriers is not None:
+                carriers.counts[(owner, count)].append(
+                    RequirementCarrier(name, "physical_requirement")
+                )
         for fact in getattr(annotation, "covers_hole_locations", ()):
             decoded = _decode_hole_location_fact(fact)
             if decoded is None:
@@ -246,6 +256,10 @@ def _index_evidence(registry):
             feature, parameter, point = decoded
             if getattr(feature, "kind", None) == "pocket_pattern":
                 locations[(feature, parameter)].add(_point(point))
+                if carriers is not None:
+                    carriers.locations[(feature, parameter, _point(point))].append(
+                        RequirementCarrier(name, "physical_location")
+                    )
     satisfied = {
         (identity.feature, identity.parameter)
         for identity in satisfaction_ids(registry)
@@ -275,13 +289,42 @@ def _state(
     suppressed,
     dropped,
     registry,
+    carriers=None,
 ):
     evidence_parameter = _evidence_parameter(parameter)
-    if parameter == "grouping.count":
-        if counts.get(feature) == {member_count}:
-            return "placed"
-        if (feature, parameter) in satisfied:
-            return "satisfied_by_structured_note"
+    grouping = parameter == "grouping.count"
+    location = parameter.startswith("location_pocket_pattern.location.")
+    count_placed = grouping and counts.get(feature) == {member_count}
+    point_placed = location and point in locations.get((feature, parameter), ())
+    exact_placed = not grouping and not location and (feature, parameter) in placed
+    note_parameters = ("location", evidence_parameter) if location else (parameter,)
+    satisfied_parameters = tuple(item for item in note_parameters if (feature, item) in satisfied)
+    if carriers is not None:
+        physical = (
+            carriers.counts[(feature, member_count)]
+            if count_placed
+            else carriers.locations[(feature, parameter, point)]
+            if point_placed
+            else ()
+        )
+        carriers.accept(
+            feature,
+            parameter,
+            "placed",
+            parameters=(parameter,) if exact_placed else (),
+            physical=physical,
+        )
+        carriers.accept(
+            feature,
+            parameter,
+            "satisfied_by_structured_note",
+            parameters=satisfied_parameters,
+        )
+    if count_placed or point_placed or exact_placed:
+        return "placed"
+    if satisfied_parameters:
+        return "satisfied_by_structured_note"
+    if grouping:
         size_ids = {
             "pocket_width.length",
             "pocket_length.length",
@@ -292,15 +335,6 @@ def _state(
             return "suppressed"
         if size_ids & {item for owner, item in dropped if owner == feature}:
             return "dropped"
-    elif parameter.startswith("location_pocket_pattern.location."):
-        if point in locations.get((feature, parameter), ()):
-            return "placed"
-        if (feature, "location") in satisfied or (feature, evidence_parameter) in satisfied:
-            return "satisfied_by_structured_note"
-    elif (feature, parameter) in placed:
-        return "placed"
-    elif (feature, parameter) in satisfied:
-        return "satisfied_by_structured_note"
     if (feature, evidence_parameter) in suppressed:
         return "suppressed"
     if (feature, parameter) in dropped or (feature, evidence_parameter) in dropped:
@@ -355,7 +389,8 @@ def pocket_pattern_requirement_outcomes(
         if getattr(feature, "kind", None) == "pocket_pattern":
             ir_by_key[pocket_pattern_key(feature)].append(feature)
 
-    placed, locations, counts, satisfied, dropped = _index_evidence(registry)
+    carriers = RequirementCarrierEvidence(registry)
+    placed, locations, counts, satisfied, dropped = _index_evidence(registry, carriers=carriers)
     suppressed = {
         (omission.feature, omission.parameter_id)
         for omission in omissions
@@ -400,6 +435,7 @@ def pocket_pattern_requirement_outcomes(
                     suppressed=suppressed,
                     dropped=dropped,
                     registry=registry,
+                    carriers=carriers,
                 ),
                 members=members,
                 features=(feature,),
@@ -407,7 +443,7 @@ def pocket_pattern_requirement_outcomes(
             )
             for parameter in parameter_ids
         )
-    return outcomes
+    return carriers.attach(outcomes)
 
 
 def lint_pocket_pattern_coverage(

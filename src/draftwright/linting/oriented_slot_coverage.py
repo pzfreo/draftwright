@@ -10,8 +10,13 @@ from typing import Literal
 from quiddity import OrientedSlot, RecognitionResult
 
 from draftwright.feature_identity import is_exact_oriented_slot_feature
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.measurement_support import RequirementCarrier
 from draftwright.oriented_slot_contract import (
     oriented_slot_provider_key,
     standalone_oriented_slots,
@@ -37,6 +42,7 @@ class OrientedSlotRequirementOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _real(value, *, name: str, positive: bool = False) -> float:
@@ -262,7 +268,7 @@ def oriented_slot_requirement_outcomes(
             )
             for parameter_id in parameter_ids
         )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
 
 
 def lint_oriented_slot_coverage(

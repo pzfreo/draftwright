@@ -1070,7 +1070,7 @@ class Drawing:
             requirement_outcomes=snapshot.outcomes,
         )
 
-    def requirement_snapshot(self):
+    def requirement_snapshot(self, *, include_lint=False):
         """Capture live source-owned outcomes for single-sheet and document review.
 
         This reuses the report's exact-authority validation and existing producers.
@@ -1101,6 +1101,10 @@ class Drawing:
             ownership=ownership,
             datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
         )
+        lint = None
+        if include_lint:
+            with _reuse_report_requirements(self, outcomes, dimension_plan):
+                lint = self.lint_summary()
         return RequirementSnapshot(
             evidence,
             ownership,
@@ -1111,6 +1115,7 @@ class Drawing:
             dimension_plan,
             self._working_part,
             outcomes,
+            lint,
         )
 
     def write_report(self, path: str | os.PathLike[str]) -> str:

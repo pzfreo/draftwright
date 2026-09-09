@@ -17,9 +17,13 @@ from typing import Literal
 
 from quiddity import RecognitionResult, TurnedProfile, TurnedProfileKey
 
-from draftwright.linting._registry import satisfaction_ids, satisfaction_of
+from draftwright.linting._registry import (
+    satisfaction_ids,
+    satisfaction_of,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID, is_placement_drop
-from draftwright.measurement_support import MeasurementSupport
+from draftwright.measurement_support import MeasurementSupport, RequirementCarrier
 from draftwright.recognition_frame import (
     AmbiguousTurnedOwnershipError,
     groove_owns_turned_step_band,
@@ -56,6 +60,7 @@ class TurnedStepRequirementOutcome:
     representation_parameter: str | None = None
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     representation_alternatives: tuple[MeasurementSupport, ...] = field(default=(), kw_only=True)
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
 
 
 def _number(value, *, digits: int | None = 6) -> float:
@@ -527,4 +532,4 @@ def turned_step_requirement_outcomes(
                     representation_alternatives=alternatives,
                 )
             )
-    return outcomes
+    return with_measurement_carriers(outcomes, registry)
