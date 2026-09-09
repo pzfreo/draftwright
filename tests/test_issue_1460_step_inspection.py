@@ -65,6 +65,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright._pmi_part21",
         "draftwright.analysis",
         "draftwright.angular_geometry",  # pure sizing footprints, no compiled plan
+        "draftwright.progress",  # leaf activity at the existing recognition seam
         "draftwright.profile_angles",  # pure projection of issued profile supports
         "draftwright.blend_contract",
         "draftwright.oriented_slot_contract",

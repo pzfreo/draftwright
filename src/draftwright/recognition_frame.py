@@ -30,6 +30,7 @@ from quiddity import (
 )
 
 from draftwright._geometry import _classify_rotational_cylinders
+from draftwright.progress import observed_stage
 
 
 class FramedRecognitionContractError(RuntimeError):
@@ -330,6 +331,7 @@ def _same_cylinder_objects(prepared: PreparedFramedPart, framed: FramedRecogniti
     )
 
 
+@observed_stage("recognition")
 def prepare_framed_detection(part: Shape) -> FramedDetection | FramedDetectionRefusal:
     """Prepare, classify, and recognise *part* once in the provider-owned local frame.
 

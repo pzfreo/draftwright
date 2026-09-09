@@ -82,6 +82,7 @@ from draftwright.model import (
 )
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import plan_dimensions
+from draftwright.progress import activity, build_operation, observed_stage, stage
 from draftwright.projection import (
     _bbox_within,
     _fit_iso_view,
@@ -495,6 +496,7 @@ def _layout_advisory(code: str, message: str) -> LintIssue:
     raise ValueError(f"unknown layout advisory: {code!r}")
 
 
+@observed_stage("assemble")
 def _assemble(
     a,
     out,
@@ -1079,6 +1081,7 @@ def _repack(
     return a2, dwg2
 
 
+@observed_stage("repack")
 def _repack_to_fixed_point(
     a,
     dwg,
@@ -1342,7 +1345,8 @@ def _build_drawing_once(
             _framed_recognition=framed_recognition,
         )
 
-    a = analyse(reuse=_analysis_base, views=_views)
+    with stage("analysis"):
+        a = analyse(reuse=_analysis_base, views=_views)
     planned_principals = third_angle_view_names() if _views is None else _views
     # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
     # plan_dimensions' requirement check.  An authored principal set is nevertheless
@@ -1866,6 +1870,7 @@ def _is_expected_candidate_build_failure(exc: Exception) -> bool:
     )
 
 
+@build_operation
 def build_drawing(
     step_file: str | Path | Shape,
     out: str | None = None,
@@ -1964,6 +1969,7 @@ def build_drawing(
         _view_constraints=_view_constraints,
     )
     analysis_base = None
+    build_attempt = 0
     latest_analysis = None
     critique_recognition_cache = None
 
@@ -1976,8 +1982,10 @@ def build_drawing(
         include_iso: bool | None = None,
         page_override: str | tuple | None = None,
         select_automatic_views: bool = False,
+        retry_reason: str = "initial",
     ) -> Drawing:
-        nonlocal analysis_base
+        nonlocal analysis_base, build_attempt
+        build_attempt += 1
 
         # Default to the REQUESTED view set, not to None. Any rebuild — the arrangement
         # gate's fallback, a scale retry — must carry the decisions the attempt was made
@@ -2007,6 +2015,14 @@ def build_drawing(
             if analysis_base is None:
                 analysis_base = value
 
+        if build_attempt > 1:
+            activity(
+                "retry",
+                reason=retry_reason,
+                attempt=build_attempt,
+                scale=candidate_scale,
+                page=str(page if page_override is None else page_override),
+            )
         built = one_pass(
             scale=candidate_scale,
             page=page if page_override is None else page_override,
@@ -2112,7 +2128,7 @@ def build_drawing(
                     "blockers": candidate_blockers,
                     **({"annotations": absent_owners} if absent_owners else {}),
                 }
-                drawing = _build(None, views=third_angle_view_names())
+                drawing = _build(None, views=third_angle_view_names(), retry_reason=reason)
                 settled_principal_views = _principal_names(drawing)
                 view_status = "retained_after_rejection"
             else:
@@ -2138,6 +2154,7 @@ def build_drawing(
                     candidate_scale,
                     arrangements,
                     views=settled_principal_views,
+                    retry_reason="arrangement_preserve_requirements",
                 ),
                 lambda built: _scale_blockers(built, physical=False),
             )
@@ -2244,6 +2261,7 @@ def build_drawing(
                         views=settled_principal_views,
                         include_iso=include_iso,
                         page_override=page_name,
+                        retry_reason=reason,
                     )
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
@@ -2306,6 +2324,7 @@ def build_drawing(
                         arrangements=(settled_arrangement,),
                         views=settled_principal_views,
                         page_override=original_page,
+                        retry_reason=reason,
                     )
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
@@ -2467,6 +2486,7 @@ def build_drawing(
                         arrangements=(settled_arrangement,),
                         views=settled_principal_views,
                         include_iso=False,
+                        retry_reason="remove_optional_iso",
                     )
                 except (ValueError, Standard_Failure) as exc:
                     if not _is_expected_candidate_build_failure(exc):
@@ -2498,6 +2518,7 @@ def build_drawing(
                                 arrangements=(settled_arrangement,),
                                 views=settled_principal_views,
                                 include_iso=False,
+                                retry_reason="remove_optional_iso",
                                 page_override=original_page,
                             )
                         except (ValueError, Standard_Failure) as exc:
@@ -2633,7 +2654,7 @@ def build_drawing(
                 "blockers": candidate_blockers,
                 **({"annotations": absent_owners} if absent_owners else {}),
             }
-            drawing = _build(requested_scale, views=third_angle_view_names())
+            drawing = _build(requested_scale, views=third_angle_view_names(), retry_reason=reason)
             settled_principal_views = _principal_names(drawing)
             view_status = "retained_after_rejection"
         else:
@@ -2687,7 +2708,7 @@ def build_drawing(
             f"requested scale {requested_scale:g} dropped required annotation outcomes "
             f"({codes}); returning the incomplete drawing because scale_policy='permissive'",
             ScaleCompletenessWarning,
-            stacklevel=2,
+            stacklevel=3,  # Skip the public operation observer wrapper too.
         )
         return drawing
 
@@ -2726,7 +2747,9 @@ def build_drawing(
     for candidate in (item for item in _SCALES if item < requested_scale):
         attempted.append(candidate)
         try:
-            fallback = _build(candidate, views=settled_principal_views)
+            fallback = _build(
+                candidate, views=settled_principal_views, retry_reason="scale_completeness"
+            )
         except ValueError as exc:
             # Once a smaller scale hits the hard rendering floor, every following candidate
             # is smaller still. Do not hide any unrelated build error.
@@ -2763,7 +2786,7 @@ def build_drawing(
             f"requested scale {requested_scale:g} dropped required annotation outcomes; "
             f"using complete fallback scale {fallback.scale:g}",
             ScaleCompletenessWarning,
-            stacklevel=2,
+            stacklevel=3,  # Skip the public operation observer wrapper too.
         )
         return fallback
 

@@ -39,6 +39,7 @@ from draftwright.layout import (
     _LeaderAssignment,
 )
 from draftwright.model.compiled import resolve_feature
+from draftwright.progress import activity, checkpoint
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
 
 # One unit is the measured ~0.1 ms analytical candidate cost from #1308.  A real
@@ -457,6 +458,7 @@ def _face_exactly_covered(face, polygons, label, *, tol=1e-8) -> bool:
 def _validated_face_mesh(face, tolerance):
     """Return one complete finite triangular mesh, or ``None`` when malformed."""
 
+    checkpoint()
     try:
         vertices, raw_triangles = face.tessellate(tolerance)
         points = tuple((float(vertex.X), float(vertex.Y)) for vertex in vertices)
@@ -725,6 +727,7 @@ def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
 
 
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
+    checkpoint()
     blockers = []
     label = candidate.label_box
     if candidate.failure_reason is not None:
@@ -1483,6 +1486,8 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         provisional_refinement="not_attempted",
         provisional_penalty=0,
     ):
+        if "budget" in value or "budget" in provisional_refinement:
+            activity("budget", reason=value, refinement=provisional_refinement, states=states)
         for event in [shared_event, *noun_events.values()]:
             if event is not None:
                 event.update(
@@ -1539,6 +1544,14 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         the most certain one.
         """
 
+        if "budget" in reason:
+            activity(
+                "budget",
+                reason=reason,
+                states=states,
+                fixed_probes=fixed_probes,
+                pair_probes=pair_probes,
+            )
         placed_count = 0
         total_priority = 0.0
         total_penalty = 0

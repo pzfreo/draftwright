@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
     from draftwright.recognition_ownership import RecognitionOwnership
 
+from draftwright.progress import observed_stage
+
 # PEP 702 @deprecated. A `sys.version_info` guard (not try/except) so the type checker,
 # which targets the 3.10 floor, resolves the backport branch instead of `warnings.deprecated`
 # (only in 3.13+ typeshed).
@@ -2676,6 +2678,7 @@ class Drawing:
             return False
         return True
 
+    @observed_stage("edit")
     def finalize(self) -> None:
         """Drain the recorded placement intents (#426).
 
@@ -3852,6 +3855,7 @@ class Drawing:
         )
 
     # -- repair ---------------------------------------------------------------
+    @observed_stage("repair")
     def repair(self, max_iter: int = 3):
         """Close the lint→repair loop: act on violations, don't only report them.
 
@@ -3889,6 +3893,7 @@ class Drawing:
         return repair_drawing(self, max_iter, ink_candidates=ink_candidates)
 
     # -- output ---------------------------------------------------------------
+    @observed_stage("lint")
     def lint(self, *, physical: bool = True):
         """Lint all annotations against all views; returns the list of issues.
 
@@ -5120,6 +5125,7 @@ class Drawing:
                 groups.append((-box.max.Y, box.min.X, ordinal, runs))
         return tuple(run for _top, _left, _ordinal, runs in sorted(groups) for run in runs)
 
+    @observed_stage("export")
     def export(
         self,
         out=None,
@@ -5210,7 +5216,7 @@ class Drawing:
                 f"formats= is given — this call writes formats={tuple(want)!r}. Drop it, or "
                 "put the format in formats=. Removed in 0.5.0.",
                 DeprecationWarning,
-                stacklevel=2,
+                stacklevel=3,  # Skip the public operation observer wrapper too.
             )
 
         # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
@@ -5231,7 +5237,7 @@ class Drawing:
                     f"Drawing.export(svg=…, dxf=…) is deprecated; pass formats={_wanted!r} and "
                     "read the {format: path} dict. Removed in 0.5.0.",
                     DeprecationWarning,
-                    stacklevel=2,
+                    stacklevel=3,  # Skip the public operation observer wrapper too.
                 )
             else:
                 warnings.warn(
@@ -5240,7 +5246,7 @@ class Drawing:
                     "{format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
                     "Removed in 0.5.0.",
                     DeprecationWarning,
-                    stacklevel=2,
+                    stacklevel=3,  # Skip the public operation observer wrapper too.
                 )
             svg_path = (
                 self._write_svg(out, reproducible=reproducible) if (svg is None or svg) else None

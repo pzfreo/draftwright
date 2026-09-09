@@ -38,6 +38,7 @@ from draftwright._geometry import (
     _scale_world,
     material_field,
 )
+from draftwright.progress import stage
 
 _log = logging.getLogger(__name__)
 
@@ -294,7 +295,8 @@ def project_view_geometry(scale, name, shape, camera, up, position, *, look_at, 
     # translate the silhouette away from that mapper. Keep both sides of the projection contract
     # in the same world-origin transform (the helper also preserves 0.9/0.10 compatibility).
     shape_s = shape if scaled else _scale_world(shape, scale)
-    vis, hid = shape_s.project_to_viewport(camera, up, look_at)
+    with stage("projection", view=name):
+        vis, hid = shape_s.project_to_viewport(camera, up, look_at)
     vl, hl = list(vis), list(hid)
     if not vl and not hl:
         raise ValueError(

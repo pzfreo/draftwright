@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from quiddity import RecognitionResult
 from quiddity.evidence import RecognitionEvidence, build_recognition_evidence
 
+from draftwright.progress import stage
+
 
 def _result_from_evidence(evidence: RecognitionEvidence) -> RecognitionResult:
     """Project the established aggregate from one evidence acquisition.
@@ -67,11 +69,12 @@ class RecognitionCache:
         """Return this drawing's result, recognising *part* only when still empty."""
 
         if self.result is None:
-            evidence = build_recognition_evidence(
-                part,
-                cylinders=cylinders,
-                rotational=rotational,
-            )
+            with stage("recognition"):
+                evidence = build_recognition_evidence(
+                    part,
+                    cylinders=cylinders,
+                    rotational=rotational,
+                )
             result = _result_from_evidence(evidence)
             self.seed(result, evidence=evidence if result is evidence.result else None)
         assert self.result is not None

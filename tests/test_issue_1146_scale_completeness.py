@@ -16,6 +16,7 @@ from draftwright import (
     Sheet,
     SoftDeprecationWarning,
     build_drawing,
+    observe_build,
 )
 from draftwright.builder import _complete_automatic_plan, _is_required_scale_drop
 from draftwright.linting import LintIssue
@@ -119,9 +120,20 @@ def test_fixture_proves_requested_scale_loses_an_outcome_but_half_scale_is_compl
 
 @pytest.mark.timeout(120)
 def test_default_fallback_returns_largest_complete_standard_scale_and_reports_decision():
-    with pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 0.5"):
+    events = []
+    with (
+        observe_build(events.append),
+        pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 0.5"),
+    ):
         drawing = build_drawing(_scale_sensitive_plate(), page="A4", scale=1.0, repair=False)
 
+    (retry,) = [event for event in events if event.phase == "retry"]
+    assert dict(retry.details) == {
+        "reason": "scale_completeness",
+        "attempt": 2,
+        "scale": 0.5,
+        "page": "A4",
+    }
     assert drawing.scale == 0.5
     assert "scale_fallback_applied" in {i.code for i in drawing.lint(physical=False)}
     assert _placement_drops(drawing) == []

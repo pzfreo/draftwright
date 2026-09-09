@@ -9,7 +9,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: leaf modules (`layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
+top: leaf modules (`progress.py`, `layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
@@ -25,7 +25,9 @@ recognition-evaluation package (`evaluation/`), and the
 `cli.py` entry point. Developer-only `_build_profile.py` sits at the same top layer: it
 patches the public builder and Sheet bindings lazily for pytest measurement, and no engine
 module depends on it. No lower module imports an
-upper one. (All surfaces are front doors onto the one engine,
+upper one. `progress.py` holds a context-scoped observer and cooperative cancellation; stage
+modules publish activity at their existing seams, while the CLI alone renders it. It does not
+own placement decisions or a recognition inventory. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
