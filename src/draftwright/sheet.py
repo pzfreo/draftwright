@@ -2271,8 +2271,10 @@ class Sheet:
         part centre. The section renders last (its room check clears the right-of-side-view
         band), so declare it after the per-feature verbs. Chainable."""
         warnings.warn(
-            "Sheet.section() is deprecated; use add_section_view('A', through=...) or "
-            "add_section_view('A', at=...). Removal target 0.6.0.",
+            "Sheet.section() is deprecated; for authored derived views with authored dimensions use "
+            "section_view('A', through=...) or section_view('A', at=...). "
+            "To augment automatic views, select auto_views() and use add_section_view(...). "
+            "Removal target 0.6.0.",
             DeprecationWarning,
             stacklevel=2,
         )
@@ -2541,9 +2543,14 @@ class Sheet:
             )
         if self._added_derived_views and self._derived_view_source != "automatic":
             source = self._added_derived_views[0]["source"]
+            guidance = (
+                "use section_view()/detail_view() for the authored view set"
+                if "authored" in (self._principal_view_source, self._derived_view_source)
+                else "call auto_views() first"
+            )
             raise ValueError(
                 f"add_section_view()/add_detail_view() at {source} augment automatic derived "
-                "views; call auto_views() first"
+                f"views; {guidance}"
             )
         if self._principal_view_source != "authored":
             additions = tuple(
@@ -2582,7 +2589,8 @@ class Sheet:
         if self._section is not None and records:
             raise ValueError(
                 "deprecated section() cannot be combined with section_view()/detail_view() "
-                "constraints; migrate the legacy call to add_section_view()"
+                "constraints; remove the legacy call and keep section_view() for authored "
+                "derived views or add_section_view() for automatic derived views"
             )
         for record in sections:
             target = record["target"]
