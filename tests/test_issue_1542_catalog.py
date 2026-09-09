@@ -280,6 +280,79 @@ def test_groove_floor_absorption_does_not_demand_a_second_step_ledger():
     assert any(row.family == "grooves" for row in catalog.requirements)
 
 
+@pytest.fixture(scope="module")
+def shoulder_intake():
+    _, model, analysis = detect_intake("shoulders")
+    return model, analysis
+
+
+@pytest.mark.parametrize("parameter", [None, "", 7])
+def test_catalog_rejects_invalid_canonical_producer_parameter(shoulder_intake, parameter):
+    model, analysis = shoulder_intake
+    outcomes = dict(outcomes_for(model, analysis))
+    first, *rest = outcomes["plates"]
+    outcomes["plates"] = (replace(first, catalog_parameter_id=parameter), *rest)
+    with pytest.raises(ReportUnavailableError, match="identity or cardinality"):
+        project_outcomes(model, analysis, outcomes)
+
+
+def test_catalog_rejects_a_duplicate_requirement_from_one_producer(shoulder_intake):
+    model, analysis = shoulder_intake
+    outcomes = dict(outcomes_for(model, analysis))
+    first, *rest = outcomes["plates"]
+    outcomes["plates"] = (first, first, *rest)
+    with pytest.raises(ReportUnavailableError, match="duplicate source-owned"):
+        project_outcomes(model, analysis, outcomes)
+
+
+@pytest.mark.parametrize("damage", ["invalid_type", "empty", "foreign_identity"])
+def test_catalog_refuses_unowned_or_empty_dependency_conjunctions(shoulder_intake, damage):
+    model, analysis = shoulder_intake
+    outcomes = dict(outcomes_for(model, analysis))
+    first, *rest = outcomes["plates"]
+    (recipe,) = first.dependency_alternatives
+    if damage == "invalid_type":
+        changed = ("not a measurement support",)
+        reason = "invalid support type"
+    elif damage == "empty":
+        changed = replace(recipe, measurements=(), supports=())
+        reason = "empty conjunction"
+    else:
+        (owner, parameter), *others = recipe.measurements
+        changed = replace(recipe, measurements=((replace(owner), parameter), *others))
+        reason = "foreign physical owner"
+    outcomes["plates"] = (replace(first, dependency_alternatives=(changed,)), *rest)
+    with pytest.raises(ReportUnavailableError, match=reason):
+        project_outcomes(model, analysis, outcomes)
+
+
+def test_lost_physical_witnesses_cannot_keep_the_sealed_catalog_shape(shoulder_intake):
+    model, analysis = shoulder_intake
+    expected = catalog_for(model, analysis)
+    outcomes = dict(outcomes_for(model, analysis))
+    first, *rest = outcomes["plates"]
+    (recipe,) = first.dependency_alternatives
+    assert recipe.supports
+    outcomes["plates"] = (
+        replace(first, dependency_alternatives=(replace(recipe, supports=()),)),
+        *rest,
+    )
+    actual = project_outcomes(model, analysis, outcomes)
+    with pytest.raises(ReportUnavailableError, match="requirement shape"):
+        match_requirement_catalog(expected, actual)
+
+
+@pytest.mark.parametrize("damage", ["evidence", "ownership", "families"])
+def test_catalog_comparison_refuses_changed_authority_or_family_roster(shoulder_intake, damage):
+    model, analysis = shoulder_intake
+    expected = catalog_for(model, analysis)
+    changed = replace(
+        expected, **{damage: expected.families[:-1] if damage == "families" else object()}
+    )
+    with pytest.raises(ReportUnavailableError, match="recognition authority|family roster"):
+        match_requirement_catalog(expected, changed)
+
+
 @pytest.mark.parametrize(
     "damage",
     (

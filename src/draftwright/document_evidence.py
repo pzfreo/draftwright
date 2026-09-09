@@ -174,8 +174,6 @@ def _narrowed_claim_confirmed(claim, address, meaning, registry):
         for raw, entry in zip(claim.meaning, claim.approved, strict=True)
         if _normalised_entry(raw) == meaning
     )
-    if not approved:
-        return False
     isolated = AnnotationRegistry()
     isolated.add(
         registry.named(claim.annotation),

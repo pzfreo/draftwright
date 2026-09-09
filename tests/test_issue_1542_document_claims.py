@@ -24,6 +24,27 @@ def member(document, name):
     return sheet
 
 
+@pytest.mark.parametrize("name", ["", "  ", None, 4])
+def test_document_refuses_empty_or_nontext_sheet_names(hole_source, name):
+    document = Document.from_part(hole_source)
+    with pytest.raises(ValueError, match="nonempty name"):
+        document.sheet(name)
+
+
+def test_document_cannot_build_without_a_member(hole_source):
+    with pytest.raises(ValueError, match="at least one sheet"):
+        Document.from_part(hole_source).build()
+
+
+def test_document_names_the_member_whose_intent_snapshot_is_incomplete(hole_source):
+    from draftwright.document import DocumentBuildError
+
+    document = Document.from_part(hole_source)
+    document.sheet("incomplete").authored_views().view("front")
+    with pytest.raises(DocumentBuildError, match="incomplete"):
+        document.build()
+
+
 def bound(sheet, drawing):
     return bind_document_claims(sheet, drawing.measurement_snapshot(), drawing.registry)
 
@@ -58,6 +79,11 @@ def test_confirmed_diameter_tolerances_conflict_but_fit_display_does_not(hole_so
         assert compare_measurements(first, second)["status"] == "changed"
         assert snapshots[0].claims[0].meaning == snapshots[1].claims[0].meaning
         assert snapshots[0].claims[0].rendered != snapshots[1].claims[0].rendered
+        report = result.report()
+        assert not report["assessment"]["fidelity"]["conflicts"]
+        first_fit, second_fit = (claim["meaning"]["tolerance"] for claim in report["claims"])
+        assert first_fit == second_fit
+        assert first_fit["kind"] == "fit" and first_fit["code"] == "H7"
 
 
 @pytest.fixture(scope="module")

@@ -132,3 +132,25 @@ def test_synthetic_local_omission_cannot_manufacture_datum_proof(common):
     }
     current = project(missing, analysis, outcomes=fabricated)
     assert not any(row.intrinsic_exclusion is not None for row in current.requirements)
+
+
+@pytest.mark.parametrize("damage", ["foreign_source", "foreign_datum"])
+def test_exclusion_must_retain_exact_common_source_and_datum(common, damage):
+    _, model, analysis, _, _ = common
+    outcomes = dict(live_outcomes(model, analysis))
+    family, index, original = next(
+        (family, index, row)
+        for family, rows in outcomes.items()
+        for index, row in enumerate(rows)
+        if getattr(row, "intrinsic_exclusion", None) is not None
+    )
+    proof = original.intrinsic_exclusion
+    if damage == "foreign_source":
+        changed = replace(proof, source_records=(replace(proof.source_records[0]),))
+    else:
+        changed = replace(proof, datum=replace(proof.datum))
+    rows = list(outcomes[family])
+    rows[index] = replace(original, intrinsic_exclusion=changed)
+    outcomes[family] = tuple(rows)
+    with pytest.raises(ReportUnavailableError, match="catalog exclusion has (a )?foreign"):
+        project(model, analysis, outcomes=outcomes)
