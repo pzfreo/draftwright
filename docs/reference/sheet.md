@@ -126,6 +126,20 @@ resolved wording, machining specifications and placement constraints agree; orig
 owners and measurement identities remain separate. Removing one owner of a shared callout
 rebuilds the survivors through the placement solver.
 
+## Feature schedules
+
+`sheet.schedule([(feature, ("bore.diameter", "location"))], name="holes")` declares a measured
+table through the same IR/compiler as ordinary dimensions. Features may be fluent handles or
+exact owned IR objects. Values, tolerances, units and through/blind wording come from the
+compiler. `location` expands the addressable member coordinates; explicit canonical IDs select
+individual components. Use `prefer="tr"`, `"tl"`, `"br"` or `"bl"` to rank the existing table
+placement candidates.
+
+Schedules establish authored dimension intent. Add `sheet.dimension(...)` declarations when a
+measurement should also appear beside a view. Ordinary `table(...)` text has no measurement
+authority. See [shared drawing documents](document.md#feature-schedules) for an executable
+recipe, verified cell evidence and the document report contract.
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`

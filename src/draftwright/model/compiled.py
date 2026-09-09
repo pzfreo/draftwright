@@ -52,10 +52,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from draftwright._geometry import _fmt, _fmt_angle
+from draftwright._geometry import _fmt, _fmt_angle, _fmt_chamfer, _fmt_tolerance
+from draftwright.fits import FitClass
 from draftwright.location_contract import coincident_location_axes
+from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.ir import (
     AngularReference,
+    ChamferFeature,
     EnvelopeFeature,
     Feature,
     HoleFeature,
@@ -74,6 +77,7 @@ from draftwright.model.ir import (
 from draftwright.model.planner import (
     _AUTHORED_OMISSION,
     _CONSOLIDATED,
+    CORRELATED_SETS,
     DimensionId,
     _authored_for,
     _decorated,
@@ -82,6 +86,8 @@ from draftwright.model.planner import (
     _request_for,
     _selected_chain_covers_extent,
     angular_pattern_label,
+    annotation_requested,
+    authored_dimension_requests,
     authored_location_axis_omitted,
     authored_location_omitted,
     hole_location_parameter_id,
@@ -91,6 +97,7 @@ from draftwright.model.planner import (
     plan_locations,
     polygonal_stock_conveys_height,
     rotational_od_conveys_height,
+    schedule_row_dimensions,
 )
 
 
@@ -690,6 +697,28 @@ class AddressableIntent:
 
 
 @dataclass(frozen=True)
+class ApprovedScheduleCell:
+    """Compiler-owned text and its optional exact measured meaning.
+
+    Descriptive cells carry no measurement and earn no dimensional coverage.
+    """
+
+    text: str
+    measurement: ApprovedDimension | None = None
+    hole_requirements: tuple[tuple[str, int], ...] = ()
+    hole_locations: tuple[tuple[str, Point], ...] = ()
+
+
+@dataclass(frozen=True)
+class ApprovedSchedule:
+    """A rectangular table ready for the existing measurement/placement path."""
+
+    name: str
+    rows: tuple[tuple[ApprovedScheduleCell, ...], ...]
+    prefer: str
+
+
+@dataclass(frozen=True)
 class RenderableDimensionPlan:
     """Everything approved for drawing, plus what was not and why.
 
@@ -715,6 +744,7 @@ class RenderableDimensionPlan:
     #: addressable because a generated authored script must carry the fallback intent even
     #: when the automatic build did not need to release it.
     contingencies: tuple[ApprovedContingency, ...] = ()
+    schedules: tuple[ApprovedSchedule, ...] = ()
     diagnostics: tuple[Omission, ...] = field(default=())
 
     def of_kind(self, *kinds: str) -> tuple[ApprovedGroup, ...]:
@@ -756,7 +786,7 @@ class RenderableDimensionPlan:
     #: it to cover every such field — so a NEW compiler-owned category cannot be added without
     #: either flowing into generated scripts or being explicitly, visibly excluded (#946).
     #: `diagnostics` is not here: it is what was NOT approved, and has its own contract.
-    _ADDRESSABLE = ("groups", "ladders", "locations", "contingencies")
+    _ADDRESSABLE = ("groups", "ladders", "locations", "contingencies", "schedules")
 
     def addressable(self) -> tuple[AddressableIntent, ...]:
         """Every approved intent, in plan order, as the target a script would name.
@@ -832,6 +862,31 @@ class RenderableDimensionPlan:
             # unregistered kind would let generated scripts lose it. Indexing is deliberately
             # fail-closed, matching the addressability ratchet on the containing plan.
             out.append(AddressableIntent(ladder.ref, _LADDER_ROLE[ladder.kind]))
+        return out
+
+    def _addressable_schedules(self) -> list[AddressableIntent]:
+        out = []
+        for schedule in self.schedules:
+            for row in schedule.rows:
+                for cell in row:
+                    dimension = cell.measurement
+                    if dimension is None:
+                        continue
+                    assert dimension.id is not None
+                    out.append(
+                        AddressableIntent(
+                            dimension.ref,
+                            "location"
+                            if dimension.is_location_measurement
+                            else dimension.id.parameter,
+                            discriminator=dimension.discriminator
+                            if dimension.is_location_measurement
+                            else None,
+                            member=dimension.location_member
+                            if dimension.is_location_measurement
+                            else None,
+                        )
+                    )
         return out
 
     def omitted(self, kind: str) -> tuple[Omission, ...]:
@@ -1759,6 +1814,7 @@ def compile_dimensions(
     # alone cannot protect a model mutated afterward. Recheck at the compiler boundary before
     # any structured-note authority can reach placement or critique (#1351).
     model._validate_structured_note_origins()
+    authored_dimension_requests(model)
     for feature in model.features:
         if (
             isinstance(feature, Note)
@@ -1822,7 +1878,7 @@ def compile_dimensions(
     off_axis, off_axis_omissions = _compile_off_axis_hole_locations(model)
     locations.extend(off_axis)
     location_omissions.extend(off_axis_omissions)
-    return RenderableDimensionPlan(
+    result = RenderableDimensionPlan(
         groups=tuple(groups_out),
         ladders=tuple(ladders),
         locations=tuple(locations),
@@ -1830,6 +1886,223 @@ def compile_dimensions(
         diagnostics=_dedupe_omissions(
             omissions, height_omissions, location_omissions, group_omissions
         ),
+    )
+    return _compile_schedules(model, result) if model.schedules else result
+
+
+def _schedule_cell_text(dimension: ApprovedDimension, feature: Feature) -> str:
+    """Present an approved measurement using the shared dimensional formatters."""
+    if dimension.angular_reference is not None:
+        return dimension.final_label
+    if dimension.kind == "angle":
+        return _fmt_angle(dimension.value, dimension.display_decimals, dimension.tolerance)
+    prefix = {"diameter": "Ø", "radius": "R", "depth": "↓"}.get(dimension.kind, "")
+    tolerance = dimension.tolerance
+    suffix = tolerance.suffix() if isinstance(tolerance, FitClass) else _fmt_tolerance(tolerance)
+    text = f"{prefix}{dimension.value_text}{suffix}"
+    if isinstance(feature, ChamferFeature):
+        return _fmt_chamfer(
+            dimension.value_text + suffix, dimension.value, feature.leg2, feature.angle
+        )
+    hole = feature.member if isinstance(feature, PatternFeature) else feature
+    if isinstance(hole, HoleFeature) and dimension.parameter_id == "bore.diameter":
+        indicator = resolved_through_indicator(feature)
+        if indicator:
+            text += f" {indicator}"
+    return text
+
+
+def _approved_schedule_cell(
+    dimension: ApprovedDimension, feature: Feature
+) -> ApprovedScheduleCell:
+    """Retain the physical riders carried by the already-approved text and row context."""
+    requirements: tuple[tuple[str, int], ...] = ()
+    locations: tuple[tuple[str, Point], ...] = ()
+    if isinstance(feature, (HoleFeature, PatternFeature)):
+        if dimension.id is not None and dimension.id.parameter == "bore.diameter":
+            requirements = (("grouping.count", feature.count),)
+            if resolved_through_indicator(feature):
+                requirements += (("bore.through", 1),)
+        component = dimension.physical_location_component
+        if component is not None and dimension.span is not None:
+            locations = ((component, dimension.span[1]),)
+    return ApprovedScheduleCell(
+        _schedule_cell_text(dimension, feature), dimension, requirements, locations
+    )
+
+
+def _compile_schedules(model: PartModel, plan: RenderableDimensionPlan) -> RenderableDimensionPlan:
+    """Route existing approvals into cells; do not evaluate another set of measurements."""
+    labels = {
+        id(feature): f"{feature.kind}{index + 1}" for index, feature in enumerate(model.features)
+    }
+    scheduled_ids: set[tuple[int, str]] = set()
+    schedules = []
+    for schedule in model.schedules:
+        columns: list[str] = []
+        headings: dict[str, str] = {}
+        content: list[tuple[Feature, object, dict[str, ApprovedDimension]]] = []
+        for source_row in schedule.rows:
+            feature = source_row.feature
+            measurements: dict[object, dict[str, ApprovedDimension]] = {}
+            scalars: dict[str, ApprovedDimension] = {}
+            for request in schedule_row_dimensions(source_row):
+                location = request.role == "location"
+                parameter_id = request.role
+                column = parameter_id
+                if location:
+                    assert request.discriminator is not None
+                    parameter_id = hole_location_parameter_id(
+                        feature,
+                        None if request.member == "centre" else request.member,
+                        request.discriminator,
+                    )
+                    column = f"{request.discriminator.upper()} distance (mm)"
+                if location:
+                    candidates = plan.locations
+                else:
+                    # A correlated identity owns the whole set. A single value under that
+                    # ID cannot become a row by silently taking the first member.
+                    if any(
+                        parameter.parameter_id == parameter_id
+                        and (feature.kind, parameter.role) in CORRELATED_SETS
+                        for parameter in feature.parameters()
+                    ):
+                        raise ValueError(
+                            f"schedule {schedule.name!r}: correlated measurement {parameter_id!r} requires a set representation"
+                        )
+                    candidates = tuple(d for ladder in plan.ladders for d in ladder.rungs)
+                    candidates += tuple(
+                        d for item in plan.contingencies for d in item.fallback.rungs
+                    )
+                    if not any(
+                        d.id is not None
+                        and d.id.feature is feature
+                        and d.id.parameter == parameter_id
+                        for d in candidates
+                    ):
+                        candidates = tuple(d for group in plan.groups for d in group.dims)
+                matches = [
+                    dimension
+                    for dimension in candidates
+                    if dimension.id is not None
+                    and dimension.id.feature is feature
+                    and dimension.id.parameter == parameter_id
+                ]
+                if len(matches) != 1:
+                    raise ValueError(
+                        f"schedule {schedule.name!r}: {parameter_id!r} requires exactly one "
+                        f"approved measurement; found {len(matches)}"
+                    )
+                (dimension,) = matches
+                scheduled_ids.add((id(feature), parameter_id))
+                if column not in columns:
+                    columns.append(column)
+                    unit = "degrees" if dimension.kind == "angle" else "mm"
+                    headings[column] = (
+                        column
+                        if location
+                        else f"{parameter_id.replace('.', ' ').replace('_', ' ').capitalize()} ({unit})"
+                    )
+                if location:
+                    measurements.setdefault(request.member, {})[column] = dimension
+                else:
+                    scalars[column] = dimension
+            if measurements:
+                # A scalar is owned by the group, so it is stated once in a distinct row;
+                # repeating its count/diameter beside each member would change its scope.
+                if scalars:
+                    content.append((feature, None, scalars))
+                content.extend(
+                    (feature, member, values) for member, values in measurements.items()
+                )
+            else:
+                content.append((feature, None, scalars))
+        rows = [
+            tuple(
+                ApprovedScheduleCell(text)
+                for text in (
+                    "Feature",
+                    "Member",
+                    "Axis",
+                    "Qty",
+                    *(headings[column] for column in columns),
+                )
+            )
+        ]
+        for feature, member, values in content:
+            row = [
+                ApprovedScheduleCell(labels[id(feature)]),
+                ApprovedScheduleCell(
+                    "group"
+                    if member is None
+                    else str(member + 1)
+                    if isinstance(member, int)
+                    else str(member)
+                ),
+                ApprovedScheduleCell(feature.frame.axis.upper()),
+                ApprovedScheduleCell(str(getattr(feature, "count", 1)) if member is None else "1"),
+            ]
+            for column in columns:
+                cell_dimension = values.get(column)
+                row.append(
+                    _approved_schedule_cell(cell_dimension, feature)
+                    if cell_dimension is not None
+                    else ApprovedScheduleCell("—")
+                )
+            rows.append(tuple(row))
+        schedules.append(ApprovedSchedule(schedule.name, tuple(rows), schedule.prefer))
+
+    ordinary_model = replace(model, schedules=())
+
+    def ordinary(dimension):
+        identity = dimension.id
+        if identity is None or (id(identity.feature), identity.parameter) not in scheduled_ids:
+            return True
+        feature = identity.feature
+        if dimension.is_location_measurement:
+            if location_datum(feature) == "bbox":
+                bbox: Any = model.bbox
+                datum = (float(bbox.min.X), float(bbox.min.Y), float(bbox.min.Z))
+            else:
+                datum = next(d.at for d in model.datums if d.id == "datum_xy")
+            return any(
+                ("centre" if member is None else member) == dimension.location_member
+                and dimension.discriminator in axes
+                for member, _point, axes in hole_location_references(
+                    ordinary_model, feature, datum
+                )
+            )
+        return any(
+            annotation_requested(model, feature, parameter)
+            for parameter in feature.parameters()
+            if parameter.parameter_id == identity.parameter
+        )
+
+    ladders = tuple(
+        replace(ladder, rungs=tuple(d for d in ladder.rungs if ordinary(d)))
+        for ladder in plan.ladders
+    )
+    contingencies = []
+    inactive = set()
+    for item in plan.contingencies:
+        rungs = tuple(d for d in item.fallback.rungs if ordinary(d))
+        if rungs:
+            contingencies.append(replace(item, fallback=replace(item.fallback, rungs=rungs)))
+        else:
+            inactive.add(id(item.inactive))
+
+    return replace(
+        plan,
+        groups=tuple(
+            replace(group, dims=tuple(d for d in group.dims if ordinary(d)))
+            for group in plan.groups
+        ),
+        ladders=tuple(ladder for ladder in ladders if ladder.rungs),
+        locations=tuple(d for d in plan.locations if ordinary(d)),
+        contingencies=tuple(contingencies),
+        diagnostics=tuple(item for item in plan.diagnostics if id(item) not in inactive),
+        schedules=tuple(schedules),
     )
 
 

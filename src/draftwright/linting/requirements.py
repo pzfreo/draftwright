@@ -31,6 +31,7 @@ from draftwright.linting.rectangular_blind_slot_coverage import (
 from draftwright.linting.round_bottom_blind_slot_coverage import (
     round_bottom_blind_slot_requirement_outcomes,
 )
+from draftwright.linting.schedule_evidence import verified_schedule_registry
 from draftwright.linting.section_recess_coverage import unsupported_section_recess_outcomes
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
 from draftwright.linting.through_step_coverage import through_step_requirement_outcomes
@@ -115,6 +116,8 @@ def recognized_requirement_outcomes(
 
     if evidence is not None and evidence.result is not recognition:
         raise ValueError("requirement evidence and recognition must belong to the same run")
+
+    registry = verified_schedule_registry(registry, dimension_plan)
 
     outcomes: dict[str, list] = {
         "section_recesses": unsupported_section_recess_outcomes(recognition),

@@ -286,7 +286,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   and the original analysis for reuse through the existing builder.
 - **`document.py`** — rank-7 explicit document facade. It takes one STEP snapshot, binds member
   Sheets to the common source, and builds them through the existing pipeline with named failures.
-  Live member snapshots reach `reporting.py` for schema-v4 coverage, carrier attribution and
+  Live member snapshots reach `reporting.py` for document coverage, carrier attribution and
   engineering conflict assessment; ordinary Drawing reports retain schema v3.
 - **`inspection.py`** — the rank-7 public read-only STEP inspection surface (`inspect_step`).
   It hashes one immutable source-byte snapshot, drives the shared one-run

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from draftwright.registry import MeasurementCell
+
 
 @dataclass(frozen=True)
 class MeasurementSupport:
@@ -51,3 +53,4 @@ class RequirementCarrier:
 
     annotation: str
     kind: str
+    cell: MeasurementCell | None = None

@@ -53,12 +53,24 @@ def requirement_measurements(outcome) -> tuple[tuple[object, str], ...]:
     return tuple((feature, parameter) for feature in getattr(outcome, "features", ()))
 
 
+def cell_approvals_of(registry, name) -> tuple:
+    """Read verified cell evidence only from the physical registry projection."""
+    reader = getattr(registry, "cell_approvals_of", None)
+    return tuple(reader(name)) if callable(reader) else ()
+
+
 def measurement_carrier_index(registry):
     """Preserve names alongside the registry's exact measurement/satisfaction axes."""
     result: dict[tuple[int, str], tuple[object, list[RequirementCarrier]]] = {}
     if registry is None:
         return result
     for name in sorted(registry.names()):
+        measured_cells: dict = {}
+        for reference, _approval in cell_approvals_of(registry, name):
+            identity = reference.measurement
+            measured_cells.setdefault((id(identity.feature), identity.parameter), []).append(
+                reference
+            )
         for kind, identities in (
             ("measurement", registry.measurement_of(name)),
             ("structured_note", satisfaction_of(registry, name)),
@@ -68,16 +80,22 @@ def measurement_carrier_index(registry):
                     getattr(identity, "feature", None),
                     getattr(identity, "parameter", None),
                 )
-                record_measurement_carrier(result, name, feature, parameter, kind)
+                cells = (
+                    measured_cells.get((id(feature), parameter), ())
+                    if kind == "measurement"
+                    else ()
+                )
+                for cell in cells or (None,):
+                    record_measurement_carrier(result, name, feature, parameter, kind, cell=cell)
     return result
 
 
-def record_measurement_carrier(index, name, feature, parameter, kind):
+def record_measurement_carrier(index, name, feature, parameter, kind, *, cell=None):
     """Retain a name alongside already-read identity fields without rereading the claim."""
     if feature is not None and isinstance(parameter, str):
         entry = index.setdefault((id(feature), parameter), (feature, []))
         if entry[0] is feature:
-            carrier = RequirementCarrier(name, kind)
+            carrier = RequirementCarrier(name, kind, cell)
             if carrier not in entry[1]:
                 entry[1].append(carrier)
 

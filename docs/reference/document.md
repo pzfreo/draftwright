@@ -48,9 +48,11 @@ the member through `DocumentBuildError.sheet_name`; cancellation names it in
 
 ## Read the document report
 
-`result.report()` returns schema version **4**, with `scope: "document"`. The schema is published as
-[`draftwright-report-v4.schema.json`](draftwright-report-v4.schema.json). Individual
-`Drawing.report()` calls retain version 3. The document report contains:
+`result.report()` uses `scope: "document"`. Ordinary documents return schema version **4**
+([schema](draftwright-report-v4.schema.json)). A document with a declared feature schedule returns
+version **5** ([schema](draftwright-report-v5.schema.json)), including when the table could not be
+placed or was removed. Individual `Drawing.report()` calls retain version 3. The document report
+contains:
 
 - One source hash, recognition inventory and physical requirement catalog. Repeated annotations
   receive at most one coverage credit for each obligation.
@@ -67,6 +69,55 @@ the member through `DocumentBuildError.sheet_name`; cancellation names it in
 unknown cardinality, unconfirmed claims and unresolved dispositions remain explicit.
 Manufacturing readiness is unassessed. Free-text notes do not acquire measurement authority.
 
+## Feature schedules
+
+A schedule declares measurements through exact feature owners and canonical parameter IDs.
+The compiler supplies the values and their formatting; the existing table placement path fits
+and places the result. The `location` selector expands the feature's addressable member
+coordinates. Discover supported parameters with `sheet.of(feature).dimension_ids()` and member
+selectors with `sheet.dimension_options(feature, "location")["location_components"]` when choosing only some components.
+
+```python
+from pathlib import Path
+from draftwright import Document
+
+package = Document.from_part("part.step")
+features = [feature for feature in package.features if feature.kind == "hole"]
+assert features, "select recognized hole operations before building this recipe"
+sheet = package.sheet("features", page="A3", detail_view=False).authored_views()
+sheet.view("front")
+sheet.view("plan")
+sheet.schedule(
+    [(feature, ("bore.diameter", "location")) for feature in features],
+    name="holes",
+    prefer="br",
+)
+result = package.build()
+Path("out").mkdir(exist_ok=True)
+result.sheets["features"].export("out/features", formats=("pdf", "svg"))
+result.write_report("out/document.json")
+```
+
+This example declares hole diameter and location cells; other requirements remain in the
+report. A schedule selects an authored dimension set. Add ordinary `sheet.dimension(...)`
+statements when the same measurement should also appear beside a view. Schedules do not mix
+with `auto_dimensions()` or augmenting `add_dimension(...)` intent. A table-only measurement
+requires no leader view; an ordinary dimension still needs a view that can show it.
+
+Each measured cell retains its exact owner and parameter, plus a one-based data-row index
+(the header is row zero) and a zero-based column index. V5 claims, carrying annotations and
+cell-specific uncertainties include these addresses. Ordinary annotations and uncertainties
+without a recoverable cell use `cell: null`. Header, owner, axis and quantity context are part
+of cell verification. Changing a nominal, tolerance or relevant context withdraws the affected
+proof; equal numbers elsewhere in the table cannot replace it.
+
+Use `result.sheets["features"].remove("holes")` to remove the whole table. If a schedule also
+contains other features, `drop(feature)` refuses to remove only that feature's rows; change the
+source recipe and rebuild.
+Failed placement reports the scheduled measurements without silently shrinking the table's
+text. Structured notes earn only their explicitly declared satisfaction; descriptive table
+cells and ordinary prose earn no dimensional credit.
+
 ## Edits, persistence and replay
 
 Member Drawings remain editable through their public verbs. Read `result.report()` again after
@@ -82,10 +133,10 @@ and requires its parent directory to exist. Export remains explicit, per member.
 The source hash identifies the retained STEP bytes. Report-local owner, occurrence, sheet,
 requirement and claim IDs expire with that report; they are not reusable feature handles.
 The report records member build options, dimension selection, view constraints, ordinary table
-text and resolved layout decisions. Preserve your source recipe for decorations, GD&T,
+text and resolved layout decisions. V5 also records the captured feature-schedule selectors,
+using report-local owner IDs. Preserve your source recipe for decorations, GD&T,
 feature-linked notes, measured dimensions, member PMI declarations and live edits. Replaying a recipe means loading the source and selecting
 current exact features with operation/cardinality assertions. It never means deserializing old
 IDs or treating an independently built Drawing or PDF as common authority.
 
-Typed feature schedules and the complete two-sheet frame recipe are tracked separately in
-#1543 and #1544.
+The complete two-sheet frame recipe and real-part canary are tracked in #1544.

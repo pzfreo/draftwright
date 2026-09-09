@@ -186,6 +186,7 @@ def test_identity_of_reapply_round_trips_every_axis():
         "view": None,
         "feature": None,
         "measurement": (),
+        "cells": (),
         "satisfaction": (),
         "pinned": False,
     }

@@ -57,13 +57,15 @@ from draftwright.compose import (
     _build_zones,
     _est_hole_table_sizes,
     _est_planned_bore_callout_width,
+    _est_table_size,
     _layout_geometry,
     _measure_strips,
     choose_scale,
 )
+from draftwright.model.compiled import compile_dimensions
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
-from draftwright.model.planner import plan_dimensions
+from draftwright.model.planner import annotation_groups, plan_dimensions
 from draftwright.progress import observed_stage
 from draftwright.recognition_cache import _result_from_evidence
 from draftwright.recognition_frame import (
@@ -1134,6 +1136,12 @@ def _analyse(
         strip_sizing_model,
         planned_views=third_angle_view_names() if _views is None else _views,
     )
+    schedule_tables = (
+        compile_dimensions(strip_sizing_model, groups=sizing_groups).schedules
+        if strip_sizing_model.schedules
+        else ()
+    )
+    sizing_groups = annotation_groups(strip_sizing_model, sizing_groups)
     bore_callout_width = _est_planned_bore_callout_width(
         sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
@@ -1150,7 +1158,17 @@ def _analyse(
     layout_table_sizes = _est_hole_table_sizes(
         sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
-    layout_required_tables = tuple(_required_tables)
+    layout_required_tables = tuple(_required_tables) + tuple(
+        (
+            _est_table_size(
+                tuple(tuple(cell.text for cell in row) for row in schedule.rows),
+                font_size=_FONT_SIZE,
+                pad_around_text=_pad_around_text,
+            ),
+            schedule.prefer,
+        )
+        for schedule in schedule_tables
+    )
     planned_iso_scale = _planned_iso_scale(_view_constraints)
 
     # Choose scale/page, iterating so the reserved step corridor matches the

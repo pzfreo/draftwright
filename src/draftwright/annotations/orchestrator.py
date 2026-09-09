@@ -115,7 +115,9 @@ from draftwright.model import (
 from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.model.detect import _build_part_model_from_recognition
+from draftwright.model.planner import annotation_groups
 from draftwright.progress import stage
+from draftwright.registry import MeasurementCell
 from draftwright.repair import reconcile_witness_labels
 from draftwright.view_plan import ViewConstraints
 
@@ -551,6 +553,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # ladder, the shoulders and the detail escalation each hold a separately
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
+    _groups = annotation_groups(_model, _groups)
     for omission in _compiled.diagnostics:
         if omission.code != "step_position_coincident_with_datum":
             continue
@@ -905,6 +908,20 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # every hole — runs last so the table avoids every placed annotation
         # including the title block and projection symbol (#93/#1517).
         _maybe_tabulate_holes(dwg, a, ctx=ctx, plan=_compiled)
+        for schedule in _compiled.schedules:
+            cells = tuple(
+                MeasurementCell(schedule.name, ri, ci, cell.measurement.id)
+                for ri, row in enumerate(schedule.rows)
+                for ci, cell in enumerate(row)
+                if cell.measurement is not None and cell.measurement.id is not None
+            )
+            dwg.add_table(
+                tuple(tuple(cell.text for cell in row) for row in schedule.rows),
+                name=schedule.name,
+                prefer=schedule.prefer,
+                _source_id=f"schedule:{schedule.name}",
+                _cells=cells,
+            )
 
     run_stages(
         {
