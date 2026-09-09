@@ -873,3 +873,54 @@ def test_schedule_selectors_expand_once_per_row_in_each_plan(monkeypatch, planne
     else:
         selected = [dimension.feature for dimension in updated if not dimension.suppressed]
     assert len(selected) == 1 and selected[0] is features[0]
+
+
+@pytest.mark.parametrize(
+    "fields",
+    (
+        {"schedule": ""},
+        {"schedule": None},
+        {"row": 0},
+        {"row": True},
+        {"row": 1.5},
+        {"column": -1},
+        {"column": False},
+        {"column": "1"},
+        {"measurement": None},
+    ),
+)
+def test_invalid_cell_addresses_cannot_enter_registry_provenance(
+    bolt_group, schedule_bbox, fields
+):
+    plan = compile_dimensions(_model(bolt_group, schedule_bbox, parameters=("bore.diameter",)))
+    registry, _table, (cell,) = _registered_table(plan)
+    before = registry.snapshot()
+    with pytest.raises(ValueError, match="measurement cell requires"):
+        replace(cell, **fields)
+    assert registry.snapshot() == before
+
+
+@pytest.mark.parametrize(
+    "damage", ("unknown-schedule", "row-outside", "column-outside", "no-content")
+)
+def test_unresolvable_cell_address_never_reuses_table_numbers(bolt_group, schedule_bbox, damage):
+    from draftwright.linting.schedule_evidence import verified_schedule_registry
+
+    plan = compile_dimensions(_model(bolt_group, schedule_bbox, parameters=("bore.diameter",)))
+    registry, table, (cell,) = _registered_table(plan)
+    if damage == "no-content":
+        table.table_rows = None
+    else:
+        fields = {
+            "unknown-schedule": {"schedule": "absent"},
+            "row-outside": {"row": len(table.table_rows)},
+            "column-outside": {"column": len(table.table_rows[cell.row])},
+        }[damage]
+        cell = replace(cell, **fields)
+        registry.add(table, "bolts", None, cells=(cell,))
+    outcomes = verify_measurement_claims(registry, plan)
+    assert outcomes and all(row.state != "confirmed" for row in outcomes)
+    assert any(row.cell == (cell.row, cell.column) for row in outcomes)
+    verified = verified_schedule_registry(registry, plan)
+    assert not verified.cells_of("bolts")
+    assert not verified.measurement_of("bolts")

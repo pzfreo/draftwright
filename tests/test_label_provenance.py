@@ -62,10 +62,6 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     # ("every value crosses as a _fmt string") is enforced there. Fixing it means the spec
     # carrying approved text — the hole-callout migration ADR 4 (was 0016) still names as pending.
     "from_model.callout_from_spec.f": (1, "the spec carries floats — the hc_ migration"),
-    # --- A chamfer's ANGLE is a form discriminator, not a planned parameter:
-    # `ChamferFeature.parameters()` emits only the leg, so the angle has no approved text to
-    # consume. That is the IR gap `_FACTS` records; the leg itself now uses `value_text`.
-    "from_model._chamfer_label": (1, "ch.angle is a fact with no DimParameter (IR gap)"),
     # --- Not dimensional plan content at all.
     "sections._overall_height_name": (1, "detail-view caption from the analysis"),
 }
