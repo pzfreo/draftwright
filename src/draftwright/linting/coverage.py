@@ -2306,6 +2306,117 @@ def lint_boss_height_coverage(
     ]
 
 
+def lint_turned_profile_span(features, z_extent, *, orientation, single_solid) -> list:
+    """Flag a z-turned profile whose declared steps leave part of the body undescribed (#1132).
+
+    This began as #631's verb-misuse diagnostic, raised from ``builder._assemble``: a caller
+    reaching for ``.step()`` on a boss — an external cylinder on a prismatic part — declared a
+    turned segment, which flipped the height ladder into turned-suppression and silently
+    dropped the overall height. Raising made that visible.
+
+    Warning is sufficient because the symptom cannot co-occur with it:
+    ``model/compiled.py::_compile_overall_height`` retains the overall-height rung whenever
+    ``_step_chain_covers_extent(...)`` is false — the same tiling question, asked independently
+    of the approved plan. Measured, ``dim_height`` is drawn on every part that trips this check
+    and on none that declares its profile fully. So #631's dropped height is not what a warning
+    now permits; it was already prevented elsewhere, and raising was belt and braces.
+
+    It stopped being only a hand-authoring mistake. ``generate_sheet_script`` settles its layout
+    through the same path, so a part whose *recognised* profile does not tile produced no script
+    and no drawing — and an entry point that returns nothing is the one failure a consumer
+    cannot route around. A generated script is indistinguishable from hand-written code when it
+    is re-run, so there is no provenance to branch on: the choice is raise for both or report for
+    both, and reporting is what lets the drawing exist and say what it does not cover.
+
+    The two CADGenBench fixtures that still reach this carry profiles that are correct and
+    merely partial — a threaded region on one, a 27 mm stretch on the other — since the false
+    step sets behind the rest were fixed upstream (quiddity#586, #587).
+
+    Reported here rather than recorded during assembly because the annotate pass calls
+    ``reset_issues()`` to keep a repack from duplicating drop records, which discards anything
+    the builder recorded first. ``features`` is read duck-typed, like every check in this module.
+    """
+    if not single_solid:
+        return []
+
+    def _axis(feature) -> str | None:
+        # Duck-typed like the rest of this module, and defensive: a caller-supplied model may
+        # carry a feature with no frame at all, and a lint check must not raise on one.
+        return getattr(getattr(feature, "frame", None), "axis", None)
+
+    def _groove_band(feature) -> tuple[float, float] | None:
+        # The same defensiveness as `_axis`, which a first pass applied to the step branch and
+        # not to this one — leaving a groove with no `width` or no `origin` raising two lines
+        # below the guard that was added. A lint check that crashes on a malformed model
+        # reinstates the failure #1132 exists to remove.
+        origin = getattr(getattr(feature, "frame", None), "origin", None)
+        width = getattr(feature, "width", None)
+        if origin is None or width is None or len(origin) < 3:
+            return None
+        return (origin[2] - width / 2, origin[2] + width / 2)
+
+    # A step with no usable span is skipped rather than guessed at: without endpoints its
+    # extent is unknown, and inventing one would be worse than the silence. If that leaves no
+    # steps at all the function returns below, reporting nothing — the honest outcome when
+    # coverage is uncomputable, and the reason this filter is explicit rather than incidental.
+    steps = [
+        f
+        for f in features
+        if getattr(f, "kind", None) == "step" and _axis(f) == "z" and getattr(f, "span", None)
+    ]
+    if not steps:
+        return []
+    if orientation != "z" and not any(getattr(f, "kind", None) == "envelope" for f in features):
+        return []
+    lo_z, hi_z = z_extent
+    tol = 1e-3 * max(hi_z - lo_z, 1.0)
+    spans = sorted(
+        [(min(a[2], b[2]), max(a[2], b[2])) for f in steps for (a, b) in [f.span]]
+        + [
+            band
+            for f in features
+            if getattr(f, "kind", None) == "groove" and _axis(f) == "z"
+            for band in [_groove_band(f)]
+            if band is not None
+        ]
+    )
+    # Merge the spans, then report EVERY uncovered interval. A forward walk that stops at the
+    # first gap misreports the rest: on CADGenBench 109 it stopped at 343.13 and named
+    # `343.13..420`, while a declared step covers `366.82..420` — the real shortfall is 23.69 mm,
+    # not 76.87. A diagnostic that overstates the gap is one nobody can act on.
+    merged: list[list[float]] = []
+    for lo, hi in spans:
+        if merged and lo <= merged[-1][1] + tol:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    uncovered = []
+    cursor = lo_z
+    for lo, hi in merged:
+        if lo > cursor + tol:
+            uncovered.append((cursor, lo))
+        cursor = max(cursor, hi)
+    if cursor < hi_z - tol:
+        uncovered.append((cursor, hi_z))
+    if not uncovered:
+        return []
+    where = ", ".join(f"{lo:g}..{hi:g}" for lo, hi in uncovered)
+    total = sum(hi - lo for lo, hi in uncovered)
+    return [
+        LintIssue(
+            severity="warning",
+            code="turned_profile_not_spanned",
+            message=(
+                f"step() declares a segment of a turned profile, but the declared steps leave "
+                f"{total:g} mm of this part's height undescribed ({where}). If these are bosses "
+                "— external cylinders on a prismatic part — .boss() renders each with its own ø "
+                "and height; if the profile is genuinely partial, the uncovered stretch is "
+                "dimensioned by nothing."
+            ),
+        )
+    ]
+
+
 def lint_declaration_reconciliation(features, cyls, *, recognition=None) -> list:
     """Flag a *declared* cylindrical feature with no matching geometry in the part (#487).
 

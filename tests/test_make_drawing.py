@@ -9305,7 +9305,13 @@ class TestPrismaticBossDiameter:
         dwg.remove(height_name)
         assert dwg.lint_summary()["by_code"]["boss_height_missing"] == 1
 
-    def test_issue_631_step_on_boss_raises(self):
+    def test_issue_631_step_on_boss_is_reported(self):
+        # #1132: this reports instead of raising. `generate_sheet_script` settles its
+        # layout through the same predicate, so raising meant a part whose recognised
+        # profile does not tile produced no script and no drawing at all. A generated
+        # script is indistinguishable from hand-written code when re-run, so there is
+        # no provenance to branch on. #631's substance is preserved: the misuse is
+        # still detected and still named — loudly in lint rather than as an exception.
         # #631: reaching for .step(boss) declared a z-turned segment at the boss cylinder,
         # which flipped the height ladder into turned-suppression and silently dropped the
         # overall height (net −1 annotation, no height dim). The wrong-verb misuse must fail
@@ -9321,10 +9327,16 @@ class TestPrismaticBossDiameter:
             if extra_boss:
                 sheet.boss(boss)
             sheet.step(boss)
-            with pytest.raises(ValueError, match="don't span this part's full height"):
-                sheet.build()
+            codes = sheet.build().lint_summary()["by_code"]
+            assert codes.get("turned_profile_not_spanned") == 1
 
-    def test_issue_631_stepped_boss_on_plate_raises(self):
+    def test_issue_631_stepped_boss_on_plate_is_reported(self):
+        # #1132: this reports instead of raising. `generate_sheet_script` settles its
+        # layout through the same predicate, so raising meant a part whose recognised
+        # profile does not tile produced no script and no drawing at all. A generated
+        # script is indistinguishable from hand-written code when re-run, so there is
+        # no provenance to branch on. #631's substance is preserved: the misuse is
+        # still detected and still named — loudly in lint rather than as an exception.
         # The guard keys on the exact suppression premise (do the steps span the full
         # height?), not a rotational classifier — so even a stepped boss whose two stacked
         # cylinders read as a turned PROFILE, sat on a square plate, is caught: the steps
@@ -9340,10 +9352,16 @@ class TestPrismaticBossDiameter:
         sheet.envelope()
         sheet.step(lower)
         sheet.step(upper)
-        with pytest.raises(ValueError, match="don't span this part's full height"):
-            sheet.build()
+        codes = sheet.build().lint_summary()["by_code"]
+        assert codes.get("turned_profile_not_spanned") == 1
 
-    def test_issue_631_interior_gap_between_steps_raises(self):
+    def test_issue_631_interior_gap_between_steps_is_reported(self):
+        # #1132: this reports instead of raising. `generate_sheet_script` settles its
+        # layout through the same predicate, so raising meant a part whose recognised
+        # profile does not tile produced no script and no drawing at all. A generated
+        # script is indistinguishable from hand-written code when re-run, so there is
+        # no provenance to branch on. #631's substance is preserved: the misuse is
+        # still detected and still named — loudly in lint rather than as an exception.
         # Coverage is a union tiling, not a reach-to-each-end check: two z-steps that touch
         # both ends of a z=[0,40] body but leave a 15..25 interior gap do NOT convey the
         # full height (the gap length is unmeasured), so this must still raise.
@@ -9354,8 +9372,8 @@ class TestPrismaticBossDiameter:
             step(diameter=20, length=15, at=(0, 0, 7.5), axis="z"),  # z [0, 15]
             step(diameter=20, length=15, at=(0, 0, 32.5), axis="z"),  # z [25, 40]
         ]
-        with pytest.raises(ValueError, match="don't span this part's full height"):
-            build_drawing(part, model=model, number="X")
+        codes = build_drawing(part, model=model, number="X").lint_summary()["by_code"]
+        assert codes.get("turned_profile_not_spanned") == 1
 
     def test_shelled_cover_boss_diameter_not_dropped(self):
         # The regression: even forced onto A4 (scale 0.5, front view against the left

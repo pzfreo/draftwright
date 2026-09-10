@@ -138,6 +138,7 @@ from draftwright.linting import (
     lint_round_bottom_blind_slot_coverage,
     lint_slot_coverage,
     lint_through_step_coverage,
+    lint_turned_profile_span,
     pmi_stage_summary,
 )
 from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
@@ -227,6 +228,10 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "authored_dim_degenerate",
         "authored_dim_source_unresolved",
         "axial_length_missing",
+        # A turned profile that leaves part of the body undescribed (#1132). Registered
+        # here for the same reason as `axial_length_missing` beside it: the shortfall is
+        # about the part, not about where an annotation landed.
+        "turned_profile_not_spanned",
         "flat_requirement_suppressed",
         "flat_requirement_missing",
         "flat_requirement_unverifiable",
@@ -4465,6 +4470,23 @@ class Drawing:
                     features,
                     cyls,
                     recognition=recognition,
+                )
+                # Declared-vs-geometry in the axial direction (#1132): a z-turned profile that
+                # leaves part of the body undescribed. Gated with the reconciliation check
+                # above because both are only meaningful for a caller-declared model — the
+                # detection path is NOT immune — it is scoped this way for a different reason.
+                #
+                # Measured on CADGenBench 132: a plain `build_drawing(<step file>)` detects
+                # z-steps covering 0..113 of a 140 mm body and reports nothing here, while this
+                # predicate applied to that same detected model returns the warning. Same part,
+                # same shortfall, one door silent. It is scoped to the declared model because
+                # that is where the raise it replaces lived, so this change alters no automatic
+                # drawing. Widening it is a real question and a separate one.
+                issues += lint_turned_profile_span(
+                    features,
+                    (self._analysis.bb.min.Z, self._analysis.bb.max.Z),
+                    orientation=getattr(self._part_model, "orientation", None),
+                    single_solid=len(self._analysis.part.solids()) == 1,
                 )
         if physical and self._analysis is not None:
             issues += lint_pmi_ignored(

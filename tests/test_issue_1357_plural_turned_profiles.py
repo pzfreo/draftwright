@@ -534,8 +534,8 @@ def test_global_step_misuse_guard_is_scoped_to_one_physical_solid():
         axis="z",
         profile_group="caller-b",
     )
-    with pytest.raises(ValueError, match="don't span this part's full height"):
-        sheet.build()
+    # Reported, not raised, since #1132 — the misuse is still detected and named.
+    assert sheet.build().lint_summary()["by_code"].get("turned_profile_not_spanned") == 1
 
 
 def test_generated_profile_tokens_cannot_collide_with_authored_group_namespace():
@@ -756,10 +756,12 @@ def test_mixed_declared_orientation_and_step_misuse_are_order_independent(order)
     # Exercise the public PartModel front door with deliberately stale derived metadata too;
     # both layout sizing and render-time coercion must derive the set, never trust first order.
     stale = replace(model, orientation=order[0])
-    with pytest.raises(ValueError, match="don't span this part's full height"):
-        build_drawing(part, model=stale, number="1357-ORDER-PM")
-    with pytest.raises(ValueError, match="don't span this part's full height"):
-        sheet.build()
+    # Reported, not raised, since #1132. Both front doors must still detect it — that the
+    # stale derived metadata is not trusted is the subject here, and a warning proves it as
+    # well as an exception did.
+    stale_codes = build_drawing(part, model=stale, number="1357-ORDER-PM").lint_summary()
+    assert stale_codes["by_code"].get("turned_profile_not_spanned") == 1
+    assert sheet.build().lint_summary()["by_code"].get("turned_profile_not_spanned") == 1
 
 
 def test_step_profile_annotation_is_runtime_resolvable_and_provider_neutral():
@@ -989,8 +991,10 @@ def test_legacy_ungrouped_steps_join_a_real_gap_only_to_its_collinear_groove():
 
     collinear = build_with_groove((0, 0, 100))
     off_line = build_with_groove((50, 0, 100))
-    with pytest.raises(ValueError, match="declared steps don't span this part's full height"):
-        build_with_groove((0, 0, 100), axis="x")
+    # Reported, not raised, since #1132: an x-axis groove cannot join a z-profile's gap, so
+    # the declared steps still leave the body partly undescribed and lint still says so.
+    off_axis = build_with_groove((0, 0, 100), axis="x")
+    assert off_axis.lint_summary()["by_code"].get("turned_profile_not_spanned") == 1
 
     for drawing in (collinear, off_line):
         assert len([name for name in drawing.annotations() if name.startswith("m_steplen")]) == 2

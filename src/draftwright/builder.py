@@ -75,7 +75,6 @@ from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.model import (
     Datum,
     Feature,
-    GrooveFeature,
     PartModel,
     StepFeature,
     build_pmi_features,
@@ -565,62 +564,13 @@ def _assemble(
         # measurements actually reach the page is settled downstream and reported by lint
         # (`axial_length_missing`). Guard on the tiling condition rather than a classifier
         # proxy (is_rotational / prof both have blind spots).
-        z_steps = [f for f in pm.features if isinstance(f, StepFeature) and f.frame.axis == "z"]
-        # The global-envelope check is meaningful only in its legacy single-solid domain;
-        # caller-owned group strings cannot turn one solid into several physical bodies.
-        # Multiple solids can be parallel, axially disjoint, or accompanied by unrelated
-        # compound members, so their steps need not tile the compound bbox (#1357).
-        owns_global_envelope = any(feature.kind == "envelope" for feature in pm.features)
-        if (
-            z_steps
-            and len(a.part.solids()) == 1
-            and (pm.orientation == "z" or owns_global_envelope)
-        ):
-            tol = 1e-3 * max(a.z_size, 1.0)  # small absolute float epsilon, floored
-            # Tiling means the segments run end to end — a single reach to each end isn't
-            # enough, since an interior gap is a stretch of part no declared step describes.
-            # Walk the spans low→high, extending coverage.
-            # A GROOVE counts as one of those segments (#953): it is machined INTO the turned
-            # profile, so a shaft that has one is still a turned profile, which is the only
-            # thing this guard is asking. Without it the emitted script for any grooved shaft
-            # RAISED — the detector produces exactly this model (step, groove, step) and the
-            # direct build draws it, so the engine rejected its own detector's output the
-            # moment that output was declared rather than detected. Grooves are the only
-            # detected feature that splits the chain: a chamfered or filleted shoulder leaves
-            # the two step spans meeting (checked), and a bore or cross-hole carves no axial
-            # interval. #631's own repro still raises.
-            # What this does NOT do is verify the declaration against the solid, and it never
-            # did: `.step(diameter=20, length=48, at=…)` fabricating one full-extent segment
-            # already defeats it on its own, groove or no groove (checked). Declared spans are
-            # the author's statement of intent, which ADR 4 (was 0011) takes at face value rather than
-            # re-deriving, so this catches the honest mistake #631 reported — declaring the
-            # boss you can see and getting a worse drawing — not a fabricated coverage claim.
-            # Hardening it into a real verb-domain check is #956.
-            # NOT claimed here: that the resulting drawing dimensions the height. On this very
-            # fixture the step chain drops at placement (crowded shoulders) and the height,
-            # suppressed at compile time on the premise the chain conveys it, is then conveyed
-            # by nothing — identically on the detected path. That is a real defect, tracked
-            # separately (#955); raising here would not fix it, only hide it from one of the
-            # two front doors.
-            spans = sorted(
-                [(min(p0[2], p1[2]), max(p0[2], p1[2])) for f in z_steps for (p0, p1) in [f.span]]
-                + [
-                    (f.frame.origin[2] - f.width / 2, f.frame.origin[2] + f.width / 2)
-                    for f in pm.features
-                    if isinstance(f, GrooveFeature) and f.frame.axis == "z"
-                ]
-            )
-            covered = a.bb.min.Z
-            for lo, hi in spans:
-                if lo <= covered + tol:
-                    covered = max(covered, hi)
-            if spans[0][0] > a.bb.min.Z + tol or covered < a.bb.max.Z - tol:
-                raise ValueError(
-                    "step() declares a segment of a turned profile, but the declared steps "
-                    "don't span this part's full height — it is not a turned (rotational) "
-                    "body. For a boss (an external cylinder on a prismatic part) use .boss() "
-                    "— it renders its own ø and height."
-                )
+        # The z-turned span check that used to RAISE here now reports from
+        # `linting.coverage.lint_turned_profile_span` instead (#1132). Raising made
+        # `generate_sheet_script` return nothing at all for a part whose recognised
+        # profile does not tile, and an entry point that produces no script and no
+        # drawing is the one failure a consumer cannot route around. The check itself is
+        # unchanged in substance; only its severity and its home moved, and the annotate
+        # pass's `reset_issues()` is why it cannot be recorded from here.
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)

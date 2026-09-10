@@ -340,6 +340,10 @@ _UNSCORED_CODES = frozenset(
         # here rather than in fidelity, whose basis is a claim the source refutes — this one
         # reports that no source was consulted at all.
         "pmi_unreconciled",
+        # The profile describes less of the body than the body has (#1132). An omission,
+        # so not fidelity: nothing false is printed and nothing is misplaced. It scores
+        # nowhere for the same reason the other *_missing codes do.
+        "turned_profile_not_spanned",
         "step_dim_withheld",
         "pattern_pitch_tolerance_withheld",
         "passage_requirement_unsupported",
