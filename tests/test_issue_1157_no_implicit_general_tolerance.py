@@ -40,6 +40,15 @@ def authored():
     return _sheet(tolerance="ISO 2768-m").build()
 
 
+@pytest.fixture(scope="module")
+def narrowest():
+    """A4 carries the 120 mm title block; every larger page gets 150 mm. Cell overflow, if
+    it happens at all, happens here first."""
+    sheet = Sheet(_PART, title="BLOCK", page="A4", scale=1)
+    sheet.authored_dimensions()
+    return sheet.build()
+
+
 def test_the_title_block_has_a_general_tolerance_cell(unauthored):
     """Precondition: the field exists and is populated, so a later assertion about its
     CONTENT is not passing merely because the cell was dropped."""
@@ -63,13 +72,13 @@ def test_an_explicit_empty_tolerance_leaves_the_cell_blank():
     assert "general_tolerance" not in _fields(_sheet(tolerance="").build())
 
 
-def test_the_unspecified_text_clears_its_own_cell(unauthored):
-    """Chosen for width, so assert the width rather than trusting the choice — and measure
-    what the block actually rendered, not a literal repeated here, or a longer replacement
-    would overflow the cell while this test went on passing."""
-    block = unauthored.get_annotation("title_block")
+def test_the_unspecified_text_clears_its_own_cell(narrowest):
+    """Measure what the block actually rendered, on the narrowest block, rather than a
+    literal repeated here — otherwise a longer replacement overflows A4 while this test
+    goes on passing."""
+    block = narrowest.get_annotation("title_block")
     ink = Text(
-        _fields(unauthored)["general_tolerance"],
+        _fields(narrowest)["general_tolerance"],
         font_size=3,
         font_path=PLEX_SANS_CONDENSED,
         align=(Align.CENTER, Align.CENTER),
@@ -78,7 +87,7 @@ def test_the_unspecified_text_clears_its_own_cell(unauthored):
     assert ink.size.X < block.cell_bbox("general_tolerance")["width"]
     overflow = [
         issue
-        for issue in unauthored.lint()
+        for issue in narrowest.lint()
         if issue.code == "title_field_overflow" and "general_tolerance" in issue.message
     ]
     assert overflow == []

@@ -176,10 +176,11 @@ _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for cl
 
 #: What the general-tolerance cell states when no tolerance was authored or sourced.
 #: A blank cell is indistinguishable from an oversight and invites a shop to assume its
-#: own house standard, so the absent case is named rather than left empty (#1157). Shorter
-#: than "NOT SPECIFIED" so it clears the cell at the narrowest supported title-block width
-#: — `tests/test_issue_1157_no_implicit_general_tolerance.py` measures that against the
-#: block's own `cell_bbox`, so a longer word fails rather than overflowing silently.
+#: own house standard, so the absent case is named rather than left empty (#1157).
+#: The cell is not tight — 48 mm on A4's 120 mm block, 60 mm above it, against 16.9 mm of
+#: ink here — so this is a wording choice, not a width-forced one. The paired test still
+#: measures it against the block's own `cell_bbox` on A4, the narrowest supported width,
+#: because a longer replacement (a sentence, say) would overflow there and nowhere else.
 _TOLERANCE_UNSPECIFIED = "UNSPECIFIED"
 
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
