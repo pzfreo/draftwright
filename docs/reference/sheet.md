@@ -278,7 +278,7 @@ produces `angular_support_unverifiable`; contradictory supports produce
 `angular_support_mismatch`.
 
 Automatic drawings derive outside-profile angular requirements from ordered face
-supports in Quiddity 0.2.6. Angles already defined by a recognised chamfer or
+supports, available since Quiddity 0.2.6. Angles already defined by a recognised chamfer or
 regular-polygon callout do not add duplicate automatic requirements. This requires
 the same run's exact face or shared-edge evidence, not matching numerical angles;
 explicit angle declarations remain available on those corners.
