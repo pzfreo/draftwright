@@ -2306,13 +2306,20 @@ def lint_boss_height_coverage(
     ]
 
 
-def lint_turned_profile_span(features, bbox, *, orientation, single_solid) -> list:
+def lint_turned_profile_span(features, z_extent, *, orientation, single_solid) -> list:
     """Flag a z-turned profile whose declared steps leave part of the body undescribed (#1132).
 
     This began as #631's verb-misuse diagnostic, raised from ``builder._assemble``: a caller
     reaching for ``.step()`` on a boss — an external cylinder on a prismatic part — declared a
     turned segment, which flipped the height ladder into turned-suppression and silently
     dropped the overall height. Raising made that visible.
+
+    Warning is sufficient because the symptom cannot co-occur with it:
+    ``model/compiled.py::_compile_overall_height`` retains the overall-height rung whenever
+    ``_step_chain_covers_extent(...)`` is false — the same tiling question, asked independently
+    of the approved plan. Measured, ``dim_height`` is drawn on every part that trips this check
+    and on none that declares its profile fully. So #631's dropped height is not what a warning
+    now permits; it was already prevented elsewhere, and raising was belt and braces.
 
     It stopped being only a hand-authoring mistake. ``generate_sheet_script`` settles its layout
     through the same path, so a part whose *recognised* profile does not tile produced no script
@@ -2331,41 +2338,62 @@ def lint_turned_profile_span(features, bbox, *, orientation, single_solid) -> li
     """
     if not single_solid:
         return []
+
+    def _axis(feature) -> str | None:
+        # Duck-typed like the rest of this module, and defensive: a caller-supplied model may
+        # carry a feature with no frame at all, and a lint check must not raise on one.
+        return getattr(getattr(feature, "frame", None), "axis", None)
+
     steps = [
         f
         for f in features
-        if getattr(f, "kind", None) == "step" and getattr(f.frame, "axis", None) == "z"
+        if getattr(f, "kind", None) == "step" and _axis(f) == "z" and getattr(f, "span", None)
     ]
     if not steps:
         return []
     if orientation != "z" and not any(getattr(f, "kind", None) == "envelope" for f in features):
         return []
-    lo_z, hi_z = bbox
+    lo_z, hi_z = z_extent
     tol = 1e-3 * max(hi_z - lo_z, 1.0)
     spans = sorted(
         [(min(a[2], b[2]), max(a[2], b[2])) for f in steps for (a, b) in [f.span]]
         + [
             (f.frame.origin[2] - f.width / 2, f.frame.origin[2] + f.width / 2)
             for f in features
-            if getattr(f, "kind", None) == "groove" and getattr(f.frame, "axis", None) == "z"
+            if getattr(f, "kind", None) == "groove" and _axis(f) == "z"
         ]
     )
-    covered = lo_z
+    # Merge the spans, then report EVERY uncovered interval. A forward walk that stops at the
+    # first gap misreports the rest: on CADGenBench 109 it stopped at 343.13 and named
+    # `343.13..420`, while a declared step covers `366.82..420` — the real shortfall is 23.69 mm,
+    # not 76.87. A diagnostic that overstates the gap is one nobody can act on.
+    merged: list[list[float]] = []
     for lo, hi in spans:
-        if lo <= covered + tol:
-            covered = max(covered, hi)
-    if spans[0][0] <= lo_z + tol and covered >= hi_z - tol:
+        if merged and lo <= merged[-1][1] + tol:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+    uncovered = []
+    cursor = lo_z
+    for lo, hi in merged:
+        if lo > cursor + tol:
+            uncovered.append((cursor, lo))
+        cursor = max(cursor, hi)
+    if cursor < hi_z - tol:
+        uncovered.append((cursor, hi_z))
+    if not uncovered:
         return []
-    gap = f"{lo_z:g}..{spans[0][0]:g}" if spans[0][0] > lo_z + tol else f"{covered:g}..{hi_z:g}"
+    where = ", ".join(f"{lo:g}..{hi:g}" for lo, hi in uncovered)
+    total = sum(hi - lo for lo, hi in uncovered)
     return [
         LintIssue(
             severity="warning",
             code="turned_profile_not_spanned",
             message=(
                 f"step() declares a segment of a turned profile, but the declared steps leave "
-                f"{gap} of this part's height undescribed. If these are bosses — external "
-                "cylinders on a prismatic part — .boss() renders each with its own ø and "
-                "height; if the profile is genuinely partial, the uncovered stretch is "
+                f"{total:g} mm of this part's height undescribed ({where}). If these are bosses "
+                "— external cylinders on a prismatic part — .boss() renders each with its own ø "
+                "and height; if the profile is genuinely partial, the uncovered stretch is "
                 "dimensioned by nothing."
             ),
         )

@@ -4474,7 +4474,14 @@ class Drawing:
                 # Declared-vs-geometry in the axial direction (#1132): a z-turned profile that
                 # leaves part of the body undescribed. Gated with the reconciliation check
                 # above because both are only meaningful for a caller-declared model — the
-                # detection path builds its own profile and cannot under-declare against it.
+                # detection path is NOT immune — it is scoped this way for a different reason.
+                #
+                # Measured on CADGenBench 132: a plain `build_drawing(<step file>)` detects
+                # z-steps covering 0..113 of a 140 mm body and reports nothing here, while this
+                # predicate applied to that same detected model returns the warning. Same part,
+                # same shortfall, one door silent. It is scoped to the declared model because
+                # that is where the raise it replaces lived, so this change alters no automatic
+                # drawing. Widening it is a real question and a separate one.
                 issues += lint_turned_profile_span(
                     features,
                     (self._analysis.bb.min.Z, self._analysis.bb.max.Z),
