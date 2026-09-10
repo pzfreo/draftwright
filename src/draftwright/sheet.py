@@ -1110,12 +1110,13 @@ class Sheet:
         company=None,
         frame=None,
         projection=None,
+        projection_symbol=True,
         text_position="inline",
         text_orientation="aligned",
         zones=None,
         detail_view=None,
     ):
-        validate_projection(projection)
+        validate_projection(projection, projection_symbol=projection_symbol)
         _dimension_draft(text_position, text_orientation)
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
@@ -1201,6 +1202,7 @@ class Sheet:
             ("company", company),
             ("frame", frame),
             ("projection", projection),
+            ("projection_symbol", projection_symbol),
             ("text_position", text_position),
             ("text_orientation", text_orientation),
             ("zones", zones),

@@ -32,8 +32,10 @@ from types import MappingProxyType
 from typing import Any
 
 
-def validate_projection(projection: str | None) -> None:
-    """Validate the supported convention names before loading drawing input."""
+def validate_projection(projection: str | None, *, projection_symbol: bool = True) -> None:
+    """Validate projection convention and symbol visibility before loading drawing input."""
+    if not isinstance(projection_symbol, bool):
+        raise ValueError("projection_symbol must be a boolean")
     if projection not in (None, "", "first", "third"):
         raise ValueError(f"unknown projection {projection!r}; expected 'first' or 'third'")
 

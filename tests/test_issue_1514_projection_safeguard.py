@@ -39,7 +39,7 @@ def test_supported_layout_retains_third_angle_relationships(asymmetric_plate, pr
     front, plan, side = (drawing.view_bounds(v) for v in ("front", "plan", "side"))
     assert plan[1] > front[3]
     assert side[0] > front[2]
-    assert ("projection_symbol" in drawing.annotations()) == (projection == "third")
+    assert drawing.get_annotation("projection_symbol").method == "third"
 
 
 @pytest.mark.parametrize("script", [False, True])

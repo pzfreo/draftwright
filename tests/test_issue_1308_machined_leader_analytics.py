@@ -225,7 +225,10 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
     # This golden isolates analytical-vs-OCC leader lowering.  Keep the established principal
     # topology explicit so automatic redundant-view selection is not mistaken for a leader
     # geometry change (and so the recorded page coordinates remain meaningful).
-    drawing = build_drawing(FIXTURES / fixture, _views=("front", "plan", "side"))
+    # Keep the original furniture policy explicit in this leader-geometry comparison.
+    drawing = build_drawing(
+        FIXTURES / fixture, _views=("front", "plan", "side"), projection_symbol=False
+    )
     actual = {}
     for name, annotation in drawing.iter_annotations():
         box = annotation.bounding_box()

@@ -787,8 +787,7 @@ def _assemble(
             _add_sheet_frame(dwg, a)
         if a.zones:  # zone-grid ruler (#768), on the frame
             _add_zone_grid(dwg, a)
-        if a.projection:  # projection-method glyph (#769) — auto path adds it via the orchestrator
-            _add_projection_symbol(dwg, a)
+        _add_projection_symbol(dwg, a)
 
     # The NTS caption is post-fit late furniture too, and goes FIRST: it is tied to the
     # iso block it labels, whereas a table may sit anywhere the sheet has room. Placing
@@ -1196,6 +1195,7 @@ def _build_drawing_once(
     company: str = "",
     frame: bool = False,
     projection: str | None = None,
+    projection_symbol: bool = True,
     zones: bool = False,
     reproducible: bool = False,
     framed_recognition: bool = False,
@@ -1336,6 +1336,7 @@ def _build_drawing_once(
             company=company,
             frame=frame,
             projection=projection,
+            projection_symbol=projection_symbol,
             text_position=text_position,
             text_orientation=text_orientation,
             zones=zones,
@@ -1912,6 +1913,8 @@ def build_drawing(
     _include_iso: bool = True,
     _view_constraints=None,
     _document_input=None,
+    *,
+    projection_symbol: bool = True,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1926,14 +1929,14 @@ def build_drawing(
     recognition frame. Raw remains the default. Other arguments and return semantics are
     unchanged from the one-pass builder.
 
-    ``projection='third'`` adds the matching projection symbol. The default omits the
-    symbol but uses the same third-angle layout. ``projection='first'`` places plan below
+    Third-angle layout and its matching projection symbol are the default.
+    ``projection_symbol=False`` suppresses only the symbol. ``projection='first'`` places plan below
     front and side to its left, keeping the physical viewing directions unchanged.
 
     ``text_position="inline"|"above"`` and ``text_orientation="aligned"|"horizontal"``
     independently select dimension typography. Defaults preserve existing appearance.
     """
-    validate_projection(projection)
+    validate_projection(projection, projection_symbol=projection_symbol)
     _dimension_draft(text_position, text_orientation)
     if scale_policy not in {"strict", "fallback", "permissive"}:
         raise ValueError(
@@ -1964,6 +1967,7 @@ def build_drawing(
         company=company,
         frame=frame,
         projection=projection,
+        projection_symbol=projection_symbol,
         text_position=text_position,
         text_orientation=text_orientation,
         zones=zones,
@@ -2855,6 +2859,8 @@ def make_drawing(
     framed_recognition: bool = False,
     text_position: str = "inline",
     text_orientation: str = "aligned",
+    *,
+    projection_symbol: bool = True,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2919,6 +2925,7 @@ def make_drawing(
         company=company,
         frame=frame,
         projection=projection,
+        projection_symbol=projection_symbol,
         text_position=text_position,
         text_orientation=text_orientation,
         zones=zones,

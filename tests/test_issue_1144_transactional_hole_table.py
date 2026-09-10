@@ -1901,7 +1901,7 @@ def test_automatic_table_preserves_authored_through_wording(indicator, projectio
         for feature in model.features
     ]
     drawing = build_drawing(part, model=model, page="A3", projection=projection)
-    assert ("projection_symbol" in drawing.annotations()) is (projection is not None)
+    assert drawing.get_annotation("projection_symbol").method == (projection or "third")
     assert "hole_table_plan" in drawing.annotations()
     table = drawing.get_annotation("hole_table_plan")
     depth_column = table.table_rows[0].index("DEPTH")
