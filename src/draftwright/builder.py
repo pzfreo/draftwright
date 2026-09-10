@@ -461,9 +461,7 @@ def _check_dimension_sources(model: PartModel) -> None:
 def _detect_part_model_analysis(part, *, pmi="off") -> tuple[PartModel, Analysis]:
     """Return one detected model together with the exact analysis run that produced it."""
 
-    a = _analyse(
-        part, title="", number="", tolerance="ISO 2768-m", drawn_by="", out="model", pmi=pmi
-    )
+    a = _analyse(part, title="", number="", tolerance=None, drawn_by="", out="model", pmi=pmi)
     # `_analyse` already detected and stored the model, so calling `build_model(a)`
     # unconditionally re-ran every detector `build_part_model` doesn't take by injection —
     # the #602 duplicate-detection bug, fixed in `_assemble` but never here. It went unnoticed
@@ -1175,7 +1173,7 @@ def _build_drawing_once(
     out: str | None = None,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale: float | None = None,
     page: str | tuple | None = None,
@@ -1881,7 +1879,7 @@ def build_drawing(
     out: str | None = None,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale: float | None = None,
     page: str | tuple | None = None,
@@ -2839,7 +2837,7 @@ def make_drawing(
     out: str | None = None,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale: float | None = None,
     page: str | tuple | None = None,
@@ -2871,7 +2869,10 @@ def make_drawing(
             when a build123d object is passed).
         title: Part title for the title block (default: stem uppercased).
         number: Drawing number (e.g. ``"DWG-042"``).
-        tolerance: General tolerance string (e.g. ``"ISO 2768-m"``).
+        tolerance: General tolerance string (e.g. ``"ISO 2768-m"``). ``None`` (the
+            default) states none: the title block says the tolerance is unspecified
+            rather than inventing a manufacturing requirement the source never
+            carried (#1157). ``""`` requests a blank cell.
         drawn_by: Designer name for the title block.
         scale: Drawing-scale override (e.g. ``5`` for 5:1, ``0.5`` for 1:2).
             Default: chosen automatically by :func:`choose_scale`.
