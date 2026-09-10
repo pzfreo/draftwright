@@ -19,6 +19,7 @@ GeomTolerance, Datum).
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 from dataclasses import dataclass, replace
@@ -267,6 +268,13 @@ class PmiExtractionReport:
     sources: tuple[PmiSourceEntity, ...] = ()
     records: tuple[PmiRecord, ...] = ()
     error: str | None = None
+    #: The document this census was read from, and its digest. Empty when extraction never ran.
+    #: Carried because since #1563 the document need not be the drawing's own geometry source: a
+    #: `Sheet` holds an in-memory solid and NAMES the STEP it came from, which is the caller's
+    #: claim rather than a proof. Reporting name and digest puts that claim on the record instead
+    #: of leaving a reconciliation silently attributed to whatever file was passed.
+    source_name: str = ""
+    source_sha256: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -1369,6 +1377,27 @@ def _manufacturing_requirement_topology(
 
 
 def extract_pmi_report(
+    step_file: str | Path, *, frame: PartFrame | None = None
+) -> PmiExtractionReport:
+    """Inventory and extract semantic PMI, crediting the document it was read from.
+
+    A thin wrapper over :func:`_extract_pmi_census`, which has many exits. The provenance is
+    stamped once here so no exit can return an uncredited census: since #1563 the document is
+    not always the drawing's own geometry source, and a report that cannot say which file it
+    read is a reconciliation nobody can check. A digest failure is not an extraction failure —
+    the census stands, unattributed — so it never turns a readable file into an empty report.
+    """
+    census = _extract_pmi_census(step_file, frame=frame)
+    try:
+        path = Path(step_file)
+        name, digest = path.name, hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:  # unreadable, a directory, gone between read and hash
+        _log.debug("PMI provenance unavailable for %s: %s", step_file, exc)
+        return census
+    return replace(census, source_name=name, source_sha256=digest)
+
+
+def _extract_pmi_census(
     step_file: str | Path, *, frame: PartFrame | None = None
 ) -> PmiExtractionReport:
     """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.

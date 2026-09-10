@@ -2093,6 +2093,8 @@ def emit_sheet_script(
     formats: Sequence[str] = ("pdf",),
     settled_layout: Mapping | None = None,
     view_constraints: ViewConstraints | None = None,
+    pmi: str = "off",
+    pmi_source: str | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -2204,6 +2206,15 @@ def emit_sheet_script(
         emitted_page = settled_layout["page"]
     if emitted_page is not None:
         ctor.append(f"page={emitted_page!r}")
+    # The AP242 seam (#1563). A generated script builds from an in-memory solid, which carries
+    # no AP242 document, so without naming its source the re-run reconciles nothing — the raw
+    # `sheet.add(PmiFeature(...))` fallbacks below would sit unexamined and their deletion would
+    # change no diagnostic. `pmi_source` is the same absolute path the script's own
+    # `part = import_step(...)` line opens, so the two cannot disagree about which file this is.
+    if pmi_source is not None:
+        ctor.append(f"source={pmi_source!r}")
+    if pmi != "off":
+        ctor.append(f"pmi={pmi!r}")
     if material:
         ctor.append(f"material={material!r}")
     if date:
@@ -2621,6 +2632,8 @@ def generate_sheet_script(
             source_part=step_file if isinstance(step_file, Shape) else None,
             formats=formats,
             settled_layout=settled_layout,
+            pmi=pmi,
+            pmi_source=None if source_resolved is None else str(source_resolved),
         )
     if source_resolved is not None:
         try:
