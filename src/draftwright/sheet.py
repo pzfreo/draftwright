@@ -1190,7 +1190,10 @@ class Sheet:
             out=out,
         )
         # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
-        # unset value keeps build_drawing's own defaults ("" / "ISO 2768-m") rather than None.
+        # unset value keeps build_drawing's own defaults rather than None. Since #1157 the
+        # tolerance default IS None — an unauthored general tolerance is stated as unspecified
+        # instead of silently becoming ISO 2768-m — so this branch now carries only an explicit
+        # choice, including `tolerance=""` for a deliberately blank cell.
         if drawn_by is not None:
             self._opts["drawn_by"] = drawn_by
         if tolerance is not None:
