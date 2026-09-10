@@ -31,6 +31,7 @@ from draftwright.linting.coverage import (
     lint_location_coverage,
     lint_principal_profile_coverage,
     lint_prismatic_coverage,
+    lint_turned_profile_span,
 )
 from draftwright.linting.evidence import (
     ClaimOutcome,
@@ -99,6 +100,7 @@ __all__ = [
     "lint_circular_blind_step_coverage",
     "lint_chamfer_coverage",
     "lint_declaration_reconciliation",
+    "lint_turned_profile_span",
     "lint_drawing",
     "lint_feature_coverage",
     "lint_flat_coverage",

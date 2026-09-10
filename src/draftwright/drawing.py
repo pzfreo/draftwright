@@ -138,6 +138,7 @@ from draftwright.linting import (
     lint_round_bottom_blind_slot_coverage,
     lint_slot_coverage,
     lint_through_step_coverage,
+    lint_turned_profile_span,
     pmi_stage_summary,
 )
 from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
@@ -227,6 +228,10 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "authored_dim_degenerate",
         "authored_dim_source_unresolved",
         "axial_length_missing",
+        # A turned profile that leaves part of the body undescribed (#1132). Registered
+        # here for the same reason as `axial_length_missing` beside it: the shortfall is
+        # about the part, not about where an annotation landed.
+        "turned_profile_not_spanned",
         "flat_requirement_suppressed",
         "flat_requirement_missing",
         "flat_requirement_unverifiable",
@@ -4465,6 +4470,16 @@ class Drawing:
                     features,
                     cyls,
                     recognition=recognition,
+                )
+                # Declared-vs-geometry in the axial direction (#1132): a z-turned profile that
+                # leaves part of the body undescribed. Gated with the reconciliation check
+                # above because both are only meaningful for a caller-declared model — the
+                # detection path builds its own profile and cannot under-declare against it.
+                issues += lint_turned_profile_span(
+                    features,
+                    (self._analysis.bb.min.Z, self._analysis.bb.max.Z),
+                    orientation=getattr(self._part_model, "orientation", None),
+                    single_solid=len(self._analysis.part.solids()) == 1,
                 )
         if physical and self._analysis is not None:
             issues += lint_pmi_ignored(

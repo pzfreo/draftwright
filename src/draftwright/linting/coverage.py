@@ -2306,6 +2306,72 @@ def lint_boss_height_coverage(
     ]
 
 
+def lint_turned_profile_span(features, bbox, *, orientation, single_solid) -> list:
+    """Flag a z-turned profile whose declared steps leave part of the body undescribed (#1132).
+
+    This began as #631's verb-misuse diagnostic, raised from ``builder._assemble``: a caller
+    reaching for ``.step()`` on a boss — an external cylinder on a prismatic part — declared a
+    turned segment, which flipped the height ladder into turned-suppression and silently
+    dropped the overall height. Raising made that visible.
+
+    It stopped being only a hand-authoring mistake. ``generate_sheet_script`` settles its layout
+    through the same path, so a part whose *recognised* profile does not tile produced no script
+    and no drawing — and an entry point that returns nothing is the one failure a consumer
+    cannot route around. A generated script is indistinguishable from hand-written code when it
+    is re-run, so there is no provenance to branch on: the choice is raise for both or report for
+    both, and reporting is what lets the drawing exist and say what it does not cover.
+
+    The two CADGenBench fixtures that still reach this carry profiles that are correct and
+    merely partial — a threaded region on one, a 27 mm stretch on the other — since the false
+    step sets behind the rest were fixed upstream (quiddity#586, #587).
+
+    Reported here rather than recorded during assembly because the annotate pass calls
+    ``reset_issues()`` to keep a repack from duplicating drop records, which discards anything
+    the builder recorded first. ``features`` is read duck-typed, like every check in this module.
+    """
+    if not single_solid:
+        return []
+    steps = [
+        f
+        for f in features
+        if getattr(f, "kind", None) == "step" and getattr(f.frame, "axis", None) == "z"
+    ]
+    if not steps:
+        return []
+    if orientation != "z" and not any(getattr(f, "kind", None) == "envelope" for f in features):
+        return []
+    lo_z, hi_z = bbox
+    tol = 1e-3 * max(hi_z - lo_z, 1.0)
+    spans = sorted(
+        [(min(a[2], b[2]), max(a[2], b[2])) for f in steps for (a, b) in [f.span]]
+        + [
+            (f.frame.origin[2] - f.width / 2, f.frame.origin[2] + f.width / 2)
+            for f in features
+            if getattr(f, "kind", None) == "groove" and getattr(f.frame, "axis", None) == "z"
+        ]
+    )
+    covered = lo_z
+    for lo, hi in spans:
+        if lo <= covered + tol:
+            covered = max(covered, hi)
+    if spans[0][0] <= lo_z + tol and covered >= hi_z - tol:
+        return []
+    gap = f"{lo_z:g}..{spans[0][0]:g}" if spans[0][0] > lo_z + tol else f"{covered:g}..{hi_z:g}"
+    return [
+        LintIssue(
+            severity="warning",
+            code="turned_profile_not_spanned",
+            message=(
+                f"step() declares a segment of a turned profile, but the declared steps leave "
+                f"{gap} of this part's height undescribed. If these are bosses — external "
+                "cylinders on a prismatic part — .boss() renders each with its own ø and "
+                "height; if the profile is genuinely partial, the uncovered stretch is "
+                "dimensioned by nothing."
+            ),
+        )
+    ]
+
+
 def lint_declaration_reconciliation(features, cyls, *, recognition=None) -> list:
     """Flag a *declared* cylindrical feature with no matching geometry in the part (#487).
 
