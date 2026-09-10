@@ -375,9 +375,10 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
 
     @pytest.mark.slow
     def test_the_furniture_really_is_silent(self):
-        # The other side of the same claim: on nist_ctc_02 the 89 unclaimed annotations are
-        # centre marks, bolt circles, notes and the title block. The allow-list is exactly the
-        # four types measured there — a wider set asserts nothing about types that never occur
+        # The other side of the same claim: on nist_ctc_02 the silent annotations are
+        # centre marks, bolt circles, notes, the projection symbol and the title block.
+        # The allow-list is exactly the types observed — a wider set asserts nothing about
+        # types that never occur
         # (#1225 review, finding 7).
         #
         # "Silent" here means silent TO THE READER, and the title block is the honest edge of
@@ -387,7 +388,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         # exactly the limit `evidence.py` now states rather than the stronger one it claimed.
         #
         # Built with a title on purpose: without `title=`/`number=` no TitleBlock is placed at
-        # all (88 silent annotations, not 89), and the test would then characterise a sheet the
+        # all, and the test would then characterise a sheet the
         # ratchet never sweeps.
         drawing = _drawing(
             "tests/fixtures/nist_ctc_02_asme1_ap203.stp",
@@ -400,4 +401,10 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
             and not rendered_numbers(drawing.registry.named(n))
         ]
         assert len(silent) > 50, f"too little furniture to characterise: {len(silent)}"
-        assert set(silent) == {"CenterMark", "CenterlineCircle", "Note", "TitleBlock"}, set(silent)
+        assert set(silent) == {
+            "CenterMark",
+            "CenterlineCircle",
+            "Note",
+            "ProjectionSymbol",
+            "TitleBlock",
+        }, set(silent)
