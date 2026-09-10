@@ -139,11 +139,24 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
     assert diameter.covers_diameters == (25.0,)
     assert drawing.measurement_keys("m_dia_y0")
     # The added boss heights must not displace existing callouts at this fixed page/scale.
-    assert len([name for name in drawing.annotations() if name.startswith("m_dia_y")]) == 8
+    # Four since quiddity 0.2.8 coalesced the flange's split bands into four tiling
+    # segments (ø25, ø31, ø42, ø31). The producer-floor property under test is about which
+    # producer supplies the ray, not how many rays there are.
+    assert len([name for name in drawing.annotations() if name.startswith("m_dia_y")]) == 4
     assert len([name for name in drawing.annotations() if name.startswith("m_pad_height_")]) == 4
-    assert sorted(
-        mark.label for name, mark in drawing.iter_annotations() if name.startswith("m_bossheight")
-    ) == ["4", "6"]
+    # #1511's two restored heights are still stated, and still claimed — but since quiddity
+    # 0.2.8 they are no longer BOSS heights. Coalescing contiguous equal-diameter bands folds
+    # those two cylinders into the turned profile, so they are steps, and the crowded chain
+    # carries them in the enlarged detail. Assert the values reach the sheet with provenance,
+    # which is what "must not displace existing callouts" was protecting; asserting the old
+    # annotation prefix would now be asserting a classification this fixture no longer has.
+    heights = {
+        mark.label: name
+        for name, mark in drawing.iter_annotations()
+        if name.startswith(("m_bossheight", "dim_detail_a_steplen"))
+    }
+    assert {"4", "6"} <= set(heights)
+    assert all(drawing.measurement_keys(heights[label]) for label in ("4", "6"))
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(
         item for item in trace["pass_events"] if item["label"] == "Y-axis step diameter_callouts"

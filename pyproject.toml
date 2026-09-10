@@ -23,7 +23,7 @@ dependencies = [
     # published wheels, not only uv's development resolver constraints.
     "cadquery-ocp-novtk!=7.9.3.1.1 ; python_full_version >= '3.13'",
     "build123d-drafting-helpers>=0.15.1",
-    "quiddity==0.2.7",
+    "quiddity==0.2.8",
     "numpy>=1.24",
     # PNG raster export (SVG→PDF→PNG). Both permissively licensed (Pillow HPND; pypdfium2
     # Apache-2.0 wrapping Google PDFium BSD-3) and ship pre-built wheels with NO native system

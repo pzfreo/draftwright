@@ -9482,7 +9482,11 @@ class TestTurnedDiameters:
         diameter_owners = [
             feature for feature in dwg.model().features if feature.kind in {"step", "boss"}
         ]
-        assert len(diameter_owners) == 8
+        # Four since quiddity 0.2.8, which coalesces contiguous equal-diameter bands: the
+        # flange's profile is four tiling segments (ø25 -16..-8, ø31 -8..-2, ø42 -2..2,
+        # ø31 2..4) where the provider previously reported each split in two. #890's subject
+        # is per-leader provenance, which four distinct owners exercise exactly as eight did.
+        assert len(diameter_owners) == 4
         for name in (n for n in dwg.annotations() if n.startswith("m_dia_y")):
             ann = dwg.get_annotation(name)
             owner = dwg.registry.feature_of(name)
@@ -9501,8 +9505,23 @@ class TestTurnedDiameters:
         assert step_labels >= {"8", "4"}
         assert "2" in step_labels or "4× 2" in step_labels
         assert {dwg.view_of(n) for n in dwg.annotations() if n.startswith("m_steplen")} == {"side"}
+        # Since quiddity 0.2.8 the chain is 8 | 6 | 4 | 2, and the 2 mm segment is below the
+        # legibility floor, so this fixture now routes to an enlarged detail. That splits the
+        # provenance in two, exactly as `test_issue_892_short_y_step_chain_moves_to_enlarged_
+        # side_detail` documents: the detail carries one claimed dimension per step, and the
+        # main view keeps the aggregate block, which claims nothing because it "is not any one
+        # approved step measurement". Assert both halves rather than only the surviving one.
+        detail_steps = [n for n in dwg.annotations() if n.startswith("dim_detail_a_steplen")]
+        assert detail_steps, "the crowded chain must be sized somewhere"
+        assert all(len(dwg.measurement_keys(n)) == 1 for n in detail_steps)
         for name in (n for n in dwg.annotations() if n.startswith("m_steplen")):
-            expected = 4 if dwg.get_annotation(name).label == "4× 2" else 1
+            label = dwg.get_annotation(name).label
+            if label == "4× 2":
+                expected = 4
+            elif "detail_a" in dwg.views:
+                expected = 0  # the aggregate block
+            else:
+                expected = 1
             assert len(dwg.measurement_keys(name)) == expected
 
         # The central Y-axis bore shares the detected turned-profile axis. Its
@@ -9780,23 +9799,24 @@ class TestTurnedDiameters:
             auto.lint_summary()["by_code"]
             == replayed.lint_summary()["by_code"]
             == {
-                "annotation_ink_overlap": 2,
                 "hole_requirement_missing": 2,
                 "leader_crosses_silhouette": 1,
                 "section_recess_recognition_refused": 4,
             }
         )
 
-        # PENDING #1512: restored 6/4 boss witnesses cross the repeated step label.
-        # Both bounded repair and deferred chain placement were tried without resolving
-        # this cross-pass pair. Policy B retains the requirements and reports the ink.
+        # #1512's two crossings no longer occur on this fixture. They were the restored 6 mm
+        # and 4 mm boss-height witnesses cutting the step chain's `4× 2` repeat label, and
+        # quiddity 0.2.8 leaves neither on this view: the coalesced 8 | 6 | 4 | 2 chain routes
+        # to an enlarged detail, which carries all four as claimed dimensions. Nothing was
+        # dropped to achieve that — the detail assertions above account for every step.
+        #
+        # This is the reproduction disappearing, NOT the placement debt being paid: the
+        # bounded same-batch ink solver still never considers the combined cross-pass set,
+        # which is what #1512 is actually about. Asserted as absence so a reappearance here
+        # fails rather than passing quietly under a laxer check.
         for drawing in (auto, replayed):
-            pairs = [
-                tuple(issue.message.split("'")[index] for index in (1, 3))
-                for issue in drawing.lint()
-                if issue.code == "annotation_ink_overlap"
-            ]
-            assert sorted(pairs) == [("4", "4× 2"), ("6", "4× 2")]
+            assert [i for i in drawing.lint() if i.code == "annotation_ink_overlap"] == []
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"

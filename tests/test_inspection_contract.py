@@ -46,7 +46,7 @@ def _manifest() -> dict:
 def test_installed_pypi_wheel_satisfies_the_inspection_contract() -> None:
     distribution = importlib.metadata.distribution("quiddity")
 
-    assert distribution.version == "0.2.7"
+    assert distribution.version == "0.2.8"
     assert distribution.read_text("direct_url.json") is None
     assert (
         Path(inspect.getfile(inspection.inspection_api_manifest))

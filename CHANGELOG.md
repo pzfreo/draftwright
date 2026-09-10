@@ -154,6 +154,12 @@
 
 ### Changed
 
+- Updated the exact Quiddity runtime and declared-inspection contract to **0.2.8**, which stops
+  a modelled thread being read as a stack of turned shoulders and coalesces contiguous
+  equal-diameter bands into the one span they physically are. Measured on the repo corpus,
+  NIST CTC-05 is again the only fixture that moves: its ⌀304.8 region was three adjacent
+  rungs and is now one, in both STEP encodings (#1135, quiddity#587).
+
 - Updated the exact Quiddity runtime and declared-inspection contract to **0.2.7**. Unlike the
   0.2.5 adoption below, this one changes drawings: the provider now requires circumferential
   cylinder support to establish a turned-profile axis line, so rounded plate corners and parallel

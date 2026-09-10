@@ -33,11 +33,17 @@ PAIRS = ("01", "02", "03", "04", "05")
 #: A provider change that alters these values should fail here and be updated deliberately.
 CTC05_STEPS = (
     ("z", 63.5, 279.4, 482.6),
-    ("z", 304.8, 25.4, 45.72),
-    ("z", 304.8, 45.72, 54.61),
-    ("z", 304.8, 54.61, 127.0),
+    ("z", 304.8, 25.4, 127.0),
     ("z", 558.8, 0.0, 25.4),
 )
+
+#: Updated for quiddity 0.2.8 (quiddity#587). 0.2.7 reported the ⌀304.8 region as three
+#: contiguous rungs — `25.4..45.72`, `45.72..54.61`, `54.61..127.0` — and 0.2.8 coalesces
+#: contiguous equal-diameter bands into the one span they physically are. Three adjacent rungs
+#: at one diameter are not three steps, so this is the roster improving, not drifting. The pin
+#: is updated deliberately, which is what it exists to force: the invariance assertions above
+#: kept passing across the change (both encodings agreed before and after), and only these
+#: exact values failed.
 
 
 def _turned_steps(stem: str) -> list[tuple[str, float, float, float]]:

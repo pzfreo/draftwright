@@ -70,9 +70,9 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.2.7 runtime contract
+### Quiddity 0.2.8 runtime contract
 
-The runtime pins the published `quiddity==0.2.7` package, following the 0.2.4 adoption in
+The runtime pins the published `quiddity==0.2.8` package, following the 0.2.4 adoption in
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) and the migration in
 [#1471](https://github.com/pzfreo/draftwright/issues/1471). 0.2.7 is a patch adoption: it requires
 circumferential cylinder support to establish a turned-profile axis line, so rounded plate corners

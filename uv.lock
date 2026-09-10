@@ -752,7 +752,7 @@ requires-dist = [
     { name = "ocp-gordon", specifier = "<0.3" },
     { name = "pillow", specifier = ">=10" },
     { name = "pypdfium2", specifier = ">=4" },
-    { name = "quiddity", specifier = "==0.2.7" },
+    { name = "quiddity", specifier = "==0.2.8" },
     { name = "reportlab", specifier = ">=4.0" },
     { name = "rich", specifier = ">=10.11" },
     { name = "steputils", specifier = "==0.1" },
@@ -2582,15 +2582,15 @@ wheels = [
 
 [[package]]
 name = "quiddity"
-version = "0.2.7"
+version = "0.2.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a1/44/dedf3805e8478e82d4171aee1148bc625eb994f07b5e20699f551d9f231a/quiddity-0.2.7.tar.gz", hash = "sha256:25969c03c997a5c80acc0e33c7f37d48b7f401d4bcb81c87c1952037745bdd96", size = 14880671, upload-time = "2026-09-10T13:50:37.151Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/b0/ce0b1d1646198676a8dfbca9b396c06bd43b51a2beb864755ec94526f2be/quiddity-0.2.8.tar.gz", hash = "sha256:d6cc91625e20eeb4187afa723ae1921f9c28429e6f879d72151ca222016bc294", size = 14883433, upload-time = "2026-09-10T15:48:53.33Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/20/2b/5a465fb54c0c82f9cd6dd54dd267c7342e1cc862bf169de34edd23f42b09/quiddity-0.2.7-py3-none-any.whl", hash = "sha256:0359f3a5fa51226fe1278a1b7504bf8637d12fc4b30b7ebe4e80f4f9361a9601", size = 526521, upload-time = "2026-09-10T13:50:33.215Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/48/387001a0840965ee723a96cba29dbecfdbe664fac5ec41fb7f85ee77d8ad/quiddity-0.2.8-py3-none-any.whl", hash = "sha256:0e832a7acde3343cbb1670e5dd82d7fc7b78a588edd1bb6d7dc6da3ce8e66154", size = 527823, upload-time = "2026-09-10T15:48:51.462Z" },
 ]
 
 [[package]]
