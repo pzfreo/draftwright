@@ -37,6 +37,16 @@ from draftwright.sheet import _requirement_parameter
 from draftwright.sheet_emit import emit_sheet_script
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ap242_single_cylinder_diameter.step"
+
+
+def _fixture_sha256(path: Path) -> str:
+    """The census credits the document it read (#1563). Digested from the fixture here
+    rather than pasted, so the assertion cannot outlive the bytes it describes."""
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 FIXTURE_SHA256 = "e1a819891ceadf5ac95c0c018713f839dd0532098d380224fd69240b3542c306"
 GRM03 = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 GRM03_SHA256 = "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
@@ -150,6 +160,7 @@ def test_minimal_single_face_source_owns_existing_od_without_duplicate(tmp_path)
     assert not [issue for issue in drawing.lint() if issue.code == "pmi_not_rendered"]
     assert drawing.lint_summary()["pmi"] == {
         "mode": "annotate",
+        "source": {"name": FIXTURE.name, "sha256": _fixture_sha256(FIXTURE)},
         "sources": 1,
         "by_category": {"dimension": 1},
         "extracted": 1,

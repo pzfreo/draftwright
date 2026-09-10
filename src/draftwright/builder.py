@@ -1182,7 +1182,6 @@ def _build_drawing_once(
     auto_dims: bool = True,
     detail_view: bool = True,
     pmi: Literal["off", "report", "annotate"] | None = None,
-    source: str | Path | None = None,
     repair: bool = True,
     assembly: bool | None = None,
     model: Sequence[Feature] | PartModel | None = None,
@@ -1212,6 +1211,12 @@ def _build_drawing_once(
     _required_tables=(),
     _select_automatic_views: bool = False,
     _document_input=None,
+    *,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1890,7 +1895,6 @@ def build_drawing(
     auto_dims: bool = True,
     detail_view: bool = True,
     pmi: Literal["off", "report", "annotate"] | None = None,
-    source: str | Path | None = None,
     repair: bool = True,
     assembly: bool | None = None,
     model: Sequence[Feature] | PartModel | None = None,
@@ -1918,6 +1922,11 @@ def build_drawing(
     _document_input=None,
     *,
     projection_symbol: bool = True,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -2850,7 +2859,6 @@ def make_drawing(
     auto_dims: bool = True,
     detail_view: bool = True,
     pmi: Literal["off", "report", "annotate"] | None = None,
-    source: str | Path | None = None,
     assembly: bool | None = None,
     material: str = "",
     date: str = "",
@@ -2866,6 +2874,11 @@ def make_drawing(
     text_orientation: str = "aligned",
     *,
     projection_symbol: bool = True,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
