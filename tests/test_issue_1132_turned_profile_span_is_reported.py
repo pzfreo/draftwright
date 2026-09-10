@@ -95,3 +95,80 @@ def test_a_feature_without_a_frame_does_not_raise():
     assert (
         lint_turned_profile_span([broken], (0.0, 40.0), orientation="z", single_solid=True) == []
     )
+
+
+# ---------------------------------------------------------------------------
+# Span arithmetic — the merge-and-scan's edge cases
+#
+# Second-stage review of the fix for the overstated-gap defect: the arithmetic was correct on
+# all ten of these, and NOTHING in the suite held any of them. Verified behaviour that no test
+# guards is behaviour a refactor can take away silently, so they are pinned here.
+# ---------------------------------------------------------------------------
+
+
+class _Feat:
+    """A duck-typed stand-in — this module reads features structurally, never by class."""
+
+    def __init__(self, kind, axis="z", span=None, origin=(0, 0, 0), width=None):
+        self.kind = kind
+        self.span = span
+        self.frame = type("_Frame", (), {"axis": axis, "origin": origin})()
+        if width is not None:
+            self.width = width
+
+
+def _steps(*pairs):
+    return [_Feat("step", span=((0, 0, lo), (0, 0, hi))) for lo, hi in pairs]
+
+
+def _gaps(features, extent=(0.0, 20.0)):
+    """The reported gaps, or None when the check is silent."""
+    from draftwright.linting.coverage import lint_turned_profile_span
+
+    found = lint_turned_profile_span(features, extent, orientation="z", single_solid=True)
+    if not found:
+        return None
+    return found[0].message.split("undescribed (")[1].split(")")[0]
+
+
+@pytest.mark.parametrize(
+    ("case", "features", "expected"),
+    [
+        # Adjacency and ordering must not manufacture a gap that is not there.
+        ("touching spans", _steps((0, 10), (10, 20)), None),
+        ("nested spans", _steps((0, 20), (5, 10)), None),
+        ("unordered input", _steps((10, 20), (0, 10)), None),
+        ("zero-length span between two real ones", _steps((0, 10), (10, 10), (10, 20)), None),
+        # A span may be authored with its endpoints either way round.
+        ("reversed endpoints", [_Feat("step", span=((0, 0, 20), (0, 0, 0)))], None),
+        # Overhang past the body is not a shortfall.
+        ("span extends beyond the body", _steps((0, 25)), None),
+        # A gap inside the float tolerance is not a gap.
+        ("sub-tolerance gap", _steps((0, 10), (10.0001, 20)), None),
+        # The defect that prompted all this: report EVERY gap, not the first and everything above.
+        ("two separate gaps", _steps((0, 5), (10, 15)), "5..10, 15..20"),
+        ("leading gap", _steps((5, 20)), "0..5"),
+        # A groove is machined INTO the profile, so it covers its own band (#953).
+        (
+            "groove fills the gap",
+            _steps((0, 5), (15, 20)) + [_Feat("groove", origin=(0, 0, 10), width=10.0)],
+            None,
+        ),
+    ],
+)
+def test_span_arithmetic(case, features, expected):
+    assert _gaps(features) == expected, case
+
+
+@pytest.mark.parametrize(
+    "groove",
+    [
+        _Feat("groove", origin=(0, 0, 10)),  # no width
+        type("_NoOrigin", (), {"kind": "groove", "frame": type("_F", (), {"axis": "z"})()})(),
+    ],
+)
+def test_a_malformed_groove_does_not_raise(groove):
+    """The first pass at this made the STEP frame read defensive and left the groove branch
+    raising two lines below it. Same defect, same function, and the earlier no-frame test
+    missed it because it only exercised a step."""
+    assert _gaps([*_steps((0, 10)), groove]) is not None  # reports the 10..20 gap, does not raise

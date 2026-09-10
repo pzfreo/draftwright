@@ -2344,6 +2344,21 @@ def lint_turned_profile_span(features, z_extent, *, orientation, single_solid) -
         # carry a feature with no frame at all, and a lint check must not raise on one.
         return getattr(getattr(feature, "frame", None), "axis", None)
 
+    def _groove_band(feature) -> tuple[float, float] | None:
+        # The same defensiveness as `_axis`, which a first pass applied to the step branch and
+        # not to this one — leaving a groove with no `width` or no `origin` raising two lines
+        # below the guard that was added. A lint check that crashes on a malformed model
+        # reinstates the failure #1132 exists to remove.
+        origin = getattr(getattr(feature, "frame", None), "origin", None)
+        width = getattr(feature, "width", None)
+        if origin is None or width is None or len(origin) < 3:
+            return None
+        return (origin[2] - width / 2, origin[2] + width / 2)
+
+    # A step with no usable span is skipped rather than guessed at: without endpoints its
+    # extent is unknown, and inventing one would be worse than the silence. If that leaves no
+    # steps at all the function returns below, reporting nothing — the honest outcome when
+    # coverage is uncomputable, and the reason this filter is explicit rather than incidental.
     steps = [
         f
         for f in features
@@ -2358,9 +2373,11 @@ def lint_turned_profile_span(features, z_extent, *, orientation, single_solid) -
     spans = sorted(
         [(min(a[2], b[2]), max(a[2], b[2])) for f in steps for (a, b) in [f.span]]
         + [
-            (f.frame.origin[2] - f.width / 2, f.frame.origin[2] + f.width / 2)
+            band
             for f in features
             if getattr(f, "kind", None) == "groove" and _axis(f) == "z"
+            for band in [_groove_band(f)]
+            if band is not None
         ]
     )
     # Merge the spans, then report EVERY uncovered interval. A forward walk that stops at the
