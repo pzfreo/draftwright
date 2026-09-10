@@ -154,6 +154,15 @@
 
 ### Changed
 
+- Updated the exact Quiddity runtime and declared-inspection contract to **0.2.7**. Unlike the
+  0.2.5 adoption below, this one changes drawings: the provider now requires circumferential
+  cylinder support to establish a turned-profile axis line, so rounded plate corners and parallel
+  offset cylinders no longer form a false stepped shaft. Measured on the repo corpus, NIST CTC-05
+  is the only fixture whose recognised turned profile moves — its two STEP encodings previously
+  disagreed (3 steps and 9 steps for the same solid) and now agree on 5 — and a plate part that
+  previously raised out of `generate_sheet_script` now emits and builds. No family, record schema
+  or adapter changed (#1555, quiddity#586).
+
 - Updated the exact Quiddity runtime and declared-inspection contract to 0.2.5 for the
   provider's recognition performance improvements.
 
