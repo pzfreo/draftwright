@@ -2359,7 +2359,11 @@ class TestAuthoredSetRoundTrips:
         regenerated = self._run(src, part)["sheet"].build()
 
         def dims(dwg):
-            return {n for n, _ in dwg.iter_annotations() if not n.startswith(("note_", "title"))}
+            return {
+                n
+                for n, _ in dwg.iter_annotations()
+                if not n.startswith(("note_", "title", "projection_symbol"))
+            }
 
         assert dims(regenerated) == dims(direct), (
             "the regenerated script draws a different set from the model it came from"
@@ -2454,7 +2458,11 @@ class TestAuthoredSetRoundTrips:
         regenerated = self._run(src, part)["sheet"].build()
 
         def dims(dwg):
-            return {n for n, _ in dwg.iter_annotations() if not n.startswith(("note_", "title"))}
+            return {
+                n
+                for n, _ in dwg.iter_annotations()
+                if not n.startswith(("note_", "title", "projection_symbol"))
+            }
 
         assert dims(regenerated) == dims(direct) == set(), (
             "an empty authored set draws no generated dimensions, on both paths"
@@ -2861,6 +2869,7 @@ class TestTheDimensionMirror:
 #: purpose: adding one fails loudly, and whoever adds it names the annotation with the real
 #: name in front of them.
 _SCRIPT_FURNITURE = {
+    "projection_symbol": "projection convention; no feature measurement",
     "m_cm": "centre marks — sized off the hole they mark, not a printed value (#875)",
     "centerline_front": "shows where the front view's axis is; no measurement",
     "centerline_plan": "shows where the plan view's axis is; no measurement",
@@ -4315,7 +4324,7 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
         assert f"`{view}`" in section, view
 
     names = sorted(ast.literal_eval(out["ANNOT"]))
-    assert len(names) == 11 and "Eleven annotations" in section, names
+    assert len(names) == 12 and "Twelve annotations" in section, names
     for name in names:
         assert f"`{name}`" in section, f"{name} is on the sheet but the doc does not list it"
 

@@ -2084,6 +2084,7 @@ def emit_sheet_script(
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
+    projection_symbol: bool = True,
     text_position: str = "inline",
     text_orientation: str = "aligned",
     object_ref: bool = False,
@@ -2130,6 +2131,7 @@ def emit_sheet_script(
     declaration a person edits; evidence about the run that produced it belongs in the sidecar
     document beside it, where a reader can diff or re-read it without parsing Python (#1460)."""
     _validate_scale_policy(scale, scale_policy)
+    validate_projection(projection, projection_symbol=projection_symbol)
     _dimension_draft(text_position, text_orientation)
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
@@ -2216,6 +2218,8 @@ def emit_sheet_script(
         ctor.append("zones=True")
     if projection:
         ctor.append(f"projection={projection!r}")
+    if not projection_symbol:
+        ctor.append("projection_symbol=False")
     if text_position != "inline":
         ctor.append(f"text_position={text_position!r}")
     if text_orientation != "aligned":
@@ -2480,6 +2484,7 @@ def generate_sheet_script(
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
+    projection_symbol: bool = True,
     text_position: str = "inline",
     text_orientation: str = "aligned",
     pmi: Literal["off", "report", "annotate"] = "off",
@@ -2500,7 +2505,7 @@ def generate_sheet_script(
     surface (flagged inline).
     *part_expr*, when given, overrides the ``part = …`` seam — e.g. the import seam from
     :func:`resolve_object_spec` so the script references a live module (#469)."""
-    validate_projection(projection)
+    validate_projection(projection, projection_symbol=projection_symbol)
     _validate_scale_policy(scale, scale_policy)
     _dimension_draft(text_position, text_orientation)
     is_shape = isinstance(step_file, Shape)
@@ -2578,6 +2583,7 @@ def generate_sheet_script(
                 frame=frame,
                 zones=zones,
                 projection=projection,
+                projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
                 pmi=pmi,
@@ -2607,6 +2613,7 @@ def generate_sheet_script(
             frame=frame,
             zones=zones,
             projection=projection,
+            projection_symbol=projection_symbol,
             text_position=text_position,
             text_orientation=text_orientation,
             object_ref=is_shape,

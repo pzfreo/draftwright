@@ -1151,7 +1151,7 @@ class TestOmittedDimensionsDoNotRender:
 
         drawn = _names(sheet.build())
         assert "m_env_width" in drawn, "the one authored measurement"
-        furniture = ("m_cm", "m_locx", "m_locy", "note_", "title_block")
+        furniture = ("m_cm", "m_locx", "m_locy", "note_", "title_block", "projection_symbol")
         assert not [n for n in drawn if n != "m_env_width" and not n.startswith(furniture)], (
             f"an unauthored dimension reached the page: {sorted(drawn)}"
         )

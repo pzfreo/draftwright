@@ -900,8 +900,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     def _s_projection_symbol():
         # ISO 5456-2 projection-method glyph (#769) in the reserved title-block band.
-        if a.projection:
-            _add_projection_symbol(dwg, a)
+        _add_projection_symbol(dwg, a)
 
     def _s_tabulate():
         # Escalate to a hole table when the plan view is too dense to dimension

@@ -3318,13 +3318,15 @@ def test_make_drawing_module_entrypoint_runs_cli_help():
         capture_output=True,
         env=env,
         text=True,
+        encoding="cp1252",  # match the child's explicit PYTHONIOENCODING
     )
 
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     assert "Usage:" in result.stdout  # Typer/rich help capitalises (was argparse "usage:")
     assert "step_file" in result.stdout
-    # rich degrades its box-drawing to ASCII on a cp1252 stream, so help stays safe.
-    assert result.stdout.isascii()
+    # Rich degrades unsupported box drawing on cp1252 streams. Long flag names may
+    # use a representable ellipsis, so safe cp1252 output need not be entirely ASCII.
+    assert not any(glyph in result.stdout for glyph in "╭╮╰╯│─")
 
 
 def test_cli_version_reports_installed_version():
@@ -3765,7 +3767,7 @@ def test_build_drawing_auto_dims_false():
     # cylinder's iso is rescaled off sheet scale — the truthful "ISO VIEW (NTS)" note. The
     # note is furniture, not a dimension, so it belongs here (script↔CLI parity); auto_dims
     # still suppresses every *dimension*.
-    assert set(dwg.annotations()) == {"title_block", "note_iso_nts"}
+    assert set(dwg.annotations()) == {"title_block", "note_iso_nts", "projection_symbol"}
 
 
 @pytest.mark.timeout(60)
@@ -11256,9 +11258,9 @@ class TestProjectionSymbol:
     """#769: the ISO 5456-2 projection-method glyph (third/first-angle) in the reserved
     title-block band, from the helpers 0.14.1 ProjectionSymbol primitive."""
 
-    def test_off_by_default(self):
+    def test_third_angle_symbol_by_default(self):
         dwg = build_drawing(Box(80, 60, 20))
-        assert "projection_symbol" not in dwg.annotations()
+        assert dwg.get_annotation("projection_symbol").method == "third"
         assert dwg._analysis.projection is None
 
     def test_third_renders_in_the_title_block_band(self):

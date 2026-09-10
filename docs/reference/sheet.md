@@ -9,7 +9,10 @@ with an underscore.
 Use `Sheet(part, projection="first")` or `build_drawing(part, projection="first")`
 for first-angle layout and its matching projection symbol. The CLI equivalent is
 `--projection first`. Explicit `"third"` selects third-angle layout and its symbol;
-omitting `projection` keeps third-angle layout without a symbol.
+omitting `projection` uses third-angle layout and its symbol. Use
+`projection_symbol=False` (CLI: `--no-projection-symbol`) to omit the symbol for an
+embedded illustration; this does not change the projection convention or view layout.
+The visibility choice also survives generated-script replay.
 
 View names retain their physical viewing directions in the working part frame. Changing
 convention changes sheet relationships, not which side of the part a name shows:

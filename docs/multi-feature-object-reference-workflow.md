@@ -172,18 +172,18 @@ gramel, no STEP file, nothing else required beyond `draftwright` and `build123d`
 
 ### What you should see
 
-Measured from the snippet above on 2026-09-05 (draftwright 0.4.x, `Sheet.build()`):
+Measured from the snippet above on 2026-09-10 (draftwright 0.4.x, `Sheet.build()`):
 
 - **A4 landscape at 2:1**, chosen automatically — the part is 20 mm long.
 - **Two orthographic views plus an isometric**: `front` (x–z) and `side` (y–z), then `iso`.
   Two, not three: the part is rotational about x, so a top view (x–y) would show the same
   profile as the front (x–z). The side view is the circular end view, and carries the
   diameters.
-- **Eleven annotations.** `Drawing.annotations()` names them, which is the quickest way to
+- **Twelve annotations.** `Drawing.annotations()` names them, which is the quickest way to
   confirm the run did what you asked. In full: `m_dia_x0`, `m_dia_x1`, `m_dia_x2`,
   `m_dia_x3` (the four turned diameters), `m_steplen0` (the journal's length), `hc_side0`
   (the `M2×0.4` tap callout, on the side view), `m_gdt0` (the `M3×0.5` note),
-  `centerline_front`, `m_cm0`, `title_block` and `note_iso_nts`.
+  `centerline_front`, `m_cm0`, `title_block`, `projection_symbol` and `note_iso_nts`.
 - **Three `warning`-level lint notes, and no errors.** These report the limits of this
   deliberately-short example, not failures of the workflow:
 

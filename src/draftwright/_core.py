@@ -1260,9 +1260,10 @@ class Analysis:
     # Draw a sheet border/frame (#767). When True, `margin` is already the reserved content
     # margin (`_content_margin(True)`), so content clears the frame drawn at `_MARGIN`.
     frame: bool = False
-    # Projection-method symbol (#769): "third" / "first" (ISO 5456-2) or None (omit).
+    # Requested convention; None resolves to third-angle. Symbol visibility is independent.
     projection: str | None = None
     projection_convention: str = "third"
+    projection_symbol: bool = True
     text_position: str = "inline"
     text_orientation: str = "aligned"
     # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
@@ -1481,11 +1482,15 @@ def _add_projection_symbol(dwg, a: Analysis):
     just above the drawn title block (deterministic empty space — the block reserves _TB_H but
     draws shorter). Registered ``projection_symbol`` with an ``is_projection_symbol`` identity
     rider. Unlike the page-spanning frame it is NOT lint-exempt: it's a small, well-placed glyph,
-    so lint covers it and a future mispositioning is caught. Gated on ``a.projection``."""
+    so lint covers it and a future mispositioning is caught. Suppressed only by
+    ``projection_symbol=False``."""
+    if not a.projection_symbol:
+        return
+
     from build123d_drafting import ProjectionSymbol
 
     sym = ProjectionSymbol(
-        a.projection,
+        a.projection_convention,
         draft=draft_preset(
             font_size=dwg.draft.font_size,
             decimal_precision=dwg.draft.decimal_precision,
@@ -1496,7 +1501,8 @@ def _add_projection_symbol(dwg, a: Analysis):
     bx, by = (b.min.X + b.max.X) / 2, (b.min.Y + b.max.Y) / 2
     w, h = b.max.X - b.min.X, b.max.Y - b.min.Y
     # Right side of the title-block column, near the top of its reserved band.
-    cx = a.PAGE_W - _TB_CLEAR - w / 2 - 3
+    # Sheet frames reserve an inner content margin; keep furniture inside it too.
+    cx = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - w / 2
     cy = _TB_CLEAR + _TB_H - h / 2 - 2
     sym = sym.locate(Location((cx - bx, cy - by, 0)))
     sym.is_projection_symbol = True

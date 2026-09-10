@@ -171,7 +171,12 @@ def main(
     projection: str = typer.Option(
         "",
         "--projection",
-        help="Projection convention: 'first' or 'third' (default: third-angle, no symbol)",
+        help="Projection convention: 'first' or 'third' (default: third-angle)",
+    ),
+    projection_symbol: bool = typer.Option(
+        True,
+        "--projection-symbol/--no-projection-symbol",
+        help="Show the symbol for the selected projection convention",
     ),
     text_position: str = typer.Option("inline", help="Dimension text position: inline or above"),
     text_orientation: str = typer.Option(
@@ -294,6 +299,7 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
+                projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
                 part_expr=source.seam,
@@ -320,6 +326,7 @@ def main(
                 frame=frame,
                 zones=zones,
                 projection=projection or None,
+                projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
                 pmi=pmi.value if pmi is not None else "off",
@@ -355,6 +362,7 @@ def main(
                 company=company,
                 frame=frame,
                 projection=projection or None,
+                projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
                 zones=zones,

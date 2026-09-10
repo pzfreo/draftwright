@@ -43,6 +43,7 @@ _VALUE_FREE = (
     "m_cm",  # centre marks — sized off the hole they mark (#875)
     "note_",  # the ISO NTS note
     "title_block",
+    "projection_symbol",  # identifies the view convention; no feature measurement
     "section_",  # cutting-plane arrows and label
     "hatch",
     "detail_marker",
