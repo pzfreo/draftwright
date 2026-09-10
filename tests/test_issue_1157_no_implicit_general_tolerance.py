@@ -64,10 +64,12 @@ def test_an_explicit_empty_tolerance_leaves_the_cell_blank():
 
 
 def test_the_unspecified_text_clears_its_own_cell(unauthored):
-    """Chosen for width, so assert the width rather than trusting the choice."""
+    """Chosen for width, so assert the width rather than trusting the choice — and measure
+    what the block actually rendered, not a literal repeated here, or a longer replacement
+    would overflow the cell while this test went on passing."""
     block = unauthored.get_annotation("title_block")
     ink = Text(
-        "UNSPECIFIED",
+        _fields(unauthored)["general_tolerance"],
         font_size=3,
         font_path=PLEX_SANS_CONDENSED,
         align=(Align.CENTER, Align.CENTER),
