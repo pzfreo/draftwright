@@ -461,9 +461,7 @@ def _check_dimension_sources(model: PartModel) -> None:
 def _detect_part_model_analysis(part, *, pmi="off") -> tuple[PartModel, Analysis]:
     """Return one detected model together with the exact analysis run that produced it."""
 
-    a = _analyse(
-        part, title="", number="", tolerance="ISO 2768-m", drawn_by="", out="model", pmi=pmi
-    )
+    a = _analyse(part, title="", number="", tolerance=None, drawn_by="", out="model", pmi=pmi)
     # `_analyse` already detected and stored the model, so calling `build_model(a)`
     # unconditionally re-ran every detector `build_part_model` doesn't take by injection —
     # the #602 duplicate-detection bug, fixed in `_assemble` but never here. It went unnoticed
@@ -1175,7 +1173,7 @@ def _build_drawing_once(
     out: str | None = None,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale: float | None = None,
     page: str | tuple | None = None,
@@ -1211,6 +1209,12 @@ def _build_drawing_once(
     _required_tables=(),
     _select_automatic_views: bool = False,
     _document_input=None,
+    *,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1326,6 +1330,7 @@ def _build_drawing_once(
             scale=scale,
             page=page,
             pmi=pmi,
+            source=source,
             model=model,
             decorations=decorations,
             authored=authored,
@@ -1881,7 +1886,7 @@ def build_drawing(
     out: str | None = None,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale: float | None = None,
     page: str | tuple | None = None,
@@ -1915,6 +1920,11 @@ def build_drawing(
     _document_input=None,
     *,
     projection_symbol: bool = True,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1954,6 +1964,7 @@ def build_drawing(
         auto_dims=auto_dims,
         detail_view=detail_view,
         pmi=pmi,
+        source=source,
         repair=repair,
         assembly=assembly,
         model=model,
@@ -2839,7 +2850,7 @@ def make_drawing(
     out: str | None = None,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale: float | None = None,
     page: str | tuple | None = None,
@@ -2861,6 +2872,11 @@ def make_drawing(
     text_orientation: str = "aligned",
     *,
     projection_symbol: bool = True,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2871,7 +2887,10 @@ def make_drawing(
             when a build123d object is passed).
         title: Part title for the title block (default: stem uppercased).
         number: Drawing number (e.g. ``"DWG-042"``).
-        tolerance: General tolerance string (e.g. ``"ISO 2768-m"``).
+        tolerance: General tolerance string (e.g. ``"ISO 2768-m"``). ``None`` (the
+            default) states none: the title block says the tolerance is unspecified
+            rather than inventing a manufacturing requirement the source never
+            carried (#1157). ``""`` requests a blank cell.
         drawn_by: Designer name for the title block.
         scale: Drawing-scale override (e.g. ``5`` for 5:1, ``0.5`` for 1:2).
             Default: chosen automatically by :func:`choose_scale`.
@@ -2918,6 +2937,7 @@ def make_drawing(
         auto_dims=auto_dims,
         detail_view=detail_view,
         pmi=pmi,
+        source=source,
         assembly=assembly,
         material=material,
         date=date,

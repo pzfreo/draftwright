@@ -771,6 +771,7 @@ def _analyse(
     scale=None,
     page=None,
     pmi=None,
+    source=None,
     model=None,
     decorations=None,
     authored=None,
@@ -933,12 +934,23 @@ def _analyse(
         # Semantic PMI census (AP242 only; separate read-only pass). Framed extraction receives
         # the provider frame before it classifies correlation topology, preserving tight local
         # boxes and arbitrary directions (#1401 / ADR 3 (was 0020)). Even off mode inventories a STEP
-        # source so it can report ignored authored PMI; in-memory Shapes have no AP242 document.
-        if not isinstance(step_file, Shape):
+        # source so it can report ignored authored PMI.
+        #
+        # An in-memory Shape has no AP242 document of its own, which used to end the matter — and
+        # a `Sheet` ALWAYS holds one, so no script-built drawing reconciled its PMI at all, not
+        # even to say it had not (#1563). `source` is the caller naming the STEP the solid was
+        # read from; a generated script already opens exactly that path in its own `part =
+        # import_step(...)` line, so the emitter can state it. It is the caller's claim, not a
+        # proof the bytes produced this solid, so `pmi_source` records name and digest and the
+        # stage summary reports them rather than leaving the link assumed.
+        pmi_source = None if isinstance(step_file, Shape) else step_file
+        if pmi_source is None and source is not None:
+            pmi_source = source
+        if pmi_source is not None:
             from draftwright.pmi import PmiExtractionReport, extract_pmi_report
 
             try:
-                pmi_report = extract_pmi_report(step_file, frame=recognition_frame)
+                pmi_report = extract_pmi_report(pmi_source, frame=recognition_frame)
                 if pmi_mode != "off":
                     pmi_records = list(pmi_report.records)
             except Exception as exc:

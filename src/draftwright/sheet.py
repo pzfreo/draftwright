@@ -1115,6 +1115,8 @@ class Sheet:
         text_orientation="aligned",
         zones=None,
         detail_view=None,
+        pmi=None,
+        source=None,
     ):
         validate_projection(projection, projection_symbol=projection_symbol)
         _dimension_draft(text_position, text_orientation)
@@ -1188,14 +1190,24 @@ class Sheet:
             out=out,
         )
         # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
-        # unset value keeps build_drawing's own defaults ("" / "ISO 2768-m") rather than None.
+        # unset value keeps build_drawing's own defaults rather than None. Since #1157 the
+        # tolerance default IS None — an unauthored general tolerance is stated as unspecified
+        # instead of silently becoming ISO 2768-m — so this branch now carries only an explicit
+        # choice, including `tolerance=""` for a deliberately blank cell.
         if drawn_by is not None:
             self._opts["drawn_by"] = drawn_by
         if tolerance is not None:
             self._opts["tolerance"] = tolerance
         # Standing ISO 7200 title-block fields (#766) — forward only when set, so an unset
         # value keeps build_drawing's defaults ("" / revision "A").
+        # AP242 PMI reconciliation (#1563). A Sheet holds an in-memory solid, which carries no
+        # AP242 document, so until now no script-built drawing reconciled source PMI at all —
+        # not even to report that it had not. `source` names the STEP the solid was read from
+        # (a generated script already opens exactly that path), and `pmi` selects the mode the
+        # automatic path has always had. Both forward only when set, like every option below.
         for _k, _v in (
+            ("pmi", pmi),
+            ("source", source),
             ("material", material),
             ("date", date),
             ("revision", revision),

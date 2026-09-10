@@ -640,6 +640,11 @@ def test_source_owned_feature_drop_is_one_reconciled_pmi_drop():
         decorations=model.decorations,
     ) == {
         "mode": "annotate",
+        # This report is constructed here, not read from a file, so it credits no
+        # document — and says so rather than omitting the key (#1563). Written as the
+        # literal empty pair, not `report.source_name`, which would compare the summary
+        # against the very object it was derived from and assert nothing.
+        "source": {"name": "", "sha256": ""},
         "sources": 1,
         "by_category": {"manufacturing_requirement": 1},
         "extracted": 1,

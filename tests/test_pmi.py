@@ -1,5 +1,6 @@
 """Tests for AP242 PMI extraction, lowering, rendering, and mode reconciliation."""
 
+import hashlib
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,12 @@ from draftwright._pmi_part21 import GeometricToleranceFact, ManufacturingRequire
 from draftwright.pmi import _PMI_AVAILABLE, PmiExtractionReport, PmiRecord
 
 FIXTURES = Path(__file__).parent / "fixtures"
+#: The census names the document it read (#1563). Derived from the fixture rather than
+#: hard-coded: a pasted digest asserts nothing about the file the test actually opens.
+_CTC01_SHA256 = hashlib.sha256(
+    (Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp").read_bytes()
+).hexdigest()
+
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 
@@ -1017,6 +1024,7 @@ class TestBuildDrawingPmi:
 
         assert dwg.lint_summary()["pmi"] == {
             "mode": "off",
+            "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
@@ -1079,6 +1087,7 @@ class TestBuildDrawingPmi:
         assert not [issue for issue in dwg.lint() if issue.code == "pmi_not_rendered"]
         assert dwg.lint_summary()["pmi"] == {
             "mode": "report",
+            "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
@@ -1249,6 +1258,7 @@ class TestBuildDrawingPmi:
         assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
         assert ctc01_annotated.lint_summary()["pmi"] == {
             "mode": "annotate",
+            "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
             "sources": 38,
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
@@ -1369,6 +1379,9 @@ def test_pmi_summary_is_derived_from_registry_outcomes():
 
     assert placed == {
         "mode": "annotate",
+        # A report built in this test, not read from a file: it credits no document, and says
+        # so rather than omitting the key (#1563).
+        "source": {"name": "", "sha256": ""},
         "sources": 1,
         "by_category": {"dimension": 1},
         "extracted": 1,

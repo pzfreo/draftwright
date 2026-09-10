@@ -671,7 +671,8 @@ class TestEmit:
         assert "page='A3'" in ctor
 
     def test_default_aspects_stay_off_the_constructor(self):
-        # unset aspects (and tolerance left at the ISO 2768-m default) never appear.
+        # unset aspects never appear — including tolerance, whose default is None since
+        # #1157, so an unauthored general tolerance leaves no trace for a re-run to revive.
         ctor = next(ln for ln in _script_for(_plate()).splitlines() if "Sheet(part" in ln)
         assert ctor == "sheet = Sheet(part, title='T', number='N')"
 
@@ -2134,7 +2135,10 @@ class TestRoundTripParity:
             for line in open(plain_py, encoding="utf-8").read().splitlines()
             if line.startswith("sheet = Sheet(")
         )
-        assert "frame" not in plain_ctor and "zones" not in plain_ctor
+        # Match the KEYWORD, not the bare word: since #1563 the constructor carries a
+        # `source=` path, and this tmp_path contains the test's own name — so "frame"
+        # appears inside the path and the loose form failed on a script that is correct.
+        assert "frame=" not in plain_ctor and "zones=" not in plain_ctor
 
     def test_grm03_vendored_fixture_full_parity(self, tmp_path, monkeypatch):
         # #707: GRM-03 (the Maquetto thumbwheel drive screw) is the real STEP that

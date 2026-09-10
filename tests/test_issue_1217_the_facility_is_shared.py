@@ -73,7 +73,9 @@ def _turned_part():
 
 def _bored_tube():
     # #1227's exact part. Every annotation on this sheet was unclaimed when that issue was
-    # filed; `dim_od` and `ldr_z0` are fixed here, and `dim_height` is registered below (#1230).
+    # filed; `dim_od` and `ldr_z0` were fixed here. `dim_height` was registered below as a
+    # live #1230 defect and no longer is: it now claims the envelope's `height.length`, so
+    # `_UNPLANNED_VALUES` is empty and the register test asserts that emptiness both ways.
     return Cylinder(20, 60, align=_C) - Cylinder(6, 70, align=_C)
 
 
