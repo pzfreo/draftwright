@@ -210,6 +210,11 @@ def pmi_stage_summary(
     dropped = _source_drop_ids(registry) & lowered
     return {
         "mode": mode,
+        # Which document these counts describe (#1563). The drawing's geometry and the AP242
+        # census need not come from the same call any more — a script-built Sheet names its
+        # source — so a consumer reading `lowered: 10` can see what the 10 were counted against
+        # instead of inferring it from whatever file it thinks was passed.
+        "source": {"name": report.source_name, "sha256": report.source_sha256},
         "sources": len(report.sources),
         "by_category": _source_category_counts(report),
         "extracted": len(extracted),
@@ -301,6 +306,92 @@ def lint_pmi_lowering(
                 )
             )
     return issues
+
+
+def lint_pmi_unreconciled(report, features, *, decorations=None) -> list[LintIssue]:
+    """Report source-bearing content that NO census was available to check (#1563).
+
+    Every other check in this module reasons from an extraction report. When there is none the
+    whole module falls silent, and the two states it cannot then distinguish are exactly the
+    ones a consumer needs kept apart: a drawing with no source PMI, and a drawing whose source
+    PMI was never looked at. A script-built `Sheet` was always the second — it holds an
+    in-memory solid — so the raw `sheet.add(PmiFeature(...))` fallbacks the emitter writes, and
+    the `source='ap242_pmi'` provenance on ordinary declarations, went unexamined in silence.
+    Deleting them changed no diagnostic at all.
+
+    This runs on exactly that gap: content claiming an AP242 origin with no census behind it.
+    It reports the claim as unverified, never as satisfied or as false — the honest outcome
+    when the evidence is absent rather than negative. Supply the document (``Sheet(...,
+    source=…)`` or a STEP path) and the real reconciliation replaces this.
+    """
+    if report is not None:
+        return []
+    unchecked = {
+        source_id
+        for feature in features
+        for source_id in _source_ids(feature)
+        if getattr(feature, "source", "") == "ap242_pmi" or getattr(feature, "kind", None) == "pmi"
+    }
+    for _key, source_ids in _decorated_source_features(decorations, features=features):
+        unchecked.update(source_ids)
+    raw = sum(1 for feature in features if getattr(feature, "kind", None) == "pmi")
+    if not unchecked and not raw:
+        return []
+    detail = f"{len(unchecked)} AP242 source reference(s)"
+    if raw:
+        detail += f", including {raw} raw PMI record(s) not lowered to a drafting concept"
+    return [
+        LintIssue(
+            severity="warning",
+            code="pmi_unreconciled",
+            message=(
+                f"this drawing declares {detail}, and no AP242 census was available to check "
+                "them — the claims are unverified, not satisfied. Name the source STEP "
+                "(Sheet(..., source='part.step', pmi='annotate')) to reconcile them"
+            ),
+            source_ids=tuple(sorted(unchecked)),
+        )
+    ]
+
+
+def lint_pmi_source_unknown(report, features, *, decorations=None) -> list[LintIssue]:
+    """Report declared AP242 provenance the census does not contain (#1563).
+
+    `lint_pmi_lowering` walks the census and asks what became of each record. Nothing walked
+    the other way, so a declaration could claim ``source='ap242_pmi'`` with a `source_id` no
+    record carries and be accepted in silence — a fabricated provenance, which is a worse
+    failure than a missing one because it reads as evidence.
+    """
+    if report is None:
+        return []
+    known = {source_id for record in report.records for source_id in _source_ids(record)}
+    known.update(entity.source_id for entity in report.sources if getattr(entity, "source_id", ""))
+    claimed: dict[str, object] = {}
+    for feature in features:
+        if (
+            getattr(feature, "source", "") != "ap242_pmi"
+            and getattr(feature, "kind", None) != "pmi"
+        ):
+            continue
+        for source_id in _source_ids(feature):
+            claimed.setdefault(source_id, feature)
+    for _key, source_ids in _decorated_source_features(decorations, features=features):
+        for source_id in source_ids:
+            claimed.setdefault(source_id, None)
+    return [
+        LintIssue(
+            severity="error",
+            code="pmi_source_unknown",
+            message=(
+                f"a declaration claims AP242 source {source_id}, which "
+                f"{report.source_name or 'the reconciled document'} does not contain — the "
+                "provenance is fabricated, not merely unmatched"
+            ),
+            source_ids=(source_id,),
+        )
+        for source_id in sorted(claimed)
+        if source_id not in known
+    ]
 
 
 #: Codes that already explain why a typed record produced no annotation. This check exists

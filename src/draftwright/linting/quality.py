@@ -260,6 +260,13 @@ _FIDELITY_CODES = frozenset(
         "gear_repeat_count_mismatch",
         "gear_axis_mismatch",
         "gear_requirement_mismatch",
+        # A declaration claiming an AP242 source identity the reconciled document does not
+        # contain (#1563). It belongs by the same rule as `gear_requirement_mismatch`: the
+        # source contradicted is the authored requirement rather than the solid, and the
+        # drawing does place content for the claim — a dimension carrying `ap242_pmi`
+        # provenance asserts a machinist can trace it to the model. A fabricated provenance
+        # is worse than a missing one, because it reads as evidence.
+        "pmi_source_unknown",
         # An annotation claiming a measurement it does not render, and one claiming a
         # measurement the compiler never approved (#1217). Both are the sheet contradicting
         # its own provenance: the drawing asserts, through the seam coverage reads, that it
@@ -328,6 +335,11 @@ _UNSCORED_CODES = frozenset(
         "pmi_not_lowered",
         "pmi_not_rendered",
         "pmi_present_but_ignored",
+        # Unverified is not false and not misplaced: no census was available, so nothing was
+        # contradicted and nothing was mis-drawn (#1563). It sits with the other pmi codes
+        # here rather than in fidelity, whose basis is a claim the source refutes — this one
+        # reports that no source was consulted at all.
+        "pmi_unreconciled",
         "step_dim_withheld",
         "pattern_pitch_tolerance_withheld",
         "passage_requirement_unsupported",

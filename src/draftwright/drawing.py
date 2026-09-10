@@ -125,6 +125,8 @@ from draftwright.linting import (
     lint_pmi_ignored,
     lint_pmi_lowering,
     lint_pmi_rendering,
+    lint_pmi_source_unknown,
+    lint_pmi_unreconciled,
     lint_pocket_coverage,
     lint_pocket_pattern_coverage,
     lint_polygonal_boss_coverage,
@@ -210,6 +212,12 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
         "pmi_not_rendered",
+        # Registered here for the same reason as the two above: an unverified or
+        # fabricated AP242 claim is a statement about the geometry, not about layout
+        # (#1563). Leaving them out would let a drawing carrying either report
+        # `geometry_issues: 0`, which is the shape of defect this register exists for.
+        "pmi_unreconciled",
+        "pmi_source_unknown",
         # These REPLACE `pmi_not_rendered` for a record that produced no annotation (#1177);
         # the content is equally missing, so the count must not fall just because the
         # reason improved. `authored_dim_degenerate` suppressed that error without
@@ -4475,6 +4483,20 @@ class Drawing:
                 getattr(self._part_model, "features", ()),
                 self._registry,
                 self._analysis.pmi_mode,
+                decorations=getattr(self._part_model, "decorations", {}),
+            )
+            # The two directions the four checks above cannot cover, because each of them
+            # reasons FROM the census: content whose census is missing entirely, and content
+            # claiming an identity the census does not contain (#1563). Both take the report
+            # itself rather than the mode — an absent census is the condition, not a setting.
+            issues += lint_pmi_unreconciled(
+                self._analysis.pmi_report,
+                getattr(self._part_model, "features", ()),
+                decorations=getattr(self._part_model, "decorations", {}),
+            )
+            issues += lint_pmi_source_unknown(
+                self._analysis.pmi_report,
+                getattr(self._part_model, "features", ()),
                 decorations=getattr(self._part_model, "decorations", {}),
             )
         issues += list(self._registry.issues)

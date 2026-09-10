@@ -1209,6 +1209,12 @@ def _build_drawing_once(
     _required_tables=(),
     _select_automatic_views: bool = False,
     _document_input=None,
+    *,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1324,6 +1330,7 @@ def _build_drawing_once(
             scale=scale,
             page=page,
             pmi=pmi,
+            source=source,
             model=model,
             decorations=decorations,
             authored=authored,
@@ -1913,6 +1920,11 @@ def build_drawing(
     _document_input=None,
     *,
     projection_symbol: bool = True,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1952,6 +1964,7 @@ def build_drawing(
         auto_dims=auto_dims,
         detail_view=detail_view,
         pmi=pmi,
+        source=source,
         repair=repair,
         assembly=assembly,
         model=model,
@@ -2859,6 +2872,11 @@ def make_drawing(
     text_orientation: str = "aligned",
     *,
     projection_symbol: bool = True,
+    #: The STEP document the geometry came from, when it is not `step_file` itself
+    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
+    #: exists to catch — and did.
+    source: str | Path | None = None,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2919,6 +2937,7 @@ def make_drawing(
         auto_dims=auto_dims,
         detail_view=detail_view,
         pmi=pmi,
+        source=source,
         assembly=assembly,
         material=material,
         date=date,
