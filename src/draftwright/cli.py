@@ -159,7 +159,10 @@ def main(
     out: str | None = typer.Option(None, help="Output prefix (default: input stem)"),
     title: str | None = typer.Option(None, help="Part title for title block"),
     number: str = typer.Option("DWG-001", help="Drawing number"),
-    tolerance: str = typer.Option("ISO 2768-m", help="General tolerance"),
+    tolerance: str | None = typer.Option(
+        None,
+        help="General tolerance (e.g. 'ISO 2768-m'); omitted, the title block says UNSPECIFIED",
+    ),
     drawn_by: str = typer.Option("", "--drawn-by", help="Designer name"),
     material: str = typer.Option("", help="Material for the title block"),
     date: str = typer.Option("", help="Date for the title block"),

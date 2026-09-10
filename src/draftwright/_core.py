@@ -174,6 +174,15 @@ def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 
+#: What the general-tolerance cell states when no tolerance was authored or sourced.
+#: A blank cell is indistinguishable from an oversight and invites a shop to assume its
+#: own house standard, so the absent case is named rather than left empty (#1157).
+#: The cell is not tight — 48 mm on A4's 120 mm block, 60 mm above it, against 16.9 mm of
+#: ink here — so this is a wording choice, not a width-forced one. The paired test still
+#: measures it against the block's own `cell_bbox` on A4, the narrowest supported width,
+#: because a longer replacement (a sentence, say) would overflow there and nowhere else.
+_TOLERANCE_UNSPECIFIED = "UNSPECIFIED"
+
 _FONT_SIZE = 3.0  # annotation text height (page-mm); the draft preset is built with this
 
 
@@ -1236,7 +1245,12 @@ class Analysis:
     step_file: str | Path | Shape
     title: str
     number: str
-    tolerance: str
+    #: The general tolerance for the title block. ``None`` means the caller supplied none
+    #: and none was sourced — a distinct state from an explicitly authored string, because a
+    #: general tolerance is a manufacturing requirement and defaulting one invents intent
+    #: the source model may not carry (#1157). ``""`` is the explicit request for a blank
+    #: cell. `_make_title_block` renders `None` as `_TOLERANCE_UNSPECIFIED`.
+    tolerance: str | None
     drawn_by: str
     out: str
     # Canonical AP242 source census + extraction outcomes for a STEP input, including off mode
@@ -1351,7 +1365,7 @@ def _make_title_block(dwg, a: Analysis):
     so the two never drift."""
     title = _font_safe_text(a.title)
     number = _font_safe_text(a.number)
-    tolerance = _font_safe_text(a.tolerance)
+    tolerance = _font_safe_text(_TOLERANCE_UNSPECIFIED if a.tolerance is None else a.tolerance)
     designed_by = _font_safe_text(_attribution_author(a.drawn_by))
     material = _font_safe_text(a.material)
     date = _font_safe_text(a.date)

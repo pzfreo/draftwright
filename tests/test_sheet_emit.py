@@ -671,7 +671,8 @@ class TestEmit:
         assert "page='A3'" in ctor
 
     def test_default_aspects_stay_off_the_constructor(self):
-        # unset aspects (and tolerance left at the ISO 2768-m default) never appear.
+        # unset aspects never appear — including tolerance, whose default is None since
+        # #1157, so an unauthored general tolerance leaves no trace for a re-run to revive.
         ctor = next(ln for ln in _script_for(_plate()).splitlines() if "Sheet(part" in ln)
         assert ctor == "sheet = Sheet(part, title='T', number='N')"
 

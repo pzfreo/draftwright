@@ -2073,7 +2073,7 @@ def emit_sheet_script(
     title: str,
     number: str,
     drawn_by: str = "",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     scale=None,
     scale_policy="fallback",
     page=None,
@@ -2190,7 +2190,7 @@ def emit_sheet_script(
     ctor = [f"title={title!r}", f"number={number!r}"]
     if drawn_by:
         ctor.append(f"drawn_by={drawn_by!r}")
-    if tolerance != "ISO 2768-m":
+    if tolerance is not None:
         ctor.append(f"tolerance={tolerance!r}")
     emitted_scale = scale
     if emitted_scale is None and settled_layout is not None:
@@ -2472,7 +2472,7 @@ def generate_sheet_script(
     *,
     title: str | None = None,
     number: str = "DWG-001",
-    tolerance: str = "ISO 2768-m",
+    tolerance: str | None = None,
     drawn_by: str = "",
     scale=None,
     scale_policy="fallback",
