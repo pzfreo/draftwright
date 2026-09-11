@@ -1402,6 +1402,13 @@ def _make_title_block(dwg, a: Analysis):
     # Retain authoritative title-block values at their public cell centres for the PDF semantic
     # text layer.  The visible block stays path-rendered; these specs merely let export embed the
     # same bundled condensed face as invisible selectable text without parsing SVG geometry.
+    # helpers >= 0.15.3 gives the date a cell of its own whenever a revision is
+    # also set, because the two cannot share the top-right cell (#1585). Ask the
+    # block which layout it drew rather than restating its rule here: when there
+    # is no dedicated cell, cell_bbox("date") aliases the revision cell, and
+    # emitting both entries would stamp two texts at one centre and lint the
+    # same cell twice.
+    date_has_cell = date and tb.cell_bbox("date") != tb.cell_bbox("revision")
     fields = (
         ("title", title),
         ("drawing_number", number),
@@ -1411,7 +1418,7 @@ def _make_title_block(dwg, a: Analysis):
         ("general_tolerance", tolerance),
         ("designed_by", designed_by),
         ("legal_owner", legal_owner),
-    )
+    ) + ((("date", date),) if date_has_cell else ())
     specs = []
     for field, value in fields:
         if not value:

@@ -154,15 +154,15 @@ wheels = [
 
 [[package]]
 name = "build123d-drafting-helpers"
-version = "0.15.1"
+version = "0.15.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "build123d", version = "0.10.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "build123d", version = "0.11.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/16/52/7bd7e8e912a3b109875320f8f169403a4df5a6a782fa5c46616aae76ca78/build123d_drafting_helpers-0.15.1.tar.gz", hash = "sha256:14aa18a85bd0af0fa2708759542fba96a7c47eb30837adc6ae4531c24e6a4b75", size = 355220, upload-time = "2026-09-08T18:11:39.646Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b9/12/93ea4d014eaf785faa2e652c4bb46345ade8098a8abbc5e032f0190eddbc/build123d_drafting_helpers-0.15.3.tar.gz", hash = "sha256:dff4c2c814a3681efa968914b9729955777baa052fb40208742b42d4b7bc134b", size = 358407, upload-time = "2026-09-11T21:54:40.912Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a1/fd/52425d409463a4e7f8598e055c062b03ec02cdcb60956e56e5c81e70a057/build123d_drafting_helpers-0.15.1-py3-none-any.whl", hash = "sha256:21b5b39aff70096282e126028ecfe79d85bd682254ee4cf7a65a91e1582440c7", size = 290145, upload-time = "2026-09-08T18:11:38.05Z" },
+    { url = "https://files.pythonhosted.org/packages/46/50/cb8cbaabba2ba50268859242c5f625688760a57b09206e77ef81fac83aed/build123d_drafting_helpers-0.15.3-py3-none-any.whl", hash = "sha256:f784db4c9e949e01a0086a78277fe24eca802a42e129de1790141891eb9dc5df", size = 291094, upload-time = "2026-09-11T21:54:39.191Z" },
 ]
 
 [[package]]
@@ -746,7 +746,7 @@ requires-dist = [
     { name = "antlr4-python3-runtime", specifier = "<4.10" },
     { name = "build123d", marker = "python_full_version < '3.13'", specifier = ">=0.9.0,<0.11" },
     { name = "build123d", marker = "python_full_version >= '3.13'", specifier = ">=0.11,<0.12" },
-    { name = "build123d-drafting-helpers", specifier = ">=0.15.1" },
+    { name = "build123d-drafting-helpers", specifier = ">=0.15.3" },
     { name = "cadquery-ocp-novtk", marker = "python_full_version >= '3.13'", specifier = "!=7.9.3.1.1" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "ocp-gordon", specifier = "<0.3" },
