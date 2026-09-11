@@ -74,18 +74,65 @@ def test_the_date_is_drawn_inside_its_cell(dated):
     assert not [issue for issue in dated.lint() if issue.code == "title_field_overflow"]
 
 
-@pytest.mark.parametrize("page", ["A4", "A3"])
+@pytest.fixture(scope="module")
+def dated_a3():
+    return _sheet(page="A3", title="BRACKET", number="DRW-0042", date=DATE).build()
+
+
 @pytest.mark.parametrize("value", ["2026-09-11", "11/09/2026", "11 SEP 2026"])
-def test_common_date_formats_fit_on_the_pages_draftwright_uses(page, value):
+def test_common_date_formats_fit_on_the_pages_draftwright_uses(dated, dated_a3, value):
     # A4 carries a 120 mm title block, A3 and larger a 150 mm one. The cell has
     # to hold a date at both, or the fix trades a silent drop for a visible spill.
-    drawing = _sheet(page=page, title="BRACKET", number="DRW-0042", date=value).build()
-    overflow = [
-        issue
-        for issue in drawing.lint()
-        if issue.code == "title_field_overflow" and "'date'" in issue.message
+    # This is a question about text metrics against a cell, so it measures the
+    # two already-built blocks rather than minting a build per format.
+    for drawing in (dated, dated_a3):
+        cell = drawing.get_annotation("title_block").cell_bbox("date")
+        ink = Text(
+            value,
+            font_size=3,
+            font_path=PLEX_SANS_CONDENSED,
+            align=(Align.CENTER, Align.CENTER),
+            mode=Mode.PRIVATE,
+        ).bounding_box()
+        assert ink.size.X < cell["width"], f"{value!r} needs {ink.size.X:.2f} mm of {cell}"
+
+
+def test_whitespace_revision_records_what_the_block_actually_drew():
+    # The TitleBlock strips both fields before choosing cells, so a whitespace
+    # revision is no revision to it and the date takes the shared top-right cell.
+    # Unstripped here, `revision or date` recorded "  " and the drawn date reached
+    # neither the PDF text layer nor the overflow lint — #1585 wearing spaces.
+    drawing = _sheet(title="BRACKET", number="DRW-0042", date=DATE, revision="  ").build()
+    _block, fields = _fields(drawing)
+    assert fields["revision"] == DATE
+
+
+def test_a_padded_date_is_recorded_as_it_is_drawn():
+    drawing = _sheet(title="BRACKET", number="DRW-0042", date=f"  {DATE}  ").build()
+    _block, fields = _fields(drawing)
+    assert fields["date"] == DATE
+
+
+def test_the_date_cell_narrows_the_drawn_by_cell():
+    # Consequence of the two fields sharing the bottom row, pinned so it is a
+    # decision rather than a surprise: adding a date takes the last two columns
+    # from DRAWN BY (60% -> 35% of the block), and a drawn_by that fits the full
+    # width may not fit the remainder. The lint reports it rather than spilling
+    # silently, which is the behaviour under test.
+    long_author = "ACME Engineering Ltd"
+    without = _sheet(title="BRACKET", number="DRW-0042", drawn_by=long_author).build()
+    with_date = _sheet(title="BRACKET", number="DRW-0042", drawn_by=long_author, date=DATE).build()
+    wide = without.get_annotation("title_block").cell_bbox("designed_by")["width"]
+    narrow = with_date.get_annotation("title_block").cell_bbox("designed_by")["width"]
+    assert wide == pytest.approx(72.0)
+    assert narrow == pytest.approx(42.0)
+    assert not [i for i in without.lint() if i.code == "title_field_overflow"]
+    spilled = [
+        i
+        for i in with_date.lint()
+        if i.code == "title_field_overflow" and "'designed_by'" in i.message
     ]
-    assert overflow == []
+    assert len(spilled) == 1, "a drawn_by squeezed past its cell must be reported"
 
 
 def test_no_date_field_when_the_block_has_no_date_cell():

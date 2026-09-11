@@ -1368,8 +1368,14 @@ def _make_title_block(dwg, a: Analysis):
     tolerance = _font_safe_text(_TOLERANCE_UNSPECIFIED if a.tolerance is None else a.tolerance)
     designed_by = _font_safe_text(_attribution_author(a.drawn_by))
     material = _font_safe_text(a.material)
-    date = _font_safe_text(a.date)
-    revision = _font_safe_text(a.revision)
+    # Stripped, because the TitleBlock strips these two before deciding which
+    # cells to draw. Left unstripped they disagree: a whitespace revision is no
+    # revision to the block (which then draws the date in the shared cell) but a
+    # truthy one here, so `revision or date` recorded "  " and the drawn date
+    # reached neither the PDF text layer nor the overflow lint — #1585 again,
+    # wearing spaces. A padded date likewise measured wider than the block drew.
+    date = _font_safe_text(a.date).strip()
+    revision = _font_safe_text(a.revision).strip()
     legal_owner = _font_safe_text(a.company)
     scale = format_drawing_scale(a.SCALE)
     tb = TitleBlock(
