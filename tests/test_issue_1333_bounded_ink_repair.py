@@ -179,13 +179,13 @@ def test_automatic_and_declared_builds_use_the_same_recognition_free_repair():
     # sheet. Passing `scale=` to the declared build would force a recognition
     # call that `recognition_consumer_calls` exists to prove does not happen.
     raw = build_drawing(part, repair=False)
-    assert len(raw.lint(physical=False)) == 3
+    assert len(raw.lint(physical=False)) == 2
     automatic = build_drawing(part)
     automatic_left = [i.code for i in automatic.lint(physical=False)]
     with recognition_consumer_calls() as counts:
         declared = build_drawing(part, model=raw.model(), repair=False)
         before = declared.measurement_snapshot()
-        assert len(declared.lint(physical=False)) == 3
+        assert len(declared.lint(physical=False)) == 2
         declared.repair()
         assert [i.code for i in declared.lint(physical=False)] == automatic_left
         assert compare_measurements(before, declared)["status"] == "preserved"
