@@ -60,6 +60,23 @@ def test_write_dxf_falls_back_without_ezdxf_internals(tmp_path):
         def write(self, path):
             self.wrote = path
 
+    # The fallback still writes when reproducibility is not being claimed.
     exp = Opaque()
-    write_dxf(exp, str(tmp_path / "o.dxf"), 210.0, 297.0)
+    write_dxf(exp, str(tmp_path / "o.dxf"), 210.0, 297.0, reproducible=False)
     assert exp.wrote == str(tmp_path / "o.dxf")
+
+
+def test_write_dxf_refuses_rather_than_write_live_data_when_pinning_is_impossible(tmp_path):
+    """Reproducible is the default now, so this is the default path too.
+
+    Without the ezdxf document the metadata cannot be pinned, and a file that
+    silently carries the clock while the caller believes it reproducible is
+    worse than no file.
+    """
+
+    class Opaque:
+        def write(self, path):  # pragma: no cover - must not be reached
+            raise AssertionError("wrote a live-data DXF while claiming reproducibility")
+
+    with pytest.raises(RuntimeError, match="requires access to the ezdxf document"):
+        write_dxf(Opaque(), str(tmp_path / "o.dxf"), 210.0, 297.0)

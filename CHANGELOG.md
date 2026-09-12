@@ -2,13 +2,36 @@
 
 ## Unreleased
 
+### Changed
+
+- **Exports are reproducible by default.** `reproducible` now defaults to `True`
+  on `build_drawing`, `make_drawing`, `Drawing` and `Drawing.export`, so two
+  exports of one drawing are byte-identical without asking. Pass
+  `reproducible=False` to opt out.
+
+  It was opt-in on a cost argument, and the cost turns out to be small at the
+  scale most drawings are made: on the NIST CTC-01 AP242 fixture, +0.27 s on a
+  13.4 s job (+3.2% of export, +2.0% overall). The +32% of export measured when
+  the flag was introduced was a 358-part assembly; the ordering work is one
+  bounding box and one edge walk per part, so it scales with part count and a
+  part-heavy sheet is still the case to opt out of.
+
+  Two things pushed the default over. A file that changes between runs cannot be
+  diffed, checksummed or cached — the reason to want it is not speed-shaped. And
+  neither the CLI nor `Sheet` exposes the flag at all, so every drawing made
+  through those surfaces was non-reproducible with no way to change it.
+
+  One behaviour follows from the default rather than from this change: a DXF
+  export that cannot reach the ezdxf document to pin its metadata now raises
+  rather than writing live data, because every export now claims
+  reproducibility. Opting out restores the old fallback.
 ### Fixed
 
 - **A supplied title-block `date` is stated on the sheet** (#1585). `TitleBlock`
   could show only one of `revision`/`date` in its top-right cell and revision
   won, while draftwright defaults `revision` to `"A"` — so every drawing that
   set a date lost it, silently, in every version that has had the parameter.
-  Adopting `build123d-drafting-helpers>=0.15.3` gives the date a cell of its
+  Adopting `build123d-drafting-helpers>=0.15.4` gives the date a cell of its
   own whenever a revision is also set, and `_make_title_block` now names that
   cell, so the date reaches the PDF text layer and the cell-overflow lint
   rather than only the rendered geometry.
