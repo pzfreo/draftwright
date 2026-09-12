@@ -66,7 +66,7 @@ def test_external_spur_gear_ir_rejects_incomplete_or_invalid_requirements(change
 
 
 def test_sheet_declaration_places_one_solver_owned_standard_table():
-    sheet = Sheet(Cylinder(8, 10))
+    sheet = Sheet(Cylinder(8, 10), scale=1)
     sheet.external_spur_gear(
         at=(0, 0, 5),
         axis="z",
@@ -108,7 +108,7 @@ def test_sheet_declaration_places_one_solver_owned_standard_table():
 
 
 def test_standard_table_survives_vector_export(tmp_path):
-    sheet = Sheet(Cylinder(8, 10))
+    sheet = Sheet(Cylinder(8, 10), scale=1)
     sheet.external_spur_gear(
         at=(0, 0, 5),
         axis="z",
@@ -165,7 +165,7 @@ def test_gear_table_uses_a_free_name_and_dropped_table_never_acquires_provenance
 
 
 def test_removed_gear_table_is_a_semantic_coverage_failure():
-    sheet = Sheet(Cylinder(8, 10))
+    sheet = Sheet(Cylinder(8, 10), scale=1)
     sheet.external_spur_gear(
         at=(0, 0, 5),
         axis="z",
@@ -188,7 +188,7 @@ def test_removed_gear_table_is_a_semantic_coverage_failure():
 
 def test_sheet_script_preserves_every_source_authored_gear_value_exactly():
     feature = _gear()
-    sheet = Sheet(Cylinder(8, 10))
+    sheet = Sheet(Cylinder(8, 10), scale=1)
     sheet.add(feature)
     sheet.authored_dimensions()
     model = sheet.model()
@@ -205,7 +205,7 @@ def test_sheet_script_preserves_every_source_authored_gear_value_exactly():
     emitted_line = next(
         line for line in source.splitlines() if " = sheet.external_spur_gear(" in line
     ).split("#", 1)[0]
-    regenerated = Sheet(Cylinder(8, 10))
+    regenerated = Sheet(Cylinder(8, 10), scale=1)
     exec(emitted_line, {"sheet": regenerated})  # noqa: S102 — generated Python is the product
     regenerated.authored_dimensions()
 
