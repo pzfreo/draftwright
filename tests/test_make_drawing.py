@@ -1153,10 +1153,12 @@ class TestStepSizingConvergence:
 
 class TestChooseScale:
     def test_tiny_part_fits_A4(self):
-        # 20×20×20 mm — enlargement scales don't fit A4/A3, lands on A4 2:1
+        # 20×20×20 mm — enlargement scales don't fit A4/A3, lands on A4 1:1.
+        # Was 2:1 before the ISO 7200 title block: four rows of mandatory fields
+        # take 16 mm more height, so the enlargement no longer clears the band.
         scale, pw, ph, tbw = choose_scale(20, 20, 20)
         assert int(pw) == 297
-        assert scale == 2.0
+        assert scale == 1.0
 
     def test_medium_part_gets_A3(self):
         # 80×80×80 mm — fits A3 1:1 because the view rows clear the title block,
@@ -1184,8 +1186,11 @@ class TestChooseScale:
         assert int(pw) < 594
 
     def test_large_part_gets_bigger_page(self):
-        scale, pw, ph, tbw = choose_scale(300, 300, 300)
-        assert pw > 420
+        # Page escalation still happens, just later: with less drawing area a
+        # 300 mm cube now takes 1:5 on A3 rather than escalating, which is the
+        # #1338 policy (spend scale before page) working. 500 mm still escalates.
+        assert choose_scale(300, 300, 300)[1] == pytest.approx(420.0)
+        assert choose_scale(500, 500, 500)[1] > 420
 
     def test_returns_four_values(self):
         result = choose_scale(50, 50, 50)
@@ -1246,9 +1251,11 @@ class TestChooseScale:
         assert scale == 2.0
         assert int(pw) == 297
 
-    def test_very_small_part_gets_10x(self):
+    def test_very_small_part_gets_enlarged(self):
+        # 5:1, one ISO step below the 10:1 this got before the taller title
+        # block. What matters is that a very small part is still enlarged.
         scale, pw, ph, tbw = choose_scale(8, 4, 4)
-        assert scale == 10.0
+        assert scale == 5.0
         assert int(pw) == 297
 
     # #350 — never return an overflowing layout for an oversized part.
@@ -3767,7 +3774,12 @@ def test_build_drawing_auto_dims_false():
     # cylinder's iso is rescaled off sheet scale — the truthful "ISO VIEW (NTS)" note. The
     # note is furniture, not a dimension, so it belongs here (script↔CLI parity); auto_dims
     # still suppresses every *dimension*.
-    assert set(dwg.annotations()) == {"title_block", "note_iso_nts", "projection_symbol"}
+    assert set(dwg.annotations()) == {
+        "title_block",
+        "note_iso_nts",
+        "projection_symbol",
+        "scale_note",
+    }
 
 
 @pytest.mark.timeout(60)
@@ -11673,10 +11685,13 @@ class TestDraftwrightAttribution:
         x0, y0, x1, y1 = tb.draftwright_link_rect
         bb = tb.bounding_box()
         cell = tb.drawn_by_cell_bbox()  # build-frame; block min corner is at bb.min
-        assert x1 == pytest.approx(bb.max.X, abs=0.5)  # flush to block right edge
-        assert y0 == pytest.approx(bb.min.Y, abs=0.5)  # block bottom
-        assert y1 - y0 == pytest.approx((bb.max.Y - bb.min.Y) / 2, abs=0.5)  # one row
-        assert x0 == pytest.approx(bb.min.X + cell["min_x"], abs=0.5)  # drawn-by cell left
+        # Both edges come from the block's own cell bbox, not its extents: under
+        # the ISO 7200 layout the drawn-by cell no longer reaches the right edge
+        # (DATE, REV and SHEET sit to its right) and is one row of four, not two.
+        assert x0 == pytest.approx(bb.min.X + cell["min_x"], abs=0.5)
+        assert x1 == pytest.approx(bb.min.X + cell["max_x"], abs=0.5)
+        assert y0 == pytest.approx(bb.min.Y + cell["min_y"], abs=0.5)
+        assert y1 == pytest.approx(bb.min.Y + cell["max_y"], abs=0.5)
         assert 0 < x0 < x1 <= dwg.page_w and 0 < y0 < y1 <= dwg.page_h
 
     def test_add_svg_hyperlink_injects_anchor(self, tmp_path):
