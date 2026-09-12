@@ -134,11 +134,12 @@ class TestTheDecisionIsMadeOnceAndCarried:
         reason=(
             "The DEMONSTRATION no longer demonstrates, though the decision it argues "
             "for is untouched. `_dense_plate` on the four-row ISO 7200 sheet re-derives "
-            "to the same lint set, so the difference this asserts is empty. The sheet is "
-            "still 420x297 at 1:1, so it is not a smaller-sheet effect — the fixture has "
-            "simply stopped sitting in the regime where resolving per stage costs the "
-            "dense plate's location requirements. Needs a fixture that still does, not "
-            "an inverted assertion: 'they happen to agree here' argues nothing."
+            "to the same lint set, so the difference this asserts is empty. The PAGE is "
+            "the same 420x297, but the scale is not: the perturbed build picks 2.0 on "
+            "main and 1.0 here, so the usable area did shrink and that is exactly why "
+            "the demonstration stopped working — an earlier version of this reason "
+            "claimed the opposite. Needs a fixture that still shows the loss, not an "
+            "inverted assertion: 'they happen to agree here' argues nothing."
         ),
         strict=True,
     )

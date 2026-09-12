@@ -4,6 +4,40 @@
 
 ### Changed
 
+- **The title block carries every ISO 7200:2004 mandatory data field.** Three had
+  no representation at all before — segment/sheet number (5.1.6), approval person
+  (5.3.4) and document type (5.3.6) — and are now `sheet=`, `approved_by=` and
+  `document_type=` on `build_drawing`, `make_drawing`, `Sheet`, the CLI and the
+  `--script` emitter. Cell widths come from the standard's own recommended
+  character counts (via `build123d-drafting-helpers>=0.15.4`), so they follow ISO
+  7200 and the font rather than a chosen proportion.
+
+  Eleven fields need four rows, so **the block is 32 mm tall rather than 16**, and
+  the band reserved for it goes 35 → 40 mm. `material` and `general_tolerance`
+  stay although neither is an ISO 7200 title-block field; they are on every real
+  drawing.
+
+- **The scale is stated outside the title block**, beside the projection symbol,
+  per ISO 7200 §4 ("presented outside the title block only when used, e.g. scale,
+  projection symbol"). It is drawn unconditionally, and the new **`scale_not_stated`
+  error** checks the rendered sheet rather than trusting the code that draws it.
+  The `SCALE` cell is gone from the block.
+
+  **Two consequences worth knowing before you upgrade:**
+
+  - A dense sheet may escalate a page size. In the golden corpus one fixture of
+    fourteen (`flange_dense`) moves A4 → A3; the other thirteen keep their page
+    and scale, and a sweep of ten ordinary shapes showed no change at all.
+  - A dimension can now be placed inside the title block, and `lint()` does not
+    report it — `build_drawing(Box(40, 30, 12))` puts a `30` dimension 24 mm into
+    the block and reports a clean sheet. The mechanism is pre-existing (#1593:
+    the block is added after placement, so only GD&T ever avoided it) but a
+    four-row block makes it reachable on ordinary parts. Three test cases are
+    `xfail(strict)` against that issue rather than blessed.
+
+
+### Changed
+
 - **Exports are reproducible by default.** `reproducible` now defaults to `True`
   on `build_drawing`, `make_drawing`, `Drawing` and `Drawing.export`, so two
   exports of one drawing are byte-identical without asking. Pass
@@ -36,14 +70,12 @@
   cell, so the date reaches the PDF text layer and the cell-overflow lint
   rather than only the rendered geometry.
 
-  Two consequences worth knowing. A drawing that supplies a date now has a
-  narrower DRAWN BY cell — 60% of the block rather than 35% — so a long
-  `drawn_by` that fitted before may now overflow and warn. And `date`,
-  `revision` and `company` are stripped before use, matching what the block
-  itself does: a whitespace-only `company` previously raised `KeyError` from
-  `cell_bbox`, and padded values were measured at a width the sheet never drew.
-  The shared top-right cell is now reported under the field it actually holds,
-  so a lint message about a date no longer names `'revision'`.
+  `date`, `revision` and `company` are stripped before use, matching what the
+  block itself does: a whitespace-only `company` previously raised `KeyError`
+  from `cell_bbox`, and padded values were measured at a width the sheet never
+  drew. (The DRAWN BY narrowing this entry originally described, and the shared
+  top-right cell it named, are both gone with the ISO 7200 layout above — the
+  date has its own cell in its own row, so it costs DRAWN BY nothing.)
 
 
 ### Added

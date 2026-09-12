@@ -61,6 +61,20 @@ mistake for a regression.
 is omitted. All ten audited groove/shoulder requirements are placed, with each
 outer diameter retaining its own claim. The baseline now guards those recovered marks.
 
+#1591 re-baselines the whole corpus for the ISO 7200-complete title block: every
+mandatory data field now has a cell, so the block is four rows and 32 mm rather
+than two and 16, and the scale is stated outside it. Two deliberate advances of
+the ratchet, both named because the ratchet exists to make somebody name them:
+
+  * every fixture gains a `scale_note` label and its geometry moves up by the
+    difference in block height — 0 labels lost across all fourteen;
+  * `flange_dense` GROWS ITS SHEET, A4 -> A3. It is the only one of the fourteen
+    that does; the other thirteen keep their page and their scale. A denser sheet
+    has less room once the block takes 16 mm more, and this fixture was close
+    enough to the A4 limit to cross it. Accepted as the price of the mandatory
+    fields rather than tuned around, because the alternative — a shorter block —
+    means choosing which ISO 7200 mandatory field to drop.
+
 Re-bless the recorded baseline (advances the footprint ratchet — do it deliberately):
     DRAFTWRIGHT_UPDATE_GOLDEN=1 uv run pytest tests/test_refactor_golden.py
 """
