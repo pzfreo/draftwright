@@ -19,30 +19,41 @@ def _box_sheet(**options):
     return sheet
 
 
+#: A value that exceeds its cell without pushing the block past the page margin.
+#: Not `material`: under the ISO 7200 layout that is a flexible cell (111 mm on
+#: A2), so overflowing it would need a 75-character material, which nobody meets.
+#: `drawn_by` is sized from ISO 7200's 20-character creator capacity, and it sits
+#: at the left of its row, so the excess runs INTO the block rather than out past
+#: its right edge — which is what keeps this a cell-overflow case and not an
+#: out-of-bounds one.
+_OVERFLOWING_AUTHOR = "ENGINEERING REVIEW TEAM"
+_OVERFLOWING = f"{_OVERFLOWING_AUTHOR} / draftwright"
+
+
 @pytest.fixture(scope="module")
 def crowded_material():
-    return _box_sheet(title="FRAME", material="TITANIUM - GRADE TBD").build()
+    return _box_sheet(title="FRAME", drawn_by=_OVERFLOWING_AUTHOR).build()
 
 
-def test_material_crossing_cells_inside_page_is_reported(crowded_material):
+def test_a_field_crossing_cells_inside_page_is_reported(crowded_material):
     drawing = crowded_material
     block = drawing.get_annotation("title_block")
     ink = Text(
-        "TITANIUM - GRADE TBD",
+        _OVERFLOWING,
         font_size=3,
         font_path=PLEX_SANS_CONDENSED,
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
     ).bounding_box()
-    assert ink.size.X > block.cell_bbox("material")["width"]
+    assert ink.size.X > block.cell_bbox("designed_by")["width"]
     assert block.bounding_box().max.X < drawing.page_w - 10
     issues = drawing.lint()
     assert not any(issue.code == "annotation_out_of_bounds" for issue in issues)
     overflow = [issue for issue in issues if issue.code == "title_field_overflow"]
     assert len(overflow) == 1
     assert overflow[0].severity == "warning"
-    assert "'material'" in overflow[0].message
-    assert "29.59" in overflow[0].message and "22.50" in overflow[0].message
+    assert "'designed_by'" in overflow[0].message
+    assert "52.01" in overflow[0].message and "51.73" in overflow[0].message
     summary = drawing.lint_summary()
     assert summary["passed"]  # The existing flag checks errors, not legibility warnings.
     assert summary["quality"]["legibility"]["by_code"]["title_field_overflow"] == 1
@@ -55,8 +66,10 @@ def test_material_crossing_cells_inside_page_is_reported(crowded_material):
         ({"title": "FRAME\nMACHINING\nREVIEW\nPRELIMINARY"}, "title"),
         ({"number": "DOCUMENT NUMBER WITH A LONG SUFFIX"}, "drawing_number"),
         ({"revision": "PRELIMINARY REVISION A"}, "revision"),
-        # The shared top-right cell, named for the field it actually holds.
-        ({"date": "SEPTEMBER 9 2026", "revision": ""}, "date"),
+        # Its own cell under the ISO 7200 layout, sized from the standard's
+        # 10-character date-of-issue capacity — so a spelled-out date overflows
+        # where "SEPTEMBER 9 2026" now fits.
+        ({"date": "WEDNESDAY 9 SEPTEMBER 2026"}, "date"),
         (
             {"tolerance": "TOLERANCE REQUIREMENTS ARE IN THE PROCESS SPECIFICATION"},
             "general_tolerance",
@@ -97,7 +110,7 @@ def test_export_preserves_the_full_overflowing_value(crowded_material, tmp_path)
     paths = crowded_material.export(str(tmp_path / "crowded"), formats=("pdf", "svg"))
     with pdfium.PdfDocument(paths["pdf"]) as pdf:
         text = pdf[0].get_textpage().get_text_range()
-    assert "TITANIUM - GRADE TBD" in text
+    assert _OVERFLOWING in text
     assert crowded_material.measurement_snapshot() == before
     assert any(issue.code == "title_field_overflow" for issue in crowded_material.lint())
 
