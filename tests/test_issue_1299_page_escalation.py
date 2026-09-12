@@ -473,14 +473,29 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
 def test_explicit_a4_remains_fixed_instead_of_escalating():
     drawing = build_drawing(_five_step_grm_profile(), page="A4", pmi="off")
 
+    # The subject: pinning the sheet pins the SHEET. Every attempt is on A4; none spends a
+    # larger page, however incomplete the result.
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
-    # #1338: pinning the sheet pins the SHEET. The scale is still automatic, so the same
-    # larger-scale recovery applies and the pinned A4 now carries every station instead of
-    # returning the incomplete 2:1 layout.
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert drawing.scale == 5.0
-    assert not [issue for issue in drawing.lint() if issue.code == "axial_length_missing"]
+
+    # #1338 added the larger-scale recovery on the pinned sheet, and this asserted it
+    # reached 5:1 with every station. #1593 rejects that 5:1 layout: at that scale the
+    # front view runs down past the title block, so the overall HEIGHT dimension's right-
+    # strip corridor is inside the block and the dimension cannot be placed
+    # (`placement_unsatisfiable`, a required-scale drop). Before #1593 it was drawn
+    # straight through the block and the attempt counted as complete.
+    #
+    # So the pinned A4 now returns the clean 2:1 sheet and SAYS what it costs, rather than
+    # a 5:1 sheet whose completeness came from printing over the title block. Leaving the
+    # page automatic still carries all five stations —
+    # `test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet` gets them
+    # on A3 at 5:1. Choosing a scale without knowing which dimensions still need room is
+    # #1590.
+    assert drawing.scale_decision["status"] == "automatic"
+    assert drawing.scale == 2.0
+    assert [issue.code for issue in drawing.lint() if issue.severity == "warning"] == [
+        "axial_length_missing"
+    ]
 
 
 def test_exact_grm03_recovers_all_axial_stations_on_a4_with_pmi_off():

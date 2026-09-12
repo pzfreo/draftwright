@@ -499,8 +499,12 @@ def test_priority_ranked_solver_drop_cannot_pass_strict_scale_policy():
     with pytest.raises(ScaleIncompatibilityError) as caught:
         build_drawing(part, page="A4", scale=1.0, scale_policy="strict")
 
-    (blocker,) = caught.value.decision["blockers"]
-    assert blocker["code"] == "callout_dropped"
+    # More than one blocker now: at A4/1:1 this 140 mm disc also loses its overall height,
+    # whose right-strip corridor is entirely inside the title block (#1593 — before that
+    # fix the dimension was DRAWN through the block and the sheet claimed completeness).
+    # The canary below is about the bore-callout ranking, so select that blocker rather
+    # than requiring it to be the only one.
+    (blocker,) = [b for b in caught.value.decision["blockers"] if b["code"] == "callout_dropped"]
     assert "diameter(s)" in blocker["message"]
     # The shared strip solve ranks bore candidates by diameter. The largest bore lands while
     # the next-lower required bore drops; equalising priorities reverses this boundary and must

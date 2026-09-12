@@ -201,25 +201,7 @@ def test_build_is_deterministic(name):
     assert a == b, f"{name!r}: two builds produced different layouts"
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        pytest.param(
-            n,
-            marks=pytest.mark.xfail(
-                reason=(
-                    "#1593: dimension placement does not avoid the title block — only "
-                    "GD&T does (#481). m_env_depth lands on the block, which is "
-                    "reachable now the ISO 7200 layout makes it four rows tall."
-                ),
-                strict=True,
-            )
-            if n in {"box", "plate_holes"}
-            else (),
-        )
-        for n in CORPUS
-    ],
-)
+@pytest.mark.parametrize("name", list(CORPUS))
 def test_no_invisible_occupant_overlap(name):
     # Ratchet: the observed non-crossable overlap set must equal the known set. A new
     # overlap = regression; a vanished one = a phase cleaned it → burn down

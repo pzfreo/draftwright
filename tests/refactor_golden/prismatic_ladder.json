@@ -56,24 +56,6 @@
     },
     {
       "geom_bbox": [
-        146.5,
-        38.0,
-        206.6,
-        46.0
-      ],
-      "label": "60",
-      "label_bbox": [
-        174.9,
-        38.9,
-        178.1,
-        41.1
-      ],
-      "name": "m_env_depth",
-      "type": "Dimension",
-      "view": "side"
-    },
-    {
-      "geom_bbox": [
         30.0,
         88.0,
         110.1,
@@ -153,8 +135,14 @@
       "view": null
     }
   ],
-  "build_issues": [],
-  "item_count": 9,
+  "build_issues": [
+    [
+      "error",
+      "overall_dim_withheld",
+      "overall depth dimension not placed (side-view below and above strips full; below occupied by: title_block; above occupied by: dim_shoulder_y0)"
+    ]
+  ],
+  "item_count": 8,
   "page": [
     297.0,
     210.0

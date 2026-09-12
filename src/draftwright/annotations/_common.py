@@ -1418,6 +1418,32 @@ def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
     return boxes
 
 
+def pending_title_block_box(dwg):
+    """The title block's deterministic page box while it is still UNPLACED, else ``None``.
+
+    The block is drawn near the end of ``_PASS_SEQUENCE``, so every strip placer runs
+    before it exists as an annotation — yet its footprint is fixed the moment the sheet
+    is (``builder._assemble`` computes it once, ADR 1). This is the read side of that one
+    write: a keep-out box the placers can honour, without the block having to be placed
+    early.
+
+    NOT an entry in :func:`strip_obstacles`. That occupancy is carved with the dim
+    STACKING pad (``tier + spacing``) — the separation two dimension lines need from each
+    other — which is several millimetres larger than the clearance a dim needs from a
+    solid piece of furniture. Carved, the block refuses dims that clear it by a
+    millimetre or two; checked as a hard box against the candidate's own footprint (the
+    way ``forbid`` already treats the block for GD&T frames, #481) it refuses exactly the
+    dims that would land in it.
+
+    ``getattr`` because the drawing is duck-typed as ``dwg`` (ADR 1): stand-ins and
+    partial drawings in tests and in the repair path carry no build state to ask.
+    """
+    reader = getattr(dwg, "pending_title_block_box", None)
+    if not callable(reader) or dwg.get_annotation("title_block") is not None:
+        return None
+    return reader()
+
+
 def strip_occupants(dwg, strip, view, axis, limit=3):
     """The names of the annotations whose footprints occupy *strip*'s free span,
     ranked by covered stacking-axis extent (largest first; ties by name) — the
@@ -1428,7 +1454,14 @@ def strip_occupants(dwg, strip, view, axis, limit=3):
     lo, hi, _inner = strip_free_span(strip)
     idx = 1 if axis == "y" else 0
     cover: dict[str, float] = {}
-    for name, box in strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True):
+    named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
+    # The not-yet-placed title block is not strip occupancy (it is a keep-out box, not a
+    # carve entry — :func:`pending_title_block_box`), but it IS what filled the span when
+    # it filled it, and a drop message that cannot say so sends the reader hunting.
+    tb = pending_title_block_box(dwg)
+    if tb is not None:
+        named = [*named, ("title_block", tb)]
+    for name, box in named:
         ov = min(hi, box[idx + 2]) - max(lo, box[idx])
         if ov > 0:
             cover[name] = cover.get(name, 0.0) + ov
@@ -2802,6 +2835,28 @@ def place_strip_candidates(
             if r is not None and r[perp] < band_hi and r[perp + 2] > band_lo
         ]
     blockers = () if force else corridor_blockers(dwg, view)
+    # The title block (#1593). It is drawn near the end of `_PASS_SEQUENCE`, so it is
+    # never in `occupied` above — but its box is fixed the moment the sheet is
+    # (:func:`pending_title_block_box`), so a strip placer can honour it regardless.
+    #
+    # A hard 2-D box checked against each candidate's REAL footprint in
+    # `_real_box_conflict` below, the way `forbid` guards this same block for GD&T frames
+    # (#481) — NOT an entry in the carve. The carve inflates by `pad`, the separation two
+    # dimension LINES need from each other, and projects onto the stacking axis, claiming
+    # every position at that coordinate; against a block this large both over-claim
+    # badly, refusing dims that clear it by a millimetre. A 2-D test against the
+    # candidate's own footprint refuses exactly the dims that land on it.
+    #
+    # `forbid` also pre-checks the PREDICTED box inside the segment solve, so a rejection
+    # frees its slot for a refill in the same pass. Not mirrored here: on this corpus
+    # either check alone catches every case (measured by deleting each in turn), and an
+    # untested second branch is worth less than the packing it might win. The real-box
+    # check is the one kept because it cannot be defeated by a prediction miss.
+    #
+    # Honoured under `force` too, for the reason `forbid` is: a dim kept on its natural
+    # view as a last resort must still not print over the block.
+    _tb = pending_title_block_box(dwg)
+    keep_out = (_tb,) if _tb is not None else ()
     segs = carve_free_segments(lo, hi, [(b[idx], b[idx + 2]) for b in occupied], pad)
     # Fill innermost-first (nearest the view), matching the old cursor's stack order.
     segs.sort(key=lambda s: abs((s[0] if inner == lo else s[1]) - inner))
@@ -2827,6 +2882,8 @@ def place_strip_candidates(
             return "real_box_forbid"
         if _box_hits(real, out_of_band):
             return "real_box_out_of_band"
+        if _box_hits(real, keep_out):
+            return "real_box_title_block"
         return None
 
     def _take_for_segment(items, n):

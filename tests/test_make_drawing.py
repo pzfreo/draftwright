@@ -241,19 +241,18 @@ class TestStepPosition:
     """#555: a prismatic step/rebate's along-axis POSITION is dimensioned, not just its
     two heights, so the part is fully constrained."""
 
-    @pytest.mark.xfail(
-        reason=(
-            "#1593: dimension placement does not avoid the title block — only GD&T "
-            "does (#481). Latent until the ISO 7200 block made it four rows tall, "
-            "where the 60 dimension lands on the block's TITLE text."
-        ),
-        strict=True,
-    )
     def test_step_position_dimensioned(self):
         # The issue's acceptance test: an asymmetric step so the position can't hide
         # behind another value. shelf 20 deep at the front, back 40 deep, lowered by 15.
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
-        dwg = build_drawing(part, number="X")
+        # A3 pinned: this test is about the step POSITION being dimensioned, not about
+        # which sheet the chooser lands on. At the auto A4/1:1 the overall depth is
+        # withheld — the title block fills the side view's below strip, and the chooser
+        # picked the sheet without knowing that dimension needed the room (#1590). On A3
+        # or at 1:2 it places. Before #1593 the same `60` was DRAWN with its label inside
+        # the block (measured at 174.9-178.1 x 38.9-41.1, against a block topping out at
+        # 43.1), reported only as `annotation_overlap` between '60' and 'DRAWING'.
+        dwg = build_drawing(part, number="X", page="A3")
         lbl = _plate_labels(dwg)
         assert {"80", "60", "30", "15"} <= set(lbl)  # overall + heights already present
         assert "20" in lbl or "40" in lbl  # step position / shelf depth — was ABSENT
