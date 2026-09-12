@@ -501,9 +501,10 @@ def test_build_state_has_a_single_construction_and_fill_site():
         "builder.py": [
             "_build.analysis",
             # #1593: the title block's footprint, measured at this same construction
-            # site because placement must avoid a block that is not drawn yet. One
-            # assignment; `Drawing.pending_title_block_box()` is read-only, which is
-            # what stops annotations/ probing for the analysis to compute it itself.
+            # site because placement must avoid a block that is not drawn yet. ONE
+            # writer, here — `Drawing.pending_title_block_box()` is read-only and
+            # `drawing.py` exposes no setter, which is what stops annotations/ probing
+            # for the analysis and computing the box itself.
             "_build.pending_title_block_box",
             # ADR 3 (was 0017)'s result/evidence pair is attached through the typed
             # BuildState.attach_recognition() method at this same construction site;
@@ -535,8 +536,6 @@ def test_build_state_has_a_single_construction_and_fill_site():
             "_build",
             "_build.analysis",
             "_build.part_model",
-            # The typed setter Drawing exposes for the builder's one write above.
-            "_build.pending_title_block_box",
             "_build.trace",
             "_build.material_mesh",
             "_build.principal_profile_cache",

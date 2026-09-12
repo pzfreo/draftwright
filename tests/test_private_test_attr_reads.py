@@ -90,7 +90,6 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_replay_intent",
         "_resolve_dimension_side",
         "_resolve_dimension_span",
-        "_set_pending_title_block_box",
         "_set_view_coordinates",
         "_user_dim_uses_corridor",
         "_view_edge_cache",
@@ -161,10 +160,9 @@ _ALLOW: dict[str, int] = {
     # View/annotation plumbing privatized in #817 PR4 (public forms deprecated). The functional
     # behaviour tests drive the primitives directly (wholesale clear keeps the title block;
     # add_view projects + refits silhouettes); the deprecated shims' warnings are asserted
-    # separately via the public names. The other five plumbing privates
-    # (_set_view_coordinates/_drop_view_coordinates/_attach_part_model/_attach_solve_trace/
-    # _set_pending_title_block_box) have no direct test read — the engine build path exercises
-    # them.
+    # separately via the public names. The other four plumbing privates
+    # (_set_view_coordinates/_drop_view_coordinates/_attach_part_model/_attach_solve_trace) have
+    # no direct test read — the engine build path exercises them.
     "_clear_annotations": 3,
     "_add_view": 1,
 }

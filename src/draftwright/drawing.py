@@ -1294,10 +1294,6 @@ class Drawing:
         """
         return self._build.pending_title_block_box
 
-    def _set_pending_title_block_box(self, box) -> None:
-        """Record the deterministic title-block footprint for placement to avoid."""
-        self._build.pending_title_block_box = box
-
     def suppressions(self) -> list[dict]:
         """Every measurement the compiler considered and did not approve, and why.
 

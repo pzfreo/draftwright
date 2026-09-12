@@ -4399,3 +4399,27 @@ def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
     assert not missing, "the doc quotes lines the tool does not emit:\n  " + "\n  ".join(
         missing[:5]
     )
+
+
+def test_the_new_iso_7200_fields_reach_the_generated_script():
+    """#1591 added `approved_by`, `document_type` and `sheet` — ISO 7200 5.3.4, 5.3.6 and
+    5.1.6, three mandatory fields that had no representation at all. The emitter carries an
+    aspect into the script only when it differs from `build_drawing`'s default, and until
+    now nothing proved these three made the journey: a re-run would have silently dropped
+    the very fields the change exists to add.
+    """
+    src = _script_for(
+        Box(40, 30, 12),
+        approved_by="A. INSPECTOR",
+        document_type="DETAIL DRAWING",
+        sheet="1/3",
+    )
+    assert "approved_by='A. INSPECTOR'" in src
+    assert "document_type='DETAIL DRAWING'" in src
+    assert "sheet='1/3'" in src
+
+    # ...and stay off the script when unset, like every other non-default aspect.
+    plain = _script_for(Box(40, 30, 12))
+    assert "approved_by=" not in plain
+    assert "document_type=" not in plain
+    assert "sheet=" not in plain

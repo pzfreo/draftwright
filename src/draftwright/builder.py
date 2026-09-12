@@ -601,11 +601,7 @@ def _assemble(
     # The title block's footprint is deterministic before it is drawn, and strip
     # placement must avoid it (#1593). Measured once here, at the single site that
     # fills build state, rather than let annotations/ probe the drawing for it.
-    try:
-        _pending_tb = _title_block_box(dwg, a)
-    except Exception:  # noqa: BLE001 — a drawing with no block simply has none to avoid
-        _pending_tb = None
-    dwg._build.pending_title_block_box = _pending_tb  # one write, one fill site
+    dwg._build.pending_title_block_box = _title_block_box(dwg, a)
     # A scale/view fallback is still the same build run. Preserve the exact lazy acquisition
     # rather than copying only its aggregate and orphaning provider-issued occurrence/face
     # references from their authority universe.
