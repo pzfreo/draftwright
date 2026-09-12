@@ -1481,32 +1481,26 @@ def _make_title_block(dwg, a: Analysis):
     # Retain authoritative title-block values at their public cell centres for the PDF semantic
     # text layer.  The visible block stays path-rendered; these specs merely let export embed the
     # same bundled condensed face as invisible selectable text without parsing SVG geometry.
-    # helpers >= 0.15.3 gives the date a cell of its own whenever a revision is
-    # also set, because the two cannot share the top-right cell (#1585). Ask the
-    # block which layout it drew rather than restating its rule here: when there
-    # is no dedicated cell, cell_bbox("date") aliases the revision cell, and
-    # emitting both entries would stamp two texts at one centre and lint the
-    # same cell twice.
-    date_has_cell = date and tb.cell_bbox("date") != tb.cell_bbox("revision")
+    # Every field below has its own cell in the layout, so each is named for
+    # itself. The shared-cell dance #1586 needed — a date falling back into the
+    # revision cell when no revision was set — is gone with the cell it worked
+    # around, and leaving it in emitted the date twice.
     fields = (
         ("title", title),
         ("drawing_number", number),
-        # `scale` is not here: it has no cell. ISO 7200 §4 presents it outside the
-        # block, where `_add_scale_note` draws it and the `scale_not_stated` lint
-        # guarantees it.
+        # `scale` is not here: it has no cell. ISO 7200 §4 presents it outside
+        # the block, where `_add_scale_note` draws it and the
+        # `scale_not_stated` lint guarantees it.
         ("material", material),
         ("approved_by", approved_by),
         ("document_type", document_type),
         ("sheet", sheet),
-        # The shared top-right cell holds whichever of the two was supplied.
-        # Name it for what it holds: cell_bbox() resolves "date" to this same
-        # cell through its alias, so a lint message about a date no longer
-        # reports it against 'revision'.
-        (("revision", revision) if revision else ("date", date)),
+        ("revision", revision),
+        ("date", date),
         ("general_tolerance", tolerance),
         ("designed_by", designed_by),
         ("legal_owner", legal_owner),
-    ) + ((("date", date),) if date_has_cell else ())
+    )
     specs = []
     for field, value in fields:
         if not value:
