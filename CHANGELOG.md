@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A supplied title-block `date` is stated on the sheet** (#1585). `TitleBlock`
+  could show only one of `revision`/`date` in its top-right cell and revision
+  won, while draftwright defaults `revision` to `"A"` — so every drawing that
+  set a date lost it, silently, in every version that has had the parameter.
+  Adopting `build123d-drafting-helpers>=0.15.3` gives the date a cell of its
+  own whenever a revision is also set, and `_make_title_block` now names that
+  cell, so the date reaches the PDF text layer and the cell-overflow lint
+  rather than only the rendered geometry.
+
+  Two consequences worth knowing. A drawing that supplies a date now has a
+  narrower DRAWN BY cell — 60% of the block rather than 35% — so a long
+  `drawn_by` that fitted before may now overflow and warn. And `date`,
+  `revision` and `company` are stripped before use, matching what the block
+  itself does: a whitespace-only `company` previously raised `KeyError` from
+  `cell_bbox`, and padded values were measured at a width the sheet never drew.
+  The shared top-right cell is now reported under the field it actually holds,
+  so a lint message about a date no longer names `'revision'`.
+
+
 ### Added
 
 - Report schema v1 now projects one recognition-owned physical requirement ledger shared with

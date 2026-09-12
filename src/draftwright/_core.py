@@ -1376,7 +1376,12 @@ def _make_title_block(dwg, a: Analysis):
     # wearing spaces. A padded date likewise measured wider than the block drew.
     date = _font_safe_text(a.date).strip()
     revision = _font_safe_text(a.revision).strip()
-    legal_owner = _font_safe_text(a.company)
+    # Stripped for the same reason as date/revision below: the TitleBlock
+    # strips it and only creates a legal_owner cell when what is left is
+    # truthy, so an unstripped "   " passed the `if not value` filter here and
+    # then raised KeyError from cell_bbox(); " ACME " recorded the padded string
+    # while the block drew the stripped one.
+    legal_owner = _font_safe_text(a.company).strip()
     scale = format_drawing_scale(a.SCALE)
     tb = TitleBlock(
         title,
@@ -1420,7 +1425,11 @@ def _make_title_block(dwg, a: Analysis):
         ("drawing_number", number),
         ("scale", scale),
         ("material", material),
-        ("revision", revision or date),
+        # The shared top-right cell holds whichever of the two was supplied.
+        # Name it for what it holds: cell_bbox() resolves "date" to this same
+        # cell through its alias, so a lint message about a date no longer
+        # reports it against 'revision'.
+        (("revision", revision) if revision else ("date", date)),
         ("general_tolerance", tolerance),
         ("designed_by", designed_by),
         ("legal_owner", legal_owner),

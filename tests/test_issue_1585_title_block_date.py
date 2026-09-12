@@ -104,7 +104,8 @@ def test_whitespace_revision_records_what_the_block_actually_drew():
     # neither the PDF text layer nor the overflow lint — #1585 wearing spaces.
     drawing = _sheet(title="BRACKET", number="DRW-0042", date=DATE, revision="  ").build()
     _block, fields = _fields(drawing)
-    assert fields["revision"] == DATE
+    assert fields["date"] == DATE
+    assert "revision" not in fields
 
 
 def test_a_padded_date_is_recorded_as_it_is_drawn():
@@ -141,10 +142,27 @@ def test_no_date_field_when_the_block_has_no_date_cell():
     # there would stamp two texts at one centre and lint one cell twice.
     drawing = _sheet(title="BRACKET", number="DRW-0042", date=DATE, revision="").build()
     block, fields = _fields(drawing)
-    assert "date" not in fields
-    assert fields["revision"] == DATE
+    # One entry, not two: the shared cell is named "date" because that is what
+    # it holds, and cell_bbox resolves that name to the revision cell's box.
+    assert fields["date"] == DATE
+    assert "revision" not in fields
     assert block.cell_bbox("date") == block.cell_bbox("revision")
     assert sum(value == DATE for value, *_rest in block.pdf_text_specs) == 1
+
+
+def test_a_whitespace_company_does_not_crash_the_build():
+    # legal_owner is the third field the block strips, and it was the one left
+    # unstripped here. "   " is truthy, so it survived the empty-value filter
+    # and then asked for a legal_owner cell the block had not drawn.
+    drawing = _sheet(title="BRACKET", number="DRW-0042", company="   ").build()
+    _block, fields = _fields(drawing)
+    assert "legal_owner" not in fields
+
+
+def test_a_padded_company_is_recorded_as_it_is_drawn():
+    drawing = _sheet(title="BRACKET", number="DRW-0042", company=" ACME ").build()
+    _block, fields = _fields(drawing)
+    assert fields["legal_owner"] == "ACME"
 
 
 def test_no_date_field_when_no_date_was_supplied():
