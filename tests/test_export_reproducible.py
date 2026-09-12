@@ -346,12 +346,19 @@ def test_write_dxf_reproducible_pins_the_creation_marker_too(tmp_path):
     assert text.count(_CONST_MARKER) == 2  # CREATED_BY_EZDXF and WRITTEN_BY_EZDXF
 
 
-def test_write_dxf_is_not_reproducible_by_default(tmp_path):
-    """Opt-in: an unasked-for export pays nothing and carries the clock, as before."""
-    assert _write(tmp_path, "default.dxf") != _write(tmp_path, "pinned.dxf", reproducible=True)
+def test_write_dxf_is_reproducible_by_default(tmp_path):
+    """On unless refused: a file nobody asked to pin still must not carry the run."""
+    assert _write(tmp_path, "default.dxf") == _write(tmp_path, "pinned.dxf", reproducible=True)
     default = _write(tmp_path, "default2.dxf")
-    assert _header_value(default, "TDCREATE") != _FIXED_JULIAN
-    assert _LIVE_MARKER.search(default)
+    assert _header_value(default, "TDCREATE") == _FIXED_JULIAN
+    assert not _LIVE_MARKER.search(default)
+
+
+def test_write_dxf_opting_out_still_lets_the_clock_through(tmp_path):
+    """The escape hatch is the point of keeping the flag: it must still work."""
+    opted_out = _write(tmp_path, "opted.dxf", reproducible=False)
+    assert _header_value(opted_out, "TDCREATE") != _FIXED_JULIAN
+    assert _LIVE_MARKER.search(opted_out)
 
 
 def test_the_classes_entries_we_seed_are_registered_in_sorted_order(tmp_path):
@@ -499,10 +506,10 @@ def test_render_pdf_reproducible_writes_the_same_bytes_twice(small_svg, tmp_path
     assert a.read_bytes() == b.read_bytes()
 
 
-def test_render_pdf_is_not_reproducible_by_default(small_svg, tmp_path):
+def test_render_pdf_is_reproducible_by_default(small_svg, tmp_path):
     out = tmp_path / "default.pdf"
     _render_pdf(small_svg, str(out))
-    assert _FIXED_PDF_DATE not in out.read_bytes()
+    assert _FIXED_PDF_DATE in out.read_bytes()
 
 
 def test_reproducible_pdf_does_not_fall_back_to_a_live_render(small_svg, tmp_path, monkeypatch):
@@ -557,15 +564,26 @@ def _spy(monkeypatch):
     return seen
 
 
-def test_export_does_no_reproducibility_work_by_default(plate, tmp_path, monkeypatch):
-    """The default export must not pay for what it was not asked for.
+def test_export_does_the_reproducibility_work_by_default(plate, tmp_path, monkeypatch):
+    """The default export must actually do the work, not merely produce a file.
 
-    Not "produces a file that happens to differ" — that is unobservable in one run.
-    This asserts the work is *not requested*: no canonicalisation pass over the SVG,
-    nothing ordered, nothing pinned.
+    Not "produces a file that happens to match" — that is unobservable in one run.
+    This asserts the work is *requested*: the SVG is canonicalised, the DXF is
+    ordered, the metadata is pinned. The SVG is deliberately handed its shapes
+    unordered even so; it reaches the guarantee by canonicalising the written
+    file, and ordering it too would pay the expensive half twice.
     """
     seen = _spy(monkeypatch)
     plate.export(str(tmp_path / "d"), formats=("svg", "dxf"))
+    assert seen["canonicalized"] == 1
+    assert seen["ordered"] == {("ExportSVG", False), ("_DraftwrightDXF", True)}
+    assert seen["pinned"] == {True}
+
+
+def test_export_opting_out_does_no_reproducibility_work(plate, tmp_path, monkeypatch):
+    """The opt-out must buy back the whole cost, not just the metadata pin."""
+    seen = _spy(monkeypatch)
+    plate.export(str(tmp_path / "d"), formats=("svg", "dxf"), reproducible=False)
     assert seen["canonicalized"] == 0
     assert seen["ordered"] == {("ExportSVG", False), ("_DraftwrightDXF", False)}
     assert seen["pinned"] == {False}
@@ -605,8 +623,9 @@ def test_build_drawing_sets_the_drawings_own_default(tmp_path, monkeypatch):
     assert seen["pinned"] == {True}
 
 
-def test_build_drawing_defaults_to_off(tmp_path):
-    assert build_drawing(Box(30, 20, 10)).reproducible is False
+def test_build_drawing_defaults_to_on(tmp_path):
+    assert build_drawing(Box(30, 20, 10)).reproducible is True
+    assert build_drawing(Box(30, 20, 10), reproducible=False).reproducible is False
 
 
 def test_reproducible_is_appended_after_the_existing_positional_scale_policy():
@@ -615,12 +634,12 @@ def test_reproducible_is_appended_after_the_existing_positional_scale_policy():
         assert parameters.index("scale_policy") < parameters.index("reproducible")
 
 
-def test_a_directly_constructed_drawing_defaults_to_off():
+def test_a_directly_constructed_drawing_defaults_to_on():
     """``build_drawing`` is not the only door: ``Drawing`` is public and constructible.
 
     Separate from the test above because that one cannot see this: ``build_drawing``
     passes its own ``reproducible=`` down explicitly, so it would keep reporting
-    ``False`` even if the constructor's default were flipped.
+    its own default even if the constructor's were left behind.
     """
     drawing = Drawing(
         scale=1.0,
@@ -633,7 +652,7 @@ def test_a_directly_constructed_drawing_defaults_to_off():
         centroid=(0.0, 0.0, 0.0),
         out="x",
     )
-    assert drawing.reproducible is False
+    assert drawing.reproducible is True
 
 
 @pytest.mark.parametrize("drawing_default", [True, False])
@@ -651,7 +670,9 @@ def test_the_pdf_render_follows_the_same_flag(plate, tmp_path):
     b = plate.export(str(tmp_path / "p2"), formats=("pdf",), reproducible=True)["pdf"]
     assert Path(a).read_bytes() == Path(b).read_bytes()
     plain = plate.export(str(tmp_path / "p3"), formats=("pdf",))["pdf"]
-    assert _FIXED_PDF_DATE not in Path(plain).read_bytes()
+    assert _FIXED_PDF_DATE in Path(plain).read_bytes()
+    opted_out = plate.export(str(tmp_path / "p4"), formats=("pdf",), reproducible=False)["pdf"]
+    assert _FIXED_PDF_DATE not in Path(opted_out).read_bytes()
 
 
 # ------------------------------------------------------- the gate: two real runs
