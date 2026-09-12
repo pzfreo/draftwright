@@ -176,6 +176,11 @@ def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
 
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
+#: The title block's row height, matching `TitleBlock`'s own `cell_height`
+#: default. Used to find the block's drawn top edge without building it.
+_TB_ROW_H = 8.0
+#: Gap between the drawn title block and the furniture sitting above it.
+_TB_FURNITURE_GAP = 3.0
 #: Horizontal space the ISO 5456-2 projection glyph reserves at the right-hand end
 #: of the band above the title block, so the scale note placed to its left cannot
 #: collide with it. Measured from the glyph's own extents at the default font.
@@ -211,7 +216,7 @@ def _dimension_head_bounds(arrow_length, head_type):
     return box.min.X, box.min.Y, box.max.X, box.max.Y
 
 
-_TB_H = 46.0
+_TB_H = 40.0
 
 
 def _shape_box2d(shape):
@@ -1580,6 +1585,16 @@ def _add_sheet_frame(dwg, a: Analysis):
     place_annotation(dwg.registry, dwg.items, _make_sheet_frame(a), "sheet_frame")
 
 
+def _title_block_top(a: Analysis) -> float:
+    """Page y of the drawn title block's top edge.
+
+    The block reserves `_TB_H` but draws `rows x cell_height`, so the furniture
+    above it should sit against the block rather than at the top of the reserved
+    band — otherwise the gap is whatever slack the band happens to carry.
+    """
+    return _TB_CLEAR + len(draftwright_title_block_layout().rows) * _TB_ROW_H
+
+
 def _add_scale_note(dwg, a: Analysis):
     """Draw the sheet scale beside the projection glyph, above the title block.
 
@@ -1612,7 +1627,7 @@ def _add_scale_note(dwg, a: Analysis):
     # right-hand end of the same band.
     right = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - _PROJECTION_BAND_W
     cx = right - w / 2
-    cy = _TB_CLEAR + _TB_H - h / 2 - 2
+    cy = _title_block_top(a) + _TB_FURNITURE_GAP + h / 2
     note = note.locate(Location((cx - bx, cy - by, 0)))
     note.is_scale_note = True
     place_annotation(dwg.registry, dwg.items, note, "scale_note")
@@ -1644,7 +1659,7 @@ def _add_projection_symbol(dwg, a: Analysis):
     # Right side of the title-block column, near the top of its reserved band.
     # Sheet frames reserve an inner content margin; keep furniture inside it too.
     cx = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - w / 2
-    cy = _TB_CLEAR + _TB_H - h / 2 - 2
+    cy = _title_block_top(a) + _TB_FURNITURE_GAP + h / 2
     sym = sym.locate(Location((cx - bx, cy - by, 0)))
     sym.is_projection_symbol = True
     place_annotation(dwg.registry, dwg.items, sym, "projection_symbol")
