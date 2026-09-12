@@ -4,8 +4,10 @@ Strip placement ran before the block existed — it is drawn near the end of
 ``_PASS_SEQUENCE`` — so the block was invisible to every placer except the GD&T one,
 which carried its own ``forbid`` box (#481). Latent while the block was two rows tall;
 the ISO 7200 layout makes it four, and an overall depth dimension below the side view
-then lands on it. ``build_drawing(Box(40, 30, 12))`` put the ``30`` label 24 mm inside
-the block, reported only as an ``annotation_overlap`` between two labels.
+then lands on it. ``build_drawing(Box(40, 30, 12))`` ran its ``30`` 2.1 mm into the
+block and ``lint()`` reported a clean sheet; the stepped ``Box(80, 60, 30)`` below put
+the whole ``60`` label inside it, reported only as an ``annotation_overlap`` between the
+labels ``60`` and ``DRAWING``.
 
 The fix reads the block's deterministic footprint (``builder._assemble`` computes it
 once) and treats it as a hard keep-out. Each case below asserts its own precondition by

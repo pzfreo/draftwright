@@ -28,13 +28,26 @@
   - A dense sheet may escalate a page size. In the golden corpus one fixture of
     fourteen (`flange_dense`) moves A4 → A3; the other thirteen keep their page
     and scale, and a sweep of ten ordinary shapes showed no change at all.
-  - A dimension can now be placed inside the title block, and `lint()` does not
-    report it — `build_drawing(Box(40, 30, 12))` puts a `30` dimension 24 mm into
-    the block and reports a clean sheet. The mechanism is pre-existing (#1593:
-    the block is added after placement, so only GD&T ever avoided it) but a
-    four-row block makes it reachable on ordinary parts. Three test cases are
-    `xfail(strict)` against that issue rather than blessed.
+  - **Dimension placement now avoids the title block (#1593)**, which it never
+    did: the block is drawn after placement, so only GD&T frames ever avoided it
+    (#481). A two-row block kept that out of reach; a four-row one does not.
+    `build_drawing(Box(40, 30, 12))` used to run its `30` dimension 2.1 mm into
+    the block with `lint()` reporting a clean sheet; a stepped
+    `Box(80, 60, 30)` put the whole `60` label inside it, reported only as an
+    `annotation_overlap` between the labels `60` and `DRAWING`.
 
+    Most displaced dimensions move to the view's opposite strip and stay on the
+    sheet. Where both strips are full the dimension is **withheld as an error
+    naming the block**, rather than drawn through it: in the golden corpus
+    `pocketed` and `prismatic_ladder` lose their overall depth at the automatic
+    A4/1:1, and place it on A3 or at 1:2. Likewise a **pinned** A4 for a
+    five-step turned shaft no longer reaches 5:1, because at that scale the front
+    view runs down past the block and the overall height cannot be placed; the
+    2:1 sheet is returned with `axial_length_missing` stated. Leaving the page
+    automatic still carries every station, on A3 at 5:1.
+
+    Choosing a page and scale without knowing which dimensions will still need
+    room is #1590.
 
 ### Changed
 
