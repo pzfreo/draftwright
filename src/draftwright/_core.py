@@ -1444,7 +1444,6 @@ def _make_title_block(dwg, a: Analysis):
     approved_by = _font_safe_text(a.approved_by).strip()
     document_type = _font_safe_text(a.document_type).strip()
     sheet = _font_safe_text(a.sheet).strip()
-    scale = format_drawing_scale(a.SCALE)
     layout = draftwright_title_block_layout()
     tb = TitleBlock(
         title,
