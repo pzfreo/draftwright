@@ -182,6 +182,10 @@ def test_automatic_and_declared_builds_use_the_same_recognition_free_repair():
     assert len(raw.lint(physical=False)) == 2
     automatic = build_drawing(part)
     automatic_left = [i.code for i in automatic.lint(physical=False)]
+    # Both halves: repair clears everything on the automatic path, AND the declared
+    # path ends up in the same place. Comparing only the two would pass a regression
+    # that left both equally dirty.
+    assert automatic_left == []
     with recognition_consumer_calls() as counts:
         declared = build_drawing(part, model=raw.model(), repair=False)
         before = declared.measurement_snapshot()
