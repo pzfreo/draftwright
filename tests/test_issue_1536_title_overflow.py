@@ -55,7 +55,8 @@ def test_material_crossing_cells_inside_page_is_reported(crowded_material):
         ({"title": "FRAME\nMACHINING\nREVIEW\nPRELIMINARY"}, "title"),
         ({"number": "DOCUMENT NUMBER WITH A LONG SUFFIX"}, "drawing_number"),
         ({"revision": "PRELIMINARY REVISION A"}, "revision"),
-        ({"date": "SEPTEMBER 9 2026", "revision": ""}, "revision"),
+        # The shared top-right cell, named for the field it actually holds.
+        ({"date": "SEPTEMBER 9 2026", "revision": ""}, "date"),
         (
             {"tolerance": "TOLERANCE REQUIREMENTS ARE IN THE PROCESS SPECIFICATION"},
             "general_tolerance",

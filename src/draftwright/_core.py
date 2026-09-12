@@ -1368,9 +1368,20 @@ def _make_title_block(dwg, a: Analysis):
     tolerance = _font_safe_text(_TOLERANCE_UNSPECIFIED if a.tolerance is None else a.tolerance)
     designed_by = _font_safe_text(_attribution_author(a.drawn_by))
     material = _font_safe_text(a.material)
-    date = _font_safe_text(a.date)
-    revision = _font_safe_text(a.revision)
-    legal_owner = _font_safe_text(a.company)
+    # Stripped, because the TitleBlock strips these two before deciding which
+    # cells to draw. Left unstripped they disagree: a whitespace revision is no
+    # revision to the block (which then draws the date in the shared cell) but a
+    # truthy one here, so `revision or date` recorded "  " and the drawn date
+    # reached neither the PDF text layer nor the overflow lint — #1585 again,
+    # wearing spaces. A padded date likewise measured wider than the block drew.
+    date = _font_safe_text(a.date).strip()
+    revision = _font_safe_text(a.revision).strip()
+    # Stripped for the same reason as date/revision below: the TitleBlock
+    # strips it and only creates a legal_owner cell when what is left is
+    # truthy, so an unstripped "   " passed the `if not value` filter here and
+    # then raised KeyError from cell_bbox(); " ACME " recorded the padded string
+    # while the block drew the stripped one.
+    legal_owner = _font_safe_text(a.company).strip()
     scale = format_drawing_scale(a.SCALE)
     tb = TitleBlock(
         title,
@@ -1402,16 +1413,27 @@ def _make_title_block(dwg, a: Analysis):
     # Retain authoritative title-block values at their public cell centres for the PDF semantic
     # text layer.  The visible block stays path-rendered; these specs merely let export embed the
     # same bundled condensed face as invisible selectable text without parsing SVG geometry.
+    # helpers >= 0.15.3 gives the date a cell of its own whenever a revision is
+    # also set, because the two cannot share the top-right cell (#1585). Ask the
+    # block which layout it drew rather than restating its rule here: when there
+    # is no dedicated cell, cell_bbox("date") aliases the revision cell, and
+    # emitting both entries would stamp two texts at one centre and lint the
+    # same cell twice.
+    date_has_cell = date and tb.cell_bbox("date") != tb.cell_bbox("revision")
     fields = (
         ("title", title),
         ("drawing_number", number),
         ("scale", scale),
         ("material", material),
-        ("revision", revision or date),
+        # The shared top-right cell holds whichever of the two was supplied.
+        # Name it for what it holds: cell_bbox() resolves "date" to this same
+        # cell through its alias, so a lint message about a date no longer
+        # reports it against 'revision'.
+        (("revision", revision) if revision else ("date", date)),
         ("general_tolerance", tolerance),
         ("designed_by", designed_by),
         ("legal_owner", legal_owner),
-    )
+    ) + ((("date", date),) if date_has_cell else ())
     specs = []
     for field, value in fields:
         if not value:
