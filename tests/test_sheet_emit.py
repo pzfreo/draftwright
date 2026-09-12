@@ -2366,7 +2366,7 @@ class TestAuthoredSetRoundTrips:
             return {
                 n
                 for n, _ in dwg.iter_annotations()
-                if not n.startswith(("note_", "title", "projection_symbol"))
+                if not n.startswith(("note_", "title", "projection_symbol", "scale_note"))
             }
 
         assert dims(regenerated) == dims(direct), (
@@ -2465,7 +2465,7 @@ class TestAuthoredSetRoundTrips:
             return {
                 n
                 for n, _ in dwg.iter_annotations()
-                if not n.startswith(("note_", "title", "projection_symbol"))
+                if not n.startswith(("note_", "title", "projection_symbol", "scale_note"))
             }
 
         assert dims(regenerated) == dims(direct) == set(), (
@@ -4341,7 +4341,7 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
         assert f"`{view}`" in section, view
 
     names = sorted(ast.literal_eval(out["ANNOT"]))
-    assert len(names) == 12 and "Twelve annotations" in section, names
+    assert len(names) == 13 and "Thirteen annotations" in section, names
     for name in names:
         assert f"`{name}`" in section, f"{name} is on the sheet but the doc does not list it"
 
