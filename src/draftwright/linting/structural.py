@@ -358,6 +358,7 @@ def lint_drawing(
         p = _DRAWING_PAGE
         page_bbox = (p["min_x"], p["min_y"], p["max_x"], p["max_y"])
 
+    _lint_scale_stated(items, issues)
     for item in items:
         _lint_title_fields(item, issues)
         if getattr(item, "elbow", None) is not None:
@@ -729,6 +730,31 @@ def _view_edge_entries(vs, cache):
         entries = None
     cache[key] = (vs, entries)
     return entries
+
+
+def _lint_scale_stated(items, issues) -> None:
+    """A drawing must say what scale it is drawn at.
+
+    ISO 7200 §4 moves the scale out of the title block, so nothing about the
+    block's own cells can vouch for it any more. Without a stated scale a
+    drawing cannot be measured off, and there is no configuration in which
+    omitting it is correct — so this is an error, not a warning, and it checks
+    the rendered result rather than trusting the code that draws it.
+    """
+    if any(getattr(item, "is_scale_note", False) for item in items):
+        return
+    issues.append(
+        LintIssue(
+            severity="error",
+            code="scale_not_stated",
+            message=(
+                "The sheet does not state its scale. ISO 7200 presents the scale "
+                "outside the title block; draftwright draws it beside the "
+                "projection symbol. A drawing whose scale is not stated cannot be "
+                "measured off."
+            ),
+        )
+    )
 
 
 def _lint_title_fields(item, issues) -> None:

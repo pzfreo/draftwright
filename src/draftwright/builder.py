@@ -35,6 +35,7 @@ from draftwright._core import (
     _PAGE_SIZES,
     _SCALES,
     _add_projection_symbol,
+    _add_scale_note,
     _add_sheet_frame,
     _add_title_block,
     _add_zone_grid,
@@ -736,6 +737,7 @@ def _assemble(
         if a.zones:  # zone-grid ruler (#768), on the frame
             _add_zone_grid(dwg, a)
         _add_projection_symbol(dwg, a)
+        _add_scale_note(dwg, a)
 
     # The NTS caption is post-fit late furniture too, and goes FIRST: it is tied to the
     # iso block it labels, whereas a table may sit anywhere the sheet has room. Placing
@@ -1165,6 +1167,9 @@ def _build_drawing_once(
     #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
     #: exists to catch — and did.
     source: str | Path | None = None,
+    approved_by: str = "",
+    document_type: str = "",
+    sheet: str = "",
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1293,6 +1298,9 @@ def _build_drawing_once(
             date=date,
             revision=revision,
             company=company,
+            approved_by=approved_by,
+            document_type=document_type,
+            sheet=sheet,
             frame=frame,
             projection=projection,
             projection_symbol=projection_symbol,
@@ -1879,6 +1887,9 @@ def build_drawing(
     #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
     #: exists to catch — and did.
     source: str | Path | None = None,
+    approved_by: str = "",
+    document_type: str = "",
+    sheet: str = "",
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -1930,6 +1941,9 @@ def build_drawing(
         date=date,
         revision=revision,
         company=company,
+        approved_by=approved_by,
+        document_type=document_type,
+        sheet=sheet,
         frame=frame,
         projection=projection,
         projection_symbol=projection_symbol,
@@ -2831,6 +2845,9 @@ def make_drawing(
     #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
     #: exists to catch — and did.
     source: str | Path | None = None,
+    approved_by: str = "",
+    document_type: str = "",
+    sheet: str = "",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -2897,6 +2914,9 @@ def make_drawing(
         date=date,
         revision=revision,
         company=company,
+        approved_by=approved_by,
+        document_type=document_type,
+        sheet=sheet,
         frame=frame,
         projection=projection,
         projection_symbol=projection_symbol,
