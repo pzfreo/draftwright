@@ -372,7 +372,7 @@ def set_dxf_metadata(dxf) -> None:
         pass
 
 
-def write_dxf(dxf, path: str, page_w: float, page_h: float, reproducible: bool = False) -> None:
+def write_dxf(dxf, path: str, page_w: float, page_h: float, reproducible: bool = True) -> None:
     """Write *dxf* with the viewport zoomed to the known page window.
 
     ``ExportDXF.write`` resets the viewport via ``ezdxf.zoom.extents`` — a
@@ -542,7 +542,7 @@ def _render_pdf(
     pdf_path: str,
     link_rect=None,
     text_runs=(),
-    reproducible: bool = False,
+    reproducible: bool = True,
 ) -> None:
     """Render *svg_path* to *pdf_path* via svglib + reportlab, adding draftwright
     metadata and — when *link_rect* (drawing page coords, Y up) is given — a

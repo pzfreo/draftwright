@@ -662,8 +662,8 @@ class Drawing:
             multi-solid part as an assembly (per-part bores at ``info``),
             ``True``/``False`` forces it (#69).
         reproducible: default for :meth:`export`'s ``reproducible=`` — when true, two
-            exports of this drawing are byte-identical. ``False`` by default because
-            it costs roughly a third of DXF export time again (see
+            exports of this drawing are byte-identical. ``True`` by default; pass
+            ``False`` to trade that for export speed on a part-heavy sheet (see
             :func:`draftwright.export._elements`).
 
     The constructor also accepts ``cyls``, a precomputed
@@ -687,7 +687,7 @@ class Drawing:
         working_part=None,
         cyls=None,
         assembly=None,
-        reproducible=False,
+        reproducible=True,
     ):
         self.scale = scale
         # Public, JSON-friendly record of how the requested drawing scale was resolved
@@ -4682,7 +4682,7 @@ class Drawing:
         else:
             _log.info("Lint: OK")
 
-    def _write_svg(self, out: str, *, reproducible: bool = False) -> str:
+    def _write_svg(self, out: str, *, reproducible: bool = True) -> str:
         """Write the SVG (part/hidden/dims layers, page-size fix, arc sanitise, hyperlink +
         metadata) and return its path. The PDF and PNG renders both read this SVG.
 
@@ -4713,7 +4713,7 @@ class Drawing:
         _log.info("SVG → %s", svg_path)
         return svg_path
 
-    def _write_dxf(self, out: str, *, reproducible: bool = False) -> str:
+    def _write_dxf(self, out: str, *, reproducible: bool = True) -> str:
         """Write the DXF (part/hidden/dims layers + metadata) and return its path.
 
         *reproducible* orders the entities and pins the metadata ezdxf stamps from
@@ -5351,11 +5351,12 @@ class Drawing:
         order is settled and the metadata the exporters take from the clock is pinned,
         so a written drawing can be diffed or checksummed to see whether its content
         actually changed. ``None`` (the default) uses :attr:`reproducible`, which
-        :func:`~draftwright.build_drawing` sets and which is ``False`` unless asked
-        for: ordering costs roughly a third of DXF export time again (see
-        :func:`draftwright.export._elements`), so it is opted into rather than paid
-        by every caller. Passing the keyword here overrides the drawing's default for
-        this call only.
+        :func:`~draftwright.build_drawing` sets and which is ``True`` unless the
+        caller opts out: a file that changes between runs cannot be diffed,
+        checksummed or cached, and that is worth more than the ordering costs on a
+        part (+2.0% of a whole CTC-01 job). The cost grows with part count, so a
+        part-heavy sheet may want ``False`` — see :func:`draftwright.export._elements`.
+        Passing the keyword here overrides the drawing's default for this call only.
         """
         self.finalize()  # #426: drain any recorded intents before export (no-op if none)
         # An explicit keyword wins; otherwise the drawing's own default (build_drawing's).

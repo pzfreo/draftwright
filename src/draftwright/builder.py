@@ -507,7 +507,7 @@ def _assemble(
     trace=None,
     shape=None,
     critique_recognition_cache=None,
-    reproducible=False,
+    reproducible=True,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
@@ -816,7 +816,7 @@ def _repack(
     authored=None,
     trace=None,
     critique_recognition_cache=None,
-    reproducible=False,
+    reproducible=True,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
@@ -1045,7 +1045,7 @@ def _repack_to_fixed_point(
     authored=None,
     trace=None,
     critique_recognition_cache=None,
-    reproducible=False,
+    reproducible=True,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
     cur_a, cur_dwg = a, dwg
@@ -1145,7 +1145,7 @@ def _build_drawing_once(
     projection: str | None = None,
     projection_symbol: bool = True,
     zones: bool = False,
-    reproducible: bool = False,
+    reproducible: bool = True,
     framed_recognition: bool = False,
     text_position: str = "inline",
     text_orientation: str = "aligned",
@@ -1201,10 +1201,14 @@ def _build_drawing_once(
         reproducible: write files that do not carry the run that produced them, so
             two exports of one drawing are byte-identical and a written drawing can be
             diffed or checksummed to see whether its content really changed. Sets the
-            default for :meth:`Drawing.export`'s own ``reproducible=``. ``False``
-            because it is not free: settling the element order costs roughly a third
-            of DXF export time again (one bounding box and one edge walk per part),
-            while the metadata pinning it also turns on is ~1 ms.
+            default for :meth:`Drawing.export`'s own ``reproducible=``. ``True``:
+            a drawing that differs between runs cannot be diffed, checksummed or
+            cached, and the cost is small on a part — measured on the NIST CTC-01
+            AP242 fixture it is +0.27 s on a 13.4 s job (+3.2% of export, +2.0%
+            overall). Pass ``False`` to opt out where it is not small: the cost is
+            one bounding box and one edge walk per part, so it grows with part
+            count and reached +32% of export on a 358-part assembly. The metadata
+            pinning the flag also turns on is ~1 ms either way.
         framed_recognition: opt an automatic build into the provider-owned local recognition
             frame. Caller geometry remains provenance, the exact local solid feeds downstream
             geometry stages, and a typed refusal has one visible top-level raw fallback. Raw
@@ -1858,7 +1862,7 @@ def build_drawing(
     projection: str | None = None,
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
-    reproducible: bool = False,
+    reproducible: bool = True,
     framed_recognition: bool = False,
     text_position: str = "inline",
     text_orientation: str = "aligned",
@@ -2816,7 +2820,7 @@ def make_drawing(
     projection: str | None = None,
     zones: bool = False,
     scale_policy: Literal["strict", "fallback", "permissive"] = "fallback",
-    reproducible: bool = False,
+    reproducible: bool = True,
     framed_recognition: bool = False,
     text_position: str = "inline",
     text_orientation: str = "aligned",
