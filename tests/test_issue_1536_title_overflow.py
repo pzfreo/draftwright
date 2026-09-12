@@ -67,9 +67,13 @@ def test_a_field_crossing_cells_inside_page_is_reported(crowded_material):
         ({"number": "DOCUMENT NUMBER WITH A LONG SUFFIX"}, "drawing_number"),
         ({"revision": "PRELIMINARY REVISION A"}, "revision"),
         # Its own cell under the ISO 7200 layout, sized from the standard's
-        # 10-character date-of-issue capacity — so a spelled-out date overflows
-        # where "SEPTEMBER 9 2026" now fits.
-        ({"date": "WEDNESDAY 9 SEPTEMBER 2026"}, "date"),
+        # 10-character date-of-issue capacity — enough for "2026-09-12" and
+        # every other ordinary format. A spelled-out month is the realistic
+        # case that does not fit: 25.9 mm against a 21.6 mm cell on A4. This
+        # fixture is A2, where the cell is 27.0 mm and it fits, so the value is
+        # padded to reach the same outcome without inventing a date nobody
+        # would write.
+        ({"date": "12 SEPTEMBER 2026 (ISSUE)"}, "date"),
         (
             {"tolerance": "TOLERANCE REQUIREMENTS ARE IN THE PROCESS SPECIFICATION"},
             "general_tolerance",
