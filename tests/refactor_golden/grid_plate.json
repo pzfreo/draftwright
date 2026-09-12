@@ -39,7 +39,7 @@
     {
       "geom_bbox": [
         129.3,
-        145.5,
+        181.5,
         149.4,
         215.5
       ],
@@ -57,7 +57,7 @@
     {
       "geom_bbox": [
         59.3,
-        150.5,
+        180.5,
         89.4,
         215.5
       ],
@@ -431,10 +431,41 @@
     },
     {
       "geom_bbox": [
+        396.1,
+        51.9,
+        406.0,
+        55.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "projection_symbol",
+      "type": "ProjectionSymbol",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        377.7,
+        52.8,
+        390.0,
+        55.0
+      ],
+      "label": "SCALE 1:1",
+      "label_bbox": [
+        377.7,
+        52.8,
+        390.0,
+        55.0
+      ],
+      "name": "scale_note",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
         258.9,
         10.9,
         409.1,
-        27.1
+        43.1
       ],
       "label": "DRAWING",
       "label_bbox": null,
@@ -455,7 +486,7 @@
       "hole pattern pitch 15 not placed (no clear room beside the plan)"
     ]
   ],
-  "item_count": 29,
+  "item_count": 31,
   "page": [
     420.0,
     297.0

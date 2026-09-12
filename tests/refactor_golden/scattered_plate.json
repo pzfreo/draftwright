@@ -583,18 +583,49 @@
     {
       "geom_bbox": [
         437.4,
-        163.3,
+        168.8,
         461.7,
-        165.9
+        171.4
       ],
       "label": "ISO VIEW (NTS)",
       "label_bbox": [
         437.4,
-        163.3,
+        168.8,
         461.7,
-        165.9
+        171.4
       ],
       "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        570.1,
+        51.9,
+        580.0,
+        55.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "projection_symbol",
+      "type": "ProjectionSymbol",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        551.7,
+        52.8,
+        564.0,
+        55.0
+      ],
+      "label": "SCALE 1:1",
+      "label_bbox": [
+        551.7,
+        52.8,
+        564.0,
+        55.0
+      ],
+      "name": "scale_note",
       "type": "Note",
       "view": null
     },
@@ -603,7 +634,7 @@
         432.9,
         10.9,
         583.1,
-        27.1
+        43.1
       ],
       "label": "DRAWING",
       "label_bbox": null,
@@ -634,7 +665,7 @@
       "2 Y location dim(s) too closely spaced to dimension legibly (use a detail view)"
     ]
   ],
-  "item_count": 37,
+  "item_count": 39,
   "page": [
     594.0,
     420.0
@@ -648,9 +679,9 @@
     ],
     "iso": [
       343.8,
-      170.6,
+      176.1,
       555.2,
-      305.4
+      310.9
     ],
     "plan": [
       38.0,

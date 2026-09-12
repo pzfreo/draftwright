@@ -21,16 +21,16 @@
     {
       "geom_bbox": [
         12.8,
-        161.1,
+        162.5,
         72.4,
-        168.5
+        168.7
       ],
       "label": "\u23008 THRU",
       "label_bbox": [
         12.8,
-        161.1,
+        162.5,
         26.7,
-        163.8
+        165.1
       ],
       "name": "hc_plan0",
       "type": "Leader",
@@ -208,6 +208,37 @@
     },
     {
       "geom_bbox": [
+        396.1,
+        51.9,
+        406.0,
+        55.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "projection_symbol",
+      "type": "ProjectionSymbol",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        377.7,
+        52.8,
+        390.0,
+        55.0
+      ],
+      "label": "SCALE 1:1",
+      "label_bbox": [
+        377.7,
+        52.8,
+        390.0,
+        55.0
+      ],
+      "name": "scale_note",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
         23.6,
         176.7,
         25.2,
@@ -245,9 +276,9 @@
     {
       "geom_bbox": [
         26.5,
-        166.8,
+        170.8,
         28.3,
-        169.5
+        173.5
       ],
       "label": "",
       "label_bbox": null,
@@ -258,9 +289,9 @@
     {
       "geom_bbox": [
         124.5,
-        166.8,
+        170.8,
         126.3,
-        169.5
+        173.5
       ],
       "label": "",
       "label_bbox": null,
@@ -315,9 +346,9 @@
     {
       "geom_bbox": [
         27.4,
-        169.5,
+        166.8,
         27.4,
-        173.5
+        170.8
       ],
       "label": "",
       "label_bbox": null,
@@ -328,9 +359,9 @@
     {
       "geom_bbox": [
         125.4,
-        169.5,
+        166.8,
         125.4,
-        173.5
+        170.8
       ],
       "label": "",
       "label_bbox": null,
@@ -343,7 +374,7 @@
         258.9,
         10.9,
         409.1,
-        27.1
+        43.1
       ],
       "label": "DRAWING",
       "label_bbox": null,
@@ -359,7 +390,7 @@
       "1 approved step height(s) span less than 12.4 mm on the page from the ladder's datum and are not dimensioned at this scale"
     ]
   ],
-  "item_count": 22,
+  "item_count": 24,
   "page": [
     420.0,
     297.0

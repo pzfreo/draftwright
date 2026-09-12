@@ -240,18 +240,49 @@
     {
       "geom_bbox": [
         221.6,
-        88.5,
+        94.0,
         245.9,
-        91.2
+        96.7
       ],
       "label": "ISO VIEW (NTS)",
       "label_bbox": [
         221.6,
-        88.5,
+        94.0,
         245.9,
-        91.2
+        96.7
       ],
       "name": "note_iso_nts",
+      "type": "Note",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        273.1,
+        51.9,
+        283.0,
+        55.0
+      ],
+      "label": "",
+      "label_bbox": null,
+      "name": "projection_symbol",
+      "type": "ProjectionSymbol",
+      "view": null
+    },
+    {
+      "geom_bbox": [
+        254.7,
+        52.8,
+        267.0,
+        55.0
+      ],
+      "label": "SCALE 1:1",
+      "label_bbox": [
+        254.7,
+        52.8,
+        267.0,
+        55.0
+      ],
+      "name": "scale_note",
       "type": "Note",
       "view": null
     },
@@ -260,7 +291,7 @@
         165.9,
         10.9,
         286.1,
-        27.1
+        43.1
       ],
       "label": "DRAWING",
       "label_bbox": null,
@@ -270,7 +301,7 @@
     }
   ],
   "build_issues": [],
-  "item_count": 16,
+  "item_count": 18,
   "page": [
     297.0,
     210.0
@@ -284,9 +315,9 @@
     ],
     "iso": [
       187.8,
-      95.8,
+      101.3,
       279.7,
-      170.2
+      175.7
     ],
     "plan": [
       35.2,
