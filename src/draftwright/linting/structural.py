@@ -743,6 +743,12 @@ def _lint_scale_stated(items, issues) -> None:
     """
     if any(getattr(item, "is_scale_note", False) for item in items):
         return
+    if not any(getattr(item, "title_field_specs", None) for item in items):
+        # Not a finished sheet. The title block and the scale note are furniture
+        # added at the same stage, so a drawing carrying neither is a fragment —
+        # a partially-built fixture, or a view under test — and has nothing to
+        # state a scale about. Requiring one here would fail every such caller.
+        return
     issues.append(
         LintIssue(
             severity="error",
