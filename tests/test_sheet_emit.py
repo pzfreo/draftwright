@@ -2881,7 +2881,18 @@ _SCRIPT_FURNITURE = {
     "bc_": "a bolt circle's centreline — geometry, like a centre mark",
     "note_iso_nts": "the ISO NTS caption — a sheet-level statement, not a feature's",
     "title_block": "sheet metadata; edited through Sheet(...) kwargs, not a dimension line",
+    "scale_note": (
+        "the sheet scale, stated outside the block per ISO 7200 §4; derived from the "
+        "drawing's scale, which the script reproduces — there is no line to suppress"
+    ),
 }
+
+#: Furniture that states something about the SHEET rather than about a feature, and whose
+#: text therefore contains digits without being a measurement anyone could dimension. The
+#: `_is_value_bearing` proxy — "the label has a digit in it" — cannot tell the two apart,
+#: and it is the right proxy for feature annotations, so the exception is listed explicitly
+#: rather than the proxy weakened.
+_SHEET_LEVEL_FURNITURE = {"scale_note"}
 
 
 def _is_value_bearing(annotation) -> bool:
@@ -3367,7 +3378,9 @@ class TestTheScriptAccountsForEveryAnnotation:
         smuggled = sorted(
             n
             for n in survivors
-            if n.startswith(tuple(_SCRIPT_FURNITURE)) and _is_value_bearing(annotations[n])
+            if n.startswith(tuple(_SCRIPT_FURNITURE))
+            and not n.startswith(tuple(_SHEET_LEVEL_FURNITURE))
+            and _is_value_bearing(annotations[n])
         )
         assert not smuggled, (
             f"{name}: {smuggled} are allowed as furniture but PRINT a measurement — the "
