@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from math import atan2, degrees, isfinite, ulp
+from math import atan2, degrees, hypot, isfinite, ulp
 from typing import Any, Literal
 
 from quiddity import (
@@ -189,6 +189,91 @@ def _convert_double_d_bore(bore: DoubleDBore, ctx: ConvContext) -> HoleFeature:
         across_flats=bore.across_flats,
         profile_direction=bore.flat_direction,
     )
+
+
+#: A bolt circle fitted to this many member holes or more states a real datum: the fit could
+#: have failed and did not.
+#:
+#: Below it the fit is not evidence. **Any three non-collinear points are concyclic, and any
+#: four corners of a rectangle are**, so a circle through three or four holes ALWAYS fits
+#: whatever their arrangement — the residual is zero by construction and no tolerance on it can
+#: help. #1595 met this as a 2x3 rectangular grid of six holes whose middle and near rows were
+#: fitted to `EQ SP ON ø34.4 BC`, centred on (0, -20.11): exactly the circumcircle of the
+#: rectangle, and a datum the part does not have.
+_BC_SELF_EVIDENT_MEMBERS = 5
+
+#: How far a corroborating feature's axis may sit from the fitted centre and still count as
+#: concentric with it, in millimetres. Deliberately tight: the claim being corroborated is that
+#: the machinist may work from this circle, and a feature that is merely nearby does not
+#: support it.
+_BC_CONCENTRIC_TOL = 0.5
+
+
+def _corroborates_bolt_circle(candidate, axis: str, centre) -> bool:
+    """Whether *candidate* is a physical circular feature concentric with the fitted circle.
+
+    A four-bolt round flange is real and common, so member count alone would refuse as much
+    good work as bad. What separates it from #1595's rectangle is that the flange HAS
+    something at the centre — a spigot, a boss, a central bore — that the bolt circle is
+    concentric with, and that a machinist can actually indicate off.
+    """
+    if _axis_letter(candidate) != axis:
+        return False
+    plane = {"x": (1, 2), "y": (0, 2), "z": (0, 1)}[axis]
+    location = candidate.location
+    return hypot(*(location[i] - centre[i] for i in plane)) <= _BC_CONCENTRIC_TOL
+
+
+def _plane_indices(axis: str) -> tuple[int, int]:
+    return {"x": (1, 2), "y": (0, 2), "z": (0, 1)}[axis]
+
+
+def _accounts_for_its_siblings(pat, members, holes) -> bool:
+    """Whether the circle explains every hole of its own kind, or only some of them.
+
+    This is what actually distinguished #1595, and the leftover callout was the evidence
+    lying in plain sight: `4× ⌀2.4 THRU EQ SP ON ø34.4 BC` came out **beside**
+    `2× ⌀2.4 THRU`. Six identical holes, and the circle claimed four. A drawing does not
+    put two of six bolts on a different plan; a 2x3 grid fitted through four of its corners
+    does exactly that.
+
+    Identity is ``HoleSpec.from_hole`` — the same key the un-patterned grouping below uses
+    to decide two holes are the same hole. So "sibling" here means precisely what "identical
+    hole" already means everywhere else in the engine.
+
+    Rotation-invariant, which the lattice test this replaced was not: that one counted
+    distinct x and y values, so the *same* four holes were a lattice at 45° and a bolt
+    circle at 0°. This asks a question about the part, not about its angle to the axes.
+    """
+    member_ids = {id(m) for m in members}
+    specs = {HoleSpec.from_hole(m) for m in members}
+    return not any(
+        id(hole) not in member_ids and HoleSpec.from_hole(hole) in specs for hole in holes
+    )
+
+
+def _bolt_circle_is_corroborated(pat, members, holes, bosses) -> bool:
+    """Whether ``EQ SP ON ø… BC`` would state a datum rather than an artifact (#1596).
+
+    Three ways, any one of which is enough — the fit itself is never one of them, because a
+    circle through three points always fits and a circle through a rectangle's four corners
+    always fits, so the residual cannot disconfirm anything:
+
+    1. **enough members** — a circle through five or more holes could have failed to fit;
+    2. **a concentric physical feature** — something at the centre to indicate off;
+    3. **it accounts for every hole of its kind** — no identical hole left off the circle.
+    """
+    if len(members) >= _BC_SELF_EVIDENT_MEMBERS:
+        return True
+    axis = _axis_letter(members[0])
+    member_ids = {id(m) for m in members}
+    if any(
+        _corroborates_bolt_circle(candidate, axis, pat.center)
+        for candidate in (*holes, *(bosses or ()))
+        if id(candidate) not in member_ids
+    ):
+        return True
+    return _accounts_for_its_siblings(pat, members, holes)
 
 
 def _pattern_feature(pat, members) -> PatternFeature:
@@ -2051,6 +2136,22 @@ def build_part_model(
             # The members simply stay unpatterned below, so they are still drawn, dimensioned
             # and located. Carrying a full normal on `Frame` would be faithful but widens the
             # ADR 1 (was 0015) waist; that option stays recorded on #971.
+            continue
+        if isinstance(pat, BoltCircle) and not _bolt_circle_is_corroborated(
+            pat, members, holes, bosses
+        ):
+            # An UNCORROBORATED bolt circle is not a datum (#1596). Three or four holes are
+            # always concyclic, so the fit proves nothing about the part; printing
+            # `EQ SP ON ø… BC` off it tells the reader to work from a centre that may not
+            # exist. #1595 met exactly that — six holes in a 2x3 grid, four of them fitted to
+            # a ø34.4 circle centred in mid-air.
+            #
+            # Refused HERE for the same reason the oblique pattern above is: ADR 3 says the
+            # recogniser reports the geometry it finds, and a circle through those holes IS
+            # findable. Whether it may be STATED as a drafting datum is drafting policy, and
+            # that is draftwright's (ADR 3 / CLAUDE.md). The members fall through to the
+            # un-patterned grouping below, so they are still drawn, counted and located —
+            # they simply stop claiming a bolt circle.
             continue
         patterned.update(id(h) for h in members)
         hole_pattern_feature = _pattern_feature(pat, members)
