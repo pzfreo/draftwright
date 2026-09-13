@@ -385,7 +385,7 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
     @pytest.mark.slow
     def test_the_furniture_really_is_silent(self):
         # The other side of the same claim: on nist_ctc_02 the silent annotations are
-        # centre marks, bolt circles, notes, the projection symbol and the title block.
+        # centre marks, notes, the projection symbol and the title block.
         # The allow-list is exactly the types observed — a wider set asserts nothing about
         # types that never occur
         # (#1225 review, finding 7).
@@ -412,7 +412,6 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         assert len(silent) > 50, f"too little furniture to characterise: {len(silent)}"
         assert set(silent) == {
             "CenterMark",
-            "CenterlineCircle",
             "Note",
             "ProjectionSymbol",
             "TitleBlock",
