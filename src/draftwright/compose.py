@@ -618,6 +618,22 @@ def _compose_anno_boxes(
             _reserve(view, "above")
             _reserve(view, "right")
 
+    # Seat-axis offsets occupy profile ladders, including the axis height above stock.
+    # Reserve each distinct physical ordinate that the renderer can share.
+    seat_corridors = set()
+    for feature in model.features:
+        if feature.kind != "circular_channel" or authored_location_omitted(model, feature):
+            continue
+        for index, (axis, view, side) in enumerate(
+            (("x", "front", "above"), ("y", "side", "above"), ("z", "front", "right"))
+        ):
+            start = float(getattr(model.bbox.min, axis.upper()))
+            end = feature.axis_origin[index]
+            if abs(end - start) > 1e-9:
+                seat_corridors.add((view, side, start, end))
+    for view, side, _start, _end in seat_corridors:
+        _reserve(view, side)
+
     # A through-step owns its two orthogonal legs after the adapter removes matching
     # raw face levels/plates. Reserve those approved legs directly; a phantom legacy
     # height ladder must not be what happens to give them room (#1592).

@@ -711,6 +711,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
     EXEMPT = {
         # -- furniture: nothing here measures anything ------------------------------
         ("from_model.py", "render_centermarks"): "a centre mark measures nothing",
+        ("from_model.py", "_circular_channel_axis_marks"): "physical axis marks are furniture",
         (
             "from_model.py",
             "render_local_turned_centerlines._place",

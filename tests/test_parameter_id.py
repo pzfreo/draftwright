@@ -240,6 +240,14 @@ _SAMPLES: dict[str, ir.Feature] = {
     "ChamferFeature": ir.ChamferFeature(_F, "z", 2.0, 2.0, 45.0),
     "FilletFeature": ir.FilletFeature(_F, "z", 3.0),
     "BlendFeature": ir.BlendFeature(_F, "z", 0.2, "convex", (0.0, 0.0, 1.0)),
+    "CircularChannelFeature": ir.CircularChannelFeature(
+        ir.Frame((0, 4, 0), "z"),
+        "z",
+        4.0,
+        10.0,
+        ((0, 0, -5), (0, 0, 5)),
+        ((4, 0), (0, 4), (-4, 0)),
+    ),
     "CircularBlindStepFeature": ir.CircularBlindStepFeature(
         _CBS_FRAME, "z", 4.0, 10.0, _CBS_CENTRELINE, _CBS_SECTION
     ),
@@ -352,6 +360,11 @@ _SAMPLE_BINDINGS = {
     "ChamferFeature": (("chamfer.length", 2.0),),
     "FilletFeature": (("fillet.radius", 3.0),),
     "BlendFeature": (("blend.radius", 0.2),),
+    "CircularChannelFeature": (
+        ("seat_diameter.diameter", 8.0),
+        ("seat_run.length", 10.0),
+        ("seat_sweep.angle", 180.0),
+    ),
     "CircularBlindStepFeature": (
         ("circular_step_radius.radius", 4.0),
         ("circular_step_depth.length", 10.0),

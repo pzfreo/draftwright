@@ -145,6 +145,10 @@ def _paired_ramp_step():
     return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
 
 
+def _circular_channel():
+    return Box(40, 30, 10) - Pos(0, 0, 5) * Rot(90, 0, 0) * Cylinder(5, 40)
+
+
 def _circular_blind_step():
     return Box(40, 30, 20) - Pos(7.5, 15, 10) * Rot(0, 90, 0) * Cylinder(4, 25)
 
@@ -2628,6 +2632,7 @@ class TestTheDimensionMirror:
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
             "blend": _chamfered_corner(bd_fillet, 0.2),
+            "circular channel": _circular_channel(),
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
@@ -2675,6 +2680,7 @@ class TestTheDimensionMirror:
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
         "blend": {"blend"},
+        "circular channel": {"circular_channel"},
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},
@@ -3031,6 +3037,7 @@ _KIND_MIRROR_COVERAGE = {
     "chamfer": "corpus",
     "fillet": "corpus",
     "blend": "corpus",
+    "circular_channel": "corpus",
     "circular_blind_step": "corpus",
     "paired_ramp_step": "corpus",
     "through_step": "corpus",
@@ -3536,6 +3543,7 @@ _FIDELITY_ROUTE = {
     "chamfer": ("detected", "chamfer"),
     "fillet": ("detected", "fillet"),
     "blend": ("detected", "convex Blend chain"),
+    "circular_channel": ("detected", "circular channel"),
     "circular_blind_step": ("detected", "circular blind step"),
     "paired_ramp_step": ("detected", "paired ramp"),
     "through_step": ("detected", "through step"),
@@ -3797,6 +3805,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "chamfer": _chamfered_corner(bd_chamfer, 4),
             "fillet": _chamfered_corner(bd_fillet, 3),
             "blend": _chamfered_corner(bd_fillet, 0.2),
+            "circular channel": _circular_channel(),
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
@@ -3862,6 +3871,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "chamfer": {"chamfer"},
         "fillet": {"fillet"},
         "blend": {"blend"},
+        "circular channel": {"circular_channel"},
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},

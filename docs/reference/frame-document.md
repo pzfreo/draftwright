@@ -28,15 +28,16 @@ an export setting, not a promise that a future version will draw the same pictur
 checks physical identities and measurement meanings rather than a cross-version image digest.
 
 Open both exported sheets. Check the cut material and upward cutting arrows on section A–A,
-the three grouped bore callouts, the location table and the preliminary-status notes. The feature table
+the counted seat callout and axis locations on the general sheet, and the three grouped
+bore callouts, location table and preliminary-status notes on the feature sheet. The feature table
 uses X/Y/Z distances from the model's minimum datum planes; the axis column identifies each
 operation's drilling axis. Ordinary annotation placement and table fitting remain the engine's
 responsibility. A table that does not fit must be reported, not compressed or overlapped.
 
 Read the document assessment alongside the drawings. Per-sheet missing-measurement warnings
 are expected where the other sheet supplies the measurement. Package coverage still includes
-all **56 known obligations**, including six unsupported pockets and three unsupported
-circular seats. On the pinned Quiddity 0.2.9 build the recipe credits 13 of those obligations; the remainder must not disappear merely because a sparse sheet has
+all **71 known obligations**, including six unsupported pockets and eighteen circular-seat
+requirements. With Quiddity 0.2.9 and the circular-seat grammar, the recipe credits 31 of those obligations; the remainder must not disappear merely because a sparse sheet has
 few overlaps. Coverage, layout, fidelity and manufacturing readiness are separate judgments.
 Unmeasured section furniture and notes also remain explicit in the fidelity unknowns.
 
@@ -82,8 +83,10 @@ lands described for the original printed-part report. The note
 `SIX BEARING SEGMENTS - FIT / PIN RETENTION TBD` has no `satisfies=` declaration and earns
 no additional coverage. This recipe still leaves the hinge's transverse location and each
 bearing's axial placement unresolved; correct occurrence identity alone does not state them.
-The three cylindrical seats are now recognised and explicitly unsupported pending the
-circular-channel drawing grammar (#1613). Their missing dimensions remain in the report.
+The general sheet states the three cylindrical seats with one counted diameter/run/arc
+callout and datum-to-axis coordinates. Centre marks identify the virtual cylinder axis;
+the leader targets the physical curved wall. Each seat retains its own six requirements
+and source occurrence even where the coaxial seats share dimensional ink (#1613).
 
 All six underside hex pockets stay in the denominator with unsupported dispositions. Their
 ordinary table contains author-supplied descriptive text and has no measured-cell authority.

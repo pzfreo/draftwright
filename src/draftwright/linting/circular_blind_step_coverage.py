@@ -17,11 +17,11 @@ from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
 from draftwright.linting._registry import (
-    satisfaction_ids,
+    measurement_outcome_index,
     satisfaction_of,
     with_measurement_carriers,
 )
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import LintIssue
 from draftwright.measurement_support import RequirementCarrier
 
 CircularBlindStepRequirementState = Literal[
@@ -192,28 +192,6 @@ def _has_parameters(feature) -> bool:
         return False
 
 
-def _index_evidence(registry):
-    placed = {
-        (measurement.feature, measurement.parameter)
-        for name in registry.names()
-        for measurement in registry.measurement_of(name)
-    }
-    satisfied = {
-        (identity.feature, identity.parameter)
-        for identity in satisfaction_ids(registry)
-        if identity.feature is not None and isinstance(identity.parameter, str)
-    }
-    dropped = {
-        (measurement.feature, measurement.parameter)
-        for issue in registry.issues
-        if is_placement_drop(issue)
-        for measurement in getattr(issue, "measurement_ids", ())
-        if getattr(measurement, "feature", None) is not None
-        and isinstance(getattr(measurement, "parameter", None), str)
-    }
-    return placed, satisfied, dropped
-
-
 def circular_blind_step_requirement_outcomes(
     recognition: RecognitionResult | None,
     features,
@@ -268,7 +246,7 @@ def circular_blind_step_requirement_outcomes(
         ):
             continue
 
-    placed, satisfied, dropped = _index_evidence(registry)
+    placed, satisfied, dropped = measurement_outcome_index(registry)
     suppressed = {
         (omission.feature, omission.parameter_id)
         for omission in omissions

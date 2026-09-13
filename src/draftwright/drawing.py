@@ -146,7 +146,10 @@ from draftwright.linting import (
 from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.quality import quality_components, review_explanation
-from draftwright.linting.section_recess_coverage import lint_section_recess_coverage
+from draftwright.linting.section_recess_coverage import (
+    lint_circular_channel_coverage,
+    lint_section_recess_coverage,
+)
 from draftwright.projection import (
     part_material_mesh,
     project_view_geometry,
@@ -378,6 +381,7 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
 _MACHINED_CALLOUT_KINDS = (
     "chamfer",
     "circular_blind_step",
+    "circular_channel",
     "fillet",
     "blend",
     "paired_ramp_step",
@@ -2303,6 +2307,7 @@ class Drawing:
                 render_blends,
                 render_chamfers,
                 render_circular_blind_steps,
+                render_circular_channels,
                 render_fillets,
                 render_flats,
                 render_grooves,
@@ -2318,6 +2323,7 @@ class Drawing:
                 "blend": render_blends,
                 "chamfer": render_chamfers,
                 "circular_blind_step": render_circular_blind_steps,
+                "circular_channel": render_circular_channels,
                 "fillet": render_fillets,
                 "paired_ramp_step": render_paired_ramp_steps,
                 "flat": render_flats,
@@ -2548,7 +2554,11 @@ class Drawing:
         ordinate with a real offset. In deferred mode, records the intent and
         returns ``[]``; the names are created when the context finalizes.
 
-        Raises ``ValueError`` if *feature* is not a Z-axis hole/pattern (side-drilled
+        Circular channels also accept this verb: their X/Y/Z offsets locate the seat
+        axis from the stock bounding-box minimum, and ``axes`` may select any subset
+        of those three coordinates. They use the shared profile corridor solve.
+
+        Raises ``ValueError`` for an unsupported feature (side-drilled
         bores are placed by the auto-pass). A feature with no datum-referenced ref (a
         datum-less model or a concentric/on-datum bore) returns ``[]``. Live placement
         handles this feature alone; automatic/deferred rendering may coalesce truly
@@ -2562,6 +2572,31 @@ class Drawing:
         from draftwright.annotations.holes import add_feature_location
 
         ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        if getattr(feature, "kind", None) == "circular_channel":
+            from draftwright.annotations._common import drain_corridors
+            from draftwright.annotations.from_model import render_circular_channel_locations
+            from draftwright.model.compiled import compile_dimensions
+
+            if self._part_model is None or not any(
+                item is feature for item in self._part_model.features
+            ):
+                raise ValueError("locate(): feature is not from this drawing's model")
+            before = set(self.annotations())
+            render_circular_channel_locations(
+                self,
+                compile_dimensions(self._part_model, planned_views=tuple(self.views)),
+                self._analysis,
+                ctx=ctx,
+                only={feature},
+                pinned={feature} if pin else None,
+                axes=axes,
+            )
+            drain_corridors(ctx, self)
+            return [
+                name
+                for name in self.annotations()
+                if name not in before and name.startswith("m_seatloc_")
+            ]
         return add_feature_location(
             self, feature, self._part_model, self._analysis, axes=axes, pin=pin, ctx=ctx
         )
@@ -2622,7 +2657,10 @@ class Drawing:
             and it.kwargs.get("axes") is None
             # Z-plan holes only — render_locations places X/Y position dims. A side-drilled
             # (X/Y-axis) bore's location is a different pass (off_axis_loc_ids below).
-            and getattr(getattr(it.feature, "frame", None), "axis", None) == "z"
+            and (
+                getattr(it.feature, "kind", None) == "circular_channel"
+                or getattr(getattr(it.feature, "frame", None), "axis", None) == "z"
+            )
         }
         # Side-drilled (X/Y-axis) hole locations (#133/#426): a separate whole-model pass
         # (_locate_off_axis_holes), placed at the shared drain like the Z-plan corridor —
@@ -2637,6 +2675,7 @@ class Drawing:
             if routable
             and it.kind == "locate"
             and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y")
+            and getattr(it.feature, "kind", None) != "circular_channel"
         }
         callout_ids = {
             id(it)
@@ -2991,6 +3030,7 @@ class Drawing:
             render_blends,
             render_chamfers,
             render_circular_blind_steps,
+            render_circular_channels,
             render_diameters,
             render_fillets,
             render_flats,
@@ -3344,6 +3384,9 @@ class Drawing:
         def _s_circular_blind_steps():
             _s_machined("circular_blind_step", render_circular_blind_steps)
 
+        def _s_circular_channels():
+            _s_machined("circular_channel", render_circular_channels)
+
         def _s_fillets():
             _s_machined("fillet", render_fillets)
 
@@ -3543,6 +3586,7 @@ class Drawing:
                 "drain": _s_drain,
                 "chamfers": _s_chamfers,
                 "circular_blind_steps": _s_circular_blind_steps,
+                "circular_channels": _s_circular_channels,
                 "fillets": _s_fillets,
                 "blends": _s_blends,
                 "paired_ramp_steps": _s_paired_ramp_steps,
@@ -4312,6 +4356,13 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_section_recess_coverage(recognition)
+            issues += lint_circular_channel_coverage(
+                recognition,
+                getattr(model, "features", ()),
+                physical_registry,
+                self._build.omissions,
+                bbox=a.bb if a is not None else None,
+            )
             issues += lint_angled_step_coverage(recognition)
             resolved_assembly = self.assembly
             if resolved_assembly is None:

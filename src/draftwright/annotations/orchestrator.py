@@ -63,6 +63,7 @@ from draftwright.annotations.from_model import (
     render_centermarks,
     render_chamfers,
     render_circular_blind_steps,
+    render_circular_channels,
     render_diameters,
     render_envelope,
     render_fillets,
@@ -296,6 +297,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "fillets",
     "blends",
     "circular_blind_steps",
+    "circular_channels",
     "paired_ramp_steps",
     "flats",
     "pockets",
@@ -698,6 +700,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Quarter-cylinder radius + stopped depth share one solver-owned end-view leader.
         render_circular_blind_steps(dwg, _compiled, a, ctx=ctx)
 
+    def _s_circular_channels():
+        render_circular_channels(dwg, _compiled, a, ctx=ctx)
+
     def _s_through_steps():
         # Two transverse open-section legs, independently identified and corridor-placed.
         render_through_steps(dwg, _compiled, a, ctx=ctx)
@@ -938,6 +943,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "fillets": _s_fillets,
             "blends": _s_blends,
             "circular_blind_steps": _s_circular_blind_steps,
+            "circular_channels": _s_circular_channels,
             "paired_ramp_steps": _s_paired_ramp_steps,
             "flats": _s_flats,
             "pockets": _s_pockets,

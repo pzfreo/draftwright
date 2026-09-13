@@ -1006,6 +1006,13 @@ def _feature_line(
             f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
             f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
         )
+    if k == "circular_channel":
+        centreline = "(" + ", ".join(_authored_pt(point) for point in f.centreline) + ")"
+        section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"
+        return (
+            f'sheet.circular_channel(axis="{f.axis}", radius={_authored_n(f.radius)}, '
+            f"length={_authored_n(f.length)}, centreline={centreline}, section={section})"
+        )
     if k == "circular_blind_step":
         centreline = "(" + ", ".join(_authored_pt(point) for point in f.centreline) + ")"
         section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"

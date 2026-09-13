@@ -1141,6 +1141,8 @@ class TestTheBoundaryIsLoadBearing:
             "render_boss_heights",
             "render_chamfers",
             "render_circular_blind_steps",
+            "render_circular_channel_locations",
+            "render_circular_channels",
             "render_diameters",
             "render_envelope",
             "render_fillets",

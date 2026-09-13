@@ -184,14 +184,22 @@ def test_frame_preserves_unsupported_pockets_and_uncredited_segment_note(frame_d
     package, result = frame_document
     report = result.report()
     rows = report["recognition"]["requirements"]
-    # Physical requirements retain unsupported hex pockets and the newly recognised seats.
-    assert len(rows) == 56
+    # Six obligations per seat replace its former single unsupported-grammar outcome.
+    assert len(rows) == 71
     recesses = [row for row in rows if row["family"] == "section_recesses"]
-    assert len(recesses) == 9
+    assert len(recesses) == 24
     assert len({tuple(row["occurrence_ids"]) for row in recesses}) == 9
-    assert all(row["requirement_count"] == 1 and row["coverage_credit"] == 0 for row in recesses)
+    seat_requirements = [
+        row for row in recesses if (row["parameter_id"] or "").startswith("seat_")
+    ]
+    pockets = [row for row in recesses if row["parameter_id"] is None]
+    assert len(seat_requirements) == 18 and len(pockets) == 6
     assert all(
-        all(local["state"] == "unsupported" for local in row["local_outcomes"]) for row in recesses
+        row["requirement_count"] == 1 and row["coverage_credit"] == 1 for row in seat_requirements
+    )
+    assert all(row["requirement_count"] == 1 and row["coverage_credit"] == 0 for row in pockets)
+    assert all(
+        all(local["state"] == "unsupported" for local in row["local_outcomes"]) for row in pockets
     )
     recognised_recesses = [
         row for row in report["recognition"]["occurrences"] if row["family"] == "section_recesses"
@@ -224,8 +232,8 @@ def test_frame_preserves_unsupported_pockets_and_uncredited_segment_note(frame_d
         assert diameter == pytest.approx(14.3, abs=0.0005)
         assert math.degrees(4 * math.atan(bulge)) == pytest.approx(62.89, abs=0.01)
         assert last["bulge"] == 0
-        assert row["disposition"] == "unsupported"
-        assert row["requirements"]["ids"]
+        assert row["disposition"] == "represented"
+        assert len(row["requirements"]["ids"]) == 6
     drawing = result.sheets["features"]
     (hinge,) = [owner for owner, _bore in _bores(package.features) if owner.frame.axis == "y"]
     notes = [
@@ -379,9 +387,9 @@ def test_numeric_descriptive_pocket_table_cannot_erase_unsupported_obligations(f
         pockets = [
             row
             for row in after["recognition"]["requirements"]
-            if row["family"] == "section_recesses"
+            if row["family"] == "section_recesses" and row["parameter_id"] is None
         ]
-        assert len(pockets) == 9 and all(row["coverage_credit"] == 0 for row in pockets)
+        assert len(pockets) == 6 and all(row["coverage_credit"] == 0 for row in pockets)
         assert all(
             all(local["state"] == "unsupported" for local in row["local_outcomes"])
             for row in pockets

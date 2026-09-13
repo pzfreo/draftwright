@@ -24,3 +24,20 @@ def is_exact_oriented_slot_feature(value) -> bool:
         and type(getattr(value, "passage", None)) is _ORIENTED_SLOT_TYPES[1]
         and type(getattr(value, "frame", None)) is _ORIENTED_SLOT_TYPES[2]
     )
+
+
+_ENVELOPE_TYPE: type | None = None
+
+
+def register_envelope_feature_type(feature_type: type) -> None:
+    """Publish envelope identity without coupling physical lint to the compiler."""
+    global _ENVELOPE_TYPE
+    if _ENVELOPE_TYPE is None:
+        _ENVELOPE_TYPE = feature_type
+    elif _ENVELOPE_TYPE is not feature_type:
+        raise RuntimeError("envelope feature type is already registered")
+
+
+def is_exact_envelope_feature(value) -> bool:
+    """Reject duck-typed or subclassed substitutes for an overall extent owner."""
+    return _ENVELOPE_TYPE is not None and type(value) is _ENVELOPE_TYPE

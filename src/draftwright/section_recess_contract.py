@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass, replace
-from math import dist, isfinite, sqrt
+from math import atan2, degrees, dist, isfinite, pi, sqrt
 
 from quiddity import (
     ClosedSectionProfile,
@@ -336,6 +336,8 @@ def section_recess_fields(source: object) -> tuple[str, dict]:
         raise ValueError("section recess requires defining-face evidence")
     kind = source.classification.feature_kind
     shape = source.classification.section_shape
+    if (kind, shape) == ("channel", "circular"):
+        return "circular_channel", circular_channel_fields(source)
     if (kind, shape) == ("pocket", "obround"):
         return "pocket", _obround_pocket_fields(source)
     if (kind, shape) == ("pocket", "general"):
@@ -712,3 +714,116 @@ def pocket_mouth_key(axis, radius, at, *, origin=None):
     if origin is not None:
         point = tuple(0.0 if i == "xyz".index(axis) else point[i] - origin[i] for i in range(3))
     return axis, round(radius, 6), tuple(round(value, 6) for value in point)
+
+
+def circular_channel_geometry(axis, radius, length, centreline, section) -> dict:
+    """Validate a cylindrical open arc from three physical arc points and its axis.
+
+    Section points are start, angular midpoint, end in ascending transverse world axes.
+    This preserves minor, semicircular, and major arcs without inventing a closing wall.
+    """
+    if axis not in ("x", "y", "z"):
+        raise ValueError("circular channel axis must be x, y, or z")
+    radius, length = _section_numbers((radius, length), 2, "circular channel size")
+    if radius <= 0 or length <= 0:
+        raise ValueError("circular channel sizes must be positive")
+    if type(centreline) not in (tuple, list) or len(centreline) != 2:
+        raise ValueError("circular channel centreline requires two axis endpoints")
+    line = tuple(_section_numbers(p, 3, "circular channel axis point") for p in centreline)
+    if type(section) not in (tuple, list) or len(section) != 3:
+        raise ValueError("circular channel section requires three physical arc points")
+    arc = tuple(_section_numbers(p, 2, "circular channel arc point") for p in section)
+    run = "xyz".index(axis)
+    transverse = tuple(i for i in range(3) if i != run)
+    if any(abs(line[0][i] - line[1][i]) > 1e-7 for i in transverse):
+        raise ValueError("circular channel centreline must follow its run axis")
+    if abs(line[1][run] - line[0][run] - length) > 1e-7:
+        raise ValueError("circular channel ordered axis endpoints must span its length")
+    centre = tuple(line[0][i] for i in transverse)
+    vectors = tuple(tuple(p[i] - centre[i] for i in (0, 1)) for p in arc)
+    if any(abs(sqrt(x * x + y * y) - radius) > 1e-6 for x, y in vectors):
+        raise ValueError("circular channel arc points must lie on its cylinder")
+    first, middle, last = vectors
+
+    # Equal signed half-arcs prove that the middle point is the physical arc anchor,
+    # including a major arc whose shorter endpoint chord would select the wrong side.
+    def half_angle(a, b):
+        return atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1])
+
+    left, right = half_angle(first, middle), half_angle(middle, last)
+    if abs(left) < 1e-9 or abs(left - right) > 1e-7 or abs(left) >= pi - 1e-9:
+        raise ValueError("circular channel requires an ordered nondegenerate open arc")
+    sweep = degrees(abs(left + right))
+    anchor = [(a + b) / 2 for a, b in zip(line[0], line[1], strict=True)]
+    anchor[transverse[0]], anchor[transverse[1]] = arc[1]
+    if not all(isfinite(v) for v in (*anchor, sweep)):
+        raise ValueError("circular channel projected measurements must remain finite")
+    return dict(
+        radius=radius,
+        length=length,
+        centreline=line,
+        section=arc,
+        origin=tuple(anchor),
+        sweep=sweep,
+    )
+
+
+def circular_channel_fields(source: SectionRecess) -> dict:
+    """Project one released two-vertex circular channel onto its physical cylinder."""
+    if type(source) is not SectionRecess:
+        raise TypeError("circular channel requires the exact public SectionRecess")
+    _validate_public_value(source)
+    if (source.classification.feature_kind, source.classification.section_shape) != (
+        "channel",
+        "circular",
+    ):
+        raise UnsupportedSectionRecess("recess is not a circular channel")
+    geometry = source.geometry
+    if not source.evidence.defining_faces:
+        raise ValueError("circular channel requires defining-face evidence")
+    if not perpendicular_recess_ends(geometry.ends) or any(
+        end.condition != "open" for end in (geometry.ends.low, geometry.ends.high)
+    ):
+        raise UnsupportedSectionRecess("circular channel requires two perpendicular open ends")
+    profile = geometry.profile
+    if type(profile) is not OpenSectionProfile or len(profile.boundary) != 2:
+        raise UnsupportedSectionRecess("circular channel requires a two-vertex open arc")
+    first, last = profile.boundary
+    bulge = first.bulge
+    if bulge == 0 or last.bulge != 0:
+        raise UnsupportedSectionRecess(
+            "circular channel requires exactly one curved physical edge"
+        )
+    dx, dy = last.point[0] - first.point[0], last.point[1] - first.point[1]
+    chord = sqrt(dx * dx + dy * dy)
+    if chord == 0:
+        raise ValueError("circular channel endpoints must be distinct")
+    radius = chord * (1 + bulge * bulge) / (4 * abs(bulge))
+    midpoint = tuple((a + b) / 2 for a, b in zip(first.point, last.point, strict=True))
+    factor = (1 - bulge * bulge) / (4 * bulge)
+    centre = (midpoint[0] - factor * dy, midpoint[1] + factor * dx)
+    arc_middle = (midpoint[0] + bulge * dy / 2, midpoint[1] - bulge * dx / 2)
+    frame = geometry.frame
+    run, _sign = _section_axis(frame.run)
+    transverse = tuple(i for i in range(3) if i != run)
+
+    # u/v may rotate freely within the principal transverse plane. The public frame
+    # validator establishes their handedness; only the extrusion axis selects a view.
+    def world(point, station):
+        return tuple(
+            frame.origin[i]
+            + point[0] * frame.u[i]
+            + point[1] * frame.v[i]
+            + station * frame.run[i]
+            for i in range(3)
+        )
+
+    low, high = geometry.run_interval
+    line = tuple(sorted((world(centre, low), world(centre, high)), key=lambda p: p[run]))
+    section = tuple(
+        tuple(world(point, 0)[i] for i in transverse)
+        for point in (first.point, arc_middle, last.point)
+    )
+    values = circular_channel_geometry("xyz"[run], radius, high - low, line, section)
+    values.pop("sweep")  # Derived by the IR from the retained physical arc, not independent input.
+    return dict(axis="xyz"[run], **values)

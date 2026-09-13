@@ -110,6 +110,7 @@ def _locatable_instances():
         PocketFeature,
         PocketPatternFeature,
         SlotFeature,
+        circular_channel,
     )
 
     z = Frame((10.0, 10.0, 0.0), "z")
@@ -117,6 +118,16 @@ def _locatable_instances():
     pocket = PocketFeature(z, "y", "x", 8.0, 20.0, 4.0, 10.0, 4.0, 24.0)
     members = ((5.0, 10.0, 0.0), (15.0, 10.0, 0.0), (25.0, 10.0, 0.0))
     return [
+        pytest.param(
+            circular_channel(
+                axis="y",
+                radius=5,
+                length=6,
+                centreline=((0, -3, 0), (0, 3, 0)),
+                section=((5, 0), (0, 5), (-5, 0)),
+            ),
+            id="circular_channel",
+        ),
         pytest.param(hole, id="hole"),
         pytest.param(PatternFeature(z, "linear", 3, hole, members, pitch=10.0), id="pattern"),
         pytest.param(pocket, id="pocket"),

@@ -53,7 +53,7 @@ Compact map, bottom to top:
   occurrence identity),
   `oriented_slot_contract.py` (released free-axis slot validation and exact pattern membership),
   `section_recess_contract.py` (published recess grammar and exact inventory pattern joins),
-  `feature_identity.py` (registered exact oriented-slot IR types for independent lint),
+  `feature_identity.py` (registered exact oriented-slot and envelope IR types for independent lint),
   `_warnings.py`, and `_pmi_part21.py`.
 - **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
   page/slot/margin constants.

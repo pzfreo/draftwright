@@ -1,14 +1,22 @@
-"""Explicit outcomes for published recess geometry outside the supported drawing grammar."""
+"""Source-owned outcomes for supported and unsupported published recess geometry."""
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from quiddity import RecognitionResult, SectionRecess, SectionRecessRefusal
 
-from draftwright.linting.issues import UNJOINED_PARAMETER_ID, LintIssue
-from draftwright.section_recess_contract import UnsupportedSectionRecess, section_recess_fields
+from draftwright.feature_identity import is_exact_envelope_feature
+from draftwright.linting._registry import measurement_outcome_index, with_measurement_carriers
+from draftwright.linting.issues import UNJOINED_PARAMETER_ID, LintIssue, requirement_subject
+from draftwright.measurement_support import RequirementCarrier, RequirementExclusion
+from draftwright.section_recess_contract import (
+    UnsupportedSectionRecess,
+    circular_channel_fields,
+    circular_channel_geometry,
+    section_recess_fields,
+)
 
 
 @dataclass(frozen=True)
@@ -100,3 +108,205 @@ def lint_section_recess_coverage(recognition) -> list[LintIssue]:
             )
         )
     return issues
+
+
+@dataclass(frozen=True)
+class CircularChannelRequirementOutcome:
+    """One physical seat size or datum-to-axis coordinate, retaining its exact source."""
+
+    source_at: tuple[float, float, float]
+    parameter_id: str
+    state: str
+    requirement_count: int = 1
+    features: tuple = ()
+    source_records: tuple[SectionRecess, ...] = field(
+        default=(), repr=False, compare=False, kw_only=True
+    )
+    carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
+    intrinsic_exclusion: RequirementExclusion | None = field(default=None, kw_only=True)
+    measurement_ids: tuple[tuple[object, str], ...] = field(default=(), kw_only=True)
+
+
+_SEAT_SIZES = ("seat_diameter.diameter", "seat_run.length", "seat_sweep.angle")
+_SEAT_LOCATIONS = tuple(f"seat_location.location.{axis}" for axis in "xyz")
+
+
+def _seat_key(axis, values):
+    return (axis, values["radius"], values["length"], values["centreline"], values["section"])
+
+
+def _seat_feature_key(feature):
+    values = circular_channel_geometry(
+        feature.axis, feature.radius, feature.length, feature.centreline, feature.section
+    )
+    if feature.frame.axis != feature.axis or feature.frame.origin != values["origin"]:
+        raise ValueError("seat frame does not anchor its physical arc")
+    parameters = tuple(feature.parameters())
+    actual = {
+        parameter.parameter_id: (parameter.value, parameter.span) for parameter in parameters
+    }
+    expected = dict(
+        zip(
+            _SEAT_SIZES,
+            (
+                (2 * values["radius"], None),
+                (values["length"], values["centreline"]),
+                (values["sweep"], None),
+            ),
+            strict=True,
+        )
+    )
+    if len(parameters) != 3 or actual != expected:
+        raise ValueError("seat parameters do not preserve its physical cylinder")
+    return _seat_key(feature.axis, values)
+
+
+def _seat_run_representation(feature, values, omissions, features):
+    """Accept a consolidated overall extent only on the seat's actual end planes."""
+    run = "xyz".index(feature.axis)
+    parameter = ("width.length", "depth.length", "height.length")[run]
+    for omission in omissions:
+        owner = getattr(omission, "conveyed_by", None)
+        if (
+            omission.feature is not feature
+            or omission.parameter_id != "seat_run.length"
+            or owner is None
+        ):
+            continue
+        envelope = owner.feature
+        if not is_exact_envelope_feature(envelope) or not any(
+            item is envelope for item in features
+        ):
+            continue
+        dimension = next(p for p in envelope.parameters() if p.parameter_id == parameter)
+        if (
+            owner.parameter == parameter
+            and abs(dimension.value - values["length"]) <= 1e-6
+            and abs(envelope.bbox_min[run] - values["centreline"][0][run]) <= 1e-6
+            and abs(envelope.bbox_max[run] - values["centreline"][1][run]) <= 1e-6
+        ):
+            return envelope, parameter
+    return None
+
+
+def circular_channel_requirement_outcomes(
+    recognition, features, registry, omissions=(), *, bbox=None, part=None
+):
+    """Independently account for six requirements per released circular seat."""
+    if recognition is None:
+        return []
+    if type(recognition) is not RecognitionResult:
+        raise TypeError("circular seat completeness requires the exact RecognitionResult")
+    sources = [
+        record
+        for record in recognition.section_recesses
+        if (record.classification.feature_kind, record.classification.section_shape)
+        == ("channel", "circular")
+    ]
+    if not sources:
+        return []
+    if bbox is None and part is not None:
+        bbox = part.bounding_box()
+    keyed = []
+    for source in sources:
+        try:
+            values = circular_channel_fields(source)
+            key = _seat_key(values["axis"], values)
+        except UnsupportedSectionRecess:
+            # Other circular end/profile forms retain the unsupported grammar outcome.
+            continue
+        except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
+            values, key = None, None
+        keyed.append((source, values, key))
+    counts = Counter(key for _source, _values, key in keyed if key is not None)
+    candidates = defaultdict(list)
+    for feature in features:
+        if getattr(feature, "kind", None) != "circular_channel":
+            continue
+        try:
+            candidates[_seat_feature_key(feature)].append(feature)
+        except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
+            continue
+    placed, satisfied, dropped = measurement_outcome_index(registry)
+    suppressed = {(item.feature, item.parameter_id) for item in omissions if item.authored}
+    outcomes = []
+    for source, values, key in keyed:
+        matches = candidates.get(key, ()) if key is not None else ()
+        feature = matches[0] if len(matches) == counts[key] == 1 else None
+        origin = source.geometry.frame.origin if values is None else values["origin"]
+        at = (origin[0], origin[1], origin[2])
+        for parameter in (*_SEAT_SIZES, *_SEAT_LOCATIONS):
+            identity = (feature, parameter)
+            representation = None
+            if (
+                feature is not None
+                and parameter == "seat_run.length"
+                and identity not in placed | satisfied
+            ):
+                representation = _seat_run_representation(feature, values, omissions, features)
+                if representation is not None:
+                    identity = representation
+            exclusion = None
+            if feature is None:
+                state = "unverifiable"
+            elif parameter in _SEAT_LOCATIONS and bbox is None:
+                state = "unverifiable"
+            else:
+                if parameter in _SEAT_LOCATIONS:
+                    assert values is not None
+                    axis = "xyz".index(parameter[-1])
+                    point = tuple(
+                        (a + b) / 2
+                        for a, b in zip(
+                            values["centreline"][0], values["centreline"][1], strict=True
+                        )
+                    )
+                    start = list(point)
+                    start[axis] = float(getattr(bbox.min, parameter[-1].upper()))
+                    if abs(point[axis] - start[axis]) <= 1e-9:
+                        exclusion = RequirementExclusion(
+                            "seat_axis_coincident_with_stock_datum",
+                            (source,),
+                            span=(tuple(start), point),
+                        )
+                state = (
+                    "inapplicable"
+                    if exclusion is not None
+                    else "placed"
+                    if identity in placed
+                    else "satisfied_by_structured_note"
+                    if identity in satisfied
+                    else "suppressed"
+                    if identity in suppressed
+                    else "dropped"
+                    if identity in dropped
+                    else "missing"
+                )
+            outcomes.append(
+                CircularChannelRequirementOutcome(
+                    at,
+                    parameter,
+                    state,
+                    features=() if feature is None else (feature,),
+                    source_records=(source,),
+                    intrinsic_exclusion=exclusion,
+                    measurement_ids=() if representation is None else (representation,),
+                )
+            )
+    return with_measurement_carriers(outcomes, registry)
+
+
+def lint_circular_channel_coverage(recognition, features, registry, omissions=(), *, bbox=None):
+    """Report uncovered seats using the same source-owned ledger as drawing reports."""
+    return [
+        LintIssue(
+            severity="warning",
+            code=f"circular_channel_requirement_{outcome.state}",
+            message=f"circular seat {requirement_subject(outcome)} at {outcome.source_at} is {outcome.state}",
+        )
+        for outcome in circular_channel_requirement_outcomes(
+            recognition, features, registry, omissions, bbox=bbox
+        )
+        if outcome.state
+        not in {"placed", "satisfied_by_structured_note", "dropped", "inapplicable"}
+    ]

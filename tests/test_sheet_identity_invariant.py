@@ -273,6 +273,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "chamfer",
     "fillet",
     "blend",
+    "circular_channel",
     "circular_blind_step",
     "paired_ramp_step",
     "through_step",
