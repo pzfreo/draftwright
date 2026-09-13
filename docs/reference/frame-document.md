@@ -40,6 +40,26 @@ circular seats. On the pinned Quiddity 0.2.9 build the recipe credits 13 of thos
 few overlaps. Coverage, layout, fidelity and manufacturing readiness are separate judgments.
 Unmeasured section furniture and notes also remain explicit in the fidelity unknowns.
 
+## Original printed-frame regression input
+
+`tests/fixtures/issue_1595_whistle_key_frame.step` preserves the exact fixture supplied on
+[the #1595 fixture branch](https://github.com/pzfreo/draftwright/commit/4aaa610ca62d6851b6e9c990a4b16aae0f0c8f97).
+It was generated from `pzfreo/whistle-key` at `7fb4d14`, from
+`exports/three-key/print-oriented/frame_print.step`. Its SHA-256 is
+`8f060dfd4eeb4ff9589243f85eea8ca027784ac51ae98dc2d29a2371a2d115d0`.
+
+Keep its acceptance separate from the titanium recipe's reference:
+
+| Input | Envelope (mm) | Seat run intervals along Y (mm) |
+|---|---|---|
+| Original printed frame | 31.3 × 71.595 × 15.8 | −35.297…−29.297, −10.923…−4.923, 29.297…35.297 |
+| Titanium reference | 31.3 × 71.595 × 15.3 | −3…3, 21.375…27.375, 61.595…67.595 |
+
+Both published Quiddity 0.2.9 inventories contain three circular seats and six hexagonal
+blind pockets. The printed variant also contains three additional rectangular channel
+records. Coordinates and dimensions from one variant must not silently become the other's
+expected facts. The recipe above remains specific to the titanium input.
+
 ## Fixed operation facts and deliberate limits
 
 The pinned part has these recognized operations:
