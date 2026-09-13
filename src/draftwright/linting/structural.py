@@ -866,7 +866,7 @@ def _lint_display_precision(
                 f"rounded to the sheet's precision; the largest is '{worst_label}' for "
                 f"{worst_value:.4f} ({worst_shift:.4f} mm). Within a general tolerance this is "
                 f"ordinary. Where a fit depends on it, raise that dimension's places with "
-                f".format(decimals=...) — which a LOCATION dimension cannot yet accept (#1610)"
+                f".format(decimals=...)"
             ),
         )
     )

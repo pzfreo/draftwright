@@ -513,12 +513,85 @@ def test_precision_boundaries_and_negative_zero_are_stable():
     assert RequestedDimension(envelope, "width.length", display_decimals=15).display_decimals == 15
 
 
-def test_a_compound_location_intent_refuses_one_misleading_precision_policy():
-    part = Box(20, 20, 5)
-    sheet = Sheet(part).authored_dimensions()
-    hole = sheet.hole(diameter=4, at=(0, 0, 0), axis="z")
-    with pytest.raises(ValueError, match="multiple directional values"):
-        sheet.dimension(hole, "location").format(decimals=2)
+@pytest.mark.parametrize("axis", ["x", "y", "z"])
+@pytest.mark.parametrize("decimals", [0, 2])
+def test_location_precision_applies_to_every_direction_and_script_replay(axis, decimals):
+    rotation = {"x": Rot(0, 90, 0), "y": Rot(90, 0, 0), "z": Rot(0, 0, 0)}[axis]
+    part = Box(40, 40, 20) - Pos(1.875, 3.125, 2.25) * rotation * Cylinder(2, 80)
+    sheet = Sheet(part, page="A3", scale=2).authored_dimensions()
+    bore = sheet.hole(diameter=4, at=(1.875, 3.125, 2.25), axis=axis)
+    sheet.dimension(bore, "location").format(decimals=decimals)
+    model = sheet.model()
+    plan = compile_dimensions(model)
+    assert len(plan.locations) == 2
+    for location in plan.locations:
+        assert location.display_decimals == decimals
+        assert location.value_text == _fmt(location.value, decimals)
 
-    with pytest.raises(ValueError, match="multiple directional values"):
-        RequestedDimension(sheet.features[0], "location", display_decimals=2)
+    drawing = sheet.build()
+    placed = [
+        annotation
+        for name, annotation in drawing.iter_annotations()
+        if drawing.registry.measurement_of(name)
+    ]
+    assert sorted(annotation.label for annotation in placed) == sorted(
+        location.value_text for location in plan.locations
+    )
+    assert not [
+        issue for issue in drawing.lint(physical=False) if issue.code == "label_vs_measured"
+    ]
+
+    source = emit_sheet_script(model, "part", "locations", title="Locations", number="1610")
+    assert f".format(decimals={decimals})" in source
+    namespace = {"part": part}
+    body = source.replace("\npart\n", "\n", 1).split("drawing = sheet.build()", 1)[0]
+    exec(compile(body, "<location-precision>", "exec"), namespace)  # noqa: S102
+    replayed = compile_dimensions(namespace["sheet"].model())
+    assert [
+        (loc.id.parameter, loc.value_text, loc.display_decimals) for loc in replayed.locations
+    ] == [(loc.id.parameter, loc.value_text, loc.display_decimals) for loc in plan.locations]
+
+    if axis == "z":
+        names = [
+            name
+            for name, _annotation in drawing.iter_annotations()
+            if drawing.registry.measurement_of(name)
+        ]
+        for name in names:
+            drawing.remove(name)
+        restored = drawing.locate(drawing.model().features[0])
+        assert len(restored) == 2
+        assert sorted(drawing.get_annotation(name).label for name in restored) == sorted(
+            location.value_text for location in plan.locations
+        )
+
+
+@pytest.mark.parametrize("axis", ["x", "y", "z"])
+@pytest.mark.parametrize("second_decimals", [1, 2])
+def test_coincident_location_marks_preserve_all_explicit_policies(axis, second_decimals):
+    points = [(1.875, 3.125, 2.25), (1.875, -3.25, 2.25) if axis == "z" else (1.875, 3.125, -3.25)]
+    rotation = {"x": Rot(0, 90, 0), "y": Rot(90, 0, 0), "z": Rot(0, 0, 0)}[axis]
+    part = Box(40, 40, 20)
+    for point, radius in zip(points, (1, 1.5), strict=True):
+        part -= Pos(*point) * rotation * Cylinder(radius, 80)
+    sheet = Sheet(part, page="A3", scale=2).authored_dimensions()
+    for point, diameter, decimals in zip(points, (2, 3), (2, second_decimals), strict=True):
+        bore = sheet.hole(diameter=diameter, at=point, axis=axis)
+        sheet.dimension(bore, "location").format(decimals=decimals)
+    if second_decimals != 2:
+        with pytest.raises(
+            ValueError, match="coincident location dimensions require matching display precision"
+        ):
+            sheet.build()
+    else:
+        drawing = sheet.build()
+        locations = [
+            annotation
+            for name, annotation in drawing.iter_annotations()
+            if drawing.registry.measurement_of(name)
+        ]
+        assert len(locations) == 3, "four component identities share exactly one location mark"
+        assert all(len(annotation.label.split(".")[-1]) == 2 for annotation in locations)
+        assert not [
+            issue for issue in drawing.lint(physical=False) if issue.code == "label_vs_measured"
+        ]

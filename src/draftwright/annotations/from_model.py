@@ -119,6 +119,7 @@ from draftwright.model.compiled import (
     FeatureInstanceIndex,
     FeatureRef,
     resolve_feature,
+    shared_location_text,
 )
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
@@ -853,6 +854,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 loc.id,
                 loc.discriminator,
                 _hole_location_coverage_fact(loc),
+                loc,
             )
         )
     if not refs:
@@ -873,18 +875,6 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         name = f"{prefix}{_first_free_index(prefix, _loc_used)}"
         _loc_used.add(name)
         return name
-
-    def _directional_location_fact(fact, measured_axis):
-        """Split a Z-pocket's feature-level location into physical X/Y evidence.
-
-        ADR 4 (was 0016) keeps one public ``location`` authoring unit, while critique needs to know
-        which of the two visible ordinates actually landed. Hole/pattern entries already
-        arrive compiler-discriminated; the legacy pocket ladder is the one unsplit case.
-        """
-        feature, parameter, point = fact
-        if parameter == "location_pocket.location":
-            parameter = f"{parameter}.{measured_axis}"
-        return (feature, parameter, point)
 
     def _discard_short_refs(refs, coordinate, datum, view):
         # Nearness on paper is not coincidence with the physical datum. A required
@@ -916,13 +906,14 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             continue
         for u in x_refs:
             if _same_location_ordinate(r[0], u[0]):
+                u[6].append(r[6])
                 u[3] = u[3] or r[2] in pinned_set
                 # Collapsing coincident Xs into one dim must ACCUMULATE what it draws
                 # (#1002 r4): the survivor genuinely measures every collapsed feature's X.
                 if r[4] in (None, "x") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])
                 if r[4] in (None, "x") and r[3] is not None:
-                    fact = _directional_location_fact(r[5], "x")
+                    fact = r[5]
                     if fact not in u[5]:
                         u[5].append(fact)
                 break
@@ -934,9 +925,8 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "x") else [],
-                    [_directional_location_fact(r[5], "x")]
-                    if r[3] is not None and r[4] in (None, "x")
-                    else [],
+                    [r[5]] if r[3] is not None and r[4] in (None, "x") else [],
+                    [r[6]],
                 ]
             )
     x_refs = _discard_short_refs(x_refs, 0, datum_x, "plan")
@@ -963,11 +953,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # pass carving around the other and interleaving. No alternate view for a plan-X
     # location, so a corridor-blocked dim is force-kept (policy B), not relocated; only a
     # physically full strip drops (→ location_ref_dropped, escalates the hole table).
-    for i, (rx, ry, feat, pin_ref, mids, location_facts) in enumerate(
+    for i, (rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
         sorted(x_refs, key=lambda r: abs(r[0] - datum_x))
     ):
         if abs(rx - datum_x) * a.SCALE < 1.0:
             continue  # on the datum edge — nothing to dimension
+        label = shared_location_text(location_entries)
         n += 1
         # A single X-location dim shared by two *distinct* features at this X belongs to
         # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
@@ -1001,13 +992,13 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 view="plan",
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
                 distance=abs(rx - datum_x),
-                build=lambda pos, _rx=rx, _ry=ry: _dim(
+                build=lambda pos, _rx=rx, _ry=ry, _label=label: _dim(
                     (PX(datum_x), PY(_ry), 0),
                     (PX(_rx), PY(_ry), 0),
                     "above",
                     pos - PY(_ry),
                     draft,
-                    label=_fmt(_rx - datum_x),
+                    label=_label,
                 ),
                 feature=_xfeat,
                 measurement=_xmid,
@@ -1016,13 +1007,13 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     (feature, parameter) for feature, parameter, _point in location_facts
                 ),
                 pinned=pin_ref,
-                footprint=lambda pos, _rx=rx, _ry=ry: dim_footprint(
+                footprint=lambda pos, _rx=rx, _ry=ry, _label=label: dim_footprint(
                     (PX(datum_x), PY(_ry), 0),
                     (PX(_rx), PY(_ry), 0),
                     "above",
                     pos - PY(_ry),
                     draft,
-                    _fmt(_rx - datum_x),
+                    _label,
                 ),
             ),
         )
@@ -1042,11 +1033,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             continue
         for u in y_refs:
             if _same_location_ordinate(r[1], u[1]):
+                u[6].append(r[6])
                 u[3] = u[3] or r[2] in pinned_set
                 if r[4] in (None, "y") and r[3] is not None and r[3] not in u[4]:
                     u[4].append(r[3])  # accumulate, as in the X loop (#1002 r4)
                 if r[4] in (None, "y") and r[3] is not None:
-                    fact = _directional_location_fact(r[5], "y")
+                    fact = r[5]
                     if fact not in u[5]:
                         u[5].append(fact)
                 break
@@ -1058,9 +1050,8 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     r[2],
                     r[2] in pinned_set,
                     [r[3]] if r[3] is not None and r[4] in (None, "y") else [],
-                    [_directional_location_fact(r[5], "y")]
-                    if r[3] is not None and r[4] in (None, "y")
-                    else [],
+                    [r[5]] if r[3] is not None and r[4] in (None, "y") else [],
+                    [r[6]],
                 ]
             )
     y_refs = _discard_short_refs(y_refs, 1, datum_y, "side" if side_planned else "plan")
@@ -1089,14 +1080,15 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     if (
         side_planned
         and y_refs
-        and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids, _facts in y_refs)
+        and any(SX(ry) + 10 > iso_x0 - 4 for _, ry, _feat, _pin, _mids, _facts, _entries in y_refs)
     ):
         a.sv_zones.above.outer_limit = min(a.sv_zones.above.outer_limit, iso_y0 - 4)
-    for i, (rx, ry, feat, pin_ref, mids, location_facts) in enumerate(
+    for i, (rx, ry, feat, pin_ref, mids, location_facts, location_entries) in enumerate(
         sorted(y_refs, key=lambda r: abs(r[1] - datum_y))
     ):
         if abs(ry - datum_y) * a.SCALE < 1.0:
             continue
+        label = shared_location_text(location_entries)
         n += 1
         # Shared-Y location dim → unowned (see the X loop; review #406).
         _shared_y = any(
@@ -1123,7 +1115,6 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             pa = (edge, PY(datum_y), 0)
             pb = (edge, PY(ry), 0)
             span_key = (round(pa[1], 1), round(pb[1], 1))
-        label = _fmt(ry - datum_y)
         register_corridor(
             ctx,
             (view, direction),

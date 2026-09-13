@@ -3420,11 +3420,6 @@ class RequestedDimension:
             return
         if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 15:
             raise ValueError("display_decimals must be an integer from 0 to 15")
-        if self.role == "location":
-            raise ValueError(
-                "display precision is unavailable for location intent: one location may "
-                "compile into multiple directional values"
-            )
 
 
 @dataclass(frozen=True)

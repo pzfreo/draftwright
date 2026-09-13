@@ -398,3 +398,29 @@ def test_location_role_answers_for_bbox_eligible_hole_and_pattern():
     off_axis = PatternFeature(Frame((0.0, 0.0, 0.0), "x"), "linear", 3, member)
     assert location_datum(off_axis) == "bbox"
     assert location_role(off_axis) == "location_pattern"
+
+
+@pytest.mark.parametrize("feature", _locatable_instances())
+def test_location_display_policy_reaches_every_compiled_family(feature):
+    from draftwright._geometry import _fmt
+    from draftwright.model import Datum, PartModel
+    from draftwright.model.compiled import compile_dimensions
+    from draftwright.model.ir import RequestedDimension
+
+    bb = Box(60, 60, 20).bounding_box()
+    datums = [Datum(id="datum_xy", kind="point", at=(bb.min.X, bb.min.Y, bb.min.Z))]
+    model = PartModel(bb, None, [feature], datums)
+    baseline = compile_dimensions(model).locations
+    formatted = compile_dimensions(
+        dataclasses.replace(
+            model,
+            requested_dimensions=(RequestedDimension(feature, "location", display_decimals=2),),
+        )
+    ).locations
+    assert baseline and len(formatted) == len(baseline)
+    assert [(loc.id, loc.value, loc.span) for loc in formatted] == [
+        (loc.id, loc.value, loc.span) for loc in baseline
+    ]
+    assert all(
+        loc.display_decimals == 2 and loc.value_text == _fmt(loc.value, 2) for loc in formatted
+    )

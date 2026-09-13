@@ -81,7 +81,12 @@ from draftwright.annotations.leaders import (
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
-from draftwright.model.compiled import FeatureRef, compile_dimensions, resolve_feature
+from draftwright.model.compiled import (
+    FeatureRef,
+    compile_dimensions,
+    resolve_feature,
+    shared_location_text,
+)
 from draftwright.model.ir import HoleFeature, PatternFeature
 
 # |cos| threshold for treating a view's side vector as axis-aligned (≈ within 1.6° of an
@@ -388,7 +393,7 @@ def add_feature_location(
                 PX(dx),
                 PX(rx),
                 PY(ry),
-                _fmt(rx - dx),
+                loc.value_text,
                 loc.id,
                 (_hole_location_coverage_fact(loc),),
             )
@@ -407,7 +412,7 @@ def add_feature_location(
                 SX(dy),
                 SX(ry),
                 SZ(a.bb.max.Z),
-                _fmt(ry - dy),
+                loc.value_text,
                 loc.id,
                 (_hole_location_coverage_fact(loc),),
             )
@@ -889,6 +894,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
         loc_by_name.setdefault(name, []).append(h)
+        label = shared_location_text(hole.approved["y"] for hole in loc_by_name[name])
         mids_by_name.setdefault(name, []).append(entry.id)
         coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_y[name] = yo
@@ -900,11 +906,9 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                     name,
                     # The label is the approved entry's text; `yo` survives only as the
                     # name key and the spacing order.
-                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text, nm=name: (
-                        _with_hole_location_coverage(
-                            _dim(pl, ph, "below", yw - pos, draft, label=lb),
-                            coverage_by_name[nm],
-                        )
+                    lambda pos, pl=p_lo, ph=p_hi, lb=label, nm=name: _with_hole_location_coverage(
+                        _dim(pl, ph, "below", yw - pos, draft, label=lb),
+                        coverage_by_name[nm],
                     ),
                 )
             )
@@ -919,7 +923,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             alt_name = f"dim_loc_plan_y{round(yo * 100)}"
             plan_alternates[name] = (
                 alt_name,
-                lambda pos, pl=plan_lo, ph=plan_hi, e=plan_edge, lb=entry.value_text, nm=name: (
+                lambda pos, pl=plan_lo, ph=plan_hi, e=plan_edge, lb=label, nm=name: (
                     _with_hole_location_coverage(
                         _dim(pl, ph, "right", pos - e, draft, label=lb),
                         coverage_by_name[nm],
@@ -1021,6 +1025,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
             continue
         name = f"dim_loc_{view}_x{round(xo * 100)}"
         x_loc_by_name.setdefault(name, []).append(h)
+        label = shared_location_text(hole.approved["x"] for hole in x_loc_by_name[name])
         x_mids_by_name.setdefault(name, []).append(entry.id)
         x_coverage_by_name.setdefault(name, []).append(_hole_location_coverage_fact(entry))
         order_x[name] = xo
@@ -1030,11 +1035,9 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
             x_cands.append(
                 (
                     name,
-                    lambda pos, pl=p_lo, ph=p_hi, lb=entry.value_text, nm=name: (
-                        _with_hole_location_coverage(
-                            _dim(pl, ph, "below", xw - pos, draft, label=lb),
-                            x_coverage_by_name[nm],
-                        )
+                    lambda pos, pl=p_lo, ph=p_hi, lb=label, nm=name: _with_hole_location_coverage(
+                        _dim(pl, ph, "below", xw - pos, draft, label=lb),
+                        x_coverage_by_name[nm],
                     ),
                 )
             )
@@ -1108,8 +1111,9 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
         seen_z.add(zo)
         hz = h.location[2]
         owner = _off_axis_owner(z_locs[zo])
+        label = shared_location_text(hole.approved["z"] for hole in z_locs[zo])
 
-        def _zc(view, p_lo, p_hi, edge, _zo=zo, _lbl=entry.value_text):
+        def _zc(view, p_lo, p_hi, edge, _zo=zo, _lbl=label):
             return (
                 f"dim_loc_{view}_z{round(_zo * 100)}",
                 lambda pos, pl=p_lo, ph=p_hi, e=edge: _with_hole_location_coverage(

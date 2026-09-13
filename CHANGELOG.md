@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Location intents now accept `.format(decimals=...)` for all selected directions (#1610),
+  including plan locations, side-drilled holes and slots. Compiler-owned labels reach
+  placement footprints, live location edits and generated scripts. Coincident marks with
+  incompatible explicit display text are refused instead of overriding an intent.
+
 - Explicit dimension precision, including `.format(decimals=0)`, now reaches geometric
   label critique (#1620). Correct rounding is reported as information; labels outside
   the requested rounding interval still produce `label_vs_measured`. Height and step

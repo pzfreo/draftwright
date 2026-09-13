@@ -974,6 +974,14 @@ def _location_requests(model: PartModel, feature):
     )
 
 
+def location_display_decimals(model: PartModel, feature) -> int | None:
+    """One intent's display policy applies to all selected location components.
+
+    Conflicting policies for the same feature are rejected by the existing intent check.
+    """
+    return next((request.display_decimals for request in _location_requests(model, feature)), None)
+
+
 def authored_location_axis_omitted(model: PartModel, feature, axis: str) -> bool:
     """An authored location set deliberately selects no component on this axis."""
     requests = _location_requests(model, feature)
@@ -1166,6 +1174,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
             feature=feat,
             location_member=member,
             location_axes=axes,
+            display_decimals=location_display_decimals(model, feat),
         )
 
     omitted: list[PlannedDimension] = []

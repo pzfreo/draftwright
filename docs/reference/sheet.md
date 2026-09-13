@@ -642,7 +642,14 @@ and reports capacity/crossing failures. Trailing zeroes are intentional manufact
 sheet.authored_dimensions()
 sheet.dimension(envelope, "width.length").format(decimals=2)  # 13.5 prints as 13.50
 sheet.dimension(tapped_hole, "bore.diameter", view="plan", side="left")
+sheet.dimension(tapped_hole, "location").format(decimals=2)  # all selected directions
 ```
+
+A location intent's precision applies to all its selected directional values, including
+side-drilled holes and slots. The policy survives generated-script replay. When several
+location intents share one coincident mark, give them matching display precision; incompatible
+printed values raise an actionable error instead of silently choosing one intent's label.
+
 
 ::: draftwright.sheet.DimensionIntent
     options:

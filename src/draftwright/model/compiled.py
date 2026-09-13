@@ -49,6 +49,7 @@ completeness:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
@@ -93,6 +94,7 @@ from draftwright.model.planner import (
     hole_location_parameter_id,
     hole_location_references,
     location_datum,
+    location_display_decimals,
     plan_dimensions,
     plan_locations,
     polygonal_stock_conveys_height,
@@ -1369,6 +1371,7 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
             isinstance(
                 feature,
                 HoleFeature
+                | PocketFeature
                 | PadFeature
                 | PatternFeature
                 | PocketPatternFeature
@@ -1420,6 +1423,19 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                         if directional_slot_pattern
                         else pd.param.parameter_id
                     )
+                if isinstance(
+                    feature, PocketFeature
+                ) and measured_axis in coincident_location_axes(feature, span):
+                    omissions.append(
+                        Omission(
+                            feature,
+                            f"{pd.param.parameter_id}.{measured_axis}",
+                            value,
+                            POCKET_LOCATION_DATUM_COINCIDENT,
+                            code="pocket_location_coincident_with_datum",
+                        )
+                    )
+                    continue
                 if pd.location_axes is not None and measured_axis not in pd.location_axes:
                     omissions.append(Omission(feature, parameter_id, value, _AUTHORED_OMISSION))
                     axis_key = (id(feature), measured_axis)
@@ -1441,7 +1457,8 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                 approved.append(
                     ApprovedDimension(
                         id=_dim_id(feature, parameter_id),
-                        value_text=_fmt(value),
+                        value_text=_fmt(span[1][index] - span[0][index], pd.display_decimals),
+                        display_decimals=pd.display_decimals,
                         value=value,
                         # `render_locations` groups both axes from this full datum→ref
                         # relationship; narrowing one copy would erase the other datum
@@ -1491,7 +1508,8 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                 approved.append(
                     ApprovedDimension(
                         id=_dim_id(feature, parameter_id),
-                        value_text=_fmt(value),
+                        value_text=_fmt(value, pd.display_decimals),
+                        display_decimals=pd.display_decimals,
                         value=value,
                         span=((start[0], start[1], start[2]), span[1]),
                         ref=FeatureRef(feature),
@@ -1502,38 +1520,8 @@ def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[
                     )
                 )
             continue
-        if isinstance(feature, PocketFeature) and axis == "z":
-            coincident = coincident_location_axes(feature, span)
-            for measured_axis in ("x", "y"):
-                index = "xyz".index(measured_axis)
-                value = abs(span[1][index] - span[0][index])
-                if measured_axis in coincident:
-                    omissions.append(
-                        Omission(
-                            feature,
-                            f"{pd.param.parameter_id}.{measured_axis}",
-                            value,
-                            POCKET_LOCATION_DATUM_COINCIDENT,
-                            code="pocket_location_coincident_with_datum",
-                        )
-                    )
-        approved.append(
-            ApprovedDimension(
-                id=_dim_id(feature, pd.param.parameter_id),
-                #: Pocket Z-normal ladders remain one location entry with no per-axis value:
-                #: `render_locations` groups refs ACROSS features and dedups per axis before
-                #: it knows which dims exist, so an entry per axis would be approving a mark
-                #: whose existence the renderer decides. Splitting it needs that grouping to
-                #: move into the compiler — tracked as follow-up work, and listed in the
-                #: label-provenance ratchet so it cannot be forgotten.
-                value_text="",
-                value=0.0,
-                span=span,
-                ref=FeatureRef(feature) if feature is not None else None,
-                kind="location",
-                role=pd.param.role,
-                axis=axis,
-            )
+        raise ValueError(
+            f"location compiler has no directional grammar for {type(feature).__name__}"
         )
     return approved, omissions
 
@@ -1611,7 +1599,8 @@ def _compile_off_axis_hole_locations(
                 approved.append(
                     ApprovedDimension(
                         id=_dim_id(f, parameter),
-                        value_text=_fmt(value),
+                        value_text=_fmt(value, location_display_decimals(model, f)),
+                        display_decimals=location_display_decimals(model, f),
                         value=value,
                         span=((start[0], start[1], start[2]), member),
                         ref=FeatureRef(f),
@@ -1662,7 +1651,8 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
         approved.append(
             ApprovedDimension(
                 id=_dim_id(f, f"{f.LOCATION_STEM}.length"),
-                value_text=_fmt(value),
+                value_text=_fmt(value, location_display_decimals(model, f)),
+                display_decimals=location_display_decimals(model, f),
                 value=value,
                 span=((start[0], start[1], start[2]), (end[0], end[1], end[2])),
                 ref=FeatureRef(f),
@@ -1671,9 +1661,8 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
                 axis=f.long_axis,
                 # The direction the measurement RUNS, which this entry's DIRECTIONAL siblings
                 # state and it did not: `_compile_off_axis_hole_locations` passes
-                # `discriminator=meas`, a non-Z pocket the same. (Not "every sibling" — the
-                # Z-normal pocket ladder above deliberately passes none, and its comment says
-                # why.) That is the stronger framing: `discriminator=None` on a location entry
+                # `discriminator=meas`, and pockets now do the same on every axis.
+                # Historically, `discriminator=None` on a location entry
                 # MEANS "feeds both plan ladders", which is exactly what `render_locations`
                 # acted on — so on a Z-LONG slot (only nist_ctc_02 in the corpus) both ladders
                 # took it, and the Y one minted a dim claiming `location_slot.length`, a Z
@@ -1897,6 +1886,24 @@ def compile_dimensions(
         ),
     )
     return _compile_schedules(model, result) if model.schedules else result
+
+
+def shared_location_text(dimensions: Iterable[ApprovedDimension]) -> str:
+    """Approve one printed value for an existing group of coincident location marks.
+
+    Automatic near-coincidence grouping retains its first representative. Explicit
+    policies must agree on the actual text; layout may not silently discard one intent.
+    """
+    dimensions = tuple(dimensions)
+    first = dimensions[0]
+    if any(dimension.display_decimals is not None for dimension in dimensions) and any(
+        dimension.value_text != first.value_text for dimension in dimensions
+    ):
+        raise ValueError(
+            "coincident location dimensions require matching display precision; "
+            "apply the same format(decimals=...) to their location intents"
+        )
+    return first.value_text
 
 
 def _schedule_cell_text(dimension: ApprovedDimension, feature: Feature) -> str:
