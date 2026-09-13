@@ -30,6 +30,10 @@
   > this is ordinary; where a fit depends on it, raise that dimension's places with
   > `.format(decimals=...)`
 
+  `.format(decimals=…)` cannot yet reach a **location** dimension (#1610), and on the
+  fixture this was measured against six of the seven offenders are locations — so the
+  message says so rather than prescribing a remedy that raises `ValueError`.
+
   It does **not** guess, and does not change any rounding. `4.450` locating a hinge axis is
   design intent; `71.595` as an overall envelope is parametric fallout no drafter would
   print in full — and telling them apart needs to know what the part is *for*, which a STEP

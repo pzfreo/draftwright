@@ -617,6 +617,18 @@ class TestScaleNotStated:
         assert drawing.get_annotation("scale_note") is not None
 
 
+def _engine_dim(draft, label, path_mm):
+    """A dimension built the way the engine builds one, so it carries its draft.
+
+    `_core._dim` attaches `_dw_spec` — which is how lint reaches the sheet's precision. A raw
+    `Dimension` does not, and a test using one would silently exercise the no-draft fallback
+    instead of the path every real sheet takes.
+    """
+    from draftwright._core import _dim
+
+    return _dim((0, 0, 0), (path_mm, 0, 0), "above", 8, draft, label=label)
+
+
 class TestRoundingIsNotADiscrepancy:
     """`label_vs_measured` must not report the drawing's own rounding (#1600).
 
@@ -630,11 +642,7 @@ class TestRoundingIsNotADiscrepancy:
     that register. A code that fires on correct rounding cannot be in it.
     """
 
-    @staticmethod
-    def _dim(draft, label, path_mm):
-        from build123d_drafting.helpers import Dimension
-
-        return Dimension((0, 0, 0), (path_mm, 0, 0), "above", 8, draft, label=label)
+    _dim = staticmethod(_engine_dim)
 
     def test_a_correctly_rounded_label_is_not_reported(self, draft):
         # The #1595 case: 4.450 printed at one decimal place.
@@ -665,6 +673,21 @@ class TestRoundingIsNotADiscrepancy:
         ]
         assert issues and all(i.severity == "error" for i in issues)
 
+    def test_a_whole_numbered_label_gets_the_sheets_slack_not_half_a_millimetre(self, draft):
+        """The regression the first cut of this fix introduced.
+
+        `_fmt` trims a trailing `.0`, so a 1 dp sheet prints 40.0 as `40`. Reading places off
+        the string alone made that look like zero-place precision and granted 0.5 mm of
+        slack — so `40` on a 40.45 mm path, a 1.1% mislabel the check used to catch, passed
+        as ordinary rounding. The sheet's own precision is the floor.
+        """
+        issues = [
+            i
+            for i in lint_drawing([self._dim(draft, "40", 40.45)])
+            if i.code == "label_vs_measured"
+        ]
+        assert issues, "a whole-numbered label must still be checked at the sheet's precision"
+
     def test_the_tolerance_follows_the_places_the_label_prints(self, draft):
         """Two decimal places means a tenth of the slack one place gets. `4.45` may be
         4.4451; it may not be 4.45 plus half of one decimal place."""
@@ -681,14 +704,47 @@ class TestRoundingIsNotADiscrepancy:
 
 
 class TestDisplayedDecimals:
+    """The places a dimension's value is WRITTEN to, which is not the places in its string."""
+
+    @staticmethod
+    def _item(sheet_decimals):
+        from types import SimpleNamespace
+
+        if sheet_decimals is None:
+            return SimpleNamespace()
+        return SimpleNamespace(
+            _dw_spec=SimpleNamespace(draft=SimpleNamespace(decimal_precision=sheet_decimals))
+        )
+
     @pytest.mark.parametrize(
         ("label", "expected"),
-        [("4.5", 1), ("4.45", 2), ("12", 0), ("⌀12.75", 2), ("2× ⌀2.4 THRU", 1), ("", 0)],
+        [
+            # `_fmt` trims a trailing `.0`, so a whole-numbered label at a 1 dp sheet shows no
+            # places and still carries 0.05 mm of precision. Reading the string alone gave it
+            # half a millimetre of slack and let a 9% mislabel pass as ordinary rounding.
+            ("40", 1),
+            ("4.5", 1),
+            # A bare label MAY raise the sheet's places: this is what `.format(decimals=2)`
+            # asserts, and it is a real claim about precision.
+            ("4.45", 2),
+            ("⌀12.75", 2),
+            # Compound labels are left to the sheet. The first number in the string is as
+            # likely to be a multiplier or a tolerance as the nominal.
+            ("2× ⌀2.4 THRU", 1),
+            ("12 ±0.05", 1),
+            ("", 1),
+        ],
     )
-    def test_it_reads_the_places_the_label_prints(self, label, expected):
+    def test_the_sheet_is_the_floor_and_a_bare_label_may_raise_it(self, label, expected):
         from draftwright.linting.structural import _displayed_decimals
 
-        assert _displayed_decimals(label) == expected
+        assert _displayed_decimals(self._item(1), label) == expected
+
+    def test_without_a_draft_it_falls_back_to_the_label(self):
+        from draftwright.linting.structural import _displayed_decimals
+
+        assert _displayed_decimals(self._item(None), "4.45") == 2
+        assert _displayed_decimals(self._item(None), "40") == 0
 
 
 class TestNominalRounded:
@@ -700,11 +756,7 @@ class TestNominalRounded:
     guessing which dimensions care.
     """
 
-    @staticmethod
-    def _dim(draft, label, path_mm):
-        from build123d_drafting.helpers import Dimension
-
-        return Dimension((0, 0, 0), (path_mm, 0, 0), "above", 8, draft, label=label)
+    _dim = staticmethod(_engine_dim)
 
     def _reports(self, issues):
         return [i for i in issues if i.code == "nominal_rounded"]
@@ -729,8 +781,42 @@ class TestNominalRounded:
         precision decision. A tenth of a micron is not the sheet losing anything."""
         assert self._reports(lint_drawing([self._dim(draft, "40", 40.0000001)])) == []
 
-    def test_it_does_not_fire_on_a_label_that_is_simply_wrong(self, draft):
-        """That is `label_vs_measured`'s job, and it still does it. This one is about
-        precision, so a 35-for-20 mislabel must not be laundered into an `info`."""
+    def test_it_does_not_count_a_label_that_is_simply_wrong(self, draft):
+        """A mislabel is not a rounded nominal, and must not be described as ordinary.
+
+        Ungated, every `label_vs_measured` finding also landed here — and being the largest
+        shift, it became the "worst case" named, displacing the rounding this exists to
+        surface. The earlier version of this test asserted only that `label_vs_measured`
+        fired, which it did either way, so it never tested what its name claimed.
+        """
         issues = lint_drawing([self._dim(draft, "35", 20.0)])
         assert [i.code for i in issues if i.code == "label_vs_measured"]
+        assert self._reports(issues) == []
+
+    def test_a_mislabel_does_not_displace_the_worst_rounding(self, draft):
+        """The consequence, on a sheet carrying both."""
+        issues = lint_drawing([self._dim(draft, "35", 20.0), self._dim(draft, "4.5", 4.450)])
+        (report,) = self._reports(issues)
+        assert "1 dimension(s)" in report.message
+        assert "'4.5'" in report.message and "35" not in report.message
+
+
+def test_the_whistle_frame_reports_its_rounded_nominals(tmp_path):
+    """A standing guard on the real part, not just on stand-ins.
+
+    The review of #1608 pointed out that nothing pinned the fixture behaviour: breaking the
+    rounding allowance made this sheet regain its false `label_vs_measured` and no test
+    noticed. This is the measurement the PR argued from, kept as a test.
+    """
+    from pathlib import Path
+
+    from draftwright import build_drawing
+
+    source = Path(__file__).parents[1] / "tests/fixtures/whistle_frame_reference.step"
+    drawing = build_drawing(source, title="T", number="N")
+    codes = [issue.code for issue in drawing.lint()]
+
+    assert "label_vs_measured" not in codes, "correct rounding must not read as a mislabel"
+    (report,) = [issue for issue in drawing.lint() if issue.code == "nominal_rounded"]
+    assert report.severity == "info"
+    assert "dimension(s) print a nominal the model does not have" in report.message

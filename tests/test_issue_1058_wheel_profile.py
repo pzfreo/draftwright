@@ -332,7 +332,7 @@ def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawin
     assert summary["by_code"] == {
         "gear_semantics_missing": 1,
         # The wheel's turned profile gives lengths that are not round at one decimal place,
-        # so the sheet prints nominals a few microns off the model and says so (#1600). An
+        # so the sheet prints nominals up to 0.027 mm off the model and says so (#1600). An
         # `info`; the two findings this test is about are unchanged.
         "nominal_rounded": 1,
         "unrecognised_defining_geometry": 1,

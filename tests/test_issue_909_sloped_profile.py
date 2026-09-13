@@ -109,7 +109,7 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint(monkey
     # An angle label over a blank region inside the view extents is legitimate;
     # every diagnostic must describe that informational condition only.
     # `nominal_rounded` joins it: this part's sloped profile gives lengths that are not
-    # round at one decimal place, so the sheet prints nominals a few microns off the model
+    # round at one decimal place, so the sheet prints nominals up to 0.05 mm off the model
     # and now says so (#1600). Also informational, and the assertion below still holds the
     # line that matters — nothing here is a warning or an error.
     assert all(
