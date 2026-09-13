@@ -1590,6 +1590,22 @@ _REPLANNABLE_LOSS_CODES = tuple(
 )
 
 
+#: Every symptom that may make the optional isometric yield, in the order the gate tests
+#: them, and the vocabulary of the `remove_optional_iso` attempt status.
+#:
+#: **ADR 2 invariant 13 is about this tuple.** The isometric yields only to preserve
+#: manufacturing completeness, and these are the three ways a drawing can fail to be
+#: complete: a turned part missing an axial station, an authored requirement that cannot
+#: place, and a required dimension with nowhere to go. Adding a fourth is an amendment to
+#: that record — maintainer's sign-off, the record updated, and only then this tuple.
+#: `test_adr0018_view_selection.py::TestWhatMakesTheIsometricYield` fails if it changes.
+_ISO_YIELD_TRIGGERS = (
+    "axial_coverage_incomplete",
+    "required_outcome_dropped",
+    "required_dimension_withheld",
+)
+
+
 def _replannable_losses(issues) -> tuple:
     """Required dimensions that found no room, from one already-materialised lint pass.
 
@@ -2512,15 +2528,17 @@ def build_drawing(
             withheld = _replannable_losses(original_issues)
             if original_has_axial_gap or source_blockers or withheld:
                 # The recorded status names WHICH symptom opened the ladder, so the
-                # decision reads back honestly. `required_outcome_dropped` would be wrong
-                # for a withheld dimension: nothing was dropped as a blocker — the mark
-                # was approved and had nowhere to go.
+                # decision reads back honestly, and the vocabulary is
+                # `_ISO_YIELD_TRIGGERS` — the declared list ADR 2 invariant 13 is about.
+                # `required_outcome_dropped` would be wrong for a withheld dimension:
+                # nothing was dropped as a blocker — the mark was approved and had
+                # nowhere to go.
                 if original_has_axial_gap:
-                    entry_status = "axial_coverage_incomplete"
+                    entry_status = _ISO_YIELD_TRIGGERS[0]
                 elif source_blockers:
-                    entry_status = "required_outcome_dropped"
+                    entry_status = _ISO_YIELD_TRIGGERS[1]
                 else:
-                    entry_status = "required_dimension_withheld"
+                    entry_status = _ISO_YIELD_TRIGGERS[2]
                 _record_attempt(
                     drawing.scale,
                     entry_status,

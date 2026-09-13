@@ -26,6 +26,14 @@
   | stepped `Box(80, 60, 30)` | A4 1:1, overall depth withheld (error) | A4 1:1, **clean**, pictorial dropped |
   | 80 × 60 plate, two close bores | A4 1:1, `incomplete`: unlocated hole, dropped location, withheld depth | A2 2:1, **clean**, every dimension placed |
 
+  **ADR 2 invariant 13 is amended** to match. It read "the optional isometric yields only
+  to close missing axial coverage", which had been one trigger behind the code since
+  2026-08-23 — the record was consolidated twelve days later and transcribed the narrower
+  claim. It now states the principle the triggers share: the isometric yields only to
+  preserve manufacturing completeness, never for space, crowding or preference. The list
+  itself is `builder._ISO_YIELD_TRIGGERS`, and a guard fails if it changes, so the next
+  widening is caught by a test rather than by a reader.
+
   Dropping the optional pictorial is the first lever, which is the order #443/#1299
   already argue for — a pictorial cannot outrank a dimension needed to manufacture the
   part. Pin `page=` or `scale=` to opt out; a pinned sheet still reports honestly rather

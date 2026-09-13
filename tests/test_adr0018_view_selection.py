@@ -621,3 +621,75 @@ class TestTheCaseStudy:
             build_drawing(self._plate(), _views=("plan", "side"))
         assert caught.value.uncovered
         assert all(item.preferred_view == "front" for item in caught.value.uncovered)
+
+
+class TestWhatMakesTheIsometricYield:
+    """ADR 2 invariant 13, made machine-checkable.
+
+    The record used to enumerate one trigger — "yields only to close missing axial
+    coverage" — while the code had two. The second (an authored requirement that cannot
+    place) went in on 2026-08-23; the corpus was consolidated on 2026-09-04 and
+    transcribed the older, narrower claim. Nothing caught it, because the invariant's
+    four cited guards all test what happens AFTER the isometric yields, and none pins WHY
+    it may.
+
+    So the record now states the principle — the isometric yields only to preserve
+    manufacturing completeness — and this pins the list it is a principle about. A fourth
+    trigger fails the first test here, which is the intended cost: it is an amendment, and
+    an amendment needs the maintainer before it needs code.
+    """
+
+    def test_the_trigger_list_is_exactly_these_three(self):
+        from draftwright.builder import _ISO_YIELD_TRIGGERS
+
+        assert _ISO_YIELD_TRIGGERS == (
+            "axial_coverage_incomplete",  # a turned part missing an axial station
+            "required_outcome_dropped",  # an authored requirement that cannot place
+            "required_dimension_withheld",  # a required dimension with nowhere to go
+        ), (
+            "Adding or renaming a trigger changes ADR 2 invariant 13. Get the maintainer's "
+            "sign-off, amend docs/adr/0002-sheet-layout-and-view-planning.md, then this."
+        )
+
+    def test_each_trigger_is_a_completeness_failure_not_a_preference(self):
+        """The principle the record now states, checked rather than asserted in prose.
+
+        Every trigger must be a way the drawing is INCOMPLETE. A trigger that fired on a
+        crowded sheet, a tight margin or an aesthetic judgement would satisfy the tuple
+        above and still break the invariant, so the names are matched against the
+        engine's own completeness vocabulary rather than eyeballed.
+        """
+        from draftwright.builder import _ISO_YIELD_TRIGGERS
+
+        for trigger in _ISO_YIELD_TRIGGERS:
+            assert any(word in trigger for word in ("incomplete", "dropped", "withheld")), (
+                f"{trigger!r} does not name a completeness failure"
+            )
+
+    def test_a_withheld_required_dimension_makes_it_yield(self):
+        """The third trigger, end to end (#1590).
+
+        Its precondition is that this part HAS an isometric to give up and cannot place its
+        overall depth while it keeps it — otherwise the test passes without the trigger
+        ever firing.
+        """
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
+        pinned = build_drawing(part, number="X", page="A4", scale=1.0, scale_policy="permissive")
+        assert "iso" in pinned.views
+        assert [i.code for i in pinned.lint() if i.severity == "error"] == ["overall_dim_withheld"]
+
+        automatic = build_drawing(part, number="X")
+        assert "iso" not in automatic.views
+        assert automatic.get_annotation("m_env_depth") is not None
+        assert not [i for i in automatic.lint() if i.severity == "error"]
+
+    def test_no_principal_view_is_removed_to_recover(self):
+        """The half of invariant 13 that did NOT move: only the OPTIONAL view yields.
+
+        A recovery that reached for a principal view would buy the same room and lose a
+        face of the part, so the ladder must never do it however starved the sheet.
+        """
+        part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
+        automatic = build_drawing(part, number="X")
+        assert automatic.scale_decision["status"] == "automatic_replanned"
+        assert {"front", "plan", "side"} <= set(automatic.views)
