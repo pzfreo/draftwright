@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from math import atan2, degrees, isfinite, ulp
+from math import atan2, degrees, hypot, isfinite, pi, ulp
 from typing import Any, Literal
 
 from quiddity import (
@@ -188,6 +188,113 @@ def _convert_double_d_bore(bore: DoubleDBore, ctx: ConvContext) -> HoleFeature:
         profile="double_d",
         across_flats=bore.across_flats,
         profile_direction=bore.flat_direction,
+    )
+
+
+#: A bolt circle fitted to this many member holes or more states a real datum: the fit could
+#: have failed and did not.
+#:
+#: Below it the fit is not evidence. **Any three non-collinear points are concyclic, and any
+#: four corners of a rectangle are**, so a circle through three or four holes ALWAYS fits
+#: whatever their arrangement — the residual is zero by construction and no tolerance on it can
+#: help. #1595 met this as a 2x3 rectangular grid of six holes whose middle and near rows were
+#: fitted to `EQ SP ON ø34.4 BC`, centred on (0, -20.11): exactly the circumcircle of the
+#: rectangle, and a datum the part does not have.
+_BC_SELF_EVIDENT_MEMBERS = 5
+
+#: How far a corroborating feature's axis may sit from the fitted centre and still count as
+#: concentric with it, in millimetres. Deliberately tight: the claim being corroborated is that
+#: the machinist may work from this circle, and a feature that is merely nearby does not
+#: support it.
+_BC_CONCENTRIC_TOL = 0.5
+
+#: How far apart the largest and smallest angular gaps may be, in radians, and still read as
+#: `EQ SP`. ~0.6 degrees.
+_BC_EQUAL_SPACING_TOL = 0.01
+
+#: How close two member coordinates must be, in millimetres, to count as the same row or
+#: column when testing whether a lattice already explains the arrangement.
+_BC_GRID_TOL = 0.05
+
+
+def _corroborates_bolt_circle(candidate, axis: str, centre) -> bool:
+    """Whether *candidate* is a physical circular feature concentric with the fitted circle.
+
+    A four-bolt round flange is real and common, so member count alone would refuse as much
+    good work as bad. What separates it from #1595's rectangle is that the flange HAS
+    something at the centre — a spigot, a boss, a central bore — that the bolt circle is
+    concentric with, and that a machinist can actually indicate off.
+    """
+    if _axis_letter(candidate) != axis:
+        return False
+    plane = {"x": (1, 2), "y": (0, 2), "z": (0, 1)}[axis]
+    location = candidate.location
+    return hypot(*(location[i] - centre[i] for i in plane)) <= _BC_CONCENTRIC_TOL
+
+
+def _plane_indices(axis: str) -> tuple[int, int]:
+    return {"x": (1, 2), "y": (0, 2), "z": (0, 1)}[axis]
+
+
+def _equally_spaced_around(members, axis: str, centre) -> bool:
+    """Whether the members sit at equal angular intervals about *centre*.
+
+    `EQ SP` is half of what the callout claims, and unlike the circle itself it CAN fail:
+    three or four holes at unequal angles are not equally spaced, so this is real evidence.
+    It is not sufficient on its own — see :func:`_explicable_as_a_grid`.
+    """
+    i, j = _plane_indices(axis)
+    angles = sorted(atan2(m.location[j] - centre[j], m.location[i] - centre[i]) for m in members)
+    gaps = [
+        (b - a) % (2 * pi) for a, b in zip(angles, [*angles[1:], angles[0] + 2 * pi], strict=True)
+    ]
+    return max(gaps) - min(gaps) <= _BC_EQUAL_SPACING_TOL
+
+
+def _explicable_as_a_grid(members, axis: str) -> bool:
+    """Whether the members are exactly the intersections of a few rows and columns.
+
+    This is the #1595 trap and the reason equal spacing alone is not enough. The four
+    corners of a **near-square** rectangle are both concyclic AND nearly equally spaced
+    around that circle — every test the callout could apply passes, and the part still has
+    no bolt circle. A hole set that is fully explained by a row/column lattice is described
+    honestly by the lattice, so it does not get to claim a circle as well.
+    """
+    i, j = _plane_indices(axis)
+
+    def distinct(index: int) -> int:
+        values: list[float] = []
+        for m in members:
+            value = m.location[index]
+            if not any(abs(value - seen) <= _BC_GRID_TOL for seen in values):
+                values.append(value)
+        return len(values)
+
+    rows, cols = distinct(i), distinct(j)
+    return rows >= 2 and cols >= 2 and rows * cols == len(members)
+
+
+def _bolt_circle_is_corroborated(pat, members, corroborators) -> bool:
+    """Whether ``EQ SP ON ø… BC`` would state a datum rather than an artifact (#1596).
+
+    Three ways, any one of which is enough — the fit itself is never one of them:
+
+    1. **enough members** — a circle through five or more holes could have failed to fit;
+    2. **a concentric physical feature** — something at the centre to indicate off;
+    3. **equal angular spacing that a lattice does not already explain.**
+    """
+    if len(members) >= _BC_SELF_EVIDENT_MEMBERS:
+        return True
+    axis = _axis_letter(members[0])
+    member_ids = {id(m) for m in members}
+    if any(
+        _corroborates_bolt_circle(candidate, axis, pat.center)
+        for candidate in corroborators
+        if id(candidate) not in member_ids
+    ):
+        return True
+    return _equally_spaced_around(members, axis, pat.center) and not _explicable_as_a_grid(
+        members, axis
     )
 
 
@@ -2051,6 +2158,22 @@ def build_part_model(
             # The members simply stay unpatterned below, so they are still drawn, dimensioned
             # and located. Carrying a full normal on `Frame` would be faithful but widens the
             # ADR 1 (was 0015) waist; that option stays recorded on #971.
+            continue
+        if isinstance(pat, BoltCircle) and not _bolt_circle_is_corroborated(
+            pat, members, (*holes, *(bosses or ()))
+        ):
+            # An UNCORROBORATED bolt circle is not a datum (#1596). Three or four holes are
+            # always concyclic, so the fit proves nothing about the part; printing
+            # `EQ SP ON ø… BC` off it tells the reader to work from a centre that may not
+            # exist. #1595 met exactly that — six holes in a 2x3 grid, four of them fitted to
+            # a ø34.4 circle centred in mid-air.
+            #
+            # Refused HERE for the same reason the oblique pattern above is: ADR 3 says the
+            # recogniser reports the geometry it finds, and a circle through those holes IS
+            # findable. Whether it may be STATED as a drafting datum is drafting policy, and
+            # that is draftwright's (ADR 3 / CLAUDE.md). The members fall through to the
+            # un-patterned grouping below, so they are still drawn, counted and located —
+            # they simply stop claiming a bolt circle.
             continue
         patterned.update(id(h) for h in members)
         hole_pattern_feature = _pattern_feature(pat, members)

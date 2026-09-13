@@ -55,6 +55,32 @@
   refuses `authored_views()` beside it, so the two together wrote a script that raised
   when run. The settled set is reported in a comment instead.
 
+- **A bolt circle is no longer stated unless something other than the fit supports it
+  (#1596).** `EQ SP ON ø… BC` tells a machinist to work from a centre; #1595 found a real
+  part where that centre was in mid-air. Six ⌀2.4 holes in a 2×3 rectangular grid came out
+  as `4× ⌀2.4 THRU EQ SP ON ø34.4 BC` plus an unrelated `2× ⌀2.4 THRU`, the circle centred
+  on (0, −20.11) — nothing is concentric with it.
+
+  The fit was not a near miss. **Any three non-collinear points are concyclic, and any four
+  corners of a rectangle are**, so a circle through three or four holes always fits whatever
+  their arrangement: the residual is zero by construction and no tolerance on it can help.
+  Worse, that part's rectangle is near-square (24.30 × 24.38), so its corners also sit
+  90.19° / 89.81° apart — passing an `EQ SP` check too.
+
+  Corroboration must now come from somewhere the fit cannot reach. Any one of:
+
+  1. **five or more members** — a circle through five holes could have failed to fit;
+  2. **a concentric physical feature** — a boss, spigot, central bore, or a round body whose
+     own axis is the circle's, something a machinist can indicate off;
+  3. **equal angular spacing that a row/column lattice does not already explain.**
+
+  Refused patterns keep every hole: the members fall through to ordinary grouping, so the
+  #1595 part now reads `6× ⌀2.4 THRU` — which also repairs the fragmentation into 4 + 2.
+
+  Refused at the recognition→IR adapter, not in the recogniser: a circle through those holes
+  is genuinely findable, and ADR 3 leaves the recogniser to report the geometry it finds.
+  Whether it may be *stated as a drafting datum* is drafting policy, which is draftwright's.
+
 ### Changed
 
 - **The title block carries every ISO 7200:2004 mandatory data field.** Three had

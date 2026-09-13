@@ -212,6 +212,10 @@ def test_a_subclass_is_not_silently_locatable(feature):
                 - Pos(-25, 25, 0) * Cylinder(3, 20)
                 - Pos(25, -25, 0) * Cylinder(3, 20)
                 - Pos(-25, -25, 0) * Cylinder(3, 20)
+                # Concentric with the four holes (#1596): without it they are the corners of
+                # a 2x2 lattice, a circle through them always fits, and the engine states no
+                # bolt circle — leaving this fixture with no pattern location to rename.
+                + Pos(0, 0, 5) * Cylinder(8, 6)
             ),
             id="pattern-z",
         ),

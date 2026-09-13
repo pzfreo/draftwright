@@ -224,6 +224,11 @@ class TestTheCorrespondenceIsNotFooledByGeometry:
         part = Box(80, 80, 10)
         for x, y in ((-25, -25), (25, -25), (-25, 25), (25, 25)):
             part -= Pos(x, y, 0) * Cylinder(3, 40)
+        # A boss concentric with the four holes (#1596). Without it they are the corners of
+        # a 2x2 lattice, and a circle through four lattice corners always fits perfectly — so
+        # the engine states no bolt circle and there is no pattern here to score. A boss
+        # rather than a central bore, which would add a fifth hole and break the count below.
+        part += Pos(0, 0, 5) * Cylinder(8, 6)
         drawing = build_drawing(part)
         holes = list(drawing.recognition().holes)
         assert len(holes) == 4, f"the fixture no longer makes four holes: {len(holes)}"
@@ -238,6 +243,11 @@ class TestTheCorrespondenceIsNotFooledByGeometry:
         part = Box(80, 80, 10)
         for x, y in ((-25, -25), (25, -25), (-25, 25), (25, 25)):
             part -= Pos(x, y, 0) * Cylinder(3, 40)
+        # A boss concentric with the four holes (#1596). Without it they are the corners of
+        # a 2x2 lattice, and a circle through four lattice corners always fits perfectly — so
+        # the engine states no bolt circle and there is no pattern here to score. A boss
+        # rather than a central bore, which would add a fifth hole and break the count below.
+        part += Pos(0, 0, 5) * Cylinder(8, 6)
         drawing = build_drawing(part)
         holes = list(drawing.recognition().holes)
         outcomes = _drawing_consumer_outcomes(holes, drawing)
