@@ -56,6 +56,24 @@
     },
     {
       "geom_bbox": [
+        146.5,
+        84.0,
+        206.6,
+        105.9
+      ],
+      "label": "60",
+      "label_bbox": [
+        174.9,
+        102.8,
+        178.1,
+        104.9
+      ],
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
         30.0,
         88.0,
         110.1,
@@ -71,24 +89,6 @@
       "name": "m_env_width",
       "type": "Dimension",
       "view": "plan"
-    },
-    {
-      "geom_bbox": [
-        196.3,
-        97.7,
-        220.7,
-        100.3
-      ],
-      "label": "ISO VIEW (NTS)",
-      "label_bbox": [
-        196.3,
-        97.7,
-        220.7,
-        100.3
-      ],
-      "name": "note_iso_nts",
-      "type": "Note",
-      "view": null
     },
     {
       "geom_bbox": [
@@ -135,13 +135,7 @@
       "view": null
     }
   ],
-  "build_issues": [
-    [
-      "error",
-      "overall_dim_withheld",
-      "overall depth dimension not placed (side-view below and above strips full; below occupied by: title_block; above occupied by: dim_shoulder_y0)"
-    ]
-  ],
+  "build_issues": [],
   "item_count": 8,
   "page": [
     297.0,
@@ -153,12 +147,6 @@
       50.0,
       110.0,
       80.0
-    ],
-    "iso": [
-      153.9,
-      105.0,
-      263.1,
-      195.0
     ],
     "plan": [
       30.0,

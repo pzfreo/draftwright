@@ -88,7 +88,17 @@ _KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
         frozenset({"m_slot0_length", "m_locx1"}),
         frozenset({"m_locy0", "m_locy1"}),
     },
-    "plate_holes": {frozenset({"m_locx0", "m_locx1"}), frozenset({"m_locy0", "m_locy1"})},
+    "plate_holes": {
+        frozenset({"m_locx0", "m_locx1"}),
+        frozenset({"m_locy0", "m_locy1"}),
+        # BENIGN, same class as dshape/side_drilled's `<location dim>, m_env_depth` above.
+        # New because the dimension is new: #1590 replans this part off its withheld overall
+        # depth, so `m_env_depth` now exists and joins the y-chain's corridor. All three
+        # boxes start at x=150.63 — one shared datum witness, the ISO 129-1 running-dimension
+        # presentation, not a dim-line overprint.
+        frozenset({"m_locy0", "m_env_depth"}),
+        frozenset({"m_locy1", "m_env_depth"}),
+    },
     "side_drilled": {
         frozenset({"dim_loc_side_y2000", "m_env_depth"}),
     },

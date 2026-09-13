@@ -94,22 +94,52 @@ def test_a_displaced_dimension_stays_on_the_sheet(name, monkeypatch):
     assert not [issue for issue in after.lint() if issue.severity == "error"]
 
 
-def test_a_dimension_with_nowhere_to_go_is_reported_not_dropped(monkeypatch):
-    """The remaining cost, stated rather than hidden.
+def test_a_dimension_with_nowhere_to_go_is_replanned_onto_a_sheet_that_fits():
+    """The cost, and what #1590 then does about it.
 
-    On A4 at 1:1 this part's side view has the title block below and a shoulder dim
-    above, so the overall depth has no clear strip. Before #1593 it was drawn through
-    the block; now it is withheld, as an ERROR that names the block. A larger sheet or a
-    smaller scale places it — choosing one without knowing the dimension needed the room
-    is #1590.
+    Pinned to this sheet, the part's side view has the title block below and a shoulder
+    dim above, so the overall depth has no clear strip: it is withheld as an ERROR that
+    names the block, rather than drawn through it as before #1593. Left automatic, that
+    error is now a replan trigger (#1590) and the engine returns a sheet that carries the
+    dimension — here by dropping the optional pictorial, which #443/#1299 already rank
+    below a dimension needed to manufacture the part.
     """
-    drawing = _build("stepped", keep_out=True, monkeypatch=monkeypatch)
-    (withheld,) = [i for i in drawing.lint() if i.code == "overall_dim_withheld"]
-    assert withheld.severity == "error"
-    assert "title_block" in withheld.message
+    # Page and scale pinned, so the recovery ladder does not run and this sheet is the one
+    # under test. No `scale_policy` is needed and that is the point worth pinning: an
+    # explicitly requested scale is still HONOURED, under every policy, because
+    # `overall_dim_withheld` is not a scale blocker. Reporting it as one made
+    # `build_drawing(scale=...)` raise on parts that had always built (#1216 review r9), and
+    # #1590 makes the withheld dimension a replan trigger WITHOUT disturbing that.
+    for policy in ("strict", "fallback", "permissive"):
+        pinned = build_drawing(
+            CASES["stepped"][0], number="X", page="A4", scale=1.0, scale_policy=policy
+        )
+        assert pinned.scale_decision["status"] == "honored"
+        assert pinned.scale_decision.get("blockers", ()) == ()
+        (withheld,) = [i for i in pinned.lint() if i.code == "overall_dim_withheld"]
+        assert withheld.severity == "error"
+        assert "title_block" in withheld.message
+        assert _inside_the_block(pinned) == []
 
-    monkeypatch.undo()
-    roomier = build_drawing(CASES["stepped"][0], number="X", page="A3")
-    assert roomier.get_annotation("m_env_depth") is not None
-    assert _inside_the_block(roomier) == []
-    assert not [issue for issue in roomier.lint() if issue.severity == "error"]
+    automatic = build_drawing(CASES["stepped"][0], number="X")
+    assert automatic.scale_decision["status"] == "automatic_replanned"
+    assert automatic.get_annotation("m_env_depth") is not None
+    assert _inside_the_block(automatic) == []
+    assert not [issue for issue in automatic.lint() if issue.severity == "error"]
+
+
+def test_the_recorded_attempt_names_the_symptom_that_opened_the_ladder():
+    """The decision reads back honestly (#1590).
+
+    `required_outcome_dropped` would be wrong here: nothing was dropped as a blocker — the
+    mark was approved and had nowhere to go, which is precisely why the ladder could not see
+    it before. The sibling statuses are pinned the same way in
+    `test_issue_1299_page_escalation`; this one had no test at all.
+    """
+    drawing = build_drawing(CASES["stepped"][0], number="X")
+    attempts = drawing.scale_decision["attempts"]
+    assert [a["status"] for a in attempts][0] == "required_dimension_withheld"
+    assert attempts[0]["reason"] == "remove_optional_iso"
+    # ...and the ladder went on to find a sheet that carries the dimension.
+    assert attempts[-1]["status"] == "complete"
+    assert drawing.get_annotation("m_env_depth") is not None

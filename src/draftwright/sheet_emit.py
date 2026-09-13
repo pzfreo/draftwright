@@ -47,6 +47,7 @@ from build123d import Shape
 from draftwright._core import _dimension_draft
 from draftwright.builder import (
     _detect_part_model_analysis,
+    _is_expected_candidate_build_failure,
     build_drawing,
 )
 from draftwright.fits import FitClass
@@ -1413,6 +1414,18 @@ def _is_mirrorable(model) -> bool:
     return not unmirrored_dimensions(model)
 
 
+def _mirrors_dimensions(model) -> bool:
+    """Whether the emitted script declares its own dimension set, or keeps the planner's.
+
+    False means the script keeps ``sheet.auto_dimensions()`` — a feature the emitter has no
+    line for would make a mirrored set silently incomplete (#938/#945), so the whole set
+    stays automatic. That is also what makes it load-bearing OUTSIDE the dimension block:
+    ``Sheet`` refuses ``authored_views()`` beside ``auto_dimensions()`` (ADR 2: requirements
+    determine views), so a script in that state cannot be handed a pinned view set either.
+    """
+    return model.authored_dimensions is not None or _is_mirrorable(model)
+
+
 def _mirrored_requests(declared, declared_envelope=None):
     """The compiler's feature/role/axis/member selectors, serialized for the mirror.
 
@@ -1495,7 +1508,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     A generated script must state its source either way (ADR 4 (was 0016) / #874): a dimension the
     script does not name only means "omitted" inside a set that says it is complete.
     """
-    if model.authored_dimensions is None and not _is_mirrorable(model):
+    if not _mirrors_dimensions(model):
         # A feature with no declarative verb carries planned dimensions, so a mirrored set
         # would silently omit them and claim completeness it does not have (#938).
         # WHY, specifically. `_is_mirrorable` now fails for any dimension the compiler
@@ -2065,6 +2078,53 @@ def _adopted_view_block(constraints: ViewConstraints, names: Mapping[int, str]) 
     return lines
 
 
+def _settled_reference_build(*args, **kwargs):
+    """One reference build, or ``None`` if this source cannot be DRAWN.
+
+    Its only job is to reveal an automatic replan for :func:`settled_layout_for` to pin, so an
+    undrawable source must not be the reason a script is not written: a STEP file holding a
+    bare curve projects no side view, and `generate_sheet_script` still owes the caller a
+    script — the standard the inspection sidecar beside it already meets.
+
+    Narrow on purpose. It reuses `builder._is_expected_candidate_build_failure`, the
+    predicate the recovery ladder already uses to decide whether a speculative build may
+    reject quietly. A blanket `except ValueError` would also swallow
+    `ScaleIncompatibilityError`, `ViewPlanIncomplete`, `MultipleTurnedProfilesError` and an
+    unknown page size — deliberate refusals under ADR 5, which must reach the caller now and
+    not be demoted to a log line plus a script that fails when someone runs it.
+    """
+    try:
+        return build_drawing(*args, **kwargs)
+    except Exception as error:  # noqa: BLE001 — re-raised below unless expected
+        if not _is_expected_candidate_build_failure(error):
+            raise
+        _log.warning("No settled-layout reference build for this source: %s", error)
+        return None
+
+
+def settled_layout_for(drawing) -> dict | None:
+    """The layout an automatic build REPLANNED onto, for :func:`emit_sheet_script` to pin.
+
+    ``None`` when the build took its first plan, which is the common case and needs no
+    pinning: a declared script re-planning the same way from the same model reaches the same
+    sheet. It is the replan that a model cannot reproduce — the automatic path measures a
+    built sheet, finds a required mark has nowhere to go, and drops the optional pictorial or
+    spends a larger page. A declared build never enters that ladder (ADR 4: a declared script
+    does what it is told), so the resolved page, scale and view set have to be written down.
+
+    One function because two callers must agree on what "the settled layout" is:
+    :func:`generate_sheet_script`, and the round-trip parity tests that assert a generated
+    script draws and lints exactly what the automatic build did.
+    """
+    if drawing.scale_decision.get("status") != "automatic_replanned":
+        return None
+    return {
+        "scale": drawing.scale,
+        "page": (drawing.page_w, drawing.page_h),
+        "views": tuple(drawing.views),
+    }
+
+
 def emit_sheet_script(
     model,
     part_expr: str,
@@ -2320,12 +2380,29 @@ def emit_sheet_script(
     )
     if view_constraints is not None:
         lines += _adopted_view_block(view_constraints, _names)
-    elif principal_views and principal_views != ("front", "plan", "side", "iso"):
+    elif (
+        principal_views
+        and principal_views != ("front", "plan", "side", "iso")
+        and _mirrors_dimensions(model)
+    ):
         lines += [
             "# The automatic build settled on this complete view set; it is declared so",
             "# the editable authored-dimension mirror reproduces that resolved layout.",
             "sheet.authored_views()",
             *(f'sheet.view("{name}")' for name in principal_views),
+        ]
+    elif principal_views and principal_views != ("front", "plan", "side", "iso"):
+        # The settled set is known and deliberately NOT declared. This script keeps
+        # `sheet.auto_dimensions()` (see the dimension block above for why), and `Sheet`
+        # refuses `authored_views()` beside it — emitting both would write a script that
+        # raises the moment anyone runs it. Requirement-driven view selection may well reach
+        # this same set; it is not guaranteed to, and saying so beats a script that cannot
+        # run.
+        lines += [
+            "# The automatic build settled on: " + ", ".join(principal_views) + ".",
+            "# Not declared here: this script keeps auto_dimensions(), and a sheet cannot",
+            "# author its views and its dimensions separately (ADR 2 — requirements",
+            "# determine views). The view set is re-derived on each run and may differ.",
         ]
     else:
         lines.append("# front / plan / side / iso are produced automatically.")
@@ -2585,13 +2662,25 @@ def generate_sheet_script(
                     "No inspection sidecar written for %s: %s", source_display.name, error
                 )
         settled_layout = None
-        # Generated scripts mirror dimensions as an authored set. Resolve the two established
-        # semantic-correction families against the same immutable STEP snapshot as recognition.
-        may_need_semantic_correction = model.orientation is not None or any(
-            feature.kind == "step_level" for feature in model.features
-        )
-        if scale is None and may_need_semantic_correction:
-            settled = build_drawing(
+        # Generated scripts mirror dimensions as an authored set, and a declared build does
+        # what it is told — it never enters the automatic recovery ladder. So any replan the
+        # automatic path performs has to be BAKED IN here, against the same immutable STEP
+        # snapshot as recognition, or the script draws a different sheet from the part.
+        #
+        # This used to run only for the two families whose replan could be PREDICTED from the
+        # model (an orientation correction, a step_level ladder). #1590 adds a third trigger
+        # — a required dimension that found no room — and no property of the model predicts
+        # it: whether the mark fits is a fact about the measured sheet. A prediction that is
+        # wrong here is not a slow script, it is a script that silently disagrees with the
+        # part, so the filter is gone and the reference build is unconditional.
+        #
+        # It costs one extra `build_drawing` per generated script: measured 0.19 s for a
+        # plain box, 0.34 s for a pocket, and 1.17 s for a part that actually replans (where
+        # the ladder itself rebuilds — the case the extra build is FOR). `--script` writes a
+        # file for a person to read; paying that for a script that matches its own part is
+        # the right trade.
+        if scale is None:
+            settled = _settled_reference_build(
                 detection_source,
                 title=title,
                 number=number,
@@ -2615,12 +2704,7 @@ def generate_sheet_script(
                 pmi=pmi,
                 model=model,
             )
-            if settled.scale_decision.get("status") == "automatic_replanned":
-                settled_layout = {
-                    "scale": settled.scale,
-                    "page": (settled.page_w, settled.page_h),
-                    "views": tuple(settled.views),
-                }
+            settled_layout = None if settled is None else settled_layout_for(settled)
         script = emit_sheet_script(
             model,
             part_expr,

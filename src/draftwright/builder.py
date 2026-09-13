@@ -59,6 +59,7 @@ from draftwright.annotations._common import (
 )
 from draftwright.annotations.gears import render_gear_tables
 from draftwright.annotations.orchestrator import (
+    _WITHHOLDING_CODES,
     _auto_annotate,
     build_model,
     build_rotational_feature,
@@ -1567,6 +1568,60 @@ def _is_required_scale_drop(issue) -> bool:
     return True
 
 
+#: Placement failures a different sheet or scale can repair, which must NOT refuse an
+#: explicitly requested one.
+#:
+#: :func:`_is_required_scale_drop` answers one question — may this drawing be returned at the
+#: scale the CALLER asked for? — and these codes deliberately answer no to it. Reporting a
+#: withheld overall extent through `placement_unsatisfiable` made `build_drawing(part,
+#: scale=...)` raise `ScaleIncompatibilityError` on parts that had built for as long as the
+#: defect had existed, because that predicate matches by code name (#1216 review r9); the
+#: comment in `annotations/from_model.py` records the measurement.
+#:
+#: Choosing a sheet AUTOMATICALLY is a different question. There is no caller request to
+#: honour and nothing to refuse — a required dimension with nowhere to go is precisely what
+#: the recovery ladder exists to repair. One predicate served both questions, so the ladder
+#: could not see this symptom at all (#1590).
+#:
+#: The `*_dropped` member of the withholding vocabulary is excluded: it already ends in the
+#: suffix `_is_required_scale_drop` matches, so it is a blocker and needs no second route in.
+_REPLANNABLE_LOSS_CODES = tuple(
+    code for code in _WITHHOLDING_CODES if not code.endswith("_dropped")
+)
+
+
+#: Every symptom that may make the optional isometric yield, in the order the gate tests
+#: them, and the vocabulary of the `remove_optional_iso` attempt status.
+#:
+#: **ADR 2 invariant 13 is about this tuple.** The isometric yields only to preserve
+#: manufacturing completeness, and these are the three ways a drawing can fail to be
+#: complete: a turned part missing an axial station, an authored requirement that cannot
+#: place, and a required dimension with nowhere to go. Adding a fourth is an amendment to
+#: that record — maintainer's sign-off, the record updated, and only then this tuple.
+#: `test_adr0018_view_selection.py::TestWhatMakesTheIsometricYield` fails if it changes.
+_ISO_YIELD_TRIGGERS = (
+    "axial_coverage_incomplete",
+    "required_outcome_dropped",
+    "required_dimension_withheld",
+)
+
+
+def _replannable_losses(issues) -> tuple:
+    """Required dimensions that found no room, from one already-materialised lint pass.
+
+    The automatic path's third recovery trigger, beside an axial-coverage gap and an
+    authored-intent blocker. Severity is checked rather than assumed: the same codes are
+    recorded at `info` when the measurement is merely too small to letter at this scale,
+    which a larger sheet does fix — but by re-selecting the scale, not by replanning the
+    arrangement, and `step_dim_withheld` at `info` fires on ordinary complete drawings.
+    """
+    return tuple(
+        issue
+        for issue in issues
+        if issue.code in _REPLANNABLE_LOSS_CODES and issue.severity == "error"
+    )
+
+
 def _scale_blockers_from_issues(issues) -> tuple[dict, ...]:
     """Required placement failures from one already-materialised lint pass."""
     blockers = []
@@ -1840,10 +1895,25 @@ def _has_detail_view(views) -> bool:
     return any(name.startswith("detail_") for name in views)
 
 
+#: The ValueError messages a speculative build may raise WITHOUT it meaning a bug. Matched on
+#: message because the engine raises bare `ValueError` here; a purpose-built type would be
+#: better and is not this change's to introduce. Everything else — `ScaleIncompatibilityError`,
+#: `ViewPlanIncomplete`, `MultipleTurnedProfilesError`, an unknown page size — is a deliberate
+#: refusal under ADR 5 and must reach the caller rather than be logged and stepped over.
+_EXPECTED_CANDIDATE_FAILURES = (
+    # The speculative-page path: a scale at which the part's own geometry collapses.
+    "drawing geometry degenerates",
+    # A source with no solid body — a STEP file holding a bare curve projects nothing. The
+    # settled-layout reference build in `sheet_emit` sees this and must still write a script.
+    "project_to_viewport returned empty geometry",
+)
+
+
 def _is_expected_candidate_build_failure(exc: Exception) -> bool:
     """Whether a speculative build may reject without hiding an invariant bug."""
     return isinstance(exc, Standard_Failure) or (
-        isinstance(exc, ValueError) and "drawing geometry degenerates" in str(exc)
+        isinstance(exc, ValueError)
+        and any(known in str(exc) for known in _EXPECTED_CANDIDATE_FAILURES)
     )
 
 
@@ -2446,14 +2516,32 @@ def build_drawing(
             )
             settled_issues = original_issues
             recovered_on_selected_page = False
-            if original_has_axial_gap or source_blockers:
+            # #1590: the third symptom. A required envelope or step dimension that found no
+            # room is not a blocker by design (see `_REPLANNABLE_LOSS_CODES`), so the ladder
+            # used to skip these drawings entirely — `attempts` came back empty and an
+            # `overall_dim_withheld` error was reported on the first sheet tried.
+            #
+            # Scoped by the enclosing gate, which is worth stating so the next reader does
+            # not assume otherwise: this block runs only for a drawing that HAS the optional
+            # isometric. One that settled without it never replans for this symptom, however
+            # starved. Widening that is a separate question from the trigger.
+            withheld = _replannable_losses(original_issues)
+            if original_has_axial_gap or source_blockers or withheld:
+                # The recorded status names WHICH symptom opened the ladder, so the
+                # decision reads back honestly, and the vocabulary is
+                # `_ISO_YIELD_TRIGGERS` — the declared list ADR 2 invariant 13 is about.
+                # `required_outcome_dropped` would be wrong for a withheld dimension:
+                # nothing was dropped as a blocker — the mark was approved and had
+                # nowhere to go.
+                if original_has_axial_gap:
+                    entry_status = _ISO_YIELD_TRIGGERS[0]
+                elif source_blockers:
+                    entry_status = _ISO_YIELD_TRIGGERS[1]
+                else:
+                    entry_status = _ISO_YIELD_TRIGGERS[2]
                 _record_attempt(
                     drawing.scale,
-                    (
-                        "axial_coverage_incomplete"
-                        if original_has_axial_gap
-                        else "required_outcome_dropped"
-                    ),
+                    entry_status,
                     source_blockers,
                     reason="remove_optional_iso",
                     candidate=drawing,
@@ -2475,7 +2563,9 @@ def build_drawing(
                     settled_issues = upscaled_issues
                     replanned = True
                     recovered_on_selected_page = True
-            if (original_has_axial_gap or source_blockers) and not recovered_on_selected_page:
+            if (
+                original_has_axial_gap or source_blockers or withheld
+            ) and not recovered_on_selected_page:
                 try:
                     without_iso_proposal = _build(
                         None,

@@ -609,7 +609,14 @@ def test_a_doubly_starved_extent_is_still_reported(monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(fm, "place_strip_candidates", refuse_fallthrough)
-    drawing = build_drawing(_starved_extent_plate(), title="T", number="N")
+    # `_include_iso=False` so the automatic recovery ladder cannot act. #1590 made a withheld
+    # required dimension a replan trigger, and the ladder's first move — drop the optional
+    # ISO — frees this fixture's below strip. That is the engine doing the right thing, and it
+    # would leave this test asserting a report on a drawing that no longer starves (its own
+    # precondition catches that). Starting without the ISO both removes the lever and keeps
+    # the strips full, so the subject survives: when both strips ARE full, the drop is
+    # reported rather than vanishing.
+    drawing = build_drawing(_starved_extent_plate(), _include_iso=False, title="T", number="N")
     assert "m_env_width" not in drawing.registry.names(), (
         "precondition: the refusal did not apply — the fallthrough placed the width anyway, "
         "so nothing below tests the report"

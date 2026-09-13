@@ -44,6 +44,7 @@ from draftwright.sheet_emit import (
     generate_sheet_script,
     mirror_model,
     resolve_object_spec,
+    settled_layout_for,
     unmirrored_dimensions,
 )
 
@@ -2711,8 +2712,20 @@ class TestTheDimensionMirror:
         #932. A corpus rather than one part, because single-fixture guards are how whole
         paths stayed uncovered twice in this series (#925 had no holes, #934 had one ladder).
         """
+        from draftwright.sheet_emit import settled_layout_for
+
         part, model, automatic, _initial = mirror_automatic_drawings[name]
-        src = emit_sheet_script(model, "part", "s", title="T", number="N")
+        # As in `test_the_script_lints_the_same_as_the_direct_build`: an automatic replan is
+        # pinned into the script by `generate_sheet_script`, because the model cannot carry
+        # it (#1590).
+        src = emit_sheet_script(
+            model,
+            "part",
+            "s",
+            title="T",
+            number="N",
+            settled_layout=settled_layout_for(automatic),
+        )
         regenerated = self._run(src, part)["sheet"].build()
 
         names = {n for n, _ in automatic.iter_annotations()}
@@ -4092,10 +4105,23 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         from unittest.mock import patch
 
         from draftwright import Drawing, build_drawing
+        from draftwright.sheet_emit import settled_layout_for
 
         part = self._corpus()[name]
         direct = build_drawing(part, title="T", number="N")
-        src = emit_sheet_script(detect_part_model(part), "part", "s", title="T", number="N")
+        # `settled_layout` is what `generate_sheet_script` passes, and for the same reason: a
+        # replan is a fact about a MEASURED sheet, so no property of the model reproduces it
+        # and a declared script never re-derives it (#1590). Emitting without it here would
+        # test an emitter call production does not make, and would assert the script matches
+        # a decision it was never told about.
+        src = emit_sheet_script(
+            detect_part_model(part),
+            "part",
+            "s",
+            title="T",
+            number="N",
+            settled_layout=settled_layout_for(direct),
+        )
         captured: dict = {"part": part}
         with patch.object(
             Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)
@@ -4399,6 +4425,31 @@ def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
     assert not missing, "the doc quotes lines the tool does not emit:\n  " + "\n  ".join(
         missing[:5]
     )
+
+
+def test_a_settled_view_set_is_not_pinned_beside_auto_dimensions(monkeypatch):
+    """#1590 widened who reaches the view pin; this is the combination it must not write.
+
+    A model the emitter cannot mirror keeps `sheet.auto_dimensions()`, and `Sheet` refuses
+    `authored_views()` beside it (ADR 2 — requirements determine views). Pinning a replanned
+    view set there emitted a script that raised the moment anyone ran it. The settled set is
+    still REPORTED, in a comment, because a script that quietly re-derives a different
+    layout is its own defect.
+    """
+    from draftwright import sheet_emit as se
+
+    part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
+    settled = settled_layout_for(build_drawing(part, title="T", number="N"))
+    assert settled is not None, "precondition: this part must replan, or nothing is pinned"
+    assert "iso" not in settled["views"], "precondition: the settled set must differ"
+
+    monkeypatch.setattr(se, "_is_mirrorable", lambda _model: False)
+    src = emit_sheet_script(
+        detect_part_model(part), "part", "s", title="T", number="N", settled_layout=settled
+    )
+    assert "sheet.auto_dimensions()" in src, "precondition: the mirror must be refused"
+    assert "sheet.authored_views()" not in src
+    assert "# The automatic build settled on: front, plan, side." in src
 
 
 def test_the_new_iso_7200_fields_reach_the_generated_script():

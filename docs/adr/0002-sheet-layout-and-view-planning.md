@@ -72,10 +72,13 @@ dependency runs one way: requirements determine views.
     Authored views with `auto_dimensions()` raises at the verb; an approved dimension no authored view
     can carry raises `ViewPlanIncomplete` naming the view to add; `view_decision` is always present.
     `test_issue_1260_view_constraints.py`, `test_adr0018_view_routing.py`.
-13. **View removal is requirement-aware.** The optional isometric yields only to close missing axial
-    coverage, on the settled page and arrangement, with every gate recorded; no principal view is
-    removed automatically. `test_adr0018_view_selection.py`, `test_issue_1262_automatic_turned_views.py`,
-    `test_issue_443_grm03_axial_coverage.py`, `test_issue_1190_section_decision.py`.
+13. **View removal is requirement-aware.** The optional isometric yields only to preserve
+    manufacturing completeness — never for space, crowding or preference — on the settled page and
+    arrangement, with the triggering symptom recorded in `scale_decision`; no principal view is
+    removed automatically. The triggers are `builder._ISO_YIELD_TRIGGERS`, and that tuple is what
+    this invariant is about: adding one amends this record. `test_adr0018_view_selection.py`,
+    `test_issue_1262_automatic_turned_views.py`, `test_issue_443_grm03_axial_coverage.py`,
+    `test_issue_1190_section_decision.py`.
 14. **Exact detail/iso factors; unequal principal scales refused.** `test_issue_1204_multiscale_view_issues.py`.
 15. **The solve is recordable.** `build_drawing(trace=…)` dumps every corridor solve and pass event;
     a strip-full drop names its occupants. `test_solve_trace.py`.

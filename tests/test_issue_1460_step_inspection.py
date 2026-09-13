@@ -794,3 +794,40 @@ def test_the_cli_prints_the_document_path_and_no_report_suppresses_it(tmp_path, 
     assert result.exit_code == 0, result.output
     assert "without.draftwright-inspection.json" not in result.output
     assert not (tmp_path / "without.draftwright-inspection.json").exists()
+
+
+def test_an_undrawable_source_still_generates_a_script(tmp_path, monkeypatch, caplog):
+    """The settled-layout reference build (#1590) is held to the sidecar's standard.
+
+    It exists only to reveal an automatic replan worth pinning, so a source that cannot be
+    DRAWN must not cost the caller their script. A STEP file holding a bare curve projects
+    no side view, which is the case that motivated the catch.
+    """
+    from draftwright.sheet_emit import generate_sheet_script
+
+    monkeypatch.chdir(tmp_path)
+    export_step(Line((0, 0, 0), (10, 0, 0)), "curve.step")
+
+    with caplog.at_level(logging.WARNING, logger="draftwright.sheet_emit"):
+        py_path = generate_sheet_script("curve.step", out="curve")
+
+    assert Path(py_path).exists()
+    assert "No settled-layout reference build" in caplog.text
+
+
+def test_a_deliberate_refusal_is_not_demoted_to_a_warning(tmp_path, monkeypatch, caplog):
+    """The counterpart, and the reason the catch is narrow.
+
+    A blanket `except ValueError` around that build would also swallow every deliberate
+    refusal the engine raises — an unknown page size, `ScaleIncompatibilityError`,
+    `ViewPlanIncomplete` — turning a hard failure the caller must see into a log line and a
+    script that fails only when somebody runs it. `_is_expected_candidate_build_failure`
+    admits the undrawable-source messages and nothing else.
+    """
+    from draftwright.sheet_emit import generate_sheet_script
+
+    monkeypatch.chdir(tmp_path)
+    with caplog.at_level(logging.WARNING, logger="draftwright.sheet_emit"):
+        with pytest.raises(ValueError, match="unknown page size"):
+            generate_sheet_script(Box(40, 30, 12), out="box", page="A11")
+    assert "No settled-layout reference build" not in caplog.text

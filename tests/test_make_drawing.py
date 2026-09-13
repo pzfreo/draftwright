@@ -5734,7 +5734,13 @@ class TestLintSummaryAndDrops:
         part = Box(80, 60, 20)
         part -= Pos(-39.3, 0, 0) * Cylinder(0.4, 20)  # ~0.7 mm from datum_x: skipped
         part -= Pos(-36.5, 0, 0) * Cylinder(1.5, 20)  # ~2.8 mm from the edge hole
-        dwg = build_drawing(part)
+        # A4 at 1:1 pinned, because that is where the 0.7 mm location is too short to draw
+        # and this test is about what the gate does then. Left automatic, #1590 now escalates
+        # this part to A2 at 2:1 — the overall depth was withheld here, and the larger sheet
+        # places it, locates the second hole, AND makes the 0.7 mm location drawable, so the
+        # skip under test stops happening. `permissive` because the A4 plan is incomplete;
+        # that is the premise, not a surprise.
+        dwg = build_drawing(part, page="A4", scale=1.0, scale_policy="permissive")
         # The real neighbour is dimensioned...
         assert any(n.startswith("m_locx") for n in dwg.annotations())
         # ...and the gate did not record a spurious X spacing drop.
