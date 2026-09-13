@@ -820,3 +820,22 @@ def test_the_whistle_frame_reports_its_rounded_nominals(tmp_path):
     (report,) = [issue for issue in drawing.lint() if issue.code == "nominal_rounded"]
     assert report.severity == "info"
     assert "dimension(s) print a nominal the model does not have" in report.message
+
+
+def test_a_dimension_whose_path_projects_to_nothing_is_not_a_rounded_nominal():
+    """A path that projects to ~0 states no measurement, so the sheet's precision has lost
+    nothing and there is nothing to report. `label_vs_measured` guards the same case for the
+    same reason — it divides by it.
+
+    A stand-in, because a real one cannot be built: `Dimension` refuses coincident endpoints
+    ("Start and end points of border must be different"). The condition is reachable through
+    PROJECTION, where a dimension nearly perpendicular to the view plane foreshortens to
+    almost nothing, which is a page-space fact the constructor never sees.
+    """
+    from types import SimpleNamespace
+
+    from draftwright.linting.structural import _lint_display_precision
+
+    issues: list = []
+    _lint_display_precision([SimpleNamespace(label="0", measured_length=0.0)], issues, 1.0)
+    assert issues == []

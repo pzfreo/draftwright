@@ -822,8 +822,10 @@ def _lint_display_precision(items, issues, drawing_scale: float = 1.0) -> None:
             continue
         measured, item_scale = measurement
         effective = measured / item_scale
-        if effective <= 1e-6:
-            continue
+        # No degenerate guard here, unlike `_lint_dim` above: that one divides by the
+        # measurement, this one only differences it, and a path projecting to ~0 is already
+        # excluded by the rounding gate below — a nonzero label against a zero path is not
+        # correctly rounded, and a zero label against it shifts by nothing.
         shift = abs(label_val - effective)
         # Only ROUNDING. Without this, every genuine mislabel also lands here: a `35` drawn on
         # a 20 mm path was counted as a rounded nominal and, being the largest shift, became
