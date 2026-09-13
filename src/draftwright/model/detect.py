@@ -18,7 +18,7 @@ from collections import Counter
 from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from math import atan2, degrees, hypot, isfinite, pi, ulp
+from math import atan2, degrees, hypot, isfinite, ulp
 from typing import Any, Literal
 
 from quiddity import (
@@ -208,14 +208,6 @@ _BC_SELF_EVIDENT_MEMBERS = 5
 #: support it.
 _BC_CONCENTRIC_TOL = 0.5
 
-#: How far apart the largest and smallest angular gaps may be, in radians, and still read as
-#: `EQ SP`. ~0.6 degrees.
-_BC_EQUAL_SPACING_TOL = 0.01
-
-#: How close two member coordinates must be, in millimetres, to count as the same row or
-#: column when testing whether a lattice already explains the arrangement.
-_BC_GRID_TOL = 0.05
-
 
 def _corroborates_bolt_circle(candidate, axis: str, centre) -> bool:
     """Whether *candidate* is a physical circular feature concentric with the fitted circle.
@@ -236,52 +228,40 @@ def _plane_indices(axis: str) -> tuple[int, int]:
     return {"x": (1, 2), "y": (0, 2), "z": (0, 1)}[axis]
 
 
-def _equally_spaced_around(members, axis: str, centre) -> bool:
-    """Whether the members sit at equal angular intervals about *centre*.
+def _accounts_for_its_siblings(pat, members, holes) -> bool:
+    """Whether the circle explains every hole of its own kind, or only some of them.
 
-    `EQ SP` is half of what the callout claims, and unlike the circle itself it CAN fail:
-    three or four holes at unequal angles are not equally spaced, so this is real evidence.
-    It is not sufficient on its own — see :func:`_explicable_as_a_grid`.
+    This is what actually distinguished #1595, and the leftover callout was the evidence
+    lying in plain sight: `4× ⌀2.4 THRU EQ SP ON ø34.4 BC` came out **beside**
+    `2× ⌀2.4 THRU`. Six identical holes, and the circle claimed four. A drawing does not
+    put two of six bolts on a different plan; a 2x3 grid fitted through four of its corners
+    does exactly that.
+
+    Identity is ``HoleSpec.from_hole`` — the same key the un-patterned grouping below uses
+    to decide two holes are the same hole. So "sibling" here means precisely what "identical
+    hole" already means everywhere else in the engine.
+
+    Rotation-invariant, which the lattice test this replaced was not: that one counted
+    distinct x and y values, so the *same* four holes were a lattice at 45° and a bolt
+    circle at 0°. This asks a question about the part, not about its angle to the axes.
     """
-    i, j = _plane_indices(axis)
-    angles = sorted(atan2(m.location[j] - centre[j], m.location[i] - centre[i]) for m in members)
-    gaps = [
-        (b - a) % (2 * pi) for a, b in zip(angles, [*angles[1:], angles[0] + 2 * pi], strict=True)
-    ]
-    return max(gaps) - min(gaps) <= _BC_EQUAL_SPACING_TOL
+    member_ids = {id(m) for m in members}
+    specs = {HoleSpec.from_hole(m) for m in members}
+    return not any(
+        id(hole) not in member_ids and HoleSpec.from_hole(hole) in specs for hole in holes
+    )
 
 
-def _explicable_as_a_grid(members, axis: str) -> bool:
-    """Whether the members are exactly the intersections of a few rows and columns.
-
-    This is the #1595 trap and the reason equal spacing alone is not enough. The four
-    corners of a **near-square** rectangle are both concyclic AND nearly equally spaced
-    around that circle — every test the callout could apply passes, and the part still has
-    no bolt circle. A hole set that is fully explained by a row/column lattice is described
-    honestly by the lattice, so it does not get to claim a circle as well.
-    """
-    i, j = _plane_indices(axis)
-
-    def distinct(index: int) -> int:
-        values: list[float] = []
-        for m in members:
-            value = m.location[index]
-            if not any(abs(value - seen) <= _BC_GRID_TOL for seen in values):
-                values.append(value)
-        return len(values)
-
-    rows, cols = distinct(i), distinct(j)
-    return rows >= 2 and cols >= 2 and rows * cols == len(members)
-
-
-def _bolt_circle_is_corroborated(pat, members, corroborators) -> bool:
+def _bolt_circle_is_corroborated(pat, members, holes, bosses) -> bool:
     """Whether ``EQ SP ON ø… BC`` would state a datum rather than an artifact (#1596).
 
-    Three ways, any one of which is enough — the fit itself is never one of them:
+    Three ways, any one of which is enough — the fit itself is never one of them, because a
+    circle through three points always fits and a circle through a rectangle's four corners
+    always fits, so the residual cannot disconfirm anything:
 
     1. **enough members** — a circle through five or more holes could have failed to fit;
     2. **a concentric physical feature** — something at the centre to indicate off;
-    3. **equal angular spacing that a lattice does not already explain.**
+    3. **it accounts for every hole of its kind** — no identical hole left off the circle.
     """
     if len(members) >= _BC_SELF_EVIDENT_MEMBERS:
         return True
@@ -289,13 +269,11 @@ def _bolt_circle_is_corroborated(pat, members, corroborators) -> bool:
     member_ids = {id(m) for m in members}
     if any(
         _corroborates_bolt_circle(candidate, axis, pat.center)
-        for candidate in corroborators
+        for candidate in (*holes, *(bosses or ()))
         if id(candidate) not in member_ids
     ):
         return True
-    return _equally_spaced_around(members, axis, pat.center) and not _explicable_as_a_grid(
-        members, axis
-    )
+    return _accounts_for_its_siblings(pat, members, holes)
 
 
 def _pattern_feature(pat, members) -> PatternFeature:
@@ -2160,7 +2138,7 @@ def build_part_model(
             # ADR 1 (was 0015) waist; that option stays recorded on #971.
             continue
         if isinstance(pat, BoltCircle) and not _bolt_circle_is_corroborated(
-            pat, members, (*holes, *(bosses or ()))
+            pat, members, holes, bosses
         ):
             # An UNCORROBORATED bolt circle is not a datum (#1596). Three or four holes are
             # always concyclic, so the fit proves nothing about the part; printing

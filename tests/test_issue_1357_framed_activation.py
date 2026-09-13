@@ -35,11 +35,7 @@ def _pattern_part():
     part = Box(80, 80, 10)
     for x, y in ((25, 25), (-25, 25), (25, -25), (-25, -25)):
         part -= Pos(x, y, 0) * Cylinder(3, 20)
-    # A boss concentric with the four holes (#1596). Without it they are the corners of a
-    # 2x2 lattice, and a circle through four lattice corners always fits perfectly — so the
-    # engine states no bolt circle and this fixture has no pattern. A boss rather than a
-    # central bore, which would add a fifth hole.
-    return part + Pos(0, 0, 5) * Cylinder(8, 6)
+    return part
 
 
 def _requirements(drawing):

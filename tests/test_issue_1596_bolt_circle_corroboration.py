@@ -5,9 +5,13 @@ them came back as `4× ⌀2.4 THRU EQ SP ON ø34.4 BC`, the remaining two as a s
 `2× ⌀2.4 THRU`. The circle is centred at (0, −20.11) — mid-air, concentric with nothing.
 
 The fit is not a near miss that a tolerance could catch. **Any three non-collinear points are
-concyclic, and any four corners of a rectangle are**, so a circle through three or four holes
-always fits whatever their arrangement: the residual is zero by construction. Corroboration
-has to come from somewhere other than the fit.
+concyclic, and so are the four corners of any rectangle** — for those arrangements the residual
+is zero by construction, so it cannot disconfirm anything. Corroboration has to come from
+somewhere other than the fit.
+
+What actually gives it away here is lying in plain sight next to the bad callout: the leftover
+`2× ⌀2.4 THRU`. Six identical holes, and the circle claims four. A drawing does not put two of
+six bolts on a different plan.
 """
 
 import math
@@ -112,6 +116,36 @@ def test_even_spacing_was_never_this_defect():
     assert grid.count == 6
 
 
+def test_it_is_the_holes_left_OFF_the_circle_that_give_it_away():
+    """The discriminator, stated directly.
+
+    Nothing about the four members is wrong — they really are concyclic and really are
+    near-equally spaced (90.19 / 89.81 degrees, inside any sane `EQ SP` tolerance). What is
+    wrong is the two identical holes the circle does not explain. Remove them and the same
+    four holes are an ordinary four-bolt pattern.
+    """
+    assert _bolt_circles(_grid_plate(_UNEVEN_ROWS)) == []
+
+    four_only = _grid_plate(_UNEVEN_ROWS[:2])
+    (pattern,) = _bolt_circles(four_only)
+    assert pattern.count == 4
+
+
+def test_the_rule_does_not_depend_on_the_angle_to_the_axes():
+    """A pattern is a property of the part, not of its phase.
+
+    An earlier cut of this rule counted distinct x and y values to spot a lattice, which
+    made the SAME four holes a lattice at 0 degrees and a bolt circle at 45. Both are
+    accepted now, and #1595 is still refused — on evidence that does not move when the part
+    is rotated.
+    """
+    from build123d import Rotation
+
+    aligned = _flange(4, central_feature=False)
+    assert len(_bolt_circles(aligned)) == 1
+    assert len(_bolt_circles(Rotation(0, 0, 45) * aligned)) == 1
+
+
 # --- what must keep working ------------------------------------------------------------
 
 
@@ -124,14 +158,31 @@ def test_four_holes_around_a_real_centre_keep_their_bolt_circle():
     assert pattern.bcd == pytest.approx(60.0)
 
 
-def test_a_round_body_concentric_with_the_holes_is_itself_corroboration():
-    """The same flange with no spigot and no bore still keeps its bolt circle, and should.
+def test_a_concentric_feature_alone_can_carry_it():
+    """The corroboration branch on its own, with both other routes closed.
 
-    Its ⌀80 body is recognised as a boss on the pattern axis at the pattern centre — a
-    physical circular feature a machinist can indicate off. This was written expecting a
-    refusal; the code was right and the expectation was wrong, which is worth keeping as a
-    test because "the part itself is the concentric feature" is the commonest flange there
-    is.
+    #1595's plate, plus a boss concentric with the fitted circle. Four members, so the count
+    route is shut; two identical holes left off the circle, so the sibling route is shut.
+    Only the boss is left — and a centre a machinist can indicate off is exactly what makes
+    the circle real. Without the boss this same part is refused (above).
+    """
+    with BuildPart() as part:
+        Box(60, 90, 6)
+        with Locations(*[(x, y, 0) for x in _COLUMNS for y in _UNEVEN_ROWS]):
+            Hole(1.2, depth=6)
+        with Locations((0.0, -20.11, 3.0)):
+            Cylinder(6, 6)
+
+    (pattern,) = _bolt_circles(part.part)
+    assert pattern.count == 4
+
+
+def test_a_round_body_concentric_with_the_holes_is_itself_corroboration():
+    """A plain disc with four bolt holes and nothing in the middle keeps its bolt circle.
+
+    Its ⌀80 body is a boss on the pattern axis at the pattern centre. Written expecting a
+    refusal; the code was right and the expectation was wrong, and it is kept because "the
+    part itself is the concentric feature" is the commonest flange there is.
     """
     (pattern,) = _bolt_circles(_flange(4, central_feature=False))
     assert pattern.count == 4
@@ -151,29 +202,6 @@ def test_four_holes_at_ninety_degrees_on_a_square_plate_keep_theirs():
 
     (pattern,) = _bolt_circles(part.part)
     assert pattern.count == 4
-
-
-def test_the_near_square_rectangle_is_refused_even_though_it_passes_equal_spacing():
-    """The subtle case, and the reason the lattice test exists.
-
-    #1595's four holes form a 24.30 x 24.38 rectangle. Its circumcircle fits exactly (all
-    rectangles' do) AND its corners sit 90.19 / 89.81 degrees apart — inside any sane `EQ SP`
-    tolerance. So every test the callout could apply passes, and the part still has no bolt
-    circle. Only "a lattice already explains these holes" separates it from the case above.
-    """
-    from quiddity import analyse_cylinders, recognise_hole_patterns, recognise_holes
-
-    from draftwright.model.detect import _equally_spaced_around, _explicable_as_a_grid
-
-    part = _grid_plate(_UNEVEN_ROWS)
-    (found,) = recognise_hole_patterns(recognise_holes(part, cyls=analyse_cylinders(part)))
-
-    assert _equally_spaced_around(found.holes, "z", found.center), (
-        "precondition: this arrangement must PASS equal spacing, or the lattice test below "
-        "is not what refuses it"
-    )
-    assert _explicable_as_a_grid(found.holes, "z")
-    assert _bolt_circles(part) == []
 
 
 def test_five_holes_are_self_evident():
@@ -231,3 +259,33 @@ class TestTheConcentricityPredicate:
         assert not _corroborates_bolt_circle(
             self._candidate((0.0, 0.0, 1.0), (2.0, 0.0, 4.0)), "z", (0.0, 0.0, 4.0)
         )
+
+
+@pytest.mark.xfail(
+    reason=(
+        "#1607: `hole_requirement_outcomes` builds its pattern-member set from the "
+        "RECOGNISER's patterns, so after any refusal it keeps those holes out of the loose "
+        "groups, finds no PatternFeature to join, and calls them unverifiable. Predates "
+        "#1596 — the oblique refusal (#971) has the same hole — but #1596 makes it reachable. "
+        "Three fixes attempted and recorded on #1607; all need the refusal to be carried "
+        "rather than inferred, which is an ADR 1 decision."
+    ),
+    strict=True,
+)
+def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it():
+    """The cost of refusing — which is NOT zero, and is stated here rather than in prose.
+
+    The sheet says `6× ⌀2.4 THRU` with every position. The ledger warns about those holes
+    anyway.
+    """
+    drawing = build_drawing(_grid_plate(_UNEVEN_ROWS), title="T", number="N")
+
+    assert _bolt_circles(_grid_plate(_UNEVEN_ROWS)) == [], "precondition: the pattern is refused"
+    unverifiable = [
+        issue.code for issue in drawing.lint() if issue.code.startswith("hole_requirement")
+    ]
+    assert unverifiable == [], (
+        f"the ledger reported holes the drawing actually states: {unverifiable}"
+    )
+    labels = [str(o.label) for _n, o in drawing.iter_annotations() if getattr(o, "label", None)]
+    assert "6× ⌀2.4 THRU" in labels
