@@ -1140,7 +1140,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
 
 
 def _step_chain_covers_extent(
-    model: PartModel, groups: list[ApprovedGroup], axis: Literal["x", "z"]
+    model: PartModel, groups: list[ApprovedGroup], axis: Literal["x", "y", "z"]
 ) -> bool:
     return _selected_chain_covers_extent(
         model,
@@ -1347,6 +1347,55 @@ def _compile_overall_height(
     if mark is not None:
         return None, None, [Omission(env, "height.length", mark[0], mark[1])]
     return ladder, None, []
+
+
+def _unplanned_envelope_axes(model: PartModel, groups: list[ApprovedGroup]) -> list[Omission]:
+    """Account for a prismatic body's X/Y extents when detection proposes no envelope.
+
+    The height ladder has its own bounding-box source, but width and depth have
+    historically depended on an ``EnvelopeFeature`` from recognition. A missing
+    feature must not make those body facts disappear from both the sheet and its
+    diagnostics (#1560). A complete approved witness span or step chain may
+    convey an extent without an envelope mark.
+    """
+    if model.orientation is not None or any(g.feature_kind == "envelope" for g in groups):
+        return []
+    from draftwright.model.declare import _envelope_from_bbox
+
+    bb: Any = model.bbox
+    envelope = _envelope_from_bbox(bb)
+    missing = []
+    axis_parameters: tuple[tuple[Literal["x", "y", "z"], str], ...] = (
+        ("x", "width.length"),
+        ("y", "depth.length"),
+    )
+    for axis, parameter in axis_parameters:
+        index = "xyz".index(axis)
+        low = float(tuple(bb.min)[index])
+        high = float(tuple(bb.max)[index])
+        extent = high - low
+        if extent <= 1e-6 or _step_chain_covers_extent(model, groups, axis):
+            continue
+        stated = any(
+            dim.kind == "length"
+            and dim.span is not None
+            and abs(dim.value - extent) <= 1e-3
+            and abs(min(dim.span[0][index], dim.span[1][index]) - low) <= 1e-3
+            and abs(max(dim.span[0][index], dim.span[1][index]) - high) <= 1e-3
+            for group in groups
+            for dim in group.dims
+        )
+        if not stated:
+            missing.append(
+                Omission(
+                    envelope,
+                    parameter,
+                    extent,
+                    f"overall {axis.upper()} extent has no approved bounding measurement",
+                    code="overall_dim_withheld",
+                )
+            )
+    return missing
 
 
 def _compile_locations(model: PartModel) -> tuple[list[ApprovedDimension], list[Omission]]:
@@ -1940,6 +1989,7 @@ def compile_dimensions(
     )
     if overall is not None:
         ladders.append(overall)
+    envelope_omissions = _unplanned_envelope_axes(model, groups_out)
     locations, location_omissions = _compile_locations(model)
     seat_locations, seat_omissions = _compile_circular_channel_locations(model)
     locations.extend(seat_locations)
@@ -1956,7 +2006,7 @@ def compile_dimensions(
         locations=tuple(locations),
         contingencies=(contingency,) if contingency is not None else (),
         diagnostics=_dedupe_omissions(
-            omissions, height_omissions, location_omissions, group_omissions
+            omissions, height_omissions, envelope_omissions, location_omissions, group_omissions
         ),
     )
     return _compile_schedules(model, result) if model.schedules else result
