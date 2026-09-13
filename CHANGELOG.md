@@ -4,6 +4,22 @@
 
 ### Fixed
 
+- **`label_vs_measured` no longer reports the drawing's own rounding as a topology error
+  (#1600).** A sheet at one decimal place prints 4.450 as `4.5`; the check then compared
+  `4.5` against 4.450 and said "possible axis swap or wrong endpoint". The comparison was
+  *relative*, so the same 0.05 mm of rounding passed silently on a 100 mm dimension and was
+  an error on a 4 mm one — it fired on smallness, not on wrongness.
+
+  A label now states its own precision: `4.5` shows one place, `4.45` two, `12` none. A
+  difference within half of the last displayed place is the label doing its job; anything
+  beyond it is still reported, and an axis swap or wrong endpoint misses by far more.
+
+  This is a prerequisite for #1602's proposed CI gate: `label_vs_measured` sits in the
+  register of codes meaning *the sheet says something untrue*, and a code that fires on
+  correct rounding cannot be hard-failed on.
+
+### Fixed
+
 - **A required dimension with nowhere to go now re-plans the sheet instead of being
   reported and left (#1590).** The automatic recovery ladder — larger scales on the
   selected page, then dropping the optional pictorial, then a larger page — already

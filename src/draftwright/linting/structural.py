@@ -182,6 +182,38 @@ def _label_bbox(item, warned=None):
         return None
 
 
+_DECIMALS_IN_LABEL = re.compile(r"\d+\.(\d+)")
+
+
+def _displayed_decimals(label: str) -> int:
+    """How many decimal places the label actually PRINTS.
+
+    The drawing's precision is not reachable from a placed dimension — it carries no draft —
+    and it need not be one number anyway, since an authored dimension may set its own with
+    ``.format(decimals=…)``. But the label states its own precision by being written: `4.5`
+    shows one place, `4.45` two, `12` none. Reading it back is exact and needs no coupling to
+    a constant that a later per-dimension policy would make wrong.
+    """
+    match = _DECIMALS_IN_LABEL.search(label)
+    return len(match.group(1)) if match else 0
+
+
+def _is_correctly_rounded(label_val: float, measured: float, label: str) -> bool:
+    """Whether the label is the measurement, written to the precision the label uses.
+
+    A drawing prints 4.450 as `4.5` at one decimal place, and the engine then compared `4.5`
+    against 4.450 and called the 1.1% difference "possible axis swap or wrong endpoint"
+    (#1600). The comparison was relative, so the SAME 0.05 mm of rounding passed silently on
+    a 100 mm dimension and was reported as a topology error on a 4 mm one — the check fired
+    on smallness, not on wrongness.
+
+    Rounding can move a value by at most half of the last displayed place, so anything within
+    that is the label doing its job. Anything beyond it is a real disagreement and still
+    reported: an axis swap or a wrong endpoint misses by far more than half a display unit.
+    """
+    return abs(label_val - measured) <= 0.5 * 10.0 ** -_displayed_decimals(label) + 1e-9
+
+
 def _label_reading(item, label: str) -> float | None:
     """The value *item*'s label asserts about the path it is drawn on, or ``None``.
 
@@ -1222,7 +1254,9 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     if label_val is not None and measurement is not None:
         measured, item_scale = measurement
         effective_measured = measured / item_scale
-        if effective_measured > 1e-6:
+        if effective_measured > 1e-6 and not _is_correctly_rounded(
+            label_val, effective_measured, label
+        ):
             ratio = abs(label_val - effective_measured) / effective_measured
             if ratio > 0.005:
                 issues.append(
