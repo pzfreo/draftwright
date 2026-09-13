@@ -26,7 +26,8 @@ individual location requirements, which remain owned by `corpus-v1.json`:
   through cylinders at X = (-20, 0, 21), Y = 0. Its adjacent gaps are 20 and 21 mm, so it is not a
   constant-pitch linear array; collinearity also prevents treating the three points as a bolt
   circle.
-- `pattern-topology-a.step` starts with a 140 × 90 × 12 mm centred block. Four Ø6 through holes
+- `pattern-topology-a.step` starts with a 140 × 90 × 12 mm centred block and adds a Ø10 × 2 mm
+  boss centred at (-35, 0, 6), giving the circular datum a physical witness (#1611). Four Ø6 through holes
   form a 32 mm bolt circle centred at (-35, 0), and three Ø4 through holes form an independent
   vertical linear array at X = 35 with 18 mm pitch.
 - `pattern-topology-b.step` is geometrically identical to `pattern-topology-a.step`; every Part 21
@@ -241,3 +242,7 @@ the occurrence independently of recognition output:
 The `FILE_NAME` timestamp is normalized. Each corpus manifest pins every fixture SHA-256 and records
 case-level provenance. A changed fixture therefore requires an explicit corpus-version decision;
 regenerating recognition output can never rewrite the expected facts silently.
+
+Hole-pattern corpus 1.1.0 adds this concentric boss to the two positive topology variants;
+all seven hole sites and their expected pattern parameters remain unchanged. Bare square
+patterns are covered as drafting refusals by the #1596/#1611 regression tests.

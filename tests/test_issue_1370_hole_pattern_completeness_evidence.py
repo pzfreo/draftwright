@@ -34,7 +34,7 @@ def _states(boundary: str) -> set[str]:
 def test_versioned_pattern_corpus_covers_every_required_case_class() -> None:
     corpus = load_corpus(CORPUS)
 
-    assert (corpus.corpus_version, corpus.metric_version) == ("1.0.0", 1)
+    assert (corpus.corpus_version, corpus.metric_version) == ("1.1.0", 1)
     assert corpus.scope == ("hole-patterns",)
     assert sum(len(case.expected) for case in corpus.cases) == 5
     tags = {tag for case in corpus.cases for tag in case.classification.split("+")}

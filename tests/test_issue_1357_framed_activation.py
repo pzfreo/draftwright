@@ -32,7 +32,7 @@ def _parallel_stepped_shafts():
 
 
 def _pattern_part():
-    part = Box(80, 80, 10)
+    part = Box(80, 80, 10) - Cylinder(5, 10)
     for x, y in ((25, 25), (-25, 25), (25, -25), (-25, -25)):
         part -= Pos(x, y, 0) * Cylinder(3, 20)
     return part
@@ -230,6 +230,8 @@ def test_framed_off_axis_pattern_keeps_one_absolute_location_requirement():
     # occurrence authority yet. Physical target lint must report that limitation.
     assert drawing.recognition_evidence() is None
     assert drawing.recognition_ownership() is None
-    (issue,) = drawing.lint()
-    assert issue.code == "diameter_leader_target_unverifiable"
-    assert issue.measurement_ids
+    issues = drawing.lint()
+    # The central corroborating bore and the bolt-circle callout each need physical targets.
+    assert len(issues) == 2
+    assert {issue.code for issue in issues} == {"diameter_leader_target_unverifiable"}
+    assert all(issue.measurement_ids for issue in issues)

@@ -219,6 +219,7 @@ def test_a_subclass_is_not_silently_locatable(feature):
             "PatternFeature",
             lambda: (
                 Box(80, 80, 10)
+                + Cylinder(6, 12)  # physical center witness for the four-hole datum
                 - Pos(25, 25, 0) * Cylinder(3, 20)
                 - Pos(-25, 25, 0) * Cylinder(3, 20)
                 - Pos(25, -25, 0) * Cylinder(3, 20)

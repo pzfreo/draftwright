@@ -2,6 +2,7 @@
 
 from collections import Counter
 from dataclasses import replace
+from math import cos, pi, sin
 from types import SimpleNamespace
 
 import pytest
@@ -177,7 +178,10 @@ def _dense_scattered_plate_with_bolt_circle(near_scattered):
     scattered = [*_TABLE_SAFE_POSITIONS[:15], near_scattered]
     for i, (x, y) in enumerate(scattered):
         part -= Pos(x, y, 0) * Cylinder(1.0 + i * 0.1, 10, align=_XYZ_MIN)
-    for x, y in ((25, 10), (20, 15), (15, 10), (20, 5)):
+    # Five members retain a corroborated circular pattern under #1611; four holes on
+    # this rectangular stock would now correctly fall back to ordinary hole locations.
+    for i in range(5):
+        x, y = 20 + 5 * cos(2 * pi * i / 5), 10 + 5 * sin(2 * pi * i / 5)
         part -= Pos(x, y, 0) * Cylinder(0.8, 10, align=_XYZ_MIN)
     return part
 
