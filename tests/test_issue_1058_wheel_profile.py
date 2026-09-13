@@ -331,12 +331,21 @@ def test_real_wheel_no_longer_gets_a_confident_envelope_only_result(wheel_drawin
     summary = wheel_drawing.lint_summary()
     assert summary["by_code"] == {
         "gear_semantics_missing": 1,
+        # The wheel's turned profile gives lengths that are not round at one decimal place,
+        # so the sheet prints nominals a few microns off the model and says so (#1600). An
+        # `info`; the two findings this test is about are unchanged.
+        "nominal_rounded": 1,
         "unrecognised_defining_geometry": 1,
     }
     assert summary["score"] < 1.0
-    assert "unsupported outer boundary" in summary["issues"][0]["message"]
-    assert "13 evenly spaced common-circle arcs" in summary["issues"][0]["message"]
-    assert "gear" not in summary["issues"][0]["message"].lower()
+    # Selected by code, not by index: `issues[0]` happened to be this finding and stopped
+    # being so as soon as another code joined the sheet (#1600's `nominal_rounded`).
+    (unrecognised,) = [
+        issue for issue in summary["issues"] if issue["code"] == "unrecognised_defining_geometry"
+    ]
+    assert "unsupported outer boundary" in unrecognised["message"]
+    assert "13 evenly spaced common-circle arcs" in unrecognised["message"]
+    assert "gear" not in unrecognised["message"].lower()
 
 
 def test_synthetic_double_d_profile_is_recognised_without_lint_rescans():

@@ -4,6 +4,44 @@
 
 ### Fixed
 
+- **`label_vs_measured` no longer reports the drawing's own rounding as a topology error
+  (#1600).** A sheet at one decimal place prints 4.450 as `4.5`; the check then compared
+  `4.5` against 4.450 and said "possible axis swap or wrong endpoint". The comparison was
+  *relative*, so the same 0.05 mm of rounding passed silently on a 100 mm dimension and was
+  an error on a 4 mm one — it fired on smallness, not on wrongness.
+
+  A label now states its own precision: `4.5` shows one place, `4.45` two, `12` none. A
+  difference within half of the last displayed place is the label doing its job; anything
+  beyond it is still reported, and an axis swap or wrong endpoint misses by far more.
+
+  This is a prerequisite for #1602's proposed CI gate: `label_vs_measured` sits in the
+  register of codes meaning *the sheet says something untrue*, and a code that fires on
+  correct rounding cannot be hard-failed on.
+
+### Added
+
+- **`nominal_rounded` says where the sheet's precision loses the model value.** Silencing
+  the false alarm above left nothing reporting it at all, and `4.5` for 4.450 is still a
+  real 0.05 mm between drawing and model — on a part carrying 0.05 mm clearances, the whole
+  clearance. One `info` per sheet, naming the worst case:
+
+  > 7 dimension(s) print a nominal the model does not have, rounded to the sheet's
+  > precision; the largest is '15.7' for 15.6500 (0.0500 mm). Within a general tolerance
+  > this is ordinary; where a fit depends on it, raise that dimension's places with
+  > `.format(decimals=...)`
+
+  It does **not** guess, and does not change any rounding. `4.450` locating a hinge axis is
+  design intent; `71.595` as an overall envelope is parametric fallout no drafter would
+  print in full — and telling them apart needs to know what the part is *for*, which a STEP
+  file does not carry (the same gap as #1597). So the engine reports and the author decides:
+  `.format(decimals=…)` already sets places per dimension and survives the `--script` round
+  trip.
+
+  Measured: 7 of 25 numeric dimension labels on `whistle_frame_reference.step`; silent on
+  every golden fixture, all of which are built from round numbers.
+
+### Fixed
+
 - **A required dimension with nowhere to go now re-plans the sheet instead of being
   reported and left (#1590).** The automatic recovery ladder — larger scales on the
   selected page, then dropping the optional pictorial, then a larger page — already

@@ -615,3 +615,122 @@ class TestScaleNotStated:
         drawing = build_drawing(Box(40, 30, 12), number="X")
         assert not [i for i in drawing.lint() if i.code == "scale_not_stated"]
         assert drawing.get_annotation("scale_note") is not None
+
+
+class TestRoundingIsNotADiscrepancy:
+    """`label_vs_measured` must not report the drawing's own rounding (#1600).
+
+    A sheet at one decimal place prints 4.450 as `4.5`. The check then compared `4.5`
+    against 4.450 and called the difference "possible axis swap or wrong endpoint". Because
+    the comparison was RELATIVE, the same 0.05 mm of rounding passed silently on a 100 mm
+    dimension and was an error on a 4 mm one — it fired on smallness, not on wrongness.
+
+    This matters beyond the noise: `label_vs_measured` is in `_FIDELITY_CODES`, the register
+    of codes meaning *the sheet says something untrue*, and #1602 proposes hard-failing CI on
+    that register. A code that fires on correct rounding cannot be in it.
+    """
+
+    @staticmethod
+    def _dim(draft, label, path_mm):
+        from build123d_drafting.helpers import Dimension
+
+        return Dimension((0, 0, 0), (path_mm, 0, 0), "above", 8, draft, label=label)
+
+    def test_a_correctly_rounded_label_is_not_reported(self, draft):
+        # The #1595 case: 4.450 printed at one decimal place.
+        issues = lint_drawing([self._dim(draft, "4.5", 4.450)])
+        assert [i for i in issues if i.code == "label_vs_measured"] == []
+
+    def test_the_same_rounding_on_a_long_dimension_is_also_not_reported(self, draft):
+        """The asymmetry that gave it away: 0.05 mm is 0.05% of 100 and 1.1% of 4.45, so a
+        relative threshold reported one and not the other. Both are the same rounding."""
+        issues = lint_drawing([self._dim(draft, "100.0", 100.05)])
+        assert [i for i in issues if i.code == "label_vs_measured"] == []
+
+    def test_a_label_that_is_not_the_rounding_is_still_reported(self, draft):
+        """The check keeps its job. 4.6 is not 4.450 rounded to one place — half a display
+        unit is 0.05, and this misses by 0.15."""
+        issues = [
+            i
+            for i in lint_drawing([self._dim(draft, "4.6", 4.450)])
+            if i.code == "label_vs_measured"
+        ]
+        assert issues, "a label that is not the rounded measurement must still be reported"
+
+    def test_an_axis_swap_is_still_reported(self, draft):
+        issues = [
+            i
+            for i in lint_drawing([self._dim(draft, "35", 20.0)])
+            if i.code == "label_vs_measured"
+        ]
+        assert issues and all(i.severity == "error" for i in issues)
+
+    def test_the_tolerance_follows_the_places_the_label_prints(self, draft):
+        """Two decimal places means a tenth of the slack one place gets. `4.45` may be
+        4.4451; it may not be 4.45 plus half of one decimal place."""
+        assert not [
+            i
+            for i in lint_drawing([self._dim(draft, "4.45", 4.4501)])
+            if i.code == "label_vs_measured"
+        ]
+        assert [
+            i
+            for i in lint_drawing([self._dim(draft, "4.45", 4.4900)])
+            if i.code == "label_vs_measured"
+        ]
+
+
+class TestDisplayedDecimals:
+    @pytest.mark.parametrize(
+        ("label", "expected"),
+        [("4.5", 1), ("4.45", 2), ("12", 0), ("⌀12.75", 2), ("2× ⌀2.4 THRU", 1), ("", 0)],
+    )
+    def test_it_reads_the_places_the_label_prints(self, label, expected):
+        from draftwright.linting.structural import _displayed_decimals
+
+        assert _displayed_decimals(label) == expected
+
+
+class TestNominalRounded:
+    """The honest counterpart to #1600's fix.
+
+    Correct rounding is not a defect, so `label_vs_measured` stopped reporting it. But 4.450
+    printed as `4.5` is still a real 0.05 mm between the drawing and the model, and after that
+    fix nothing said so at all. This says it — once, with the worst case named — without
+    guessing which dimensions care.
+    """
+
+    @staticmethod
+    def _dim(draft, label, path_mm):
+        from build123d_drafting.helpers import Dimension
+
+        return Dimension((0, 0, 0), (path_mm, 0, 0), "above", 8, draft, label=label)
+
+    def _reports(self, issues):
+        return [i for i in issues if i.code == "nominal_rounded"]
+
+    def test_a_rounded_nominal_is_reported_once_naming_the_worst(self, draft):
+        issues = lint_drawing(
+            [
+                self._dim(draft, "4.5", 4.450),  # 0.05 out — the worst
+                self._dim(draft, "57.1", 57.095),  # 0.005 out
+            ]
+        )
+        (report,) = self._reports(issues)
+        assert report.severity == "info"
+        assert "2 dimension(s)" in report.message
+        assert "'4.5'" in report.message and "4.4500" in report.message
+
+    def test_an_exact_drawing_reports_nothing(self, draft):
+        assert self._reports(lint_drawing([self._dim(draft, "40", 40.0)])) == []
+
+    def test_projection_noise_is_not_a_rounded_nominal(self, draft):
+        """The floor exists so float arithmetic in the projection does not read as a
+        precision decision. A tenth of a micron is not the sheet losing anything."""
+        assert self._reports(lint_drawing([self._dim(draft, "40", 40.0000001)])) == []
+
+    def test_it_does_not_fire_on_a_label_that_is_simply_wrong(self, draft):
+        """That is `label_vs_measured`'s job, and it still does it. This one is about
+        precision, so a 35-for-20 mislabel must not be laundered into an `info`."""
+        issues = lint_drawing([self._dim(draft, "35", 20.0)])
+        assert [i.code for i in issues if i.code == "label_vs_measured"]
