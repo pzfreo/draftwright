@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A required dimension with nowhere to go now re-plans the sheet instead of being
+  reported and left (#1590).** The automatic recovery ladder — larger scales on the
+  selected page, then dropping the optional pictorial, then a larger page — already
+  existed and already refused any candidate that had not fixed the problem. It ran on
+  two symptoms: a turned part missing an axial station, and an **authored** intent that
+  failed to place. A required *envelope* dimension that found no room was neither, so
+  these drawings never entered the ladder at all — `scale_decision["attempts"]` came
+  back empty and an `overall_dim_withheld` error was reported on the first sheet tried.
+
+  `overall_dim_withheld` is deliberately not a scale blocker, and that is right:
+  reporting it through `placement_unsatisfiable` once made `build_drawing(part,
+  scale=...)` raise on parts that had always built. But that argument is about refusing
+  the scale a **caller asked for**. Choosing one automatically is a different question,
+  and one predicate was answering both.
+
+  What it changes, measured:
+
+  | part | before | after |
+  |---|---|---|
+  | stepped `Box(80, 60, 30)` | A4 1:1, overall depth withheld (error) | A4 1:1, **clean**, pictorial dropped |
+  | 80 × 60 plate, two close bores | A4 1:1, `incomplete`: unlocated hole, dropped location, withheld depth | A2 2:1, **clean**, every dimension placed |
+
+  Dropping the optional pictorial is the first lever, which is the order #443/#1299
+  already argue for — a pictorial cannot outrank a dimension needed to manufacture the
+  part. Pin `page=` or `scale=` to opt out; a pinned sheet still reports honestly rather
+  than replanning.
+
+- **A generated `--script` reproduces a re-planned layout.** A declared build does what
+  it is told and never enters the recovery ladder, so `generate_sheet_script` pins the
+  settled page, scale and view set into the script. It used to do that only for the two
+  families whose replan could be predicted from the model; nothing predicts the new
+  trigger, because whether a mark fits is a fact about a measured sheet. The reference
+  build is now unconditional — one extra `build_drawing` per generated script, measured
+  at 0.19 s for a plain box, 0.34 s for a pocket and 1.17 s for a part that actually
+  replans — and an **undrawable** source can never be the reason a script is not
+  written, the standard the inspection sidecar beside it already meets. A deliberate
+  refusal (an unknown page size, `ScaleIncompatibilityError`, `ViewPlanIncomplete`)
+  still reaches the caller.
+
+  A script that keeps `auto_dimensions()` is not handed a pinned view set: `Sheet`
+  refuses `authored_views()` beside it, so the two together wrote a script that raised
+  when run. The settled set is reported in a comment instead.
+
 ### Changed
 
 - **The title block carries every ISO 7200:2004 mandatory data field.** Three had

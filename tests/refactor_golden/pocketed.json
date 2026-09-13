@@ -51,6 +51,24 @@
     },
     {
       "geom_bbox": [
+        131.4,
+        79.0,
+        191.5,
+        110.4
+      ],
+      "label": "60",
+      "label_bbox": [
+        159.8,
+        107.3,
+        163.0,
+        109.4
+      ],
+      "name": "m_env_depth",
+      "type": "Dimension",
+      "view": "side"
+    },
+    {
+      "geom_bbox": [
         30.7,
         83.0,
         110.8,
@@ -159,24 +177,6 @@
     },
     {
       "geom_bbox": [
-        196.7,
-        92.9,
-        221.0,
-        95.6
-      ],
-      "label": "ISO VIEW (NTS)",
-      "label_bbox": [
-        196.7,
-        92.9,
-        221.0,
-        95.6
-      ],
-      "name": "note_iso_nts",
-      "type": "Note",
-      "view": null
-    },
-    {
-      "geom_bbox": [
         273.1,
         46.0,
         283.0,
@@ -222,11 +222,6 @@
   ],
   "build_issues": [
     [
-      "error",
-      "overall_dim_withheld",
-      "overall depth dimension not placed (side-view below and above strips full; below occupied by: title_block; above occupied by: m_locy1, m_locy0)"
-    ],
-    [
       "info",
       "step_dim_withheld",
       "1 approved step height(s) span less than 12.4 mm on the page from the ladder's datum and are not dimensioned at this scale"
@@ -243,12 +238,6 @@
       55.0,
       110.7,
       75.0
-    ],
-    "iso": [
-      145.2,
-      100.3,
-      272.5,
-      194.7
     ],
     "plan": [
       30.7,
