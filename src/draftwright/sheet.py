@@ -1123,6 +1123,7 @@ class Sheet:
         detail_view=None,
         pmi=None,
         source=None,
+        _replayed_recognition=False,
     ):
         from draftwright._core import _sheet_option_margins, _validated_title_block_width
 
@@ -1142,6 +1143,7 @@ class Sheet:
         self._entries: list[tuple[int, object]] = []
         self._features = _FeatureView(self._entries)
         self._document_input: DocumentInput | None = None
+        self._replayed_recognition = bool(_replayed_recognition)
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
         # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
         self._tolerances: dict = {}
@@ -3181,10 +3183,12 @@ class Sheet:
             model = self._document_input.model(self._features)
         else:
             model = self._features
-        if not self._schedules:
+        if not self._schedules and not self._replayed_recognition:
             return model
         model = _coerce_model(model, _solids_body(self._part), authored=self._authored_set())
-        return replace(model, schedules=self._resolved_schedules())
+        if self._replayed_recognition:
+            model = replace(model, detected=True, replayed_recognition=True)
+        return replace(model, schedules=self._resolved_schedules()) if self._schedules else model
 
     def model(self):
         """The IR the engine will draw (detection skipped) — for inspection. Wraps the

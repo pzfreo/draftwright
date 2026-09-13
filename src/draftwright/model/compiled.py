@@ -1358,7 +1358,15 @@ def _unplanned_envelope_axes(model: PartModel, groups: list[ApprovedGroup]) -> l
     diagnostics (#1560). A complete approved witness span or step chain may
     convey an extent without an envelope mark.
     """
-    if model.orientation is not None or any(g.feature_kind == "envelope" for g in groups):
+    # A caller's declared inventory or complete authored set may intentionally
+    # omit body extents. A generated script's authored set mirrors an automatic
+    # plan, so it retains the source's recognition-gap critique.
+    if (
+        (not model.detected and not model.replayed_recognition)
+        or (model.authored_dimensions is not None and not model.replayed_recognition)
+        or model.orientation is not None
+        or (not model.replayed_recognition and any(g.feature_kind == "envelope" for g in groups))
+    ):
         return []
     from draftwright.model.declare import _envelope_from_bbox
 

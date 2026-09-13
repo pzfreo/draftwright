@@ -560,20 +560,26 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _compiled = compile_dimensions(_model, groups=_groups)
     _groups = annotation_groups(_model, _groups)
     for omission in _compiled.diagnostics:
-        if omission.code not in {"step_position_coincident_with_datum", "overall_dim_withheld"}:
-            continue
-        measurement = (
-            DimensionId(omission.feature, omission.parameter_id)
-            if omission.feature is not None and omission.code != "overall_dim_withheld"
-            else None
-        )
-        ctx.record_issue(
-            "error" if omission.code == "overall_dim_withheld" else "info",
-            omission.code,
-            omission.reason,
-            measurement=measurement,
-            outcome_stage="validation",
-        )
+        if omission.code == "step_position_coincident_with_datum":
+            measurement = (
+                DimensionId(omission.feature, omission.parameter_id)
+                if omission.feature is not None
+                else None
+            )
+            ctx.record_issue(
+                "info",
+                "step_position_coincident_with_datum",
+                omission.reason,
+                measurement=measurement,
+                outcome_stage="validation",
+            )
+        elif omission.code == "overall_dim_withheld":
+            ctx.record_issue(
+                "error",
+                "overall_dim_withheld",
+                omission.reason,
+                outcome_stage="validation",
+            )
     # Placement may release compiler-approved alternatives. Keep that runtime selection
     # separate from the immutable base plan consumed by every ordinary stage.
     _runtime_plan = _compiled

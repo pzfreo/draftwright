@@ -2219,6 +2219,16 @@ def emit_sheet_script(
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
+    from draftwright.model.compiled import compile_dimensions
+
+    replayed_recognition = (
+        model.detected
+        and not any(feature.kind == "envelope" for feature in model.features)
+        and any(
+            omission.code == "overall_dim_withheld"
+            for omission in compile_dimensions(model).diagnostics
+        )
+    )
     model, _synth_env = mirror_model(model)
     # Every constructor a member template can name has to be listed here. The pattern verbs
     # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
@@ -2271,6 +2281,8 @@ def emit_sheet_script(
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]
+    if replayed_recognition:
+        ctor.append("_replayed_recognition=True")
     from draftwright._core import _sheet_option_margins, _validated_title_block_width
 
     _sheet_option_margins(
