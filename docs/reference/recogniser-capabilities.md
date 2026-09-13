@@ -70,15 +70,25 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.2.8 runtime contract
+### Quiddity 0.2.9 runtime contract
 
-The runtime pins the published `quiddity==0.2.8` package, following the 0.2.4 adoption in
+The runtime pins the published `quiddity==0.2.9` package, following the 0.2.4 adoption in
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) and the migration in
 [#1471](https://github.com/pzfreo/draftwright/issues/1471). 0.2.7 is a patch adoption: it requires
 circumferential cylinder support to establish a turned-profile axis line, so rounded plate corners
 and parallel offset cylinders no longer form a false stepped shaft
 ([quiddity#586](https://github.com/pzfreo/quiddity/issues/586), [#1555](https://github.com/pzfreo/draftwright/issues/1555)).
 No family, record schema or adapter changed.
+
+Quiddity 0.2.9 exposes native cylindrical seats as open-arc `SectionRecess` channels and
+keeps coaxial bores separated across exterior air gaps. The pinned frame now retains six
+Ø1.1 × 3.0 mm hinge bores and three Ø14.3 seats. The seat grammar remains explicitly
+unsupported in Draftwright pending [#1613](https://github.com/pzfreo/draftwright/issues/1613).
+Adapter refusals of derived hole patterns are recorded with same-run identity so their
+physical members remain in the ordinary-hole requirement ledger (#1607/#1619). These changes
+use the existing public schemas. Identical patterns on different opening planes retain the
+provider's documented grouping limitation ([quiddity#595](https://github.com/pzfreo/quiddity/issues/595));
+separate physical bores must not be merged to recover a pattern.
 
 0.2.7 also partitions bands by physical axis line rather than by axis direction, requiring two
 distinct diameters *per line*. One body can therefore publish **several** coaxial

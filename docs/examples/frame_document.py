@@ -40,7 +40,7 @@ def operations(package):
     expected = {
         "bolts": ("z", 2.4, True, 1.6, 6),
         "sockets": ("x", 2.4, False, 1.5, 3),
-        "hinge": ("y", 1.1, True, 53.2, 1),
+        "hinge": ("y", 1.1, True, 3.0, 6),
     }
     for feature in package.features:
         bore = feature.member if isinstance(feature, PatternFeature) else feature
@@ -75,7 +75,7 @@ def operations(package):
         if sum(feature.count for feature in groups[name]) != count:
             raise ValueError(f"the pinned frame requires {count} {name}")
     if len(groups["hinge"]) != 1:
-        raise ValueError("the hinge has one recognized path, not six independent owners")
+        raise ValueError("the hinge requires one group of six independent bores")
     return {name: tuple(features) for name, features in groups.items()}
 
 
