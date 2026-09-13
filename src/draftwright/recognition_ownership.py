@@ -401,6 +401,14 @@ class ProfileAngleBinding:
 
 
 @dataclass(frozen=True)
+class HolePatternRefusal:
+    """A same-run derived pattern deliberately lowered as ordinary physical holes."""
+
+    pattern: object
+    reason_code: Literal["oblique_pattern_plane", "uncorroborated_bolt_circle"]
+
+
+@dataclass(frozen=True)
 class RecognitionOwnership:
     """Immutable run-local ownership ledger paired with one evidence authority."""
 
@@ -412,6 +420,7 @@ class RecognitionOwnership:
     bindings: tuple[OccurrenceBinding, ...]
     policy_outcomes: tuple[OccurrencePolicyOutcome, ...]
     profile_angles: tuple[ProfileAngleBinding, ...] = ()
+    hole_pattern_refusals: tuple[HolePatternRefusal, ...] = ()
 
     @property
     def owner_expected_occurrences(self) -> tuple[FeatureRef, ...]:
@@ -541,6 +550,7 @@ class RecognitionOwnershipBuilder:
             self._by_record_identity.setdefault(id(record), []).append((occurrence, record))
         self._bindings: list[OccurrenceBinding] = []
         self._profile_angles: list[ProfileAngleBinding] = []
+        self._hole_pattern_refusals: list[HolePatternRefusal] = []
         expected_ids = {
             id(occurrence)
             for occurrence in (
@@ -560,6 +570,22 @@ class RecognitionOwnershipBuilder:
         """The exact aggregate paired with this builder's evidence authority."""
 
         return self.evidence.result
+
+    def refuse_hole_pattern(
+        self,
+        pattern: object,
+        *,
+        reason_code: Literal["oblique_pattern_plane", "uncorroborated_bolt_circle"],
+    ) -> None:
+        """Record the adapter's decision without removing any physical occurrence."""
+
+        if reason_code not in {"oblique_pattern_plane", "uncorroborated_bolt_circle"}:
+            raise ValueError("unknown hole-pattern refusal reason")
+        if not any(candidate is pattern for candidate in self.result.hole_patterns):
+            raise ValueError("refused pattern must belong to this recognition run")
+        if any(row.pattern is pattern for row in self._hole_pattern_refusals):
+            raise ValueError("hole-pattern refusal was already recorded")
+        self._hole_pattern_refusals.append(HolePatternRefusal(pattern, reason_code))
 
     def _occurrence_for(self, record: object) -> FeatureRef:
         """Resolve only exact records issued by this evidence authority."""
@@ -1070,4 +1096,5 @@ class RecognitionOwnershipBuilder:
             bindings=tuple(self._bindings),
             policy_outcomes=self._policy_outcomes,
             profile_angles=tuple(self._profile_angles),
+            hole_pattern_refusals=tuple(self._hole_pattern_refusals),
         )

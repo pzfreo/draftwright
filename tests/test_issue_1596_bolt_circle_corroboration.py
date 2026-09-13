@@ -15,6 +15,7 @@ six bolts on a different plan.
 """
 
 import math
+from dataclasses import replace
 
 import pytest
 from build123d import Box, BuildPart, Cylinder, Hole, Locations, PolarLocations
@@ -96,13 +97,13 @@ def test_an_uncorroborated_circle_is_not_carried_into_the_ir():
     assert _bolt_circles(_grid_plate(_UNEVEN_ROWS)) == []
 
 
-def test_the_members_are_still_drawn_counted_and_located():
+def test_the_members_are_still_drawn_counted_and_located(refused_pattern_drawing):
     """Refusing the datum must not lose the holes.
 
     They fall through to the un-patterned grouping, which also repairs the second half of
     #1595's A2: the six stop being split into an unrelated 4 and 2.
     """
-    drawing = build_drawing(_grid_plate(_UNEVEN_ROWS), title="T", number="N")
+    drawing = refused_pattern_drawing
     labels = [str(o.label) for _n, o in drawing.iter_annotations() if getattr(o, "label", None)]
     assert not [label for label in labels if "BC" in label]
     assert "6× ⌀2.4 THRU" in labels
@@ -261,24 +262,14 @@ class TestTheConcentricityPredicate:
         )
 
 
-@pytest.mark.xfail(
-    reason=(
-        "#1607: `hole_requirement_outcomes` builds its pattern-member set from the "
-        "RECOGNISER's patterns, so after any refusal it keeps those holes out of the loose "
-        "groups, finds no PatternFeature to join, and calls them unverifiable. Predates "
-        "#1596 — the oblique refusal (#971) has the same hole — but #1596 makes it reachable. "
-        "Three fixes attempted and recorded on #1607; all need the refusal to be carried "
-        "rather than inferred, which is an ADR 1 decision."
-    ),
-    strict=True,
-)
-def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it():
-    """The cost of refusing — which is NOT zero, and is stated here rather than in prose.
+@pytest.fixture(scope="module")
+def refused_pattern_drawing():
+    return build_drawing(_grid_plate(_UNEVEN_ROWS), title="T", number="N")
 
-    The sheet says `6× ⌀2.4 THRU` with every position. The ledger warns about those holes
-    anyway.
-    """
-    drawing = build_drawing(_grid_plate(_UNEVEN_ROWS), title="T", number="N")
+
+def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it(refused_pattern_drawing):
+    """Refused pattern members remain ordinary, independently audited physical holes."""
+    drawing = refused_pattern_drawing
 
     assert _bolt_circles(_grid_plate(_UNEVEN_ROWS)) == [], "precondition: the pattern is refused"
     unverifiable = [
@@ -289,3 +280,106 @@ def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it():
     )
     labels = [str(o.label) for _n, o in drawing.iter_annotations() if getattr(o, "label", None)]
     assert "6× ⌀2.4 THRU" in labels
+
+
+def test_refusal_retains_exact_physical_members_and_evaluation_credit(refused_pattern_drawing):
+    from draftwright.evaluation.step_analysis import (
+        _drawing_consumer_outcomes,
+        _hole_model_outcomes,
+    )
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+
+    drawing = refused_pattern_drawing
+    recognition = drawing.recognition()
+    ownership = drawing.recognition_ownership()
+    (refusal,) = ownership.hole_pattern_refusals
+    assert refusal.pattern is recognition.hole_patterns[0]
+    assert refusal.reason_code == "uncorroborated_bolt_circle"
+    assert len(recognition.holes) == 6
+    outcomes = hole_requirement_outcomes(
+        recognition, drawing.model().features, drawing.registry, ownership=ownership
+    )
+    sizes = [row for row in outcomes if row.parameter_id == "bore.diameter"]
+    assert sum(row.member_count for row in sizes) == 6
+    assert {id(record) for row in sizes for record in row.source_records} == {
+        id(record) for record in recognition.holes
+    }
+    assert all(row.state == "placed" for row in sizes)
+    assert _drawing_consumer_outcomes(recognition.holes, drawing) == ["supported"] * 6
+    assert (
+        _hole_model_outcomes(
+            recognition.holes, recognition, drawing.model().features, ownership=ownership
+        )
+        == ["supported"] * 6
+    )
+
+
+def test_absent_ir_pattern_is_not_itself_a_refusal_decision(refused_pattern_drawing):
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+
+    drawing = refused_pattern_drawing
+    recognition = drawing.recognition()
+    # With no adapter decision this is the independent declared-model mismatch check.
+    outcomes = hole_requirement_outcomes(recognition, drawing.model().features, drawing.registry)
+    assert any(row.state == "unverifiable" for row in outcomes)
+    with pytest.raises(ValueError, match="same run"):
+        hole_requirement_outcomes(
+            replace(recognition),
+            drawing.model().features,
+            drawing.registry,
+            ownership=drawing.recognition_ownership(),
+        )
+
+
+def test_refusals_require_exact_run_identity_and_one_decision(refused_pattern_drawing):
+    from draftwright.recognition_ownership import RecognitionOwnershipBuilder
+
+    ownership = refused_pattern_drawing.recognition_ownership()
+    builder = RecognitionOwnershipBuilder(ownership.evidence)
+    (refusal,) = ownership.hole_pattern_refusals
+    pattern = refusal.pattern
+    with pytest.raises(ValueError, match="belong to this recognition run"):
+        builder.refuse_hole_pattern(replace(pattern), reason_code=refusal.reason_code)
+    assert builder.snapshot().hole_pattern_refusals == ()
+    builder.refuse_hole_pattern(pattern, reason_code=refusal.reason_code)
+    snapshot = builder.snapshot()
+    assert snapshot.hole_pattern_refusals[0].pattern is pattern
+    with pytest.raises(ValueError, match="already recorded"):
+        builder.refuse_hole_pattern(pattern, reason_code=refusal.reason_code)
+    assert builder.snapshot().hole_pattern_refusals == snapshot.hole_pattern_refusals
+    with pytest.raises(ValueError, match="unknown hole-pattern refusal reason"):
+        builder.refuse_hole_pattern(pattern, reason_code="unknown")
+
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+
+    forged = replace(
+        ownership, hole_pattern_refusals=(replace(refusal, pattern=replace(pattern)),)
+    )
+    with pytest.raises(ValueError, match="does not belong to this recognition run"):
+        hole_requirement_outcomes(
+            ownership.evidence.result, (), refused_pattern_drawing.registry, ownership=forged
+        )
+
+
+def test_oblique_pattern_refusal_is_recorded_at_the_adapter():
+    from build123d import Axis
+    from quiddity.evidence import build_recognition_evidence
+
+    from draftwright.model.detect import _build_part_model_from_recognition
+    from draftwright.recognition_ownership import RecognitionOwnershipBuilder
+
+    part = _grid_plate(_EVEN_ROWS).rotate(Axis.X, 25)
+    evidence = build_recognition_evidence(part)
+    assert len(evidence.result.holes) == 6
+    assert len(evidence.result.hole_patterns) == 1
+    assert all(abs(hole.axis[1]) > 0.1 for hole in evidence.result.holes)
+    builder = RecognitionOwnershipBuilder(evidence)
+    model = _build_part_model_from_recognition(part, evidence.result, ownership=builder)
+    ownership = builder.snapshot()
+    (refusal,) = ownership.hole_pattern_refusals
+    assert refusal.pattern is evidence.result.hole_patterns[0]
+    assert refusal.reason_code == "oblique_pattern_plane"
+    assert sum(feature.count for feature in model.features if feature.kind == "hole") == 6
+    occurrences = [ref for ref in evidence.features if evidence.family(ref) == "holes"]
+    assert len(occurrences) == 6
+    assert all(ownership.status(ref) == "absorbed" for ref in occurrences)

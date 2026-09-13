@@ -2136,6 +2136,8 @@ def build_part_model(
             # The members simply stay unpatterned below, so they are still drawn, dimensioned
             # and located. Carrying a full normal on `Frame` would be faithful but widens the
             # ADR 1 (was 0015) waist; that option stays recorded on #971.
+            if ownership is not None:
+                ownership.refuse_hole_pattern(pat, reason_code="oblique_pattern_plane")
             continue
         if isinstance(pat, BoltCircle) and not _bolt_circle_is_corroborated(
             pat, members, holes, bosses
@@ -2152,6 +2154,8 @@ def build_part_model(
             # that is draftwright's (ADR 3 / CLAUDE.md). The members fall through to the
             # un-patterned grouping below, so they are still drawn, counted and located —
             # they simply stop claiming a bolt circle.
+            if ownership is not None:
+                ownership.refuse_hole_pattern(pat, reason_code="uncorroborated_bolt_circle")
             continue
         patterned.update(id(h) for h in members)
         hole_pattern_feature = _pattern_feature(pat, members)

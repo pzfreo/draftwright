@@ -28,15 +28,15 @@ an export setting, not a promise that a future version will draw the same pictur
 checks physical identities and measurement meanings rather than a cross-version image digest.
 
 Open both exported sheets. Check the cut material and upward cutting arrows on section A–A,
-the four bore callouts, the location table and the preliminary-status notes. The feature table
+the three grouped bore callouts, the location table and the preliminary-status notes. The feature table
 uses X/Y/Z distances from the model's minimum datum planes; the axis column identifies each
 operation's drilling axis. Ordinary annotation placement and table fitting remain the engine's
 responsibility. A table that does not fit must be reported, not compressed or overlapped.
 
 Read the document assessment alongside the drawings. Per-sheet missing-measurement warnings
 are expected where the other sheet supplies the measurement. Package coverage still includes
-all **58 known obligations**, including six unsupported pockets. The initial recipe credits
-15 of those obligations; the remainder must not disappear merely because a sparse sheet has
+all **56 known obligations**, including six unsupported pockets and three unsupported
+circular seats. On the pinned Quiddity 0.2.9 build the recipe credits 13 of those obligations; the remainder must not disappear merely because a sparse sheet has
 few overlaps. Coverage, layout, fidelity and manufacturing readiness are separate judgments.
 Unmeasured section furniture and notes also remain explicit in the fidelity unknowns.
 
@@ -46,20 +46,24 @@ The pinned part has these recognized operations:
 
 | Operation | Observed identity | Authored representation |
 | --- | --- | --- |
-| Through bolts | Six Z-axis Ø2.4 bores, depth 1.6 mm, represented by existing owners of four and two members | Separate quantity/diameter callouts and six pairs of member coordinates |
+| Through bolts | Six Z-axis Ø2.4 bores, depth 1.6 mm, with one grouped owner | One six-member quantity/diameter callout and six pairs of member coordinates |
 | Blind sockets | Three X-axis Ø2.4 bores, depth 1.5 mm | One three-member callout with depth and three pairs of member coordinates |
-| Hinge bore-path | One Y-axis Ø1.1 through path, depth 53.2 mm | One diameter callout and an uncredited six-bearing-segment note |
+| Hinge bores | Six Y-axis Ø1.1 through bores, each 3.0 mm deep, with one grouped owner | One six-member diameter callout and an uncredited engineering-decision note |
 
 These are plain circular bore operations: counterbores, spotfaces, countersinks, threads and
 profile modifiers are absent. The recipe refuses changed operation semantics instead of
 selecting by diameter alone. The canary independently checks member centres and complete
 attributes, not merely the number of features recognition returned.
 
-The hinge traverses six interrupted bearing segments. Quiddity currently supplies one path
-owner, not six segment owners. The note `SIX BEARING SEGMENTS - FIT / PIN RETENTION TBD` has no
-`satisfies=` declaration and earns no additional coverage. This recipe intentionally leaves the
-path's transverse location unresolved. Even supplying that location would not locate or
-tolerance each of the six axial intervals; those need provider-issued segment identity.
+The hinge traverses six interrupted bearing segments. Quiddity 0.2.9 supplies six exact
+physical bore occurrences; Draftwright groups their equal machining specifications without
+joining the air gaps. The pinned datum-aligned fixture has 3.0 mm lands, unlike the 2.7 mm
+lands described for the original printed-part report. The note
+`SIX BEARING SEGMENTS - FIT / PIN RETENTION TBD` has no `satisfies=` declaration and earns
+no additional coverage. This recipe still leaves the hinge's transverse location and each
+bearing's axial placement unresolved; correct occurrence identity alone does not state them.
+The three cylindrical seats are now recognised and explicitly unsupported pending the
+circular-channel drawing grammar (#1613). Their missing dimensions remain in the report.
 
 All six underside hex pockets stay in the denominator with unsupported dispositions. Their
 ordinary table contains author-supplied descriptive text and has no measured-cell authority.

@@ -829,6 +829,7 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
         getattr(model, "features", ()),
         drawing.registry,
         plan.diagnostics,
+        ownership=drawing.recognition_ownership(),
     )
     # NOT just `value_absent`. `supported` is meant to mean the annotation carrying the size
     # renders it, so anything short of `confirmed` fails that: an `unreadable` annotation
@@ -877,7 +878,7 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     return outcomes
 
 
-def _hole_model_outcomes(holes, recognition, features) -> list[Outcome]:
+def _hole_model_outcomes(holes, recognition, features, *, ownership=None) -> list[Outcome]:
     """Per recognised hole: does *features* contain one exact IR owner?
 
     This deliberately reuses :func:`hole_requirement_outcomes` rather than growing a second
@@ -889,7 +890,9 @@ def _hole_model_outcomes(holes, recognition, features) -> list[Outcome]:
     from draftwright.linting.hole_coverage import canonical_hole_sites, hole_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    ledger = hole_requirement_outcomes(recognition, features, AnnotationRegistry())
+    ledger = hole_requirement_outcomes(
+        recognition, features, AnnotationRegistry(), ownership=ownership
+    )
     by_position: dict[tuple, Outcome] = {}
     for entry in ledger:
         if entry.parameter_id != _SIZE_REQUIREMENT:
@@ -1079,6 +1082,7 @@ def _countersink_drawing_outcomes(countersinks, recognition, drawing) -> list[Ou
         getattr(model, "features", ()),
         drawing.registry,
         plan.diagnostics,
+        ownership=drawing.recognition_ownership(),
     )
     confirmed = set()
     for claim in verify_measurement_claims(drawing.registry, plan):
@@ -1464,6 +1468,7 @@ def _pattern_drawing_outcomes(patterns, drawing) -> list[Outcome]:
         model.features,
         drawing.registry,
         plan.diagnostics,
+        ownership=drawing.recognition_ownership(),
     )
     unconfirmed = {
         claim.measurement
@@ -4511,7 +4516,12 @@ def _default_observers() -> Mapping[str, Observer]:
             boundary_outcomes = {
                 "ir_adapter": observed_boundary(
                     "ir_adapter",
-                    lambda: _hole_model_outcomes(holes, recognition, drawing.model().features),
+                    lambda: _hole_model_outcomes(
+                        holes,
+                        recognition,
+                        drawing.model().features,
+                        ownership=drawing.recognition_ownership(),
+                    ),
                 ),
                 "dsl_declaration": observed_boundary(
                     "dsl_declaration",

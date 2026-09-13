@@ -45,6 +45,13 @@
   every golden fixture, all of which are built from round numbers.
 
 ### Fixed
+- Adopt published Quiddity 0.2.9 (#1619). The frame document now retains six separate
+  hinge bores instead of a single path spanning air gaps. Three cylindrical seat occurrences
+  are reported explicitly; their drawing grammar remains pending #1613.
+- Refused hole patterns retain their members in the hole-completeness ledger (#1607).
+  The adapter records the refusal against the exact recognition run, so a six-hole group
+  is no longer reported as an unverifiable four-hole pattern and two loose holes. Declared
+  pattern mismatches still undergo the independent correspondence checks.
 
 - **A required dimension with nowhere to go now re-plans the sheet instead of being
   reported and left (#1590).** The automatic recovery ladder — larger scales on the

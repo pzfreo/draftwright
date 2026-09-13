@@ -171,7 +171,9 @@ def recognized_requirement_outcomes(
         outcomes["slot_patterns" if outcome.source_kind == "slot_pattern" else "slots"].append(
             outcome
         )
-    for hole_outcome in hole_requirement_outcomes(recognition, features, registry, omissions):
+    for hole_outcome in hole_requirement_outcomes(
+        recognition, features, registry, omissions, ownership=ownership
+    ):
         outcomes[
             "hole_patterns" if hole_outcome.source_kind == "hole_pattern" else "holes"
         ].append(hole_outcome)

@@ -30,6 +30,7 @@ from draftwright.linting.issues import (
 )
 from draftwright.linting.profiled_bore_coverage import profiled_bore_target_sources
 from draftwright.measurement_support import RequirementCarrier
+from draftwright.recognition_ownership import RecognitionOwnership
 
 HoleRequirementState = Literal[
     "placed",
@@ -981,6 +982,8 @@ def hole_requirement_outcomes(
     features,
     registry,
     omissions=(),
+    *,
+    ownership: RecognitionOwnership | None = None,
 ) -> list[HoleRequirementOutcome]:
     """Follow every recognised hole requirement to an exact compiler/placement outcome."""
     if recognition is None:
@@ -991,9 +994,17 @@ def hole_requirement_outcomes(
             f"got {type(recognition).__name__}"
         )
 
-    pattern_member_ids = {
-        id(hole) for pattern in recognition.hole_patterns for hole in pattern.holes
-    }
+    # A refusal is an explicit adapter decision, never inferred from an absent IR pattern.
+    # Declared builds without that decision retain the independent physical-pattern join.
+    patterns = recognition.hole_patterns
+    if ownership is not None:
+        if ownership.evidence.result is not recognition:
+            raise ValueError("hole ownership and recognition must belong to the same run")
+        refused = {id(row.pattern) for row in ownership.hole_pattern_refusals}
+        if not refused <= {id(pattern) for pattern in patterns}:
+            raise ValueError("refused hole pattern does not belong to this recognition run")
+        patterns = tuple(pattern for pattern in patterns if id(pattern) not in refused)
+    pattern_member_ids = {id(hole) for pattern in patterns for hole in pattern.holes}
     loose_groups: dict[tuple, list] = defaultdict(list)
     for hole in recognition.holes:
         if id(hole) not in pattern_member_ids:
@@ -1027,7 +1038,7 @@ def hole_requirement_outcomes(
             tuple(_members(pattern)),
             tuple(pattern.holes),
         )
-        for pattern in recognition.hole_patterns
+        for pattern in patterns
     )
     attached_countersinks = Counter(
         hole.csink for hole in recognition.holes if getattr(hole, "csink", None) is not None
@@ -1464,7 +1475,9 @@ def lint_hole_coverage(
         "unverifiable": "cannot be joined to measurement provenance without guessing",
     }
     issues = []
-    outcomes = hole_requirement_outcomes(recognition, features, registry, omissions)
+    outcomes = hole_requirement_outcomes(
+        recognition, features, registry, omissions, ownership=ownership
+    )
     for outcome in outcomes:
         if outcome.state in {"placed", "satisfied_by_structured_note", "dropped"}:
             continue

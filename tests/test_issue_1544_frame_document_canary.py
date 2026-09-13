@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import runpy
 from pathlib import Path
 
@@ -48,7 +49,7 @@ def test_frame_operations_and_actual_claims_keep_complete_physical_identity(fram
     # leftover two. The physical identity this canary is named for is unchanged: all six are
     # still here, as the `count` assertions below check.
     assert len(pairs) == 3
-    expected = {"z": (2.4, True, 1.6, 6), "x": (2.4, False, 1.5, 3), "y": (1.1, True, 53.2, 1)}
+    expected = {"z": (2.4, True, 1.6, 6), "x": (2.4, False, 1.5, 3), "y": (1.1, True, 3.0, 6)}
     for axis, (diameter, through, depth, count) in expected.items():
         group = [(owner, bore) for owner, bore in pairs if owner.frame.axis == axis]
         assert sum(owner.count for owner, _bore in group) == count
@@ -82,7 +83,9 @@ def test_frame_operations_and_actual_claims_keep_complete_physical_identity(fram
     assert members["x"] == pytest.approx(
         [(-9.8, 11.0, 13.7), (-9.8, 37.85, 13.7), (-9.8, 53.595, 13.7)]
     )
-    assert members["y"] == pytest.approx([(-11.2, 58.895, 11.1)])
+    assert members["y"] == pytest.approx(
+        [(-11.2, y, 11.1) for y in (8.7, 16.3, 35.55, 43.15, 51.295, 58.895)]
+    )
     assert members["z"] == pytest.approx(
         [
             (-12.15, 0.0, 3.5),
@@ -181,19 +184,48 @@ def test_frame_preserves_unsupported_pockets_and_uncredited_segment_note(frame_d
     package, result = frame_document
     report = result.report()
     rows = report["recognition"]["requirements"]
-    # 49 since #1596, and the nine that went are accounted for: `bolt_circle.diameter` and
-    # `location_pattern.location.{x,y}` (the refused circle and its invented centre), plus a
-    # duplicated `bore.diameter`/`bore.through`/`grouping.count` set that existed only
-    # because the six holes were split into two groups. Two rows arrive with no parameter id
-    # — the #1607 ledger false positive, which will change this count again when it is fixed.
-    assert len(rows) == 49
-    pockets = [row for row in rows if row["family"] == "section_recesses"]
-    assert len(pockets) == 6
-    assert len({tuple(row["occurrence_ids"]) for row in pockets}) == 6
-    assert all(row["requirement_count"] == 1 and row["coverage_credit"] == 0 for row in pockets)
+    # Physical requirements retain unsupported hex pockets and the newly recognised seats.
+    assert len(rows) == 56
+    recesses = [row for row in rows if row["family"] == "section_recesses"]
+    assert len(recesses) == 9
+    assert len({tuple(row["occurrence_ids"]) for row in recesses}) == 9
+    assert all(row["requirement_count"] == 1 and row["coverage_credit"] == 0 for row in recesses)
     assert all(
-        all(local["state"] == "unsupported" for local in row["local_outcomes"]) for row in pockets
+        all(local["state"] == "unsupported" for local in row["local_outcomes"]) for row in recesses
     )
+    recognised_recesses = [
+        row for row in report["recognition"]["occurrences"] if row["family"] == "section_recesses"
+    ]
+    seats = [
+        row
+        for row in recognised_recesses
+        if row["record"]["classification"]
+        == {"feature_kind": "channel", "section_shape": "circular"}
+    ]
+    hexes = [
+        row
+        for row in recognised_recesses
+        if row["record"]["classification"]
+        == {"feature_kind": "pocket", "section_shape": "hexagonal"}
+    ]
+    assert len(seats) == 3 and len(hexes) == 6
+    assert sorted(tuple(row["record"]["geometry"]["run_interval"]) for row in seats) == [
+        (-3.0, 3.0),
+        (21.375, 27.375),
+        (61.595, 67.595),
+    ]
+    for row in seats:
+        profile = row["record"]["geometry"]["profile"]
+        assert profile["closure"] == "open"
+        first, last = profile["boundary"]
+        chord = math.dist(first["point"], last["point"])
+        bulge = abs(first["bulge"])
+        diameter = chord * (1 + bulge**2) / (2 * bulge)
+        assert diameter == pytest.approx(14.3, abs=0.0005)
+        assert math.degrees(4 * math.atan(bulge)) == pytest.approx(62.89, abs=0.01)
+        assert last["bulge"] == 0
+        assert row["disposition"] == "unsupported"
+        assert row["requirements"]["ids"]
     drawing = result.sheets["features"]
     (hinge,) = [owner for owner, _bore in _bores(package.features) if owner.frame.axis == "y"]
     notes = [
@@ -202,7 +234,7 @@ def test_frame_preserves_unsupported_pockets_and_uncredited_segment_note(frame_d
         if feature.kind == "note" and feature.text == recipe["SEGMENT_NOTE"]
     ]
     assert len(notes) == 1 and notes[0].origin is hinge and not notes[0].satisfies
-    assert hinge.count == 1
+    assert hinge.count == 6
     placed_notes = [
         annotation
         for annotation in drawing.annotations_of(hinge).values()
@@ -349,7 +381,7 @@ def test_numeric_descriptive_pocket_table_cannot_erase_unsupported_obligations(f
             for row in after["recognition"]["requirements"]
             if row["family"] == "section_recesses"
         ]
-        assert len(pockets) == 6 and all(row["coverage_credit"] == 0 for row in pockets)
+        assert len(pockets) == 9 and all(row["coverage_credit"] == 0 for row in pockets)
         assert all(
             all(local["state"] == "unsupported" for local in row["local_outcomes"])
             for row in pockets
