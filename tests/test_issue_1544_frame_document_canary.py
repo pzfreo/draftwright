@@ -41,7 +41,13 @@ def _bores(features):
 def test_frame_operations_and_actual_claims_keep_complete_physical_identity(frame_document):
     package, result = frame_document
     pairs = _bores(package.features)
-    assert len(pairs) == 4
+    # Three, not four, since #1596. This part's six ⌀2.4 through-holes are a 2x3 grid, and
+    # four of them used to be fitted to a ø34.42 bolt circle centred on (0, 12.19) — the
+    # circumcircle of the rectangle x=±12.15, y=0/24.38, concentric with nothing on the part.
+    # Refusing it leaves the six as ONE group instead of a bogus pattern of four plus a
+    # leftover two. The physical identity this canary is named for is unchanged: all six are
+    # still here, as the `count` assertions below check.
+    assert len(pairs) == 3
     expected = {"z": (2.4, True, 1.6, 6), "x": (2.4, False, 1.5, 3), "y": (1.1, True, 53.2, 1)}
     for axis, (diameter, through, depth, count) in expected.items():
         group = [(owner, bore) for owner, bore in pairs if owner.frame.axis == axis]
@@ -64,7 +70,9 @@ def test_frame_operations_and_actual_claims_keep_complete_physical_identity(fram
                     "profile_direction",
                 )
             )
-    assert sorted(owner.count for owner, _ in pairs if owner.frame.axis == "z") == [2, 4]
+    # One group of six, where this used to read [2, 4] — the split the refused bolt circle
+    # caused. Six either way; the difference is whether the sheet claims a datum for four.
+    assert sorted(owner.count for owner, _ in pairs if owner.frame.axis == "z") == [6]
     members = {
         axis: sorted(
             point for owner, _bore in pairs if owner.frame.axis == axis for point in owner.members
@@ -173,7 +181,12 @@ def test_frame_preserves_unsupported_pockets_and_uncredited_segment_note(frame_d
     package, result = frame_document
     report = result.report()
     rows = report["recognition"]["requirements"]
-    assert len(rows) == 58
+    # 49 since #1596, and the nine that went are accounted for: `bolt_circle.diameter` and
+    # `location_pattern.location.{x,y}` (the refused circle and its invented centre), plus a
+    # duplicated `bore.diameter`/`bore.through`/`grouping.count` set that existed only
+    # because the six holes were split into two groups. Two rows arrive with no parameter id
+    # — the #1607 ledger false positive, which will change this count again when it is fixed.
+    assert len(rows) == 49
     pockets = [row for row in rows if row["family"] == "section_recesses"]
     assert len(pockets) == 6
     assert len({tuple(row["occurrence_ids"]) for row in pockets}) == 6
