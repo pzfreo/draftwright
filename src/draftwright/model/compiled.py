@@ -947,8 +947,8 @@ def _dim_id(feature, parameter_id: str) -> DimensionId | None:
     return DimensionId(feature, parameter_id)
 
 
-def _value_text(model: PartModel, feature, parameter_id: str, value: float) -> str:
-    """Format one approved nominal, applying only its referential intent's policy.
+def _display_decimals(model: PartModel, feature, parameter_id: str) -> int | None:
+    """Resolve one approved nominal's referential display policy.
 
     The request still carries no number.  Matching by feature identity plus parameter id
     keeps formatting on the same semantic address used for selection; the numeric
@@ -972,8 +972,13 @@ def _value_text(model: PartModel, feature, parameter_id: str, value: float) -> s
             f".{request.discriminator}"
         ):
             continue
-        return _fmt(value, request.display_decimals)
-    return _fmt(value)
+        return request.display_decimals
+    return None
+
+
+def _value_text(model: PartModel, feature, parameter_id: str, value: float) -> str:
+    """Format the nominal without changing its measured value."""
+    return _fmt(value, _display_decimals(model, feature, parameter_id))
 
 
 def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder], list[Omission]]:
@@ -1020,6 +1025,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
             ApprovedDimension(
                 id=_dim_id(step, "step_height.length"),
                 value_text=_value_text(model, step, "step_height.length", z - step.base),
+                display_decimals=_display_decimals(model, step, "step_height.length"),
                 value=z - step.base,
                 tolerance=step_tol,
                 span=span,
@@ -1043,6 +1049,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
                 ApprovedDimension(
                     id=_dim_id(step, "step_height.length"),
                     value_text=_value_text(model, step, "step_height.length", rise),
+                    display_decimals=_display_decimals(model, step, "step_height.length"),
                     value=rise,
                     span=span,
                     ref=step_ref,
@@ -1104,6 +1111,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
             ApprovedDimension(
                 id=_dim_id(step, "step_position.length"),
                 value_text=_value_text(model, step, "step_position.length", value),
+                display_decimals=_display_decimals(model, step, "step_position.length"),
                 value=value,
                 span=_shoulder_span(axis, pos),
                 ref=step_ref,
@@ -1286,6 +1294,7 @@ def _compile_overall_height(
             ApprovedDimension(
                 id=_dim_id(identity, "height.length"),
                 value_text=_value_text(model, env, "height.length", value),
+                display_decimals=_display_decimals(model, env, "height.length"),
                 value=value,
                 span=((x, y, float(bb.min.Z)), (x, y, float(bb.max.Z))),
                 ref=env_ref,

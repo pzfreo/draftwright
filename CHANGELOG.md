@@ -4,6 +4,11 @@
 
 ### Fixed
 
+- Explicit dimension precision, including `.format(decimals=0)`, now reaches geometric
+  label critique (#1620). Correct rounding is reported as information; labels outside
+  the requested rounding interval still produce `label_vs_measured`. Height and step
+  ladders retain the same compiler policy as ordinary dimensions.
+
 - **`label_vs_measured` no longer reports the drawing's own rounding as a topology error
   (#1600).** A sheet at one decimal place prints 4.450 as `4.5`; the check then compared
   `4.5` against 4.450 and said "possible axis swap or wrong endpoint". The comparison was

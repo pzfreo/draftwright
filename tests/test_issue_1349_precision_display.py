@@ -59,12 +59,30 @@ def test_automatic_default_formatting_is_unchanged_without_an_explicit_policy():
     assert automatic.get_annotation("m_env_width").label == "13.6"
 
 
-def test_requested_precision_reaches_the_rendered_dimension_without_false_lint():
-    _part, sheet, _model, _approved = _width_plan(13.55, 2)
+@pytest.mark.parametrize(
+    "role,name", [("width.length", "m_env_width"), ("height.length", "dim_height")]
+)
+@pytest.mark.parametrize("decimals,printed", [(0, "4"), (1, "4.5"), (2, "4.45")])
+def test_requested_precision_reaches_the_rendered_dimension_without_false_lint(
+    role, name, decimals, printed
+):
+    part = Box(4.45, 30, 4.45)
+    sheet = Sheet(part, page="A3", scale=5).authored_dimensions()
+    envelope = sheet.envelope()
+    sheet.dimension(envelope, role).format(decimals=decimals)
     drawing = sheet.build()
 
-    assert drawing.get_annotation("m_env_width").label == "13.55"
-    assert not [issue for issue in drawing.lint() if issue.code == "label_vs_measured"]
+    assert drawing.get_annotation(name).label == printed
+    for physical in (False, True):
+        issues = drawing.lint(physical=physical)
+        assert not [issue for issue in issues if issue.code == "label_vs_measured"]
+        assert bool([issue for issue in issues if issue.code == "nominal_rounded"]) == (
+            decimals < 2
+        )
+
+    # A compiler policy is a rounding allowance, not permission for arbitrary ink.
+    drawing.get_annotation(name).label = "6"
+    assert "label_vs_measured" in {issue.code for issue in drawing.lint(physical=False)}
 
 
 def test_requested_precision_reaches_compound_hole_callouts_too():
