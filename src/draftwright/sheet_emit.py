@@ -2158,6 +2158,11 @@ def emit_sheet_script(
     view_constraints: ViewConstraints | None = None,
     pmi: str = "off",
     pmi_source: str | None = None,
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -2253,6 +2258,24 @@ def emit_sheet_script(
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]
+    from draftwright._core import _sheet_option_margins, _validated_title_block_width
+
+    _sheet_option_margins(
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+    )
+    title_block_width = _validated_title_block_width(title_block_width)
+    for key, value in (
+        ("margin_left", margin_left),
+        ("margin_right", margin_right),
+        ("margin_top", margin_top),
+        ("margin_bottom", margin_bottom),
+        ("title_block_width", title_block_width),
+    ):
+        if value is not None:
+            ctor.append(f"{key}={float(value)!r}")
     if drawn_by:
         ctor.append(f"drawn_by={drawn_by!r}")
     if tolerance is not None:
@@ -2592,6 +2615,11 @@ def generate_sheet_script(
     object_candidates: Mapping[str, Shape] | None = None,
     formats: Sequence[str] = ("pdf",),
     inspect: bool = True,
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
 ) -> str:
     """Write a declarative ``Sheet``-DSL script for *step_file* (a STEP path or a build123d
     object). Returns the path to the generated ``.py``. **The** script emitter, since #940
@@ -2696,6 +2724,11 @@ def generate_sheet_script(
                 document_type=document_type,
                 sheet=sheet,
                 frame=frame,
+                margin_left=margin_left,
+                margin_right=margin_right,
+                margin_top=margin_top,
+                margin_bottom=margin_bottom,
+                title_block_width=title_block_width,
                 zones=zones,
                 projection=projection,
                 projection_symbol=projection_symbol,
@@ -2724,6 +2757,11 @@ def generate_sheet_script(
             document_type=document_type,
             sheet=sheet,
             frame=frame,
+            margin_left=margin_left,
+            margin_right=margin_right,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+            title_block_width=title_block_width,
             zones=zones,
             projection=projection,
             projection_symbol=projection_symbol,

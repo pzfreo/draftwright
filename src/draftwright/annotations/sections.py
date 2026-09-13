@@ -37,6 +37,7 @@ from draftwright._core import (
     Analysis,
     DetailRequest,
     HoleRef,
+    _analysis_margins,
     _anno_box,
     _dim,
     _fmt,
@@ -44,6 +45,7 @@ from draftwright._core import (
     _largest_empty_rect,
     _legible_steps,
     _log,
+    _title_margins,
     _tol_suffix,
 )
 from draftwright._geometry import _leader_ink_polygons, _scale_world, _stroke_polygon
@@ -296,7 +298,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     row_y0 = a.FV_Y - half_h - 10
     row_y1 = a.FV_Y + half_h + 6
     iso_x0, iso_y0, _, iso_y1 = _iso_bbox(dwg)
-    right_limit = a.PAGE_W - a.margin
+    right_limit = a.PAGE_W - _analysis_margins(a).right
     if row_y0 < iso_y1 + 2 and row_y1 > iso_y0 - 2:
         right_limit = min(right_limit, iso_x0 - 4)
     # Carve the row into free segments and take the leftmost that FITS, rather than
@@ -416,8 +418,8 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         page_clearance = 2 * dwg.draft.arrow_length
         repair_is_bounded = (
             (repaired_x0 != x0 or repaired_x1 != x1)
-            and repaired_x0 >= a.margin + page_clearance
-            and repaired_x1 <= a.PAGE_W - a.margin - page_clearance
+            and repaired_x0 >= _analysis_margins(a).left + page_clearance
+            and repaired_x1 <= a.PAGE_W - _analysis_margins(a).right - page_clearance
         )
         if repair_is_bounded:
             _clear_section_reservation(dwg, section)
@@ -747,7 +749,7 @@ def _render_detail(
 
     # Placement: best empty rectangle for this footprint, avoiding placed views
     # and the title block.
-    drawable = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    drawable = _analysis_margins(a).bounds(a.PAGE_W, a.PAGE_H)
     obstacles = []
     for vis, hid in dwg.views.values():
         for shp in (vis, hid):
@@ -761,7 +763,12 @@ def _render_detail(
     # detail placed on invisible occupant geometry (#518).
     obstacles.extend(strip_obstacles(dwg))
     obstacles.append(
-        (a.PAGE_W - a.TB_W - _TB_CLEAR, a.margin, a.PAGE_W - _TB_CLEAR, _TB_CLEAR + _TB_H)
+        (
+            a.PAGE_W - a.TB_W - _title_margins(a).right,
+            _analysis_margins(a).bottom,
+            a.PAGE_W - _title_margins(a).right,
+            _title_margins(a).bottom + _TB_H,
+        )
     )
     rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
     rect_w, rect_h = rx1 - rx0, ry1 - ry0

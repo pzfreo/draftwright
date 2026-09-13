@@ -36,7 +36,6 @@ from draftwright._core import (
     _EDGE_ON,
     _END_ON,
     _EST_CHAR_WIDTH_EM,
-    _MARGIN,
     _MIN_STEP_DIM_MM,
     _MIN_STEP_SEP_MM,
     _SLOT_DIM_DEPTH,
@@ -45,12 +44,15 @@ from draftwright._core import (
     _SLOT_DIM_WIDTH,
     _WITNESS_LIFT_MM,
     DetailRequest,
+    _analysis_margins,
     _classify_steps,
     _concentric_with_axis,
     _dim,
+    _drawing_bounds,
     _first_free_index,
     _fmt,
     _font_safe_text,
+    _frame_margins,
     _greedy_strip_ys,
     _iso_bbox,
     _legible_locations,
@@ -1254,7 +1256,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
         if ob.min.Y < fy0 and ob.max.X > fx0 and ob.min.X < fx1:
             obstacle_bottom = min(obstacle_bottom, ob.min.Y)
     label_y = obstacle_bottom - (draft.font_size + 4 * draft.pad_around_text)
-    if label_y < _MARGIN + draft.font_size:
+    if label_y < _drawing_bounds(dwg)[1] + draft.font_size:
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{text}", "outcome": "dropped", "reason": "no_room_below"}
@@ -1381,7 +1383,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     # edge sits at elbow_x - shelf - label_w; the guard must reserve the shelf or a near-boundary
     # label overshoots the margin. The shelf is the helpers Leader's gap = draft.pad_around_text,
     # not a fixed 2.0 (#859, Codex #862 r4/r5).
-    if elbow_x - draft.pad_around_text - label_w < _MARGIN:
+    if elbow_x - draft.pad_around_text - label_w < _drawing_bounds(dwg)[0]:
         if ev is not None:
             ev["items"].extend(
                 {"label": f"ø{text}", "outcome": "dropped", "reason": "no_room_left"}
@@ -1870,7 +1872,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
         return 0
     draft = dwg.draft
     gap = draft.font_size + 2 * draft.pad_around_text
-    page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+    page = _drawing_bounds(dwg)
 
     def _within_page(box):
         return box[0] >= page[0] and box[1] >= page[1] and box[2] <= page[2] and box[3] <= page[3]
@@ -4397,7 +4399,7 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
                         dim = _dim(qa, qb, side2, pos - edge2, draft, label=lbl)
                         dim._dw_measurement_span = measurement_span
                         real = _geom_box(dim)
-                        page = (_MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN)
+                        page = _drawing_bounds(dwg)
                         if real is None or (
                             _box_hits(
                                 real, strip_obstacles(dwg, view=view2, crossable=CROSSABLE_TYPES)
@@ -5000,7 +5002,7 @@ def _draw_step_chain(
                 )
             )
 
-    page = (_MARGIN, _MARGIN, dwg.page_w - _MARGIN, dwg.page_h - _MARGIN)
+    page = _drawing_bounds(dwg)
     # The chain is one placement batch: until commit, no sibling's extension line or
     # terminator exists in strip occupancy.  Select small along-line label offsets against
     # the complete batch before the room guard (#1334).  Measurement provenance stays paired
@@ -6577,7 +6579,7 @@ def render_rotational(dwg, plan, a, *, ctx) -> int:
         # Concentric bore leaders to the left of the front view, centred on the axis.
         if bore_dims:
             left_edge = FX(a.bb.min.X)
-            if left_edge - a.margin >= a.DIM_PAD:
+            if left_edge - _analysis_margins(a).left >= a.DIM_PAD:
                 elbow_x = left_edge - a.DIM_PAD * 0.6
                 pitch = max(10.0, draft.font_size * 3.0)
                 # Bound the leader stack to the front-view height and space it via the shared
@@ -7399,10 +7401,10 @@ def _angular_specs(a, reference, label, name, draft, *, side=None):
                 return False
             x0, y0, x1, y1 = ink.footprint(max(ink.minimum_radius, value))
             return (
-                x0 >= _MARGIN
-                and y0 >= _MARGIN
-                and x1 <= a.PAGE_W - _MARGIN
-                and y1 <= a.PAGE_H - _MARGIN
+                x0 >= _frame_margins(a).bounds(a.PAGE_W, a.PAGE_H)[0]
+                and y0 >= _frame_margins(a).bounds(a.PAGE_W, a.PAGE_H)[1]
+                and x1 <= _frame_margins(a).bounds(a.PAGE_W, a.PAGE_H)[2]
+                and y1 <= _frame_margins(a).bounds(a.PAGE_W, a.PAGE_H)[3]
             )
 
         options.append(

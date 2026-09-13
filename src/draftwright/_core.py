@@ -136,6 +136,92 @@ def place_annotation(
 
 _MARGIN = 10.0
 
+
+@dataclass(frozen=True)
+class SheetMargins:
+    """Independent physical sheet-edge distances in millimetres."""
+
+    left: float = _MARGIN
+    right: float = _MARGIN
+    top: float = _MARGIN
+    bottom: float = _MARGIN
+
+    def __post_init__(self) -> None:
+        for edge in ("left", "right", "top", "bottom"):
+            value = getattr(self, edge)
+            if isinstance(value, bool):
+                raise ValueError(f"margin_{edge} must be finite and nonnegative")
+            try:
+                value = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"margin_{edge} must be finite and nonnegative") from exc
+            if not math.isfinite(value) or value < 0:
+                raise ValueError(f"margin_{edge} must be finite and nonnegative")
+            object.__setattr__(self, edge, value)
+
+    @classmethod
+    def uniform(cls, margin: float) -> SheetMargins:
+        return cls(margin, margin, margin, margin)
+
+    def inset(self, distance: float) -> SheetMargins:
+        return SheetMargins(
+            *(getattr(self, edge) + distance for edge in ("left", "right", "top", "bottom"))
+        )
+
+    def bounds(self, width: float, height: float) -> tuple[float, float, float, float]:
+        return self.left, self.bottom, width - self.right, height - self.top
+
+    def fits(self, width: float, height: float) -> bool:
+        return self.left + self.right < width and self.top + self.bottom < height
+
+
+def _sheet_option_margins(
+    *, margin_left=None, margin_right=None, margin_top=None, margin_bottom=None
+) -> SheetMargins:
+    return SheetMargins(
+        *(
+            value if value is not None else _MARGIN
+            for value in (margin_left, margin_right, margin_top, margin_bottom)
+        )
+    )
+
+
+def _validated_title_block_width(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError("title_block_width must be finite and positive")
+    try:
+        width = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("title_block_width must be finite and positive") from exc
+    if not math.isfinite(width) or width <= 0:
+        raise ValueError("title_block_width must be finite and positive")
+    return width
+
+
+def _analysis_margins(a) -> SheetMargins:
+    """Content bounds, including the frame band; scalar fallback for legacy analyses."""
+    margins = getattr(a, "content_margins", None)
+    return margins if margins is not None else SheetMargins.uniform(a.margin)
+
+
+def _drawing_bounds(dwg) -> tuple[float, float, float, float]:
+    """Physical drawable rectangle, with the historical fallback for lightweight adapters."""
+    bounds = getattr(dwg, "drawable_bounds", None)
+    return bounds if bounds is not None else SheetMargins().bounds(dwg.page_w, dwg.page_h)
+
+
+def _frame_margins(a) -> SheetMargins:
+    margins = getattr(a, "sheet_margins", None)
+    return margins if margins is not None else SheetMargins()
+
+
+def _title_margins(a) -> SheetMargins:
+    margins = getattr(a, "title_block_margins", None)
+    return margins if margins is not None else SheetMargins(right=_TB_CLEAR, bottom=_TB_CLEAR)
+
+
 # When a sheet frame is drawn (#767), content reserves this extra band inside the border so
 # it clears the drawn line rather than sitting on it. The frame draws AT _MARGIN (the old
 # drawable boundary); content insets to _content_margin(frame).
@@ -175,6 +261,7 @@ def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
     return (cols, rows)
 
 
+_TB_LINE_WIDTH = 0.15
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
 #: The title block's row height, matching `TitleBlock`'s own `cell_height`
 #: default. Used to find the block's drawn top edge without building it.
@@ -1352,6 +1439,11 @@ class Analysis:
     RV_Y: float = 0.0
     rv_zones: ViewZones | None = None
 
+    sheet_margins: SheetMargins | None = None
+    content_margins: SheetMargins | None = None
+    title_block_width: float | None = None
+    title_block_margins: SheetMargins | None = None
+
     @property
     def pmi(self) -> list:
         """Successful PMI records in this analysis's working coordinates."""
@@ -1453,6 +1545,7 @@ def _make_title_block(dwg, a: Analysis):
     tb = TitleBlock(
         title,
         number,
+        line_width=_TB_LINE_WIDTH,
         general_tolerance=tolerance,
         designed_by=designed_by,
         material=material,
@@ -1480,7 +1573,8 @@ def _make_title_block(dwg, a: Analysis):
     # than hardcoded column fractions, so the hyperlink rect tracks any upstream
     # TitleBlock layout change. Build-frame bbox; translated to page space below.
     cell = tb.drawn_by_cell_bbox()
-    bx, by = a.PAGE_W - a.TB_W - _TB_CLEAR, _TB_CLEAR
+    margins = _title_margins(a)
+    bx, by = a.PAGE_W - a.TB_W - margins.right, margins.bottom
     tb = tb.locate(Location((bx, by, 0)))
 
     # Retain authoritative title-block values at their public cell centres for the PDF semantic
@@ -1550,12 +1644,13 @@ def _add_title_block(dwg, a: Analysis):
     # ``is_centerline`` riders), NOT an expando poked onto the drawing — the
     # drawing is not the state bus (#699 slice d); export reads it back via
     # ``get_annotation("title_block")``, so a removed block drops its link too.
-    bx = a.PAGE_W - a.TB_W - _TB_CLEAR
+    margins = _title_margins(a)
+    bx = a.PAGE_W - a.TB_W - margins.right
     tb.draftwright_link_rect = (
         bx + cell["min_x"],
-        _TB_CLEAR + cell["min_y"],
+        margins.bottom + cell["min_y"],
         bx + cell["max_x"],
-        _TB_CLEAR + cell["max_y"],
+        margins.bottom + cell["max_y"],
     )
     place_annotation(dwg.registry, dwg.items, tb, "title_block")
 
@@ -1565,8 +1660,7 @@ def _make_sheet_frame(a: Analysis) -> Compound:
     drawable boundary). Content clears it because ``a.margin`` is the reserved content margin.
     Carries an ``is_sheet_frame`` rider (like ``is_centerline``) so lint skips its page-spanning
     box, and so ``get_annotation`` / a removed frame drop it cleanly."""
-    x0, y0 = _MARGIN, _MARGIN
-    x1, y1 = a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN
+    x0, y0, x1, y1 = _frame_margins(a).bounds(a.PAGE_W, a.PAGE_H)
     frame = Compound(
         children=[
             Edge.make_line(Vector(x0, y0, 0), Vector(x1, y0, 0)),
@@ -1592,7 +1686,7 @@ def _title_block_top(a: Analysis) -> float:
     above it should sit against the block rather than at the top of the reserved
     band — otherwise the gap is whatever slack the band happens to carry.
     """
-    return _TB_CLEAR + len(draftwright_title_block_layout().rows) * _TB_ROW_H
+    return _title_margins(a).bottom + len(draftwright_title_block_layout().rows) * _TB_ROW_H
 
 
 def _add_scale_note(dwg, a: Analysis):
@@ -1625,7 +1719,11 @@ def _add_scale_note(dwg, a: Analysis):
     w, h = b.max.X - b.min.X, b.max.Y - b.min.Y
     # Left of the projection glyph, which reserves `_PROJECTION_BAND_W` at the
     # right-hand end of the same band.
-    right = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - _PROJECTION_BAND_W
+    right = (
+        a.PAGE_W
+        - max(_title_margins(a).right + 3, _analysis_margins(a).right)
+        - _PROJECTION_BAND_W
+    )
     cx = right - w / 2
     cy = _title_block_top(a) + _TB_FURNITURE_GAP + h / 2
     note = note.locate(Location((cx - bx, cy - by, 0)))
@@ -1658,7 +1756,7 @@ def _add_projection_symbol(dwg, a: Analysis):
     w, h = b.max.X - b.min.X, b.max.Y - b.min.Y
     # Right side of the title-block column, near the top of its reserved band.
     # Sheet frames reserve an inner content margin; keep furniture inside it too.
-    cx = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - w / 2
+    cx = a.PAGE_W - max(_title_margins(a).right + 3, _analysis_margins(a).right) - w / 2
     cy = _title_block_top(a) + _TB_FURNITURE_GAP + h / 2
     sym = sym.locate(Location((cx - bx, cy - by, 0)))
     sym.is_projection_symbol = True
@@ -1675,10 +1773,12 @@ def _add_zone_grid(dwg, a: Analysis):
     from build123d_drafting import Note
 
     cols, rows = _zone_divisions(a.PAGE_W, a.PAGE_H)
-    x0, y0, x1, y1 = _MARGIN, _MARGIN, a.PAGE_W - _MARGIN, a.PAGE_H - _MARGIN
+    margins = _frame_margins(a)
+    for edge in ("left", "right", "top", "bottom"):
+        if getattr(margins, edge) == 0:
+            raise ValueError(f"zones require a positive margin_{edge} for their labels")
+    x0, y0, x1, y1 = margins.bounds(a.PAGE_W, a.PAGE_H)
     cw, rh = (x1 - x0) / cols, (y1 - y0) / rows
-    band = _MARGIN
-    tick = min(3.0, band * 0.6)
     draft = draft_preset(
         font_size=dwg.draft.font_size * 0.8,
         decimal_precision=dwg.draft.decimal_precision,
@@ -1687,29 +1787,41 @@ def _add_zone_grid(dwg, a: Analysis):
     ticks = []
     for i in range(1, cols):  # interior column boundaries → ticks on top + bottom edges
         xb = x0 + i * cw
-        ticks.append(Edge.make_line(Vector(xb, y0, 0), Vector(xb, y0 - tick, 0)))
-        ticks.append(Edge.make_line(Vector(xb, y1, 0), Vector(xb, y1 + tick, 0)))
+        ticks.append(
+            Edge.make_line(Vector(xb, y0, 0), Vector(xb, y0 - min(3.0, margins.bottom * 0.6), 0))
+        )
+        ticks.append(
+            Edge.make_line(Vector(xb, y1, 0), Vector(xb, y1 + min(3.0, margins.top * 0.6), 0))
+        )
     for j in range(1, rows):  # interior row boundaries → ticks on left + right edges
         yb = y0 + j * rh
-        ticks.append(Edge.make_line(Vector(x0, yb, 0), Vector(x0 - tick, yb, 0)))
-        ticks.append(Edge.make_line(Vector(x1, yb, 0), Vector(x1 + tick, yb, 0)))
+        ticks.append(
+            Edge.make_line(Vector(x0, yb, 0), Vector(x0 - min(3.0, margins.left * 0.6), yb, 0))
+        )
+        ticks.append(
+            Edge.make_line(Vector(x1, yb, 0), Vector(x1 + min(3.0, margins.right * 0.6), yb, 0))
+        )
     grid = Compound(children=ticks)
     grid.is_zone_grid = True
     place_annotation(dwg.registry, dwg.items, grid, "zone_grid")
 
-    def _label(text, cx, cy, name):
+    def _label(text, cx, cy, name, edge):
         note = Note(text, (cx, cy), draft, align=(Align.CENTER, Align.CENTER))
+        size = note.bounding_box().size
+        extent = size.X if edge in ("left", "right") else size.Y
+        if extent > getattr(margins, edge) + 1e-6:
+            raise ValueError(f"margin_{edge} is too narrow for zone labels ({extent:.2f} mm)")
         note.is_zone_label = True
         place_annotation(dwg.registry, dwg.items, note, name)
 
     for i in range(cols):  # numbers 1.. left→right, in the bottom + top bands
         cx = x0 + (i + 0.5) * cw
-        _label(str(i + 1), cx, y0 - band / 2, f"zone_num_b_{i}")
-        _label(str(i + 1), cx, y1 + band / 2, f"zone_num_t_{i}")
+        _label(str(i + 1), cx, y0 - margins.bottom / 2, f"zone_num_b_{i}", "bottom")
+        _label(str(i + 1), cx, y1 + margins.top / 2, f"zone_num_t_{i}", "top")
     for j in range(rows):  # letters A.. top→bottom, in the left + right bands
         cy = y1 - (j + 0.5) * rh
-        _label(_ZONE_LETTERS[j], x0 - band / 2, cy, f"zone_ltr_l_{j}")
-        _label(_ZONE_LETTERS[j], x1 + band / 2, cy, f"zone_ltr_r_{j}")
+        _label(_ZONE_LETTERS[j], x0 - margins.left / 2, cy, f"zone_ltr_l_{j}", "left")
+        _label(_ZONE_LETTERS[j], x1 + margins.right / 2, cy, f"zone_ltr_r_{j}", "right")
 
 
 def _iso_bbox(dwg):
