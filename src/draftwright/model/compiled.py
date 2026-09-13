@@ -1761,6 +1761,24 @@ def _compile_groups(
     than no channel, because it reads as an answer."""
     out: list[ApprovedGroup] = []
     omissions: list[Omission] = []
+    # Mixed flat sizes on one sheet need one decimal grammar. In particular,
+    # 6.00 and 6.05 must not print as "6 A/F" and "6.0 A/F", or collapse to two
+    # identical "6.0" labels. Choose the least precision (up to the source's
+    # hundredths) that distinguishes the independent approved flat sizes. This
+    # belongs at compilation: the renderer must print approved text verbatim.
+    flat_values = {
+        round(float(pd.param.value), 2)
+        for group in planned
+        if group.feature_kind == "flat"
+        for pd in group.dims
+        if not pd.suppressed and pd.param.role == "flat" and pd.param.kind == "length"
+    }
+    flat_auto_decimals = None
+    if len(flat_values) > 1:
+        if any(value != round(value, 1) for value in flat_values):
+            flat_auto_decimals = 2
+        elif any(value != round(value) for value in flat_values):
+            flat_auto_decimals = 1
     for g in planned:
         feature = g.feature
         hole = feature.member if isinstance(feature, PatternFeature) else feature
@@ -1795,7 +1813,12 @@ def _compile_groups(
                 id=DimensionId(g.feature, pd.param.parameter_id),
                 # DimParameter.value is a required float. Keep that invariant explicit at
                 # the boundary instead of implying a nullable state renderers cannot handle.
-                value_text=_fmt(pd.param.value, pd.display_decimals),
+                value_text=_fmt(
+                    pd.param.value,
+                    pd.display_decimals
+                    if pd.display_decimals is not None or g.feature_kind != "flat"
+                    else flat_auto_decimals,
+                ),
                 value=float(pd.param.value),
                 span=_dimension_witness_span(g.feature, pd.param),
                 ref=FeatureRef(g.feature),

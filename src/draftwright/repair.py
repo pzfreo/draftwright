@@ -14,7 +14,7 @@ from draftwright.audit import compare_measurements
 
 # Lint codes the repair loop can mechanically resolve, and the side flip used to
 # move a dimension that landed on the wrong side of its witness points.
-_REPAIRABLE_CODES = frozenset({"dim_inside_part", "annotation_ink_overlap"})
+_REPAIRABLE_CODES = frozenset({"dim_inside_part", "annotation_ink_overlap", "annotation_overlap"})
 _OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
 
 
@@ -81,9 +81,7 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
 
 def _repair_annotation_ink(dwg, choose_candidates, before):
     """Try one shared-solver batch; commit only a content-preserving improvement."""
-    if "annotation_ink_overlap" not in _REPAIRABLE_CODES or not any(
-        issue.code == "annotation_ink_overlap" for issue in before
-    ):
+    if not any(issue.code in {"annotation_ink_overlap", "annotation_overlap"} for issue in before):
         return
     original = list(dwg.iter_annotations())
     pins = dwg.registry.pinned_names()

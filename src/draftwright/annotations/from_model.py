@@ -91,6 +91,7 @@ from draftwright.annotations._common import (
     place_strip_candidates,
     prevent_dimension_label_ink,
     register_corridor,
+    short_dimension_label_offset,
     strip_free_span,
     strip_obstacles,
     strip_occupants,
@@ -1144,6 +1145,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             continue  # on the datum edge — nothing to dimension
         label = shared_location_text(location_entries)
         n += 1
+        label_offset = short_dimension_label_offset(
+            (PX(datum_x), PY(ry), 0), (PX(rx), PY(ry), 0), draft, label
+        )
         # A single X-location dim shared by two *distinct* features at this X belongs to
         # neither exclusively — leave it unowned so drop() cannot over-strip a sibling's
         # dimension and annotations_of never over-claims it (review #406, ADR 5 (was 0010)).
@@ -1177,13 +1181,14 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
                 label=label,
                 distance=abs(rx - datum_x),
-                build=lambda pos, _rx=rx, _ry=ry, _label=label: _dim(
+                build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: _dim(
                     (PX(datum_x), PY(_ry), 0),
                     (PX(_rx), PY(_ry), 0),
                     "above",
                     pos - PY(_ry),
                     draft,
                     label=_label,
+                    label_offset_x=_offset,
                 ),
                 feature=_xfeat,
                 measurement=_xmid,
@@ -1192,13 +1197,16 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     (feature, parameter) for feature, parameter, _point in location_facts
                 ),
                 pinned=pin_ref,
-                footprint=lambda pos, _rx=rx, _ry=ry, _label=label: dim_footprint(
-                    (PX(datum_x), PY(_ry), 0),
-                    (PX(_rx), PY(_ry), 0),
-                    "above",
-                    pos - PY(_ry),
-                    draft,
-                    _label,
+                footprint=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                    dim_footprint(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        "above",
+                        pos - PY(_ry),
+                        draft,
+                        _label,
+                        label_offset_x=_offset,
+                    )
                 ),
             ),
         )
@@ -1300,6 +1308,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             pa = (edge, PY(datum_y), 0)
             pb = (edge, PY(ry), 0)
             span_key = (round(pa[1], 1), round(pb[1], 1))
+        label_offset = (
+            short_dimension_label_offset(pa, pb, draft, label) if view == "side" else 0.0
+        )
         register_corridor(
             ctx,
             (view, direction),
@@ -1315,7 +1326,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 span_key=span_key,
                 label=label,
                 distance=abs(ry - datum_y),
-                build=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label: (
+                build=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label, _offset=label_offset: (
                     _dim(
                         _pa,
                         _pb,
@@ -1323,6 +1334,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                         abs(pos - _edge),
                         draft,
                         label=_label,
+                        label_offset_x=_offset,
                     )
                 ),
                 feature=_yfeat,
@@ -1333,7 +1345,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 ),
                 placement_side=direction,
                 pinned=pin_ref,
-                footprint=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label: (
+                footprint=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label, _offset=label_offset: (
                     dim_footprint(
                         _pa,
                         _pb,
@@ -1341,6 +1353,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                         abs(pos - _edge),
                         draft,
                         _label,
+                        label_offset_x=_offset,
                     )
                 ),
             ),

@@ -232,9 +232,9 @@ def test_detected_hex_pockets_receive_source_owned_credit_only_for_present_ink(h
     flats = [name for name in drawing.annotations() if name.startswith("m_flat_")]
     assert len(flats) == 3
     assert {drawing.get_annotation(name).label for name in flats} == {
-        "3× 6 A/F",
-        "3× 6.0 A/F",
-        "4× 6.5 A/F",
+        "3× 6.00 A/F",
+        "3× 6.05 A/F",
+        "4× 6.50 A/F",
     }
     name = next(name for name in drawing.annotations() if name.startswith("m_hex_pocket_"))
     assert drawing.registry.feature_of(name) is None

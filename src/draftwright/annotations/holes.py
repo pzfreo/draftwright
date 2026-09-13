@@ -3119,6 +3119,18 @@ def _place_planside_callouts(
         if off_axis_letter
         else []
     )
+    if view == "side":
+        # A side-drilled hole's Z-location dimension reads vertically from the
+        # bottom datum. Its label sits midway along that span, well below the
+        # hole-centre row reserved above. Without this second approved-plan band
+        # the spring-socket callout can be solved straight through the future
+        # "14.2" label even though every hole-centre band is clear (#1601).
+        datum_row = a.proj.side_z(a.bb.min.Z)
+        reserved_rows.extend(
+            (datum_row + to_page(h.location)[1]) / 2
+            for h in _approved_off_axis_holes(plan)
+            if h.axis == "x" and h.approved.get("z") is not None
+        )
     forbidden = [(r, clr) for r in reserved_rows]
     if a.is_rotational or a.prof is not None:
         forbidden.append((view_cy, clr))
