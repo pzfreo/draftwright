@@ -689,3 +689,48 @@ class TestDisplayedDecimals:
         from draftwright.linting.structural import _displayed_decimals
 
         assert _displayed_decimals(label) == expected
+
+
+class TestNominalRounded:
+    """The honest counterpart to #1600's fix.
+
+    Correct rounding is not a defect, so `label_vs_measured` stopped reporting it. But 4.450
+    printed as `4.5` is still a real 0.05 mm between the drawing and the model, and after that
+    fix nothing said so at all. This says it — once, with the worst case named — without
+    guessing which dimensions care.
+    """
+
+    @staticmethod
+    def _dim(draft, label, path_mm):
+        from build123d_drafting.helpers import Dimension
+
+        return Dimension((0, 0, 0), (path_mm, 0, 0), "above", 8, draft, label=label)
+
+    def _reports(self, issues):
+        return [i for i in issues if i.code == "nominal_rounded"]
+
+    def test_a_rounded_nominal_is_reported_once_naming_the_worst(self, draft):
+        issues = lint_drawing(
+            [
+                self._dim(draft, "4.5", 4.450),  # 0.05 out — the worst
+                self._dim(draft, "57.1", 57.095),  # 0.005 out
+            ]
+        )
+        (report,) = self._reports(issues)
+        assert report.severity == "info"
+        assert "2 dimension(s)" in report.message
+        assert "'4.5'" in report.message and "4.4500" in report.message
+
+    def test_an_exact_drawing_reports_nothing(self, draft):
+        assert self._reports(lint_drawing([self._dim(draft, "40", 40.0)])) == []
+
+    def test_projection_noise_is_not_a_rounded_nominal(self, draft):
+        """The floor exists so float arithmetic in the projection does not read as a
+        precision decision. A tenth of a micron is not the sheet losing anything."""
+        assert self._reports(lint_drawing([self._dim(draft, "40", 40.0000001)])) == []
+
+    def test_it_does_not_fire_on_a_label_that_is_simply_wrong(self, draft):
+        """That is `label_vs_measured`'s job, and it still does it. This one is about
+        precision, so a 35-for-20 mislabel must not be laundered into an `info`."""
+        issues = lint_drawing([self._dim(draft, "35", 20.0)])
+        assert [i.code for i in issues if i.code == "label_vs_measured"]

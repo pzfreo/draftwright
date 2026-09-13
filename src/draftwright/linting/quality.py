@@ -312,6 +312,13 @@ _UNSCORED_CODES = frozenset(
         "authored_omission",
         "axial_length_missing",
         "boss_height_missing",
+        # Where the sheet's precision prints a nominal the model does not have (#1600). Not
+        # fidelity: the label IS the measurement written to the places the sheet uses, and a
+        # general tolerance covers the difference — the check that treated it as a false
+        # statement was the defect. Not legibility either; the sheet reads perfectly. It is a
+        # statement about precision POLICY, which has no register of its own until #1602
+        # builds one.
+        "nominal_rounded",
         # The `*_withheld` family (#1216), kept together and in place alphabetically. Each is a
         # claim the drawing declined to make because it could not make it honestly, and said
         # so: a jittered pattern pitch, a step height the page cannot carry, and an `n×` mark

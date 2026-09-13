@@ -696,6 +696,12 @@ def lint_drawing(
         if hasattr(part_bbox.min, "Z") and hasattr(part_bbox.max, "Z"):
             _check_extent("Z", part_bbox.max.Z - part_bbox.min.Z)
 
+    # After the per-item pass, because it is an observation about the sheet rather than about
+    # any one annotation. That orders it within THIS function only: structural issues still
+    # precede the recognition-derived ones in a finished `Drawing.lint()`, so a caller that
+    # wants a particular finding must select it by code — `issues[0]` was never a stable
+    # address and one test was relying on it.
+    _lint_display_precision(items, issues, drawing_scale)
     return issues
 
 
@@ -762,6 +768,67 @@ def _view_edge_entries(vs, cache):
         entries = None
     cache[key] = (vs, entries)
     return entries
+
+
+#: Below this, in millimetres, a difference between the label and the model value is float
+#: noise from projection arithmetic rather than the sheet's precision losing anything real.
+_NOMINAL_SHIFT_FLOOR = 5e-4
+
+
+def _lint_display_precision(items, issues, drawing_scale: float = 1.0) -> None:
+    """Say where the sheet's precision prints a nominal the model does not have (#1600).
+
+    Correct rounding is not a defect, and since #1600 `label_vs_measured` no longer reports it
+    — rightly, because it was reporting it only on SHORT dimensions, where the same 0.05 mm
+    was a large enough fraction to trip a relative threshold. But that left nothing saying it
+    at all, and 4.450 printed as `4.5` is a real 0.05 mm between the drawing and the model. On
+    a part carrying 0.05 mm clearances, that is the whole clearance.
+
+    The engine cannot tell which of those matter. `4.450` locating a hinge axis is design
+    intent; `71.595` as an overall envelope is parametric fallout that no drafter would print
+    in full. Deciding between them needs to know what the part is FOR, which a STEP file does
+    not carry — the same gap as #1597.
+
+    So this does not guess and does not change the rounding. It reports, once per sheet with
+    the worst case named, so the difference is visible and the author can raise the places on
+    the dimensions that carry the function: `.format(decimals=…)` already does that per
+    dimension, and survives the `--script` round trip.
+
+    `info`, because within the title block's general tolerance a rounded nominal is ordinary
+    drafting. It is the parts whose real tolerance is tighter than the stated one where this
+    matters, and the sheet cannot know that either.
+    """
+    shortfalls = []
+    for item in items:
+        label = _item_label(item)
+        label_val = _label_reading(item, label)
+        measurement = dimension_path_measurement(item, drawing_scale)
+        if label_val is None or measurement is None:
+            continue
+        measured, item_scale = measurement
+        effective = measured / item_scale
+        if effective <= 1e-6:
+            continue
+        shift = abs(label_val - effective)
+        if shift > _NOMINAL_SHIFT_FLOOR:
+            shortfalls.append((shift, label, effective))
+    if not shortfalls:
+        return
+    shortfalls.sort(key=lambda entry: (-entry[0], entry[1]))
+    worst_shift, worst_label, worst_value = shortfalls[0]
+    issues.append(
+        LintIssue(
+            severity="info",
+            code="nominal_rounded",
+            message=(
+                f"{len(shortfalls)} dimension(s) print a nominal the model does not have, "
+                f"rounded to the sheet's precision; the largest is '{worst_label}' for "
+                f"{worst_value:.4f} ({worst_shift:.4f} mm). Within a general tolerance this is "
+                f"ordinary; where a fit depends on it, raise that dimension's places with "
+                f".format(decimals=...)"
+            ),
+        )
+    )
 
 
 def _lint_scale_stated(items, issues) -> None:

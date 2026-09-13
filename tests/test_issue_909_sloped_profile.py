@@ -108,8 +108,13 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint(monkey
     ) == Counter({"51.1°": 1, "128.9°": 1})
     # An angle label over a blank region inside the view extents is legitimate;
     # every diagnostic must describe that informational condition only.
+    # `nominal_rounded` joins it: this part's sloped profile gives lengths that are not
+    # round at one decimal place, so the sheet prints nominals a few microns off the model
+    # and now says so (#1600). Also informational, and the assertion below still holds the
+    # line that matters — nothing here is a warning or an error.
     assert all(
-        issue.severity == "info" and issue.code == "view_annotation_inside_extents"
+        issue.severity == "info"
+        and issue.code in {"view_annotation_inside_extents", "nominal_rounded"}
         for issue in drawing.lint()
     )
 

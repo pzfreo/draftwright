@@ -18,6 +18,28 @@
   register of codes meaning *the sheet says something untrue*, and a code that fires on
   correct rounding cannot be hard-failed on.
 
+### Added
+
+- **`nominal_rounded` says where the sheet's precision loses the model value.** Silencing
+  the false alarm above left nothing reporting it at all, and `4.5` for 4.450 is still a
+  real 0.05 mm between drawing and model — on a part carrying 0.05 mm clearances, the whole
+  clearance. One `info` per sheet, naming the worst case:
+
+  > 7 dimension(s) print a nominal the model does not have, rounded to the sheet's
+  > precision; the largest is '15.7' for 15.6500 (0.0500 mm). Within a general tolerance
+  > this is ordinary; where a fit depends on it, raise that dimension's places with
+  > `.format(decimals=...)`
+
+  It does **not** guess, and does not change any rounding. `4.450` locating a hinge axis is
+  design intent; `71.595` as an overall envelope is parametric fallout no drafter would
+  print in full — and telling them apart needs to know what the part is *for*, which a STEP
+  file does not carry (the same gap as #1597). So the engine reports and the author decides:
+  `.format(decimals=…)` already sets places per dimension and survives the `--script` round
+  trip.
+
+  Measured: 7 of 25 numeric dimension labels on `whistle_frame_reference.step`; silent on
+  every golden fixture, all of which are built from round numbers.
+
 ### Fixed
 
 - **A required dimension with nowhere to go now re-plans the sheet instead of being
