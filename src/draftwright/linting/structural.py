@@ -185,7 +185,7 @@ def _label_bbox(item, warned=None):
 _BARE_NUMERIC_LABEL = re.compile(r"^[⌀ØøR\s]*(\d+(?:\.(\d+))?)\s*$")
 
 
-def _displayed_decimals(item, label: str) -> int:
+def _displayed_decimals(item, label: str, decimals: int | None = None) -> int:
     """How many decimal places this dimension's value is actually written to.
 
     NOT simply the places in the string. `_fmt` trims a trailing `.0`, so a sheet at one
@@ -193,13 +193,16 @@ def _displayed_decimals(item, label: str) -> int:
     precision behind it. Reading the string alone granted half a millimetre of slack to every
     whole-numbered label and let a genuine 9% mislabel pass as ordinary rounding.
 
-    So the sheet's own precision is the floor, and it IS reachable: an engine-built dimension
+    An explicit compiler-owned precision overrides the default, including zero places.
+    Otherwise the sheet's own precision is the floor: an engine-built dimension
     carries the draft it was made with on `_dw_spec`. A label may only RAISE it, and only when
     the label is a bare number — `4.45` from `.format(decimals=2)` really does assert two
     places. A compound label (`2× ⌀2.4 THRU`, `12 ±0.05`) is left to the sheet, because the
     first number in such a string is as likely to be a multiplier or a tolerance as the
     nominal; `_label_reading` exists precisely because that cannot be read off the text.
     """
+    if decimals is not None:
+        return decimals
     draft = getattr(getattr(item, "_dw_spec", None), "draft", None)
     sheet = getattr(draft, "decimal_precision", None)
     match = _BARE_NUMERIC_LABEL.match(label)
@@ -209,7 +212,9 @@ def _displayed_decimals(item, label: str) -> int:
     return max(int(sheet), bare) if bare is not None else int(sheet)
 
 
-def _is_correctly_rounded(item, label_val: float, measured: float, label: str) -> bool:
+def _is_correctly_rounded(
+    item, label_val: float, measured: float, label: str, decimals: int | None = None
+) -> bool:
     """Whether the label is the measurement, written to the precision this dimension uses.
 
     A drawing prints 4.450 as `4.5` at one decimal place, and the engine then compared `4.5`
@@ -222,7 +227,10 @@ def _is_correctly_rounded(item, label_val: float, measured: float, label: str) -
     that is the label doing its job. Anything beyond it is a real disagreement and still
     reported: an axis swap or a wrong endpoint misses by far more than half a display unit.
     """
-    return abs(label_val - measured) <= 0.5 * 10.0 ** -_displayed_decimals(item, label) + 1e-9
+    return (
+        abs(label_val - measured)
+        <= 0.5 * 10.0 ** -_displayed_decimals(item, label, decimals) + 1e-9
+    )
 
 
 def _label_reading(item, label: str) -> float | None:
@@ -296,6 +304,7 @@ def lint_drawing(
     view_material_fields: dict | None = None,
     view_names: list | None = None,
     _aggregation: _IssueAggregation | None = None,
+    display_decimals: dict[int, int] | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -407,7 +416,14 @@ def lint_drawing(
         if getattr(item, "elbow", None) is not None:
             _lint_leader(item, issues, box_cache, warned=warned_label_bbox)
         elif is_dimension_like(item):
-            _lint_dim(item, part_bbox, issues, drawing_scale, box_cache)
+            _lint_dim(
+                item,
+                part_bbox,
+                issues,
+                drawing_scale,
+                box_cache,
+                decimals=(display_decimals or {}).get(id(item)),
+            )
 
     # Pairwise label-overlap check. The compare-box for a label-less item is an
     # *optimal* bounding_box() — expensive, and previously recomputed for both
@@ -712,7 +728,7 @@ def lint_drawing(
     # precede the recognition-derived ones in a finished `Drawing.lint()`, so a caller that
     # wants a particular finding must select it by code — `issues[0]` was never a stable
     # address and one test was relying on it.
-    _lint_display_precision(items, issues, drawing_scale)
+    _lint_display_precision(items, issues, drawing_scale, display_decimals=display_decimals)
     return issues
 
 
@@ -786,7 +802,9 @@ def _view_edge_entries(vs, cache):
 _NOMINAL_SHIFT_FLOOR = 5e-4
 
 
-def _lint_display_precision(items, issues, drawing_scale: float = 1.0) -> None:
+def _lint_display_precision(
+    items, issues, drawing_scale: float = 1.0, *, display_decimals=None
+) -> None:
     """Say where the sheet's precision prints a nominal the model does not have (#1600).
 
     Correct rounding is not a defect, and since #1600 `label_vs_measured` no longer reports it
@@ -832,7 +850,7 @@ def _lint_display_precision(items, issues, drawing_scale: float = 1.0) -> None:
         # the "worst case" named — displacing the one thing this exists to surface, and
         # describing an error as ordinary. `label_vs_measured` owns that case.
         if shift > _NOMINAL_SHIFT_FLOOR and _is_correctly_rounded(
-            item, label_val, effective, label
+            item, label_val, effective, label, (display_decimals or {}).get(id(item))
         ):
             shortfalls.append((shift, label, effective))
     if not shortfalls:
@@ -848,7 +866,7 @@ def _lint_display_precision(items, issues, drawing_scale: float = 1.0) -> None:
                 f"rounded to the sheet's precision; the largest is '{worst_label}' for "
                 f"{worst_value:.4f} ({worst_shift:.4f} mm). Within a general tolerance this is "
                 f"ordinary. Where a fit depends on it, raise that dimension's places with "
-                f".format(decimals=...) — which a LOCATION dimension cannot yet accept (#1610)"
+                f".format(decimals=...)"
             ),
         )
     )
@@ -1334,7 +1352,9 @@ def dimension_path_measurement(item, drawing_scale: float = 1.0):
     return measured, item_scale
 
 
-def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None) -> None:
+def _lint_dim(
+    item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None, *, decimals=None
+) -> None:
     label = _item_label(item)
     measurement = dimension_path_measurement(item, drawing_scale)
     # A repeat label is read as its producer declared it (#1153).
@@ -1345,7 +1365,7 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
         measured, item_scale = measurement
         effective_measured = measured / item_scale
         if effective_measured > 1e-6 and not _is_correctly_rounded(
-            item, label_val, effective_measured, label
+            item, label_val, effective_measured, label, decimals
         ):
             ratio = abs(label_val - effective_measured) / effective_measured
             if ratio > 0.005:

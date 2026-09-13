@@ -196,6 +196,25 @@ def compiled_values(plan) -> dict:
     return {key: tuple(entries) for key, entries in values.items()}
 
 
+def compiled_display_precisions(registry, plan) -> dict[int, int]:
+    """Explicit formatting policy for unambiguously identified placed measurements."""
+    values = compiled_values(plan)
+    result = {}
+    for name in registry.names():
+        measurements = registry.measurement_of(name)
+        if not measurements or any(measurement not in values for measurement in measurements):
+            continue
+        policies = {
+            approved.display_decimals
+            for measurement in measurements
+            for approved in values[measurement]
+        }
+        if len(policies) == 1 and None not in policies:
+            (decimals,) = policies
+            result[id(registry.named(name))] = decimals
+    return result
+
+
 #: Table columns whose cells are counts or identifiers rather than measurements, matched on the
 #: header row a table carries as its first entry.
 #:

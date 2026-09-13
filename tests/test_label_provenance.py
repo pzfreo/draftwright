@@ -46,13 +46,6 @@ import pytest
 #: are different kinds of debt and should not be confused: the first is a compiler contract
 #: that has not been split yet, the second is a value that never enters the plan at all.
 _FMT_BUDGET: dict[str, tuple[int, str]] = {
-    # --- Locations. The Z-normal ladder is the one location family without per-axis values:
-    # `render_locations` groups refs ACROSS features and dedups per axis before it knows
-    # which dims exist, so an entry per axis would approve a mark whose existence the
-    # renderer decides. Splitting it means moving that grouping into the compiler. Every
-    # other family (off-axis holes, non-Z pockets, slots) is already per-axis.
-    "from_model.render_locations": (3, "Z ladder groups across features before deduping"),
-    "holes.add_feature_location": (2, "the live verb onto that same Z ladder"),
     # --- The turned step chain composes its labels while collapsing repeat runs, so the
     # text is decided by the collapse rather than per approved entry.
     "from_model.render_step_lengths": (3, "labels decided during the repeat-run collapse"),

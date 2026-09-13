@@ -705,15 +705,11 @@ class DimensionIntent:
         This is display policy on a referential intent, not a restated label: reconciliation,
         tolerance, suppression and provenance continue to use the feature parameter's numeric
         value and semantic identity.  Automatic dimensions keep their existing formatting
-        unless their explicit ``add_dimension`` intent opts in.
+        unless their explicit ``add_dimension`` intent opts in. For a location intent,
+        the policy applies to every selected directional value.
         """
         if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 15:
             raise ValueError("format(decimals=...) requires an integer from 0 to 15")
-        if self._entry["role"] == _LOCATION_ROLE:
-            raise ValueError(
-                "format() is unavailable for location intent: one location may compile "
-                "into multiple directional values"
-            )
         self._entry["display_decimals"] = decimals
         return self
 

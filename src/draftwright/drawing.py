@@ -4084,6 +4084,27 @@ class Drawing:
         # lint_drawing for bounds checks — draftwright owns linting now and no
         # longer relies on the helpers set_page module-global (ADR 3 (was 0007)).
         page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
+        # Formatting is a compiler policy, including an explicit coarser precision. It is
+        # needed by placement-only critique too, without acquiring physical recognition.
+        model = self._part_model
+        dimension_plan = None
+        if model is not None:
+            requests = (
+                model.authored_dimensions
+                if model.authored_dimensions is not None
+                else model.requested_dimensions
+            )
+            if physical or any(request.display_decimals is not None for request in requests):
+                from draftwright.model.compiled import compile_dimensions
+
+                dimension_plan = compile_dimensions(model)
+        from draftwright.linting.evidence import compiled_display_precisions
+
+        display_decimals = (
+            compiled_display_precisions(self._registry, dimension_plan)
+            if dimension_plan is not None
+            else None
+        )
         # Names and shapes come out of ONE traversal. Two comprehensions over an
         # unmutated dict would in fact agree — Python guarantees the iteration order —
         # so this is defensive style, not a fixed hazard: it keeps the positional
@@ -4124,6 +4145,7 @@ class Drawing:
             ann_box_cache=self._ann_box_cache,
             view_material_fields=self.material_fields(),
             _aggregation=aggregation,
+            display_decimals=display_decimals,
         )
         working_part = self._working_part
         if physical and working_part is None:
@@ -4179,20 +4201,8 @@ class Drawing:
                 prof_kw = {}
             if recognition is None:
                 recognition = self._build.ensure_recognition(working_part)
-            model = self._part_model
-            if model is not None:
-                # Every annotation's measurement claims, resolved against what it renders
-                # (#1217). Coverage believes these claims; this is the only thing that
-                # checks them. Cheap — pure Python over the IR and the registry, no
-                # geometry — and it needs the compiled plan because the value an annotation
-                # SHOULD show is the compiler's, never a renderer's own formatting
-                # (ADR 4 (was 0016 Amendment 1)).
-                from draftwright.model.compiled import compile_dimensions
-
-                dimension_plan = compile_dimensions(model)
+            if dimension_plan is not None:
                 issues += lint_claimed_representations(self._registry, dimension_plan)
-            else:
-                dimension_plan = None
             from draftwright.linting.schedule_evidence import verified_schedule_registry
 
             physical_registry = verified_schedule_registry(self._registry, dimension_plan)

@@ -488,3 +488,30 @@ class TestTheRemainingSmallGuards:
         assert [o.state for o in verify_measurement_claims(registry, _plan(approved))] == [
             "value_absent"
         ]
+
+
+@pytest.mark.parametrize(
+    "policies,claims,expected",
+    [
+        ((0, 0), ("first", "second"), 0),
+        ((0, 2), ("first", "second"), None),
+        ((0, None), ("first", "second"), None),
+        ((0, 0), ("unknown",), None),
+        ((0, 0), (), None),
+    ],
+)
+def test_display_precision_requires_one_resolved_policy(policies, claims, expected):
+    from draftwright.linting.evidence import compiled_display_precisions
+    from draftwright.registry import AnnotationRegistry
+
+    annotation = SimpleNamespace(label="4")
+    registry = AnnotationRegistry()
+    registry.add(annotation, "dimension", "front", measurement=claims)
+    plan = SimpleNamespace(
+        locations=tuple(
+            SimpleNamespace(id=name, display_decimals=decimals)
+            for name, decimals in zip(("first", "second"), policies, strict=True)
+        )
+    )
+    result = compiled_display_precisions(registry, plan)
+    assert result == ({} if expected is None else {id(annotation): expected})
