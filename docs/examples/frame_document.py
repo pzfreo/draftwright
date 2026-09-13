@@ -102,6 +102,12 @@ def declare_document(source):
         for parameter in seat.parameters():
             general.dimension(seat, parameter.parameter_id)
         general.dimension(seat, "location").format(decimals=3)
+    hexes = [feature for feature in package.features if feature.kind == "hex_pocket"]
+    if len(hexes) != 6:
+        raise ValueError("the pinned frame must supply six blind hex nut pockets")
+    for pocket in hexes:
+        for parameter in pocket.parameters():
+            general.dimension(pocket, parameter.parameter_id)
     general.section_view("A", at=0)
     for feature in selected["bolts"] + selected["hinge"] + selected["sockets"]:
         features.dimension(feature, "bore.diameter")
@@ -120,13 +126,6 @@ def declare_document(source):
             "TITANIUM GRADE: ENGINEERING DECISION REQUIRED",
             STATUS,
         ]
-    )
-    general.table(
-        [
-            ["Operation", "Quantity", "Dimensions", "Status"],
-            ["Underside hex pockets", "6", "SEE ENGINEERING INPUT", "UNSUPPORTED GRAMMAR"],
-        ],
-        name="pocket_schedule",
     )
     general.notes(["TITANIUM GRADE: ENGINEERING DECISION REQUIRED", STATUS])
     return package, {"general": general, "features": features}

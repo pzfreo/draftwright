@@ -58,6 +58,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("from_model.py", "render_paired_ramp_steps", True),
         ("from_model.py", "render_boss_diameters", False),
         ("from_model.py", "_render_polygonal_prisms", False),
+        ("from_model.py", "render_hex_pockets", True),
         ("holes.py", "render_pocket_patterns", False),
         ("holes.py", "render_slot_patterns", False),
     }

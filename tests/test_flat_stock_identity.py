@@ -74,7 +74,11 @@ def test_two_parallel_lobes_place_two_independent_definitions():
     there is clear margin above it.  Removing the margin-escape candidates must make this
     test fail with one placed callout plus one ``flat_dropped`` issue.
     """
-    dwg = build_drawing(_two_parallel_lobes())
+    # Distinct sizes must remain separate even after identical stocks gain an n× label.
+    other = Cylinder(15, 40) - Pos(14, 0, 0) * Box(10, 40, 50)
+    part = _lobe() + Pos(100, 0, 0) * other
+    assert len({flat.across for flat in recognise_flats(part)}) == 2
+    dwg = build_drawing(part)
 
     callouts = sorted(n for n in dwg.annotations() if n.startswith("m_flat_"))
     dropped = [i for i in dwg.lint() if i.code == "flat_dropped"]
@@ -115,11 +119,10 @@ def test_coaxial_separated_stock_is_two_definitions_not_one():
 
     dwg = build_drawing(_coaxial_separated_stocks())
     callouts = [n for n in dwg.annotations() if n.startswith("m_flat_")]
-    dropped = [i for i in dwg.lint() if i.code == "flat_dropped"]
-    assert len(callouts) + len(dropped) == 2, (
-        f"two coaxial stocks are two A/F definitions; got {len(callouts)} placed + "
-        f"{len(dropped)} reported. One callout and no report is the silent defect."
-    )
+    assert len(callouts) == 1
+    assert dwg.get_annotation(callouts[0]).label == "2× 22.5 A/F"
+    assert len(dwg.measurement_keys(callouts[0])) == 2
+    assert not [i for i in dwg.lint() if i.code == "flat_dropped"]
 
 
 def test_the_emitted_script_carries_the_stock_identity(tmp_path):
@@ -207,11 +210,13 @@ def test_slanted_stock_has_canonical_identity_and_a_placed_definition():
         or issue.code.startswith("flat_requirement_")
     ]
 
-    # Translation perpendicular to the slanted direction changes the canonical line position,
-    # so the two physical requirements remain two rendered definitions.
+    # Independent stocks retain two requirements even when equal sizes share counted ink.
     two_slants = slant + Pos(0, 60, 0) * slant
     multi = build_drawing(two_slants)
-    assert len([n for n in multi.annotations() if n.startswith("m_flat_")]) == 2
+    names = [n for n in multi.annotations() if n.startswith("m_flat_")]
+    assert len(names) == 1
+    assert multi.get_annotation(names[0]).label.startswith("2× ")
+    assert len(multi.measurement_keys(names[0])) == 2
     assert not [i for i in multi.lint() if i.code == "flat_dropped"]
 
 

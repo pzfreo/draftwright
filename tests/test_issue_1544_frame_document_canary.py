@@ -180,27 +180,30 @@ def _membership(report):
     )
 
 
-def test_frame_preserves_unsupported_pockets_and_uncredited_segment_note(frame_document, recipe):
+def test_frame_represents_seats_and_pockets_without_crediting_the_segment_note(
+    frame_document, recipe
+):
     package, result = frame_document
     report = result.report()
     rows = report["recognition"]["requirements"]
-    # Six obligations per seat replace its former single unsupported-grammar outcome.
-    assert len(rows) == 71
+    # Each seat has six requirements; each hex pocket has two physical sizes.
+    assert len(rows) == 77
     recesses = [row for row in rows if row["family"] == "section_recesses"]
-    assert len(recesses) == 24
+    assert len(recesses) == 30
     assert len({tuple(row["occurrence_ids"]) for row in recesses}) == 9
     seat_requirements = [
         row for row in recesses if (row["parameter_id"] or "").startswith("seat_")
     ]
-    pockets = [row for row in recesses if row["parameter_id"] is None]
-    assert len(seat_requirements) == 18 and len(pockets) == 6
+    pockets = [
+        row
+        for row in recesses
+        if row["parameter_id"] in {"polygon_across_flats.length", "pocket_depth.length"}
+    ]
+    assert len(seat_requirements) == 18 and len(pockets) == 12
     assert all(
         row["requirement_count"] == 1 and row["coverage_credit"] == 1 for row in seat_requirements
     )
-    assert all(row["requirement_count"] == 1 and row["coverage_credit"] == 0 for row in pockets)
-    assert all(
-        all(local["state"] == "unsupported" for local in row["local_outcomes"]) for row in pockets
-    )
+    assert all(row["requirement_count"] == 1 and row["coverage_credit"] == 1 for row in pockets)
     recognised_recesses = [
         row for row in report["recognition"]["occurrences"] if row["family"] == "section_recesses"
     ]
@@ -359,26 +362,25 @@ def test_frame_production_exports_retain_verified_cells_and_visible_diagnostics(
             issue.code in {"title_field_overflow", "table_dropped", "section_dropped"}
             for issue in issues
         )
-        assert (
-            sum(issue.code == "prismatic_pocket_requirement_unsupported" for issue in issues) == 6
+        assert not any(
+            issue.code == "prismatic_pocket_requirement_unsupported" for issue in issues
         )
     saved = json.loads((tmp_path / "package/document.json").read_text())
     assert _membership(saved) == _membership(after)
     assert saved["claims"] == after["claims"]
 
 
-def test_numeric_descriptive_pocket_table_cannot_erase_unsupported_obligations(frame_document):
+def test_numeric_descriptive_table_cannot_replace_missing_pocket_measurements(frame_document):
     _package, result = frame_document
     general = result.sheets["general"]
     before = result.report()
-    original = general.get_annotation("pocket_schedule").table_rows
-    general.remove("pocket_schedule")
+    names = [name for name in general.annotations() if name.startswith("m_hex_pocket_")]
+    assert len(names) == 1
+    assert len(general.measurement_keys(names[0])) == 12
+    general.remove(names[0])
     try:
         table = general.add_table(
-            [
-                ["Pocket", "Qty", "Unverified test input"],
-                ["Hex", "6", "AF 4.8 / DEPTH 2.4 - NOT ENGINEERING APPROVAL"],
-            ],
+            [["Pocket", "Qty", "Descriptive text"], ["Hex", "6", "4.3 A/F / 1.9 DEEP"]],
             name="pocket_schedule",
         )
         assert table is not None
@@ -387,19 +389,24 @@ def test_numeric_descriptive_pocket_table_cannot_erase_unsupported_obligations(f
         pockets = [
             row
             for row in after["recognition"]["requirements"]
-            if row["family"] == "section_recesses" and row["parameter_id"] is None
+            if row["family"] == "section_recesses"
+            and row["parameter_id"] in {"polygon_across_flats.length", "pocket_depth.length"}
         ]
-        assert len(pockets) == 6 and all(row["coverage_credit"] == 0 for row in pockets)
-        assert all(
-            all(local["state"] == "unsupported" for local in row["local_outcomes"])
-            for row in pockets
-        )
+        assert len(pockets) == 12 and all(row["coverage_credit"] == 0 for row in pockets)
         assert not any(claim["annotation"] == "pocket_schedule" for claim in after["claims"])
         assert not general.registry.measurement_of("pocket_schedule")
     finally:
         if "pocket_schedule" in general.registry:
             general.remove("pocket_schedule")
-        general.add_table(original, name="pocket_schedule")
+        with general.deferred():
+            for feature in general.model().features:
+                if feature.kind == "hex_pocket":
+                    general.callout(feature)
+    restored = result.report()
+    assert _membership(restored) == _membership(before)
+    assert sum(row["coverage_credit"] for row in restored["recognition"]["requirements"]) == sum(
+        row["coverage_credit"] for row in before["recognition"]["requirements"]
+    )
 
 
 def test_export_refuses_a_document_with_different_captured_source(recipe, tmp_path):

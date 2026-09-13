@@ -1352,6 +1352,20 @@ class TestEveryFeatureVerbIsNameable:
             side="convex",
             axis_direction=(0, 0, 1),
         ),
+        "hex_pocket": dict(
+            axis="z",
+            depth=1.9,
+            open_sign=1,
+            at=(0, 0, 0),
+            section=(
+                (-2.15, -1.2415),
+                (0, -2.483),
+                (2.15, -1.2415),
+                (2.15, 1.2415),
+                (0, 2.483),
+                (-2.15, 1.2415),
+            ),
+        ),
         "circular_channel": dict(
             axis="z",
             radius=4,

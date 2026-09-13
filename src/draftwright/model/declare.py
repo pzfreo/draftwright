@@ -61,6 +61,7 @@ from draftwright.model.ir import (
     FlatFeature,
     Frame,
     GrooveFeature,
+    HexPocketFeature,
     HoleFeature,
     LevelSupport,
     Note,
@@ -738,6 +739,11 @@ def blend(
         path_kind=path_kind,
         path_radius=path_radius,
     )
+
+
+def hex_pocket(*, axis, depth, open_sign, at, section) -> HexPocketFeature:
+    """Declare a blind hex by its physical mouth vertices and inward depth."""
+    return HexPocketFeature(Frame(at, axis), depth, open_sign, section)
 
 
 def circular_channel(*, axis, radius, length, centreline, section) -> CircularChannelFeature:

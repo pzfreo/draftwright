@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from math import atan2, cos, hypot, isclose, isfinite, pi
 from numbers import Real
-from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, cast, runtime_checkable
 
 from draftwright._geometry import (
     _axis_direction_is_aligned,
@@ -38,7 +38,11 @@ from draftwright.feature_identity import (
     register_envelope_feature_type,
     register_oriented_slot_feature_type,
 )
-from draftwright.section_recess_contract import circular_channel_geometry, validate_pocket_mouth
+from draftwright.section_recess_contract import (
+    circular_channel_geometry,
+    hex_pocket_geometry,
+    validate_pocket_mouth,
+)
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES
 
 if TYPE_CHECKING:
@@ -2336,6 +2340,54 @@ class BlendFeature:
 
 
 register_blend_ir_types(BlendFeature, Frame)
+
+
+@dataclass(frozen=True)
+class HexPocketFeature:
+    """A blind regular hex retaining its physical mouth section and opening side."""
+
+    frame: Frame
+    depth: float
+    open_sign: int
+    section: tuple[tuple[float, float], ...]
+    kind: ClassVar[str] = "hex_pocket"
+    side_count: ClassVar[int] = 6
+
+    def __post_init__(self) -> None:
+        if type(self.frame) is not Frame:
+            raise TypeError("hex pocket frame must be an exact Frame")
+        data = hex_pocket_geometry(
+            self.frame.axis, self.depth, self.open_sign, self.frame.origin, self.section
+        )
+        object.__setattr__(self, "frame", Frame(data["origin"], self.frame.axis))
+        object.__setattr__(self, "depth", data["depth"])
+        object.__setattr__(self, "section", data["section"])
+
+    def _geometry(self):
+        return hex_pocket_geometry(
+            self.frame.axis, self.depth, self.open_sign, self.frame.origin, self.section
+        )
+
+    @property
+    def across_flats(self) -> float:
+        return float(self._geometry()["across_flats"])
+
+    @property
+    def flat_centres(self) -> tuple[Point, ...]:
+        return cast(tuple[Point, ...], self._geometry()["flat_centres"])
+
+    @property
+    def flat_directions(self) -> tuple[Point, ...]:
+        return cast(tuple[Point, ...], self._geometry()["flat_directions"])
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("length", "polygon_across_flats", self.across_flats),
+            DimParameter("length", "pocket_depth", self.depth),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
 
 
 @dataclass(frozen=True)

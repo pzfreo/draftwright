@@ -1149,6 +1149,7 @@ class TestTheBoundaryIsLoadBearing:
             "render_flats",
             "render_grooves",
             "render_height_ladder",
+            "render_hex_pockets",
             "render_locations",
             "render_oriented_slots",
             "render_pad_heights",

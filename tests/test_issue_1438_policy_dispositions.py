@@ -50,7 +50,7 @@ def _passage_part():
 def _prismatic_pocket_part():
     with BuildPart() as tool:
         with BuildSketch(Plane.XY.offset(4)):
-            RegularPolygon(12, 6)
+            RegularPolygon(12, 5)
         extrude(amount=20)
     return Box(120, 80, 20) - tool.part
 

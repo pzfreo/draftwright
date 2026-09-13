@@ -395,6 +395,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "pad": ("frame", "width_axis", "long_axis", "direction"),
     "boss": ("frame", "thread", "knurl"),
     "polygonal_boss": ("frame", "side_count", "flat_directions", "flat_centres"),
+    "hex_pocket": ("frame", "side_count", "flat_directions", "flat_centres", "open_sign"),
     "polygonal_stock": ("frame", "side_count", "flat_directions", "flat_centres"),
     # ``profile`` is immutable body ownership (axis origin + body bounds), not a printable
     # diameter/length. Renderers need it to keep parallel/disconnected chains separate (#1357).
