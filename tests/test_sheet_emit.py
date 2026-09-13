@@ -1975,9 +1975,13 @@ class TestRoundTripParity:
         scripted, direct = self._parity(part, tmp_path, monkeypatch)
         # The raw face level is owned by the channel/plates in the final IR. It must
         # not reserve a phantom height slot only on the automatic path.
-        assert direct._analysis.step_zs
+        recognition = direct.recognition()
+        bounds = direct.model().bbox
+        assert recognition.step_ladder_for_z_span(bounds.min.Z, bounds.max.Z)
         assert not any(feature.kind == "step_level" for feature in direct.model().features)
-        assert direct._analysis.layout_n_steps == scripted._analysis.layout_n_steps == 0
+        assert {view: direct.view_bounds(view) for view in direct.views} == {
+            view: scripted.view_bounds(view) for view in scripted.views
+        }
 
     def test_pattern_parity(self, tmp_path, monkeypatch):
         part = (

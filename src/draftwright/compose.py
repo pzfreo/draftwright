@@ -61,7 +61,7 @@ from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
 from draftwright.model.callout import hole_callout_batches, hole_callout_suffix
-from draftwright.model.ir import authored_dimension_target_view
+from draftwright.model.ir import ThroughStepFeature, authored_dimension_target_view
 from draftwright.model.planner import (
     angular_pattern_label,
     annotation_groups,
@@ -70,6 +70,7 @@ from draftwright.model.planner import (
 )
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    VIEW_AXES,
     LayoutCandidate,
     ScalePick,
     candidate_is_feasible,
@@ -616,6 +617,24 @@ def _compose_anno_boxes(
             # in-plane ordinates, one in each strip.
             _reserve(view, "above")
             _reserve(view, "right")
+
+    # A through-step owns its two orthogonal legs after the adapter removes matching
+    # raw face levels/plates. Reserve those approved legs directly; a phantom legacy
+    # height ladder must not be what happens to give them room (#1592).
+    if any(feature.kind == "through_step" for feature in model.features):
+        for group in annotation_groups(model, plan_dimensions(model)):
+            if not isinstance(group.feature, ThroughStepFeature) or group.view is None:
+                continue
+            horizontal, vertical = VIEW_AXES[group.view]
+            outside = dict(group.feature.outside_directions)
+            for dimension in group.dims:
+                if dimension.suppressed or dimension.param.role != "through_step_leg":
+                    continue
+                if dimension.param.discriminator == horizontal:
+                    side = "above" if outside[vertical] > 0 else "below"
+                else:
+                    side = "right" if outside[horizontal] > 0 else "left"
+                _reserve(group.view, side)
 
     # Axial boss sizes occupy the same profile corridors on detected and declared parts.
     # Include them before view packing; a turned chain does not convey its end caps.
