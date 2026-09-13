@@ -921,6 +921,8 @@ def _repack(
         return g.auto_fits if auto_search else g.fits
 
     fit = next(((c, gg) for c in candidates if _candidate_fits(gg := _geom(c))), None)
+    # This search also runs on candidates the outer planner may discard. Keep
+    # diagnostics on their registries; only final drawing lint is user-facing.
     repack_advisories: list[tuple[str, str]] = []
     if fit is not None:
         chosen, g = fit
@@ -949,7 +951,7 @@ def _repack(
                         f"No standard scale fits the measured layout; using computed {lo:g}",
                     )
                 )
-                _log.warning(
+                _log.debug(
                     "measure-repack: no standard sheet fits the measured layout; "
                     "using computed %s",
                     format_drawing_scale(lo),
@@ -962,9 +964,7 @@ def _repack(
             repack_advisories.append(
                 ("page_fit_uncertain", f"No sheet/scale fits the measured layout; using {chosen}")
             )
-            _log.warning(
-                "measure-repack: no sheet/scale fits the measured layout; using %s", chosen
-            )
+            _log.debug("measure-repack: no sheet/scale fits the measured layout; using %s", chosen)
     s, pw, ph, tb = chosen
     moved = max(
         abs(g.FV_X - a.FV_X),
@@ -1105,7 +1105,7 @@ def _repack_to_fixed_point(
                         message=f"Measured repack stalled after {i} iterations with residual layout triggers",
                     )
                 )
-                _log.warning(
+                _log.debug(
                     "measure-repack: stalled after %d iteration(s) with residual layout triggers",
                     i,
                 )
@@ -1120,7 +1120,7 @@ def _repack_to_fixed_point(
                 message=f"Measured repack reached its {_REPACK_MAX_ITER} iteration limit with residual layout triggers",
             )
         )
-        _log.warning(
+        _log.debug(
             "measure-repack: reached iteration limit (%d) with residual layout triggers",
             _REPACK_MAX_ITER,
         )
