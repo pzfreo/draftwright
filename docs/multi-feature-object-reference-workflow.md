@@ -92,7 +92,7 @@ draftwright yourmodule:build_thumbwheel_features --script --out thumbwheel
 That writes `thumbwheel.py`. `--script` emits the declarative `Sheet` flavour by default (the
 only one since 0.3 — `--style sheet` is the sole accepted value).
 
-What comes out — **verbatim, with feature and dimension lines elided where marked**:
+What comes out — **verbatim excerpt, with feature and dimension lines elided where marked**:
 
 ```python
 from yourmodule import build_thumbwheel_features as _obj
@@ -113,7 +113,7 @@ sheet.dimension(hole1, "bore.depth")
 # ... twelve more dimension lines ...
 
 drawing = sheet.build()
-drawing.export('thumbwheel', formats=('pdf',))
+# The export call uses the absolute destination selected by the CLI.
 ```
 
 `features` and `part` are rebound to your **live source**, not a frozen STEP. References are

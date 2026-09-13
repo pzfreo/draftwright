@@ -55,7 +55,17 @@ draftwright my_part.step --no-report          # opt out of the JSON sidecar
 draftwright my_part.step --scale 2 --page A3  # override the auto scale / page
 draftwright my_part.step --scale 1 --page A4 --scale-policy strict
 draftwright my_part.step --script             # write an editable declarative Sheet script
+draftwright /parts/my_part.step --out-dir .   # explicitly write into the working directory
+draftwright my_part.step --out-dir drawings   # create/use a separate output directory
 ```
+
+CLI outputs default to the directory containing the STEP input, including an absolute or
+nested input path. `--script` writes its Python file and inspection sidecar there too; the
+script retains that output destination when run from another directory. Use `--out-dir DIR`
+to choose a directory, or `--out PREFIX` to choose a basename as well (these options are
+mutually exclusive). Relative overrides use the current working directory. Live object
+scripts (`module:part`) default to `drawing.py` in the working directory.
+
 
 `draftwright --help` lists every flag; `--version` prints the version.
 

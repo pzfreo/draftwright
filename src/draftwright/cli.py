@@ -138,6 +138,27 @@ def _looks_like_object_spec(s: str) -> bool:
     return re.match(r"^.+:[A-Za-z_][A-Za-z0-9_]*$", s) is not None
 
 
+def _output_prefix(source: str, out: str | None, out_dir: Path | None, *, script: bool) -> str:
+    """Resolve one CLI destination for rendering, script generation and replay."""
+    if out is not None and out_dir is not None:
+        raise typer.BadParameter("use either --out or --out-dir, not both", param_hint="--out-dir")
+    object_source = script and _looks_like_object_spec(source)
+    if out is not None:
+        prefix = Path(out)
+    elif out_dir is not None:
+        prefix = out_dir / ("drawing" if object_source else Path(source).stem)
+    else:
+        prefix = Path("drawing") if object_source else Path(source).with_suffix("")
+    suffixes = (
+        (".svg", ".dxf", ".pdf", ".png", ".py") if script else (".svg", ".dxf", ".pdf", ".png")
+    )
+    if prefix.suffix in suffixes:
+        prefix = prefix.with_suffix("")
+    # Keep the destination chosen at invocation when a generated script is run elsewhere.
+    # abspath normalizes '..' while retaining a supplied symlink directory.
+    return os.path.abspath(prefix)
+
+
 def _installed_version() -> str:
     """The installed distribution version (the PyPI version once pip-installed);
     ``"unknown"`` when running from a source tree with no installed metadata."""
@@ -156,7 +177,14 @@ def _version_callback(value: bool) -> None:
 @app.command()
 def main(
     step_file: str = typer.Argument(..., help="Input STEP file (.step / .stp)"),
-    out: str | None = typer.Option(None, help="Output prefix (default: input stem)"),
+    out: str | None = typer.Option(
+        None, help="Output prefix; relative paths use the working directory"
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        file_okay=False,
+        help="Output directory (default: beside the STEP input); use '.' for the working directory",
+    ),
     title: str | None = typer.Option(None, help="Part title for title block"),
     number: str = typer.Option("DWG-001", help="Drawing number"),
     tolerance: str | None = typer.Option(
@@ -278,6 +306,10 @@ def main(
         raise typer.BadParameter(
             "--scale-policy requires an explicit --scale", param_hint="--scale-policy"
         )
+
+    out = _output_prefix(step_file, out, out_dir, script=script)
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
     # Import the engine lazily, only on the build path: it pulls in build123d/OCP
     # (~5 s of CAD-kernel import). Keeping it out of module scope means shell

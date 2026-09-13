@@ -56,3 +56,20 @@ When redirected it emits no live controls; `--verbose` emits plain stage events 
 `--no-progress` disables both forms. Output paths remain on stdout. Ctrl-C prints the
 cancellation diagnostic to stderr and exits with code 130. `--script` generation does not use
 this display.
+
+
+## CLI output destinations
+
+The CLI defaults to writing beside the supplied STEP input. For example,
+`draftwright /parts/frame.step --format all` writes `/parts/frame.svg`, `.dxf`, `.pdf`,
+`.png`, and `.draftwright.json`. `--script` writes `/parts/frame.py` and its inspection
+sidecar; replay uses the destination selected when the script was generated.
+
+Use `--out-dir .` to write into the current working directory, `--out-dir drawings` to
+create/use a destination directory, or `--out drawings/revised-frame` to choose a prefix.
+`--out` and `--out-dir` are mutually exclusive. Relative overrides are resolved at invocation.
+For a live object script (`module:part` or `file.py:part`), the default is `drawing.py` in the
+working directory; `--out-dir` places that basename in the requested directory.
+
+This changes the CLI default for STEP inputs outside the working directory. Python API
+output defaults are unchanged. Every CLI prints its written artifact paths on stdout.
