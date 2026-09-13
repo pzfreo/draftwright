@@ -201,8 +201,10 @@ def test_a_full_authored_side_is_reported_instead_of_using_the_other_side(monkey
 
     def narrow_left(drawing, analysis, *args, **kwargs):
         edge_left = analysis.proj.side_x(analysis.bb.min.Y)
-        bounded = replace(analysis, margin=edge_left + 1)
-        assert bounded.margin > edge_left
+        bounded = replace(
+            analysis, content_margins=replace(analysis.content_margins, left=edge_left + 1)
+        )
+        assert bounded.content_margins.left > edge_left
         attempts.append(bounded)
         return annotate(drawing, bounded, *args, **kwargs)
 

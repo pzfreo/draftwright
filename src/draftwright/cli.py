@@ -174,6 +174,15 @@ def main(
     frame: bool = typer.Option(
         False, "--frame", help="Draw a sheet border; content reserves clearance inside it"
     ),
+    margin_left: float | None = typer.Option(None, help="Left sheet margin in mm (default: 10)"),
+    margin_right: float | None = typer.Option(None, help="Right sheet margin in mm (default: 10)"),
+    margin_top: float | None = typer.Option(None, help="Top sheet margin in mm (default: 10)"),
+    margin_bottom: float | None = typer.Option(
+        None, help="Bottom sheet margin in mm (default: 10)"
+    ),
+    title_block_width: float | None = typer.Option(
+        None, help="Exact title-block width in mm; aligns to the sheet margins"
+    ),
     projection: str = typer.Option(
         "",
         "--projection",
@@ -306,6 +315,11 @@ def main(
                 document_type=document_type,
                 sheet=sheet,
                 frame=frame,
+                margin_left=margin_left,
+                margin_right=margin_right,
+                margin_top=margin_top,
+                margin_bottom=margin_bottom,
+                title_block_width=title_block_width,
                 zones=zones,
                 projection=projection or None,
                 projection_symbol=projection_symbol,
@@ -336,6 +350,11 @@ def main(
                 document_type=document_type,
                 sheet=sheet,
                 frame=frame,
+                margin_left=margin_left,
+                margin_right=margin_right,
+                margin_top=margin_top,
+                margin_bottom=margin_bottom,
+                title_block_width=title_block_width,
                 zones=zones,
                 projection=projection or None,
                 projection_symbol=projection_symbol,
@@ -376,6 +395,11 @@ def main(
                 document_type=document_type,
                 sheet=sheet,
                 frame=frame,
+                margin_left=margin_left,
+                margin_right=margin_right,
+                margin_top=margin_top,
+                margin_bottom=margin_bottom,
+                title_block_width=title_block_width,
                 projection=projection or None,
                 projection_symbol=projection_symbol,
                 text_position=text_position,

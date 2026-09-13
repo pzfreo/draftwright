@@ -273,6 +273,7 @@ class TestDiameterColumnOccupancy:
 
         class _Dwg:
             draft = Draft(font_size=3.0)
+            page_w, page_h = 420.0, 297.0
 
             def view_bounds(s, v):
                 return (40.0, 0.0, 80.0, 40.0)  # ample room to the left of fx0=40

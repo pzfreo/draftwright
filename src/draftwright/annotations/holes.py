@@ -28,6 +28,7 @@ from draftwright._core import (
     _WITNESS_LIFT_MM,
     Analysis,
     HoleRef,
+    _analysis_margins,
     _concentric_with_axis,
     _dim,
     _first_free_index,
@@ -202,7 +203,9 @@ def add_feature_callout(
             if coord is not None:
                 elbow_y = coord
         elbow = (centre[0], elbow_y)
-        room_right = (a.PAGE_W - a.margin) if a is not None else centre[0] + gap + w
+        room_right = (
+            (a.PAGE_W - _analysis_margins(a).right) if a is not None else centre[0] + gap + w
+        )
         tside = "right" if centre[0] + gap + w <= room_right else "left"
     else:  # plan / side → to the right of the view
         zones = (
@@ -1728,7 +1731,7 @@ def _place_pitch_dim(
         return unshifted
 
     def _place(off, side_vec=side):
-        page_box = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+        page_box = _analysis_margins(a).bounds(a.PAGE_W, a.PAGE_H)
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         ctx.place(
             _clear_and_validate(off, side_vec, page_box, obstacles),
@@ -1788,7 +1791,7 @@ def _place_pitch_dim(
     # preferred side first and then its opposite before declaring the row genuinely full.
     step = max(2.5, dwg.draft.font_size)
     limit = math.hypot(a.PAGE_W, a.PAGE_H)
-    page_box = (a.margin, a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin)
+    page_box = _analysis_margins(a).bounds(a.PAGE_W, a.PAGE_H)
     obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
     for side_vec, reach_i in fallback_sides:
         base = reach_i + 8
@@ -2526,9 +2529,9 @@ def _place_front_callouts(
         rep = max(locs, key=lambda loc: to_page(loc)[0])
         centre = to_page(rep)
         text_sides = []
-        if centre[0] + gap + w <= a.PAGE_W - a.margin:
+        if centre[0] + gap + w <= a.PAGE_W - _analysis_margins(a).right:
             text_sides.append(("right", centre[0] + gap, centre[0] + gap + w))
-        if centre[0] - gap - w >= a.margin:
+        if centre[0] - gap - w >= _analysis_margins(a).left:
             text_sides.append(("left", centre[0] - gap - w, centre[0] - gap))
         if not text_sides:
             _log.info("Hole callout ø%s skipped (no room)", _fmt(dia))
@@ -3140,10 +3143,12 @@ def _place_planside_callouts(
         right_limit = (
             right_strip.outer_limit
             if view == "plan" or centre_r[1] >= iso_y0 - draft.font_size
-            else a.PAGE_W - a.margin
+            else a.PAGE_W - _analysis_margins(a).right
         )
         can_right = (edge_right + elbow_dx) + gap + w <= right_limit
-        can_left = edge_left is not None and (edge_left - elbow_dx) - gap - w >= a.margin
+        can_left = (
+            edge_left is not None and (edge_left - elbow_dx) - gap - w >= _analysis_margins(a).left
+        )
         requested_side = side_of_callout.get(id(callout))
         if requested_side == "right":
             can_left = False

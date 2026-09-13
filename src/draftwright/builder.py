@@ -39,6 +39,7 @@ from draftwright._core import (
     _add_sheet_frame,
     _add_title_block,
     _add_zone_grid,
+    _analysis_margins,
     _dimension_draft,
     _dimension_head_bounds,
     _iso_bbox,
@@ -70,6 +71,7 @@ from draftwright.compose import (
     _build_rear_zones,
     _build_zones,
     _layout_geometry,
+    _page_furniture_fits,
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
@@ -309,7 +311,7 @@ def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
     re-sizes it because the overflowing balloons are part of the plan footprint
     (#92).  Only view-owned annotations count — those are what a repack can move
     by escalating the sheet."""
-    lo, hi_x, hi_y = a.margin, a.PAGE_W - a.margin, a.PAGE_H - a.margin
+    lo_x, lo_y, hi_x, hi_y = _analysis_margins(a).bounds(a.PAGE_W, a.PAGE_H)
     for name, o in dwg.iter_annotations():
         if dwg.view_of(name) not in PRINCIPAL_VIEW_NAMES:
             continue
@@ -324,7 +326,7 @@ def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
             if lb is None:
                 continue
             bb = lb
-        if bb[0] < lo - tol or bb[1] < lo - tol or bb[2] > hi_x + tol or bb[3] > hi_y + tol:
+        if bb[0] < lo_x - tol or bb[1] < lo_y - tol or bb[2] > hi_x + tol or bb[3] > hi_y + tol:
             return True
     return False
 
@@ -788,17 +790,36 @@ def _repack_candidates(a, scale, page):
     """The (scale, page_w, page_h, tb_w) candidates the repack may choose from,
     mirroring :func:`choose_scale`: a user-fixed scale and/or page is honoured;
     otherwise the auto ladder (smallest legible sheet first) is searched."""
+    explicit_width = getattr(a, "title_block_width", None)
+
+    def block_width(default):
+        return explicit_width if explicit_width is not None else default
+
     if scale is not None and page is not None:
         pw, ph, tb = _parse_page(page)
-        return [(float(scale), pw, ph, tb)]
-    if page is not None:
+        candidates = [(float(scale), pw, ph, block_width(tb))]
+    elif page is not None:
         pw, ph, tb = _parse_page(page)
-        return [(s, pw, ph, tb) for s in _SCALES]
-    if scale is not None:
-        return [(float(scale), pw, ph, _tb_width(pw)) for pw, ph in _PAGE_SIZES.values()]
-    # Auto repack uses the same composed-footprint fitness as choose_scale (#519),
-    # so it no longer needs a pass-1 floor to compensate for divergent fit models.
-    return list(_LADDER)
+        candidates = [(s, pw, ph, block_width(tb)) for s in _SCALES]
+    elif scale is not None:
+        candidates = [
+            (float(scale), pw, ph, block_width(_tb_width(pw))) for pw, ph in _PAGE_SIZES.values()
+        ]
+    else:
+        candidates = [(s, pw, ph, block_width(tb)) for s, pw, ph, tb in _LADDER]
+    # Repacking can escalate the sheet but cannot relax its authored furniture constraints.
+    title_margins = getattr(a, "title_block_margins", None)
+    margin = _analysis_margins(a) if title_margins is not None else a.margin
+    return [
+        candidate
+        for candidate in candidates
+        if _page_furniture_fits(
+            *candidate[1:],
+            margin=margin,
+            title_block_margins=title_margins,
+            title_block_width=explicit_width,
+        )
+    ]
 
 
 def _needs_repack(dwg, a) -> bool:
@@ -860,7 +881,8 @@ def _repack(
             table_sizes=a.layout_table_sizes,
             required_tables=a.layout_required_tables,
             warn_no_iso=False,
-            margin=a.margin,
+            title_block_margins=a.title_block_margins,
+            margin=_analysis_margins(a),
             # Compose the repack under the SAME arrangement placement used. Without this the
             # default would silently recompose as `columns`, which is the exact stage
             # disagreement this decision is carried to prevent.
@@ -887,7 +909,7 @@ def _repack(
             scale=s,
             centre=(a.cx, a.cy, a.cz),
             page=(pw, ph),
-            margin=a.margin,
+            margin=_analysis_margins(a),
             views=a.planned_views,
         )
         return geometry
@@ -974,7 +996,7 @@ def _repack(
         for code, message in repack_advisories:
             dwg.registry.record_issue(_layout_advisory(code, message))
         return None
-    fv_zones, pv_zones, sv_zones = _build_zones(g, a.margin, ph)
+    fv_zones, pv_zones, sv_zones = _build_zones(g, _analysis_margins(a), ph)
     a2 = replace(
         a,
         layout_advisories=advisories,
@@ -991,7 +1013,7 @@ def _repack(
         SV_Y=g.SV_Y,
         RV_X=g.RV_X,
         RV_Y=g.RV_Y,
-        rv_zones=_build_rear_zones(g, a.margin, ph),
+        rv_zones=_build_rear_zones(g, _analysis_margins(a), ph),
         fv_hw=g.fv_hw,
         fv_hh=g.fv_hh,
         pv_hh=g.pv_hh,
@@ -1176,6 +1198,11 @@ def _build_drawing_once(
     approved_by: str = "",
     document_type: str = "",
     sheet: str = "",
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1307,6 +1334,11 @@ def _build_drawing_once(
             approved_by=approved_by,
             document_type=document_type,
             sheet=sheet,
+            margin_left=margin_left,
+            margin_right=margin_right,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+            title_block_width=title_block_width,
             frame=frame,
             projection=projection,
             projection_symbol=projection_symbol,
@@ -1965,6 +1997,11 @@ def build_drawing(
     approved_by: str = "",
     document_type: str = "",
     sheet: str = "",
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -2019,6 +2056,11 @@ def build_drawing(
         approved_by=approved_by,
         document_type=document_type,
         sheet=sheet,
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+        title_block_width=title_block_width,
         frame=frame,
         projection=projection,
         projection_symbol=projection_symbol,
@@ -2943,6 +2985,11 @@ def make_drawing(
     approved_by: str = "",
     document_type: str = "",
     sheet: str = "",
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -3012,6 +3059,11 @@ def make_drawing(
         approved_by=approved_by,
         document_type=document_type,
         sheet=sheet,
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+        title_block_width=title_block_width,
         frame=frame,
         projection=projection,
         projection_symbol=projection_symbol,

@@ -28,6 +28,47 @@ retain the requested convention. Annotation footprints, scale/page selection and
 repacking use the same convention. An authored relation contradicting the principal layout
 fails before projection; a whole-view pin must preserve the convention's relationships.
 
+## Sheet margins and title-block width
+
+Set each physical sheet edge independently with `margin_left`, `margin_right`,
+`margin_top`, and `margin_bottom` (millimetres). Omitted edges remain 10 mm. `frame=True`
+draws the border at those margins and reserves a further 6 mm inside it for content.
+`zones=True` adds the zone ruler and implies a frame; each margin must fit its labels.
+
+Sergio's folded-sheet arrangement is an explicit option on A4, A3, or A2:
+
+```python
+from draftwright import build_drawing
+
+drawing = build_drawing(
+    "part.step", page="A3", frame=True,
+    margin_left=25, margin_right=10, margin_top=10, margin_bottom=10,
+    title_block_width=175,
+)
+drawing.export("sergio", formats=("pdf", "svg"))
+```
+
+The same keywords work on `Sheet(...)` and `make_drawing(...)`. An explicit
+`title_block_width` measures between border centrelines and aligns the block to the right
+and bottom sheet margins. The 175 mm block therefore fits the 210 mm folded face with
+25 mm left and 10 mm right clearance. Its visible border extends half its 0.15 mm stroke
+beyond each centreline. Without an explicit width, the existing widths remain 120 mm on
+A4 and 150 mm on larger ISO sheets, with the existing extra 1 mm right/bottom clearance.
+Revision defaults also remain unchanged.
+
+CLI parameters carry the same options into rendered drawings and generated scripts:
+
+```sh
+draftwright part.step --page A3 --frame \
+  --margin-left 25 --margin-right 10 --margin-top 10 --margin-bottom 10 \
+  --title-block-width 175 --out sergio --format pdf,svg
+```
+
+Add `--script` to write a replayable `Sheet` script. Margins must be finite and nonnegative;
+the width must be finite and positive. An explicit sheet too small for its margins and
+block is refused. `drawing.drawable_bounds` exposes the physical drawable rectangle as
+`(left, bottom, right, top)` page coordinates in millimetres.
+
 ## Dimension text style
 
 ### Title fields and notes at paper size

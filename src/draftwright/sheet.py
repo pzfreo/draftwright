@@ -1108,6 +1108,11 @@ class Sheet:
         document_type=None,
         sheet=None,
         frame=None,
+        margin_left=None,
+        margin_right=None,
+        margin_top=None,
+        margin_bottom=None,
+        title_block_width=None,
         projection=None,
         projection_symbol=True,
         text_position="inline",
@@ -1117,6 +1122,15 @@ class Sheet:
         pmi=None,
         source=None,
     ):
+        from draftwright._core import _sheet_option_margins, _validated_title_block_width
+
+        _sheet_option_margins(
+            margin_left=margin_left,
+            margin_right=margin_right,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+        )
+        _validated_title_block_width(title_block_width)
         validate_projection(projection, projection_symbol=projection_symbol)
         _dimension_draft(text_position, text_orientation)
         self._part = part
@@ -1215,6 +1229,11 @@ class Sheet:
             ("document_type", document_type),
             ("sheet", sheet),
             ("frame", frame),
+            ("margin_left", margin_left),
+            ("margin_right", margin_right),
+            ("margin_top", margin_top),
+            ("margin_bottom", margin_bottom),
+            ("title_block_width", title_block_width),
             ("projection", projection),
             ("projection_symbol", projection_symbol),
             ("text_position", text_position),

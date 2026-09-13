@@ -35,14 +35,18 @@ from draftwright._core import (
     _CONCENTRIC_TOL_MM,
     _DIM_PAD,
     _FONT_SIZE,
+    _FRAME_BAND,
     _MARGIN,
     _MIN_RENDER_MM,
     _MIN_VIEW_MM,
     Analysis,
+    SheetMargins,
     _content_margin,
     _dimension_draft,
     _legible_steps,
     _Projector,
+    _sheet_option_margins,
+    _validated_title_block_width,
 )
 from draftwright._geometry import _classify_rotational_cylinders, _solids_body
 from draftwright._geometry import (
@@ -122,7 +126,7 @@ def _apply_principal_view_pins(
     scale: float,
     centre: tuple[float, float, float],
     page: tuple[float, float],
-    margin: float,
+    margin: float | SheetMargins,
     views: tuple[str, ...] | None,
 ) -> None:
     """Translate the conventional orthographic group to satisfy authored origin pins.
@@ -136,6 +140,7 @@ def _apply_principal_view_pins(
 
     if not isinstance(constraints, ViewConstraints) or not constraints.pins:
         return
+    margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
     planned = set(views or ("front", "plan", "side"))
     centres = {
         "front": (geometry.FV_X, geometry.FV_Y),
@@ -201,10 +206,10 @@ def _apply_principal_view_pins(
     for name in planned:
         x, y, hw, hh = extents[name]
         if (
-            x - hw < margin
-            or x + hw > page_w - margin
-            or y - hh < margin
-            or y + hh > page_h - margin
+            x - hw < margins.left
+            or x + hw > page_w - margins.right
+            or y - hh < margins.bottom
+            or y + hh > page_h - margins.top
         ):
             pin = translations[0][2]
             raise ValueError(
@@ -694,6 +699,8 @@ def _validate_explicit_scale(
     layout_table_sizes,
     layout_required_tables=(),
     margin=_MARGIN,
+    title_block_margins: SheetMargins | None = None,
+    title_block_width: float | None = None,
     warn_advisory: bool = True,
     advisories: list[tuple[str, str]] | None = None,
     views: tuple[str, ...] | None = None,
@@ -736,6 +743,8 @@ def _validate_explicit_scale(
         table_sizes=layout_table_sizes,
         required_tables=layout_required_tables,
         margin=margin,
+        title_block_margins=title_block_margins,
+        title_block_width=title_block_width,
         views=views,
         include_iso=include_iso,
         iso_scale_factor=iso_scale_factor,
@@ -797,6 +806,11 @@ def _analyse(
     _view_constraints=None,
     _framed_recognition: bool = False,
     _document_input=None,
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
 ) -> Analysis:
     """Load STEP or use a build123d Shape, analyse geometry, compute layout.
 
@@ -818,7 +832,25 @@ def _analyse(
     # The content margin — raised by the sheet-frame band (#767) so scale/page selection and
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
-    margin = _content_margin(frame)
+    sheet_margins = _sheet_option_margins(
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+    )
+    content_margins = sheet_margins.inset(_FRAME_BAND if frame else 0.0)
+    title_block_width = _validated_title_block_width(title_block_width)
+    custom_margins = any(
+        value is not None for value in (margin_left, margin_right, margin_top, margin_bottom)
+    )
+    margin = content_margins if custom_margins else _content_margin(frame)
+    title_block_margins = None
+    if title_block_width is not None:
+        title_block_margins = sheet_margins
+    elif custom_margins:
+        title_block_margins = replace(
+            sheet_margins, right=sheet_margins.right + 1.0, bottom=sheet_margins.bottom + 1.0
+        )
     recognition: RecognitionResult | None
     recognition_evidence: RecognitionEvidence | None = None
     recognition_frame: PartFrame | None = None
@@ -1186,6 +1218,10 @@ def _analyse(
         for schedule in schedule_tables
     )
     planned_iso_scale = _planned_iso_scale(_view_constraints)
+    # Recognition's raw face levels can be owned by a plate, channel, or pocket and
+    # removed from the final step ladder. Reserve only the levels present in that IR,
+    # just as a declared replay does (#1592). Keep step_zs as the recognition diagnostic.
+    layout_step_zs = _declared_step_zs(sizing_model, _profiles, bb)
 
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
@@ -1221,6 +1257,8 @@ def _analyse(
             table_sizes=layout_table_sizes,
             required_tables=layout_required_tables,
             margin=margin,
+            title_block_margins=title_block_margins,
+            title_block_width=title_block_width,
             arrangements=_arrangements,
             advisories=layout_advisories,
             views=_views,
@@ -1230,10 +1268,10 @@ def _analyse(
         )
 
     scale_pick, strips_i, n_for_sizing = _converge_step_sizing(
-        len(step_zs),
+        len(layout_step_zs),
         _measure_for_step_count,
         _pick_for_step_count,
-        lambda scale_i: len(_legible_steps(step_zs, bb.min.Z, scale_i)[0]),
+        lambda scale_i: len(_legible_steps(layout_step_zs, bb.min.Z, scale_i)[0]),
     )
     SCALE, PAGE_W, PAGE_H, TB_W = scale_pick
     # The fourth dimension of the ADR 2 (was 0018 §5) choice, carried from `choose_scale` rather than
@@ -1254,6 +1292,8 @@ def _analyse(
         layout_table_sizes,
         layout_required_tables,
         margin=margin,
+        title_block_margins=title_block_margins,
+        title_block_width=title_block_width,
         warn_advisory=_reuse is None,
         advisories=layout_advisories,
         views=_views,
@@ -1264,7 +1304,7 @@ def _analyse(
     DIM_PAD = _DIM_PAD
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
-    n_steps = len(_legible_steps(step_zs, bb.min.Z, SCALE)[0])
+    n_steps = len(_legible_steps(layout_step_zs, bb.min.Z, SCALE)[0])
     strips = _measure_strips(
         strip_sizing_model,
         n_steps,
@@ -1290,6 +1330,7 @@ def _analyse(
         table_sizes=layout_table_sizes,
         required_tables=layout_required_tables,
         margin=margin,
+        title_block_margins=title_block_margins,
         arrangement=ARRANGEMENT,
         views=_views,
         include_iso=_include_iso,
@@ -1411,7 +1452,11 @@ def _analyse(
         PAGE_H=PAGE_H,
         TB_W=TB_W,
         DIM_PAD=DIM_PAD,
-        margin=margin,
+        margin=_content_margin(frame),
+        sheet_margins=sheet_margins,
+        content_margins=content_margins,
+        title_block_width=title_block_width,
+        title_block_margins=title_block_margins,
         x_offset=x_offset,
         FV_X=FV_X,
         FV_Y=FV_Y,

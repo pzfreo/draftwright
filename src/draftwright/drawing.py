@@ -51,12 +51,14 @@ from build123d_drafting.helpers import DEFAULT_FONT_PATH
 from quiddity import analyse_cylinders
 
 from draftwright._core import (
-    _MARGIN,
     Analysis,
+    SheetMargins,
+    _analysis_margins,
     _build_table,
     _dim,
     _fmt,
     _font_safe_text,
+    _frame_margins,
     _log,
     _table_metrics,
     _tag_sequence,
@@ -818,6 +820,14 @@ class Drawing:
             if decision is not None
             else {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
         )
+
+    @property
+    def drawable_bounds(self) -> tuple[float, float, float, float]:
+        """Physical margins as ``(left, bottom, right, top)`` page coordinates in mm.
+
+        A frame uses this rectangle; view placement reserves additional clearance inside it.
+        """
+        return _frame_margins(self._analysis).bounds(self.page_w, self.page_h)
 
     @property
     def registry(self):
@@ -3714,10 +3724,10 @@ class Drawing:
         table.table_block_cols = block_cols
         w, h = table.table_size
         a = self._analysis
-        margin = a.margin if a is not None else 10.0
+        margins = _analysis_margins(a) if a is not None else SheetMargins()
         pw = a.PAGE_W if a is not None else self.page_w
         ph = a.PAGE_H if a is not None else self.page_h
-        region = (margin, margin, pw - margin, ph - margin)
+        region = margins.bounds(pw, ph)
         # The shared post-fit occupancy policy — views, decomposed annotation ink, minus
         # the page-spanning riders, plus the title-block hull. Extracted so the NTS
         # caption places against the same set (#1197); every hand-rolled copy of it has
@@ -4053,7 +4063,7 @@ class Drawing:
         def ink_candidates(dimensions, pins):
             return prevent_dimension_label_ink(
                 dimensions,
-                page=(_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN),
+                page=self.drawable_bounds,
                 immutable=pins,
                 perpendicular_step=self.draft.font_size + 2 * self.draft.pad_around_text,
             )
@@ -4083,7 +4093,7 @@ class Drawing:
         # Drawable area (page minus the standard margin), passed explicitly to
         # lint_drawing for bounds checks — draftwright owns linting now and no
         # longer relies on the helpers set_page module-global (ADR 3 (was 0007)).
-        page_bbox = (_MARGIN, _MARGIN, self.page_w - _MARGIN, self.page_h - _MARGIN)
+        page_bbox = self.drawable_bounds
         # Formatting is a compiler policy, including an explicit coarser precision. It is
         # needed by placement-only critique too, without acquiring physical recognition.
         model = self._part_model

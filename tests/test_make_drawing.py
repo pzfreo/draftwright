@@ -2832,7 +2832,7 @@ class TestComposeThenPackRepack:
         from draftwright._core import _LADDER
         from draftwright.builder import _repack_candidates
 
-        a = SimpleNamespace(SCALE=0.2, PAGE_W=594.0, PAGE_H=420.0)
+        a = SimpleNamespace(SCALE=0.2, PAGE_W=594.0, PAGE_H=420.0, margin=10.0)
         cands = _repack_candidates(a, None, None)
         # #519: repack and choose_scale now share one composed-footprint fit, so
         # repack no longer needs a pass-1 floor to defend against a looser model.
@@ -2891,7 +2891,7 @@ class TestComposeThenPackRepack:
 
         from draftwright.builder import _repack_candidates
 
-        a = SimpleNamespace(SCALE=1.0, PAGE_W=297.0, PAGE_H=210.0)
+        a = SimpleNamespace(SCALE=1.0, PAGE_W=297.0, PAGE_H=210.0, margin=10.0)
         cands = _repack_candidates(a, 2.0, "A3")
         assert len(cands) == 1 and cands[0][0] == 2.0
 

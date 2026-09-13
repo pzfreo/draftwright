@@ -21,11 +21,12 @@ from build123d import FontStyle
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
-    _MARGIN,
+    _analysis_margins,
     _anno_box,
     _decode_hole_location_fact,
     _dim,
     _dimension_head_bounds,
+    _drawing_bounds,
     _text_size,
     place_annotation,
 )
@@ -1276,7 +1277,7 @@ def place_iso_nts_note(dwg, a, bb) -> None:
 
     """
     font = dwg.draft.font_size
-    natural = (a.ISO_X, max(bb[1] - 2 * font, a.margin + font))
+    natural = (a.ISO_X, max(bb[1] - 2 * font, _analysis_margins(a).bottom + font))
 
     # One Note is built, not one per candidate: its box is position-invariant apart from
     # translation, so the rest are derived arithmetically rather than by six throwaway
@@ -1303,10 +1304,10 @@ def place_iso_nts_note(dwg, a, bb) -> None:
     # because ADR 4 (was 0001) requires the same sheet twice.
     candidates = [
         natural,
-        (a.ISO_X, max(bb[1] - 3 * font - height, a.margin + font)),
+        (a.ISO_X, max(bb[1] - 3 * font - height, _analysis_margins(a).bottom + font)),
         (bb[0] - font - width - offset_x, natural[1]),
         (bb[2] + font - offset_x, natural[1]),
-        (a.ISO_X, min(bb[3] + 2 * font, a.PAGE_H - a.margin - font)),
+        (a.ISO_X, min(bb[3] + 2 * font, a.PAGE_H - _analysis_margins(a).top - font)),
     ]
 
     obstacles = late_furniture_obstacles(dwg)
@@ -1337,7 +1338,7 @@ def place_iso_nts_note(dwg, a, bb) -> None:
         # and it scales with the font. The x candidates have no clamp at all — the
         # sideways positions deliberately step past the iso block and can leave the
         # sheet, which is what this catches.
-        if box[0] < a.margin or box[2] > a.PAGE_W - a.margin:
+        if box[0] < _analysis_margins(a).left or box[2] > a.PAGE_W - _analysis_margins(a).right:
             continue
         keep_clear = (
             box[0] - clearance,
@@ -3016,14 +3017,7 @@ def place_strip_candidates(
         adjusted = prevent_dimension_label_ink(
             solved,
             page=(
-                (
-                    _MARGIN,
-                    _MARGIN,
-                    float(dwg.page_w) - _MARGIN,
-                    float(dwg.page_h) - _MARGIN,
-                )
-                if hasattr(dwg, "page_w") and hasattr(dwg, "page_h")
-                else None
+                _drawing_bounds(dwg) if hasattr(dwg, "page_w") and hasattr(dwg, "page_h") else None
             ),
             immutable={name for name, _dim_obj in solved if (anchored or {}).get(name, False)},
         )
@@ -3060,10 +3054,10 @@ def place_strip_candidates(
             box = _geom_box(candidate)
             if (
                 box is None
-                or box[0] < _MARGIN
-                or box[1] < _MARGIN
-                or box[2] > dwg.page_w - _MARGIN
-                or box[3] > dwg.page_h - _MARGIN
+                or box[0] < _drawing_bounds(dwg)[0]
+                or box[1] < _drawing_bounds(dwg)[1]
+                or box[2] > _drawing_bounds(dwg)[2]
+                or box[3] > _drawing_bounds(dwg)[3]
                 or ((forbid or {}).get(name) is not None and _box_hits(box, (forbid[name],)))
                 or (label_clear is not None and not label_clear(candidate.label_bbox))
                 or not annotation_ink_clear(dwg, candidate, additional=others)

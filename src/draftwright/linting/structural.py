@@ -14,8 +14,9 @@ import logging
 import re
 
 from build123d import GeomType
+from build123d_drafting.helpers import TitleBlock
 
-from draftwright._core import _shape_box2d, _text_size
+from draftwright._core import _TB_LINE_WIDTH, _shape_box2d, _text_size
 from draftwright._geometry import (
     BOUNDS_ROUNDOFF,
     MATERIAL_VISIBLE_FLOOR,
@@ -663,7 +664,18 @@ def lint_drawing(
             bb = _ann_box(item, box_cache)
             if bb is None:
                 continue
-            for detail in _overshoots(bb, page_bbox):
+            # Sheet/title-block dimensions locate border centrelines. The known border
+            # stroke straddles that boundary; retain full-ink overflow checks beyond it.
+            item_bounds = page_bbox
+            if isinstance(item, TitleBlock) and hasattr(item, "title_field_specs"):
+                half_stroke = _TB_LINE_WIDTH / 2
+                item_bounds = (
+                    page_bbox[0] - half_stroke,
+                    page_bbox[1] - half_stroke,
+                    page_bbox[2] + half_stroke,
+                    page_bbox[3] + half_stroke,
+                )
+            for detail in _overshoots(bb, item_bounds):
                 lbl = _item_label(item) or "?"
                 issues.append(
                     LintIssue(

@@ -39,6 +39,7 @@ from draftwright._core import (
     _TABULATE_MIN_HOLES,
     _TB_CLEAR,
     _TB_H,
+    SheetMargins,
     Strip,
     ViewZones,
     _anno_box,
@@ -52,6 +53,7 @@ from draftwright._core import (
     _text_size,
     _text_width,
     _tol_suffix,
+    _validated_title_block_width,
     _wrap_rows,
 )
 from draftwright._geometry import _END_ON, _fmt_angle
@@ -59,7 +61,7 @@ from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
 from draftwright.model.callout import hole_callout_batches, hole_callout_suffix
-from draftwright.model.ir import authored_dimension_target_view
+from draftwright.model.ir import ThroughStepFeature, authored_dimension_target_view
 from draftwright.model.planner import (
     angular_pattern_label,
     annotation_groups,
@@ -68,6 +70,7 @@ from draftwright.model.planner import (
 )
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    VIEW_AXES,
     LayoutCandidate,
     ScalePick,
     candidate_is_feasible,
@@ -615,6 +618,24 @@ def _compose_anno_boxes(
             _reserve(view, "above")
             _reserve(view, "right")
 
+    # A through-step owns its two orthogonal legs after the adapter removes matching
+    # raw face levels/plates. Reserve those approved legs directly; a phantom legacy
+    # height ladder must not be what happens to give them room (#1592).
+    if any(feature.kind == "through_step" for feature in model.features):
+        for group in annotation_groups(model, plan_dimensions(model)):
+            if not isinstance(group.feature, ThroughStepFeature) or group.view is None:
+                continue
+            horizontal, vertical = VIEW_AXES[group.view]
+            outside = dict(group.feature.outside_directions)
+            for dimension in group.dims:
+                if dimension.suppressed or dimension.param.role != "through_step_leg":
+                    continue
+                if dimension.param.discriminator == horizontal:
+                    side = "above" if outside[vertical] > 0 else "below"
+                else:
+                    side = "right" if outside[horizontal] > 0 else "left"
+                _reserve(group.view, side)
+
     # Axial boss sizes occupy the same profile corridors on detected and declared parts.
     # Include them before view packing; a turned chain does not convey its end caps.
     axial_corridors = set()
@@ -753,7 +774,8 @@ def _fits(
     section: int | bool = False,
     table_sizes=(),
     required_tables=(),
-    margin: float = _MARGIN,
+    margin: float | SheetMargins = _MARGIN,
+    title_block_margins: SheetMargins | None = None,
     arrangement: str = "columns",
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
@@ -782,6 +804,7 @@ def _fits(
         required_tables=required_tables,
         warn_no_iso=False,
         margin=margin,
+        title_block_margins=title_block_margins,
         arrangement=arrangement,
         views=views,
         include_iso=include_iso,
@@ -805,6 +828,7 @@ def _bisect_fit_scale(
     table_sizes=(),
     required_tables=(),
     margin=_MARGIN,
+    title_block_margins: SheetMargins | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
     convention: str = "third",
@@ -833,6 +857,7 @@ def _bisect_fit_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            title_block_margins=title_block_margins,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
@@ -841,6 +866,31 @@ def _bisect_fit_scale(
         else:
             hi = mid
     return lo if lo > 0.0 else None
+
+
+def _page_furniture_fits(
+    width,
+    height,
+    block_width,
+    *,
+    margin,
+    title_block_margins=None,
+    title_block_width=None,
+):
+    """The same physical sheet gate for initial selection and measured repacking."""
+    if (
+        not isinstance(margin, SheetMargins)
+        and title_block_width is None
+        and title_block_margins is None
+    ):
+        return True  # Preserve the existing permissive defaults on tiny custom sheets.
+    margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
+    furniture = title_block_margins or SheetMargins(right=_TB_CLEAR, bottom=_TB_CLEAR)
+    return (
+        margins.fits(width, height)
+        and furniture.left + block_width + furniture.right <= width
+        and furniture.bottom + _TB_H + furniture.top <= height
+    )
 
 
 def choose_scale(
@@ -854,13 +904,15 @@ def choose_scale(
     section: int | bool = False,
     table_sizes=(),
     required_tables=(),
-    margin: float = _MARGIN,
+    margin: float | SheetMargins = _MARGIN,
+    title_block_margins: SheetMargins | None = None,
     arrangements: tuple[str, ...] | None = None,
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
     convention: str = "third",
     advisories: list[tuple[str, str]] | None = None,
+    title_block_width: float | None = None,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -881,6 +933,8 @@ def choose_scale(
             ``page`` are given they are used as-is (a warning is logged if the
             layout does not fit).
     """
+    title_block_width = _validated_title_block_width(title_block_width)
+
     if scale is not None and not float(scale) > 0:
         # `not x > 0` rather than `x <= 0` so NaN is refused: `nan <= 0` is False, and a NaN
         # scale is not merely wrong but unrecoverable — it reaches `project_to_viewport` and
@@ -888,6 +942,16 @@ def choose_scale(
         raise ValueError(f"scale must be positive, got {scale!r}")
     if scale is not None and page is not None:
         pw, ph, tb = _parse_page(page)
+        tb = title_block_width if title_block_width is not None else tb
+        if not _page_furniture_fits(
+            pw,
+            ph,
+            tb,
+            margin=margin,
+            title_block_margins=title_block_margins,
+            title_block_width=title_block_width,
+        ):
+            raise ValueError("sheet margins and title-block width leave no feasible sheet area")
         if not _fits(
             x_size,
             y_size,
@@ -903,6 +967,7 @@ def choose_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            title_block_margins=title_block_margins,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
@@ -922,6 +987,16 @@ def choose_scale(
         return float(scale), pw, ph, tb
     if page is not None:
         pw, ph, tb = _parse_page(page)
+        tb = title_block_width if title_block_width is not None else tb
+        if not _page_furniture_fits(
+            pw,
+            ph,
+            tb,
+            margin=margin,
+            title_block_margins=title_block_margins,
+            title_block_width=title_block_width,
+        ):
+            raise ValueError("sheet margins and title-block width leave no feasible sheet area")
         candidates = [(s, pw, ph, tb) for s in _SCALES]
         pack_iso_2d = True
     elif scale is not None:
@@ -930,6 +1005,21 @@ def choose_scale(
     else:
         candidates = _LADDER
         pack_iso_2d = False
+
+    if title_block_width is not None:
+        candidates = [(s, pw, ph, title_block_width) for s, pw, ph, _tb in candidates]
+    candidates = [
+        candidate
+        for candidate in candidates
+        if _page_furniture_fits(
+            *candidate[1:],
+            margin=margin,
+            title_block_margins=title_block_margins,
+            title_block_width=title_block_width,
+        )
+    ]
+    if not candidates:
+        raise ValueError("sheet margins and title-block width leave no feasible sheet area")
 
     # ADR 2 (was 0018 §5): this loop is the planner's candidate evaluation, and it is now expressed as
     # one. Each tuple becomes a `LayoutCandidate` carrying all four dimensions — view set,
@@ -960,6 +1050,7 @@ def choose_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            title_block_margins=title_block_margins,
             arrangement=candidate.arrangement,
             views=views,
             include_iso=include_iso,
@@ -1045,6 +1136,7 @@ def choose_scale(
             table_sizes=table_sizes,
             required_tables=required_tables,
             margin=margin,
+            title_block_margins=title_block_margins,
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
@@ -1270,7 +1362,8 @@ def _layout_geometry(
     table_sizes=(),
     required_tables=(),
     warn_no_iso=True,
-    margin: float = _MARGIN,
+    margin: float | SheetMargins = _MARGIN,
+    title_block_margins: SheetMargins | None = None,
     arrangement: str = "columns",
     views: tuple[str, ...] | None = None,
     include_iso: bool = True,
@@ -1291,6 +1384,11 @@ def _layout_geometry(
     # margin is a parameter (default _MARGIN) so a reserved content margin — e.g. the
     # #767 sheet-frame band — flows through BOTH scale selection and placement, which
     # share this one authority. Default keeps every existing caller byte-identical.
+    margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
+    left, right, top, bottom = margins.left, margins.right, margins.top, margins.bottom
+    furniture = title_block_margins or SheetMargins(right=_TB_CLEAR, bottom=_TB_CLEAR)
+    tb_right, tb_bottom = furniture.right, furniture.bottom
+    reserved_tb_bottom = bottom if title_block_margins is None else tb_bottom
     DIM_PAD = _DIM_PAD
     bbox_max = max(x_size, y_size, z_size)
     fv_hw = x_size * scale / 2
@@ -1420,10 +1518,10 @@ def _layout_geometry(
     else:
         column_h = 0.0
     side_h = (sv.bottom + 2 * sv.hh + sv.top) if has_side else 0.0
-    total_h = 2 * margin + max(column_h, side_h)
+    total_h = bottom + top + max(column_h, side_h)
     if composed_origins:
         total_h = (
-            2 * margin + max(b[3] for b in principal_boxes) - min(b[1] for b in principal_boxes)
+            bottom + top + max(b[3] for b in principal_boxes) - min(b[1] for b in principal_boxes)
         )
     y_offset = max(0.0, (page_h - total_h) / 2)
 
@@ -1457,7 +1555,7 @@ def _layout_geometry(
     # Does the orthographic band clear the title-block column vertically? Needed before the
     # arrangement choice, since it decides whether the tb width is part of the row at all.
     # (Recomputed below as `_auto_clears_tb` for the auto-fit verdict; same expression.)
-    _tb_col_w = 0.0 if (y_offset + margin + DIM_PAD) >= margin + _TB_H else tb_w
+    _tb_col_w = 0.0 if (y_offset + bottom + DIM_PAD) >= reserved_tb_bottom + _TB_H else tb_w
 
     if arrangement == "auto":
         # Resolve the arrangement from the inputs: columns unless its row overflows the sheet.
@@ -1482,7 +1580,7 @@ def _layout_geometry(
         # whatever each stage happens to know. That is the threading `choose_scale`'s 4-tuple
         # return has no room for, and it is the work the next ADR 2 (was 0018) slice owes: widen the
         # decision that `LayoutCandidate` already models to the value the pipeline carries.
-        columns_row_w = ortho_row_w + iso_row_budget + 2 * margin + _tb_col_w
+        columns_row_w = ortho_row_w + iso_row_budget + (left + right) + _tb_col_w
         arrangement = "columns" if columns_row_w <= page_w + 0.5 else "stacked-iso"
 
     if arrangement not in ARRANGEMENTS:
@@ -1493,7 +1591,7 @@ def _layout_geometry(
     if arrangement == "columns":
         # [front][side][iso][title block] — one row, iso reserves its own column.
         total_content_w = ortho_row_w + iso_row_budget
-        x_offset = max(0.0, (page_w - 2 * margin - tb_w - total_content_w) / 2)
+        x_offset = max(0.0, (page_w - (left + right) - tb_w - total_content_w) / 2)
     else:
         # [front][side] | [iso stacked above the title block] — the iso shares the right
         # column with the title block instead of claiming one of its own, which is worth
@@ -1509,8 +1607,8 @@ def _layout_geometry(
     # column must clear it or PV slides left of the centred region — and off the
     # margin (#121). Byte-identical on the estimator path (col_left == fv.left),
     # and symmetric with SV_X's use of col_right below.
-    FV_X = margin + x_offset + col_left + fv.hw
-    FV_Y = y_offset + margin + fv.bottom + fv.hh
+    FV_X = left + x_offset + col_left + fv.hw
+    FV_Y = y_offset + bottom + fv.bottom + fv.hh
     PV_X = FV_X
     # PV abuts the front-view block: gap = front top band + plan bottom band.
     PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
@@ -1520,8 +1618,8 @@ def _layout_geometry(
     SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
     SV_Y = FV_Y
     if composed_origins:
-        origin_x = margin + x_offset - min(b[0] for b in principal_boxes)
-        origin_y = margin + y_offset - min(b[1] for b in principal_boxes)
+        origin_x = left + x_offset - min(b[0] for b in principal_boxes)
+        origin_y = bottom + y_offset - min(b[1] for b in principal_boxes)
         FV_X, FV_Y = origin_x, origin_y
         PV_X, PV_Y = origin_x, origin_y + principal_origins["plan"][1]
         SV_X, SV_Y = origin_x + principal_origins["side"][0], origin_y
@@ -1538,13 +1636,15 @@ def _layout_geometry(
     if composed_origins:
         SECTION_X = origin_x + max(b[2] for b in principal_boxes) + 10.0 + section_hw
     sv_right_wall = (
-        (page_w - margin) if (PV_Y - pv_hh) > (margin + _TB_H) else (page_w - tb_w - margin)
+        (page_w - right)
+        if (PV_Y - pv_hh) > (reserved_tb_bottom + _TB_H)
+        else (page_w - tb_w - right)
     )
     outer_right_wall = sv_right_wall
     if first_angle and has_column:
         sv_right_wall = FV_X - fv.hw - col_left
 
-    drawable = (margin, margin, page_w - margin, page_h - margin)
+    drawable = margins.bounds(page_w, page_h)
 
     # Title block: a PINNED block.  Its lower-left corner sits _TB_CLEAR in from
     # the right page edge and _TB_CLEAR up from the bottom, _TB_H tall — the same
@@ -1557,10 +1657,10 @@ def _layout_geometry(
         _TB_H / 2,
         top=DIM_PAD,
         right=DIM_PAD,
-        bottom=_TB_CLEAR - margin,
+        bottom=tb_bottom - bottom,
         left=DIM_PAD,
     )
-    tb_cx, tb_cy = page_w - _TB_CLEAR - tb_w / 2, _TB_CLEAR + _TB_H / 2
+    tb_cx, tb_cy = page_w - tb_right - tb_w / 2, tb_bottom + _TB_H / 2
 
     # The iso is the one *placed* block: it takes the largest gap the fixed
     # blocks' footprints leave.  On the repack path use the MEASURED footprints
@@ -1642,11 +1742,11 @@ def _layout_geometry(
     cx1 = max(b[2] for b in _view_boxes)
     cy1 = max(b[3] for b in _view_boxes)
     _tol = 0.5
-    _clears_tb = cy0 >= (_TB_CLEAR + _TB_H)
-    _right_limit = (page_w - margin) if _clears_tb else (page_w - tb_w - margin)
-    _auto_views_bottom = y_offset + margin + DIM_PAD
-    _auto_clears_tb = _auto_views_bottom >= margin + _TB_H
-    _auto_row_w = total_content_w + 2 * margin + (0.0 if _auto_clears_tb else tb_w)
+    _clears_tb = cy0 >= (tb_bottom + _TB_H)
+    _right_limit = (page_w - right) if _clears_tb else (page_w - tb_w - right)
+    _auto_views_bottom = y_offset + bottom + DIM_PAD
+    _auto_clears_tb = _auto_views_bottom >= reserved_tb_bottom + _TB_H
+    _auto_row_w = total_content_w + (left + right) + (0.0 if _auto_clears_tb else tb_w)
     auto_row_fits = _auto_row_w <= page_w + _tol
     iso_fit = min(iso_right - iso_left, iso_top - iso_bottom)
     iso_min_fit = iso_natural if iso_exact else _ISO_MIN_FIT_FRAC * iso_natural
@@ -1673,18 +1773,18 @@ def _layout_geometry(
         iso_fits
         and table_fits
         and required_tables_fit
-        and cy0 >= margin - _tol
-        and cy1 <= page_h - margin + _tol
-        and cx0 >= margin - _tol
+        and cy0 >= bottom - _tol
+        and cy1 <= page_h - top + _tol
+        and cx0 >= left - _tol
         and cx1 <= _right_limit + _tol
     )
     auto_fits = (
         auto_row_fits
         and table_fits
         and required_tables_fit
-        and cy0 >= margin - _tol
-        and cy1 <= page_h - margin + _tol
-        and cx0 >= margin - _tol
+        and cy0 >= bottom - _tol
+        and cy1 <= page_h - top + _tol
+        and cx0 >= left - _tol
     )
 
     return SimpleNamespace(
@@ -1746,13 +1846,14 @@ def _build_rear_zones(g, margin, page_h):
     """The rear block's reserved strips, shared by initial layout and repacking."""
     if "rear" not in g.planned_views:
         return None
+    margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
     block = g.rear_block
     x, y = g.RV_X, g.RV_Y
     return ViewZones(
         right=Strip(x + block.hw, x + block.hw + block.right, direction=1),
         left=Strip(x - block.hw, x - block.hw - block.left, direction=-1),
-        above=Strip(y + block.hh, page_h - margin, direction=1),
-        below=Strip(y - block.hh, margin, direction=-1),
+        above=Strip(y + block.hh, page_h - margins.top, direction=1),
+        below=Strip(y - block.hh, margins.bottom, direction=-1),
     )
 
 
@@ -1764,6 +1865,7 @@ def _build_zones(g, margin, page_h):
     rebuild the zones from the repacked geometry with the same arithmetic — the
     zones must track the moved view centres, not the pass-1 placement.
     """
+    margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
     FV_X, FV_Y, fv_hw, fv_hh = g.FV_X, g.FV_Y, g.fv_hw, g.fv_hh
     PV_X, PV_Y, pv_hh = g.PV_X, g.PV_Y, g.pv_hh
     SV_X, SV_Y, sv_hw = g.SV_X, g.SV_Y, g.sv_hw
@@ -1784,37 +1886,39 @@ def _build_zones(g, margin, page_h):
         has_front = "front" in g.planned_views
         has_plan = "plan" in g.planned_views
         has_side = "side" in g.planned_views
-        column_left_wall = g.sv_right_wall if has_side else margin
+        column_left_wall = g.sv_right_wall if has_side else margins.left
         fv_zones = ViewZones(
             right=Strip(fv_right_edge, g.outer_right_wall, direction=1),
             left=Strip(fv_left_edge, column_left_wall, direction=-1),
-            above=Strip(fv_top_edge, page_h - margin, direction=1),
-            below=Strip(fv_bottom_edge, g.front_plan_wall if has_plan else margin, direction=-1),
+            above=Strip(fv_top_edge, page_h - margins.top, direction=1),
+            below=Strip(
+                fv_bottom_edge, g.front_plan_wall if has_plan else margins.bottom, direction=-1
+            ),
         )
         pv_zones = ViewZones(
             right=Strip(pv_right_edge, g.outer_right_wall, direction=1),
             left=Strip(pv_left_edge, column_left_wall, direction=-1),
             above=Strip(
-                pv_top_edge, g.front_plan_wall if has_front else page_h - margin, direction=1
+                pv_top_edge, g.front_plan_wall if has_front else page_h - margins.top, direction=1
             ),
-            below=Strip(pv_bottom_edge, margin, direction=-1),
+            below=Strip(pv_bottom_edge, margins.bottom, direction=-1),
         )
         sv_zones = ViewZones(
             right=Strip(SV_X + sv_hw, g.sv_right_wall, direction=1),
             left=None,
-            above=Strip(sv_top_edge, page_h - margin, direction=1),
-            below=Strip(SV_Y - fv_hh, margin, direction=-1),
+            above=Strip(sv_top_edge, page_h - margins.top, direction=1),
+            below=Strip(SV_Y - fv_hh, margins.bottom, direction=-1),
         )
         return fv_zones, pv_zones, sv_zones
 
     fv_zones = ViewZones(
         right=Strip(fv_right_edge, sv_left_edge, direction=1),
-        left=Strip(fv_left_edge, margin, direction=-1),
+        left=Strip(fv_left_edge, margins.left, direction=-1),
         # Stop the front-view 'above' strip short of pv_bottom_edge by the
         # slack the pv_below slot leaves in the gap, derived (not re-typed) so
         # it tracks _DIM_PAD and the slot constants.
         above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
-        below=Strip(fv_bottom_edge, margin, direction=-1),
+        below=Strip(fv_bottom_edge, margins.bottom, direction=-1),
     )
     pv_zones = ViewZones(
         # Outer limit = sv_left_edge (not iso_right_limit) so bore callouts in
@@ -1823,8 +1927,8 @@ def _build_zones(g, margin, page_h):
         # view.  gap_fv_sv is sized by _measure_strips to accommodate the widest
         # callout, so well-estimated labels will always fit within this bound.
         right=Strip(pv_right_edge, sv_left_edge, direction=1),
-        left=Strip(pv_left_edge, margin, direction=-1),
-        above=Strip(pv_top_edge, page_h - margin, direction=1),
+        left=Strip(pv_left_edge, margins.left, direction=-1),
+        above=Strip(pv_top_edge, page_h - margins.top, direction=1),
         # gap_fv_pv = _DIM_PAD; pv_below needs _est_pv_below_depth() mm,
         # leaving (_DIM_PAD - _est_pv_below_depth()) mm slack (assert above).
         below=Strip(pv_bottom_edge, fv_top_edge, direction=-1),
@@ -1835,7 +1939,7 @@ def _build_zones(g, margin, page_h):
         # ``g.sv_right`` is the packed outer footprint, not its inner anchor.
         right=Strip(g.sv_geometry_right, g.sv_right_wall, direction=1),
         left=None,  # immediately abuts the front view's right edge
-        above=Strip(sv_top_edge, page_h - margin, direction=1),
-        below=Strip(sv_bottom_edge, margin, direction=-1),
+        above=Strip(sv_top_edge, page_h - margins.top, direction=1),
+        below=Strip(sv_bottom_edge, margins.bottom, direction=-1),
     )
     return fv_zones, pv_zones, sv_zones

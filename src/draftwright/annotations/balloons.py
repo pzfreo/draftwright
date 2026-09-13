@@ -18,6 +18,7 @@ from build123d_drafting.helpers import Leader
 from draftwright._core import (
     _STRIP_GAP,
     _STRIP_SPACING,
+    _analysis_margins,
     _balloon_halo,
     _balloon_radius,
 )
@@ -126,7 +127,7 @@ def render_balloons(
     # Plan-view page edges; the reserved bands sit just outside them.
     pl, pr = a.PV_X - a.fv_hw, a.PV_X + a.fv_hw
     pt, pb = a.PV_Y + a.pv_hh, a.PV_Y - a.pv_hh
-    margin, ph, pw = a.margin, a.PAGE_H, a.PAGE_W
+    margins, ph, pw = _analysis_margins(a), a.PAGE_H, a.PAGE_W
     zones = a.pv_zones
     left_limit, right_limit = zones.left.outer_limit, zones.right.outer_limit
     bottom_limit, top_limit = zones.below.outer_limit, zones.above.outer_limit
@@ -181,8 +182,8 @@ def render_balloons(
     # and bottom balloons vary in X at a fixed Y just beyond it. Each line is
     # offset by its side's dim depth so the ring sits clear of the dims.
     band_defs = {
-        "left": ("y", pl - left_dim - centre_offset, margin + r, ph - margin - r),
-        "right": ("y", pr + right_dim + centre_offset, margin + r, ph - margin - r),
+        "left": ("y", pl - left_dim - centre_offset, margins.bottom + r, ph - margins.top - r),
+        "right": ("y", pr + right_dim + centre_offset, margins.bottom + r, ph - margins.top - r),
         "top": ("x", pt + top_dim + centre_offset, pl - standoff, right_limit - r),
         "bottom": ("x", bottom_line, pl - standoff, right_limit - r),
     }
@@ -358,7 +359,7 @@ def render_balloons(
         top_segments=top_segments,
         prefer_bands=preferred_bands if perimeter else (),
         preference_limit=_band_preference_limit(fs) if perimeter else 0.0,
-        page_box=(margin, margin, pw - margin, ph - margin),
+        page_box=margins.bounds(pw, ph),
         avoid_existing_labels=avoid_annotation_labels,
         local_glyph_boxes=local_glyph_boxes,
         band_gaps=band_gaps,
