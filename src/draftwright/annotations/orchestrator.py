@@ -15,6 +15,7 @@ bore set, side-drilled locations, the hole table) + the section/PMI passes.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import Literal
 
@@ -118,7 +119,7 @@ from draftwright.model import (
 from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.compiled import compile_dimensions, resolve_feature
 from draftwright.model.detect import _build_part_model_from_recognition
-from draftwright.model.planner import annotation_groups
+from draftwright.model.planner import annotation_groups, internal_section_rows
 from draftwright.progress import stage
 from draftwright.registry import MeasurementCell
 from draftwright.repair import reconcile_witness_labels
@@ -157,7 +158,16 @@ def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
             )
         slug = item.spec.name.removeprefix("section_")
         label = slug[0].upper() if len(set(slug)) == 1 else slug.upper()
-        plans.append(SectionPlan(cut_y, label=label, source=item.source))
+        plans.append(
+            SectionPlan(
+                cut_y,
+                label=label,
+                source=item.source,
+                internal_detail=any(
+                    abs(row - cut_y) <= 0.5 for row in internal_section_rows(model)
+                ),
+            )
+        )
 
     if constraints.derived_source != "authored":
         automatic = plan_sections(model, feature_keys)
@@ -168,7 +178,7 @@ def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
                 raise ValueError(
                     "automatic section cannot be named: authored labels A-H are exhausted"
                 )
-            plans.insert(0, SectionPlan(automatic.cut_y, label=auto_label))
+            plans.insert(0, replace(automatic, label=auto_label))
     return tuple(plans)
 
 
@@ -613,6 +623,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # feature_keys, no placement dependency); the "reserve_section" stage reserves
     # its row and the "section" stage renders it.
     _sections = _planned_sections(a, _model, feature_keys)
+    ctx.dense_internal_section = any(section.internal_detail for section in _sections)
 
     # ── the stage thunks, run in _PASS_SEQUENCE order (#699 slice b) ─────────
     def _s_rotational():
@@ -891,7 +902,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             # the pass never having run at all (#1190).
             dwg.record_section_decision(
                 "not_warranted",
-                detail="no counterbore/spotface/blind Z-hole — no section warranted",
+                detail="no qualifying hidden internal detail — no section warranted",
             )
 
     def _s_details():

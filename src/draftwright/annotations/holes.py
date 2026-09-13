@@ -2846,24 +2846,19 @@ def _place_queue(
 
             legacy_y = source_final_y.get(id(s))
 
-            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner):
-                # A resource cap is a semantic floor, not a second placement
-                # solve. Reproduce the established whole-queue result exactly:
-                # one already-accepted candidate, or no candidate when that
-                # queue had failed the callout closed.
+            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner, _raw=_raw_candidates):
+                # Start with the established strip winner. Under a joint-solve
+                # resource cap on a dense section, a bounded lookahead can try
+                # its other semantic lanes before retaining a fixed-ink crossing.
                 if _y is None:
                     return
-                tip, elbow = _leader_anchors(
-                    _s,
-                    edge,
-                    side,
-                    _y,
-                    to_page,
-                    elbow_dx,
-                    draft,
-                    a.SCALE,
-                )
-                yield (tip, elbow, _owner)
+                if not getattr(ctx, "dense_internal_section", False):
+                    tip, elbow = _leader_anchors(
+                        _s, edge, side, _y, to_page, elbow_dx, draft, a.SCALE
+                    )
+                    yield (tip, elbow, _owner)
+                    return
+                yield from _raw()
 
             def _build(tip, elbow, _owner, *, _callout=callout):
                 candidate_side = "right" if elbow[0] >= tip[0] else "left"

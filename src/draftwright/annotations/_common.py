@@ -2508,6 +2508,9 @@ class PlacementContext:
     # renderer calls and finished-sheet live verbs keep their immediate behavior;
     # the orchestrator/finalize paths opt in with ``[]`` and drain once.
     feature_leaders: list | None = None
+    # Automatic placement may reserve a dense internal section row. Only that
+    # run needs the extended hole-leader resource-floor routing preference.
+    dense_internal_section: bool = False
     # The opt-in solve-trace recorder (#736) — a :class:`SolveTrace` threaded off the
     # drawing's build state by both entry paths, or ``None`` (the default: tracing off,
     # every hook a bare None check). Ctx state, not a module global, so the finalize
