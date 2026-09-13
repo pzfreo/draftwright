@@ -55,6 +55,45 @@
   refuses `authored_views()` beside it, so the two together wrote a script that raised
   when run. The settled set is reported in a comment instead.
 
+- **A bolt circle is no longer stated unless something other than the fit supports it
+  (#1596).** `EQ SP ON ø… BC` tells a machinist to work from a centre; #1595 found a real
+  part where that centre was in mid-air. Six ⌀2.4 holes in a 2×3 rectangular grid came out
+  as `4× ⌀2.4 THRU EQ SP ON ø34.4 BC` plus an unrelated `2× ⌀2.4 THRU`, the circle centred
+  on (0, −20.11) — nothing is concentric with it.
+
+  The fit was not a near miss. **Any three non-collinear points are concyclic, and so are the
+  four corners of any rectangle** — for those arrangements the residual is zero by
+  construction, so no tolerance on it can help. Nor does equal spacing rescue it: that
+  rectangle is near-square (24.30 × 24.38), so its corners sit 90.19° / 89.81° apart and
+  would pass an `EQ SP` check too.
+
+  What gives it away is the leftover callout beside it. Corroboration must now come from
+  somewhere the fit cannot reach — any one of:
+
+  1. **five or more members** — a circle through five holes could have failed to fit;
+  2. **a concentric physical feature** — a boss, spigot, central bore, or a round body whose
+     own axis is the circle's, something a machinist can indicate off;
+  3. **it accounts for every hole of its kind** — no identical hole left off the circle.
+
+  (3) is the discriminator here: six identical holes and the circle claimed four. A drawing
+  does not put two of six bolts on a different plan. It is also a question about the part
+  rather than about its angle to the axes, unlike the row/column test it replaced.
+
+  Refused patterns keep every hole: the members fall through to ordinary grouping, so the
+  #1595 part now reads `6× ⌀2.4 THRU` — which also repairs the fragmentation into 4 + 2.
+
+  **What refusing costs, measured.** `hole_requirement_outcomes` builds its pattern-member
+  set from the recogniser's patterns rather than the ones the IR adopted, so after a refusal
+  it keeps those holes out of the loose groups, finds no `PatternFeature` to join, and warns
+  `hole_requirement_unverifiable` about holes the sheet states correctly — two on this part,
+  26 issues against 23. The pre-existing oblique-pattern refusal (#971) has the same hole and
+  was simply never reachable; #1596 makes it so. Tracked as **#1607** with three attempted
+  fixes recorded, and guarded by an `xfail(strict)` here.
+
+  Refused at the recognition→IR adapter, not in the recogniser: a circle through those holes
+  is genuinely findable, and ADR 3 leaves the recogniser to report the geometry it finds.
+  Whether it may be *stated as a drafting datum* is drafting policy, which is draftwright's.
+
 ### Changed
 
 - **The title block carries every ISO 7200:2004 mandatory data field.** Three had
