@@ -28,11 +28,18 @@ from draftwright.linting.evidence import rendered_numbers
 
 _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 
-#: Annotations that legitimately render digits while carrying no measurement claim. One entry,
-#: measured across every fixture below: the detail-view caption, whose numbers are a SCALE RATIO
-#: ("DETAIL A — SCALE 2.5:1") and not a fact about the part. Registered by annotation-name stem
-#: so a second such case has to be argued rather than absorbed.
-_NON_MEASURING_ANNOTATIONS = ("detail_caption",)
+#: Annotations that legitimately render digits while carrying no measurement claim.
+#: Registered by annotation-name stem so each case has to be argued rather than absorbed.
+#:
+#: `detail_caption` — the detail-view caption, whose numbers are a SCALE RATIO
+#: ("DETAIL A — SCALE 2.5:1") and not a fact about the part.
+#:
+#: `scale_note` — the sheet scale ("SCALE 2:1"), stated outside the title block per
+#: ISO 7200 §4. Exactly the argument already accepted for `detail_caption`, one level
+#: up: a ratio between paper and part, not a measurement of the part. There is nothing
+#: for a verifier to confirm it against, because no feature produced it — it comes from
+#: the sheet's own scale, which `label_vs_measured` already uses as its divisor.
+_NON_MEASURING_ANNOTATIONS = ("detail_caption", "scale_note")
 
 #: Claims the drawing does NOT bear out. Empty, and that is the point: it held one entry —
 #: `m_locy7` on nist_ctc_02 claiming `location_slot.length` (94.1) while rendering 430.0 — until

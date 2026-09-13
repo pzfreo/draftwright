@@ -179,11 +179,13 @@ Measured from the snippet above on 2026-09-10 (draftwright 0.4.x, `Sheet.build()
   Two, not three: the part is rotational about x, so a top view (x–y) would show the same
   profile as the front (x–z). The side view is the circular end view, and carries the
   diameters.
-- **Twelve annotations.** `Drawing.annotations()` names them, which is the quickest way to
+- **Thirteen annotations.** `Drawing.annotations()` names them, which is the quickest way to
   confirm the run did what you asked. In full: `m_dia_x0`, `m_dia_x1`, `m_dia_x2`,
   `m_dia_x3` (the four turned diameters), `m_steplen0` (the journal's length), `hc_side0`
   (the `M2×0.4` tap callout, on the side view), `m_gdt0` (the `M3×0.5` note),
-  `centerline_front`, `m_cm0`, `title_block`, `projection_symbol` and `note_iso_nts`.
+  `centerline_front`, `m_cm0`, `title_block`, `projection_symbol`, `scale_note` and
+  `note_iso_nts`. The last three are sheet furniture: the projection glyph and the scale
+  note sit outside the title block, where ISO 7200 §4 puts them.
 - **Three `warning`-level lint notes, and no errors.** These report the limits of this
   deliberately-short example, not failures of the workflow:
 

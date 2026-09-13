@@ -2081,6 +2081,9 @@ def emit_sheet_script(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    approved_by: str = "",
+    document_type: str = "",
+    sheet: str = "",
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
@@ -2223,6 +2226,12 @@ def emit_sheet_script(
         ctor.append(f"revision={revision!r}")
     if company:
         ctor.append(f"company={company!r}")
+    if approved_by:
+        ctor.append(f"approved_by={approved_by!r}")
+    if document_type:
+        ctor.append(f"document_type={document_type!r}")
+    if sheet:
+        ctor.append(f"sheet={sheet!r}")
     if frame:
         ctor.append("frame=True")
     if zones:
@@ -2492,6 +2501,9 @@ def generate_sheet_script(
     date: str = "",
     revision: str = "A",
     company: str = "",
+    approved_by: str = "",
+    document_type: str = "",
+    sheet: str = "",
     frame: bool = False,
     zones: bool = False,
     projection: str | None = None,
@@ -2591,6 +2603,9 @@ def generate_sheet_script(
                 date=date,
                 revision=revision,
                 company=company,
+                approved_by=approved_by,
+                document_type=document_type,
+                sheet=sheet,
                 frame=frame,
                 zones=zones,
                 projection=projection,
@@ -2621,6 +2636,9 @@ def generate_sheet_script(
             date=date,
             revision=revision,
             company=company,
+            approved_by=approved_by,
+            document_type=document_type,
+            sheet=sheet,
             frame=frame,
             zones=zones,
             projection=projection,

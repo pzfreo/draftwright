@@ -36,14 +36,20 @@ from draftwright.annotations.from_model import render_height_ladder
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.model.compiled import RenderableDimensionPlan, compile_dimensions
 
-#: Marks that carry NO value, and so legitimately survive an empty compiled plan.
-#: Each needs that reason; "the test failed otherwise" is not one.
+#: Marks that carry no FEATURE measurement, and so legitimately survive an empty
+#: compiled plan. Each needs that reason; "the test failed otherwise" is not one.
+#:
+#: "No feature measurement" rather than "no value": `scale_note` prints a ratio,
+#: but it states a property of the SHEET, not of the part, and no compiled plan
+#: could ever produce it. That is a different thing from a dimension hiding
+#: behind a furniture-shaped name, which is what this list exists to catch.
 _VALUE_FREE = (
     "centerline",  # shows where an axis is
     "m_cm",  # centre marks — sized off the hole they mark (#875)
     "note_",  # the ISO NTS note
     "title_block",
     "projection_symbol",  # identifies the view convention; no feature measurement
+    "scale_note",  # states the sheet's scale (ISO 7200 §4); not a part measurement
     "section_",  # cutting-plane arrows and label
     "hatch",
     "detail_marker",

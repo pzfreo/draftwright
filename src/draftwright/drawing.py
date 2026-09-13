@@ -514,6 +514,9 @@ class BuildState:
     part_model: object | None = None
     view_edge_cache: dict = dataclasses_field(default_factory=dict)
     ann_box_cache: dict = dataclasses_field(default_factory=dict)
+    #: The title block's deterministic page-space footprint, measured before it is
+    #: drawn so strip placement can avoid it (#1593). None until the builder sets it.
+    pending_title_block_box: tuple | None = None
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
     #: Keyed by shape identity because the projected shapes carry no view label (lint
     #: takes their names from ``Drawing.views`` since #1196), and holding the shape
@@ -1277,6 +1280,19 @@ class Drawing:
         """Attach the built PartModel so ``model()`` and feature edits see it. Lets the
         orchestrator hand the model back without an ``annotations/`` attribute write (#639)."""
         self._build.part_model = model
+
+    def pending_title_block_box(self):
+        """The title block's page-space footprint before it has been drawn, or ``None``.
+
+        ``"title_block"`` sits near the end of ``_PASS_SEQUENCE``, so it is absent from
+        ``iter_annotations`` while strips place — which is why a below/right strip ran
+        into its region and only the paths asking ``_title_block_box`` directly ever
+        avoided it (#481 did that for GD&T; #1593 was the same gap for dimensions).
+        Its footprint is deterministic before it exists, so the builder measures it
+        once and hands it over here rather than ``annotations/`` probing the drawing
+        (ADR 1 (was 0005 §2): the drawing is not the state bus).
+        """
+        return self._build.pending_title_block_box
 
     def suppressions(self) -> list[dict]:
         """Every measurement the compiler considered and did not approve, and why.

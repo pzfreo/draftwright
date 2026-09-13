@@ -2366,7 +2366,7 @@ class TestAuthoredSetRoundTrips:
             return {
                 n
                 for n, _ in dwg.iter_annotations()
-                if not n.startswith(("note_", "title", "projection_symbol"))
+                if not n.startswith(("note_", "title", "projection_symbol", "scale_note"))
             }
 
         assert dims(regenerated) == dims(direct), (
@@ -2465,7 +2465,7 @@ class TestAuthoredSetRoundTrips:
             return {
                 n
                 for n, _ in dwg.iter_annotations()
-                if not n.startswith(("note_", "title", "projection_symbol"))
+                if not n.startswith(("note_", "title", "projection_symbol", "scale_note"))
             }
 
         assert dims(regenerated) == dims(direct) == set(), (
@@ -2881,7 +2881,18 @@ _SCRIPT_FURNITURE = {
     "bc_": "a bolt circle's centreline — geometry, like a centre mark",
     "note_iso_nts": "the ISO NTS caption — a sheet-level statement, not a feature's",
     "title_block": "sheet metadata; edited through Sheet(...) kwargs, not a dimension line",
+    "scale_note": (
+        "the sheet scale, stated outside the block per ISO 7200 §4; derived from the "
+        "drawing's scale, which the script reproduces — there is no line to suppress"
+    ),
 }
+
+#: Furniture that states something about the SHEET rather than about a feature, and whose
+#: text therefore contains digits without being a measurement anyone could dimension. The
+#: `_is_value_bearing` proxy — "the label has a digit in it" — cannot tell the two apart,
+#: and it is the right proxy for feature annotations, so the exception is listed explicitly
+#: rather than the proxy weakened.
+_SHEET_LEVEL_FURNITURE = {"scale_note"}
 
 
 def _is_value_bearing(annotation) -> bool:
@@ -3367,7 +3378,9 @@ class TestTheScriptAccountsForEveryAnnotation:
         smuggled = sorted(
             n
             for n in survivors
-            if n.startswith(tuple(_SCRIPT_FURNITURE)) and _is_value_bearing(annotations[n])
+            if n.startswith(tuple(_SCRIPT_FURNITURE))
+            and not n.startswith(tuple(_SHEET_LEVEL_FURNITURE))
+            and _is_value_bearing(annotations[n])
         )
         assert not smuggled, (
             f"{name}: {smuggled} are allowed as furniture but PRINT a measurement — the "
@@ -4328,7 +4341,7 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
         assert f"`{view}`" in section, view
 
     names = sorted(ast.literal_eval(out["ANNOT"]))
-    assert len(names) == 12 and "Twelve annotations" in section, names
+    assert len(names) == 13 and "Thirteen annotations" in section, names
     for name in names:
         assert f"`{name}`" in section, f"{name} is on the sheet but the doc does not list it"
 
@@ -4386,3 +4399,27 @@ def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
     assert not missing, "the doc quotes lines the tool does not emit:\n  " + "\n  ".join(
         missing[:5]
     )
+
+
+def test_the_new_iso_7200_fields_reach_the_generated_script():
+    """#1591 added `approved_by`, `document_type` and `sheet` — ISO 7200 5.3.4, 5.3.6 and
+    5.1.6, three mandatory fields that had no representation at all. The emitter carries an
+    aspect into the script only when it differs from `build_drawing`'s default, and until
+    now nothing proved these three made the journey: a re-run would have silently dropped
+    the very fields the change exists to add.
+    """
+    src = _script_for(
+        Box(40, 30, 12),
+        approved_by="A. INSPECTOR",
+        document_type="DETAIL DRAWING",
+        sheet="1/3",
+    )
+    assert "approved_by='A. INSPECTOR'" in src
+    assert "document_type='DETAIL DRAWING'" in src
+    assert "sheet='1/3'" in src
+
+    # ...and stay off the script when unset, like every other non-default aspect.
+    plain = _script_for(Box(40, 30, 12))
+    assert "approved_by=" not in plain
+    assert "document_type=" not in plain
+    assert "sheet=" not in plain

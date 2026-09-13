@@ -555,3 +555,63 @@ class TestLintSelfSilencing:
         b = SimpleNamespace(label_bbox=(0.0, 0.0, 4.0, 4.0), label="B")
         with pytest.raises(IndexError):
             lint_drawing([a, b])
+
+
+class TestScaleNotStated:
+    """`scale_not_stated` (#1591). ISO 7200 §4 presents the scale OUTSIDE the block, so
+    draftwright draws it beside the projection symbol — and this checks the rendered sheet
+    rather than trusting the code that draws it. That is the whole point of the code, and
+    until now nothing in the suite ever made it fire."""
+
+    @staticmethod
+    def _finished_sheet_item(**rider):
+        """A stand-in for the title block: what marks an item list as a FINISHED sheet."""
+        from types import SimpleNamespace
+
+        # `cell_bbox` because the field-overflow lint reads the same rider; a stand-in that
+        # answers one and not the other is not a finished sheet, it is a half-built double.
+        return SimpleNamespace(
+            title_field_specs=(("title", "T", 3.0, "f"),),
+            cell_bbox=lambda _field: {
+                "min_x": 0.0,
+                "max_x": 40.0,
+                "min_y": 0.0,
+                "max_y": 8.0,
+                "width": 40.0,
+                "height": 8.0,
+            },
+            **rider,
+        )
+
+    def test_a_finished_sheet_without_a_scale_note_is_an_error(self):
+        issues = [
+            i for i in lint_drawing([self._finished_sheet_item()]) if i.code == "scale_not_stated"
+        ]
+        assert issues, "a finished sheet that states no scale must be reported"
+        assert all(i.severity == "error" for i in issues)
+        assert "ISO 7200" in issues[0].message
+
+    def test_the_scale_note_satisfies_it(self):
+        from types import SimpleNamespace
+
+        note = SimpleNamespace(is_scale_note=True)
+        items = [self._finished_sheet_item(), note]
+        assert not [i for i in lint_drawing(items) if i.code == "scale_not_stated"]
+
+    def test_a_fragment_is_not_a_finished_sheet(self):
+        """The gate that keeps this from firing on every partially-built fixture: an item
+        list with no title block is a fragment and has nothing to state a scale about.
+        Deleting the gate fails twelve tests across two modules."""
+        from types import SimpleNamespace
+
+        assert not [i for i in lint_drawing([SimpleNamespace()]) if i.code == "scale_not_stated"]
+
+    def test_a_real_build_states_its_scale(self):
+        """The end-to-end counterpart: the engine actually draws the note it promises."""
+        from build123d import Box
+
+        from draftwright import build_drawing
+
+        drawing = build_drawing(Box(40, 30, 12), number="X")
+        assert not [i for i in drawing.lint() if i.code == "scale_not_stated"]
+        assert drawing.get_annotation("scale_note") is not None

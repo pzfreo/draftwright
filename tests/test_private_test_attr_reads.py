@@ -161,8 +161,8 @@ _ALLOW: dict[str, int] = {
     # behaviour tests drive the primitives directly (wholesale clear keeps the title block;
     # add_view projects + refits silhouettes); the deprecated shims' warnings are asserted
     # separately via the public names. The other four plumbing privates
-    # (_set_view_coordinates/_drop_view_coordinates/_attach_part_model/_attach_solve_trace) have no
-    # direct test read — the engine build path exercises them.
+    # (_set_view_coordinates/_drop_view_coordinates/_attach_part_model/_attach_solve_trace) have
+    # no direct test read — the engine build path exercises them.
     "_clear_annotations": 3,
     "_add_view": 1,
 }

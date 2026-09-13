@@ -816,7 +816,13 @@ class TestPocket:
         ]
 
     def test_recognised_pocket_gets_callout(self):
-        dwg = build_drawing(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), number="X")
+        # A3 pinned: the subject is the POCKET callout, not which sheet the chooser lands
+        # on. At the auto A4/1:1 the overall depth is withheld (`overall_dim_withheld`) —
+        # the ISO title block fills the side view's below strip and the chooser picked the
+        # sheet without knowing that dimension needed the room (#1590). The pocket callout
+        # is identical on either sheet; on A3 no unrelated error competes with the
+        # `no errors` assertion below.
+        dwg = build_drawing(Box(80, 60, 20) - Pos(0, 0, 6) * Box(30, 20, 8), number="X", page="A3")
         names = [n for n in dwg.annotations() if n.startswith("m_pocket")]
         assert len(names) == 1
         assert dwg.get_annotation(names[0]).label == "20 × 30 × 8 DEEP"

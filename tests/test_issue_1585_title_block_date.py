@@ -114,40 +114,53 @@ def test_a_padded_date_is_recorded_as_it_is_drawn():
     assert fields["date"] == DATE
 
 
-def test_the_date_cell_narrows_the_drawn_by_cell():
-    # Consequence of the two fields sharing the bottom row, pinned so it is a
-    # decision rather than a surprise: adding a date takes the last two columns
-    # from DRAWN BY (60% -> 35% of the block), and a drawn_by that fits the full
-    # width may not fit the remainder. The lint reports it rather than spilling
-    # silently, which is the behaviour under test.
+def test_the_drawn_by_cell_is_no_longer_squeezed_by_a_date():
+    """The cost this test used to pin is gone.
+
+    Under the two-row block a date took the last two columns from DRAWN BY,
+    60% -> 35% of the width, and a long `drawn_by` overflowed and drew across
+    the divider. The ISO layout gives the date its own cell in its own row and
+    sizes DRAWN BY from ISO 7200's creator capacity, so adding a date costs the
+    drawn-by cell nothing.
+    """
     long_author = "ACME Engineering Ltd"
     without = _sheet(title="BRACKET", number="DRW-0042", drawn_by=long_author).build()
     with_date = _sheet(title="BRACKET", number="DRW-0042", drawn_by=long_author, date=DATE).build()
     wide = without.get_annotation("title_block").cell_bbox("designed_by")["width"]
     narrow = with_date.get_annotation("title_block").cell_bbox("designed_by")["width"]
-    assert wide == pytest.approx(72.0)
-    assert narrow == pytest.approx(42.0)
-    assert not [i for i in without.lint() if i.code == "title_field_overflow"]
-    spilled = [
-        i
-        for i in with_date.lint()
-        if i.code == "title_field_overflow" and "'designed_by'" in i.message
-    ]
-    assert len(spilled) == 1, "a drawn_by squeezed past its cell must be reported"
+    assert narrow == pytest.approx(wide), "a date must not shrink the drawn-by cell"
+
+    # The cell is sized from ISO 7200's creator capacity (20 characters).
+    # "ACME Engineering Ltd / draftwright" is 34, so it still overflows — but it
+    # overflows identically with and without the date, which is the point. The
+    # capacity is nominal and the lint reports the excess either way.
+    def overflows(drawing):
+        return [
+            i.code
+            for i in drawing.lint()
+            if i.code == "title_field_overflow" and "'designed_by'" in i.message
+        ]
+
+    assert overflows(with_date) == overflows(without)
 
 
-def test_no_date_field_when_the_block_has_no_date_cell():
-    # With no revision the date takes the shared top-right cell, where
-    # cell_bbox("date") aliases cell_bbox("revision"). Emitting a date entry
-    # there would stamp two texts at one centre and lint one cell twice.
-    drawing = _sheet(title="BRACKET", number="DRW-0042", date=DATE, revision="").build()
-    block, fields = _fields(drawing)
-    # One entry, not two: the shared cell is named "date" because that is what
-    # it holds, and cell_bbox resolves that name to the revision cell's box.
-    assert fields["date"] == DATE
-    assert "revision" not in fields
-    assert block.cell_bbox("date") == block.cell_bbox("revision")
-    assert sum(value == DATE for value, *_rest in block.pdf_text_specs) == 1
+def test_the_date_always_has_its_own_cell_now():
+    """The shared top-right cell is gone.
+
+    It existed because ISO 7200's date of issue and revision index competed for
+    one cell; the ISO layout gives each its own, so there is no configuration in
+    which a supplied date lands in another field's box.
+    """
+    for kwargs in (
+        {"date": DATE},
+        {"date": DATE, "revision": ""},
+        {"date": DATE, "revision": "B"},
+    ):
+        drawing = _sheet(title="BRACKET", number="DRW-0042", **kwargs).build()
+        block, fields = _fields(drawing)
+        assert fields["date"] == DATE
+        assert block.cell_bbox("date") != block.cell_bbox("revision")
+        assert sum(value == DATE for value, *_rest in block.pdf_text_specs) == 1
 
 
 def test_a_whitespace_company_does_not_crash_the_build():

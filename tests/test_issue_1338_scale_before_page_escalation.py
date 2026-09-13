@@ -59,13 +59,13 @@ def test_automatic_recovers_on_a4_at_a_larger_scale_instead_of_escalating_the_sh
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (*A4, 5.0)
     assert "iso" in drawing.views
     assert _requirement_failures(drawing) == []
-    # A long default title still overflows its cell at the recovered scale. Reporting this
-    # as a structural error would reject the recovery and return missing axial measurements.
-    overflow = [issue for issue in drawing.lint() if issue.code == "title_field_overflow"]
-    assert overflow and all(issue.severity == "warning" for issue in overflow)
-    legibility = drawing.lint_summary()["quality"]["legibility"]
-    assert legibility["by_code"]["title_field_overflow"] == 1
-    assert legibility["score"] < 1
+    # The long default title used to overflow its cell at the recovered scale, and this
+    # asserted it stayed a warning — reporting it as a structural error would have
+    # rejected the recovery and returned missing axial measurements. Under the ISO 7200
+    # layout `title` is a flexible cell taking its row's remainder rather than a fixed
+    # 40% of the block, so it no longer overflows at all. The point that survives is the
+    # one that mattered: the recovery is not rejected.
+    assert [issue for issue in drawing.lint() if issue.code == "title_field_overflow"] == []
 
     assert drawing.scale_decision["status"] == "automatic_replanned"
     assert [

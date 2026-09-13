@@ -248,6 +248,11 @@ _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 _FIDELITY_CODES = frozenset(
     {
         "label_vs_measured",
+        # Not a wrong value but a missing one, and it belongs here rather than
+        # among the honest omissions: a sheet that does not state its scale can
+        # be measured off at the wrong one. The reader cannot tell, which is the
+        # defining property of a fidelity defect rather than a legibility one.
+        "scale_not_stated",
         "angular_label_vs_geometry",
         "angular_geometry_mismatch",
         "angular_support_unverifiable",

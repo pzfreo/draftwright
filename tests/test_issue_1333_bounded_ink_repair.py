@@ -24,7 +24,7 @@ def test_repair_clears_parallel_dimension_ink_and_preserves_measurements_and_pin
     # line: each one's stroke crosses the other's text. Disable build-time repair
     # so this remains a direct public repair regression when the handler lands.
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
-    drawing = build_drawing(part, repair=False)
+    drawing = build_drawing(part, repair=False, scale=1)
     before = drawing.lint(physical=False)
     assert [issue.code for issue in before] == [
         "annotation_ink_overlap",
@@ -55,7 +55,7 @@ def test_repair_clears_parallel_dimension_ink_and_preserves_measurements_and_pin
 
 def test_pins_keep_an_infeasible_ink_collision_visible_without_moving_geometry():
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
-    drawing = build_drawing(part, repair=False)
+    drawing = build_drawing(part, repair=False, scale=1)
     before = drawing.lint(physical=False)
     assert [issue.code for issue in before] == [
         "annotation_ink_overlap",
@@ -94,7 +94,7 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
     from draftwright.annotations import _common
 
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
-    drawing = build_drawing(part, repair=False)
+    drawing = build_drawing(part, repair=False, scale=1)
     original = dict(drawing.iter_annotations())
     for name in original:
         if name != "m_env_width":
@@ -174,16 +174,24 @@ def test_automatic_and_declared_builds_use_the_same_recognition_free_repair():
     from conftest import recognition_consumer_calls
 
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
+    # Unpinned on both sides, unlike the tests above: this one compares the
+    # automatic and declared paths to each other, so they must land on the same
+    # sheet. Passing `scale=` to the declared build would force a recognition
+    # call that `recognition_consumer_calls` exists to prove does not happen.
     raw = build_drawing(part, repair=False)
     assert len(raw.lint(physical=False)) == 2
     automatic = build_drawing(part)
-    assert automatic.lint(physical=False) == []
+    automatic_left = [i.code for i in automatic.lint(physical=False)]
+    # Both halves: repair clears everything on the automatic path, AND the declared
+    # path ends up in the same place. Comparing only the two would pass a regression
+    # that left both equally dirty.
+    assert automatic_left == []
     with recognition_consumer_calls() as counts:
         declared = build_drawing(part, model=raw.model(), repair=False)
         before = declared.measurement_snapshot()
         assert len(declared.lint(physical=False)) == 2
         declared.repair()
-        assert declared.lint(physical=False) == []
+        assert [i.code for i in declared.lint(physical=False)] == automatic_left
         assert compare_measurements(before, declared)["status"] == "preserved"
     assert dict(counts) == {}
 
@@ -206,7 +214,7 @@ def test_zero_repair_budget_keeps_the_actual_collision_untouched(monkeypatch):
     from draftwright.annotations import _common
 
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
-    drawing = build_drawing(part, repair=False)
+    drawing = build_drawing(part, repair=False, scale=1)
     before = drawing.lint(physical=False)
     assert [issue.code for issue in before] == ["annotation_ink_overlap"] * 2
     items = list(drawing.items)
@@ -224,7 +232,7 @@ def test_repair_rejects_a_lower_issue_count_that_introduces_label_overlap(monkey
     from draftwright.annotations import _common
 
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
-    drawing = build_drawing(part, repair=False)
+    drawing = build_drawing(part, repair=False, scale=1)
     before = drawing.lint(physical=False)
     assert [issue.code for issue in before] == [
         "annotation_ink_overlap",

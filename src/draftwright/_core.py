@@ -45,8 +45,11 @@ from build123d import (
     Vector,
 )
 from build123d_drafting.helpers import (
+    ISO7200_FIELD_CHARS,
     Dimension,
     TitleBlock,
+    TitleBlockCell,
+    TitleBlockLayout,
     annotate,
     draft_preset,
     format_drawing_scale,
@@ -173,6 +176,15 @@ def _zone_divisions(page_w: float, page_h: float) -> tuple[int, int]:
 
 
 _TB_CLEAR = _MARGIN + 1.0  # title-block inset: one extra mm over _MARGIN for clearance
+#: The title block's row height, matching `TitleBlock`'s own `cell_height`
+#: default. Used to find the block's drawn top edge without building it.
+_TB_ROW_H = 8.0
+#: Gap between the drawn title block and the furniture sitting above it.
+_TB_FURNITURE_GAP = 3.0
+#: Horizontal space the ISO 5456-2 projection glyph reserves at the right-hand end
+#: of the band above the title block, so the scale note placed to its left cannot
+#: collide with it. Measured from the glyph's own extents at the default font.
+_PROJECTION_BAND_W = 16.0
 
 #: What the general-tolerance cell states when no tolerance was authored or sourced.
 #: A blank cell is indistinguishable from an oversight and invites a shop to assume its
@@ -204,7 +216,7 @@ def _dimension_head_bounds(arrow_length, head_type):
     return box.min.X, box.min.Y, box.max.X, box.max.Y
 
 
-_TB_H = 35.0
+_TB_H = 40.0
 
 
 def _shape_box2d(shape):
@@ -1271,6 +1283,12 @@ class Analysis:
     date: str = ""
     revision: str = "A"
     company: str = ""
+    # The remaining ISO 7200:2004 mandatory data fields. Blank by default: the
+    # standard requires the FIELD, and a drawing not yet approved says so with an
+    # empty cell rather than an invented value.
+    approved_by: str = ""
+    document_type: str = ""
+    sheet: str = ""
     # Draw a sheet border/frame (#767). When True, `margin` is already the reserved content
     # margin (`_content_margin(True)`), so content clears the frame drawn at `_MARGIN`.
     frame: bool = False
@@ -1358,6 +1376,52 @@ def _attribution_author(drawn_by: str | None) -> str:
     return f"{author} / draftwright" if author else "draftwright"
 
 
+def draftwright_title_block_layout() -> TitleBlockLayout:
+    """The sheet's title-block arrangement: ISO 7200 complete, plus what practice needs.
+
+    Every ISO 7200:2004 **mandatory** data field has a cell — legal owner (5.1.2),
+    identification number (5.1.3), date of issue (5.1.5), segment/sheet number
+    (5.1.6), title (5.2.2), approval person (5.3.4), creator (5.3.5) and document
+    type (5.3.6) — at the capacities the standard recommends, so the widths follow
+    from ISO 7200 and the font rather than from a chosen proportion.
+
+    Two cells are not ISO 7200 title-block fields and are here anyway: ``material``
+    and ``general_tolerance`` are on every real engineering drawing, and dropping
+    them to reach conformance would make the sheet worse. ``revision`` (5.1.4) is
+    optional in the standard and kept because it is near-universal.
+
+    ``scale`` is deliberately absent. ISO 7200 §4 keeps the block to a minimum and
+    presents scale and the projection symbol "outside the title block only when
+    used"; :func:`_add_scale_note` draws it beside the projection glyph, and the
+    ``scale_not_stated`` lint makes its presence a checked guarantee rather than an
+    assumption.
+    """
+    iso = ISO7200_FIELD_CHARS
+    return TitleBlockLayout(
+        (
+            (
+                TitleBlockCell("legal_owner", flex=True, label="LEGAL OWNER"),
+                TitleBlockCell("document_type", chars=iso["document_type"], label="DOC. TYPE"),
+            ),
+            (
+                TitleBlockCell("title", flex=True, label="TITLE"),
+                TitleBlockCell("drawing_number", chars=iso["drawing_number"], label="DWG NO."),
+            ),
+            (
+                TitleBlockCell("material", flex=True, label="MATERIAL"),
+                TitleBlockCell("general_tolerance", chars=22, label="GEN. TOL."),
+            ),
+            (
+                TitleBlockCell("designed_by", chars=iso["creator"], label="DRAWN BY"),
+                TitleBlockCell("approved_by", chars=iso["approved_by"], label="APPROVED BY"),
+                TitleBlockCell("date", chars=iso["date"], label="DATE"),
+                TitleBlockCell("revision", chars=iso["revision"], label="REV"),
+                TitleBlockCell("sheet", chars=iso["sheet"], label="SHEET"),
+            ),
+        )
+    )
+
+
 def _make_title_block(dwg, a: Analysis):
     """Construct + page-locate the title block, returning ``(tb, cell)`` where *cell* is its
     drawn-by cell bbox (for the hyperlink rect). Shared by :func:`_add_title_block` (which adds
@@ -1382,17 +1446,26 @@ def _make_title_block(dwg, a: Analysis):
     # then raised KeyError from cell_bbox(); " ACME " recorded the padded string
     # while the block drew the stripped one.
     legal_owner = _font_safe_text(a.company).strip()
-    scale = format_drawing_scale(a.SCALE)
+    approved_by = _font_safe_text(a.approved_by).strip()
+    document_type = _font_safe_text(a.document_type).strip()
+    sheet = _font_safe_text(a.sheet).strip()
+    layout = draftwright_title_block_layout()
     tb = TitleBlock(
         title,
         number,
-        scale=scale,
         general_tolerance=tolerance,
         designed_by=designed_by,
         material=material,
         date=date,
         revision=revision,
         legal_owner=legal_owner,
+        layout=layout,
+        # The three ISO 7200 mandatory fields TitleBlock has no parameter for.
+        values={
+            "approved_by": approved_by,
+            "document_type": document_type,
+            "sheet": sheet,
+        },
         width=a.TB_W,
         # Title block renders in condensed sans (the tight ISO 7200 cells), a
         # different face from the monospace dimensions — so it carries its own
@@ -1413,27 +1486,26 @@ def _make_title_block(dwg, a: Analysis):
     # Retain authoritative title-block values at their public cell centres for the PDF semantic
     # text layer.  The visible block stays path-rendered; these specs merely let export embed the
     # same bundled condensed face as invisible selectable text without parsing SVG geometry.
-    # helpers >= 0.15.3 gives the date a cell of its own whenever a revision is
-    # also set, because the two cannot share the top-right cell (#1585). Ask the
-    # block which layout it drew rather than restating its rule here: when there
-    # is no dedicated cell, cell_bbox("date") aliases the revision cell, and
-    # emitting both entries would stamp two texts at one centre and lint the
-    # same cell twice.
-    date_has_cell = date and tb.cell_bbox("date") != tb.cell_bbox("revision")
+    # Every field below has its own cell in the layout, so each is named for
+    # itself. The shared-cell dance #1586 needed — a date falling back into the
+    # revision cell when no revision was set — is gone with the cell it worked
+    # around, and leaving it in emitted the date twice.
     fields = (
         ("title", title),
         ("drawing_number", number),
-        ("scale", scale),
+        # `scale` is not here: it has no cell. ISO 7200 §4 presents it outside
+        # the block, where `_add_scale_note` draws it and the
+        # `scale_not_stated` lint guarantees it.
         ("material", material),
-        # The shared top-right cell holds whichever of the two was supplied.
-        # Name it for what it holds: cell_bbox() resolves "date" to this same
-        # cell through its alias, so a lint message about a date no longer
-        # reports it against 'revision'.
-        (("revision", revision) if revision else ("date", date)),
+        ("approved_by", approved_by),
+        ("document_type", document_type),
+        ("sheet", sheet),
+        ("revision", revision),
+        ("date", date),
         ("general_tolerance", tolerance),
         ("designed_by", designed_by),
         ("legal_owner", legal_owner),
-    ) + ((("date", date),) if date_has_cell else ())
+    )
     specs = []
     for field, value in fields:
         if not value:
@@ -1513,6 +1585,54 @@ def _add_sheet_frame(dwg, a: Analysis):
     place_annotation(dwg.registry, dwg.items, _make_sheet_frame(a), "sheet_frame")
 
 
+def _title_block_top(a: Analysis) -> float:
+    """Page y of the drawn title block's top edge.
+
+    The block reserves `_TB_H` but draws `rows x cell_height`, so the furniture
+    above it should sit against the block rather than at the top of the reserved
+    band — otherwise the gap is whatever slack the band happens to carry.
+    """
+    return _TB_CLEAR + len(draftwright_title_block_layout().rows) * _TB_ROW_H
+
+
+def _add_scale_note(dwg, a: Analysis):
+    """Draw the sheet scale beside the projection glyph, above the title block.
+
+    ISO 7200 §4 keeps the title block to a minimum and presents the remaining
+    fields "outside the title block only when used, e.g. scale, projection
+    symbol". The projection glyph already lives in the band the block reserves
+    but does not draw into (`_TB_H` minus the block's own height); the scale
+    sits to its left, in the same band and the same condensed face.
+
+    Unconditional, unlike the projection symbol: a drawing that does not state
+    its scale cannot be measured off, so there is no mode in which omitting it
+    is right. The `scale_not_stated` lint checks the result rather than trusting
+    this function.
+    """
+    from build123d_drafting import Note
+
+    note = Note(
+        f"SCALE {format_drawing_scale(a.SCALE)}",
+        (0, 0),
+        draft=draft_preset(
+            font_size=dwg.draft.font_size,
+            decimal_precision=dwg.draft.decimal_precision,
+            font_path=PLEX_SANS_CONDENSED,
+        ),
+    )
+    b = note.bounding_box()
+    bx, by = (b.min.X + b.max.X) / 2, (b.min.Y + b.max.Y) / 2
+    w, h = b.max.X - b.min.X, b.max.Y - b.min.Y
+    # Left of the projection glyph, which reserves `_PROJECTION_BAND_W` at the
+    # right-hand end of the same band.
+    right = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - _PROJECTION_BAND_W
+    cx = right - w / 2
+    cy = _title_block_top(a) + _TB_FURNITURE_GAP + h / 2
+    note = note.locate(Location((cx - bx, cy - by, 0)))
+    note.is_scale_note = True
+    place_annotation(dwg.registry, dwg.items, note, "scale_note")
+
+
 def _add_projection_symbol(dwg, a: Analysis):
     """Place the ISO 5456-2 projection-method glyph (#769) in the reserved title-block band,
     just above the drawn title block (deterministic empty space — the block reserves _TB_H but
@@ -1539,7 +1659,7 @@ def _add_projection_symbol(dwg, a: Analysis):
     # Right side of the title-block column, near the top of its reserved band.
     # Sheet frames reserve an inner content margin; keep furniture inside it too.
     cx = a.PAGE_W - max(_TB_CLEAR + 3, a.margin) - w / 2
-    cy = _TB_CLEAR + _TB_H - h / 2 - 2
+    cy = _title_block_top(a) + _TB_FURNITURE_GAP + h / 2
     sym = sym.locate(Location((cx - bx, cy - by, 0)))
     sym.is_projection_symbol = True
     place_annotation(dwg.registry, dwg.items, sym, "projection_symbol")

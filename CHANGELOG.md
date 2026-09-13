@@ -4,6 +4,53 @@
 
 ### Changed
 
+- **The title block carries every ISO 7200:2004 mandatory data field.** Three had
+  no representation at all before — segment/sheet number (5.1.6), approval person
+  (5.3.4) and document type (5.3.6) — and are now `sheet=`, `approved_by=` and
+  `document_type=` on `build_drawing`, `make_drawing`, `Sheet`, the CLI and the
+  `--script` emitter. Cell widths come from the standard's own recommended
+  character counts (via `build123d-drafting-helpers>=0.15.4`), so they follow ISO
+  7200 and the font rather than a chosen proportion.
+
+  Eleven fields need four rows, so **the block is 32 mm tall rather than 16**, and
+  the band reserved for it goes 35 → 40 mm. `material` and `general_tolerance`
+  stay although neither is an ISO 7200 title-block field; they are on every real
+  drawing.
+
+- **The scale is stated outside the title block**, beside the projection symbol,
+  per ISO 7200 §4 ("presented outside the title block only when used, e.g. scale,
+  projection symbol"). It is drawn unconditionally, and the new **`scale_not_stated`
+  error** checks the rendered sheet rather than trusting the code that draws it.
+  The `SCALE` cell is gone from the block.
+
+  **Two consequences worth knowing before you upgrade:**
+
+  - A dense sheet may escalate a page size. In the golden corpus one fixture of
+    fourteen (`flange_dense`) moves A4 → A3; the other thirteen keep their page
+    and scale, and a sweep of ten ordinary shapes showed no change at all.
+  - **Dimension placement now avoids the title block (#1593)**, which it never
+    did: the block is drawn after placement, so only GD&T frames ever avoided it
+    (#481). A two-row block kept that out of reach; a four-row one does not.
+    `build_drawing(Box(40, 30, 12))` used to run its `30` dimension 2.1 mm into
+    the block with `lint()` reporting a clean sheet; a stepped
+    `Box(80, 60, 30)` put the whole `60` label inside it, reported only as an
+    `annotation_overlap` between the labels `60` and `DRAWING`.
+
+    Most displaced dimensions move to the view's opposite strip and stay on the
+    sheet. Where both strips are full the dimension is **withheld as an error
+    naming the block**, rather than drawn through it: in the golden corpus
+    `pocketed` and `prismatic_ladder` lose their overall depth at the automatic
+    A4/1:1, and place it on A3 or at 1:2. Likewise a **pinned** A4 for a
+    five-step turned shaft no longer reaches 5:1, because at that scale the front
+    view runs down past the block and the overall height cannot be placed; the
+    2:1 sheet is returned with `axial_length_missing` stated. Leaving the page
+    automatic still carries every station, on A3 at 5:1.
+
+    Choosing a page and scale without knowing which dimensions will still need
+    room is #1590.
+
+### Changed
+
 - **Exports are reproducible by default.** `reproducible` now defaults to `True`
   on `build_drawing`, `make_drawing`, `Drawing` and `Drawing.export`, so two
   exports of one drawing are byte-identical without asking. Pass
@@ -36,14 +83,12 @@
   cell, so the date reaches the PDF text layer and the cell-overflow lint
   rather than only the rendered geometry.
 
-  Two consequences worth knowing. A drawing that supplies a date now has a
-  narrower DRAWN BY cell — 60% of the block rather than 35% — so a long
-  `drawn_by` that fitted before may now overflow and warn. And `date`,
-  `revision` and `company` are stripped before use, matching what the block
-  itself does: a whitespace-only `company` previously raised `KeyError` from
-  `cell_bbox`, and padded values were measured at a width the sheet never drew.
-  The shared top-right cell is now reported under the field it actually holds,
-  so a lint message about a date no longer names `'revision'`.
+  `date`, `revision` and `company` are stripped before use, matching what the
+  block itself does: a whitespace-only `company` previously raised `KeyError`
+  from `cell_bbox`, and padded values were measured at a width the sheet never
+  drew. (The DRAWN BY narrowing this entry originally described, and the shared
+  top-right cell it named, are both gone with the ISO 7200 layout above — the
+  date has its own cell in its own row, so it costs DRAWN BY nothing.)
 
 
 ### Added

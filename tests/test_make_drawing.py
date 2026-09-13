@@ -245,7 +245,14 @@ class TestStepPosition:
         # The issue's acceptance test: an asymmetric step so the position can't hide
         # behind another value. shelf 20 deep at the front, back 40 deep, lowered by 15.
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
-        dwg = build_drawing(part, number="X")
+        # A3 pinned: this test is about the step POSITION being dimensioned, not about
+        # which sheet the chooser lands on. At the auto A4/1:1 the overall depth is
+        # withheld — the title block fills the side view's below strip, and the chooser
+        # picked the sheet without knowing that dimension needed the room (#1590). On A3
+        # or at 1:2 it places. Before #1593 the same `60` was DRAWN with its label inside
+        # the block (measured at 174.9-178.1 x 38.9-41.1, against a block topping out at
+        # 43.1), reported only as `annotation_overlap` between '60' and 'DRAWING'.
+        dwg = build_drawing(part, number="X", page="A3")
         lbl = _plate_labels(dwg)
         assert {"80", "60", "30", "15"} <= set(lbl)  # overall + heights already present
         assert "20" in lbl or "40" in lbl  # step position / shelf depth — was ABSENT
@@ -3767,7 +3774,12 @@ def test_build_drawing_auto_dims_false():
     # cylinder's iso is rescaled off sheet scale — the truthful "ISO VIEW (NTS)" note. The
     # note is furniture, not a dimension, so it belongs here (script↔CLI parity); auto_dims
     # still suppresses every *dimension*.
-    assert set(dwg.annotations()) == {"title_block", "note_iso_nts", "projection_symbol"}
+    assert set(dwg.annotations()) == {
+        "title_block",
+        "note_iso_nts",
+        "projection_symbol",
+        "scale_note",
+    }
 
 
 @pytest.mark.timeout(60)
@@ -11673,10 +11685,13 @@ class TestDraftwrightAttribution:
         x0, y0, x1, y1 = tb.draftwright_link_rect
         bb = tb.bounding_box()
         cell = tb.drawn_by_cell_bbox()  # build-frame; block min corner is at bb.min
-        assert x1 == pytest.approx(bb.max.X, abs=0.5)  # flush to block right edge
-        assert y0 == pytest.approx(bb.min.Y, abs=0.5)  # block bottom
-        assert y1 - y0 == pytest.approx((bb.max.Y - bb.min.Y) / 2, abs=0.5)  # one row
-        assert x0 == pytest.approx(bb.min.X + cell["min_x"], abs=0.5)  # drawn-by cell left
+        # Both edges come from the block's own cell bbox, not its extents: under
+        # the ISO 7200 layout the drawn-by cell no longer reaches the right edge
+        # (DATE, REV and SHEET sit to its right) and is one row of four, not two.
+        assert x0 == pytest.approx(bb.min.X + cell["min_x"], abs=0.5)
+        assert x1 == pytest.approx(bb.min.X + cell["max_x"], abs=0.5)
+        assert y0 == pytest.approx(bb.min.Y + cell["min_y"], abs=0.5)
+        assert y1 == pytest.approx(bb.min.Y + cell["max_y"], abs=0.5)
         assert 0 < x0 < x1 <= dwg.page_w and 0 < y0 < y1 <= dwg.page_h
 
     def test_add_svg_hyperlink_injects_anchor(self, tmp_path):
