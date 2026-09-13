@@ -390,6 +390,42 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     count = 0
     kind_indices: dict[str, int] = {}
     only_refs = None if only is None else {FeatureRef(f) for f in only}
+
+    # Two separate slots can have the same physical width across the same witness
+    # span (the frame's two 17.35 mm openings are one example). Quantify one size
+    # statement for that span, but only when both dimensions can enter the same
+    # corridor solve. Matching displayed text alone would merge unequal sizes that
+    # happen to round alike; matching geometry alone would merge distinct tolerances.
+    def _shared_width_key(slot, approved):
+        half_width = slot.width / 2
+        slot_view = views[frozenset((slot.width_axis, slot.long_axis))]
+        return (
+            "slot_size",
+            slot_view[0],
+            slot.width_axis,
+            round(slot.w_center - half_width, 3),
+            round(slot.w_center + half_width, 3),
+            approved.value_text + _tol_suffix(approved.tolerance, draft),
+        )
+
+    shared_widths: dict[tuple, list] = {}
+    for group in slot_groups:
+        if only_refs is not None and group.ref not in only_refs:
+            continue
+        slot = resolve_feature(group.ref)
+        if slot.kind != "slot":
+            continue
+        slot_view = views[frozenset((slot.width_axis, slot.long_axis))]
+        view_name, slot_zones, horizontal_axis = slot_view[:3]
+        if view_name != "front" and slot.width_axis != horizontal_axis:
+            continue  # immediate placement does not share the corridor dedup
+        near_strip = slot_zones.above if slot.width_axis == horizontal_axis else slot_zones.right
+        if near_strip is None:
+            continue
+        width_dim = group.dim(role="slot_width", kind="length")
+        if width_dim is not None:
+            shared_widths.setdefault(_shared_width_key(slot, width_dim), []).append(slot)
+
     for g in slot_groups:
         # The slot object supplies WITNESS GEOMETRY only — `lo`/`hi`/`w_center`/`width` fix
         # where the extension lines land, exactly as a centre mark is sized by its hole
@@ -423,6 +459,12 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             # tolerance suffix (#730 planner-authoritative, #925 compiler-formatted): the
             # renderer never turns a number into printed text of its own.
             lbl = approved.value_text + sfx
+            shared_key = (
+                _shared_width_key(s, approved) if s.kind == "slot" and kind == "width" else None
+            )
+            shared_owners = tuple(shared_widths.get(shared_key, ())) if shared_key else ()
+            if len(shared_owners) > 1:
+                lbl = f"{len(shared_owners)}× {lbl}"
             # Raw (pre-snap) endpoints — the dedup key must share a basis with the
             # hole-location key (which uses the raw ref), else the ~0.05 mm snap gap can
             # push a coincident span into an adjacent 0.1 mm page bin and the #345
@@ -454,12 +496,16 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                     e_lo, e_hi = (meas_proj(p_lo), witness, 0), (meas_proj(p_hi), witness, 0)
                 else:
                     e_lo, e_hi = (witness, meas_proj(p_lo), 0), (witness, meas_proj(p_hi), 0)
-                return (
-                    cname,
-                    lambda pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness, _l=lbl: _dim(
-                        _el, _eh, _s, abs(pos - _w), draft, label=_l
-                    ),
-                )
+
+                def _build(pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness, _l=lbl):
+                    dim = _dim(_el, _eh, _s, abs(pos - _w), draft, label=_l)
+                    if len(shared_owners) > 1:
+                        # "N× width" counts separate slots; its witness spans one
+                        # width. Bare N× labels otherwise mean a multiplied pitch.
+                        dim._dw_label_value = disp
+                    return dim
+
+                return cname, _build
 
             # Register into the corridor batch (ADR 2 (was 0014) collect-then-solve). One solve
             # per strip dedups a POSITION line coincident with a hole location (#345),
@@ -518,6 +564,13 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
 
             is_pos = kind.startswith("pos")
             drop_word = "position" if is_pos else kind
+            dedup_key = (
+                (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1), lbl)
+                if is_pos
+                else shared_key
+                if len(shared_owners) > 1
+                else None
+            )
             near_side, near_strip, near_hi = sides[0]
             far_side, far_strip, far_hi = sides[1]
             corridor_axis = "y" if near_side in ("above", "below") else "x"
@@ -530,6 +583,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 _ax=corridor_axis,
                 _feat=s,
                 _dw=drop_word,
+                _shared=shared_owners,
             ):
                 # Opposite-strip fallthrough. On the FRONT view — the path this change
                 # adds — it is DEFERRED to ctx.post_drain so it runs after every corridor
@@ -555,6 +609,8 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                         trace=ctx.trace,
                         trace_label=f"slot_{_fsd}_fallthrough",
                     ):
+                        if len(_shared) > 1:
+                            dwg.get_annotation(cname).source_features = _shared
                         return  # placed on the opposite strip
                     _record_slot_drop(ctx, dwg, _dw, idx, vw[0], _feat, approved.id)
 
@@ -567,6 +623,10 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # Nothing to register against; the opposite side is the only chance.
                 _far_or_drop(cname)
                 return True
+
+            def _shared_placed(nm, _owners=shared_owners):
+                if len(_owners) > 1:
+                    dwg.get_annotation(nm).source_features = _owners
 
             register_corridor(
                 ctx,
@@ -585,14 +645,10 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                         if is_pos
                         else (_SIZE_SUBCHAIN, (p_lo + p_hi) / 2, cname)
                     ),
-                    on_place=lambda nm: None,
+                    on_place=_shared_placed,
                     on_drop=_far_or_drop,
                     measurement=approved.id,  # #1002
-                    dedup=(
-                        (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1))
-                        if is_pos
-                        else None
-                    ),
+                    dedup=dedup_key,
                     precedence=1 if is_pos else 0,
                     force=False,
                     feature=s,  # provenance (ADR 5 (was 0010)): this dim belongs to the slot
@@ -729,6 +785,7 @@ def _location_candidate(
     *,
     view,
     span_key,
+    label,
     distance,
     build,
     feature=None,
@@ -774,7 +831,7 @@ def _location_candidate(
         # A placed location may later be replaced by the scattered-hole table (#351 PR-4c).
         on_place=_placed,
         on_drop=_drop,
-        dedup=(view, span_key[0], span_key[1]),
+        dedup=(view, span_key[0], span_key[1], label),
         precedence=3 if pinned else 2,
         priority=PRIORITY.MANDATORY if pinned else PRIORITY.AUTO,
         force=True,
@@ -889,6 +946,15 @@ def render_circular_channel_locations(
                 order=(_LOC_SUBCHAIN, dimension.value, name),
                 on_place=placed,
                 on_drop=dropped,
+                # Hole and seat axes can share a physical datum ordinate. The
+                # shared corridor keeps one visible location while retaining
+                # both compiled measurement identities.
+                dedup=(
+                    view,
+                    round(p1[0 if side == "above" else 1], 1),
+                    round(p2[0 if side == "above" else 1], 1),
+                    label,
+                ),
                 force=True,
                 priority=PRIORITY.MANDATORY if pinned_group else PRIORITY.AUTO,
                 feature=dimension.ref if len({entry.ref for entry in dimensions}) == 1 else None,
@@ -1109,6 +1175,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 _loc_name("m_locx", i),
                 view="plan",
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
+                label=label,
                 distance=abs(rx - datum_x),
                 build=lambda pos, _rx=rx, _ry=ry, _label=label: _dim(
                     (PX(datum_x), PY(_ry), 0),
@@ -1246,6 +1313,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 _loc_name("m_locy", i),
                 view=view,
                 span_key=span_key,
+                label=label,
                 distance=abs(ry - datum_y),
                 build=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label: (
                     _dim(

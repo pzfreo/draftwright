@@ -2121,9 +2121,10 @@ class CorridorCandidate:
         order:      sort key placing the candidate in the corridor ladder. Location dims
             key on datum distance (the monotonic ISO ladder); size dims form a separate
             contiguous run so a slot length never lands mid-ladder (#346).
-        dedup:      coincidence key ``(view, meas-origin, meas-endpoint)`` on the MEASURED
-            axis, or ``None`` to never dedup (size dims). Two candidates with equal keys are
-            the same physical dimension; the higher-``precedence`` one survives (#345).
+        dedup:      coincidence key on the MEASURED axis, or ``None`` to keep both.
+            Location keys also include their approved label: coincident geometry with
+            different stated precision/tolerance must not silently collapse. Equal keys
+            share one physical statement; the higher-``precedence`` one survives (#345).
         precedence: dedup survivor rank — a hole *location* dim (feeds coverage/table
             escalation) outranks a coincident slot *position* line.
         priority:   over-capacity survival rank (#357). When a strip cannot hold every

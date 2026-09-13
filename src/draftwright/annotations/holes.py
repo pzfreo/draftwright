@@ -821,6 +821,7 @@ def _off_axis_queue(
     force=True,
     on_drop=None,
     order_key=None,
+    dedup=None,
 ):
     # Below/right side-hole locations feed the same corridor batch as envelope, GD&T,
     # and PMI (#477). Their historical policy was force-keep unless the strip is
@@ -844,6 +845,7 @@ def _off_axis_queue(
                 order=(1, order_key(name, i) if order_key is not None else i, name),
                 on_place=lambda _nm: None,
                 on_drop=(on_drop or (lambda _nm: None)),
+                dedup=(dedup or {}).get(name),
                 force=force,
                 feature=(features or {}).get(name),
                 measurement=(measurements or {}).get(name),
@@ -1246,6 +1248,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
             force=False,
             on_drop=_fallback,
             order_key=lambda _nm, _i, _zo=zo: _zo,
+            dedup={primary_cand[0]: (view, round(p_lo[1], 1), round(p_hi[1], 1), label)},
         )
 
 
