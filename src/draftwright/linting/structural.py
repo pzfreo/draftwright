@@ -182,6 +182,49 @@ def _label_bbox(item, warned=None):
         return None
 
 
+_BARE_NUMERIC_LABEL = re.compile(r"^[⌀ØøR\s]*(\d+(?:\.(\d+))?)\s*$")
+
+
+def _displayed_decimals(item, label: str) -> int:
+    """How many decimal places this dimension's value is actually written to.
+
+    NOT simply the places in the string. `_fmt` trims a trailing `.0`, so a sheet at one
+    decimal place prints 40.0 as `40` — zero places in the text, but 0.05 mm of real
+    precision behind it. Reading the string alone granted half a millimetre of slack to every
+    whole-numbered label and let a genuine 9% mislabel pass as ordinary rounding.
+
+    So the sheet's own precision is the floor, and it IS reachable: an engine-built dimension
+    carries the draft it was made with on `_dw_spec`. A label may only RAISE it, and only when
+    the label is a bare number — `4.45` from `.format(decimals=2)` really does assert two
+    places. A compound label (`2× ⌀2.4 THRU`, `12 ±0.05`) is left to the sheet, because the
+    first number in such a string is as likely to be a multiplier or a tolerance as the
+    nominal; `_label_reading` exists precisely because that cannot be read off the text.
+    """
+    draft = getattr(getattr(item, "_dw_spec", None), "draft", None)
+    sheet = getattr(draft, "decimal_precision", None)
+    match = _BARE_NUMERIC_LABEL.match(label)
+    bare = len(match.group(2)) if match and match.group(2) else (0 if match else None)
+    if sheet is None:
+        return bare or 0
+    return max(int(sheet), bare) if bare is not None else int(sheet)
+
+
+def _is_correctly_rounded(item, label_val: float, measured: float, label: str) -> bool:
+    """Whether the label is the measurement, written to the precision this dimension uses.
+
+    A drawing prints 4.450 as `4.5` at one decimal place, and the engine then compared `4.5`
+    against 4.450 and called the 1.1% difference "possible axis swap or wrong endpoint"
+    (#1600). The comparison was relative, so the SAME 0.05 mm of rounding passed silently on
+    a 100 mm dimension and was reported as a topology error on a 4 mm one — the check fired
+    on smallness, not on wrongness.
+
+    Rounding can move a value by at most half of the last written place, so anything within
+    that is the label doing its job. Anything beyond it is a real disagreement and still
+    reported: an axis swap or a wrong endpoint misses by far more than half a display unit.
+    """
+    return abs(label_val - measured) <= 0.5 * 10.0 ** -_displayed_decimals(item, label) + 1e-9
+
+
 def _label_reading(item, label: str) -> float | None:
     """The value *item*'s label asserts about the path it is drawn on, or ``None``.
 
@@ -664,6 +707,12 @@ def lint_drawing(
         if hasattr(part_bbox.min, "Z") and hasattr(part_bbox.max, "Z"):
             _check_extent("Z", part_bbox.max.Z - part_bbox.min.Z)
 
+    # After the per-item pass, because it is an observation about the sheet rather than about
+    # any one annotation. That orders it within THIS function only: structural issues still
+    # precede the recognition-derived ones in a finished `Drawing.lint()`, so a caller that
+    # wants a particular finding must select it by code — `issues[0]` was never a stable
+    # address and one test was relying on it.
+    _lint_display_precision(items, issues, drawing_scale)
     return issues
 
 
@@ -730,6 +779,79 @@ def _view_edge_entries(vs, cache):
         entries = None
     cache[key] = (vs, entries)
     return entries
+
+
+#: Below this, in millimetres, a difference between the label and the model value is float
+#: noise from projection arithmetic rather than the sheet's precision losing anything real.
+_NOMINAL_SHIFT_FLOOR = 5e-4
+
+
+def _lint_display_precision(items, issues, drawing_scale: float = 1.0) -> None:
+    """Say where the sheet's precision prints a nominal the model does not have (#1600).
+
+    Correct rounding is not a defect, and since #1600 `label_vs_measured` no longer reports it
+    — rightly, because it was reporting it only on SHORT dimensions, where the same 0.05 mm
+    was a large enough fraction to trip a relative threshold. But that left nothing saying it
+    at all, and 4.450 printed as `4.5` is a real 0.05 mm between the drawing and the model. On
+    a part carrying 0.05 mm clearances, that is the whole clearance.
+
+    The engine cannot tell which of those matter. `4.450` locating a hinge axis is design
+    intent; `71.595` as an overall envelope is parametric fallout that no drafter would print
+    in full. Deciding between them needs to know what the part is FOR, which a STEP file does
+    not carry — the same gap as #1597.
+
+    So this does not guess and does not change the rounding. It reports, once per sheet with
+    the worst case named, so the difference is visible and the author can raise the places on
+    the dimensions that carry the function: `.format(decimals=…)` does that per dimension and
+    survives the `--script` round trip.
+
+    With one honest caveat, which the message carries: `.format()` refuses a LOCATION intent
+    (#1610), and on the fixture this was measured against six of the seven offenders are
+    locations. The advice is currently true of the API and only partly true of the sheet.
+
+    `info`, because within the title block's general tolerance a rounded nominal is ordinary
+    drafting. It is the parts whose real tolerance is tighter than the stated one where this
+    matters, and the sheet cannot know that either.
+    """
+    shortfalls = []
+    for item in items:
+        label = _item_label(item)
+        label_val = _label_reading(item, label)
+        measurement = dimension_path_measurement(item, drawing_scale)
+        if label_val is None or measurement is None:
+            continue
+        measured, item_scale = measurement
+        effective = measured / item_scale
+        # No degenerate guard here, unlike `_lint_dim` above: that one divides by the
+        # measurement, this one only differences it, and a path projecting to ~0 is already
+        # excluded by the rounding gate below — a nonzero label against a zero path is not
+        # correctly rounded, and a zero label against it shifts by nothing.
+        shift = abs(label_val - effective)
+        # Only ROUNDING. Without this, every genuine mislabel also lands here: a `35` drawn on
+        # a 20 mm path was counted as a rounded nominal and, being the largest shift, became
+        # the "worst case" named — displacing the one thing this exists to surface, and
+        # describing an error as ordinary. `label_vs_measured` owns that case.
+        if shift > _NOMINAL_SHIFT_FLOOR and _is_correctly_rounded(
+            item, label_val, effective, label
+        ):
+            shortfalls.append((shift, label, effective))
+    if not shortfalls:
+        return
+    shortfalls.sort(key=lambda entry: (-entry[0], entry[1]))
+    worst_shift, worst_label, worst_value = shortfalls[0]
+    issues.append(
+        LintIssue(
+            severity="info",
+            code="nominal_rounded",
+            message=(
+                f"{len(shortfalls)} dimension(s) print a nominal the model does not have, "
+                f"rounded to the sheet's precision; the largest is '{worst_label}' for "
+                f"{worst_value:.4f} ({worst_shift:.4f} mm). Within a general tolerance this is "
+                f"ordinary. Where a fit depends on it, raise that dimension's places with "
+                f".format(decimals=...) — which a LOCATION dimension cannot yet accept (#1610)"
+            ),
+        )
+    )
 
 
 def _lint_scale_stated(items, issues) -> None:
@@ -1222,7 +1344,9 @@ def _lint_dim(item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=Non
     if label_val is not None and measurement is not None:
         measured, item_scale = measurement
         effective_measured = measured / item_scale
-        if effective_measured > 1e-6:
+        if effective_measured > 1e-6 and not _is_correctly_rounded(
+            item, label_val, effective_measured, label
+        ):
             ratio = abs(label_val - effective_measured) / effective_measured
             if ratio > 0.005:
                 issues.append(

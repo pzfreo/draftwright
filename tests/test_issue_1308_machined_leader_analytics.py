@@ -58,7 +58,13 @@ EXPECTED = {
             "scale_note": ("Note", (254.67, 46.0, 267.0, 48.166)),
             "note_iso_nts": ("Note", (155.693, 115.549, 180.026, 118.243)),
         },
-        {"gear_semantics_missing": 1, "unrecognised_defining_geometry": 1},
+        # `nominal_rounded` (#1600): this wheel's lengths are not round at one decimal
+        # place, so the sheet reports that its printed nominals differ from the model.
+        {
+            "gear_semantics_missing": 1,
+            "nominal_rounded": 1,
+            "unrecognised_defining_geometry": 1,
+        },
     ),
     "nist_ctc_01_asme1_ap242.stp": (
         {
