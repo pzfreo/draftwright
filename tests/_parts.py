@@ -151,3 +151,10 @@ def uniform_staircase(n_treads=8, rise=15.0, going=20.0, width=30.0):
         tread = Pos(length / 2, 0, height / 2) * Box(length, width, height)
         part = tread if part is None else part + tread
     return part
+
+
+def x_stepped_shaft():
+    """Return a turned shaft lying along X: ø30×40 followed by ø16×30."""
+    from build123d import Cylinder, Pos, Rotation
+
+    return Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))
