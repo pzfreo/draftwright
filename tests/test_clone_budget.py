@@ -24,6 +24,23 @@ The fix when this fails is not to raise the budget. It is to parametrize over th
 one thing that varies, which keeps every assertion and deletes the copies. Lower the
 budget whenever you do. Raising it needs a reason in the pull request body, the same
 way `fail_under` in `[tool.coverage.report]` does.
+
+**Within-module copies stay uncounted, and that is measured rather than assumed (#1637).**
+Running this module's own normaliser and thresholds per module instead of across modules
+finds 19 redundant bodies in the whole suite, in 8 groups: 9 in `test_make_drawing.py`, 4 in
+`test_tolerances.py`, 2 each in `test_declare.py`, `test_lint_reconciliation.py` and
+`test_issue_1382_framed_step_family_evidence.py`. One group has six members (the
+`test_overlap_*` cross-view family); the other seven have exactly three. #1637's issue body
+quotes 66 and 22 for the same scan — that is the count at `_MIN_GROUP_MEMBERS = 2`, which
+this guard deliberately does not use, because at two it measures coincidence.
+
+Nineteen bodies in eight small groups is not the templated-per-family pattern this guard
+exists to stop, and each group reads as a deliberate side-by-side set —
+`test_overlap_counts_label_vs_label_across_views` beside `..._label_vs_line_across_views`,
+the authored chamfer/fillet/flat tolerance trio — where folding them into one parametrized
+call costs the readability that put them side by side and saves one build apiece. So the
+cross-module scope stands, and the cost lever for those bodies is the shared-fixture work of
+#1637 step 4, not this guard.
 """
 
 from __future__ import annotations
@@ -36,9 +53,15 @@ from pathlib import Path
 TESTS = Path(__file__).parent
 
 #: Cross-module structurally identical test bodies, counted as `group size - 1`, over
-#: groups of at least `_MIN_GROUP_MEMBERS`. Measured at 33 on 2026-09-07.
+#: groups of at least `_MIN_GROUP_MEMBERS`. Measured at 33 on 2026-09-07, and at 0 on
+#: 2026-09-14 once #1637 moved every one of those nine groups into
+#: `tests/_evidence_contract.py` as one parametrized body per contract.
 #: RATCHET DOWN ONLY — see the module docstring.
-CLONE_BUDGET = 33
+#:
+#: Zero is not a hair-trigger: `_MIN_GROUP_MEMBERS = 3` is where this guard's tolerance
+#: for coincidence lives, not the budget. Three modules must share one erased shape before
+#: anything is counted at all, and no such family survives today.
+CLONE_BUDGET = 0
 
 #: A shape must recur in at least this many modules to count as templated cloning.
 #:

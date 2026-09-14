@@ -9,8 +9,11 @@ from types import SimpleNamespace
 
 import pytest
 from _evidence_contract import (
+    assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_uses_one_build_owned_recognition,
+    assert_quality_summary_counts_audited_requirements,
+    assert_real_corpus_scores_all_layers,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Box, Compound, Cylinder, Pos, Rot, import_step
@@ -91,20 +94,9 @@ def test_versioned_turned_step_corpus_covers_every_required_case_class() -> None
 
 
 def test_real_turned_step_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 26
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 52
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 104
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=26, parameter_fidelity=52, downstream_usefulness=104
+    )
 
 
 def test_raw_translated_record_retains_body_local_axis_line_and_band_facts() -> None:
@@ -1208,18 +1200,7 @@ def test_observer_failure_cannot_pass_zero_band_negative(monkeypatch) -> None:
 
 
 def test_missing_build_owned_recognition_fails_closed(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_recognition(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        monkeypatch.setattr(type(drawing), "recognition", lambda _drawing: None)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_recognition)
-    with pytest.raises(ObservationError, match="recognition access failed"):
-        _default_observers()["turned-steps"](_shaft())
+    assert_missing_build_owned_recognition_fails_closed(monkeypatch, "turned-steps", _shaft())
 
 
 @pytest.mark.parametrize("parameter", ["diameter", "length"])
@@ -1517,11 +1498,4 @@ def test_weakening_provider_band_parameter_reduces_fidelity(
 
 
 def test_quality_summary_counts_two_audited_requirements_per_band() -> None:
-    from draftwright import build_drawing
-
-    completeness = build_drawing(_shaft()).lint_summary()["quality"]["completeness"]
-
-    assert completeness["by_family"]["turned_steps"] == 6
-    assert completeness["placed"] == completeness["requirements"] == 6
-    assert completeness["audited_score"] == 1.0
-    assert "turned_steps" not in completeness["unscored_recognized_families"]
+    assert_quality_summary_counts_audited_requirements(_shaft(), "turned_steps", requirements=6)

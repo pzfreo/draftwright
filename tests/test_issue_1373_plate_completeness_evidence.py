@@ -10,7 +10,10 @@ from unittest.mock import patch
 import pytest
 from _evidence_contract import (
     assert_missing_model_outcomes_fail_closed,
+    assert_observer_failure_cannot_pass_the_negative_case,
     assert_observer_uses_one_build_owned_recognition,
+    assert_real_corpus_scores_all_layers,
+    assert_versioned_corpus_covers_every_required_case_class,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import (
@@ -68,49 +71,30 @@ def _annotation_for_plate(drawing) -> str:
 
 
 def test_versioned_plate_corpus_covers_every_required_case_class() -> None:
-    corpus = load_corpus(CORPUS)
-
-    assert (corpus.corpus_version, corpus.metric_version) == ("1.0.0", 1)
-    assert corpus.scope == ("plates",)
-    assert len(corpus.cases) == 11
-    assert sum(len(case.expected) for case in corpus.cases) == 20
-    tags = {tag for case in corpus.cases for tag in case.classification.split("+")}
-    assert {
-        "ambiguous",
-        "compound",
-        "multiple",
-        "multiple-equal",
-        "negative",
-        "overlapping-family",
-        "positive",
-        "principal-orientation",
-        "rotational",
-        "topology-order-variant",
-    } <= tags
-    assert all(case.provenance["author"] for case in corpus.cases)
-    assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
-    assert all(
-        "'1970-01-01T00:00:00'"
-        in (CORPUS.parent / case.provenance["fixture"]).read_text().splitlines()[3]
-        for case in corpus.cases
+    assert_versioned_corpus_covers_every_required_case_class(
+        CORPUS,
+        scope=("plates",),
+        cases=11,
+        expected=20,
+        tags={
+            "ambiguous",
+            "compound",
+            "multiple",
+            "multiple-equal",
+            "negative",
+            "overlapping-family",
+            "positive",
+            "principal-orientation",
+            "rotational",
+            "topology-order-variant",
+        },
     )
 
 
 def test_real_plate_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 20
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 20
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 80
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=20, parameter_fidelity=20, downstream_usefulness=80
+    )
 
 
 @pytest.mark.parametrize(
@@ -1283,22 +1267,7 @@ def test_observer_fails_closed_when_built_recognition_is_unavailable(monkeypatch
 
 
 def test_observer_failure_cannot_pass_a_zero_plate_negative_case(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    corpus = load_corpus(CORPUS)
-    negative = next(case for case in corpus.cases if not case.expected)
-
-    def failed_build(*_args, **_kwargs):
-        raise RuntimeError("negative-case probe")
-
-    monkeypatch.setattr(builder, "build_drawing", failed_build)
-    damaged = evaluate_step_corpus(replace(corpus, cases=(negative,)))
-
-    assert damaged.complete_cases == damaged.conformant_cases == 0
-    assert damaged.cases[0].outcome == "unknown"
-    assert [(issue.layer, issue.family) for issue in damaged.cases[0].diagnostics] == [
-        ("analysis", "plates")
-    ]
+    assert_observer_failure_cannot_pass_the_negative_case(monkeypatch, CORPUS, "plates")
 
 
 def test_corrupting_public_plate_declaration_loses_declaration_credit(monkeypatch) -> None:

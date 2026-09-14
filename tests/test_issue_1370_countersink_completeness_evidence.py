@@ -7,7 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from _evidence_contract import assert_missing_model_outcomes_fail_closed
+from _evidence_contract import (
+    assert_every_boundary_is_supported,
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_fails_closed_without_build_or_recognition,
+)
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Box, Compound, Cone, Cylinder, Pos, import_step
 
@@ -219,14 +223,11 @@ def test_equal_seats_still_remain_two_physical_observations() -> None:
 
 
 def test_every_countersink_boundary_is_observed_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["countersinks"](_single_part())
-    assert len(observed) == 1, "fixture must produce one countersink observation"
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported(
+        "countersinks",
+        _single_part(),
+        message="fixture must produce one countersink observation",
+    )
 
 
 def test_removing_the_seat_from_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -455,23 +456,9 @@ def test_two_sided_bore_keeps_the_second_seat_explicitly_unverifiable() -> None:
 def test_countersink_observer_fails_closed_when_build_or_recognition_is_unavailable(
     monkeypatch,
 ) -> None:
-    import draftwright.builder as builder
-
-    def broken_build(*_args, **_kwargs):
-        raise RuntimeError("synthetic build failure")
-
-    monkeypatch.setattr(builder, "build_drawing", broken_build)
-    observer = _default_observers()["countersinks"]
-    assert observer(_single_part()) == ()
-
-    class DrawingWithoutRecognition:
-        def recognition(self):
-            return None
-
-    monkeypatch.setattr(
-        builder, "build_drawing", lambda *_args, **_kwargs: DrawingWithoutRecognition()
+    assert_observer_fails_closed_without_build_or_recognition(
+        monkeypatch, "countersinks", _single_part
     )
-    assert observer(_single_part()) == ()
 
 
 @pytest.mark.parametrize("corruption", ["nonnumeric-location", "missing-axis"])
