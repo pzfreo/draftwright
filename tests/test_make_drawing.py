@@ -22,7 +22,6 @@ from quiddity import (
 from draftwright import build_drawing, make_drawing
 from draftwright._core import _MARGIN, _fmt
 from draftwright.analysis import (
-    _converge_step_sizing,
     _is_rotational,
 )
 from draftwright.compose import StripDepths
@@ -95,52 +94,6 @@ def _recognised_pocket_fields(part):
 
     inventory = build_raw_recognition_result(part).section_recesses
     return [section_recess_fields(source)[1] for source in recesses_with_kind(inventory, "pocket")]
-
-
-class TestStepSizingConvergence:
-    def test_step_sizing_converges_past_the_old_three_pass_limit(self):
-        measure_calls = []
-
-        def measure(n_steps):
-            measure_calls.append(n_steps)
-            return StripDepths(right=float(n_steps), left=0.0)
-
-        def pick(n_steps, strips):
-            assert strips.right == pytest.approx(n_steps)
-            return float(n_steps), 297.0, 210.0, 120.0
-
-        def legible_count(scale):
-            return {7.0: 5, 5.0: 4, 4.0: 2, 2.0: 2}[scale]
-
-        pick_result, strips, n_steps = _converge_step_sizing(7, measure, pick, legible_count)
-
-        assert pick_result == (2.0, 297.0, 210.0, 120.0)
-        assert strips.right == pytest.approx(2.0)
-        assert n_steps == 2
-        assert measure_calls == [7, 5, 4, 2]
-
-    def test_step_sizing_cycle_uses_the_larger_reservation(self, caplog):
-        measure_calls = []
-
-        def measure(n_steps):
-            measure_calls.append(n_steps)
-            return StripDepths(right=float(n_steps), left=0.0)
-
-        def pick(n_steps, strips):
-            assert strips.right == pytest.approx(n_steps)
-            return float(n_steps), 297.0, 210.0, 120.0
-
-        def legible_count(scale):
-            return {4.0: 2, 2.0: 4}[scale]
-
-        with caplog.at_level(logging.WARNING, logger="draftwright.analysis"):
-            pick_result, strips, n_steps = _converge_step_sizing(4, measure, pick, legible_count)
-
-        assert pick_result == (4.0, 297.0, 210.0, 120.0)
-        assert strips.right == pytest.approx(4.0)
-        assert n_steps == 4
-        assert measure_calls == [4, 2, 4]
-        assert "did not converge" in caplog.text
 
 
 # ---------------------------------------------------------------------------

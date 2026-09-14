@@ -1,8 +1,12 @@
-"""Solid analysis regressions for cylinders and face levels."""
+"""Solid analysis and sizing-convergence regressions."""
+
+import logging
 
 import pytest
 from quiddity import recognise_face_levels
 
+from draftwright.analysis import _converge_step_sizing
+from draftwright.compose import StripDepths
 from draftwright.drawing import analyse_cylinders
 
 
@@ -69,3 +73,49 @@ def test_analyse_face_levels_area_filter_drops_tiny_faces():
     assert not any(abs(fl.z - 7.0) < 0.1 for fl in filtered)
     assert any(abs(fl.z - 5.0) < 0.1 for fl in filtered)
     assert any(abs(fl.z - (-5.0)) < 0.1 for fl in filtered)
+
+
+class TestStepSizingConvergence:
+    def test_step_sizing_converges_past_the_old_three_pass_limit(self):
+        measure_calls = []
+
+        def measure(n_steps):
+            measure_calls.append(n_steps)
+            return StripDepths(right=float(n_steps), left=0.0)
+
+        def pick(n_steps, strips):
+            assert strips.right == pytest.approx(n_steps)
+            return float(n_steps), 297.0, 210.0, 120.0
+
+        def legible_count(scale):
+            return {7.0: 5, 5.0: 4, 4.0: 2, 2.0: 2}[scale]
+
+        pick_result, strips, n_steps = _converge_step_sizing(7, measure, pick, legible_count)
+
+        assert pick_result == (2.0, 297.0, 210.0, 120.0)
+        assert strips.right == pytest.approx(2.0)
+        assert n_steps == 2
+        assert measure_calls == [7, 5, 4, 2]
+
+    def test_step_sizing_cycle_uses_the_larger_reservation(self, caplog):
+        measure_calls = []
+
+        def measure(n_steps):
+            measure_calls.append(n_steps)
+            return StripDepths(right=float(n_steps), left=0.0)
+
+        def pick(n_steps, strips):
+            assert strips.right == pytest.approx(n_steps)
+            return float(n_steps), 297.0, 210.0, 120.0
+
+        def legible_count(scale):
+            return {4.0: 2, 2.0: 4}[scale]
+
+        with caplog.at_level(logging.WARNING, logger="draftwright.analysis"):
+            pick_result, strips, n_steps = _converge_step_sizing(4, measure, pick, legible_count)
+
+        assert pick_result == (4.0, 297.0, 210.0, 120.0)
+        assert strips.right == pytest.approx(4.0)
+        assert n_steps == 4
+        assert measure_calls == [4, 2, 4]
+        assert "did not converge" in caplog.text
