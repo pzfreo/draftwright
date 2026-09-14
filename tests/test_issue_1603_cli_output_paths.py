@@ -5,6 +5,7 @@ import runpy
 from pathlib import Path
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from draftwright.cli import app
@@ -53,7 +54,7 @@ def test_conflicting_destinations_fail_before_loading_the_part(tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["missing.step", "--out", "name", "--out-dir", "new"])
     assert result.exit_code == 2
-    assert "use either --out or --out-dir" in result.output
+    assert "use either --out or --out-dir" in " ".join(strip_ansi(result.output).split())
     assert not (tmp_path / "new").exists()
 
 
