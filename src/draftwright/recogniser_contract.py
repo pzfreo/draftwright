@@ -224,10 +224,10 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "tests/test_channel_ownership.py",
             "tests/test_issue_1245_passage_disposition.py",
             "tests/test_issue_1246_prismatic_pocket_disposition.py",
-            "tests/test_issue_1372_pocket_completeness_evidence.py",
-            "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
             "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
             "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
+            "tests/test_pocket_completeness_evidence.py",
+            "tests/test_pocket_pattern_completeness_evidence.py",
             "tests/test_section_recess_contract.py",
             "tests/test_section_recess_pockets.py",
         ]
@@ -289,17 +289,17 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     elif family_id == "grooves":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_groove_completeness_evidence.py",
+            "tests/test_groove_completeness_evidence.py",
         )
     elif family_id == "rectangular-pads":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_pad_completeness_evidence.py",
+            "tests/test_pad_completeness_evidence.py",
         )
     elif family_id == "polygonal-bosses":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_polygonal_boss_completeness_evidence.py",
+            "tests/test_polygonal_boss_completeness_evidence.py",
         )
     elif family_id == "polygonal-stock":
         completeness = _supported(
@@ -670,7 +670,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1372_groove_completeness_evidence.py",
+                    "tests/test_groove_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
@@ -734,7 +734,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1372_polygonal_boss_completeness_evidence.py",
+                    "tests/test_polygonal_boss_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
@@ -760,7 +760,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1372_pad_completeness_evidence.py",
+                    "tests/test_pad_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
