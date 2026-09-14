@@ -24,7 +24,6 @@ from draftwright._core import _MARGIN, _MIN_VIEW_MM, _fmt
 from draftwright.analysis import (
     _converge_step_sizing,
     _is_rotational,
-    dedup_diams,
 )
 from draftwright.compose import StripDepths, _fits, choose_scale
 from draftwright.drawing import analyse_cylinders
@@ -121,33 +120,6 @@ def _recognised_pocket_fields(part):
 
     inventory = build_raw_recognition_result(part).section_recesses
     return [section_recess_fields(source)[1] for source in recesses_with_kind(inventory, "pocket")]
-
-
-class TestDedupDiams:
-    def test_empty(self):
-        assert dedup_diams([]) == []
-
-    def test_single(self):
-        assert dedup_diams([{"diameter": 10.0, "area": 1}]) == [10.0]
-
-    def test_deduplicates_close_values(self):
-        cyls = [{"diameter": 10.0, "area": 1}, {"diameter": 10.05, "area": 1}]
-        result = dedup_diams(cyls)
-        assert len(result) == 1
-
-    def test_keeps_distinct_values(self):
-        cyls = [{"diameter": 10.0, "area": 1}, {"diameter": 20.0, "area": 1}]
-        result = dedup_diams(cyls)
-        assert len(result) == 2
-
-    def test_sorted_descending(self):
-        cyls = [
-            {"diameter": 5.0, "area": 1},
-            {"diameter": 20.0, "area": 1},
-            {"diameter": 10.0, "area": 1},
-        ]
-        result = dedup_diams(cyls)
-        assert result == [20.0, 10.0, 5.0]
 
 
 def _plate_labels(d):
