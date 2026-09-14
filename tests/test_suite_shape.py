@@ -4,8 +4,9 @@
 shows none has ever been renamed. The cost is not cosmetic: the same behaviour ends up
 tested in a dozen places that never see each other, which is how thirteen copies of one
 three-statement body reached `CLONE_BUDGET` unnoticed. One issue family alone (#1438) is
-13 modules and 4,823 lines, and release 0.4.29 added nine more issue-named modules in a
-single release.
+13 modules and 4,823 lines, and release 0.4.29 added twelve more issue-named modules in a
+single release (182 at `v0.4.28`, 194 at `v0.4.29`, measured with
+`git ls-tree --name-only <tag> tests/ | grep -c '^tests/test_issue'`).
 
 **The rule (maintainer decision, 2026-09-13):** a regression test goes in the module named
 after the BEHAVIOUR it defends — `tests/test_channels.py`, `tests/test_strip_layout.py` —
