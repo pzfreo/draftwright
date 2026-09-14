@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from math import hypot
 from typing import Any, Literal
 
 from quiddity import SectionRecessRefusal
 from quiddity.evidence import FeatureRef, RecognitionEvidence
 
+from draftwright._geometry import _axis_letter
 from draftwright.blend_contract import blend_provider_key
 from draftwright.oriented_slot_contract import standalone_oriented_slots
 from draftwright.profile_angles import ProfileAngle
@@ -22,6 +24,53 @@ from draftwright.recogniser_policy import (
     ownerless_occurrence_policy,
 )
 from draftwright.section_recess_contract import UnsupportedSectionRecess, section_recess_fields
+
+#: Retain the established five-member drafting policy. Smaller proposals need a physical
+#: concentric witness: three points, or the four corners of a rectangle, always fit a
+#: circle. Exhausting a hole group does not supply that missing witness (#1596 / #1611).
+_BC_SELF_EVIDENT_MEMBERS = 5
+
+#: How far a corroborating feature's axis may sit from the fitted centre and still count as
+#: concentric with it, in millimetres. Deliberately tight: the claim being corroborated is that
+#: the machinist may work from this circle, and a feature that is merely nearby does not
+#: support it.
+_BC_CONCENTRIC_TOL = 0.5
+
+
+def _corroborates_bolt_circle(candidate: Any, axis: str, centre: Any) -> bool:
+    """Whether *candidate* is a physical circular feature concentric with the fitted circle.
+
+    A four-bolt round flange is real and common, so member count alone would refuse as much
+    good work as bad. What separates it from #1595's rectangle is that the flange HAS
+    something at the centre — a spigot, a boss, a central bore — that the bolt circle is
+    concentric with, and that a machinist can actually indicate off.
+    """
+    if _axis_letter(candidate) != axis:
+        return False
+    plane = {"x": (1, 2), "y": (0, 2), "z": (0, 1)}[axis]
+    location = candidate.location
+    return hypot(*(location[i] - centre[i] for i in plane)) <= _BC_CONCENTRIC_TOL
+
+
+def bolt_circle_is_corroborated(pat: Any, members: Any, holes: Any, bosses: Any) -> bool:
+    """Require independent corroboration before stating a fitted circular datum.
+
+    Five or more members retain the existing self-evident circular-pattern policy.
+    Smaller proposals require a concentric circular feature: accounting for every hole
+    is not corroboration, since four corners of a square exhaust their hole set too.
+    """
+    if len(members) >= _BC_SELF_EVIDENT_MEMBERS:
+        return True
+    axis = _axis_letter(members[0])
+    member_ids = {id(m) for m in members}
+    if any(
+        _corroborates_bolt_circle(candidate, axis, pat.center)
+        for candidate in (*holes, *(bosses or ()))
+        if id(candidate) not in member_ids
+    ):
+        return True
+    return False
+
 
 _BOSS_ENVELOPE_SPAN_TOL = 0.005
 

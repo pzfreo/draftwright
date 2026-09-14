@@ -39,7 +39,7 @@ Compact map, bottom to top:
   bottom leaf), `fonts.py` (pinned IBM Plex, ADR 5 (was 0006)), `fits.py` (ISO 286),
   `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 3 (was 0017) one-result
   lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
-  final-IR binding, group/pattern absorption, and settled ownerless consumer policy),
+  final-IR binding, group/pattern absorption, shared bolt-circle corroboration, and settled ownerless consumer policy),
   `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
   `measurement_support.py` (producer-issued exact measurement and member witnesses),
   `location_contract.py` (shared pocket/pad datum reference and coincidence rules),

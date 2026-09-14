@@ -787,8 +787,8 @@ def test_the_cli_prints_the_document_path_and_no_report_suppresses_it(tmp_path, 
 
     result = runner.invoke(app, ["part.step", "--script", "--out", "with"])
     assert result.exit_code == 0, result.output
-    assert "with.py" in result.output.split()
-    assert "with.draftwright-inspection.json" in result.output.split()
+    assert str(tmp_path / "with.py") in result.output.split()
+    assert str(tmp_path / "with.draftwright-inspection.json") in result.output.split()
 
     result = runner.invoke(app, ["part.step", "--script", "--out", "without", "--no-report"])
     assert result.exit_code == 0, result.output

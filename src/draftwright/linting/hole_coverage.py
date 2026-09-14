@@ -12,7 +12,7 @@ from dataclasses import dataclass, field, replace
 from math import hypot
 from typing import Literal
 
-from quiddity import HoleRecord, HoleSpec, RecognitionResult, countersink_matches_hole
+from quiddity import BoltCircle, HoleRecord, HoleSpec, RecognitionResult, countersink_matches_hole
 
 from draftwright._core import _decode_hole_location_fact, _fmt
 from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
@@ -30,7 +30,7 @@ from draftwright.linting.issues import (
 )
 from draftwright.linting.profiled_bore_coverage import profiled_bore_target_sources
 from draftwright.measurement_support import RequirementCarrier
-from draftwright.recognition_ownership import RecognitionOwnership
+from draftwright.recognition_ownership import RecognitionOwnership, bolt_circle_is_corroborated
 
 HoleRequirementState = Literal[
     "placed",
@@ -994,8 +994,11 @@ def hole_requirement_outcomes(
             f"got {type(recognition).__name__}"
         )
 
-    # A refusal is an explicit adapter decision, never inferred from an absent IR pattern.
-    # Declared builds without that decision retain the independent physical-pattern join.
+    # Automatic refusals carry their original run identity. A declared replay has no
+    # conversion ownership; apply the same physical corroboration policy to its cached
+    # inventory. An exact declared pattern remains independently verifiable even when
+    # automatic drafting would use individual holes. Missing a corroborated pattern is
+    # still a mismatch: absence from the IR cannot itself justify a refusal.
     patterns = recognition.hole_patterns
     if ownership is not None:
         if ownership.evidence.result is not recognition:
@@ -1004,6 +1007,22 @@ def hole_requirement_outcomes(
         if not refused <= {id(pattern) for pattern in patterns}:
             raise ValueError("refused hole pattern does not belong to this recognition run")
         patterns = tuple(pattern for pattern in patterns if id(pattern) not in refused)
+    else:
+        declared_patterns = {
+            _pattern_key(feature)
+            for feature in features
+            if getattr(feature, "kind", None) == "pattern"
+        }
+        patterns = tuple(
+            pattern
+            for pattern in patterns
+            if not isinstance(pattern, BoltCircle)
+            or bolt_circle_is_corroborated(
+                pattern, pattern.holes, recognition.holes, recognition.bosses
+            )
+            or _pattern_key(pattern) in declared_patterns
+            or _tool_center_pattern_key(pattern) in declared_patterns
+        )
     pattern_member_ids = {id(hole) for pattern in patterns for hole in pattern.holes}
     loose_groups: dict[tuple, list] = defaultdict(list)
     for hole in recognition.holes:

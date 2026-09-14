@@ -465,8 +465,8 @@ def test_bolt_circle_cell_cannot_cover_a_physical_bore_of_the_same_diameter(tmp_
 
     source = tmp_path / "bolt-circle.step"
     part = Box(100, 60, 10) - Pos(25, 0, 0) * Cylinder(10, 10)
-    for index in range(3):
-        angle = index * 2 * pi / 3
+    for index in range(5):
+        angle = index * 2 * pi / 5
         part -= Pos(-25 + 10 * cos(angle), 10 * sin(angle), 0) * Cylinder(1, 10)
     export_step(part, source)
     document = Document.from_part(source)

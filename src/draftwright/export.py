@@ -380,7 +380,10 @@ def write_dxf(dxf, path: str, page_w: float, page_h: float, reproducible: bool =
     costing seconds on a dimension-dense sheet (#602; build123d#382 tracks
     exposing viewport control). The drawing already lives in page-mm
     coordinates ``(0, 0)–(page_w, page_h)``, so set that single-window
-    viewport directly and save. Falls back to ``dxf.write`` if the optimized
+    viewport directly and save. The ezdxf document starts with A3 model/paper
+    limits, so write the actual page limits too; zooming the viewport alone
+    does not change the canvas a CAD reader reports (#1641).
+    Falls back to ``dxf.write`` if the optimized
     viewport seam is unavailable while retaining reproducible metadata whenever
     the ezdxf document is accessible. A requested reproducible export fails
     clearly if the document itself is unavailable rather than returning live data.
@@ -391,6 +394,11 @@ def write_dxf(dxf, path: str, page_w: float, page_h: float, reproducible: bool =
             raise RuntimeError("reproducible DXF export requires access to the ezdxf document")
         dxf.write(path)
         return
+
+    # ezdxf regenerates the header limits from the model/paper layouts at save
+    # time. Updating header vars alone silently restores its default A3 values.
+    doc.modelspace().reset_limits((0.0, 0.0), (page_w, page_h))
+    doc.active_layout().page_setup(size=(page_w, page_h), margins=(0, 0, 0, 0), units="mm")
 
     def save(save_fn) -> None:
         if reproducible:

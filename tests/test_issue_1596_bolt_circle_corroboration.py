@@ -106,7 +106,30 @@ def test_the_members_are_still_drawn_counted_and_located(refused_pattern_drawing
     drawing = refused_pattern_drawing
     labels = [str(o.label) for _n, o in drawing.iter_annotations() if getattr(o, "label", None)]
     assert not [label for label in labels if "BC" in label]
-    assert "6× ⌀2.4 THRU" in labels
+    assert f"{len(drawing.recognition().holes)}× ⌀2.4 THRU" in labels
+
+    from draftwright.sheet_emit import emit_sheet_script
+
+    source = emit_sheet_script(
+        drawing.model(), "part = supplied_part", "drawing", title="T", number="N"
+    )
+    count = len(drawing.recognition().holes)
+    part = _grid_plate(_UNEVEN_ROWS) if count == 6 else _grid_plate((-10, 10), columns=(-10, 10))
+    namespace = {"supplied_part": part}
+    exec(
+        compile(source[: source.index("drawing = sheet.build()")], "<refused-pattern>", "exec"),
+        namespace,
+    )  # noqa: S102
+    replay = namespace["sheet"].model()
+    assert not [feature for feature in replay.features if isinstance(feature, PatternFeature)]
+    assert [feature for feature in replay.features if feature.kind == "hole"] == [
+        feature for feature in drawing.model().features if feature.kind == "hole"
+    ]
+    replay_drawing = namespace["sheet"].build()
+    assert not [
+        issue for issue in replay_drawing.lint() if issue.code.startswith("hole_requirement")
+    ]
+    assert replay_drawing.recognition_ownership() is None
 
 
 def test_even_spacing_was_never_this_defect():
@@ -117,34 +140,34 @@ def test_even_spacing_was_never_this_defect():
     assert grid.count == 6
 
 
-def test_it_is_the_holes_left_OFF_the_circle_that_give_it_away():
-    """The discriminator, stated directly.
-
-    Nothing about the four members is wrong — they really are concyclic and really are
-    near-equally spaced (90.19 / 89.81 degrees, inside any sane `EQ SP` tolerance). What is
-    wrong is the two identical holes the circle does not explain. Remove them and the same
-    four holes are an ordinary four-bolt pattern.
-    """
+def test_no_leftover_holes_do_not_corroborate_a_fitted_circle():
     assert _bolt_circles(_grid_plate(_UNEVEN_ROWS)) == []
-
-    four_only = _grid_plate(_UNEVEN_ROWS[:2])
-    (pattern,) = _bolt_circles(four_only)
-    assert pattern.count == 4
+    assert _bolt_circles(_grid_plate(_UNEVEN_ROWS[:2])) == []
 
 
-def test_the_rule_does_not_depend_on_the_angle_to_the_axes():
-    """A pattern is a property of the part, not of its phase.
-
-    An earlier cut of this rule counted distinct x and y values to spot a lattice, which
-    made the SAME four holes a lattice at 0 degrees and a bolt circle at 45. Both are
-    accepted now, and #1595 is still refused — on evidence that does not move when the part
-    is rotated.
-    """
+@pytest.mark.parametrize("rotation", [(0, 0, 0), (0, 0, 23), (0, 0, 45), (90, 0, 0), (0, 90, 0)])
+def test_the_rule_does_not_depend_on_the_angle_to_the_axes(rotation):
+    """A circular body corroborates; a bare square plate does not, in every principal plane."""
     from build123d import Rotation
+    from quiddity import BoltCircle
+    from quiddity.evidence import build_recognition_evidence
 
-    aligned = _flange(4, central_feature=False)
-    assert len(_bolt_circles(aligned)) == 1
-    assert len(_bolt_circles(Rotation(0, 0, 45) * aligned)) == 1
+    from draftwright.model.detect import _build_part_model_from_recognition
+
+    transform = Rotation(*rotation)
+    for part, accepted in (
+        (_flange(4, central_feature=False), True),
+        (_grid_plate((-10, 10), columns=(-10, 10)), False),
+    ):
+        part = transform * part
+        evidence = build_recognition_evidence(part)
+        assert len(evidence.result.hole_patterns) == 1
+        assert isinstance(evidence.result.hole_patterns[0], BoltCircle)
+        assert len(evidence.result.hole_patterns[0].holes) == 4
+        model = _build_part_model_from_recognition(part, evidence.result)
+        patterns = [f for f in model.features if isinstance(f, PatternFeature)]
+        assert bool(patterns) is accepted
+        assert sum(f.count for f in model.features if f.kind in ("hole", "pattern")) == 4
 
 
 # --- what must keep working ------------------------------------------------------------
@@ -160,10 +183,10 @@ def test_four_holes_around_a_real_centre_keep_their_bolt_circle():
 
 
 def test_a_concentric_feature_alone_can_carry_it():
-    """The corroboration branch on its own, with both other routes closed.
+    """The physical-witness branch with the member-count route closed.
 
-    #1595's plate, plus a boss concentric with the fitted circle. Four members, so the count
-    route is shut; two identical holes left off the circle, so the sibling route is shut.
+    #1595's plate, plus a boss concentric with the fitted circle. Four members cannot use
+    the five-member route, regardless of the two identical holes left off the circle.
     Only the boss is left — and a centre a machinist can indicate off is exactly what makes
     the circle real. Without the boss this same part is refused (above).
     """
@@ -189,20 +212,13 @@ def test_a_round_body_concentric_with_the_holes_is_itself_corroboration():
     assert pattern.count == 4
 
 
-def test_four_holes_at_ninety_degrees_on_a_square_plate_keep_theirs():
-    """Equal angular spacing that no lattice explains is evidence in its own right.
-
-    Four holes at 0/90/180/270 on a circle could have been at unequal angles and were not,
-    and they are not the intersections of two rows and two columns. Nothing round is needed
-    — this is an ordinary four-bolt pattern and refusing it would cost real drawings.
-    """
+def test_four_polar_holes_on_a_square_plate_do_not_establish_a_circular_datum():
     with BuildPart() as part:
         Box(90, 90, 8)
         with PolarLocations(30, 4):
             Hole(3, depth=8)
 
-    (pattern,) = _bolt_circles(part.part)
-    assert pattern.count == 4
+    assert _bolt_circles(part.part) == []
 
 
 def test_five_holes_are_self_evident():
@@ -230,7 +246,7 @@ class TestTheConcentricityPredicate:
         return SimpleNamespace(axis=axis, location=location)
 
     def test_a_feature_on_the_pattern_axis_at_the_centre_corroborates(self):
-        from draftwright.model.detect import _corroborates_bolt_circle
+        from draftwright.recognition_ownership import _corroborates_bolt_circle
 
         assert _corroborates_bolt_circle(
             self._candidate((0.0, 0.0, 1.0), (0.0, 0.0, 25.0)), "z", (0.0, 0.0, 4.0)
@@ -238,7 +254,7 @@ class TestTheConcentricityPredicate:
 
     def test_the_axis_coordinate_is_ignored(self):
         """A concentric boss is concentric whether it sits above or below the holes."""
-        from draftwright.model.detect import _corroborates_bolt_circle
+        from draftwright.recognition_ownership import _corroborates_bolt_circle
 
         assert _corroborates_bolt_circle(
             self._candidate((0.0, 0.0, -1.0), (0.0, 0.0, -900.0)), "z", (0.0, 0.0, 4.0)
@@ -247,7 +263,7 @@ class TestTheConcentricityPredicate:
     def test_a_feature_on_a_DIFFERENT_axis_does_not(self):
         """The check that no fixture reaches: a boss pointing along X says nothing about a
         bolt circle drilled along Z, however its centre happens to project."""
-        from draftwright.model.detect import _corroborates_bolt_circle
+        from draftwright.recognition_ownership import _corroborates_bolt_circle
 
         assert not _corroborates_bolt_circle(
             self._candidate((1.0, 0.0, 0.0), (0.0, 0.0, 4.0)), "z", (0.0, 0.0, 4.0)
@@ -255,16 +271,21 @@ class TestTheConcentricityPredicate:
 
     def test_a_feature_merely_nearby_does_not(self):
         """The claim is that a machinist may work from this circle. 2 mm out is not that."""
-        from draftwright.model.detect import _corroborates_bolt_circle
+        from draftwright.recognition_ownership import _corroborates_bolt_circle
 
         assert not _corroborates_bolt_circle(
             self._candidate((0.0, 0.0, 1.0), (2.0, 0.0, 4.0)), "z", (0.0, 0.0, 4.0)
         )
 
 
-@pytest.fixture(scope="module")
-def refused_pattern_drawing():
-    return build_drawing(_grid_plate(_UNEVEN_ROWS), title="T", number="N")
+@pytest.fixture(scope="module", params=["uneven-six", "square-four"])
+def refused_pattern_drawing(request):
+    part = (
+        _grid_plate(_UNEVEN_ROWS)
+        if request.param == "uneven-six"
+        else _grid_plate((-10, 10), columns=(-10, 10))
+    )
+    return build_drawing(part, title="T", number="N")
 
 
 def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it(refused_pattern_drawing):
@@ -279,7 +300,7 @@ def test_a_refused_pattern_does_not_leave_the_hole_ledger_believing_in_it(refuse
         f"the ledger reported holes the drawing actually states: {unverifiable}"
     )
     labels = [str(o.label) for _n, o in drawing.iter_annotations() if getattr(o, "label", None)]
-    assert "6× ⌀2.4 THRU" in labels
+    assert f"{len(drawing.recognition().holes)}× ⌀2.4 THRU" in labels
 
 
 def test_refusal_retains_exact_physical_members_and_evaluation_credit(refused_pattern_drawing):
@@ -295,33 +316,42 @@ def test_refusal_retains_exact_physical_members_and_evaluation_credit(refused_pa
     (refusal,) = ownership.hole_pattern_refusals
     assert refusal.pattern is recognition.hole_patterns[0]
     assert refusal.reason_code == "uncorroborated_bolt_circle"
-    assert len(recognition.holes) == 6
+    count = len(recognition.holes)
+    assert count in (4, 6)
     outcomes = hole_requirement_outcomes(
         recognition, drawing.model().features, drawing.registry, ownership=ownership
     )
     sizes = [row for row in outcomes if row.parameter_id == "bore.diameter"]
-    assert sum(row.member_count for row in sizes) == 6
+    assert sum(row.member_count for row in sizes) == count
     assert {id(record) for row in sizes for record in row.source_records} == {
         id(record) for record in recognition.holes
     }
     assert all(row.state == "placed" for row in sizes)
-    assert _drawing_consumer_outcomes(recognition.holes, drawing) == ["supported"] * 6
+    locations = [row for row in outcomes if row.parameter_id.startswith("location.location.")]
+    assert {row.parameter_id for row in locations} == {
+        "location.location.x",
+        "location.location.y",
+    }
+    assert all(row.state == "placed" for row in locations)
+    assert _drawing_consumer_outcomes(recognition.holes, drawing) == ["supported"] * count
     assert (
         _hole_model_outcomes(
             recognition.holes, recognition, drawing.model().features, ownership=ownership
         )
-        == ["supported"] * 6
+        == ["supported"] * count
     )
 
 
-def test_absent_ir_pattern_is_not_itself_a_refusal_decision(refused_pattern_drawing):
+def test_declared_replay_uses_the_same_physical_policy_without_fabricated_ownership(
+    refused_pattern_drawing,
+):
     from draftwright.linting.hole_coverage import hole_requirement_outcomes
 
     drawing = refused_pattern_drawing
     recognition = drawing.recognition()
-    # With no adapter decision this is the independent declared-model mismatch check.
     outcomes = hole_requirement_outcomes(recognition, drawing.model().features, drawing.registry)
-    assert any(row.state == "unverifiable" for row in outcomes)
+    assert outcomes
+    assert all(row.state == "placed" for row in outcomes)
     with pytest.raises(ValueError, match="same run"):
         hole_requirement_outcomes(
             replace(recognition),
@@ -383,3 +413,40 @@ def test_oblique_pattern_refusal_is_recorded_at_the_adapter():
     occurrences = [ref for ref in evidence.features if evidence.family(ref) == "holes"]
     assert len(occurrences) == 6
     assert all(ownership.status(ref) == "absorbed" for ref in occurrences)
+
+
+@pytest.mark.parametrize("corroborated", [False, True])
+def test_declared_patterns_remain_exact_and_corroborated_patterns_cannot_disappear(corroborated):
+    from quiddity import BoltCircle
+    from quiddity.evidence import build_recognition_evidence
+
+    from draftwright.linting.hole_coverage import hole_requirement_outcomes
+    from draftwright.model.detect import _pattern_feature
+    from draftwright.registry import AnnotationRegistry
+
+    part = (
+        _flange(4, central_feature=False)
+        if corroborated
+        else _grid_plate((-10, 10), columns=(-10, 10))
+    )
+    result = build_recognition_evidence(part).result
+    (source,) = result.hole_patterns
+    assert isinstance(source, BoltCircle) and len(source.holes) == 4
+    feature = _pattern_feature(source, source.holes)
+    registry = AnnotationRegistry()
+    exact = hole_requirement_outcomes(result, [feature], registry)
+    assert exact and all(row.state == "missing" for row in exact)
+    assert any(row.parameter_id == "bolt_circle.diameter" for row in exact)
+    wrong = replace(feature, bcd=feature.bcd + 1)
+    mismatch = hole_requirement_outcomes(result, [wrong], registry)
+    assert any(row.state == "unverifiable" for row in mismatch)
+
+    ordinary = replace(feature.member, count=4, members=feature.members)
+    fallback = hole_requirement_outcomes(result, [ordinary], registry)
+    assert fallback
+    assert any(row.state == "unverifiable" for row in fallback) is corroborated
+    if not corroborated:
+        assert all(row.state == "missing" for row in fallback)
+        assert (
+            sum(row.member_count for row in fallback if row.parameter_id == "bore.diameter") == 4
+        )

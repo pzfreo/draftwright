@@ -1,7 +1,7 @@
 {
   "format": "draftwright-step-analysis-corpus",
   "format_version": 1,
-  "corpus_version": "1.0.0",
+  "corpus_version": "1.1.0",
   "metric_version": 1,
   "scope": ["hole-patterns"],
   "cases": [
@@ -63,10 +63,10 @@
       "id": "pattern-compound-topology-a",
       "tags": ["compound", "positive", "topology-order-variant"],
       "fixture": "pattern-topology-a.step",
-      "sha256": "b62c39774e5a2a0d90f269298ff5466f81d6fa6c603eaa1cfac47974df9c04b7",
+      "sha256": "27eaec81f8f464db0791a214167645e3d07f8fa72b025276d696beeea1ea0b8c",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
-      "source": "Authored from the nominal four-hole bolt circle and independent three-hole linear-array recipe in README.md; canonical Part 21 entity order.",
+      "source": "Authored from the nominal four-hole bolt circle and independent three-hole linear-array recipe in README.md, with a concentric boss corroborating the circular datum; canonical Part 21 entity order.",
       "expected_outcome": "supported",
       "facts": [
         {
@@ -107,7 +107,7 @@
       "id": "pattern-compound-topology-b",
       "tags": ["compound", "positive", "topology-order-variant"],
       "fixture": "pattern-topology-b.step",
-      "sha256": "9aefced23df6ff7197eb58bb63ac59aeacd31be26dfacf1449b7ef14936a5b5c",
+      "sha256": "0e2a35a93e1cacb33f38171e3018789318ba88b81e670ff261638ee1189323d3",
       "author": "Draftwright project contributors",
       "license": "CC0-1.0",
       "source": "The topology-a STEP entities were bijectively renumbered and serialized in reverse order without changing geometry or expected arrangement facts.",
