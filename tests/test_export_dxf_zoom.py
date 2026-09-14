@@ -50,6 +50,32 @@ def test_dxf_viewport_centred_on_page(dwg, tmp_path):
     # Layers and the set_dxf_metadata stamp survive the direct saveas.
     assert {"part", "dims"} <= {layer.dxf.name for layer in doc.layers}
     assert doc.header.custom_vars.get("GeneratedBy") == "draftwright"
+    assert doc.header["$LIMMAX"] == pytest.approx((dwg.page_w, dwg.page_h))
+    assert doc.header["$PLIMMAX"] == pytest.approx((dwg.page_w, dwg.page_h))
+
+
+@pytest.mark.parametrize("page,size", [("A4", (297, 210)), ("A3", (420, 297)), ("A2", (594, 420))])
+def test_dxf_limits_follow_sergios_explicit_sheet_page(page, size, tmp_path):
+    drawing = build_drawing(
+        Box(20, 15, 10),
+        page=page,
+        scale=1,
+        frame=True,
+        margin_left=25,
+        margin_right=10,
+        margin_top=10,
+        margin_bottom=10,
+        title_block_width=175,
+    )
+    path = drawing.export(str(tmp_path / page), formats="dxf")["dxf"]
+    doc = ezdxf.readfile(path)
+    assert doc.header["$INSUNITS"] == 4  # millimetres
+    assert doc.header["$LIMMIN"] == pytest.approx((0, 0))
+    assert doc.header["$PLIMMIN"] == pytest.approx((0, 0))
+    assert doc.header["$LIMMAX"] == pytest.approx(size)
+    assert doc.header["$PLIMMAX"] == pytest.approx(size)
+    (vport,) = doc.viewports.get("*Active")
+    assert (vport.dxf.center.x, vport.dxf.center.y) == pytest.approx((size[0] / 2, size[1] / 2))
 
 
 def test_write_dxf_falls_back_without_ezdxf_internals(tmp_path):
