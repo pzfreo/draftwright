@@ -19,3 +19,34 @@ def sheet_script_drawing(part, tmp_path, name, **emit_kw):
     with patch.object(Drawing, "export", lambda self, *a, **k: captured.setdefault("dwg", self)):
         exec(compile(source, py, "exec"), {})  # noqa: S102 — our own generated script
     return source, captured["dwg"]
+
+
+def ink_crossings_named(dwg, expected):
+    """Assert the sheet's ink crossings are exactly *expected*, then return other lint.
+
+    Filtering the whole ``annotation_ink_overlap`` code would let a sheet gain new
+    crossings unnoticed. Naming the expected ``(crosser, crossed)`` pairs keeps these
+    assertions sharp while allowing explicitly documented crossings.
+    """
+    crossings = [i for i in dwg.lint() if i.code == "annotation_ink_overlap"]
+    expected = list(expected)
+    unmatched = []
+    seen = set()
+    for issue in crossings:
+        for pair in expected:
+            if (
+                f"'{pair[0]}' draws" in issue.message
+                and f"through the label '{pair[1]}'" in issue.message
+            ):
+                seen.add(pair)
+                break
+        else:
+            unmatched.append(issue.message)
+    assert not unmatched, f"unexpected ink crossings: {unmatched}"
+    assert seen == set(expected), (
+        f"ink crossings changed: expected {sorted(expected)}, matched {sorted(seen)}"
+    )
+    assert len(crossings) == len(expected), (
+        f"expected {len(expected)} crossings, got {len(crossings)}"
+    )
+    return [i for i in dwg.lint() if i.code != "annotation_ink_overlap"]
