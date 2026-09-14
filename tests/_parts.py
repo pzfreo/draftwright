@@ -122,3 +122,19 @@ def dense_plate():
     for index, (x, y) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
         result -= Pos(x, y, 0) * Cylinder(1.0 + (index % 5) * 0.4, 20)
     return result
+
+
+def crowded_shoulder_part():
+    """Return a tall stepped block whose shoulders trigger an enlarged detail view."""
+    from build123d import Pos
+
+    parts = [Pos(0, 0, 3) * Box(20, 16, 6)]
+    z = 6
+    for width in (16, 13, 10, 7, 5):
+        height = 3
+        parts.append(Pos(0, 0, z + height / 2) * Box(width, 12, height))
+        z += height
+    part = parts[0]
+    for next_part in parts[1:]:
+        part = part + next_part
+    return part
