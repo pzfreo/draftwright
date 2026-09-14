@@ -240,6 +240,19 @@ _SAMPLES: dict[str, ir.Feature] = {
     "ChamferFeature": ir.ChamferFeature(_F, "z", 2.0, 2.0, 45.0),
     "FilletFeature": ir.FilletFeature(_F, "z", 3.0),
     "BlendFeature": ir.BlendFeature(_F, "z", 0.2, "convex", (0.0, 0.0, 1.0)),
+    "HexPocketFeature": ir.HexPocketFeature(
+        _F,
+        1.9,
+        1,
+        (
+            (-2.15, -1.2415),
+            (0, -2.483),
+            (2.15, -1.2415),
+            (2.15, 1.2415),
+            (0, 2.483),
+            (-2.15, 1.2415),
+        ),
+    ),
     "CircularChannelFeature": ir.CircularChannelFeature(
         ir.Frame((0, 4, 0), "z"),
         "z",
@@ -360,6 +373,7 @@ _SAMPLE_BINDINGS = {
     "ChamferFeature": (("chamfer.length", 2.0),),
     "FilletFeature": (("fillet.radius", 3.0),),
     "BlendFeature": (("blend.radius", 0.2),),
+    "HexPocketFeature": (("polygon_across_flats.length", 4.3), ("pocket_depth.length", 1.9)),
     "CircularChannelFeature": (
         ("seat_diameter.diameter", 8.0),
         ("seat_run.length", 10.0),

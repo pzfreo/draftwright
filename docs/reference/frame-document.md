@@ -7,8 +7,8 @@ section, and compiler-owned location cells. It does not patch a renderer or posi
 annotations with page coordinates.
 
 This is **QUOTATION / DFM REVIEW — NOT RELEASED**. It demonstrates selected bore operations,
-overall dimensions and a section; it is not a complete manufacturing drawing. Missing pad,
-flat and blend measurements, hinge location, unsupported pockets and unresolved engineering
+overall dimensions, cylindrical seats, hex-pocket sizes and a section; it is not a complete
+manufacturing drawing. Missing pad, flat and blend measurements, hinge location and unresolved engineering
 decisions remain visible in the report.
 
 ## Run and inspect
@@ -28,7 +28,7 @@ an export setting, not a promise that a future version will draw the same pictur
 checks physical identities and measurement meanings rather than a cross-version image digest.
 
 Open both exported sheets. Check the cut material and upward cutting arrows on section A–A,
-the counted seat callout and axis locations on the general sheet, and the three grouped
+the counted seat and hex-pocket callouts and seat-axis locations on the general sheet, and the three grouped
 bore callouts, location table and preliminary-status notes on the feature sheet. The feature table
 uses X/Y/Z distances from the model's minimum datum planes; the axis column identifies each
 operation's drilling axis. Ordinary annotation placement and table fitting remain the engine's
@@ -36,8 +36,9 @@ responsibility. A table that does not fit must be reported, not compressed or ov
 
 Read the document assessment alongside the drawings. Per-sheet missing-measurement warnings
 are expected where the other sheet supplies the measurement. Package coverage still includes
-all **71 known obligations**, including six unsupported pockets and eighteen circular-seat
-requirements. With Quiddity 0.2.9 and the circular-seat grammar, the recipe credits 31 of those obligations; the remainder must not disappear merely because a sparse sheet has
+all **77 known obligations**, including twelve hex-pocket sizes and eighteen circular-seat
+requirements. With Quiddity 0.2.9 and both profile grammars, the recipe credits 43 of those
+obligations; the remainder must not disappear merely because a sparse sheet has
 few overlaps. Coverage, layout, fidelity and manufacturing readiness are separate judgments.
 Unmeasured section furniture and notes also remain explicit in the fidelity unknowns.
 
@@ -88,10 +89,10 @@ callout and datum-to-axis coordinates. Centre marks identify the virtual cylinde
 the leader targets the physical curved wall. Each seat retains its own six requirements
 and source occurrence even where the coaxial seats share dimensional ink (#1613).
 
-All six underside hex pockets stay in the denominator with unsupported dispositions. Their
-ordinary table contains author-supplied descriptive text and has no measured-cell authority.
-Adding nominal AF/depth numbers to that text would not prove them. Titanium grade, pocket
-manufacturing detail, hinge fit and pin retention remain engineering decisions.
+The six underside hex pockets share one `6× HEX 4.3 A/F × 1.9 DEEP` callout, anchored on
+a physical pocket wall. Each pocket retains independent across-flats and depth requirements.
+Removing the callout loses all twelve credits; a descriptive table containing the same numbers
+cannot restore them. Titanium grade, hinge fit and pin retention remain engineering decisions.
 
 ## Replay and measurement transfer
 

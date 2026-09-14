@@ -338,6 +338,11 @@ def section_recess_fields(source: object) -> tuple[str, dict]:
     shape = source.classification.section_shape
     if (kind, shape) == ("channel", "circular"):
         return "circular_channel", circular_channel_fields(source)
+    if (kind, shape) == ("pocket", "hexagonal"):
+        values = hex_pocket_fields(source)
+        return "hex_pocket", {
+            key: values[key] for key in ("axis", "origin", "depth", "open_sign", "section")
+        }
     if (kind, shape) == ("pocket", "obround"):
         return "pocket", _obround_pocket_fields(source)
     if (kind, shape) == ("pocket", "general"):
@@ -827,3 +832,147 @@ def circular_channel_fields(source: SectionRecess) -> dict:
     values = circular_channel_geometry("xyz"[run], radius, high - low, line, section)
     values.pop("sweep")  # Derived by the IR from the retained physical arc, not independent input.
     return dict(axis="xyz"[run], **values)
+
+
+def hex_pocket_geometry(axis, depth, open_sign, at, section) -> dict:
+    """Validate six physical vertices as a regular hex at the released polygon resolution.
+
+    Quiddity 0.2.9's polygonal SectionRecess projection rounds local vertices to
+    0.001 mm. A regular hex witness must fit every coordinate within that rounding
+    cell; six vertices alone do not establish an across-flats grammar. Original
+    vertices remain the physical geometry and are never replaced by the witness.
+    """
+    if axis not in ("x", "y", "z"):
+        raise ValueError("hex pocket axis must be x, y, or z")
+    (depth,) = _section_numbers((depth,), 1, "hex pocket depth")
+    if depth <= 0:
+        raise ValueError("hex pocket depth must be positive")
+    if type(open_sign) is not int or open_sign not in (-1, 1):
+        raise ValueError("hex pocket open_sign must be -1 or 1")
+    origin = _section_numbers(at, 3, "hex pocket mouth centre")
+    if type(section) not in (tuple, list) or len(section) != 6:
+        raise ValueError("hex pocket requires six ordered physical vertices")
+    vertices = tuple(_section_numbers(p, 2, "hex pocket vertex") for p in section)
+    run = "xyz".index(axis)
+    transverse = tuple(i for i in range(3) if i != run)
+    centre = tuple(sum(p[i] for p in vertices) / 6 for i in (0, 1))
+    if any(abs(origin[world] - centre[i]) > 1e-7 for i, world in enumerate(transverse)):
+        raise ValueError("hex pocket mouth centre must match its physical section")
+    edges = tuple(
+        (vertices[(i + 1) % 6][0] - p[0], vertices[(i + 1) % 6][1] - p[1])
+        for i, p in enumerate(vertices)
+    )
+    turns = tuple(
+        edge[0] * edges[(i + 1) % 6][1] - edge[1] * edges[(i + 1) % 6][0]
+        for i, edge in enumerate(edges)
+    )
+    if not (all(turn > 1e-12 for turn in turns) or all(turn < -1e-12 for turn in turns)):
+        raise ValueError("hex pocket requires a convex ordered section")
+    winding = 1 if turns[0] > 0 else -1
+    # A regular-hex basis gives a deterministic least-squares rotation. Use the
+    # smallest opposed physical support width as the candidate across-flats size,
+    # then verify that the complete regular section fits the published cells.
+    from math import cos, sin
+
+    basis = tuple(complex(cos(winding * i * pi / 3), sin(winding * i * pi / 3)) for i in range(6))
+    offset = complex(*centre)
+    rotation = (
+        sum((complex(*p) - offset) * q.conjugate() for p, q in zip(vertices, basis, strict=True))
+        / 6
+    )
+    midpoints = tuple(
+        tuple((p[j] + vertices[(i + 1) % 6][j]) / 2 for j in (0, 1))
+        for i, p in enumerate(vertices)
+    )
+    widths = tuple(
+        abs(
+            (midpoints[(i + 3) % 6][0] - midpoints[i][0]) * edge[1]
+            - (midpoints[(i + 3) % 6][1] - midpoints[i][1]) * edge[0]
+        )
+        / sqrt(edge[0] ** 2 + edge[1] ** 2)
+        for i, edge in enumerate(edges)
+    )
+    across = min(widths)
+    if not isfinite(across) or across <= 0 or abs(rotation) == 0:
+        raise ValueError("hex pocket across-flats size must be positive and finite")
+    witness = rotation / abs(rotation) * (across / sqrt(3))
+    if any(
+        max(abs((offset + witness * q).real - p[0]), abs((offset + witness * q).imag - p[1]))
+        > 0.0005 + 1e-9
+        for p, q in zip(vertices, basis, strict=True)
+    ):
+        raise ValueError("six-sided profile is not regular at the published polygon resolution")
+    flat_centres = []
+    flat_directions = []
+    for middle in midpoints:
+        point, direction = list(origin), [0.0, 0.0, 0.0]
+        point[run] -= open_sign * depth / 2
+        distance = dist(middle, centre)
+        for i, world in enumerate(transverse):
+            point[world] = middle[i]
+            direction[world] = (middle[i] - centre[i]) / distance
+        flat_centres.append(tuple(point))
+        flat_directions.append(tuple(direction))
+    return dict(
+        depth=depth,
+        open_sign=open_sign,
+        origin=origin,
+        section=vertices,
+        across_flats=across,
+        flat_centres=tuple(flat_centres),
+        flat_directions=tuple(flat_directions),
+    )
+
+
+def hex_pocket_fields(source: SectionRecess) -> dict:
+    """Project a released blind hex profile without rescanning or guessing regularity."""
+    if type(source) is not SectionRecess:
+        raise TypeError("hex pocket requires the exact public SectionRecess")
+    _validate_public_value(source)
+    if (source.classification.feature_kind, source.classification.section_shape) != (
+        "pocket",
+        "hexagonal",
+    ):
+        raise UnsupportedSectionRecess("recess is not a hexagonal pocket")
+    geometry = source.geometry
+    if not source.evidence.defining_faces:
+        raise ValueError("hex pocket requires defining-face evidence")
+    if not perpendicular_recess_ends(geometry.ends) or {
+        geometry.ends.low.condition,
+        geometry.ends.high.condition,
+    } != {"open", "capped"}:
+        raise UnsupportedSectionRecess("hex pocket requires one open end and one planar floor")
+    profile = geometry.profile
+    if (
+        type(profile) is not ClosedSectionProfile
+        or len(profile.boundary) != 6
+        or any(v.bulge for v in profile.boundary)
+    ):
+        raise UnsupportedSectionRecess("hex pocket requires six straight physical walls")
+    frame = geometry.frame
+    run, run_sign = _section_axis(frame.run)
+    # The published polygon cells are expressed in this principal basis. A free-axis
+    # frame needs its own projection contract before that precision can be preserved.
+    _section_axis(frame.u)
+    _section_axis(frame.v)
+    transverse = tuple(i for i in range(3) if i != run)
+    lo, hi = geometry.run_interval
+    open_high = geometry.ends.high.condition == "open"
+    opening = hi if open_high else lo
+    section = tuple(
+        tuple(
+            frame.origin[i] + vertex.point[0] * frame.u[i] + vertex.point[1] * frame.v[i]
+            for i in transverse
+        )
+        for vertex in profile.boundary
+    )
+    at = [0.0, 0.0, 0.0]
+    at[run] = frame.origin[run] + opening * frame.run[run]
+    for index, world in enumerate(transverse):
+        at[world] = sum(point[index] for point in section) / 6
+    sign = run_sign * (1 if open_high else -1)
+    try:
+        data = hex_pocket_geometry("xyz"[run], hi - lo, sign, at, section)
+    except ValueError as exc:
+        raise UnsupportedSectionRecess(str(exc)) from exc
+    return dict(axis="xyz"[run], **data)

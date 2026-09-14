@@ -36,10 +36,10 @@ def _blind_tool(profile) -> object:
     return tool.part
 
 
-def _hexagonal_pocket_part(*, rectangular: bool = False, ellipse: bool = False):
+def _unsupported_pocket_part(*, rectangular: bool = False, ellipse: bool = False):
     part = Box(120, 80, 20)
     part -= Pos(-30 if rectangular or ellipse else 0, 0, 0) * _blind_tool(
-        lambda: RegularPolygon(12, 6)
+        lambda: RegularPolygon(12, 5)
     )
     if rectangular:
         part -= Pos(30, 0, 4) * Box(30, 24, 20)
@@ -63,7 +63,7 @@ def _matched_mouth(part, pocket):
 
 
 def test_a_prismatic_pocket_is_specific_actionable_and_non_info() -> None:
-    part = _hexagonal_pocket_part()
+    part = _unsupported_pocket_part()
     recognition = build_raw_recognition_result(part)
 
     assert len(recognition.section_recesses) == 1
@@ -75,7 +75,7 @@ def test_a_prismatic_pocket_is_specific_actionable_and_non_info() -> None:
 
     assert [issue.code for issue in issues] == ["prismatic_pocket_requirement_unsupported"]
     assert issues[0].severity == "warning"
-    assert "recognised 6-sided blind prismatic recess 6 mm deep (1 of 1)" in issues[0].message
+    assert "recognised 5-sided blind prismatic recess 6 mm deep (1 of 1)" in issues[0].message
     assert "outside automatic drawing approval" in issues[0].message
     summary = drawing.lint_summary()
     assert summary["warnings"] == summary["geometry_issues"] == 1
@@ -83,7 +83,7 @@ def test_a_prismatic_pocket_is_specific_actionable_and_non_info() -> None:
 
 
 def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> None:
-    part = _hexagonal_pocket_part(ellipse=True)
+    part = _unsupported_pocket_part(ellipse=True)
     recognition = build_raw_recognition_result(part)
 
     assert len(recognition.section_recesses) == 1
@@ -105,7 +105,7 @@ def test_a_prismatic_pocket_does_not_hide_an_unrelated_unsupported_profile() -> 
     ),
 )
 def test_prismatic_pocket_profile_correlation_fails_closed(case: str) -> None:
-    part = _hexagonal_pocket_part()
+    part = _unsupported_pocket_part()
     pocket = build_raw_recognition_result(part).section_recesses[0]
     wire, axis, plane_axes, at, tol = _matched_mouth(part, pocket)
     candidate = pocket
@@ -152,7 +152,7 @@ def test_prismatic_pocket_profile_correlation_fails_closed(case: str) -> None:
 
 
 def test_a_prismatic_pocket_is_an_explicit_unsupported_completeness_outcome() -> None:
-    completeness = build_drawing(_hexagonal_pocket_part()).lint_summary()["quality"][
+    completeness = build_drawing(_unsupported_pocket_part()).lint_summary()["quality"][
         "completeness"
     ]
 
@@ -165,13 +165,13 @@ def test_a_prismatic_pocket_is_an_explicit_unsupported_completeness_outcome() ->
 
 
 def test_aggregate_reconciliation_counts_the_rectangular_recess_only_as_pocket() -> None:
-    part = _hexagonal_pocket_part(rectangular=True)
+    part = _unsupported_pocket_part(rectangular=True)
 
     recognition = build_raw_recognition_result(part)
     assert len(recognition.section_recesses) == 2
     assert {recess.classification.section_shape for recess in recognition.section_recesses} == {
         "rectangular",
-        "hexagonal",
+        "polygonal",
     }
 
     issues = lint_prismatic_pocket_coverage(recognition)

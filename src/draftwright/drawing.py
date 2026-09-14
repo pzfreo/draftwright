@@ -148,6 +148,7 @@ from draftwright.linting.issues import _collect_issue_aggregation, _current_issu
 from draftwright.linting.quality import quality_components, review_explanation
 from draftwright.linting.section_recess_coverage import (
     lint_circular_channel_coverage,
+    lint_hex_pocket_coverage,
     lint_section_recess_coverage,
 )
 from draftwright.projection import (
@@ -382,6 +383,7 @@ _MACHINED_CALLOUT_KINDS = (
     "chamfer",
     "circular_blind_step",
     "circular_channel",
+    "hex_pocket",
     "fillet",
     "blend",
     "paired_ramp_step",
@@ -2311,6 +2313,7 @@ class Drawing:
                 render_fillets,
                 render_flats,
                 render_grooves,
+                render_hex_pockets,
                 render_oriented_slots,
                 render_pad_heights,
                 render_paired_ramp_steps,
@@ -2324,6 +2327,7 @@ class Drawing:
                 "chamfer": render_chamfers,
                 "circular_blind_step": render_circular_blind_steps,
                 "circular_channel": render_circular_channels,
+                "hex_pocket": render_hex_pockets,
                 "fillet": render_fillets,
                 "paired_ramp_step": render_paired_ramp_steps,
                 "flat": render_flats,
@@ -3036,6 +3040,7 @@ class Drawing:
             render_flats,
             render_grooves,
             render_height_ladder,
+            render_hex_pockets,
             render_local_turned_centerlines,
             render_locations,
             render_oriented_slots,
@@ -3384,6 +3389,9 @@ class Drawing:
         def _s_circular_blind_steps():
             _s_machined("circular_blind_step", render_circular_blind_steps)
 
+        def _s_hex_pockets():
+            _s_machined("hex_pocket", render_hex_pockets)
+
         def _s_circular_channels():
             _s_machined("circular_channel", render_circular_channels)
 
@@ -3587,6 +3595,7 @@ class Drawing:
                 "chamfers": _s_chamfers,
                 "circular_blind_steps": _s_circular_blind_steps,
                 "circular_channels": _s_circular_channels,
+                "hex_pockets": _s_hex_pockets,
                 "fillets": _s_fillets,
                 "blends": _s_blends,
                 "paired_ramp_steps": _s_paired_ramp_steps,
@@ -4356,6 +4365,12 @@ class Drawing:
                 assembly=self.assembly,
             )
             issues += lint_section_recess_coverage(recognition)
+            issues += lint_hex_pocket_coverage(
+                recognition,
+                getattr(model, "features", ()),
+                physical_registry,
+                self._build.omissions,
+            )
             issues += lint_circular_channel_coverage(
                 recognition,
                 getattr(model, "features", ()),

@@ -2337,6 +2337,7 @@ def place_machined_leader_jobs(
     joint=False,
     expand_lanes=True,
     source_ids_by_name=None,
+    priority=0.0,
 ) -> int:
     """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
 
@@ -2454,6 +2455,7 @@ def place_machined_leader_jobs(
                 measurement=tuple(measurement),
                 noun=noun,
                 drop_code=drop_code,
+                priority=priority,
                 fallback_candidates=fallback_candidates,
                 fallback_accept=_fallback_accept,
                 allow_policy_b_fixed=True,
@@ -3154,20 +3156,13 @@ def _flat_label(across_text, sfx="") -> str:
 
 
 def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
-    """Machined-flat callouts (#148b): a leader from a flat truncating round stock to its
-    ``{across} A/F`` label, in the view down the stock axis (a Z-axis bar reads in the plan).
-    Flats sharing an axis and across-flats size — the faces of a double-D or hex — share ONE
-    callout. The leader runs diagonally out of the flat into clear margin, and is dropped
-    (lint, not silently) if it would overprint placed geometry. Returns the count placed.
+    """Render physical stock definitions, counting identical ones without counting faces.
 
-    Planner-fed (#726 / #698): the across-flats VALUE + its tolerance come from the
-    planner's ``DimParameter``, bound explicitly by ``(role, kind)`` — formatting
-    ``fl.across`` directly dropped an authored tolerance (the #629 class). The shared
-    double-D/hex collapse stays render-side (planner-side grouping out of scope, #698);
-    first-authored tolerance wins across grouped members (the ``render_diameters``
-    precedent). ``g.view`` is safe: a FlatFeature's frame axis IS its stock axis (both
-    ``detect.py`` and ``declare.flat`` build ``Frame(…, axis)``), and ``_END_ON`` matches
-    the pass's old z→plan / x→side / y→front map exactly."""
+    Opposed faces on one stock region first form one across-flats definition. Equal
+    definitions on independent stock can then share an explicit n× label while every
+    approved measurement remains attached to that ink. Differing values, display text,
+    tolerances or stock directions keep separate callouts.
+    """
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     collapse: dict = {}
@@ -3178,16 +3173,8 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         )
         if pd is None:
             continue
-        # Grouped by the STOCK IDENTITY as well as the size (#1013). Two same-sized flats on
-        # one piece of stock are the two faces of one double-D — one A/F definition, one
-        # callout. On different stock they are independent, each needing its own; the axis
-        # letter alone cannot tell those apart, so a part with two parallel 25 A/F lobes used
-        # to get one callout and leave the second undefined on the sheet.
-        #
-        # Identity is the axis line AND the axial span, because neither alone is enough:
-        # parallel lobes share a span but not a line, and coaxial stacked stock shares a line
-        # but not a span. Grouping on the line alone merged the coaxial case silently — the
-        # same defect this fix is about, one arrangement over (Codex #1035 r1).
+        # Keep line AND span: opposed faces are one definition, whereas parallel
+        # or coaxial stock regions contribute independent instances to the n× count.
         collapse.setdefault(
             (
                 g.facts.axis,
@@ -3195,48 +3182,59 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
                 g.facts.axis_direction,
                 g.facts.axis_line,
                 g.facts.stock_span,
-                round(pd.value, 3),
+                round(pd.value, 12),
+                pd.value_text,
             ),
             [],
         ).append((g, pd))
-    jobs = []
-    for gi, ((_axis, presentation_axis, _direction, _line, _span, _across), members) in enumerate(
-        sorted(collapse.items())
-    ):
+    batches: dict[tuple, list] = {}
+    for gi, (
+        (_axis, presentation_axis, direction, _line, _span, across, _text),
+        members,
+    ) in enumerate(sorted(collapse.items())):
         if only is not None:
             # #426 Ph2b subset (finalize): filter members AFTER enumerating the collapse so gi
             # stays the full-drawing group index (Codex #811) — see render_fillets.
             members = [gp for gp in members if gp[0].ref in only]
             if not members:
                 continue
-        ordered = sorted(members, key=lambda gp: gp[0].facts.frame.origin)
+        tol = _collapsed_tolerance(members, ctx=ctx, noun="flat")
+        label = _flat_label(members[0][1].value_text, _tol_suffix(tol, draft))
+        key: tuple = (presentation_axis, direction, across, label)
+        # Conflicting authored tolerances already produce a withheld-tolerance issue.
+        # Such an unresolved definition must not absorb an independent stock's claim.
+        if any(pd.tolerance != members[0][1].tolerance for _, pd in members):
+            key += (gi,)
+        batches.setdefault(key, []).append((gi, members, label))
+    jobs = []
+    for (presentation_axis, *_key), stocks in batches.items():
+        gi, _, label = stocks[0]
+        ordered = sorted(
+            (member for _, members, _ in stocks for member in members),
+            key=lambda gp: gp[0].facts.frame.origin,
+        )
         view = ordered[0][0].view
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        # First-AUTHORED tolerance wins (planner/model order, not spatial — see the
-        # fillet pass / render_diameters precedent, Codex review).
-        tol = _collapsed_tolerance(members, ctx=ctx, noun="flat")
-        # The established centre-out positions remain first. Boundary-aware fallbacks are
-        # now safe for every flat because direction + perpendicular line position + span make
-        # aligned and slanted stock groups canonical (#1036); they also cover a lone flat
-        # under local placement pressure, not only #1034's multiple-stock case.
+        if len(stocks) > 1:
+            label = f"{len(stocks)}× {label}"
         candidates = _flat_candidates(
             dwg,
             view,
             vb,
             [g.facts for g, _ in ordered],
             reach,
-            provenances=[g.ref for g, _ in ordered],
+            provenances=[g.ref if len(stocks) == 1 else None for g, _ in ordered],
         )
         jobs.append(
             (
                 f"m_flat_{presentation_axis}{gi}",
                 view,
                 vb,
-                _flat_label(members[0][1].value_text, _tol_suffix(tol, draft)),
+                label,
                 candidates,
-                tuple(pd.id for _, pd in ordered),  # the grouped callout draws every member
+                tuple(pd.id for _, pd in ordered),
             )
         )
     return place_machined_leader_jobs(
@@ -4236,9 +4234,8 @@ def _polygonal_boss_candidates(dwg, view, vb, boss, reach, *, provenance):
         yield (tip, elbow, provenance)
 
 
-def _render_polygonal_prisms(
-    dwg, plan, a, *, ctx, kind: str, noun: str, name_prefix: str, drop_code: str
-) -> int:
+def _polygonal_prism_jobs(dwg, plan, *, kind: str, name_prefix: str, only=None):
+    """Compile polygonal wall anchors and approved dimensions into shared leader jobs."""
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     jobs = []
@@ -4246,43 +4243,76 @@ def _render_polygonal_prisms(
         plan.of_kind(kind),
         key=lambda group: (group.facts.frame.axis, group.facts.frame.origin),
     )
+    batches: dict[tuple, list] = {}
     for index, group in enumerate(groups):
-        boss = group.facts
-        dimension = next(
-            (
-                item
-                for item in group.dims
-                if (item.role, item.kind) == ("polygon_across_flats", "length")
-            ),
-            None,
-        )
-        if dimension is None:
+        dimensions, text = [], []
+        across = group.dim(role="polygon_across_flats", kind="length")
+        if across is not None:
+            prefix = "HEX" if group.facts.side_count == 6 else f"{group.facts.side_count}-SIDED"
+            text.append(f"{prefix} {across.value_text}{_tol_suffix(across.tolerance, draft)} A/F")
+            dimensions.append(across)
+        if kind == "hex_pocket":
+            depth = group.dim(role="pocket_depth", kind="length")
+            if depth is not None:
+                text.append(f"{depth.value_text}{_tol_suffix(depth.tolerance, draft)} DEEP")
+                dimensions.append(depth)
+        if not dimensions:
             continue
-        view = _END_ON.get(boss.frame.axis)
+        key: tuple = (index,)
+        if kind == "hex_pocket":
+            key = (
+                group.facts.frame.axis,
+                group.facts.open_sign,
+                tuple(
+                    (dimension.parameter_id, round(dimension.value, 12), label)
+                    for dimension, label in zip(dimensions, text, strict=True)
+                ),
+            )
+        batches.setdefault(key, []).append((index, group, dimensions, " × ".join(text)))
+    for members in batches.values():
+        index = members[0][0]
+        if only is not None:
+            members = [member for member in members if member[1].ref in only]
+            if not members:
+                continue
+        _, group, _, label = members[0]
+        view = _END_ON.get(group.facts.frame.axis)
         if view is None:
             continue
         bounds = dwg.view_bounds(view)
         if bounds is None:
             continue
-        prefix = "HEX" if boss.side_count == 6 else f"{boss.side_count}-SIDED"
-        label = f"{prefix} {dimension.value_text}{_tol_suffix(dimension.tolerance, draft)} A/F"
-        jobs.append(
-            (
-                f"{name_prefix}_{boss.frame.axis}{index}",
-                view,
-                bounds,
-                label,
-                _polygonal_boss_candidates(
+        if len(members) > 1:
+            label = f"{len(members)}× {label}"
+
+        def candidates(members=members, view=view, bounds=bounds):
+            for _, member, _, _ in members:
+                yield from _polygonal_boss_candidates(
                     dwg,
                     view,
                     bounds,
-                    boss,
+                    member.facts,
                     reach,
-                    provenance=group.ref,
-                ),
-                (dimension.id,),
+                    provenance=member.ref if len(members) == 1 else None,
+                )
+
+        jobs.append(
+            (
+                f"{name_prefix}_{group.facts.frame.axis}{index}",
+                view,
+                bounds,
+                label,
+                candidates(),
+                tuple(dimension.id for _, _, dimensions, _ in members for dimension in dimensions),
             )
         )
+    return jobs
+
+
+def _render_polygonal_prisms(
+    dwg, plan, a, *, ctx, kind: str, noun: str, name_prefix: str, drop_code: str
+) -> int:
+    jobs = _polygonal_prism_jobs(dwg, plan, kind=kind, name_prefix=name_prefix)
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -4291,6 +4321,23 @@ def _render_polygonal_prisms(
         drop_code=drop_code,
         ctx=ctx,
         geom_clear=True,
+    )
+
+
+def render_hex_pockets(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place counted nut-pocket sizes through the shared late leader inventory."""
+    jobs = _polygonal_prism_jobs(
+        dwg, plan, kind="hex_pocket", name_prefix="m_hex_pocket", only=only
+    )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="hex pocket",
+        drop_code="hex_pocket_dropped",
+        ctx=ctx,
+        joint=True,
+        priority=1.0,
     )
 
 

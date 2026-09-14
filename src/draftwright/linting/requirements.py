@@ -34,6 +34,7 @@ from draftwright.linting.round_bottom_blind_slot_coverage import (
 from draftwright.linting.schedule_evidence import verified_schedule_registry
 from draftwright.linting.section_recess_coverage import (
     circular_channel_requirement_outcomes,
+    hex_pocket_requirement_outcomes,
     unsupported_section_recess_outcomes,
 )
 from draftwright.linting.slot_coverage import slot_requirement_outcomes
@@ -125,6 +126,7 @@ def recognized_requirement_outcomes(
     outcomes: dict[str, list] = {
         "section_recesses": [
             *unsupported_section_recess_outcomes(recognition),
+            *hex_pocket_requirement_outcomes(recognition, features, registry, omissions),
             *circular_channel_requirement_outcomes(
                 recognition,
                 features,

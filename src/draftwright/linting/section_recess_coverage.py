@@ -15,6 +15,8 @@ from draftwright.section_recess_contract import (
     UnsupportedSectionRecess,
     circular_channel_fields,
     circular_channel_geometry,
+    hex_pocket_fields,
+    hex_pocket_geometry,
     section_recess_fields,
 )
 
@@ -111,8 +113,8 @@ def lint_section_recess_coverage(recognition) -> list[LintIssue]:
 
 
 @dataclass(frozen=True)
-class CircularChannelRequirementOutcome:
-    """One physical seat size or datum-to-axis coordinate, retaining its exact source."""
+class RecessRequirementOutcome:
+    """One physical recess requirement, retaining its exact source and ink carriers."""
 
     source_at: tuple[float, float, float]
     parameter_id: str
@@ -189,31 +191,27 @@ def _seat_run_representation(feature, values, omissions, features):
     return None
 
 
-def circular_channel_requirement_outcomes(
-    recognition, features, registry, omissions=(), *, bbox=None, part=None
+def _recess_matches(
+    recognition, features, *, classification, kind, source_fields, source_key, feature_key
 ):
-    """Independently account for six requirements per released circular seat."""
+    """Join exact physical geometry only when both source and IR occurrence are unique."""
     if recognition is None:
-        return []
+        return
     if type(recognition) is not RecognitionResult:
-        raise TypeError("circular seat completeness requires the exact RecognitionResult")
+        raise TypeError("recess completeness requires the exact RecognitionResult")
     sources = [
         record
         for record in recognition.section_recesses
         if (record.classification.feature_kind, record.classification.section_shape)
-        == ("channel", "circular")
+        == classification
     ]
-    if not sources:
-        return []
-    if bbox is None and part is not None:
-        bbox = part.bounding_box()
     keyed = []
     for source in sources:
         try:
-            values = circular_channel_fields(source)
-            key = _seat_key(values["axis"], values)
+            values = source_fields(source)
+            key = source_key(values["axis"], values)
         except UnsupportedSectionRecess:
-            # Other circular end/profile forms retain the unsupported grammar outcome.
+            # Unaccepted end/profile forms retain the unsupported grammar outcome.
             continue
         except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
             values, key = None, None
@@ -221,18 +219,50 @@ def circular_channel_requirement_outcomes(
     counts = Counter(key for _source, _values, key in keyed if key is not None)
     candidates = defaultdict(list)
     for feature in features:
-        if getattr(feature, "kind", None) != "circular_channel":
+        if getattr(feature, "kind", None) != kind:
             continue
         try:
-            candidates[_seat_feature_key(feature)].append(feature)
+            candidates[feature_key(feature)].append(feature)
         except (AttributeError, IndexError, TypeError, ValueError, OverflowError):
             continue
-    placed, satisfied, dropped = measurement_outcome_index(registry)
-    suppressed = {(item.feature, item.parameter_id) for item in omissions if item.authored}
-    outcomes = []
     for source, values, key in keyed:
         matches = candidates.get(key, ()) if key is not None else ()
         feature = matches[0] if len(matches) == counts[key] == 1 else None
+        yield source, values, feature
+
+
+def _recess_state(identity, placed, satisfied, dropped, suppressed):
+    return (
+        "placed"
+        if identity in placed
+        else "satisfied_by_structured_note"
+        if identity in satisfied
+        else "suppressed"
+        if identity in suppressed
+        else "dropped"
+        if identity in dropped
+        else "missing"
+    )
+
+
+def circular_channel_requirement_outcomes(
+    recognition, features, registry, omissions=(), *, bbox=None, part=None
+):
+    """Independently account for six requirements per released circular seat."""
+    if bbox is None and part is not None:
+        bbox = part.bounding_box()
+    placed, satisfied, dropped = measurement_outcome_index(registry)
+    suppressed = {(item.feature, item.parameter_id) for item in omissions if item.authored}
+    outcomes = []
+    for source, values, feature in _recess_matches(
+        recognition,
+        features,
+        classification=("channel", "circular"),
+        kind="circular_channel",
+        source_fields=circular_channel_fields,
+        source_key=_seat_key,
+        feature_key=_seat_feature_key,
+    ):
         origin = source.geometry.frame.origin if values is None else values["origin"]
         at = (origin[0], origin[1], origin[2])
         for parameter in (*_SEAT_SIZES, *_SEAT_LOCATIONS):
@@ -272,18 +302,10 @@ def circular_channel_requirement_outcomes(
                 state = (
                     "inapplicable"
                     if exclusion is not None
-                    else "placed"
-                    if identity in placed
-                    else "satisfied_by_structured_note"
-                    if identity in satisfied
-                    else "suppressed"
-                    if identity in suppressed
-                    else "dropped"
-                    if identity in dropped
-                    else "missing"
+                    else _recess_state(identity, placed, satisfied, dropped, suppressed)
                 )
             outcomes.append(
-                CircularChannelRequirementOutcome(
+                RecessRequirementOutcome(
                     at,
                     parameter,
                     state,
@@ -294,6 +316,74 @@ def circular_channel_requirement_outcomes(
                 )
             )
     return with_measurement_carriers(outcomes, registry)
+
+
+_HEX_SIZES = ("polygon_across_flats.length", "pocket_depth.length")
+
+
+def _hex_key(axis, values):
+    return (axis, values["origin"], values["depth"], values["open_sign"], values["section"])
+
+
+def _hex_feature_key(feature):
+    values = hex_pocket_geometry(
+        feature.frame.axis, feature.depth, feature.open_sign, feature.frame.origin, feature.section
+    )
+    parameters = tuple(feature.parameters())
+    actual = {
+        parameter.parameter_id: (parameter.value, parameter.span) for parameter in parameters
+    }
+    expected = dict(
+        zip(_HEX_SIZES, ((values["across_flats"], None), (values["depth"], None)), strict=True)
+    )
+    if len(parameters) != 2 or actual != expected:
+        raise ValueError("hex parameters do not preserve the physical opposed walls and floor")
+    return _hex_key(feature.frame.axis, values)
+
+
+def hex_pocket_requirement_outcomes(recognition, features, registry, omissions=()):
+    """Account for the across-flats size and blind depth of every supported hex pocket."""
+    placed, satisfied, dropped = measurement_outcome_index(registry)
+    suppressed = {(item.feature, item.parameter_id) for item in omissions if item.authored}
+    outcomes = []
+    for source, values, feature in _recess_matches(
+        recognition,
+        features,
+        classification=("pocket", "hexagonal"),
+        kind="hex_pocket",
+        source_fields=hex_pocket_fields,
+        source_key=_hex_key,
+        feature_key=_hex_feature_key,
+    ):
+        at = source.geometry.frame.origin if values is None else values["origin"]
+        for parameter in _HEX_SIZES:
+            state = (
+                "unverifiable"
+                if feature is None
+                else _recess_state((feature, parameter), placed, satisfied, dropped, suppressed)
+            )
+            outcomes.append(
+                RecessRequirementOutcome(
+                    at,
+                    parameter,
+                    state,
+                    features=() if feature is None else (feature,),
+                    source_records=(source,),
+                )
+            )
+    return with_measurement_carriers(outcomes, registry)
+
+
+def lint_hex_pocket_coverage(recognition, features, registry, omissions=()):
+    return [
+        LintIssue(
+            severity="warning",
+            code=f"hex_pocket_requirement_{outcome.state}",
+            message=f"hex pocket {requirement_subject(outcome)} at {outcome.source_at} is {outcome.state}",
+        )
+        for outcome in hex_pocket_requirement_outcomes(recognition, features, registry, omissions)
+        if outcome.state not in {"placed", "satisfied_by_structured_note", "dropped"}
+    ]
 
 
 def lint_circular_channel_coverage(recognition, features, registry, omissions=(), *, bbox=None):

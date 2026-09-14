@@ -82,6 +82,7 @@ from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
 from draftwright.model import flat as _flat
 from draftwright.model import groove as _groove
+from draftwright.model import hex_pocket as _hex_pocket
 from draftwright.model import hole as _hole
 from draftwright.model import measured_dimension as _measured_dimension
 from draftwright.model import note as _declare_note
@@ -1898,6 +1899,11 @@ class Sheet:
         target one full parameter ID or the whole included-angle family.
         """
         self._features.append(_angle_pattern(*members))
+        return _Params(self, len(self._features) - 1)
+
+    def hex_pocket(self, **kw) -> _Params:
+        """Declare a blind regular hex from physical mouth geometry."""
+        self._features.append(_hex_pocket(**kw))
         return _Params(self, len(self._features) - 1)
 
     def circular_channel(self, **kw) -> _Params:

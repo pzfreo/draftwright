@@ -145,6 +145,10 @@ def _paired_ramp_step():
     return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
 
 
+def _hex_pocket():
+    return Box(40, 30, 10) - Pos(0, 0, 2) * extrude(RegularPolygon(5, 6), 5)
+
+
 def _circular_channel():
     return Box(40, 30, 10) - Pos(0, 0, 5) * Rot(90, 0, 0) * Cylinder(5, 40)
 
@@ -2633,6 +2637,7 @@ class TestTheDimensionMirror:
             "fillet": _chamfered_corner(bd_fillet, 3),
             "blend": _chamfered_corner(bd_fillet, 0.2),
             "circular channel": _circular_channel(),
+            "hex pocket": _hex_pocket(),
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
@@ -2681,6 +2686,7 @@ class TestTheDimensionMirror:
         "fillet": {"fillet"},
         "blend": {"blend"},
         "circular channel": {"circular_channel"},
+        "hex pocket": {"hex_pocket"},
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},
@@ -3038,6 +3044,7 @@ _KIND_MIRROR_COVERAGE = {
     "fillet": "corpus",
     "blend": "corpus",
     "circular_channel": "corpus",
+    "hex_pocket": "corpus",
     "circular_blind_step": "corpus",
     "paired_ramp_step": "corpus",
     "through_step": "corpus",
@@ -3544,6 +3551,7 @@ _FIDELITY_ROUTE = {
     "fillet": ("detected", "fillet"),
     "blend": ("detected", "convex Blend chain"),
     "circular_channel": ("detected", "circular channel"),
+    "hex_pocket": ("detected", "hex pocket"),
     "circular_blind_step": ("detected", "circular blind step"),
     "paired_ramp_step": ("detected", "paired ramp"),
     "through_step": ("detected", "through step"),
@@ -3806,6 +3814,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "fillet": _chamfered_corner(bd_fillet, 3),
             "blend": _chamfered_corner(bd_fillet, 0.2),
             "circular channel": _circular_channel(),
+            "hex pocket": _hex_pocket(),
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
             "through step": _through_step(),
@@ -3872,6 +3881,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "fillet": {"fillet"},
         "blend": {"blend"},
         "circular channel": {"circular_channel"},
+        "hex pocket": {"hex_pocket"},
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
         "through step": {"through_step"},

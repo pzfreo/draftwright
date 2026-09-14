@@ -113,6 +113,7 @@ from draftwright.model.ir import (
     FlatFeature,
     Frame,
     GrooveFeature,
+    HexPocketFeature,
     HoleFeature,
     LevelSupport,
     OrientedSlotFeature,
@@ -908,6 +909,7 @@ def _convert_section_recess(source: SectionRecess, ctx: ConvContext) -> Feature:
         "pocket": PocketFeature,
         "channel": ChannelFeature,
         "circular_channel": CircularChannelFeature,
+        "hex_pocket": HexPocketFeature,
         "rectangular_blind_slot": RectangularBlindSlotFeature,
         "round_bottom_blind_slot": RoundBottomBlindSlotFeature,
     }[kind]

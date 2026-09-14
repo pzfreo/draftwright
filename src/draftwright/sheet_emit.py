@@ -1006,6 +1006,12 @@ def _feature_line(
             f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
             f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
         )
+    if k == "hex_pocket":
+        section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"
+        return (
+            f'sheet.hex_pocket(axis="{f.frame.axis}", depth={_authored_n(f.depth)}, '
+            f"open_sign={f.open_sign}, at={_authored_pt(f.frame.origin)}, section={section})"
+        )
     if k == "circular_channel":
         centreline = "(" + ", ".join(_authored_pt(point) for point in f.centreline) + ")"
         section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"

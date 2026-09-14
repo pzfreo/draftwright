@@ -274,6 +274,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "fillet",
     "blend",
     "circular_channel",
+    "hex_pocket",
     "circular_blind_step",
     "paired_ramp_step",
     "through_step",
