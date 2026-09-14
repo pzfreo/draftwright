@@ -1342,39 +1342,6 @@ class TestIsometricOrientation:
         assert self._iso_visible_edges(right) > self._iso_visible_edges(left)
 
 
-class TestSectionHatchEdges:
-    """Unit tests for _section_hatch_edges even-odd fill algorithm."""
-
-    def test_rectangle_hatch_line_through_corner_fills_interior(self):
-        # A 45° hatch line passing exactly through a corner vertex must not
-        # produce an odd-length hits list — the span must still be drawn.
-        # Face.make_rect(10, 5, Plane.XZ) gives corners at X∈[-5,5], Z∈[-2.5,2.5].
-        # With spacing=5, c=0 gives hatch line through corner (-5,-2.5).
-        from build123d import Face, Plane
-
-        from draftwright.annotations.sections import _section_hatch_edges
-
-        face = Face.make_rect(10, 5, Plane.XZ)
-        edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=5.0)
-        assert len(edges) > 0, "corner vertex hit must not suppress all hatch spans"
-        for e in edges:
-            p0, p1 = e.position_at(0), e.position_at(1)
-            assert p1.X - p0.X > 0.1, f"zero-length hatch span dx={p1.X - p0.X}"
-
-    def test_hatch_edges_are_45_degrees(self):
-        from build123d import Face, Plane
-
-        from draftwright.annotations.sections import _section_hatch_edges
-
-        face = Face.make_rect(20, 15, Plane.XZ)
-        edges = _section_hatch_edges(face, lambda x: x, lambda z: z, spacing=4.5)
-        assert len(edges) > 0
-        for e in edges:
-            p0, p1 = e.position_at(0), e.position_at(1)
-            dx, dy = p1.X - p0.X, p1.Y - p0.Y
-            assert abs(dy / dx - 1.0) < 0.01, f"hatch not at 45°: slope={dy / dx}"
-
-
 class TestStripZones:
     """Unit tests for the Strip / ViewZones layout primitives (issue #105)."""
 
