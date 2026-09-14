@@ -7,8 +7,12 @@ from pathlib import Path
 
 import pytest
 from _evidence_contract import (
+    assert_every_boundary_is_supported,
+    assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_uses_one_build_owned_recognition,
+    assert_quality_summary_counts_audited_requirements,
+    assert_real_corpus_scores_all_layers,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Axis, Box, Cylinder, GeomType, Pos, chamfer, import_step
@@ -66,20 +70,9 @@ def test_versioned_chamfer_corpus_covers_every_required_case_class() -> None:
 
 
 def test_real_chamfer_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 12
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 36
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 48
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=12, parameter_fidelity=36, downstream_usefulness=48
+    )
 
 
 def test_public_framed_route_preserves_arbitrarily_rotated_planar_and_turned_bevels() -> None:
@@ -282,14 +275,7 @@ def test_chamfer_ledger_distinguishes_structured_satisfaction() -> None:
 
 
 def test_every_chamfer_boundary_is_observed_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["chamfers"](_lone())
-    assert len(observed) == 1
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported("chamfers", _lone())
 
 
 def test_chamfer_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
@@ -333,18 +319,7 @@ def test_observer_failure_cannot_pass_even_the_zero_chamfer_negative(monkeypatch
 
 
 def test_missing_build_owned_recognition_fails_closed(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_recognition(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        monkeypatch.setattr(type(drawing), "recognition", lambda _drawing: None)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_recognition)
-    with pytest.raises(ObservationError, match="recognition access failed"):
-        _default_observers()["chamfers"](_lone())
+    assert_missing_build_owned_recognition_fails_closed(monkeypatch, "chamfers", _lone())
 
 
 def test_corrupting_public_chamfer_declaration_loses_declaration_credit(monkeypatch) -> None:
@@ -549,11 +524,4 @@ def test_weakening_provider_chamfer_parameters_reduces_fidelity(
 
 
 def test_quality_summary_counts_chamfers_as_audited_requirements() -> None:
-    from draftwright import build_drawing
-
-    completeness = build_drawing(_lone()).lint_summary()["quality"]["completeness"]
-
-    assert completeness["by_family"]["chamfers"] == 1
-    assert completeness["placed"] == completeness["requirements"] == 1
-    assert completeness["audited_score"] == 1.0
-    assert "chamfers" not in completeness["unscored_recognized_families"]
+    assert_quality_summary_counts_audited_requirements(_lone(), "chamfers", requirements=1)

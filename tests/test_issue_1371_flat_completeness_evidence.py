@@ -6,8 +6,12 @@ from dataclasses import replace
 from pathlib import Path
 
 from _evidence_contract import (
+    assert_every_boundary_is_supported,
     assert_missing_model_outcomes_fail_closed,
+    assert_observer_fails_closed_without_build_or_recognition,
     assert_observer_uses_one_build_owned_recognition,
+    assert_real_corpus_scores_all_layers,
+    assert_removing_the_placed_callout_loses_drawing_credit,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Box, Cylinder, Pos, import_step
@@ -60,20 +64,9 @@ def test_versioned_flat_corpus_covers_every_required_case_class() -> None:
 
 
 def test_real_flat_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 9
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 27
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 36
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=9, parameter_fidelity=27, downstream_usefulness=36
+    )
 
 
 def test_flat_projection_groups_faces_but_not_distinct_stock() -> None:
@@ -106,14 +99,11 @@ def test_flat_projection_groups_faces_but_not_distinct_stock() -> None:
 
 
 def test_every_flat_boundary_is_observed_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["flats"](_double_d())
-    assert len(observed) == 1, "fixture must produce one grouped Double-D requirement"
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported(
+        "flats",
+        _double_d(),
+        message="fixture must produce one grouped Double-D requirement",
+    )
 
 
 def test_flat_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
@@ -141,23 +131,7 @@ def test_a_boundary_with_missing_per_requirement_outcomes_fails_closed(monkeypat
 
 
 def test_flat_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    def broken_build(*_args, **_kwargs):
-        raise RuntimeError("synthetic build failure")
-
-    monkeypatch.setattr(builder, "build_drawing", broken_build)
-    observer = _default_observers()["flats"]
-    assert observer(_double_d()) == ()
-
-    class DrawingWithoutRecognition:
-        def recognition(self):
-            return None
-
-    monkeypatch.setattr(
-        builder, "build_drawing", lambda *_args, **_kwargs: DrawingWithoutRecognition()
-    )
-    assert observer(_double_d()) == ()
+    assert_observer_fails_closed_without_build_or_recognition(monkeypatch, "flats", _double_d)
 
 
 def test_corrupting_public_flat_declaration_loses_declaration_credit(monkeypatch) -> None:
@@ -194,19 +168,7 @@ def test_deleting_generated_flat_lines_loses_generated_code_credit(monkeypatch) 
 
 
 def test_removing_the_placed_flat_callout_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_callout(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_flat_"))
-        drawing.remove(name)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_callout)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_removing_the_placed_callout_loses_drawing_credit(monkeypatch, "m_flat_", _states)
 
 
 def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:

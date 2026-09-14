@@ -5,7 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from _evidence_contract import assert_missing_model_outcomes_fail_closed
+from _evidence_contract import (
+    assert_every_boundary_is_supported,
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_fails_closed_without_build_or_recognition,
+)
 from build123d import Box, Cylinder, Pos
 
 from draftwright.evaluation.step_analysis import (
@@ -91,14 +95,11 @@ def test_pattern_projection_owns_disjoint_groups_without_recounting_members() ->
 
 
 def test_every_pattern_boundary_is_observed_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["hole-patterns"](_grid_part())
-    assert len(observed) == 1, "fixture must produce one grid observation"
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported(
+        "hole-patterns",
+        _grid_part(),
+        message="fixture must produce one grid observation",
+    )
 
 
 def test_removing_patterns_from_the_built_ir_loses_ir_adapter_credit(monkeypatch) -> None:
@@ -124,23 +125,9 @@ def test_a_boundary_with_missing_per_pattern_outcomes_fails_closed(monkeypatch) 
 def test_pattern_observer_fails_closed_when_build_or_recognition_is_unavailable(
     monkeypatch,
 ) -> None:
-    import draftwright.builder as builder
-
-    def broken_build(*_args, **_kwargs):
-        raise RuntimeError("synthetic build failure")
-
-    monkeypatch.setattr(builder, "build_drawing", broken_build)
-    observer = _default_observers()["hole-patterns"]
-    assert observer(_grid_part()) == ()
-
-    class DrawingWithoutRecognition:
-        def recognition(self):
-            return None
-
-    monkeypatch.setattr(
-        builder, "build_drawing", lambda *_args, **_kwargs: DrawingWithoutRecognition()
+    assert_observer_fails_closed_without_build_or_recognition(
+        monkeypatch, "hole-patterns", _grid_part
     )
-    assert observer(_grid_part()) == ()
 
 
 def test_corrupting_public_pattern_declaration_loses_declaration_credit(monkeypatch) -> None:

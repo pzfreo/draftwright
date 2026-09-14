@@ -8,7 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from _evidence_contract import assert_observer_uses_one_build_owned_recognition
+from _evidence_contract import (
+    assert_observer_failure_cannot_pass_the_negative_case,
+    assert_observer_uses_one_build_owned_recognition,
+    assert_real_corpus_scores_all_layers,
+    assert_versioned_corpus_covers_every_required_case_class,
+)
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Box, Pos, RegularPolygon, Rot, extrude, import_step
 
@@ -53,49 +58,30 @@ def _annotation_for_parameter(drawing, parameter: str) -> str:
 
 
 def test_versioned_polygonal_boss_corpus_covers_every_required_case_class() -> None:
-    corpus = load_corpus(CORPUS)
-
-    assert (corpus.corpus_version, corpus.metric_version) == ("1.0.0", 1)
-    assert corpus.scope == ("polygonal-bosses",)
-    assert len(corpus.cases) == 11
-    assert sum(len(case.expected) for case in corpus.cases) == 10
-    tags = {tag for case in corpus.cases for tag in case.classification.split("+")}
-    assert {
-        "ambiguous",
-        "compound",
-        "in-plane-rotation",
-        "multiple",
-        "multiple-equal",
-        "negative",
-        "overlapping-family",
-        "positive",
-        "principal-orientation",
-        "topology-order-variant",
-    } <= tags
-    assert all(case.provenance["author"] for case in corpus.cases)
-    assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
-    assert all(
-        "'1970-01-01T00:00:00'"
-        in (CORPUS.parent / case.provenance["fixture"]).read_text().splitlines()[3]
-        for case in corpus.cases
+    assert_versioned_corpus_covers_every_required_case_class(
+        CORPUS,
+        scope=("polygonal-bosses",),
+        cases=11,
+        expected=10,
+        tags={
+            "ambiguous",
+            "compound",
+            "in-plane-rotation",
+            "multiple",
+            "multiple-equal",
+            "negative",
+            "overlapping-family",
+            "positive",
+            "principal-orientation",
+            "topology-order-variant",
+        },
     )
 
 
 def test_real_polygonal_boss_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 10
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 40
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 40
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=10, parameter_fidelity=40, downstream_usefulness=40
+    )
 
 
 @pytest.mark.parametrize("axis", tuple("xyz"))
@@ -558,22 +544,7 @@ def test_removing_polygonal_bosses_from_built_ir_loses_adapter_credit(monkeypatc
 
 
 def test_observer_failure_cannot_pass_a_zero_boss_negative_case(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    corpus = load_corpus(CORPUS)
-    negative = next(case for case in corpus.cases if not case.expected)
-
-    def failed_build(*_args, **_kwargs):
-        raise RuntimeError("negative-case probe")
-
-    monkeypatch.setattr(builder, "build_drawing", failed_build)
-    damaged = evaluate_step_corpus(replace(corpus, cases=(negative,)))
-
-    assert damaged.complete_cases == damaged.conformant_cases == 0
-    assert damaged.cases[0].outcome == "unknown"
-    assert [(issue.layer, issue.family) for issue in damaged.cases[0].diagnostics] == [
-        ("analysis", "polygonal-bosses")
-    ]
+    assert_observer_failure_cannot_pass_the_negative_case(monkeypatch, CORPUS, "polygonal-bosses")
 
 
 def test_corrupting_public_polygonal_boss_declaration_loses_declaration_credit(

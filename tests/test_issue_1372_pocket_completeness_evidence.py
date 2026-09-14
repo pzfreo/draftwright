@@ -7,8 +7,11 @@ from pathlib import Path
 
 import pytest
 from _evidence_contract import (
+    assert_every_boundary_is_supported,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_uses_one_build_owned_recognition,
+    assert_real_corpus_scores_all_layers,
+    assert_removing_the_placed_callout_loses_drawing_credit,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Box, Pos, import_step
@@ -62,20 +65,9 @@ def test_versioned_pocket_corpus_covers_every_required_case_class() -> None:
 
 
 def test_real_pocket_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 13
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 52
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 52
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=13, parameter_fidelity=52, downstream_usefulness=52
+    )
 
 
 def test_overlapping_recess_families_retain_one_physical_owner() -> None:
@@ -172,14 +164,7 @@ def test_pattern_members_are_not_counted_again_as_lone_pockets() -> None:
 
 
 def test_every_pocket_boundary_is_observed_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["pockets"](_lone())
-    assert len(observed) == 1
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported("pockets", _lone())
 
 
 def test_pocket_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
@@ -236,19 +221,7 @@ def test_deleting_generated_pocket_lines_loses_generated_code_credit(monkeypatch
 
 
 def test_removing_placed_pocket_callout_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_callout(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_pocket_"))
-        drawing.remove(name)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_callout)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_removing_the_placed_callout_loses_drawing_credit(monkeypatch, "m_pocket_", _states)
 
 
 def test_severing_one_directional_location_fact_loses_drawing_credit(monkeypatch) -> None:

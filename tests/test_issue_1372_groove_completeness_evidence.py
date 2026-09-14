@@ -7,8 +7,12 @@ from pathlib import Path
 
 import pytest
 from _evidence_contract import (
+    assert_every_boundary_is_supported,
     assert_missing_model_outcomes_fail_closed,
+    assert_observer_failure_cannot_pass_the_negative_case,
     assert_observer_uses_one_build_owned_recognition,
+    assert_real_corpus_scores_all_layers,
+    assert_removing_the_placed_callout_loses_drawing_credit,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Cylinder, Pos, import_step
@@ -65,20 +69,9 @@ def test_versioned_groove_corpus_covers_every_required_case_class() -> None:
 
 
 def test_real_groove_corpus_scores_all_layers_and_boolean_order_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 10
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 20
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 40
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=10, parameter_fidelity=20, downstream_usefulness=40
+    )
 
 
 def test_narrow_floor_has_one_drafting_owner_despite_raw_family_overlap() -> None:
@@ -283,14 +276,7 @@ def test_owner_without_measurement_or_note_provenance_is_unverifiable() -> None:
 
 
 def test_every_groove_boundary_is_observed_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["grooves"](_lone())
-    assert len(observed) == 1
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported("grooves", _lone())
 
 
 def test_groove_observer_uses_one_build_owned_recognition_aggregate(monkeypatch) -> None:
@@ -336,22 +322,7 @@ def test_observer_fails_closed_when_built_recognition_is_unavailable(monkeypatch
 
 
 def test_observer_failure_cannot_pass_the_zero_groove_negative_case(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    corpus = load_corpus(CORPUS)
-    negative = next(case for case in corpus.cases if not case.expected)
-
-    def failed_build(*_args, **_kwargs):
-        raise RuntimeError("negative-case probe")
-
-    monkeypatch.setattr(builder, "build_drawing", failed_build)
-    damaged = evaluate_step_corpus(replace(corpus, cases=(negative,)))
-
-    assert damaged.complete_cases == damaged.conformant_cases == 0
-    assert damaged.cases[0].outcome == "unknown"
-    assert [(issue.layer, issue.family) for issue in damaged.cases[0].diagnostics] == [
-        ("analysis", "grooves")
-    ]
+    assert_observer_failure_cannot_pass_the_negative_case(monkeypatch, CORPUS, "grooves")
 
 
 def test_corrupting_public_groove_declaration_loses_declaration_credit(monkeypatch) -> None:
@@ -387,19 +358,7 @@ def test_deleting_generated_groove_lines_loses_generated_code_credit(monkeypatch
 
 
 def test_removing_placed_groove_callout_loses_drawing_credit(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    original = builder.build_drawing
-
-    def without_callout(*args, **kwargs):
-        drawing = original(*args, **kwargs)
-        name = next(name for name in drawing.annotations() if name.startswith("m_groove_"))
-        drawing.remove(name)
-        return drawing
-
-    monkeypatch.setattr(builder, "build_drawing", without_callout)
-    assert _states("ir_adapter") == {"supported"}
-    assert _states("drawing_consumer") == {"unsupported"}
+    assert_removing_the_placed_callout_loses_drawing_credit(monkeypatch, "m_groove_", _states)
 
 
 def test_moving_groove_leader_off_its_physical_station_loses_drawing_credit(

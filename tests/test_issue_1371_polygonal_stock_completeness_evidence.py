@@ -8,7 +8,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from _evidence_contract import assert_observer_uses_one_build_owned_recognition
+from _evidence_contract import (
+    assert_observer_failure_cannot_pass_the_negative_case,
+    assert_observer_uses_one_build_owned_recognition,
+    assert_real_corpus_scores_all_layers,
+)
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Polygon, Pos, RegularPolygon, Rot, extrude, import_step
 
@@ -92,20 +96,9 @@ def test_consumer_contract_publishes_polygonal_stock_completeness_evidence() -> 
 
 @pytest.mark.timeout(600)  # 207 s on a fast hosted runner — the global 300 s cap is marginal.
 def test_real_polygonal_stock_corpus_scores_all_layers_and_topology_variants() -> None:
-    corpus = load_corpus(CORPUS)
-
-    evaluation = evaluate_step_corpus(corpus)
-    assert evaluation.detection.recall == 1.0
-    assert evaluation.detection.false_positive_rate == 0.0
-    assert evaluation.detection.matched == 6
-    assert evaluation.parameter_fidelity.passed == evaluation.parameter_fidelity.total == 24
-    assert evaluation.downstream_usefulness.passed == evaluation.downstream_usefulness.total == 24
-    assert evaluation.conformant_cases == evaluation.complete_cases == len(corpus.cases)
-    variants = [case for case in evaluation.cases if "topology" in case.case_id]
-    assert len(variants) == 2
-    assert variants[0].detection == variants[1].detection
-    assert variants[0].parameter_fidelity == variants[1].parameter_fidelity
-    assert variants[0].downstream_usefulness == variants[1].downstream_usefulness
+    assert_real_corpus_scores_all_layers(
+        CORPUS, matched=6, parameter_fidelity=24, downstream_usefulness=24
+    )
 
 
 @pytest.mark.parametrize("axis", tuple("xyz"))
@@ -885,22 +878,7 @@ def test_polygonal_stock_observer_preserves_occurrence_when_boundary_loses_cardi
 
 
 def test_observer_failure_cannot_pass_a_zero_stock_negative_case(monkeypatch) -> None:
-    import draftwright.builder as builder
-
-    corpus = load_corpus(CORPUS)
-    negative = next(case for case in corpus.cases if not case.expected)
-
-    def failed_build(*_args, **_kwargs):
-        raise RuntimeError("negative-case probe")
-
-    monkeypatch.setattr(builder, "build_drawing", failed_build)
-    damaged = evaluate_step_corpus(replace(corpus, cases=(negative,)))
-
-    assert damaged.complete_cases == damaged.conformant_cases == 0
-    assert damaged.cases[0].outcome == "unknown"
-    assert [(issue.layer, issue.family) for issue in damaged.cases[0].diagnostics] == [
-        ("analysis", "polygonal-stock")
-    ]
+    assert_observer_failure_cannot_pass_the_negative_case(monkeypatch, CORPUS, "polygonal-stock")
 
 
 def test_removing_polygonal_stock_from_built_ir_loses_adapter_credit(monkeypatch) -> None:

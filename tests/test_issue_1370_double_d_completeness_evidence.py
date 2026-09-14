@@ -7,7 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from _evidence_contract import assert_missing_model_outcomes_fail_closed
+from _evidence_contract import (
+    assert_every_boundary_is_supported,
+    assert_missing_model_outcomes_fail_closed,
+    assert_observer_fails_closed_without_build_or_recognition,
+)
 from build123d import Align, Box, Compound, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -188,14 +192,11 @@ def test_public_depth_quantization_allowance_is_independently_bracketed() -> Non
 
 
 def test_every_double_d_boundary_is_supported_on_the_real_public_path() -> None:
-    # One observation for all four boundaries. `_states` re-runs the observer —
-    # a full `build_drawing` — on every call, so the loop paid for four identical
-    # builds of the same part to read four keys off the same facts.
-    observed = _default_observers()["double-d-bores"](_part())
-    assert len(observed) == 1, "fixture must produce one Double-D observation"
-    for boundary in ("ir_adapter", "dsl_declaration", "generated_code", "drawing_consumer"):
-        states = {fact.downstream[boundary] for fact in observed}
-        assert states == {"supported"}
+    assert_every_boundary_is_supported(
+        "double-d-bores",
+        _part(),
+        message="fixture must produce one Double-D observation",
+    )
 
 
 @pytest.mark.parametrize(
@@ -616,23 +617,7 @@ def test_deleting_provider_records_cannot_shrink_the_independent_denominator(mon
 def test_double_d_observer_fails_closed_when_build_or_recognition_is_unavailable(
     monkeypatch,
 ) -> None:
-    import draftwright.builder as builder
-
-    def broken_build(*_args, **_kwargs):
-        raise RuntimeError("synthetic build failure")
-
-    monkeypatch.setattr(builder, "build_drawing", broken_build)
-    observer = _default_observers()["double-d-bores"]
-    assert observer(_part()) == ()
-
-    class DrawingWithoutRecognition:
-        def recognition(self):
-            return None
-
-    monkeypatch.setattr(
-        builder, "build_drawing", lambda *_args, **_kwargs: DrawingWithoutRecognition()
-    )
-    assert observer(_part()) == ()
+    assert_observer_fails_closed_without_build_or_recognition(monkeypatch, "double-d-bores", _part)
 
 
 def test_a_boundary_with_missing_per_bore_outcomes_fails_closed(monkeypatch) -> None:
