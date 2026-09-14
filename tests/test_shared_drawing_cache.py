@@ -32,7 +32,13 @@ def test_an_unknown_recipe_names_the_known_ones():
 
 def test_a_cache_hit_returns_the_same_object_and_recognises_nothing(shared_drawing):
     """ADR 3: sharing a build cannot add a recognition run, because a hit runs no code."""
-    first = shared_drawing("box_20x20x20", auto_dims=False)
+    # Precondition: the counter this test relies on must be able to see a provider call
+    # at all. A miss builds, so it must register; otherwise an empty `counts` below would
+    # prove nothing about the hit.
+    with recognition_consumer_calls() as on_miss:
+        first = shared_drawing("box_20x20x20", auto_dims=False)
+    assert on_miss, "the cache miss recorded no provider call — the counter sees nothing"
+
     with recognition_consumer_calls() as counts:
         second = shared_drawing("box_20x20x20", auto_dims=False)
     assert second is first

@@ -240,7 +240,7 @@ def pytest_runtest_teardown(item, nextitem):
 #
 # Read-only is the whole bargain, and it is checked rather than asked for: the cache
 # fingerprints the sheet's membership after the build and re-checks it on every later
-# handout, so a borrower that mutates is caught at the *next* borrower's setup and named.
+# handout, so a borrower that mutates is caught at the *next* borrower's call and named.
 # A test that means to mutate calls `unshared_drawing_for_mutation` instead — deliberately
 # the longer name, because the cheap call should be the safe one.
 #
@@ -282,8 +282,8 @@ def _sheet_membership(drawing) -> tuple:
     3. A write into the build's caches. `lint()` prunes `_build.ann_box_cache` of items
        no longer on the sheet and hands it to `lint_drawing` to refill (`drawing.py`
        ~4182 and ~4208). On a freshly built drawing that is a no-op — the build has
-       already saturated it (11 entries either side of `lint()` on `box_60x40x20` at A3,
-       8 with `auto_dims=False`) — which is why a borrower may call `lint_summary()`.
+       already saturated it on the recipes this cache serves — which is why a borrower
+       may call `lint_summary()`.
        It stops being a no-op as soon as something has changed the items first.
     """
     return (
