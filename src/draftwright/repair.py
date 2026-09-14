@@ -45,6 +45,13 @@ def _swap_annotation(dwg, old, new):
 def _replace_dim(dwg, old, new):
     """Swap *old* for *new* in ``dwg.items``, preserving its name and any per-view
     scale tag (so a re-placed detail-view dim stays at scale)."""
+    # Label/side repair changes only the dimension's drawing geometry. The producer's
+    # physical-coverage facts still describe the same approved measurement. Without
+    # these riders, a repaired off-axis location can print its value while the hole
+    # ledger correctly reports that no source-owned location was represented.
+    for attr, value in vars(old).items():
+        if attr.startswith("covers_"):
+            setattr(new, attr, value)
     if getattr(old, "_dw_scale", None) is not None:
         new._dw_scale = old._dw_scale
     # And the per-unit meaning of an `N× v` label (#1153). `repair()` runs on every build,
