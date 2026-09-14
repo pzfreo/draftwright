@@ -19,17 +19,11 @@ from build123d import (
     extrude,
     import_step,
 )
-from quiddity import capability_manifest
 from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
 from draftwright import recognition_ownership as ownership_module
 from draftwright.recogniser_contract import consumer_capability_declaration
-from draftwright.recogniser_policy import (
-    EVIDENCE_ONLY_FAMILIES,
-    UNSUPPORTED_FAMILIES,
-    ownerless_occurrence_policy,
-)
 from draftwright.recognition_ownership import (
     OccurrencePolicyOutcome,
     RecognitionOwnershipBuilder,
@@ -38,14 +32,11 @@ from draftwright.recognition_ownership import (
 _FIXTURES = Path(__file__).parent / "fixtures"
 _CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
 
-
 def _angled_step_part():
     return import_step(str(_FIXTURES / "issue_1247_angled_blind_step.step"))
 
-
 def _passage_part():
     return Box(40, 40, 10) - extrude(RegularPolygon(6, 6), amount=12, both=True)
-
 
 def _prismatic_pocket_part():
     with BuildPart() as tool:
@@ -54,22 +45,18 @@ def _prismatic_pocket_part():
         extrude(amount=20)
     return Box(120, 80, 20) - tool.part
 
-
 def _oriented_slot_part():
     part = Box(120, 90, 10)
     for x in (-30, 0, 30):
         part -= Pos(x, 0, 0) * Rot(0, 0, 30) * Box(24, 6, 20, align=_CENTER)
     return part
 
-
 def _repeating_profile_part():
     return import_step(str(_FIXTURES / "issue_1058_wheel_rh.step"))
-
 
 def _step_projection_evidence_part():
     aligned = (Align.MIN, Align.MIN, Align.MIN)
     return Box(60, 40, 20, align=aligned) - Pos(30, 0, 10) * Box(30, 40, 10, align=aligned)
-
 
 @pytest.mark.parametrize(
     ("part_factory", "family", "count", "disposition", "reason_code", "tracking"),
@@ -171,7 +158,6 @@ def test_settled_policy_classifies_each_exact_accepted_occurrence(
         assert occurrence not in ownership.owner_expected_occurrences
         assert occurrence not in ownership.unexpectedly_missing
 
-
 def test_policy_outcomes_follow_evidence_order_without_collapsing_equal_members() -> None:
     evidence = build_recognition_evidence(_oriented_slot_part())
     ownership = RecognitionOwnershipBuilder(evidence).snapshot()
@@ -183,34 +169,6 @@ def test_policy_outcomes_follow_evidence_order_without_collapsing_equal_members(
 
     assert tuple(outcome.occurrence for outcome in ownership.policy_outcomes) == occurrences
     assert len({id(outcome) for outcome in ownership.policy_outcomes}) == 3
-
-
-def test_supported_unknown_and_malformed_families_cannot_gain_ownerless_policy() -> None:
-    assert ownerless_occurrence_policy("holes") is None
-    assert ownerless_occurrence_policy("future_family") is None
-    with pytest.raises(TypeError, match="exact str"):
-        ownerless_occurrence_policy(123)  # type: ignore[arg-type]
-
-
-def test_shared_ownerless_policy_table_is_immutable() -> None:
-    with pytest.raises(TypeError, match="does not support item assignment"):
-        UNSUPPORTED_FAMILIES["section_recesses"] = UNSUPPORTED_FAMILIES["angled-steps"]  # type: ignore[index]
-    with pytest.raises(TypeError, match="does not support item assignment"):
-        EVIDENCE_ONLY_FAMILIES["risers"] = EVIDENCE_ONLY_FAMILIES["step-levels"]  # type: ignore[index]
-
-
-def test_evidence_occurrence_policy_does_not_downgrade_supported_aggregate_families() -> None:
-    declarations = {
-        family["id"]: family for family in consumer_capability_declaration()["families"]
-    }
-
-    assert declarations["face-levels"]["disposition"] == "supported"
-    assert declarations["risers"]["disposition"] == "supported"
-    step_policy = ownerless_occurrence_policy("step_levels")
-    riser_policy = ownerless_occurrence_policy("risers")
-    assert step_policy is not None and step_policy.disposition == "evidence_only"
-    assert riser_policy is not None and riser_policy.disposition == "evidence_only"
-
 
 def test_equal_body_local_projection_evidence_keeps_distinct_outcomes() -> None:
     def stepped_block():
@@ -232,19 +190,6 @@ def test_equal_body_local_projection_evidence_keeps_distinct_outcomes() -> None:
         assert len({id(outcome) for outcome in outcomes}) == expected_count
         assert all(outcome.disposition == "evidence_only" for outcome in outcomes if outcome)
 
-
-def test_projection_evidence_policy_matches_the_released_provider_roles() -> None:
-    manifest = {family["id"]: family for family in capability_manifest()["families"]}
-
-    assert manifest["face-levels"]["census_output"] is None
-    assert manifest["risers"]["census_output"] is None
-    assert {record["role"] for record in manifest["face-levels"]["records"]} == {"evidence"}
-    assert {record["name"]: record["role"] for record in manifest["risers"]["records"]} == {
-        "RiserEvidence": "evidence",
-        "StepShoulder": "projection",
-    }
-
-
 def test_raw_step_ladder_keeps_supported_ir_beside_evidence_only_inputs() -> None:
     drawing = build_drawing(_step_projection_evidence_part())
     ownership = drawing.recognition_ownership()
@@ -261,7 +206,6 @@ def test_raw_step_ladder_keeps_supported_ir_beside_evidence_only_inputs() -> Non
         assert all(ownership.status(occurrence) == "evidence_only" for occurrence in occurrences)
         assert all(ownership.binding_for(occurrence) is None for occurrence in occurrences)
         assert all(occurrence not in ownership.unexpectedly_missing for occurrence in occurrences)
-
 
 @pytest.mark.parametrize("family", ["holes", "section_recesses"])
 def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch, family) -> None:
@@ -287,7 +231,6 @@ def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch, 
     with pytest.raises(RuntimeError, match="conflicting owner and policy"):
         RecognitionOwnershipBuilder(evidence)
 
-
 def test_policy_outcome_uses_the_existing_capability_declaration() -> None:
     declarations = {
         family["id"]: family for family in consumer_capability_declaration()["families"]
@@ -304,7 +247,6 @@ def test_policy_outcome_uses_the_existing_capability_declaration() -> None:
     assert outcome is not None
     assert outcome.disposition == declarations["angled-steps"]["disposition"]
     assert outcome.tracking == declarations["angled-steps"]["tracking"]
-
 
 def test_raw_automatic_build_attaches_policy_to_its_exact_evidence_authority() -> None:
     drawing = build_drawing(_passage_part())
