@@ -35,8 +35,8 @@ def test_circular_blind_step_is_visible_as_two_audited_requirements() -> None:
     assert completeness["audited_score"] == 1.0
 
 
-def test_absent_046_step_families_do_not_pollute_an_ordinary_part():
-    completeness = build_drawing(Box(30, 20, 10)).lint_summary()["quality"]["completeness"]
+def test_absent_046_step_families_do_not_pollute_an_ordinary_part(shared_drawing):
+    completeness = shared_drawing("box_30x20x10").lint_summary()["quality"]["completeness"]
 
     assert not {
         "circular_blind_steps",

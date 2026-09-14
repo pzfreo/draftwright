@@ -683,9 +683,9 @@ def test_a_caller_assembled_empty_inventory_cannot_silence_slot_coverage():
         )
 
 
-def test_absent_recognition_and_a_valid_empty_inventory_are_both_quiet():
+def test_absent_recognition_and_a_valid_empty_inventory_are_both_quiet(shared_drawing):
     from draftwright.registry import AnnotationRegistry
 
-    dwg = build_drawing(Box(60, 40, 20))
+    dwg = shared_drawing("box_60x40x20")
     assert slot_requirement_outcomes(None, (), AnnotationRegistry()) == []
     assert slot_requirement_outcomes(dwg.recognition(), (), AnnotationRegistry()) == []

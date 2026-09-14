@@ -9,6 +9,7 @@ import inspect
 import sys
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 import pytest
 
@@ -227,3 +228,133 @@ def pytest_runtest_teardown(item, nextitem):
         from build123d.topology import shape_core
 
         shape_core.Shape.__init__ = original
+
+
+# ── Shared built drawings (#1637 step 4) ─────────────────────────────────────────────
+#
+# 1535 of the suite's 5388 test functions (28.5%) pay for a real `build_drawing` in their
+# own body, and hundreds of those builds are the same plain block with the same options:
+# the drawing is the *substrate* the test critiques, not its subject. `shared_drawing`
+# builds each (recipe, options) pair once per worker session and hands the same Drawing
+# to every read-only borrower.
+#
+# Read-only is the whole bargain, and it is checked rather than asked for: the cache
+# fingerprints the sheet's membership after the build and re-checks it on every later
+# handout, so a borrower that mutates is caught at the *next* borrower's call and named.
+# A test that means to mutate calls `unshared_drawing_for_mutation` instead — deliberately
+# the longer name, because the cheap call should be the safe one.
+#
+# ADR 3 is unaffected: a cache hit returns a Drawing that has already been built, so it
+# runs no builder code and no recognition at all. Sharing can only lower the number of
+# recognition runs in a session, never raise it, and never adds a second run to one build.
+# Guards that *count* recognition (`test_detect_once`, `test_declared_recognition_gate`)
+# must keep building their own drawings inside their counting context; see
+# `tests/test_shared_drawing_cache.py`.
+
+
+@dataclass
+class _SharedDrawing:
+    drawing: object
+    fingerprint: tuple
+    borrower: str
+
+
+def _sheet_membership(drawing) -> tuple:
+    """The part of a Drawing a read-only borrower must leave exactly as it found it.
+
+    Annotation names, item count and view names between them move under every mutating
+    surface that ADDS, REPLACES or REMOVES something on the sheet — `.add()` and
+    `.place_dim()` extend the first two, `.repair()` and `.export()`'s `finalize()`
+    replace items, and a private write that re-composes changes the views.
+
+    It is a membership check, not a deep equality, and three kinds of write get past it.
+    A borrower that does any of them must take `unshared_drawing_for_mutation` instead;
+    the migrator of a further tranche should read this list as the safety contract, not
+    the paragraph above.
+
+    1. An in-place edit of one annotation's coordinates. Same names, same count.
+    2. A write to a recorded-state attribute that is not on the sheet at all —
+       `record_section_decision` sets `drawing.section_decision`, and the fingerprint is
+       identical either side of it. That is why
+       `test_issue_1190_section_decision.py::test_the_status_vocabulary_is_closed` takes
+       the private build even though its call is rejected: a rejected write is still a
+       write the next borrower would inherit if it landed.
+    3. A write into the build's caches. `lint()` prunes `_build.ann_box_cache` of items
+       no longer on the sheet and hands it to `lint_drawing` to refill (`drawing.py`
+       ~4182 and ~4208). On a freshly built drawing that is a no-op — the build has
+       already saturated it on the recipes this cache serves — which is why a borrower
+       may call `lint_summary()`.
+       It stops being a no-op as soon as something has changed the items first.
+    """
+    return (
+        tuple(drawing.annotations()),
+        len(drawing.items),
+        tuple(sorted(drawing.views)),
+    )
+
+
+@pytest.fixture(scope="session")
+def _built_drawing_cache():
+    cache: dict[tuple, _SharedDrawing] = {}
+    yield cache
+    cache.clear()
+
+
+@pytest.fixture
+def shared_drawing(_built_drawing_cache, request):
+    """`shared_drawing(recipe, **options)` → a READ-ONLY Drawing, built once per session.
+
+    *recipe* names an entry in `tests/_parts.py`; *options* are `build_drawing` keywords
+    and are part of the cache key, so `page="A3"` and the default page are two builds.
+
+    Do not mutate what comes back. Call `unshared_drawing_for_mutation` with the same
+    arguments for a private copy.
+    """
+    from _parts import part
+
+    from draftwright import build_drawing
+
+    def _shared(recipe: str, **options):
+        key = (recipe, tuple(sorted(options.items())))
+        try:
+            hash(key)
+        except TypeError as exc:
+            raise TypeError(
+                f"build option values must be hashable to key the shared-build cache; "
+                f"{options!r} is not. Build it with unshared_drawing_for_mutation."
+            ) from exc
+        entry = _built_drawing_cache.get(key)
+        if entry is None:
+            drawing = build_drawing(part(recipe), **options)
+            _built_drawing_cache[key] = _SharedDrawing(
+                drawing, _sheet_membership(drawing), request.node.nodeid
+            )
+            return drawing
+        if _sheet_membership(entry.drawing) != entry.fingerprint:
+            raise AssertionError(
+                f"the shared drawing for {key!r} was mutated after it was built — "
+                f"{entry.borrower} is the test that last borrowed it. A test that adds, "
+                "repairs, places a dimension or exports must ask for its own build with "
+                "the unshared_drawing_for_mutation fixture."
+            )
+        entry.borrower = request.node.nodeid
+        return entry.drawing
+
+    return _shared
+
+
+@pytest.fixture
+def unshared_drawing_for_mutation():
+    """`unshared_drawing_for_mutation(recipe, **options)` → a private Drawing, built now.
+
+    Same arguments as `shared_drawing`, no cache: the caller owns the result and may
+    mutate it freely.
+    """
+    from _parts import part
+
+    from draftwright import build_drawing
+
+    def _build(recipe: str, **options):
+        return build_drawing(part(recipe), **options)
+
+    return _build

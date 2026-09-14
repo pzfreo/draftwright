@@ -185,8 +185,8 @@ def test_unequal_pocket_offset_cannot_borrow_sibling_axis_confirmation():
     assert narrowed.unknown == (("damaged", first.annotation, "bound_claim_unconfirmed"),)
 
 
-def test_unique_compiled_span_keeps_address_without_optional_rendered_witness():
-    drawing = build_drawing(Box(30, 20, 10))
+def test_unique_compiled_span_keeps_address_without_optional_rendered_witness(shared_drawing):
+    drawing = shared_drawing("box_30x20x10")
     snapshot = drawing.measurement_snapshot()
     claim = next(claim for claim in snapshot.claims if claim.parameter == "width.length")
     assert len(claim.meaning) == 1 and claim.witnesses[0]
