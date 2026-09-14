@@ -232,7 +232,7 @@ def pytest_runtest_teardown(item, nextitem):
 
 # ── Shared built drawings (#1637 step 4) ─────────────────────────────────────────────
 #
-# Roughly a third of the suite's test functions pay for a real `build_drawing` in their
+# 1535 of the suite's 5388 test functions (28.5%) pay for a real `build_drawing` in their
 # own body, and hundreds of those builds are the same plain block with the same options:
 # the drawing is the *substrate* the test critiques, not its subject. `shared_drawing`
 # builds each (recipe, options) pair once per worker session and hands the same Drawing
