@@ -1125,6 +1125,9 @@ class TestStepSizingConvergence:
 
 
 from _layout_helpers import _sizing_model
+from _parts import dense_plate as _dense_plate
+from _parts import holed_plate as _holed_plate
+from _parts import multi_hole_plate as _multi_hole_plate
 
 
 class TestComposeAnnoBoxes:
@@ -4536,18 +4539,6 @@ class TestTypDimensioning:
 # ---------------------------------------------------------------------------
 # Issues #26 + #25: dwg.features() and dwg.place_dim()
 # ---------------------------------------------------------------------------
-
-
-def _holed_plate():
-    """80×60×20 plate: 4 corner ø10 through-holes (Z-axis) + 1 centre ø6 blind (Z-axis)."""
-    return (
-        Box(80, 60, 20)
-        - Pos(25, 20, 0) * Cylinder(5, 20)
-        - Pos(-25, 20, 0) * Cylinder(5, 20)
-        - Pos(25, -20, 0) * Cylinder(5, 20)
-        - Pos(-25, -20, 0) * Cylinder(5, 20)
-        - Pos(0, 0, 5) * Cylinder(3, 10)
-    )
 
 
 def _model_signature(m):
@@ -8726,33 +8717,6 @@ class TestAxialCoverageLint:
         from draftwright.drawing import _GEOMETRY_AWARE_CODES
 
         assert "axial_length_missing" in _GEOMETRY_AWARE_CODES
-
-
-def _multi_hole_plate():
-    """A plate with three spec-groups of Z-holes (two ø10, one ø16)."""
-    from build123d import Box, Cylinder, Pos
-
-    return (
-        Box(120, 80, 20)
-        - Pos(40, 25, 0) * Cylinder(5, 30)
-        - Pos(-40, 25, 0) * Cylinder(5, 30)
-        - Pos(0, -25, 0) * Cylinder(8, 30)
-    )
-
-
-def _dense_plate():
-    """A small plate crowded with 24 Z-holes in 5 diameter groups. Dense enough
-    to stress the layout, but on the auto-sized sheet (#121) its location dims +
-    grouped spec-callouts fit, so it group-and-types rather than escalating to a
-    hole chart (#93)."""
-    import itertools
-
-    from build123d import Box, Cylinder, Pos
-
-    part = Box(70, 50, 12)
-    for i, (gx, gy) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
-        part -= Pos(gx, gy, 0) * Cylinder(1.0 + (i % 5) * 0.4, 20)
-    return part
 
 
 class TestHoleTable:

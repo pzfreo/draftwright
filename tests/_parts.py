@@ -84,3 +84,43 @@ def part(recipe: str):
             "widely enough to be worth a name — a one-off block belongs in its own test."
         ) from None
     return builder()
+
+
+def holed_plate():
+    """80×60×20 plate with four through holes and one blind centre hole."""
+    from build123d import Cylinder, Pos
+
+    return (
+        Box(80, 60, 20)
+        - Pos(25, 20, 0) * Cylinder(5, 20)
+        - Pos(-25, 20, 0) * Cylinder(5, 20)
+        - Pos(25, -20, 0) * Cylinder(5, 20)
+        - Pos(-25, -20, 0) * Cylinder(5, 20)
+        - Pos(0, 0, 5) * Cylinder(3, 10)
+    )
+
+
+def multi_hole_plate():
+    """120×80×20 plate with three Z-axis hole specifications."""
+    from build123d import Cylinder, Pos
+
+    return (
+        Box(120, 80, 20)
+        - Pos(40, 25, 0) * Cylinder(5, 30)
+        - Pos(-40, 25, 0) * Cylinder(5, 30)
+        - Pos(0, -25, 0) * Cylinder(8, 30)
+    )
+
+
+def dense_plate():
+    """70×50×12 plate crowded with 24 holes in five diameter groups."""
+    import itertools
+
+    from build123d import Cylinder, Pos
+
+    result = Box(70, 50, 12)
+    for index, (x, y) in enumerate(
+        itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])
+    ):
+        result -= Pos(x, y, 0) * Cylinder(1.0 + (index % 5) * 0.4, 20)
+    return result
