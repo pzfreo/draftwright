@@ -995,7 +995,9 @@ def choose_scale(
                         f"Requested scale {scale} on {page} may not fit the requested view layout",
                     )
                 )
-            _log.warning(
+            # This can be a speculative scale/page trial. The advisory follows
+            # the candidate; only the delivered drawing's lint may warn users.
+            _log.debug(
                 "Requested scale %s on %s page may not fit the requested view layout",
                 scale,
                 page,

@@ -767,7 +767,37 @@ def _geom_box(o, cache=None):
         return None
 
 
-def dim_footprint(p1, p2, side, distance, draft, label):
+def short_dimension_label_offset(p1, p2, draft, label):
+    """Hang a tight inline label beyond its second witness so both heads stay visible.
+
+    ``Dimension`` centres every supplied label, even after its outside-arrow flip.
+    On a 3.5 mm location this puts text over a terminator and erases one head.
+    The offset follows the helper's own external-label distance; the corridor
+    candidate and its analytical footprint use the same value.
+    """
+    if (
+        getattr(draft, "text_position", "inline"),
+        getattr(draft, "text_orientation", "aligned"),
+    ) != ("inline", "aligned"):
+        return 0.0
+    length = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
+    if length <= 1e-9:
+        return 0.0
+    width = _text_size(
+        label,
+        draft.font_size,
+        getattr(draft, "font_path", DEFAULT_FONT_PATH),
+        getattr(draft, "font", "Arial"),
+        getattr(draft, "font_style", FontStyle.REGULAR),
+    )[0]
+    arrow = draft.arrow_length
+    pad = draft.pad_around_text
+    if width + 2 * arrow < length and length / 2 - width / 2 - pad > arrow / 2:
+        return 0.0
+    return length / 2 + 2 * arrow + pad + width / 2
+
+
+def dim_footprint(p1, p2, side, distance, draft, label, *, label_offset_x=0.0):
     """Analytical page-mm AABB ``(x0, y0, x1, y1)`` of the :class:`Dimension` that
     ``_dim(p1, p2, side, distance, draft, label=label)`` would build — WITHOUT
     constructing any OCC geometry (#602: a rejected candidate must not pay the
@@ -777,22 +807,23 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     is the object→dimension-line segment *translated* ``extension_gap`` along itself,
     so it spans ``p + side·gap`` → ``p + side·(distance + gap)`` — starting ``gap``
     clear of the object and overshooting the dimension line by the same ``gap``. The
-    measured label is centred on the line's midpoint with its extents swapped for a
-    vertical measured segment (the label is rotated); everything strokes at
-    ``line_width``. With inside arrows the heads lie within the extension-line
-    overshoot (at preset sizes), so they add nothing to the hull.
+    measured label is centred on the line's midpoint, or moved along the line by
+    ``label_offset_x`` when the producer hangs a tight label beyond its second
+    witness. Its extents swap for a vertical measured segment (the label is
+    rotated); everything strokes at ``line_width``. With inside arrows the heads
+    lie within the extension-line overshoot (at preset sizes).
 
     Tight spans mirror helpers ≥0.14's outside-arrows flip (``_dim_line_ink``):
     when the label and both heads don't fit — ``w + 2·al ≥ length`` or the shaft
     piece beside a head would vanish — the ink extends ``2·arrow_length`` past
-    each end along the line. The label itself stays centred regardless of width
-    (``Dimension`` always passes an explicit ``label_t``, so the hang branch
-    never runs), and when its keep-clear reaches a witness end the witness's
-    overshoot past the dimension line is cut away with it. Without this model
+    each end along the line. ``Dimension`` otherwise centres its label regardless
+    of width, so producers requiring two visible heads supply an explicit offset.
+    When the label's keep-clear reaches a witness end, that witness's overshoot
+    past the dimension line is cut away with it. Without this model
     the estimate under-covers exactly the dims v0.14 widens, and the
     accept-time rebuild fails validation until the candidate is dropped (the
     declared-plate 8 mm thickness dim was the first casualty). Assumes the
-    centred label (``label_offset_x=0``), like the rest of the estimate.
+    centred label by default (``label_offset_x=0``).
     Callers accepting a candidate off this footprint must still build the real
     geometry once and re-validate its box (the #602 validation fallback) so any
     residual mismatch degrades to a wasted probe, never a collision.
@@ -824,8 +855,10 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     ) != ("inline", "aligned"):
         return _styled_dimension_footprint(p1, p2, side, distance, draft, (w, h))
     hx, hy = (h / 2.0, w / 2.0) if abs(dyp) > abs(dxp) else (w / 2.0, h / 2.0)
-    lcx = (p1[0] + p2[0]) / 2.0 + sx * off
-    lcy = (p1[1] + p2[1]) / 2.0 + sy * off
+    length = math.hypot(dxp, dyp)
+    along_x, along_y = (dxp / length, dyp / length) if length > 0 else (0.0, 0.0)
+    lcx = (p1[0] + p2[0]) / 2.0 + sx * off + along_x * label_offset_x
+    lcy = (p1[1] + p2[1]) / 2.0 + sy * off + along_y * label_offset_x
     far = off + gap
     xs = [p1[0] + sx * gap, p2[0] + sx * gap, lcx - hx, lcx + hx]
     ys = [p1[1] + sy * gap, p2[1] + sy * gap, lcy - hy, lcy + hy]
@@ -833,9 +866,8 @@ def dim_footprint(p1, p2, side, distance, draft, label):
     # is w/2 regardless of orientation (the text rotates with the line); outside
     # arrows extend the ink 2·al past each end when label+heads don't fit. Along
     # the witness: the label keep-clear (h/2 + pad either side of the line) is
-    # cut out of a witness the centred label reaches, removing its overshoot
+    # cut out of a witness the shifted label reaches, removing its overshoot
     # unless a stub past the keep-clear survives (gap > h/2 + pad).
-    length = math.hypot(dxp, dyp)
     al = getattr(draft, "arrow_length", 0.9 * draft.font_size)
     tpad = getattr(draft, "pad_around_text", 0.0)
     fits = length > 0 and (w + 2.0 * al < length) and (length / 2.0 - w / 2.0 - tpad > al / 2.0)
@@ -843,7 +875,11 @@ def dim_footprint(p1, p2, side, distance, draft, label):
         ux, uy = dxp / length, dyp / length
         xs += [p1[0] + sx * off - ux * 2.0 * al, p2[0] + sx * off + ux * 2.0 * al]
         ys += [p1[1] + sy * off - uy * 2.0 * al, p2[1] + sy * off + uy * 2.0 * al]
-    label_covers_witness = length > 0 and length / 2.0 < w / 2.0 + tpad
+    label_covers_witness = (
+        length > 0
+        and min(abs(length / 2.0 + label_offset_x), abs(length / 2.0 - label_offset_x))
+        < w / 2.0 + tpad
+    )
     if not label_covers_witness or gap > h / 2.0 + tpad:
         xs += [p1[0] + sx * far, p2[0] + sx * far]
         ys += [p1[1] + sy * far, p2[1] + sy * far]
@@ -2121,9 +2157,10 @@ class CorridorCandidate:
         order:      sort key placing the candidate in the corridor ladder. Location dims
             key on datum distance (the monotonic ISO ladder); size dims form a separate
             contiguous run so a slot length never lands mid-ladder (#346).
-        dedup:      coincidence key ``(view, meas-origin, meas-endpoint)`` on the MEASURED
-            axis, or ``None`` to never dedup (size dims). Two candidates with equal keys are
-            the same physical dimension; the higher-``precedence`` one survives (#345).
+        dedup:      coincidence key on the MEASURED axis, or ``None`` to keep both.
+            Location keys also include their approved label: coincident geometry with
+            different stated precision/tolerance must not silently collapse. Equal keys
+            share one physical statement; the higher-``precedence`` one survives (#345).
         precedence: dedup survivor rank — a hole *location* dim (feeds coverage/table
             escalation) outranks a coincident slot *position* line.
         priority:   over-capacity survival rank (#357). When a strip cannot hold every
@@ -2471,6 +2508,9 @@ class PlacementContext:
     # renderer calls and finished-sheet live verbs keep their immediate behavior;
     # the orchestrator/finalize paths opt in with ``[]`` and drain once.
     feature_leaders: list | None = None
+    # Automatic placement may reserve a dense internal section row. Only that
+    # run needs the extended hole-leader resource-floor routing preference.
+    dense_internal_section: bool = False
     # The opt-in solve-trace recorder (#736) — a :class:`SolveTrace` threaded off the
     # drawing's build state by both entry paths, or ``None`` (the default: tracing off,
     # every hook a bare None check). Ctx state, not a module global, so the finalize

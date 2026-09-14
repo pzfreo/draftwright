@@ -45,6 +45,7 @@ from draftwright.model.ir import (
     Feature,
     FilletFeature,
     FlatFeature,
+    HexPocketFeature,
     HoleFeature,
     OrientedSlotFeature,
     PadFeature,
@@ -2021,6 +2022,36 @@ class SectionPlan:
     cut_y: float
     label: str = "A"
     source: object | None = None
+    internal_detail: bool = False
+
+
+def internal_section_rows(model: PartModel) -> dict[float, int]:
+    """Stations where a Y-normal cut explains several unlike internal features.
+
+    A single blind detail should not spend a view. A station carrying at least
+    three details of two kinds (for example two nut pockets, a transverse blind
+    socket and a circular seat) has enough hidden construction to warrant one.
+    Count physical members, not one grouped feature or a fitted silhouette.
+    """
+    sites: list[tuple[float, str]] = []
+    for feature in model.features:
+        if isinstance(feature, HexPocketFeature) and feature.frame.axis == "z":
+            sites.append((feature.frame.origin[1], "hex_pocket"))
+        elif isinstance(feature, CircularChannelFeature) and feature.frame.axis == "y":
+            sites.append((feature.frame.origin[1], "circular_channel"))
+        elif isinstance(feature, HoleFeature | PatternFeature):
+            bore = feature.member if isinstance(feature, PatternFeature) else feature
+            if bore.frame.axis == "x" and not bore.through:
+                sites.extend(
+                    (point[1], "transverse_blind_hole")
+                    for point in feature.members or (feature.frame.origin,)
+                )
+    qualified = {}
+    for row in sorted({round(y, 1) for y, _kind in sites}):
+        nearby = [kind for y, kind in sites if abs(y - row) <= 0.5]
+        if len(nearby) >= 3 and len(set(nearby)) >= 2:
+            qualified[row] = len(nearby)
+    return qualified
 
 
 def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan | None:
@@ -2039,7 +2070,12 @@ def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan |
     pocket, which no hole gate recognises, still gets its floor/depth section."""
     requested = model.decorations.get("section")
     if requested is not None:
-        return SectionPlan(cut_y=float(requested))
+        return SectionPlan(
+            cut_y=float(requested),
+            internal_detail=any(
+                abs(row - float(requested)) <= 0.5 for row in internal_section_rows(model)
+            ),
+        )
     if model.decorations.get("auto_sections") is False:
         return None
     qual_ys: list[float] = []
@@ -2052,8 +2088,16 @@ def plan_sections(model: PartModel, feature_keys: set[HoleRef]) -> SectionPlan |
         for m in f.members or (f.frame.origin,):
             if HoleRef.of(m) in feature_keys:
                 qual_ys.append(m[1])
-    if not qual_ys:
+    internal_ys = internal_section_rows(model) if not qual_ys else {}
+    if not qual_ys and not internal_ys:
         return None
+    if internal_ys:
+        cy = model.bbox.center().Y  # type: ignore[attr-defined]
+        cut_y = max(
+            internal_ys,
+            key=lambda row: (internal_ys[row], -abs(row - cy)),
+        )
+        return SectionPlan(cut_y=cut_y, internal_detail=True)
     cy = model.bbox.center().Y  # type: ignore[attr-defined]  # build123d BoundBox
     cut_y = max(
         {round(y, 1) for y in qual_ys},

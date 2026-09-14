@@ -1619,7 +1619,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             # searches for one that does not cut. Empty in the common case: the first
             # acceptable route usually clears the body, and then this loop breaks exactly
             # where the pre-#798 one did.
-            held: list[tuple[int, int, Any, tuple[str, ...]]] = []
+            held: list[tuple[int, int, int, Any, tuple[str, ...]]] = []
             examined_since_accept = None
             source = (
                 _measure(raw_index, raw, job, dwg.draft)
@@ -1662,12 +1662,18 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     inventory.append(candidate_entry(candidate, "fixed_rejected", blockers))
                     continue
                 units = _material_units(candidate, field) if prefer_clear else 0
-                if units:
-                    # Acceptable, but it cuts the part. Keep looking a bounded distance
-                    # for a route that does not, and remember this one in case none does:
-                    # Policy B keeps a required callout at a logged cost rather than
-                    # dropping it for a placement reason (ADR 2 (was 0014)).
-                    held.append((units, candidate.raw_index, candidate, blockers))
+                soft = (
+                    tuple(blocker for blocker in blockers if blocker != "fixed_probe_budget")
+                    if getattr(ctx, "dense_internal_section", False)
+                    and reason in {"greedy_fixed_probe_budget", "greedy_pair_budget"}
+                    else ()
+                )
+                if units or soft:
+                    # Keep a feasible Policy-B route while looking a bounded
+                    # distance for one that clears both the body and fixed ink.
+                    # Retain the least-conflicting route if none clears; a routing
+                    # preference must never drop a required callout.
+                    held.append((len(soft), units, candidate.raw_index, candidate, blockers))
                     if examined_since_accept is None:
                         examined_since_accept = 0
                     continue
@@ -1689,10 +1695,11 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 inventory.append(candidate_entry(candidate, "selected", blockers))
                 break
             if selected is None:
-                # No clear route inside the lookahead. Fall back to the least-cutting
-                # candidate held, shallowest first, original order breaking ties — the
-                # same result the pre-#798 floor reached whenever nothing clear exists.
-                for _units, _raw_index, candidate, blockers in sorted(held, key=lambda h: h[:2]):
+                # No clear route inside the lookahead. Keep the least-conflicting
+                # feasible candidate; original order breaks equal-cost ties.
+                for _soft, _units, _raw_index, candidate, blockers in sorted(
+                    held, key=lambda h: h[:3]
+                ):
                     annotation = _materialize(dwg, job, candidate)
                     if annotation is None:
                         blockers_by_raw.append((candidate.raw_index, ("geometry_validation",)))

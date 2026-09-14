@@ -2729,7 +2729,9 @@ def build_part_model(
     # in the plan view), per inspection practice. Hole location dims measure from
     # it (#238); a human/LLM pass can re-anchor.
     datums = [Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))]
-    model = PartModel(bbox=bbox, orientation=orientation, features=features, datums=datums)
+    model = PartModel(
+        bbox=bbox, orientation=orientation, features=features, datums=datums, detected=True
+    )
     # Correlation runs after the complete geometry + PMI inventories exist, at the shared IR
     # waist.  Direct drawings and emitted scripts therefore consume the same lowered model
     # instead of the emitter inventing a second ownership decision (#1116).

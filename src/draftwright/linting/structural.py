@@ -244,9 +244,9 @@ def _label_reading(item, label: str) -> float | None:
     * a hole pitch "3× 20" (``annotations/holes.py``, and three sites in
       ``annotations/from_model.py``) spans the whole run at **60**.
 
-    So the producer says which. The one per-unit renderer sets ``_dw_label_value`` to the
-    number the ``N×`` multiplies — carried from ``ApprovedDimension.value``, so lint reads
-    the compiler's own number rather than re-deriving a convention from the rendered string
+    So the producer says which. Per-unit step dimensions and shared slot-width dimensions
+    set ``_dw_label_value`` to the approved one-feature value, so lint reads the
+    compiler's number rather than inferring a span convention from rendered text
     (ADR 4 (was 0016 Amendment 1)). Everything else means what its label says.
 
     An earlier cut returned BOTH readings for every untagged ``N× v`` and let a dimension
@@ -505,6 +505,14 @@ def lint_drawing(
             if is_cl_a or is_cl_b:
                 dim_item = item_b if is_cl_a else item_a
                 cl_item = item_a if is_cl_a else item_b
+                # The frame and zone grid have no text label. Their page-spanning
+                # geometry is already excluded from the other pairwise checks above;
+                # treating it as a label here creates dozens of false warnings when
+                # a real view centreline crosses the sheet furniture.
+                if getattr(dim_item, "is_sheet_frame", False) or getattr(
+                    dim_item, "is_zone_grid", False
+                ):
+                    continue
                 _lint_centerline_dim_overlap(
                     dim_item,
                     cl_item,

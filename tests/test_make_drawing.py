@@ -2936,7 +2936,7 @@ class TestComposeThenPackRepack:
         monkeypatch.setattr(builder, "_repack", fake_repack)
         monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG, logger="draftwright._core"):
             out_a, out_dwg = builder._repack_to_fixed_point(
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
@@ -2948,6 +2948,7 @@ class TestComposeThenPackRepack:
         assert len(calls) == builder._REPACK_MAX_ITER
         assert out_a.pass_id == out_dwg.pass_id == builder._REPACK_MAX_ITER
         assert "reached iteration limit" in caplog.text
+        assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
 
     def test_repack_to_fixed_point_warns_on_stalled_trigger(self, monkeypatch, caplog):
         from types import SimpleNamespace
@@ -2958,7 +2959,7 @@ class TestComposeThenPackRepack:
         monkeypatch.setattr(builder, "_repack", lambda *args, **kwargs: None)
         monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG, logger="draftwright._core"):
             out = builder._repack_to_fixed_point(
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
@@ -2969,6 +2970,7 @@ class TestComposeThenPackRepack:
 
         assert out is None
         assert "stalled after 0 iteration" in caplog.text
+        assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
 
     @pytest.mark.timeout(120)
     def test_repack_honours_pinned_scale_on_oversized_part(self):

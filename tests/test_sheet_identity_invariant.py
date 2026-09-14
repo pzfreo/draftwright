@@ -707,6 +707,9 @@ _STATE_WITHOUT_FEATURE_REFS = frozenset(
         # for the same reason (#933). The set's MEMBERS live in `_authored`, which is
         # classified as reference-carrying and has its own scenario.
         "_authored_source",
+        # Generated-script provenance is a boolean; feature references remain
+        # in the ordinary declared inventory and authored dimension entries.
+        "_replayed_recognition",
         "_principal_view_source",
         "_derived_view_source",
         "_principal_view_source_at",

@@ -3593,6 +3593,12 @@ class PartModel:
     orientation: str | None  # turning axis if rotational, else None
     features: list[Feature] = field(default_factory=list)
     datums: list[Datum] = field(default_factory=list)
+    # Recognition can silently omit a body envelope. Declared models can omit it
+    # by intent, so diagnostics about that gap apply only to detected inventories.
+    detected: bool = False
+    # A generated Sheet script mirrors an automatic plan as authored dimensions.
+    # Preserve recognition-origin omission checks across that replay boundary.
+    replayed_recognition: bool = False
     # Authored aspects the frozen features can't carry (ADR 4 (was 0011 §4)). P2a uses it for
     # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. Imported
     # requirements wrap that value in :class:`ToleranceDecoration` so source identities

@@ -14,7 +14,7 @@ from draftwright.audit import compare_measurements
 
 # Lint codes the repair loop can mechanically resolve, and the side flip used to
 # move a dimension that landed on the wrong side of its witness points.
-_REPAIRABLE_CODES = frozenset({"dim_inside_part", "annotation_ink_overlap"})
+_REPAIRABLE_CODES = frozenset({"dim_inside_part", "annotation_ink_overlap", "annotation_overlap"})
 _OPPOSITE_SIDE = {"above": "below", "below": "above", "left": "right", "right": "left"}
 
 
@@ -45,6 +45,13 @@ def _swap_annotation(dwg, old, new):
 def _replace_dim(dwg, old, new):
     """Swap *old* for *new* in ``dwg.items``, preserving its name and any per-view
     scale tag (so a re-placed detail-view dim stays at scale)."""
+    # Label/side repair changes only the dimension's drawing geometry. The producer's
+    # physical-coverage facts still describe the same approved measurement. Without
+    # these riders, a repaired off-axis location can print its value while the hole
+    # ledger correctly reports that no source-owned location was represented.
+    for attr, value in vars(old).items():
+        if attr.startswith("covers_"):
+            setattr(new, attr, value)
     if getattr(old, "_dw_scale", None) is not None:
         new._dw_scale = old._dw_scale
     # And the per-unit meaning of an `N× v` label (#1153). `repair()` runs on every build,
@@ -81,9 +88,7 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
 
 def _repair_annotation_ink(dwg, choose_candidates, before):
     """Try one shared-solver batch; commit only a content-preserving improvement."""
-    if "annotation_ink_overlap" not in _REPAIRABLE_CODES or not any(
-        issue.code == "annotation_ink_overlap" for issue in before
-    ):
+    if not any(issue.code in {"annotation_ink_overlap", "annotation_overlap"} for issue in before):
         return
     original = list(dwg.iter_annotations())
     pins = dwg.registry.pinned_names()

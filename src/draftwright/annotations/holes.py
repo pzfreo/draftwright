@@ -821,6 +821,7 @@ def _off_axis_queue(
     force=True,
     on_drop=None,
     order_key=None,
+    dedup=None,
 ):
     # Below/right side-hole locations feed the same corridor batch as envelope, GD&T,
     # and PMI (#477). Their historical policy was force-keep unless the strip is
@@ -844,6 +845,7 @@ def _off_axis_queue(
                 order=(1, order_key(name, i) if order_key is not None else i, name),
                 on_place=lambda _nm: None,
                 on_drop=(on_drop or (lambda _nm: None)),
+                dedup=(dedup or {}).get(name),
                 force=force,
                 feature=(features or {}).get(name),
                 measurement=(measurements or {}).get(name),
@@ -1246,6 +1248,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
             force=False,
             on_drop=_fallback,
             order_key=lambda _nm, _i, _zo=zo: _zo,
+            dedup={primary_cand[0]: (view, round(p_lo[1], 1), round(p_hi[1], 1), label)},
         )
 
 
@@ -2843,24 +2846,19 @@ def _place_queue(
 
             legacy_y = source_final_y.get(id(s))
 
-            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner):
-                # A resource cap is a semantic floor, not a second placement
-                # solve. Reproduce the established whole-queue result exactly:
-                # one already-accepted candidate, or no candidate when that
-                # queue had failed the callout closed.
+            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner, _raw=_raw_candidates):
+                # Start with the established strip winner. Under a joint-solve
+                # resource cap on a dense section, a bounded lookahead can try
+                # its other semantic lanes before retaining a fixed-ink crossing.
                 if _y is None:
                     return
-                tip, elbow = _leader_anchors(
-                    _s,
-                    edge,
-                    side,
-                    _y,
-                    to_page,
-                    elbow_dx,
-                    draft,
-                    a.SCALE,
-                )
-                yield (tip, elbow, _owner)
+                if not getattr(ctx, "dense_internal_section", False):
+                    tip, elbow = _leader_anchors(
+                        _s, edge, side, _y, to_page, elbow_dx, draft, a.SCALE
+                    )
+                    yield (tip, elbow, _owner)
+                    return
+                yield from _raw()
 
             def _build(tip, elbow, _owner, *, _callout=callout):
                 candidate_side = "right" if elbow[0] >= tip[0] else "left"
@@ -3116,6 +3114,18 @@ def _place_planside_callouts(
         if off_axis_letter
         else []
     )
+    if view == "side":
+        # A side-drilled hole's Z-location dimension reads vertically from the
+        # bottom datum. Its label sits midway along that span, well below the
+        # hole-centre row reserved above. Without this second approved-plan band
+        # the spring-socket callout can be solved straight through the future
+        # "14.2" label even though every hole-centre band is clear (#1601).
+        datum_row = a.proj.side_z(a.bb.min.Z)
+        reserved_rows.extend(
+            (datum_row + to_page(h.location)[1]) / 2
+            for h in _approved_off_axis_holes(plan)
+            if h.axis == "x" and h.approved.get("z") is not None
+        )
     forbidden = [(r, clr) for r in reserved_rows]
     if a.is_rotational or a.prof is not None:
         forbidden.append((view_cy, clr))

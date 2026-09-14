@@ -4094,7 +4094,7 @@ class Drawing:
         mechanically-clear violations and re-lint, bounded to *max_iter* passes:
 
         - ``dim_inside_part`` — the offset is on the wrong side; flip it once.
-        - ``annotation_ink_overlap`` — try the shared dimension candidate solver
+        - ``annotation_ink_overlap`` / ``annotation_overlap`` — try the shared dimension candidate solver
           once, with along-span choices and at most one existing stacking tier.
           Pins, authored sides, annotation membership and confirmed measurements
           survive; every lint-code/severity component must stay the same or improve,

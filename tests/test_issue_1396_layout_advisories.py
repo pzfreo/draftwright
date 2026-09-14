@@ -1,5 +1,6 @@
 """Layout degradations are available without parsing Python warnings or logs."""
 
+import logging
 import warnings
 from dataclasses import replace
 
@@ -42,8 +43,14 @@ def test_legible_explicit_scale_has_no_legibility_finding():
 @pytest.mark.parametrize("scale,page", [(100, "A4"), (None, (1, 1))])
 def test_infeasible_scale_selection_records_the_warning(scale, page, caplog):
     advisories = []
-    choose_scale(100, 100, 100, scale=scale, page=page, advisories=advisories)
+    with caplog.at_level(logging.DEBUG, logger="draftwright.compose"):
+        choose_scale(100, 100, 100, scale=scale, page=page, advisories=advisories)
     assert "fit" in caplog.text
+    assert not [
+        record
+        for record in caplog.records
+        if record.levelno >= logging.WARNING and "may not fit" in record.getMessage()
+    ]
     assert [code for code, _ in advisories] == ["page_fit_uncertain"]
 
 
@@ -65,6 +72,30 @@ def test_unresolved_repack_is_machine_visible(monkeypatch, limit):
     monkeypatch.setattr(builder, "_repack", lambda *args, **kwargs: None)
     _repack_to_fixed_point(a, drawing, "", None, None)
     assert "layout_repack_stalled" in _codes(drawing)
+
+
+def test_candidate_repack_warning_waits_for_the_delivered_sheet(monkeypatch, caplog, tmp_path):
+    import draftwright.builder as builder
+
+    a = _analyse(Box(20, 20, 20), title="", number="", tolerance="", drawn_by="", out="")
+    drawing = _assemble(a, "", None, None, auto_dims=False)
+    monkeypatch.setattr(builder, "_REPACK_MAX_ITER", 0)
+    monkeypatch.setattr(builder, "_needs_repack", lambda *args: True)
+    with caplog.at_level(logging.DEBUG, logger="draftwright._core"):
+        _repack_to_fixed_point(a, drawing, "", None, None)
+    assert "layout_repack_stalled" in _codes(drawing)
+    assert not [
+        record
+        for record in caplog.records
+        if record.levelno >= logging.WARNING and "measure-repack" in record.getMessage()
+    ]
+
+    caplog.clear()
+    drawing.export(str(tmp_path / "unresolved"), formats=("svg",))
+    assert any(
+        record.levelno >= logging.WARNING and "layout_repack_stalled" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_unknown_layout_advisory_is_refused():

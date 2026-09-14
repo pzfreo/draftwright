@@ -1065,10 +1065,15 @@ def _feature_line(
 
 
 def _needs_section(model) -> bool:
-    """Mirror planner.plan_sections' trigger so the emitted comment matches what the drawing
-    actually does: any Z-axis hole/pattern whose bore has a counterbore, spotface, or blind
-    bottom. A pattern carries the bore on its ``member`` hole, so a counterbored bolt circle
-    counts too (checking only top-level holes missed it)."""
+    """Mirror the automatic section triggers in the emitted explanation.
+
+    A dense internal station qualifies, as does a Z-axis hole/pattern with a counterbore,
+    spotface, or blind bottom. Patterns carry their bore on the ``member`` hole.
+    """
+    from draftwright.model.planner import internal_section_rows
+
+    if internal_section_rows(model):
+        return True
     for f in model.features:
         if f.kind not in ("hole", "pattern") or f.frame.axis != "z":
             continue
@@ -2219,6 +2224,16 @@ def emit_sheet_script(
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
+    from draftwright.model.compiled import compile_dimensions
+
+    replayed_recognition = (
+        model.detected
+        and not any(feature.kind == "envelope" for feature in model.features)
+        and any(
+            omission.code == "overall_dim_withheld"
+            for omission in compile_dimensions(model).diagnostics
+        )
+    )
     model, _synth_env = mirror_model(model)
     # Every constructor a member template can name has to be listed here. The pattern verbs
     # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
@@ -2271,6 +2286,8 @@ def emit_sheet_script(
     # Only carry an aspect into the emitted constructor when it differs from build_drawing's
     # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
     ctor = [f"title={title!r}", f"number={number!r}"]
+    if replayed_recognition:
+        ctor.append("_replayed_recognition=True")
     from draftwright._core import _sheet_option_margins, _validated_title_block_width
 
     _sheet_option_margins(
@@ -2443,7 +2460,7 @@ def emit_sheet_script(
     else:
         lines.append("# front / plan / side / iso are produced automatically.")
     if view_constraints is None and _needs_section(model):
-        lines.append("# Section A–A auto-triggers from the counterbore/blind bore above.")
+        lines.append("# Section A–A auto-triggers from qualifying hidden internal detail above.")
     # Build and export as two statements, so the finalized Drawing has a name (#968). That is
     # the lifecycle the architecture already has — Sheet declares intent, `build()` compiles and
     # solves placement, `Drawing` is the artefact that gets critiqued and serialised — and an

@@ -116,9 +116,9 @@ def add_section(dwg, model, a, *, ctx) -> list[str]:
     """Add the automatic full **section A–A** (ISO 128-44 arrows + ISO 128-50 hatch)
     — the #420 ``section()`` add verb.
 
-    Part-level, not per-feature: a section fires when a Z-axis hole/pattern has a
-    counterbore, spotface, or blind bottom (its internal profile is hidden-line-only
-    in every ortho view), and cuts through the densest qualifying row (``plan_sections``).
+    Part-level, not per-feature: a section fires for a Z-axis bore with a hidden
+    counterbore/spotface/blind bottom, or a station containing several unlike
+    internal features. It cuts through the densest qualifying row (``plan_sections``).
     Funnels into the same :func:`_add_section_view` the auto-pass uses. Unlike the
     other add verbs it is **not** feature-tagged and not ``drop``-compatible — a
     section is atomic (a bare arrow without the cut view is meaningless), so it is
@@ -133,7 +133,7 @@ def add_section(dwg, model, a, *, ctx) -> list[str]:
         raise ValueError("section(): no analysis — build the drawing first")
     plan = plan_sections(model, feature_hole_keys(model, a))
     if plan is None:
-        return []  # no counterbore/spotface/blind Z-hole — no section warranted
+        return []  # no qualifying internal detail — no section warranted
     before = set(dwg.annotations())
     _add_section_view(
         dwg, a, plan, ctx=ctx
@@ -637,7 +637,12 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
         return
     PX, PY = a.proj.plan_x, a.proj.plan_y
     y_page = PY(section.cut_y)
-    x0, x1 = PX(a.bb.min.X) - 4, PX(a.bb.max.X) + 4
+    # A section through a dense internal station shares its plan row with
+    # several slot/location witnesses. Reserve the whole right strip for that
+    # row while those dimensions choose corridors; the final cutting-plane
+    # ink still ends at the ordinary 4 mm extension and is validated later.
+    x0 = PX(a.bb.min.X) - 4
+    x1 = a.pv_zones.right.outer_limit if section.internal_detail else PX(a.bb.max.X) + 4
     _label, _view, prefix = _section_identity(section)
     ctx.place(
         Centerline((x0, y_page, 0), (x1, y_page, 0)),
