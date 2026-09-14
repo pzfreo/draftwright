@@ -4,6 +4,9 @@
 
 ### Added
 
+- Circular-seat recognition, declared features, and generated-script replay (#1613).
+  Diameter, open run, arc sweep, and three datum-to-axis coordinates retain each physical
+  seat's measurement identities, including counted coaxial callouts and shared axis marks.
 - Opt-in independent sheet margins and exact title-block width on `Sheet`, `build_drawing`,
   `make_drawing`, and the CLI, including generated-script replay (#1612, #1589). Sergio's
   25/10/10/10 mm margins and 175 mm block are explicit options; existing defaults remain.
@@ -13,8 +16,6 @@
 - Direct and generated builds use the same final IR step ladder for page layout (#1592).
   Raw face levels owned by another feature no longer reserve a phantom step corridor at
   the title-block clearance threshold.
-
-### Fixed
 
 - Location intents now accept `.format(decimals=...)` for all selected directions (#1610),
   including plan locations, side-drilled holes and slots. Compiler-owned labels reach

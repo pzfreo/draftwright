@@ -265,7 +265,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `Blend` path records.
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
-- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves.
+- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves. The identity leaf also
+  registers the exact envelope type for independent consolidated seat-run coverage.
   The former shares exact released schema validation between detection and independent
   completeness, with geometric correspondence keys separate from same-run occurrence identity.
   The latter registers exact compiler feature, passage and frame classes so lint can reject

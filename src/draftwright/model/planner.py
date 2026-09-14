@@ -39,6 +39,7 @@ from draftwright.model.ir import (
     BlendFeature,
     ChamferFeature,
     ChannelFeature,
+    CircularChannelFeature,
     Datum,
     DimParameter,
     Feature,
@@ -112,6 +113,9 @@ _CONVENTION = {
     # One paired-ramp leader carries the two equal angles and their shared run (#1382).
     ("ramp_angle", "angle"): "leader",
     ("ramp_run", "length"): "leader",
+    ("seat_diameter", "diameter"): "leader",
+    ("seat_run", "length"): "leader",
+    ("seat_sweep", "angle"): "leader",
     ("through_step_leg", "length"): "linear",
     ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
     # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
@@ -748,6 +752,7 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
 #: mint its position under its PARENT's name and collide with it in the ledger. Declaring
 #: its own stem (and joining this tuple) is the way in.
 _LOCATABLE: tuple[type, ...] = (
+    CircularChannelFeature,
     HoleFeature,
     PatternFeature,
     PocketFeature,
@@ -779,6 +784,8 @@ def location_datum(feature) -> str | None:
     from, or that it has none. See :data:`_LOCATABLE`."""
     if type(feature) not in _LOCATABLE:
         return None
+    if isinstance(feature, CircularChannelFeature):
+        return "bbox"
     if isinstance(feature, SlotFeature):
         return "bbox"  # near-end offset along its long axis, in its own view
     if isinstance(feature, PocketFeature | PadFeature):
@@ -1734,6 +1741,24 @@ def _uncovered_location_requirements(
         if location_datum(feature) != "bbox" or authored_location_omitted(model, feature):
             continue
         parameters: tuple[str, ...]
+        if isinstance(feature, CircularChannelFeature):
+            seat_bbox: Any = model.bbox
+            for index, (axis, view) in enumerate((("x", "front"), ("y", "side"), ("z", "front"))):
+                datum_coordinate = float(getattr(seat_bbox.min, axis.upper()))
+                if abs(feature.axis_origin[index] - datum_coordinate) <= 1e-9:
+                    continue
+                if view not in planned:
+                    parameter = f"{feature.LOCATION_STEM}.location.{axis}"
+                    uncovered.append(
+                        UncoveredViewRequirement(
+                            identity=DimensionId(feature, parameter),
+                            label=f"{labels[id(feature)]}.{parameter}",
+                            preferred_view=view,
+                            eligible_views=(view,),
+                            reason=f"reads only in `{view}`",
+                        )
+                    )
+            continue
         if isinstance(feature, HoleFeature | PatternFeature):
             view = _group_view(feature, planned_views) or _END_ON[feature.frame.axis]
             bbox: Any = model.bbox

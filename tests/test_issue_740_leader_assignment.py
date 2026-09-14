@@ -47,7 +47,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("from_model.py", "_render_diameter_leaders", True),
         ("from_model.py", "render_chamfers", True),
         ("from_model.py", "_render_radius_callouts", True),
-        ("from_model.py", "render_circular_blind_steps", True),
+        ("from_model.py", "_render_circular_recesses", True),
         ("from_model.py", "render_flats", True),
         ("from_model.py", "render_pockets", True),
         ("from_model.py", "render_rectangular_blind_slots", True),

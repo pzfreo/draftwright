@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TypeVar, cast
 
+from draftwright.linting.issues import is_placement_drop
 from draftwright.measurement_support import RequirementCarrier
 
 _Outcome = TypeVar("_Outcome")
@@ -175,3 +176,26 @@ class RequirementCarrierEvidence:
             )
             for outcome in outcomes
         ]
+
+
+def measurement_outcome_index(registry):
+    """Index placed, structured-note and dropped exact measurement identities."""
+    placed = {
+        (measurement.feature, measurement.parameter)
+        for name in registry.names()
+        for measurement in registry.measurement_of(name)
+    }
+    satisfied = {
+        (identity.feature, identity.parameter)
+        for identity in satisfaction_ids(registry)
+        if identity.feature is not None and isinstance(identity.parameter, str)
+    }
+    dropped = {
+        (measurement.feature, measurement.parameter)
+        for issue in registry.issues
+        if is_placement_drop(issue)
+        for measurement in getattr(issue, "measurement_ids", ())
+        if getattr(measurement, "feature", None) is not None
+        and isinstance(getattr(measurement, "parameter", None), str)
+    }
+    return placed, satisfied, dropped

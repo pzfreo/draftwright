@@ -48,6 +48,7 @@ from draftwright.model.ir import (
     ChamferFeature,
     ChannelFeature,
     CircularBlindStepFeature,
+    CircularChannelFeature,
     ControlFrame,
     CylindricalReference,
     DatumRef,
@@ -737,6 +738,16 @@ def blend(
         path_kind=path_kind,
         path_radius=path_radius,
     )
+
+
+def circular_channel(*, axis, radius, length, centreline, section) -> CircularChannelFeature:
+    """Declare an open cylindrical seat from its axis and three physical arc points."""
+    from draftwright.section_recess_contract import circular_channel_geometry
+
+    data = circular_channel_geometry(axis, radius, length, centreline, section)
+    data.pop("sweep")
+    origin = data.pop("origin")
+    return CircularChannelFeature(frame=Frame(origin, axis), axis=axis, **data)
 
 
 def circular_blind_step(*, axis, radius, length, centreline, section) -> CircularBlindStepFeature:

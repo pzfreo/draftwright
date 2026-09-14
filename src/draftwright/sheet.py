@@ -72,6 +72,7 @@ from draftwright.model import boss as _boss
 from draftwright.model import chamfer as _chamfer
 from draftwright.model import channel as _channel
 from draftwright.model import circular_blind_step as _circular_blind_step
+from draftwright.model import circular_channel as _circular_channel
 from draftwright.model import control_frame as _declare_control
 from draftwright.model import datum as _declare_datum
 from draftwright.model import double_d_bore as _double_d_bore
@@ -1897,6 +1898,11 @@ class Sheet:
         target one full parameter ID or the whole included-angle family.
         """
         self._features.append(_angle_pattern(*members))
+        return _Params(self, len(self._features) - 1)
+
+    def circular_channel(self, **kw) -> _Params:
+        """Declare a cylindrical seat by axis, radius, run and three physical arc points."""
+        self._features.append(_circular_channel(**kw))
         return _Params(self, len(self._features) - 1)
 
     def circular_blind_step(self, **kw) -> _Params:

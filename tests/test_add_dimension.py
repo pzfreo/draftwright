@@ -1352,6 +1352,13 @@ class TestEveryFeatureVerbIsNameable:
             side="convex",
             axis_direction=(0, 0, 1),
         ),
+        "circular_channel": dict(
+            axis="z",
+            radius=4,
+            length=10,
+            centreline=((0, 0, -5), (0, 0, 5)),
+            section=((4, 0), (0, 4), (-4, 0)),
+        ),
         "circular_blind_step": dict(
             axis="z",
             radius=4,

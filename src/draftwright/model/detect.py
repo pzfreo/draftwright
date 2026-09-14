@@ -104,6 +104,7 @@ from draftwright.model.ir import (
     ChamferFeature,
     ChannelFeature,
     CircularBlindStepFeature,
+    CircularChannelFeature,
     ControlFrame,
     Datum,
     DatumRef,
@@ -906,10 +907,11 @@ def _convert_section_recess(source: SectionRecess, ctx: ConvContext) -> Feature:
     constructor: Callable[..., Feature] = {
         "pocket": PocketFeature,
         "channel": ChannelFeature,
+        "circular_channel": CircularChannelFeature,
         "rectangular_blind_slot": RectangularBlindSlotFeature,
         "round_bottom_blind_slot": RoundBottomBlindSlotFeature,
     }[kind]
-    if kind in ("rectangular_blind_slot", "round_bottom_blind_slot"):
+    if kind in ("rectangular_blind_slot", "round_bottom_blind_slot", "circular_channel"):
         values["axis"] = axis
     return constructor(frame=Frame(origin, axis), **values)
 

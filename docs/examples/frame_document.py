@@ -95,6 +95,13 @@ def declare_document(source):
         if feature.kind == "envelope":
             for parameter in feature.parameters():
                 general.dimension(feature, parameter.parameter_id)
+    seats = [feature for feature in package.features if feature.kind == "circular_channel"]
+    if len(seats) != 3:
+        raise ValueError("the pinned frame must supply three cylindrical seats")
+    for seat in seats:
+        for parameter in seat.parameters():
+            general.dimension(seat, parameter.parameter_id)
+        general.dimension(seat, "location").format(decimals=3)
     general.section_view("A", at=0)
     for feature in selected["bolts"] + selected["hinge"] + selected["sockets"]:
         features.dimension(feature, "bore.diameter")

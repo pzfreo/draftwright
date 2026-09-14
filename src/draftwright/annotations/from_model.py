@@ -117,6 +117,7 @@ from draftwright.model.callout import _first as _first
 from draftwright.model.callout import hole_callout_spec as hole_callout_spec
 from draftwright.model.callout import hole_callout_suffix as hole_callout_suffix
 from draftwright.model.compiled import (
+    ApprovedDimension,
     DimensionId,
     FeatureInstanceIndex,
     FeatureRef,
@@ -126,6 +127,7 @@ from draftwright.model.compiled import (
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
     ChamferFeature,
+    CircularChannelFeature,
     FilletFeature,
     HoleFeature,
     KnurlRequirement,
@@ -782,6 +784,120 @@ def _location_candidate(
     )
 
 
+def _circular_channel_axis_marks(dwg, ctx, dimensions):
+    """Give approved axis coordinates a visible natural reference in each projection."""
+    existing = {
+        getattr(ctx.registry.named(name), "axis_reference_point", None)
+        for name in ctx.registry.names()
+        if name.startswith("m_seat_axis_")
+    }
+    for dimension in dimensions:
+        view = dimension.view
+        if view not in dwg.views:
+            continue
+        point = dwg.at(view, *dimension.span[1])
+        key = (view, round(point[0], 9), round(point[1], 9))
+        if key in existing:
+            continue
+        existing.add(key)
+        prefix = f"m_seat_axis_{view}"
+        name = f"{prefix}{_first_free_index(prefix, ctx.registry.names())}"
+        mark = CenterMark(point, 2 * dwg.draft.arrow_length, dwg.draft)
+        mark.axis_reference_point = key
+        # Coaxial seats share this geometric reference; it carries no measurement credit
+        # and belongs to no single feature whose drop() could erase the other seats' axis.
+        ctx.place(mark, name, view=view)
+
+
+def render_circular_channel_locations(
+    dwg, plan, a, *, ctx, only=None, pinned=None, axes=None
+) -> int:
+    """Register approved seat-axis offsets in the shared profile corridors."""
+    only_refs = None if only is None else {FeatureRef(feature) for feature in only}
+    pinned_refs = {FeatureRef(feature) for feature in (pinned or ())}
+    want = {"x", "y", "z"} if axes is None else {axis.lower() for axis in axes}
+    if not want <= {"x", "y", "z"}:
+        raise ValueError("locate(): axes must be a subset of ('x', 'y', 'z')")
+    groups: dict[tuple, list[ApprovedDimension]] = {}
+    for dimension in plan.locations:
+        if (
+            dimension.role != CircularChannelFeature.LOCATION_STEM
+            or dimension.discriminator not in want
+        ):
+            continue
+        if only_refs is not None and dimension.ref not in only_refs:
+            continue
+        # Coaxial seats can share an ordinate even when their run stations differ.
+        # Group only equal physical datum/axis ordinates in the same projection.
+        axis = "xyz".index(dimension.discriminator)
+        key = (dimension.view, axis, dimension.span[0][axis], dimension.span[1][axis])
+        groups.setdefault(key, []).append(dimension)
+    if not groups:
+        return 0
+    _circular_channel_axis_marks(
+        dwg, ctx, (entry for entries in groups.values() for entry in entries)
+    )
+    used = set(ctx.registry.names())
+    tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+    for (view, axis, _start, _end), dimensions in groups.items():
+        dimension = dimensions[0]
+        mids = tuple(entry.id for entry in dimensions)
+        label = shared_location_text(dimensions)
+        side, stack = ("right", "x") if axis == 2 else ("above", "y")
+        zones = {"front": a.fv_zones, "side": a.sv_zones}[view]
+        prefix = f"m_seatloc_{'xyz'[axis]}"
+        name = f"{prefix}{_first_free_index(prefix, used)}"
+        used.add(name)
+
+        def dropped(_name, mids=mids):
+            ctx.record_issue(
+                "warning",
+                "circular_channel_location_dropped",
+                "seat axis location was not placed (profile strip unavailable or full)",
+                measurement=mids,
+            )
+
+        if view not in dwg.views:
+            dropped(name)
+            continue
+        assert dimension.span is not None
+        p1, p2 = (dwg.at(view, *point) for point in dimension.span)
+        edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
+        pinned_group = any(entry.ref in pinned_refs for entry in dimensions)
+
+        def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
+            return _dim(p1, p2, side, abs(pos - edge), dwg.draft, label=label)
+
+        def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
+            return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
+
+        def placed(name, pinned_group=pinned_group):
+            if pinned_group:
+                dwg.pin(name)
+
+        register_corridor(
+            ctx,
+            (view, side),
+            getattr(zones, side),
+            view,
+            stack,
+            tier,
+            CorridorCandidate(
+                name=name,
+                build=build,
+                footprint=footprint,
+                order=(_LOC_SUBCHAIN, dimension.value, name),
+                on_place=placed,
+                on_drop=dropped,
+                force=True,
+                priority=PRIORITY.MANDATORY if pinned_group else PRIORITY.AUTO,
+                feature=dimension.ref if len({entry.ref for entry in dimensions}) == 1 else None,
+                measurement=mids,
+            ),
+        )
+    return len(groups)
+
+
 def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     """Baseline X/Y hole-location dims from the compiled plan (#238). The compiler decides
     the content (`plan.locations`: which refs survived, from which datum); this renderer owns
@@ -810,11 +926,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     # XY datum on both coordinates.  Derive the ladder datum only after excluding those
     # entries; taking it from ``plan.locations[0]`` lets feature ordering shift every
     # later Z-pad ordinate (#1392).
+    n = render_circular_channel_locations(dwg, plan, a, ctx=ctx, only=only, pinned=pinned)
     approved = [
         loc for loc in plan.locations if loc.axis == "z" and loc.role != SlotFeature.LOCATION_STEM
     ]
     if not approved:
-        return 0
+        return n
     draft = dwg.draft
     datum_x, datum_y = approved[0].span[0][0], approved[0].span[0][1]
     only_refs = None if only is None else {FeatureRef(f) for f in only}
@@ -860,10 +977,9 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
             )
         )
     if not refs:
-        return 0
+        return n
     pinned_set = set(pinned or ())
     tier = draft.font_size + 2 * draft.pad_around_text
-    n = 0
 
     # Location-dim names. The auto-pass (only is None) numbers them positionally —
     # m_locx{i}, the historical byte-identical scheme. The finalize() path (only set) may
@@ -2697,70 +2813,119 @@ def _paired_ramp_label(angle, run, draft) -> str:
     return " × ".join(parts)
 
 
-def _circular_blind_step_label(radius, depth, draft) -> str:
-    """Format only approved quarter-cylinder radius and blind-depth requirements."""
-    parts = []
-    if radius is not None:
-        parts.append(f"R{radius.value_text}{_tol_suffix(radius.tolerance, draft)}")
-    if depth is not None:
-        parts.append(f"{depth.value_text}{_tol_suffix(depth.tolerance, draft)} DEEP")
-    return " × ".join(parts)
-
-
 def render_circular_blind_steps(dwg, plan, a, *, ctx, only=None) -> int:
-    """Render each quarter-cylindrical blind corner cut as one solver-owned leader.
+    """Render quarter-cylinder radius and stopped depth through the circular-recess solve."""
+    return _render_circular_recesses(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        only=only,
+        kind="circular_blind_step",
+        drop_code="circular_blind_step_dropped",
+    )
 
-    The feature frame is the physical midpoint of the curved wall. The axis end view shows
-    the quarter arc, while the compound text communicates its radius and stopped depth.
-    Both approved measurement identities ride the annotation independently (#1382).
-    """
+
+def render_circular_channels(dwg, plan, a, *, ctx, only=None) -> int:
+    """Render the actual cylindrical seat diameter, open run, and arc sweep."""
+    return _render_circular_recesses(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        only=only,
+        kind="circular_channel",
+        drop_code="circular_channel_dropped",
+    )
+
+
+def _render_circular_recesses(dwg, plan, a, *, ctx, only, kind, drop_code) -> int:
     draft = dwg.draft
     reach = _leader_callout_reach(draft)
     jobs = []
-    for index, group in enumerate(plan.of_kind("circular_blind_step")):
+    grammar = {
+        "circular_blind_step": (
+            ("circular_step_radius", "radius", "R", ""),
+            ("circular_step_depth", "length", "", " DEEP"),
+        ),
+        "circular_channel": (
+            ("seat_diameter", "diameter", "ø", ""),
+            ("seat_run", "length", "", " LONG"),
+            ("seat_sweep", "angle", "", "° ARC"),
+        ),
+    }[kind]
+    batches: dict[tuple, list] = {}
+    for index, group in enumerate(plan.of_kind(kind)):
         if only is not None and group.ref not in only:
             continue
-        radius = next(
-            (d for d in group.dims if (d.role, d.kind) == ("circular_step_radius", "radius")),
-            None,
-        )
-        depth = next(
-            (d for d in group.dims if (d.role, d.kind) == ("circular_step_depth", "length")),
-            None,
-        )
-        if radius is None and depth is None:
+        dimensions = []
+        text = []
+        for role, dimension_kind, prefix, suffix in grammar:
+            dimension = group.dim(role=role, kind=dimension_kind)
+            if dimension is not None:
+                dimensions.append(dimension)
+                text.append(
+                    f"{prefix}{dimension.value_text}{_tol_suffix(dimension.tolerance, draft)}{suffix}"
+                )
+        if not dimensions or group.view is None:
             continue
+        # Repeated coaxial seats project onto one arc. A counted callout preserves all
+        # approved dimensions without contesting that same wall with duplicate leaders.
+        key: tuple = (index,)
+        if kind == "circular_channel":
+            run = "xyz".index(group.facts.axis)
+            centre = tuple(value for i, value in enumerate(group.facts.axis_origin) if i != run)
+            key = (
+                group.view,
+                group.facts.axis,
+                centre,
+                tuple(
+                    # Provider interval subtraction can leave a few binary ULPs (6 vs
+                    # 5.999999999999996). Keep original values/ids; only the grouping
+                    # key ignores sub-picometre arithmetic residue. Text must still agree.
+                    (dimension.parameter_id, round(dimension.value, 12), rendered)
+                    for dimension, rendered in zip(dimensions, text, strict=True)
+                ),
+            )
+        batches.setdefault(key, []).append((index, group, dimensions, " × ".join(text)))
+    for members in batches.values():
+        index, group, _dimensions, label = members[0]
         view = group.view
-        if view is None:
-            continue
         bounds = dwg.view_bounds(view)
         if bounds is None:
             continue
-        label = _circular_blind_step_label(radius, depth, draft)
+        if len(members) > 1:
+            label = f"{len(members)}× {label}"
+
+        def candidates(members=members, view=view, bounds=bounds, label=label):
+            for _index, member, _dimensions, _text in members:
+                for tip, elbow, owner in _circular_step_candidates(
+                    dwg, view, bounds, member.facts, reach, label, provenance=member.ref
+                ):
+                    # Shared ink retains every measurement identity without making one
+                    # seat's drop() erase its siblings' dimensions.
+                    yield tip, elbow, owner if len(members) == 1 else None
+
         jobs.append(
             (
-                f"m_circular_blind_step_{group.facts.axis}{index}",
+                f"m_{kind}_{group.facts.axis}{index}",
                 view,
                 bounds,
                 label,
-                _circular_step_candidates(
-                    dwg,
-                    view,
-                    bounds,
-                    group.facts,
-                    reach,
-                    label,
-                    provenance=group.ref,
+                candidates(),
+                tuple(
+                    dimension.id
+                    for _i, _g, dimensions, _text in members
+                    for dimension in dimensions
                 ),
-                tuple(d.id for d in (radius, depth) if d is not None),
             )
         )
     return place_machined_leader_jobs(
         dwg,
         a,
         jobs,
-        noun="circular blind step",
-        drop_code="circular_blind_step_dropped",
+        noun=kind.replace("_", " "),
+        drop_code=drop_code,
         ctx=ctx,
         joint=True,
         expand_lanes=False,

@@ -34,8 +34,11 @@ from draftwright._geometry import (
     quantised_span_agrees,
 )
 from draftwright.blend_contract import register_blend_ir_types, validate_blend_fields
-from draftwright.feature_identity import register_oriented_slot_feature_type
-from draftwright.section_recess_contract import validate_pocket_mouth
+from draftwright.feature_identity import (
+    register_envelope_feature_type,
+    register_oriented_slot_feature_type,
+)
+from draftwright.section_recess_contract import circular_channel_geometry, validate_pocket_mouth
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES
 
 if TYPE_CHECKING:
@@ -361,6 +364,9 @@ DimensionParameterId = Literal[
     "boss.diameter",
     "boss_height.length",
     "chamfer.length",
+    "seat_diameter.diameter",
+    "seat_run.length",
+    "seat_sweep.angle",
     "circular_step_depth.length",
     "circular_step_radius.radius",
     "channel_width.length",
@@ -987,6 +993,9 @@ class EnvelopeFeature:
 
     def references(self) -> list[Datum]:
         return []
+
+
+register_envelope_feature_type(EnvelopeFeature)
 
 
 @dataclass(frozen=True)
@@ -2327,6 +2336,66 @@ class BlendFeature:
 
 
 register_blend_ir_types(BlendFeature, Frame)
+
+
+@dataclass(frozen=True)
+class CircularChannelFeature:
+    """A cylindrical seat open at both run ends and along its actual circular arc.
+
+    ``section`` retains three physical arc points (start, angular midpoint, end),
+    in ascending transverse world axes. ``centreline`` names the increasing run
+    endpoints on the cylinder axis. The frame origin anchors a leader on the wall;
+    locations refer to the cylinder axis, not that wall anchor.
+    """
+
+    frame: Frame
+    axis: str
+    radius: float
+    length: float
+    centreline: tuple[Point, Point]
+    section: tuple[tuple[float, float], tuple[float, float], tuple[float, float]]
+    kind: ClassVar[str] = "circular_channel"
+    LOCATION_STEM: ClassVar[str] = "seat_location"
+
+    def __post_init__(self) -> None:
+        data = circular_channel_geometry(
+            self.axis, self.radius, self.length, self.centreline, self.section
+        )
+        origin = _finite_point3("circular channel frame origin", self.frame.origin)
+        if self.frame.axis != self.axis or any(
+            abs(a - b) > 1e-7 for a, b in zip(origin, data["origin"], strict=True)
+        ):
+            raise ValueError("circular channel frame must anchor on its physical arc midpoint")
+        for name in ("radius", "length", "centreline", "section"):
+            object.__setattr__(self, name, data[name])
+        object.__setattr__(self, "frame", Frame(data["origin"], self.axis))
+
+    @property
+    def sweep(self) -> float:
+        return float(
+            circular_channel_geometry(
+                self.axis, self.radius, self.length, self.centreline, self.section
+            )["sweep"]
+        )
+
+    @property
+    def axis_origin(self) -> Point:
+        first, last = self.centreline
+        return (
+            (first[0] + last[0]) / 2,
+            (first[1] + last[1]) / 2,
+            (first[2] + last[2]) / 2,
+        )
+
+    def parameters(self) -> list[DimParameter]:
+        return [
+            DimParameter("diameter", "seat_diameter", 2 * self.radius),
+            DimParameter("length", "seat_run", self.length, span=self.centreline),
+            DimParameter("angle", "seat_sweep", self.sweep),
+        ]
+
+    def references(self) -> list[Datum]:
+        return []
 
 
 @dataclass(frozen=True)

@@ -713,6 +713,16 @@ printed values raise an actionable error instead of silently choosing one intent
 Circular-blind, paired-ramp and through steps use a multi-parameter handle because their
 requirements remain separately addressable:
 
+Circular seats open at both run ends use `sheet.circular_channel(...)`. The
+`centreline` gives ordered endpoints on the cylinder axis; `section` gives three
+physical arc points (start, angular midpoint, end) in ascending transverse world axes.
+The geometry supports minor, semicircular, and major arcs. The engine anchors its
+leader on the curved wall and locates the axis from the stock bounding-box minimum.
+In an authored set, request `seat_diameter.diameter`, `seat_run.length`,
+`seat_sweep.angle`, and `location` independently. A location intent covers X, Y, and Z;
+its `format(decimals=...)` applies to all three. Generated scripts retain the full
+geometry and these intents.
+
 ```python
 ramp = sheet.paired_ramp_step(
     axis="y",

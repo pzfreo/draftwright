@@ -60,6 +60,7 @@ from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.ir import (
     AngularReference,
     ChamferFeature,
+    CircularChannelFeature,
     EnvelopeFeature,
     Feature,
     HoleFeature,
@@ -415,6 +416,7 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # The frame origin is the physical curved-wall arrow anchor. Radius and depth remain
     # approved dimensions, so neither can be reconstructed when authored intent omits it.
     "circular_blind_step": ("frame", "axis"),
+    "circular_channel": ("frame", "axis", "axis_origin"),
     # Structural placement facts only.  The printed angle and run remain addressable
     # parameters, so authored omission/tolerance policy cannot be bypassed (#1382).
     "paired_ramp_step": ("frame", "axis"),
@@ -1614,6 +1616,51 @@ def _compile_off_axis_hole_locations(
     return approved, omissions
 
 
+def _compile_circular_channel_locations(model: PartModel):
+    approved: list[ApprovedDimension] = []
+    omissions: list[Omission] = []
+    bbox: Any = model.bbox
+    for feature in model.features:
+        if not isinstance(feature, CircularChannelFeature) or location_datum(feature) != "bbox":
+            continue
+        point = feature.axis_origin
+        decimals = location_display_decimals(model, feature)
+        for index, (axis, view) in enumerate((("x", "front"), ("y", "side"), ("z", "front"))):
+            start = list(point)
+            start[index] = float(getattr(bbox.min, axis.upper()))
+            value = abs(point[index] - start[index])
+            parameter = f"{feature.LOCATION_STEM}.location.{axis}"
+            if authored_location_omitted(model, feature):
+                omissions.append(Omission(feature, parameter, value, _AUTHORED_OMISSION))
+                continue
+            if value <= 1e-9:
+                omissions.append(
+                    Omission(
+                        feature,
+                        parameter,
+                        value,
+                        "coincident with datum",
+                        code="circular_channel_location_coincident",
+                    )
+                )
+                continue
+            approved.append(
+                ApprovedDimension(
+                    id=_dim_id(feature, parameter),
+                    value_text=_fmt(value, decimals),
+                    value=value,
+                    span=((start[0], start[1], start[2]), point),
+                    ref=FeatureRef(feature),
+                    kind="location",
+                    role=feature.LOCATION_STEM,
+                    discriminator=axis,
+                    view=view,
+                    display_decimals=decimals,
+                )
+            )
+    return approved, omissions
+
+
 def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], list[Omission]]:
     """A slot's datum→near-end position, along its long axis.
 
@@ -1870,6 +1917,9 @@ def compile_dimensions(
     if overall is not None:
         ladders.append(overall)
     locations, location_omissions = _compile_locations(model)
+    seat_locations, seat_omissions = _compile_circular_channel_locations(model)
+    locations.extend(seat_locations)
+    location_omissions.extend(seat_omissions)
     slot_positions, slot_omissions = _compile_slot_positions(model)
     locations.extend(slot_positions)
     location_omissions.extend(slot_omissions)
