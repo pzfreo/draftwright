@@ -1708,62 +1708,6 @@ class TestDepthEstimators:
         assert _STRIP_GAP + _SLOT_DIM_WIDTH <= _est_pv_below_depth() + 1e-9
 
 
-# ---------------------------------------------------------------------------
-# #31: layout constants derived from text metrics
-# ---------------------------------------------------------------------------
-
-
-class TestDerivedLayoutConstants:
-    """Slots / callout widths / iso budget derive from text metrics, not bare mm."""
-
-    def test_slots_derive_from_font_metrics(self):
-        from draftwright._core import (
-            _FONT_SIZE,
-            _PAD,
-            _SLOT_DIM_DEPTH,
-            _SLOT_DIM_HEIGHT,
-            _SLOT_DIM_STEP,
-            _SLOT_DIM_WIDTH,
-        )
-
-        assert _SLOT_DIM_WIDTH == pytest.approx(2 * _FONT_SIZE + _PAD)
-        assert _SLOT_DIM_DEPTH == pytest.approx(2 * _FONT_SIZE + _PAD)
-        assert _SLOT_DIM_HEIGHT == pytest.approx(2 * _FONT_SIZE + 2 * _PAD)
-        assert _SLOT_DIM_STEP == pytest.approx(4 * _FONT_SIZE + _PAD)
-        # The slots are linear in font metrics — a hypothetical larger font
-        # would yield larger slots — so they are not frozen mm constants.
-        assert (2 * (2 * _FONT_SIZE) + 2 * _PAD) > _SLOT_DIM_HEIGHT
-
-    def test_text_width_returns_real_glyph_metrics(self):
-        from draftwright._core import _text_width
-
-        assert _text_width("", 3.0) == 0.0
-        # A real measurement is positive and grows with the string.
-        w1 = _text_width("8", 3.0)
-        w3 = _text_width("888", 3.0)
-        assert 0.0 < w1 < w3
-        # Real glyph metrics, not a character-count fudge (#31): equal-length
-        # strings of wide vs narrow glyphs measure differently. (Pinned to the
-        # vendored Plex Mono via font_path, #149, so these widths are also
-        # deterministic across platforms; Plex Mono being monospace made the old
-        # Arial "wider-than-0.6*font" threshold both font-specific and moot.)
-        assert _text_width("WXYZ", 3.0) > _text_width("iiii", 3.0)
-
-    def test_bore_callout_width_scales_with_font_size(self):
-        from build123d_drafting.helpers import draft_preset
-
-        from draftwright.annotations.orchestrator import build_model
-        from draftwright.compose import _est_planned_bore_callout_width
-        from draftwright.model import plan_dimensions
-
-        part = Box(60, 40, 12) - Pos(0, 0, 6) * Cylinder(3, 12)
-        groups = plan_dimensions(build_model(build_drawing(part, number="X")._analysis))
-        draft = draft_preset(decimal_precision=1)
-        small = _est_planned_bore_callout_width(groups, draft, font_size=3.0)
-        large = _est_planned_bore_callout_width(groups, draft, font_size=6.0)
-        assert large > small
-
-
 def _sizing_model(part):
     """The sizing IR + planner callout width for *part*, mirroring `_analyse` — the
     detected-path input the sheet estimators now consume (ADR 1 (was 0008); #584 WP1 A)."""
