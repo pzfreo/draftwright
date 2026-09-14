@@ -252,7 +252,7 @@ class TestFidelityIsReportedSeparately:
         assert component["score"] < 1.0
 
     def test_the_full_fidelity_shape_is_pinned(self):
-        # Legibility's complete dict is pinned in `test_make_drawing.py`; fidelity's was
+        # Legibility's complete dict is pinned in `test_lint_summary.py`; fidelity's was
         # not, so mutating its error penalty to the warning penalty, or its `available` to
         # `bool(issues)`, passed the entire 4,197-test suite.
         component = _quality(99, "99")["fidelity"]
