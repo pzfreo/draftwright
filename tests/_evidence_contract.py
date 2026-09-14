@@ -144,7 +144,6 @@ def assert_every_boundary_is_supported(
     family: str,
     part: Any,
     *,
-    observations: int = 1,
     message: str | None = None,
 ) -> None:
     """Every downstream boundary of the family's observation reads `supported`.
@@ -155,9 +154,7 @@ def assert_every_boundary_is_supported(
     from draftwright.evaluation.step_analysis import _default_observers
 
     observed = _default_observers()[family](part)
-    assert len(observed) == observations, (
-        message or f"fixture must produce {observations} {family} observation(s)"
-    )
+    assert len(observed) == 1, message or f"fixture must produce one {family} observation"
     for boundary in _BOUNDARIES:
         assert {fact.downstream[boundary] for fact in observed} == {"supported"}
 
