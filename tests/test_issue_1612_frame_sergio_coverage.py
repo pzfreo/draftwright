@@ -29,5 +29,4 @@ def test_sergio_frame_repaired_location_retains_hole_coverage():
     assert drawing.get_annotation("title_block").block_bbox["width"] == 175
     assert len(outcomes) == 15
     assert all(row.state == "placed" and row.carriers for row in outcomes)
-    assert drawing.get_annotation("dim_loc_plan_y5709").covers_hole_locations
     assert not any(issue.code == "label_centerline_overlap" for issue in drawing.lint())

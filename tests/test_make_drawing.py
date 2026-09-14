@@ -2936,7 +2936,7 @@ class TestComposeThenPackRepack:
         monkeypatch.setattr(builder, "_repack", fake_repack)
         monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
 
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="draftwright._core"):
             out_a, out_dwg = builder._repack_to_fixed_point(
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
@@ -2959,7 +2959,7 @@ class TestComposeThenPackRepack:
         monkeypatch.setattr(builder, "_repack", lambda *args, **kwargs: None)
         monkeypatch.setattr(builder, "_needs_repack", lambda dwg, a: True)
 
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="draftwright._core"):
             out = builder._repack_to_fixed_point(
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
                 SimpleNamespace(pass_id=0, registry=AnnotationRegistry()),
