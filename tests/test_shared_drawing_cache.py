@@ -17,12 +17,22 @@ from conftest import recognition_consumer_calls
 
 def test_every_recipe_name_states_the_solid_it_builds():
     """The name is the key AND the description, so a wrong pairing must fail here."""
+    # Precondition: an empty table would satisfy every assertion below vacuously — the
+    # loop would not run and both `len()`s would be zero.
+    assert len(PART_RECIPES) == 15, f"expected 15 recipes, found {len(PART_RECIPES)}"
     sizes = {}
     for name in PART_RECIPES:
         size = part(name).bounding_box().size
         sizes[name] = (size.X, size.Y, size.Z)
         assert name == "box_{:g}x{:g}x{:g}".format(*sizes[name])
     assert len(set(sizes.values())) == len(sizes), sizes
+
+
+def test_an_unhashable_build_option_is_refused_by_name(shared_drawing):
+    """The cache key is a tuple of the options, so an unhashable value must be named
+    rather than surfacing as a bare TypeError from `hash()` (conftest.py `_shared`)."""
+    with pytest.raises(TypeError, match="must be hashable"):
+        shared_drawing("box_10x10x10", views=["plan", "front"])
 
 
 def test_an_unknown_recipe_names_the_known_ones():
