@@ -125,7 +125,10 @@ def tiny_box_dwg():
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/538"
+    ),
 )
 def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
     part, model = _narrow_cross_pass_part()
@@ -262,7 +265,10 @@ def test_public_narrow_part_uses_one_cross_pass_inventory(tmp_path):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/538"
+    ),
 )
 def test_corrected_side_strip_avoids_the_former_policy_b_crossing_without_trace():
     part, model = _narrow_cross_pass_part()
@@ -1828,7 +1834,10 @@ def test_fixed_residual_keeps_a_face_bridging_disjoint_known_components():
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/538"
+    ),
 )
 def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
@@ -1875,7 +1884,10 @@ def test_cross_pass_candidate_budget_precedes_collect_all_geometry(monkeypatch, 
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/538"
+    ),
 )
 def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_path):
     part, model = _narrow_cross_pass_part()
@@ -1939,7 +1951,10 @@ def test_fixed_obstacle_probe_budget_precedes_joint_geometry(monkeypatch, tmp_pa
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/538"
+    ),
 )
 def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch, tmp_path):
     """Candidate×fixed work is capped even when the fixed inventory itself fits."""
@@ -2445,7 +2460,10 @@ def test_final_section_rolls_back_when_exact_preflight_rejects(monkeypatch):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/538",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/538"
+    ),
 )
 def test_live_and_deferred_callout_verbs_preserve_the_same_semantic_evidence():
     part, model = _narrow_cross_pass_part()

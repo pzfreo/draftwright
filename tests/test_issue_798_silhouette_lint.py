@@ -260,7 +260,8 @@ class TestCardinalityIsNotTradedForCleanliness:
                 strict=True,
                 raises=_HistoricalCalloutFloorNotMet,
                 reason=(
-                    "Quiddity 0.2.2 accepted recess-inventory limitation: "
+                    "accepted recess-inventory limitation, still reproduced at the "
+                    "pinned quiddity version: "
                     "https://github.com/pzfreo/draftwright/issues/1471"
                 ),
             ),

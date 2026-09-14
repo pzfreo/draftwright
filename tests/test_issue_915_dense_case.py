@@ -54,7 +54,10 @@ def _lint_apart_from_the_known_crossings(dwg):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/536"
+    ),
 )
 def test_issue_915_hole_callouts_share_one_spacing_solve():
     """Keep the real dense-plan failure distinct from its step-detail follow-up."""
@@ -114,7 +117,10 @@ def detail_dwg(request):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/536"
+    ),
 )
 def test_issue_915_actually_carries_the_known_crossings(detail_dwg):
     """The precondition for the assertions that filter these out.
@@ -134,7 +140,10 @@ def test_issue_915_actually_carries_the_known_crossings(detail_dwg):
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/536"
+    ),
 )
 def test_issue_915_wide_detail_uses_a_matching_empty_region():
     """A1 has enough wide, short space even though its largest square is too narrow."""
@@ -152,7 +161,10 @@ def test_issue_915_wide_detail_uses_a_matching_empty_region():
 
 @pytest.mark.xfail(
     strict=True,
-    reason="Quiddity 0.2.2 known limitation: https://github.com/pzfreo/quiddity/issues/536",
+    reason=(
+        "known quiddity limitation, still reproduced at the pinned quiddity version: "
+        "https://github.com/pzfreo/quiddity/issues/536"
+    ),
 )
 def test_issue_915_a2_detail_uses_each_levels_supporting_geometry():
     """A level's own face support, not the envelope edge, defines its witness and crop."""
