@@ -348,7 +348,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
                 in {"_annotate_holes", "render_pocket_patterns", "render_slot_patterns"}
                 else f"draftwright.annotations.from_model.{spec.drawing}"
             ),
-            "tests/test_make_drawing.py",
+            "tests/test_feature_provenance.py",
         ),
         "completeness": completeness,
         "documentation": {

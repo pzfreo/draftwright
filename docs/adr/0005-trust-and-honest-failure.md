@@ -52,12 +52,12 @@ proves nothing about a guard that was never mutated.
    accepts only strict improvement with no increased lint-code/severity component, preserving
    requirements, confirmed measurement claims, annotation membership and pins; rejection restores
    the original items and registry. Infeasible choices retain explicit findings.
-   `test_make_drawing.py` (`test_repair_dim_inside_part_flips_side`,
+   `test_repair.py` (`test_repair_dim_inside_part_flips_side`,
    `test_repair_idempotent_on_clean_drawing`, `test_repair_does_not_increase_issue_counts`),
    `test_issue_1333_bounded_ink_repair.py`. Maintainer approved this extension on 2026-09-07 (#1490).
 4. **Provenance is recorded once, at the seam, for every feature kind.** `annotations_of(feature)`
    equals exactly what `drop(feature)` removes; no pass resolves a feature from an annotation name.
-   `test_render_seam.py`, `test_make_drawing.py` (`test_drop_is_complete_for_a_multi_feature_prismatic_part`,
+   `test_render_seam.py`, `test_feature_provenance.py` (`test_drop_is_complete_for_a_multi_feature_prismatic_part`,
    `test_drop_is_complete_for_a_turned_part`, `test_drop_is_complete_for_side_drilled_holes`).
 5. **Quality is components; completeness names its bound.** No composite score; `audited_score`
    with `excludes` and an `unrecognised_geometry_reports` floor; fidelity asks whether what the

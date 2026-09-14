@@ -1,192 +1,15 @@
-"""Tests for draftwright.make_drawing."""
+"""Detected-model reads and feature-annotation provenance."""
 
 import pytest
-from _kernel import B123D_GE_011, SKIP_011
 from _parts import holed_plate as _holed_plate
-from build123d import Box, export_step
+from build123d import export_step
 
 from draftwright import build_drawing
-
-_skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
-
-
-
-
-def _state_snapshot(dwg):
-    """The mutable state a read-only test must not touch — annotation count,
-    names, pins, and the per-view (visible, hidden) tuples (by identity)."""
-    return (
-        len(dwg.items),
-        frozenset(dwg.annotations()),
-        frozenset(dwg.registry.pinned_names()),
-        {k: (id(vis), id(hid)) for k, (vis, hid) in dwg.views.items()},
-    )
-
-
-@pytest.fixture(scope="module")
-def plain_box_dwg():
-    """A built ``Box(60, 40, 20)`` drawing, built once and shared by the
-    **read-only** tests in this module (#153 — the hot part is otherwise rebuilt
-    dozens of times). A teardown guard asserts the drawing was not mutated, so a
-    consumer that accidentally adds/removes/pins an annotation or swaps a view
-    fails loudly here instead of silently contaminating its neighbours."""
-    dwg = build_drawing(Box(60, 40, 20))
-    before = _state_snapshot(dwg)
-    yield dwg
-    assert _state_snapshot(dwg) == before, (
-        "a shared-fixture consumer mutated plain_box_dwg — give that test its "
-        "own build_drawing(Box(60, 40, 20)) (see #153)"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Pure-function unit tests (fast, no OCP projection)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def small_box_dwg():
-    return build_drawing(Box(30, 20, 10))
 
 
 @pytest.fixture(scope="module")
 def holed_plate_dwg():
     return build_drawing(_holed_plate())
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Phase 2 annotation depth estimators (#118)
-# ---------------------------------------------------------------------------
-
-
-# Phase 3 (#118): dynamic FV→SV corridor
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Two-pass layout (#131): bore callout width drives gap_fv_sv
-# ---------------------------------------------------------------------------
-
-
-
-
-# ---------------------------------------------------------------------------
-# Integration test — requires build123d + OCP (slow)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# ViewCoordinates (pure-Python, no OCP needed)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# analyse_cylinders / recognise_face_levels — require OCP (slow)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Drawing builder (build_drawing / Drawing / add_view)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Part classification (#81) — prismatic parts skip turned-part annotations
-# ---------------------------------------------------------------------------
-
-
-
-
-# ---------------------------------------------------------------------------
-# Export fallback (#83) — element-wise retry with view/layer context
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Feature-coverage lint (#80) — size coverage of hole/boss diameters
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Layout-overfitting regression tests (issue #13)
-#
-# The fixtures above exercise the prismatic path well but leave the turned
-# path and several hard-coded thresholds under-tested — which is how the
-# overfitting in #10–#12 went unnoticed. These cases pin the *general*
-# behaviour the algorithm should have. Where current `main` does not yet
-# meet it, the test is marked xfail(strict=True) so it auto-flags (xpass)
-# the moment the corresponding fix lands.
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Degenerate near-zero-radius arc sanitisation (CTC-02 "black line" fix)
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Lint summary + surfacing of build-time annotation drops (#32)
-# ---------------------------------------------------------------------------
-
-
-
-
-# ---------------------------------------------------------------------------
-# Layout generalisation guards (#13) — pin the *general* behaviour the
-# algorithm should have on turned/hybrid parts and at the step-legibility
-# boundary, so the overfitting that #10–#12/#31 removed cannot creep back.
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-@pytest.mark.timeout(120)
-
-
-# ---------------------------------------------------------------------------
-# Issue #45: TYP / representative dimensioning for uniform step patterns
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Issues #26 + #25: dwg.features() and dwg.place_dim()
-# ---------------------------------------------------------------------------
 
 
 def _model_signature(m):
@@ -227,11 +50,6 @@ class TestModel:
         )
 
 
-# Annotation-name prefixes that are always owned by exactly ONE feature (never a shared
-# span), so every one of them on the sheet MUST have a provenance owner. Location dims
-# (m_locx/m_locy, dim_loc_*) and turned-diameter callouts (m_dia_*) are excluded from the
-# blanket rule — a coordinate OR a diameter shared by two distinct features is
-# intentionally unowned (#398c/#406/#412). Their owned cases are checked in dedicated tests.
 _ALWAYS_OWNED = ("hc_", "bc_", "m_cm", "dim_pitch", "balloon_", "m_slot")
 
 
@@ -256,7 +74,7 @@ def _assert_drop_is_complete(dwg):
         assert not dwg.annotations_of(f), f"{f.kind}: annotations remain after drop"
 
 
-class TestFeatureEdits:
+class TestFeatureProvenance:
     """#398b: first-class feature provenance — drop()/annotations_of() by feature.
 
     Coverage today is centre marks (the first render pass to carry provenance); slots,
@@ -395,6 +213,7 @@ class TestFeatureEdits:
     def test_dimension_ambiguous_kind_requires_role(self):
         # #407 review: an envelope exposes width/height/depth all as 'length' — a bare
         # kind must raise (not silently pick width), and role= must disambiguate.
+
         from build123d import Box
 
         dwg = build_drawing(Box(40, 30, 10))
@@ -468,18 +287,3 @@ class TestFeatureEdits:
             f"model diverged across provenance: obj={_model_signature(m_obj)} "
             f"step={_model_signature(m_step)}"
         )
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Issue #29: lint findings carry a suggested-fix code snippet
-# ---------------------------------------------------------------------------
