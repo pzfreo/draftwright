@@ -894,7 +894,7 @@ def _repack(
             # above rejects it first. The two conditions are anti-correlated BY the gate.
             # (Measured: across the golden corpus and parts built to provoke it,
             # `_repack_to_fixed_point` is entered under `stacked-iso` and always returns
-            # None.) `test_adr0018_arrangement_gate` therefore forces the trigger, in the
+            # None.) `test_arrangement_gate` therefore forces the trigger, in the
             # same idiom the other repack tests use, and pins BOTH arrangements so the
             # assertion cannot be met by a constant.
             arrangement=a.arrangement,

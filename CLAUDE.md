@@ -157,10 +157,12 @@ checks. Target is 100% passing. Tiers (#153):
 - **`uv run pytest`** — full fast tier (`-m 'not slow'`; nearly every test does a
   real OCC build). Prefer **targeted** selections (`-k`, node ids) locally;
   `scripts/pr-check --full` uses **`-n auto --dist worksteal`** to balance the long
-  tail on many-core developer machines. At 4734 collected tests this measured
-  159–172 s across three green 18-core runs, versus 266 s with `loadscope`
-  (2026-08, #1311). On the same 18-core host, limiting pytest to four workers
-  measured 358 s with `worksteal` versus 348 s with `loadscope`; that does not
+  tail on many-core developer machines. At the 4,734 tests the fast tier
+  collected then, this measured 159–172 s across three green 18-core runs,
+  versus 266 s with `loadscope` (2026-08, #1311); the tier collects 8,760 as of
+  2026-09-14, so those wall-clock figures are historical. On the same 18-core
+  host, limiting pytest to four workers measured 358 s with `worksteal` versus
+  348 s with `loadscope`; that does not
   model CPU affinity or a hosted runner. CI deliberately retains its established
   class/module scope grouping with `loadscope`. The tier grows with every
   trust fix; a critique-style test should share a module-scoped built drawing,
@@ -181,13 +183,22 @@ When it fails, parametrize over the symbol that varies — `tests/_evidence_cont
 is the worked example — and ratchet `CLONE_BUDGET` down. Raising it needs a reason in
 the PR body, like `fail_under`.
 
+The suite may not grow by ACCRETING issue-named files. `tests/test_suite_shape.py`
+pins the number of `tests/test_issue_*` modules and lets it only shrink. A regression
+test goes in the module named after the behaviour it defends, as
+`test_<behaviour>_issue_NNNN` (maintainer decision, 2026-09-13); the existing
+issue-named modules fold into behaviour modules over time (#1637).
+
 For reproducible build-cost profiling, use a fresh output directory and state the expected
 collection census explicitly:
 
 ```bash
 scripts/profile-builds --output /tmp/draftwright-profile \
-  --expect-collected 7259 -- tests/ -n auto --dist loadscope
+  --expect-collected 8760 -- tests/ -n auto --dist loadscope
 ```
+
+8,760 is the fast-tier census on 2026-09-14; re-measure it with
+`uv run pytest --collect-only -q` rather than copying the number forward.
 
 The runner passes every module/option as a literal argv entry, writes one JSON file per xdist
 worker, and refuses to report success when any worker's collected count differs. It times the
