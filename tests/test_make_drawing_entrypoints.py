@@ -83,4 +83,3 @@ def test_make_drawing_object_defaults_out_to_drawing(tmp_path, monkeypatch):
     assert Path(svg_path).name == "drawing.svg"
     assert Path(dxf_path).name == "drawing.dxf"
     assert (tmp_path / "drawing.svg").exists()
-

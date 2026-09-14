@@ -1,9 +1,9 @@
 """Two-pass corridor sizing from planned bore callouts."""
 
 import pytest
+from _layout_helpers import _sizing_model
 from build123d import Box
 
-from _layout_helpers import _sizing_model
 from draftwright import build_drawing
 
 
@@ -120,4 +120,3 @@ class TestTwoPassLayout:
             f"pv_zones.below available {available:.1f} mm must exceed needed {needed:.1f} mm"
         )
         assert "m_env_width" in dwg.annotations(), "width dim must not be skipped"
-

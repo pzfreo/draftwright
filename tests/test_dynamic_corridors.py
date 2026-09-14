@@ -82,4 +82,3 @@ class TestDynamicCorridors:
         sv_left = a.SV_X - a.sv_hw
         fv_right = a.FV_X + a.fv_hw
         assert sv_left - fv_right == pytest.approx(expected_gap, abs=0.1)
-

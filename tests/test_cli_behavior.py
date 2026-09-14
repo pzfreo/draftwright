@@ -112,4 +112,3 @@ def test_lazy_public_api_preserves_make_drawing_identity():
     assert result.returncode == 0 and result.stdout.strip() == "ok", (
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
-

@@ -1,6 +1,7 @@
 """Finished-sheet layout cleanliness invariants."""
 
 import pytest
+from _layout_sig import CORPUS  # noqa: F401 — compatibility import for witness-label tests
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing

@@ -2,30 +2,29 @@
 
 import logging
 import math
-import os
-import subprocess
-import sys
 import warnings
 from pathlib import Path
 
 import pytest
 from _kernel import B123D_GE_011, SKIP_011
+from _parts import dense_plate as _dense_plate
+from _parts import holed_plate as _holed_plate
+from _parts import multi_hole_plate as _multi_hole_plate
 from build123d import Align, Axis, Box, Compound, Cylinder, Edge, Pos, Rot, Rotation, export_step
-from build123d_drafting import HoleCallout, Leader, ViewCoordinates, view_axes
+from build123d_drafting import HoleCallout, Leader
 from quiddity import (
     Slot,
     build_raw_recognition_result,
-    recognise_face_levels,
     recognise_slots,
 )
 
-from draftwright import Drawing, build_drawing, make_drawing
-from draftwright._core import _MARGIN, _MIN_VIEW_MM, _fmt
+from draftwright import build_drawing, make_drawing
+from draftwright._core import _MARGIN, _fmt
 from draftwright.analysis import (
     _converge_step_sizing,
     _is_rotational,
 )
-from draftwright.compose import StripDepths, _fits, choose_scale
+from draftwright.compose import StripDepths
 from draftwright.drawing import analyse_cylinders
 from draftwright.export import _export_shape
 from draftwright.linting import LintIssue
@@ -1120,14 +1119,6 @@ class TestStepSizingConvergence:
 # ---------------------------------------------------------------------------
 # Phase 2 annotation depth estimators (#118)
 # ---------------------------------------------------------------------------
-
-
-
-
-from _layout_helpers import _sizing_model
-from _parts import dense_plate as _dense_plate
-from _parts import holed_plate as _holed_plate
-from _parts import multi_hole_plate as _multi_hole_plate
 
 
 

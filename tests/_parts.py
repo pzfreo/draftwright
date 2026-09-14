@@ -119,8 +119,6 @@ def dense_plate():
     from build123d import Cylinder, Pos
 
     result = Box(70, 50, 12)
-    for index, (x, y) in enumerate(
-        itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])
-    ):
+    for index, (x, y) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
         result -= Pos(x, y, 0) * Cylinder(1.0 + (index % 5) * 0.4, 20)
     return result

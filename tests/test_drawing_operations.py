@@ -1,8 +1,5 @@
 """Drawing mutation, coordinate, custom-view, and generated-script behavior."""
 
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -91,6 +88,7 @@ def test_generated_script_runs_and_preserves_pmi(tmp_path):
     # Sheet emitter by #940. PMI survives differently there and better: it is threaded
     # through detection and emitted as explicit dimension lines, rather than a flag the
     # script re-applies on every run.
+
     import os
     import subprocess
     import sys
@@ -116,4 +114,3 @@ def test_generated_script_runs_and_preserves_pmi(tmp_path):
     assert r.returncode == 0, f"generated script failed:\n{r.stderr[-1500:]}"
     # #709: the emitted export defaults to PDF (the CLI / sheet-flavour default).
     assert (tmp_path / "p.pdf").exists(), "generated script did not write the PDF"
-

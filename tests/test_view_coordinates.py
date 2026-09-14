@@ -3,6 +3,7 @@
 import pytest
 from build123d_drafting import ViewCoordinates, view_axes
 
+
 class TestViewCoordinates:
     def _front_vc(self):
         # Front view: camera at (0, -100, 0), up=(0,0,1), look_at=(0,0,0)
@@ -159,5 +160,3 @@ class TestViewCoordinates:
         page_x, page_y = vc.pp(0.0, 0.0, 0.0)
         assert page_x == pytest.approx(100.0)
         assert page_y == pytest.approx(80.0)
-
-

@@ -1,13 +1,10 @@
 """Annotation-box composition corpus and structure contracts."""
 
-import pytest
-from build123d import Box, Cylinder, Pos
-
 from _layout_helpers import _sizing_model
 from _parts import dense_plate as _dense_plate
 from _parts import holed_plate as _holed_plate
 from _parts import multi_hole_plate as _multi_hole_plate
-
+from build123d import Box, Cylinder, Pos
 from test_annotation_box_composition import TestComposeAnnoBoxes as _ComposeAnnoBoxes
 
 
@@ -79,8 +76,6 @@ class TestComposeAnnoBoxesCorpus:
 
                 # The halo band is emitted exactly when the part will balloon.
                 assert bool(halos) == _will_balloon(model), (label, n_steps)
-
-
 
 
 # ---------------------------------------------------------------------------

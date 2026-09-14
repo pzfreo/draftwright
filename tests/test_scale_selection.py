@@ -4,6 +4,7 @@ import pytest
 
 from draftwright.compose import StripDepths, _fits, choose_scale
 
+
 class TestChooseScale:
     def test_tiny_part_fits_A4(self):
         # 20×20×20 mm — enlargement scales don't fit A4/A3, lands on A4 2:1
@@ -203,5 +204,3 @@ class TestChooseScaleOverrides:
     def test_nonpositive_scale_raises(self):
         with pytest.raises(ValueError, match="scale"):
             choose_scale(10, 10, 10, scale=0)
-
-

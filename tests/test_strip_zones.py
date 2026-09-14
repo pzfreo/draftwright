@@ -293,4 +293,3 @@ class TestStripZones:
                 f"{w}x{d} is not square — its depth must be stated, not implied by projection"
             )
             assert dwg.get_annotation("m_env_depth").label == str(d)
-

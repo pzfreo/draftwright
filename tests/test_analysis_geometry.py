@@ -1,7 +1,6 @@
 """Solid analysis regressions for cylinders and face levels."""
 
 import pytest
-
 from quiddity import recognise_face_levels
 
 from draftwright.drawing import analyse_cylinders
@@ -70,4 +69,3 @@ def test_analyse_face_levels_area_filter_drops_tiny_faces():
     assert not any(abs(fl.z - 7.0) < 0.1 for fl in filtered)
     assert any(abs(fl.z - 5.0) < 0.1 for fl in filtered)
     assert any(abs(fl.z - (-5.0)) < 0.1 for fl in filtered)
-

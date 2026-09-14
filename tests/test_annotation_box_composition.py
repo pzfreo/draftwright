@@ -1,10 +1,9 @@
 """Annotation-box composition and footprint reduction behavior."""
 
 import pytest
-from build123d import Box, Cylinder, Pos
-
 from _layout_helpers import _sizing_model
 from _parts import dense_plate as _dense_plate
+from build123d import Box, Cylinder, Pos
 
 
 class TestComposeAnnoBoxes:
@@ -130,4 +129,3 @@ class TestComposeAnnoBoxes:
 
         # No bands at all → zero depths, but the left floor still applies.
         assert _footprint_from_boxes([]) == StripDepths(right=0.0, left=_DIM_PAD, pv_halo=0.0)
-

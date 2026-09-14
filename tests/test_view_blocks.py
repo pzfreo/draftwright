@@ -135,4 +135,3 @@ class TestComposeViewBlocks:
 
         assert pv.bottom > 20.0
         assert actual_y_offset == pytest.approx(expected_y_offset)
-

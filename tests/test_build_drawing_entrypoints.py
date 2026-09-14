@@ -97,4 +97,3 @@ def test_plumbing_shims_are_deprecated():
     ):
         with pytest.warns(DeprecationWarning):
             call()
-

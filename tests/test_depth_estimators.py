@@ -70,4 +70,3 @@ class TestDepthEstimators:
         from draftwright.compose import _est_pv_below_depth
 
         assert _STRIP_GAP + _SLOT_DIM_WIDTH <= _est_pv_below_depth() + 1e-9
-
