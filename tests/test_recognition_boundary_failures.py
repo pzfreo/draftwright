@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from build123d import Box, Pos, Rot, SlotOverall, extrude
 from quiddity import SectionRecessArray, build_raw_recognition_result
-from test_issue_1471_section_recess_contract import _recess
+from test_section_recess_contract import _recess
 
 import draftwright.oriented_slot_contract as slot_contract
 from draftwright.linting import (

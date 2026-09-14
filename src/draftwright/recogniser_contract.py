@@ -218,7 +218,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     if family_id == "section-recesses":
         completeness = _supported(
             "draftwright.linting.requirements.recognized_requirement_outcomes",
-            "tests/test_issue_1471_section_recess_pockets.py",
+            "tests/test_section_recess_pockets.py",
         )
         completeness["evidence"] = [
             "tests/test_channel_ownership.py",
@@ -228,8 +228,8 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
             "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
             "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-            "tests/test_issue_1471_section_recess_contract.py",
-            "tests/test_issue_1471_section_recess_pockets.py",
+            "tests/test_section_recess_contract.py",
+            "tests/test_section_recess_pockets.py",
         ]
     elif family_id == "bosses":
         completeness = _supported(
@@ -363,7 +363,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     if family_id == "section-recesses":
         declaration["drawing_consumer"] = _supported(
             "draftwright.annotations.orchestrator._auto_annotate",
-            "tests/test_issue_1471_section_recess_pockets.py",
+            "tests/test_section_recess_pockets.py",
         )
 
     return declaration

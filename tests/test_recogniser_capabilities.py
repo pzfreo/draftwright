@@ -860,8 +860,8 @@ def test_section_recess_completeness_names_all_supported_and_unsupported_grammar
         "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
         "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
         "tests/test_channel_ownership.py",
-        "tests/test_issue_1471_section_recess_contract.py",
-        "tests/test_issue_1471_section_recess_pockets.py",
+        "tests/test_section_recess_contract.py",
+        "tests/test_section_recess_pockets.py",
     }
 
 

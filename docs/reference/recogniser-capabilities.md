@@ -308,7 +308,7 @@ axis line and axial band. Missing profile identity retains the geometric ambigui
 a missing profile in an authored subset cannot redirect the groove to another coaxial body.
 Generated declarations replace the provider key with the same `profile_group` token used for the
 owning steps. The keyed nested-body and omission checks live in
-`tests/test_issue_1471_groove_profile.py`; they supplement the unchanged authored groove corpus.
+`tests/test_groove_profile.py`; they supplement the unchanged authored groove corpus.
 
 ## Rectangular-pad completeness evidence
 
