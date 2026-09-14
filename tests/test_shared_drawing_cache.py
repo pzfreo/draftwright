@@ -35,12 +35,14 @@ def test_a_cache_hit_returns_the_same_object_and_recognises_nothing(shared_drawi
     # Precondition: the counter this test relies on must be able to see a provider call
     # at all. A miss builds, so it must register; otherwise an empty `counts` below would
     # prove nothing about the hit.
+    # `box_10x10x10` is requested by no other test, so this test is always the first
+    # requester of the key and the miss below is a real miss whatever the run order.
     with recognition_consumer_calls() as on_miss:
-        first = shared_drawing("box_20x20x20", auto_dims=False)
+        first = shared_drawing("box_10x10x10", auto_dims=False)
     assert on_miss, "the cache miss recorded no provider call — the counter sees nothing"
 
     with recognition_consumer_calls() as counts:
-        second = shared_drawing("box_20x20x20", auto_dims=False)
+        second = shared_drawing("box_10x10x10", auto_dims=False)
     assert second is first
     assert counts == {}, f"a cache hit reached the provider: {counts}"
 
