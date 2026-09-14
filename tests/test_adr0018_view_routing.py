@@ -74,8 +74,8 @@ class TestTheRoutingHasOneOwner:
 
 
 class TestAnAbsentViewIsANamedResult:
-    def test_asking_for_a_view_not_on_the_sheet_names_it_and_what_is(self):
-        drawing = build_drawing(Box(60, 40, 20))
+    def test_asking_for_a_view_not_on_the_sheet_names_it_and_what_is(self, shared_drawing):
+        drawing = shared_drawing("box_60x40x20")
         with pytest.raises(ViewNotPlanned) as caught:
             drawing.at("elevation", 0, 0, 0)
         assert caught.value.view == "elevation"
@@ -87,10 +87,10 @@ class TestAnAbsentViewIsANamedResult:
         # a projection keeps working.
         assert issubclass(ViewNotPlanned, KeyError)
 
-    def test_a_planned_view_still_projects(self):
+    def test_a_planned_view_still_projects(self, shared_drawing):
         # The precondition for the test above meaning anything: `at` must not have become a
         # function that only raises.
-        assert build_drawing(Box(60, 40, 20)).at("plan", 0, 0, 0)[2] == 0.0
+        assert shared_drawing("box_60x40x20").at("plan", 0, 0, 0)[2] == 0.0
 
     def test_dropping_a_view_the_annotations_need_refuses_by_name(self, monkeypatch):
         # The end-to-end state of view-set selection today, pinned honestly: dropping the

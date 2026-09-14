@@ -39,8 +39,8 @@ def _yielding_part():
 
 
 class TestTheOutcomeIsAlwaysRecorded:
-    def test_a_part_needing_no_section_says_so(self):
-        dwg = build_drawing(Box(60, 40, 20), page="A3")
+    def test_a_part_needing_no_section_says_so(self, shared_drawing):
+        dwg = shared_drawing("box_60x40x20", page="A3")
         assert dwg.section_decision["status"] == "not_warranted"
         assert dwg.section_decision["reason"] is None
 
@@ -58,8 +58,10 @@ class TestTheOutcomeIsAlwaysRecorded:
         dwg = build_drawing(_counterbored_block(), page="A3", auto_dims=False)
         assert dwg.section_decision["status"] == "not_evaluated"
 
-    def test_the_status_vocabulary_is_closed(self):
-        dwg = build_drawing(Box(60, 40, 20), page="A3")
+    def test_the_status_vocabulary_is_closed(self, unshared_drawing_for_mutation):
+        # Its own build: the call under test writes the recorded decision, and a rejected
+        # write is still a write attempt on a sheet other tests would go on to read.
+        dwg = unshared_drawing_for_mutation("box_60x40x20", page="A3")
         with pytest.raises(ValueError, match="unknown section status"):
             dwg.record_section_decision("maybe")
 
