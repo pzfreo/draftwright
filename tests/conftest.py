@@ -263,11 +263,28 @@ def _sheet_membership(drawing) -> tuple:
     """The part of a Drawing a read-only borrower must leave exactly as it found it.
 
     Annotation names, item count and view names between them move under every mutating
-    surface the fixture forbids — `.add()` and `.place_dim()` extend the first two,
-    `.repair()` and `.export()`'s `finalize()` replace items, and a private write that
-    re-composes changes the views. It is a membership check, not a deep equality: a test
-    that reaches in and edits one annotation's coordinates in place is not caught here,
-    which is why the docstring asks and this only enforces the common forms.
+    surface that ADDS, REPLACES or REMOVES something on the sheet — `.add()` and
+    `.place_dim()` extend the first two, `.repair()` and `.export()`'s `finalize()`
+    replace items, and a private write that re-composes changes the views.
+
+    It is a membership check, not a deep equality, and three kinds of write get past it.
+    A borrower that does any of them must take `unshared_drawing_for_mutation` instead;
+    the migrator of a further tranche should read this list as the safety contract, not
+    the paragraph above.
+
+    1. An in-place edit of one annotation's coordinates. Same names, same count.
+    2. A write to a recorded-state attribute that is not on the sheet at all —
+       `record_section_decision` sets `drawing.section_decision`, and the fingerprint is
+       identical either side of it. That is why
+       `test_issue_1190_section_decision.py::test_the_status_vocabulary_is_closed` takes
+       the private build even though its call is rejected: a rejected write is still a
+       write the next borrower would inherit if it landed.
+    3. A write into the build's caches. `lint()` prunes `_build.ann_box_cache` of items
+       no longer on the sheet and hands it to `lint_drawing` to refill (`drawing.py`
+       ~4182 and ~4208). On a freshly built drawing that is a no-op — the build has
+       already saturated it (11 entries either side of `lint()` on `box_60x40x20` at A3,
+       8 with `auto_dims=False`) — which is why a borrower may call `lint_summary()`.
+       It stops being a no-op as soon as something has changed the items first.
     """
     return (
         tuple(drawing.annotations()),
