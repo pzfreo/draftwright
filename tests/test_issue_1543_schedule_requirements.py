@@ -406,7 +406,7 @@ def test_notes_only_receive_explicit_satisfaction_beside_schedule_cells(tmp_path
 
 
 def test_mixed_ordinary_and_schedule_members_keep_both_conflicting_claims(tmp_path):
-    from test_issue_1542_document_report import hole_document
+    from test_document_report import hole_document
 
     document, _path, _raw = hole_document(tmp_path, (0.02, 0.05))
     hole = next(feature for feature in document.features if feature.kind == "hole")

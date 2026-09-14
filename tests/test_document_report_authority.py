@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 import pytest
-from test_issue_1542_document_report import hole_document
+from test_document_report import hole_document
 
 from draftwright.reporting import ReportUnavailableError, document_report
 

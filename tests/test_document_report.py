@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from build123d import Box, Cylinder, export_step
 from jsonschema.validators import validator_for
-from test_issue_1542_catalog_families import _CASES, family_part
+from test_requirement_catalog_families import _CASES, family_part
 
 from draftwright import Document, ReportUnavailableError
 

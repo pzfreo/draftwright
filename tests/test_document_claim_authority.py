@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 from build123d import Box, Cylinder, Pos
-from test_issue_1542_catalog import detect_intake
+from test_requirement_catalog import detect_intake
 
 from draftwright import build_drawing
 from draftwright.document_evidence import bind_document_claims, document_support_proofs
