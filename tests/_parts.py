@@ -138,3 +138,16 @@ def crowded_shoulder_part():
     for next_part in parts[1:]:
         part = part + next_part
     return part
+
+
+def uniform_staircase(n_treads=8, rise=15.0, going=20.0, width=30.0):
+    """Return a staircase solid with *n_treads* treads of equal rise and going."""
+    from build123d import Pos
+
+    part = None
+    for index in range(n_treads):
+        height = (index + 1) * rise
+        length = (n_treads - index) * going
+        tread = Pos(length / 2, 0, height / 2) * Box(length, width, height)
+        part = tread if part is None else part + tread
+    return part
