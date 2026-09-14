@@ -29,7 +29,7 @@ way `fail_under` in `[tool.coverage.report]` does.
 Running this module's own normaliser and thresholds per module instead of across modules
 finds 19 redundant bodies in the whole suite, in 8 groups: 9 in `test_make_drawing.py`, 4 in
 `test_tolerances.py`, 2 each in `test_declare.py`, `test_lint_reconciliation.py` and
-`test_issue_1382_framed_step_family_evidence.py`. One group has six members (the
+`test_framed_step_family_evidence.py`. One group has six members (the
 `test_overlap_*` cross-view family); the other seven have exactly three. #1637's issue body
 quotes 66 and 22 for the same scan — that is the count at `_MIN_GROUP_MEMBERS = 2`, which
 this guard deliberately does not use, because at two it measures coincidence.

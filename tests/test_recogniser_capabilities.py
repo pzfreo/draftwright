@@ -430,7 +430,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -442,7 +442,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "drawing_consumer",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -454,7 +454,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "dsl_declaration",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -466,7 +466,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "generated_code",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -478,7 +478,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "ir_adapter",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -557,7 +557,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1382_paired_ramp_semantics.py",
+                "tests/test_paired_ramp_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "paired-ramp-steps",
@@ -621,8 +621,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "deferred",
@@ -633,8 +633,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "drawing_consumer",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -645,8 +645,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "dsl_declaration",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -657,8 +657,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "generated_code",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -669,8 +669,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "ir_adapter",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
