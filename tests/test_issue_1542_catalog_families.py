@@ -43,7 +43,7 @@ _CASES = (
     ("rectangular_blind_slots", "test_issue_1421_rectangular_blind_slot_completeness", "_part"),
     ("slots", "test_slot_completeness", "_off_centre_slot"),
     ("slot_patterns", "test_slot_completeness", "_slot_row"),
-    ("section_recesses", "test_issue_1438_report_projection", "_passage_part"),
+    ("section_recesses", "test_report_projection", "_passage_part"),
     ("outer_profile_angles", None, None),
 )
 

@@ -78,19 +78,19 @@ proves nothing about a guard that was never mutated.
 9. **A report refuses rather than shrinks.** An unclassified occurrence, foreign result, absent
    model or missing ownership raises `ReportUnavailableError`; IDs are document-local; no
    `FeatureRef`, `FaceRef`, topology index or object address is serialized; NaN/Infinity are
-   rejected. `test_issue_1438_report_projection.py`.
+   rejected. `test_report_projection.py`.
 10. **Report persistence is explicit and atomic.** `write_report` flushes a sibling temporary and
     replaces; a failure leaves the destination untouched; export does not write reports as a side
-    effect. `test_issue_1438_report_writer.py`.
+    effect. `test_report_writer.py`.
 11. **Direct CLI rendering writes the report beside its output by default**; `--no-report` opts
-    out. `test_issue_1438_cli_report_sidecar.py`.
+    out. `test_cli_report_sidecar.py`.
 12. **Generation-time evidence comes from one hashed byte snapshot.** The source is resolved once
     and read once; recognition, PMI and any correction build consume a private copy; A→B→A
     replacement or symlink retargeting cannot split provenance from the generated model.
-    `test_issue_1438_generation_snapshot.py`.
+    `test_sheet_generation_snapshot.py`.
 13. **A clear result names its bound.** `bounded-clear` and `no_unrepresented_accepted_occurrences`
-    are the literals; nothing is called complete or ready. `test_issue_1438_report_projection.py`,
-    `test_issue_1438_generation_snapshot.py`.
+    are the literals; nothing is called complete or ready. `test_report_projection.py`,
+    `test_sheet_generation_snapshot.py`.
 
 14. **Read-only evidence is a projection, never a build.** `inspect_step(path)` returns what
     recognition found, what Draftwright did with each finding, and what nothing claimed —
@@ -102,7 +102,7 @@ proves nothing about a guard that was never mutated.
     Python. Generation owns that path in both directions — it writes the document or removes a
     stale one, and a document it cannot state truthfully is logged and skipped rather than
     failing generation. `test_issue_1460_step_inspection.py`,
-    `test_issue_1438_generation_snapshot.py`.
+    `test_sheet_generation_snapshot.py`.
 16. **A document records the run options that determined it.** PMI lowering can rewrite a
     grouped hole member into a singleton owner, so two runs over identical bytes can disagree
     about what Draftwright did with a finding. The document carries the mode, rather than

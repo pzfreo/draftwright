@@ -434,7 +434,7 @@ def test_mixed_ordinary_and_schedule_members_keep_both_conflicting_claims(tmp_pa
 
 
 def test_descriptive_table_cannot_credit_unsupported_profile_values(tmp_path):
-    from test_issue_1438_report_projection import _passage_part
+    from test_report_projection import _passage_part
 
     source = tmp_path / "profile.step"
     export_step(_passage_part(), source)

@@ -221,13 +221,13 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
             "tests/test_issue_1471_section_recess_pockets.py",
         )
         completeness["evidence"] = [
+            "tests/test_channel_ownership.py",
             "tests/test_issue_1245_passage_disposition.py",
             "tests/test_issue_1246_prismatic_pocket_disposition.py",
             "tests/test_issue_1372_pocket_completeness_evidence.py",
             "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
             "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
             "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-            "tests/test_issue_1438_channel_ownership.py",
             "tests/test_issue_1471_section_recess_contract.py",
             "tests/test_issue_1471_section_recess_pockets.py",
         ]
