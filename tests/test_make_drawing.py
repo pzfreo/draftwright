@@ -1124,22 +1124,7 @@ class TestStepSizingConvergence:
 
 
 
-def _sizing_model(part):
-    """The sizing IR + planner callout width for *part*, mirroring `_analyse` — the
-    detected-path input the sheet estimators now consume (ADR 1 (was 0008); #584 WP1 A)."""
-    from build123d_drafting.helpers import draft_preset
-
-    from draftwright._core import _FONT_SIZE
-    from draftwright.annotations.orchestrator import build_model
-    from draftwright.compose import _est_planned_bore_callout_width
-    from draftwright.model import plan_dimensions
-
-    m = build_model(build_drawing(part, number="X")._analysis)
-    draft = draft_preset(font_size=_FONT_SIZE, decimal_precision=1)
-    w = _est_planned_bore_callout_width(
-        plan_dimensions(m), draft, font_size=_FONT_SIZE, pad_around_text=draft.pad_around_text
-    )
-    return m, w
+from _layout_helpers import _sizing_model
 
 
 class TestComposeAnnoBoxes:
