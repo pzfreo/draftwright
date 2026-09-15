@@ -114,7 +114,7 @@ filterwarnings = [
 ]
 # Coverage is a CI concern (it adds ~13% locally and instruments every line); the
 # CI workflow passes the --cov flags explicitly. Keep the local default lean.
-addopts = "--tb=short -m 'not slow'"
+addopts = "--tb=short -m 'not slow and not scheduled'"
 
 [tool.coverage.run]
 source = ["src/draftwright"]

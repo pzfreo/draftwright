@@ -3,10 +3,12 @@
 import os
 from pathlib import Path
 
+import tomllib
 from _tier_manifest import (
     BROAD_SOURCE_PATTERNS,
     CONTRACT_GROUPS,
     CRITICAL_CONTRACT_MODULES,
+    FULL_EXPRESSION,
     PR_CORE_MODULES,
     PR_POLICY_MODULES,
     pr_modules,
@@ -67,3 +69,9 @@ def test_tier_runner_is_executable():
     runner = _TESTS.parent / "scripts" / "test-tier"
     assert runner.is_file()
     assert os.access(runner, os.X_OK)
+
+
+def test_default_pytest_selection_matches_the_full_tier():
+    config = tomllib.loads((_TESTS.parent / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert f"-m '{FULL_EXPRESSION}'" in config["tool"]["pytest"]["ini_options"]["addopts"]
