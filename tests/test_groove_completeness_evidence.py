@@ -300,16 +300,19 @@ def test_missing_per_groove_boundary_outcomes_fail_closed(monkeypatch) -> None:
     assert_missing_model_outcomes_fail_closed(monkeypatch, "_groove_model_outcomes", _states)
 
 
-def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:
+def test_observer_fails_closed_when_build_or_recognition_is_unavailable() -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
     from draftwright.evaluation.step_analysis import ObservationError
 
     def failed_build(*_args, **_kwargs):
         raise RuntimeError("probe")
 
-    monkeypatch.setattr(builder, "build_drawing", failed_build)
-    with pytest.raises(ObservationError, match="drawing build failed: probe"):
-        _default_observers()["grooves"](_lone())
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", failed_build)
+        with pytest.raises(ObservationError, match="drawing build failed: probe"):
+            _default_observers()["grooves"](_lone())
 
 
 def test_observer_fails_closed_when_built_recognition_is_unavailable(monkeypatch) -> None:
@@ -361,10 +364,9 @@ def test_removing_placed_groove_callout_loses_drawing_credit(monkeypatch) -> Non
     assert_removing_the_placed_callout_loses_drawing_credit(monkeypatch, "m_groove_", _states)
 
 
-def test_moving_groove_leader_off_its_physical_station_loses_drawing_credit(
-    monkeypatch,
-) -> None:
+def test_moving_groove_leader_off_its_physical_station_loses_drawing_credit() -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -379,8 +381,10 @@ def test_moving_groove_leader_off_its_physical_station_loses_drawing_credit(
         callout.position = (0.0, 10.0, 0.0)
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_station)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_wrong_station)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
 def test_production_profile_view_routing_cannot_rewrite_the_groove_oracle(monkeypatch) -> None:
@@ -398,8 +402,9 @@ def test_production_profile_view_routing_cannot_rewrite_the_groove_oracle(monkey
 
 
 @pytest.mark.parametrize("wrong_label", ("16 WIDE × ø4", "4 WIDE ø16", "4 WIDE × ø16 999"))
-def test_wrong_groove_nominal_or_syntax_ink_loses_drawing_credit(monkeypatch, wrong_label) -> None:
+def test_wrong_groove_nominal_or_syntax_ink_loses_drawing_credit(wrong_label) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -411,8 +416,10 @@ def test_wrong_groove_nominal_or_syntax_ink_loses_drawing_credit(monkeypatch, wr
         callout.label = wrong_label
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_wrong_ink)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
 @pytest.mark.parametrize(
@@ -435,8 +442,9 @@ def test_production_groove_formatter_cannot_rewrite_its_own_oracle(
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_severing_one_measurement_claim_loses_drawing_credit(monkeypatch) -> None:
+def test_severing_one_measurement_claim_loses_drawing_credit() -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -448,8 +456,10 @@ def test_severing_one_measurement_claim_loses_drawing_credit(monkeypatch) -> Non
         drawing.registry.reapply(name, {**identity, "measurement": identity["measurement"][:1]})
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", without_diameter_claim)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", without_diameter_claim)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
 def test_exact_groove_ink_contract_accepts_compiler_approved_tolerances() -> None:
@@ -502,9 +512,10 @@ def test_independent_groove_tolerance_oracle_covers_every_supported_form() -> No
 
 @pytest.mark.parametrize("damage", ("wrong_view", "malformed_tip"))
 def test_wrong_or_unreadable_groove_leader_target_loses_drawing_credit(
-    monkeypatch, damage
+    damage,
 ) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -518,8 +529,10 @@ def test_wrong_or_unreadable_groove_leader_target_loses_drawing_credit(
             drawing.registry.named(name)._tip_local = None
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_bad_target)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_bad_target)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
 def test_incomplete_compiler_group_cannot_certify_groove_ink(monkeypatch) -> None:
