@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Align, Compound, Cylinder, Pos, Rot
 
 from draftwright import build_drawing
@@ -90,11 +91,10 @@ def test_cap_heights_survive_generated_sheet_code(capped_shaft, tmp_path):
         page="A3",
         scale=1,
         scale_policy="strict",
-        formats=("svg",),
+        formats=(),
     )
     namespace = {"part": part}
-    exec(source, namespace)
-    replay = namespace["drawing"]
+    replay = execute_sheet_script_without_export(source, "<boss-cap replay>", namespace)
     marks = [
         mark
         for name, mark in replay.iter_annotations()
@@ -250,12 +250,11 @@ def test_a_synthetic_overall_owner_survives_script_replay(tmp_path):
         str(tmp_path / "cylinder"),
         title="T",
         number="N",
-        formats=("svg",),
+        formats=(),
     )
     assert '"boss_height.length"' not in source
     namespace = {"part": part}
-    exec(source, namespace)
-    replay = namespace["drawing"]
+    replay = execute_sheet_script_without_export(source, "<overall-owner replay>", namespace)
     omissions = [
         row
         for row in compile_dimensions(replay.model()).diagnostics
@@ -312,11 +311,10 @@ def test_partial_x_chain_and_full_length_boss_reserve_the_same_space_in_script(t
         page="A3",
         scale=1,
         scale_policy="strict",
-        formats=("svg",),
+        formats=(),
     )
     namespace = {"part": part}
-    exec(source, namespace)
-    replay = namespace["drawing"]
+    replay = execute_sheet_script_without_export(source, "<partial-x replay>", namespace)
     assert set(replay.views) == set(original.views)
     for view in original.views:
         assert replay.view_bounds(view) == pytest.approx(original.view_bounds(view))

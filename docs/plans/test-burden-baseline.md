@@ -469,3 +469,8 @@ result and warnings they inspect, instead of invoking `make_drawing` and ignorin
 Sheet façade case still checks that its default PDF exists. Across all seven unchanged outcomes,
 format exports fall from six to one (83.3%); the complete module passes under pull-request
 distribution.
+
+The turned-boss generated-script contracts now replay in memory because they inspect only rebuilt
+annotations, diagnostics, views, labels, and lint. Across all 27 unchanged module outcomes, format
+exports fall from five to zero. All three principal-axis cap-height cases, the synthetic overall
+owner, and the partial X-chain layout comparison remain direct generated-script executions.
