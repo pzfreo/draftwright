@@ -245,3 +245,10 @@ varied-positive mutation deliberately retains all thirteen fixtures. The deletio
 (26.3%). Under the four-worker pull-request distribution, all 66 module outcomes pass; aggregate
 drawing builds fall from 91 to 82, recognition acquisitions from 104 to 95, and STEP imports from
 53 to 44. The complete varied-value and topology-order oracles remain unreduced.
+
+The polygonal-boss provider-deletion probe now uses the family's clean reduced corpus. Its fault
+slice falls from eleven to four drawing, recognition, and STEP-import runs (63.6%), and from 83,603
+to 26,484 shapes (68.3%). Across all 41 unchanged outcomes under pull-request distribution, drawing
+builds fall from 70 to 63 (10.0%), recognition acquisitions from 69 to 62 (10.1%), STEP imports
+from 38 to 31 (18.4%), and shapes from 426,993 to 370,554 (13.2%). Full topology, malformed-provider,
+correspondence, generated-code, and drawing mutations remain passing.

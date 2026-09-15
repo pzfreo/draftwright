@@ -637,7 +637,7 @@ def test_severing_one_polygonal_boss_claim_loses_drawing_credit(monkeypatch) -> 
 
 
 def test_deleting_provider_bosses_cannot_shrink_the_independent_denominator(
-    monkeypatch,
+    monkeypatch, reduced_baseline
 ) -> None:
     import draftwright.analysis as analysis
 
@@ -648,10 +648,10 @@ def test_deleting_provider_bosses_cannot_shrink_the_independent_denominator(
         return replace(result, polygonal_bosses=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_bosses)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 10
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 
