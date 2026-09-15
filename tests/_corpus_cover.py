@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, fields
 from itertools import combinations
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,49 @@ class CoverageSignature:
             for field in fields(self)
             for value in getattr(self, field.name)
         )
+
+
+def case_coverage_signature(
+    case: Any,
+    *,
+    scope: Iterable[str],
+    topology_variants: Iterable[str] = (),
+    lint_codes: Iterable[str],
+    mutation_kills: Iterable[str],
+) -> CoverageSignature:
+    """Project one benchmark case into explicit, reviewable coverage obligations.
+
+    The corpus supplies recognition families, classifications, parameter paths and required
+    downstream outcomes. Lint and mutation evidence are deliberately mandatory: neither can
+    be inferred from an oracle document, and silently leaving either empty would approve a
+    deletion without the quality evidence the reduction plan requires.
+    """
+
+    facts = tuple(case.expected)
+    families = frozenset(scope) | frozenset(fact.family for fact in facts)
+    topology = {
+        *(f"classification:{tag}" for tag in case.classification.split("+") if tag),
+        *(f"declared:{variant}" for variant in topology_variants),
+        f"fact-cardinality:{len(facts)}",
+    }
+    outcomes = {f"case:{case.expected_outcome}"}
+    compiler = set()
+    for fact in facts:
+        identity_fields = ",".join(sorted(fact.identity))
+        topology.add(f"{fact.family}:identity-fields:{identity_fields}")
+        for parameter in fact.parameters:
+            compiler.add(f"{fact.family}:{parameter}")
+        for boundary in fact.required_downstream:
+            outcomes.add(f"{fact.family}:{boundary}:supported")
+
+    return CoverageSignature(
+        recognizer_families=families,
+        topology_variants=frozenset(topology),
+        requirement_outcomes=frozenset(outcomes),
+        compiler_paths=frozenset(compiler),
+        lint_codes=frozenset(lint_codes),
+        mutation_kills=frozenset(mutation_kills),
+    )
 
 
 def minimum_coverage_cases(

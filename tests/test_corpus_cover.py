@@ -1,6 +1,9 @@
 """The corpus reducer chooses a true minimum without dropping named regressions."""
 
-from _corpus_cover import CoverageSignature, minimum_coverage_cases
+from types import SimpleNamespace
+
+import pytest
+from _corpus_cover import CoverageSignature, case_coverage_signature, minimum_coverage_cases
 
 
 def test_signature_records_every_evidence_dimension_without_cross_category_collisions():
@@ -33,6 +36,53 @@ def test_same_value_in_two_dimensions_remains_two_coverage_obligations():
         "compiler_paths:leader",
         "mutation_kills:leader",
     }
+
+
+def test_case_signature_combines_oracle_and_explicit_runtime_evidence():
+    case = SimpleNamespace(
+        classification="positive+rotated",
+        expected_outcome="supported",
+        expected=(
+            SimpleNamespace(
+                family="grooves",
+                identity={"axis": SimpleNamespace(value="x")},
+                parameters={"width": object(), "diameter": object()},
+                required_downstream=("ir_adapter", "drawing_consumer"),
+            ),
+        ),
+    )
+
+    signature = case_coverage_signature(
+        case,
+        scope=("grooves",),
+        topology_variants=("axis:x",),
+        lint_codes=("clean",),
+        mutation_kills=("delete-provider-groove",),
+    )
+
+    assert signature.recognizer_families == {"grooves"}
+    assert signature.topology_variants == {
+        "classification:positive",
+        "classification:rotated",
+        "declared:axis:x",
+        "fact-cardinality:1",
+        "grooves:identity-fields:axis",
+    }
+    assert signature.requirement_outcomes == {
+        "case:supported",
+        "grooves:ir_adapter:supported",
+        "grooves:drawing_consumer:supported",
+    }
+    assert signature.compiler_paths == {"grooves:width", "grooves:diameter"}
+    assert signature.lint_codes == {"clean"}
+    assert signature.mutation_kills == {"delete-provider-groove"}
+
+
+def test_case_signature_requires_lint_and_mutation_evidence():
+    case = SimpleNamespace(classification="negative", expected_outcome="supported", expected=())
+
+    with pytest.raises(TypeError):
+        case_coverage_signature(case, scope=("grooves",))
 
 
 def test_exact_cover_avoids_the_greedy_largest_case_trap():
