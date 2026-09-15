@@ -345,6 +345,14 @@ module after the preceding glyph consolidation, items fall from 49 to 44, format
 39, drawing builds from 43 to 38, and shapes from 322,235 to 289,571 (10.1%). All 43 runnable
 contracts pass and the existing optional-tool contract remains skipped.
 
+The two custom-font construction-draft rotations now share one PDF, with independently named
+annotations retaining both the extracted-angle and first-character placement checks. The selected
+family falls from two exports, builds, and integration items to one (50.0%), shapes from 13,431 to
+7,328 (45.4%), and summed phase time from 7.11 to 3.46 seconds (51.3%). Across the searchable-PDF
+module after the preceding consolidations, items fall from 42 to 41, format exports from 37 to 36,
+drawing builds from 36 to 35, and shapes from 277,428 to 271,219 (2.2%). All 40 runnable contracts
+pass and the existing optional-tool contract remains skipped.
+
 The three basic-dimension upright-orientation cases now share one PDF, using unique equal-length
 labels so each extracted angle remains independently attributable without changing the text-shape
 boundary under test. The selected family falls from three exports, builds, and integration items

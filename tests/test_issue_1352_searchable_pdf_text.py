@@ -422,34 +422,41 @@ def test_raw_basic_dimension_rotation_survives_missing_or_mixed_spans(
         pdf.close()
 
 
-@pytest.mark.parametrize("rotation", [30, 120])
-def test_engine_dimension_keeps_its_construction_draft_and_rotation(tmp_path, rotation):
+def test_engine_dimensions_keep_their_construction_draft_and_rotation(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(font_size=5, font="Arial", font_style=FontStyle.BOLD)
     custom.font_path = None
-    with pytest.warns(DeprecationWarning):
-        drawing.place_dim(
-            (20, 20, 0),
-            (60, 20, 0),
-            "above",
-            "front",
-            custom,
-            name="tagged",
-            basic=True,
-            label="TAGGED",
-            rotation=rotation,
-        )
+    labels = []
+    for index, rotation in enumerate((30, 120)):
+        label = f"TAGGED{rotation}"
+        y = 30 + index * 60
+        with pytest.warns(DeprecationWarning):
+            drawing.place_dim(
+                (20, y, 0),
+                (60, y, 0),
+                "above",
+                "front",
+                custom,
+                name=f"tagged_{rotation}",
+                basic=True,
+                label=label,
+                rotation=rotation,
+            )
+        labels.append((label, rotation))
 
-    pdf_path = drawing.export(str(tmp_path / f"tagged_{rotation}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "tagged"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        if math.cos(math.radians(rotation)) < -1e-9:
-            annotation = drawing.get_annotation("tagged")
-            _assert_first_character_overlaps_annotation(text_page, extracted, "TAGGED", annotation)
-        else:
-            assert _extracted_text_angle(text_page, extracted, "TAGGED") == pytest.approx(
-                rotation, abs=1.0
-            )
+        for label, rotation in labels:
+            if math.cos(math.radians(rotation)) < -1e-9:
+                annotation = drawing.get_annotation(f"tagged_{rotation}")
+                _assert_first_character_overlaps_annotation(
+                    text_page, extracted, label, annotation
+                )
+            else:
+                assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
+                    rotation, abs=1.0
+                )
     finally:
         text_page.close()
         pdf.close()
