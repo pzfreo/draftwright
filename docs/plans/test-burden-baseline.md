@@ -95,3 +95,8 @@ recognition acquisitions fell from 64 to one (98.4%) and shape constructions fro
 193,360 (25.4%), while drawing, compilation, and lint counts stayed identical. The optional
 fixed-work budget is installed after drawing construction, matching its downstream subject and
 keeping monkeypatch state outside the cached boundary.
+
+The ten #1166 rendered-survivor validation cases now reuse immutable analysis across their
+independent drawings and traces. Recognition acquisitions fell from ten to one (90.0%) and
+shape constructions from 59,514 to 50,091 (15.8%), with all analytical-ink, producer-tail,
+and mesh-failure outcomes retained.

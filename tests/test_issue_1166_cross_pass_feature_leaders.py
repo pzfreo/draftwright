@@ -972,10 +972,11 @@ def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
 
 def test_machined_leader_wrong_analytical_ink_fails_the_rendered_survivor_gate(
     monkeypatch,
+    fresh_drawing,
 ):
     import draftwright.annotations.leaders as leaders
 
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -1132,14 +1133,10 @@ def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
 @pytest.mark.parametrize("valid_tail", [True, False])
 @pytest.mark.parametrize("drop_callback", [False, True])
 def test_rendered_validation_failure_replays_the_producer_tail(
-    tmp_path, failure, valid_tail, drop_callback
+    tmp_path, failure, valid_tail, drop_callback, fresh_drawing
 ):
     trace_path = tmp_path / "geometry-feedback.json"
-    drawing = build_drawing(
-        Box(40, 30, 8),
-        page="A4",
-        auto_dims=False,
-    )
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -1242,9 +1239,9 @@ def test_rendered_validation_failure_replays_the_producer_tail(
         assert item["producer_fallback"]["selected"] is None
 
 
-def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path):
+def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path, fresh_drawing):
     trace_path = tmp_path / "prebuilt-geometry-feedback.json"
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
