@@ -121,6 +121,9 @@ def _clear_routes(dwg, name, *, directions=64, reaches=(0.6, 0.8, 1.0, 1.3, 1.7,
 
 
 @pytest.mark.slow
+# Loading and solving the dense CTC04 sheet takes about 320 s alone and longer
+# under scheduled-tier xdist contention. Keep the exhaustive canary bounded.
+@pytest.mark.timeout(600)
 @pytest.mark.parametrize(
     ("fixture", "name"),
     [
