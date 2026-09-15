@@ -106,3 +106,8 @@ placement contexts and drawings. Recognition acquisitions fell from five to one 
 shape constructions from 18,215 to 14,027 (23.0%). The resource cap is installed after
 construction, and page, silhouette, future-section, and rendered-title behavior remains
 independently asserted.
+
+The paired #1166 provisional and committed-section cases retain two private drawings and both
+classification outcomes while sharing one immutable analysis seed. Recognition acquisitions
+fell from two to one (50.0%); shape constructions fell from 12,088 to 11,041 (8.7%), so this
+slice qualifies by removing a measured duplicate rather than by the 10% cost threshold.

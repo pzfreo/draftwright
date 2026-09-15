@@ -2284,8 +2284,8 @@ def test_rendered_title_keeps_the_whole_mandatory_band_hard(fresh_drawing):
     assert any(issue.code == "fillet_dropped" for issue in drawing.registry.issues)
 
 
-def test_provisional_section_refines_without_reducing_required_leaders():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_provisional_section_refines_without_reducing_required_leaders(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     mid_y = (bounds[1] + bounds[3]) / 2
@@ -2346,8 +2346,8 @@ def test_provisional_section_refines_without_reducing_required_leaders():
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.registry.issues)
 
 
-def test_non_provisional_section_prefixed_annotation_is_classified_immediately():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_non_provisional_section_prefixed_annotation_is_classified_immediately(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2)
