@@ -490,3 +490,8 @@ The angle-pattern generated-script contract now replays in memory because it com
 compiled member-reference and final-label sequence and never inspects a file. Across all seventeen
 unchanged module outcomes, format exports fall from one to zero, and the complete module passes
 under pull-request distribution.
+
+The partial-chain overall-height generated script now replays in memory because its contract is the
+rebuilt `62` label, measurement identity, and exact lint outcome rather than file serialization.
+Across all nineteen unchanged module outcomes, format exports fall from one to zero, and the
+complete module passes under pull-request distribution.
