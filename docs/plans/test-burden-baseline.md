@@ -474,3 +474,9 @@ The turned-boss generated-script contracts now replay in memory because they ins
 annotations, diagnostics, views, labels, and lint. Across all 27 unchanged module outcomes, format
 exports fall from five to zero. All three principal-axis cap-height cases, the synthetic overall
 owner, and the partial X-chain layout comparison remain direct generated-script executions.
+
+The shoulder-detail replay retains its SVG existence contract on the Z-axis representative and
+runs the X- and Y-axis semantic replays in memory. All three axes still compare the editable detail
+view, tolerance label, complete measurement-claim multiset, and lint result; the non-exporting cases
+also prove no file appeared. Across all fifteen unchanged module outcomes, format exports fall from
+three to one, and the complete module passes under pull-request distribution.
