@@ -605,38 +605,39 @@ def test_raw_freeform_dimensions_from_a_different_draft_keep_their_text(tmp_path
         pdf.close()
 
 
-@pytest.mark.parametrize(("axis", "expected"), [(-80, -30.0), (45, 95.0)])
-def test_raw_single_glyph_basic_dimension_recovers_rotation(tmp_path, axis, expected):
+def test_raw_single_glyph_basic_dimension_recovers_rotation(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(font_size=20)
-    angle = math.radians(axis)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        4,
-        custom,
-        label="R",
-        basic=True,
-        rotation=30,
-    )
-    annotation.location = Location((0, 0, 0), (0, 0, 20))
-    drawing.registry.add(annotation, "raw_single_glyph", view=None)
-    drawing.items.append(annotation)
+    for index, axis in enumerate((-80, 45)):
+        angle = math.radians(axis)
+        origin = 50 + index * 100
+        annotation = Dimension(
+            (origin, origin, 0),
+            (origin + math.cos(angle), origin + math.sin(angle), 0),
+            "above",
+            4,
+            custom,
+            label="R",
+            basic=True,
+            rotation=30,
+        )
+        annotation.location = Location((0, 0, 0), (0, 0, 20))
+        drawing.registry.add(annotation, f"raw_single_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"single_{axis}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "single_rotations"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     page = text_page.parent
     try:
         assert "R" in extracted
-        text_object = next(
-            item
+        actual = sorted(
+            (math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0])) + 90)
+            % 180
+            - 90
             for item in page.get_objects(textpage=text_page)
             if isinstance(item, pdfium.PdfTextObj) and item.extract() == "R"
         )
-        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-        actual = math.degrees(math.atan2(b, a))
-        assert (actual - expected + 90.0) % 180.0 - 90.0 == pytest.approx(0.0, abs=1.0)
+        assert actual == pytest.approx([-85.0, -30.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()

@@ -445,3 +445,9 @@ The `C` and percent-glyph unknown-font fallbacks now share one PDF and assert th
 converted into a semantic text object. The selected family falls from two integration items,
 drawing builds, and exports to one (50.0%). The complete searchable-PDF module falls from 31 to
 thirty items and from 26 to 25 exports; 29 outcomes pass and one remains skipped.
+
+The two raw single-`R` rotations now share one PDF. Their duplicate extracted objects are compared
+as a complete orientation multiset modulo 180 degrees, preserving the original direction-neutral
+text contract without relying on object order. The selected family falls from two integration
+items, drawing builds, and exports to one (50.0%). The complete searchable-PDF module falls from
+thirty to 29 items and from 25 to 24 exports; 28 outcomes pass and one remains skipped.
