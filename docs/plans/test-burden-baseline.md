@@ -40,3 +40,8 @@ stage target without changing the selected tests or assertions.
 The first stage 2 slice memoizes the immutable mirror-corpus kind census. Across its three
 consumers, recognition and analysis acquisitions fell from 96 to 64 (33.3%); the third guard
 now reads the exact census already proved by its sibling instead of rebuilding all 32 parts.
+
+The fresh-drawing cache-boundary probe constructs two independent drawings and records two
+builder/analysis executions but only one recognition acquisition. Mutating the first drawing's
+sheet membership and `PartModel` containers leaves the second drawing complete, proving the
+boundary reuses geometry evidence without sharing those mutable results.

@@ -84,3 +84,24 @@ def test_the_mutating_fixture_hands_out_a_private_build(
     assert mine is not shared
     mine.items.append(mine.get_annotation("title_block"))
     assert shared_drawing("box_40x40x10", auto_dims=False) is shared
+
+
+def test_fresh_drawings_reuse_recognition_without_sharing_mutable_state(fresh_drawing):
+    with recognition_consumer_calls() as on_miss:
+        first = fresh_drawing("box_30x20x10")
+    assert on_miss, "the cache miss recorded no provider call — the counter sees nothing"
+    expected_annotations = first.annotations()
+    expected_front_bounds = first.view_bounds("front")
+
+    first.items.pop()
+    first.model().features.pop()
+    with recognition_consumer_calls() as on_hit:
+        second = fresh_drawing("box_30x20x10")
+
+    assert on_hit == {}
+    assert second is not first
+    assert len(second.items) > len(first.items)
+    assert second.model() is not first.model()
+    assert len(second.model().features) > len(first.model().features)
+    assert second.annotations() == expected_annotations
+    assert second.view_bounds("front") == pytest.approx(expected_front_bounds)

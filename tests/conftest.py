@@ -9,7 +9,7 @@ import inspect
 import sys
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pytest
 from _unit_manifest import UNIT_MODULES
@@ -239,6 +239,26 @@ class _SharedDrawing:
     borrower: str
 
 
+@dataclass(frozen=True)
+class _AnalysisSeed:
+    part: object
+    analysis: object
+
+
+def _isolated_analysis(analysis):
+    """Copy the mutable IR containers while retaining immutable geometry evidence."""
+    model = analysis.model
+    if model is None:
+        return replace(analysis)
+    isolated_model = replace(
+        model,
+        features=list(model.features),
+        datums=list(model.datums),
+        decorations=dict(model.decorations),
+    )
+    return replace(analysis, model=isolated_model)
+
+
 def _sheet_membership(drawing) -> tuple:
     """The part of a Drawing a read-only borrower must leave exactly as it found it.
 
@@ -276,6 +296,13 @@ def _sheet_membership(drawing) -> tuple:
 @pytest.fixture(scope="session")
 def _built_drawing_cache():
     cache: dict[tuple, _SharedDrawing] = {}
+    yield cache
+    cache.clear()
+
+
+@pytest.fixture(scope="session")
+def _analysis_seed_cache():
+    cache: dict[tuple, _AnalysisSeed] = {}
     yield cache
     cache.clear()
 
@@ -339,5 +366,38 @@ def unshared_drawing_for_mutation():
 
     def _build(recipe: str, **options):
         return build_drawing(part(recipe), **options)
+
+    return _build
+
+
+@pytest.fixture
+def fresh_drawing(_analysis_seed_cache):
+    """Build a fresh Drawing while reusing immutable analysis for a named substrate."""
+    from _parts import part
+
+    from draftwright import build_drawing
+
+    def _build(recipe: str, **options):
+        key = (recipe, tuple(sorted(options.items())))
+        try:
+            hash(key)
+        except TypeError as exc:
+            raise TypeError(
+                f"analysis-cache options must be hashable; {options!r} is not"
+            ) from exc
+        seed = _analysis_seed_cache.get(key)
+        if seed is not None:
+            return build_drawing(
+                seed.part,
+                _analysis_base=_isolated_analysis(seed.analysis),
+                **options,
+            )
+
+        source = part(recipe)
+        captured = []
+        drawing = build_drawing(source, _analysis_sink=captured.append, **options)
+        assert captured, "builder returned without publishing its analysis seed"
+        _analysis_seed_cache[key] = _AnalysisSeed(source, _isolated_analysis(captured[0]))
+        return drawing
 
     return _build

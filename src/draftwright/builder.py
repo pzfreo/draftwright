@@ -1988,6 +1988,8 @@ def build_drawing(
     _view_constraints=None,
     _document_input=None,
     *,
+    _analysis_base: Analysis | None = None,
+    _analysis_sink: Callable[[Analysis], None] | None = None,
     projection_symbol: bool = True,
     #: The STEP document the geometry came from, when it is not `step_file` itself
     #: (#1563). Keyword-only: inserting it among the positional parameters would shift
@@ -2074,7 +2076,7 @@ def build_drawing(
         _view_constraints=_view_constraints,
         _document_input=_document_input,
     )
-    analysis_base = None
+    analysis_base = _analysis_base
     build_attempt = 0
     latest_analysis = None
     critique_recognition_cache = None
@@ -2120,6 +2122,8 @@ def build_drawing(
             latest_analysis = value
             if analysis_base is None:
                 analysis_base = value
+            if _analysis_sink is not None:
+                _analysis_sink(value)
 
         if build_attempt > 1:
             activity(
