@@ -53,8 +53,8 @@ least 10% or remove a demonstrated source of duplicate work.
 ### 1. Make the unit loop collect only unit modules
 
 `pytest -m unit` currently collects all 8,809 items before selecting 412 and takes about
-81 seconds in this workspace. Generate the invocation from the central `_UNIT_MODULES`
-manifest so pytest receives those paths directly. Add a guard that the direct-path set and
+81 seconds in this workspace. Generate the invocation from the central unit-module manifest
+so pytest receives those paths directly. Add a guard that the direct-path set and
 the marker-selected set have identical node IDs.
 
 **Exit:** the unit command constructs no shapes, selects the same tests, and completes in

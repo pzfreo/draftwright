@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pytest
+from _unit_manifest import UNIT_MODULES
 
 pytest_plugins = ("_burden_report",)
 
@@ -157,7 +158,8 @@ def recognition_consumer_calls():
 
 # ── The `unit` tier (#656): pure-logic tests, zero OCC geometry ──────────────────────
 #
-# `uv run pytest -m unit` is the inner loop: it must run in seconds and build nothing.
+# `uv run scripts/unit-tests` is the inner loop: it passes only these modules to pytest,
+# avoiding full-suite collection, and must run in seconds and build nothing.
 # Membership is centralised here so the tier has one place to grow; honesty is enforced
 # by the runtest hooks below — constructing any build123d Shape while a unit-marked
 # test runs fails it, and the patch is installed in `pytest_runtest_setup`, BEFORE
@@ -169,51 +171,24 @@ def recognition_consumer_calls():
 # build would also show up as collection slowness. A module moves to this list only if
 # every test in it passes under the enforcement.
 
-_UNIT_MODULES = frozenset(
-    {
-        "test_api_docs.py",
-        "test_architecture_docs.py",
-        "test_burden_report.py",
-        "test_carve_free_position_callers.py",
-        "test_clone_budget.py",
-        "test_counting_calls.py",
-        "test_deprecation_dates.py",
-        "test_fit_calculations.py",
-        "test_import_boundaries.py",
-        "test_inspection_contract.py",
-        "test_label_provenance.py",
-        "test_layout.py",
-        "test_issue_1312_engine_costs.py",
-        "test_issue_1332_overlap_remedy.py",
-        "test_recognition_evidence_schema.py",
-        "test_lint_ink_overlap.py",
-        "test_linting.py",
-        "test_pmi_part21.py",
-        "test_principal_profile_classifier.py",
-        "test_private_test_attr_reads.py",
-        "test_private_test_imports.py",
-        "test_quality_components.py",
-        "test_recogniser_adoption.py",
-        "test_recogniser_policy.py",
-        "test_registry.py",
-        "test_suite_shape.py",
-        "test_workflows.py",
-        "test_version_bump_ci.py",
-    }
-)
-
 _SHAPE_INIT = pytest.StashKey()
 
 
 def pytest_collection_modifyitems(config, items):
     for item in items:
-        if item.path.name in _UNIT_MODULES:
+        in_manifest = item.path.name in UNIT_MODULES
+        if item.get_closest_marker("unit") is not None and not in_manifest:
+            raise pytest.UsageError(
+                f"{item.nodeid} has an explicit unit marker but its module is absent from "
+                "tests/_unit_manifest.py"
+            )
+        if in_manifest:
             item.add_marker(pytest.mark.unit)
 
 
 def _forbidden_shape_init(self, *args, **kwargs):
     raise AssertionError(
-        "this test is in the `unit` tier (conftest._UNIT_MODULES) but constructs "
+        "this test is in the `unit` tier (tests/_unit_manifest.py) but constructs "
         "build123d geometry — move the module out of the tier or make the test pure (#656)"
     )
 

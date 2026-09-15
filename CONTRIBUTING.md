@@ -21,6 +21,7 @@ dependency management.
 
 ```
 uv sync                       # install dependencies
+uv run scripts/unit-tests     # pure-logic inner loop; skips full-suite collection
 uv run pytest -m smoke        # quick "did I break something obvious" check (~30 s)
 uv run pytest                 # full fast tier
 scripts/pr-check --quick      # smoke tier plus every static PR gate
