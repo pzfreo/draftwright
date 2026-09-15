@@ -457,11 +457,10 @@ def test_profiled_bore_wording_replays_without_losing_profile(patterned, indicat
         number="PROFILE",
         page="A3",
         scale=1,
-        formats=("svg",),
+        formats=(),
     )
     namespace = {"supplied_part": part}
-    exec(script, namespace)
-    replay = namespace["drawing"]
+    replay = execute_sheet_script_without_export(script, "<through-profile replay>", namespace)
     original = sheet.model().features[0]
     recreated = namespace["sheet"].model().features[0]
     bore = recreated.member if patterned else recreated

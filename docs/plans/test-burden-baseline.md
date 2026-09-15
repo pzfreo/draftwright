@@ -422,3 +422,9 @@ they assert only reconstructed pattern semantics and measurement equivalence; th
 owns this module's explicit format evidence. Their format exports fall from four to zero,
 compilations from 32 to 28, lint calls from twenty to sixteen, and shapes from 46,291 to 28,572
 (38.3%). All 52 module outcomes pass with five exporter calls, down from nine after the prior slice.
+
+The four profiled-bore wording cases likewise replay in memory: their contract is reconstructed
+profile, pattern, callout, and measurement meaning, while the sibling wording matrix owns file
+formats. Their format exports fall from four to zero, compilations from 32 to 28, lint calls from
+twenty to sixteen, and shapes from 54,698 to 35,674 (34.8%). The complete 52-outcome module now
+passes with one exporter call, down from the original twelve, while retaining every wording value.
