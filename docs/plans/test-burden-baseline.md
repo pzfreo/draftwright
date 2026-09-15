@@ -581,3 +581,12 @@ Python version, retaining full Git history so selection is anchored to the immut
 weekly, manual, and `full-matrix` paths invoke the complete fast manifest through the same runner.
 The coverage jobs remain on the complete fast suite until PR-tier global and changed-line coverage
 are measured; 110 workflow, version-gate, tier, clone, and suite-shape checks pass after the wiring.
+
+The changed-area tier for the preceding workflow CL selects 548 outcomes from 35 modules. Three
+three-worker runs completed inside pytest in 134.55, 146.28, and 148.58 seconds (146.28-second
+median), closing the ten-minute small-CL gate on this runner. Its exact instrumented run made 32
+format-export calls, 80 drawing builds, 72 recognition acquisitions, and 643,040 shape
+constructions; exporter calls are 86.3% below the original 233-call fast-tier baseline. Coverage
+instrumentation extended the run to 181.69 seconds but reached only 42.0% combined global coverage.
+The PR selection therefore cannot replace the complete-suite global 90% gate; it supplies fast
+feedback and changed-area evidence while the full coverage job remains authoritative globally.
