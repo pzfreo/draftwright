@@ -130,3 +130,8 @@ three-run median from 19.15 to 15.55 seconds (14.47, 15.55, 15.61), an 18.8% imp
 All 19 boundary guards and their synthetic violation probes remain unchanged and passing.
 The complete unit tier is still above target at 36.23-38.49 seconds with three loadscope workers,
 so this slice does not close the unit-loop gate by itself.
+
+Filtering the private-annotation import ratchet before parsing and sharing one AST walk across
+its direct and aliased forms reduced its three-run median from 11.33 to 6.32 seconds (6.10,
+6.32, 6.41), a 44.2% improvement. A new synthetic probe proves both detectable forms survive
+the filter. The full unit tier remains above target at 37.05 seconds with three loadscope workers.

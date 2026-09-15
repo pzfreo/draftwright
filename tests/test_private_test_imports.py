@@ -29,6 +29,7 @@ same as a module alias would over-flag — safe (fail-closed), and none occurs t
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parent
@@ -124,12 +125,12 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
 _ANNO = "draftwright.annotations"
 
 
-def _module_aliases(tree: ast.Module) -> dict[str, str]:
+def _module_aliases(nodes: Iterable[ast.AST]) -> dict[str, str]:
     """Map each local name bound to one of the big annotation modules → that module's short name.
     Covers ``import draftwright.annotations.holes as h`` and ``from draftwright.annotations import
     holes as h`` (or ``... import holes`` — the plain name binds to the module)."""
     aliases: dict[str, str] = {}
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, ast.Import):
             for a in node.names:  # e.g. draftwright.annotations.holes [as h]
                 if (
@@ -145,17 +146,21 @@ def _module_aliases(tree: ast.Module) -> dict[str, str]:
     return aliases
 
 
-def _private_anno_test_imports() -> set[tuple[str, str]]:
+def _private_anno_test_imports(tests: Path = _TESTS) -> set[tuple[str, str]]:
     """Every white-box reach into a big annotation module's PRIVATE from the whole test suite:
     a ``from draftwright.annotations.<mod> import _name`` import, OR a module-alias attribute
     access ``<alias>._name`` where *alias* is bound to one of the big modules."""
     found: set[tuple[str, str]] = set()
-    for path in sorted(_TESTS.glob("*.py")):
-        if path.name == Path(__file__).name:
+    for path in sorted(tests.glob("*.py")):
+        if path.resolve() == Path(__file__).resolve():
             continue  # don't scan this ratchet (it names the modules as strings)
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        # (a) direct `from ...annotations.<mod> import _name`
-        for node in ast.walk(tree):
+        source = path.read_text(encoding="utf-8")
+        if _ANNO not in source:
+            continue
+        nodes = tuple(ast.walk(ast.parse(source, filename=str(path))))
+        aliases = _module_aliases(nodes)
+        for node in nodes:
+            # (a) direct `from ...annotations.<mod> import _name`
             if (
                 isinstance(node, ast.ImportFrom)
                 and node.module
@@ -166,10 +171,8 @@ def _private_anno_test_imports() -> set[tuple[str, str]]:
                 for alias in node.names:
                     if alias.name.startswith("_"):
                         found.add((mod, alias.name))
-        # (b) module-alias attribute access `<alias>._name`
-        aliases = _module_aliases(tree)
-        for node in ast.walk(tree):
-            if (
+            # (b) module-alias attribute access `<alias>._name`
+            elif (
                 isinstance(node, ast.Attribute)
                 and isinstance(node.value, ast.Name)
                 and node.value.id in aliases
@@ -177,6 +180,21 @@ def _private_anno_test_imports() -> set[tuple[str, str]]:
             ):
                 found.add((aliases[node.value.id], node.attr))
     return found
+
+
+def test_private_import_scanner_sees_direct_and_aliased_forms(tmp_path: Path) -> None:
+    (tmp_path / "direct.py").write_text(
+        "from draftwright.annotations.holes import _direct\n", encoding="utf-8"
+    )
+    (tmp_path / "aliased.py").write_text(
+        "from draftwright.annotations import sections as s\ns._aliased()\n", encoding="utf-8"
+    )
+    (tmp_path / "irrelevant.py").write_text("value = '_not_an_import'\n", encoding="utf-8")
+
+    assert _private_anno_test_imports(tmp_path) == {
+        ("holes", "_direct"),
+        ("sections", "_aliased"),
+    }
 
 
 def test_private_anno_test_imports_only_shrink():
