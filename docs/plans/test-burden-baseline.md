@@ -505,3 +505,8 @@ The GRM04 boss/blend generated script now replays in memory because its contract
 ownership, absence of a duplicate diameter, and complete feature coverage. Across all eight
 unchanged module outcomes, format exports fall from one to zero, and the complete module passes
 under pull-request distribution.
+
+The generated GRM04 radius-leader contract now replays in memory because it checks every authored
+leader tip against the trimmed profile arcs and never inspects a file. Across all 36 unchanged
+module outcomes, format exports fall from one to zero, and the complete module passes under
+pull-request distribution.
