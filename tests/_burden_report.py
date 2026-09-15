@@ -17,6 +17,8 @@ SCHEMA_VERSION = 1
 _STATE = pytest.StashKey()
 _PROFILE = pytest.StashKey()
 _ACTIVE_RECIPES: list[dict[str, Any]] | None = None
+_ACTIVE_PROFILE: _Profile | None = None
+_MONITORING_TARGETS: dict[object, str] | None = None
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -74,36 +76,60 @@ def _targets() -> dict[object, str]:
 class _Profile:
     previous: Any
     previous_recipes: list[dict[str, Any]] | None
+    monitored: bool = False
     counts: Counter[str] = field(default_factory=Counter)
     recipes: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _start_profile(item: pytest.Item) -> None:
-    global _ACTIVE_RECIPES
+    global _ACTIVE_PROFILE, _ACTIVE_RECIPES, _MONITORING_TARGETS
     previous = sys.getprofile()
-    if previous is not None and not callable(previous):
-        raise RuntimeError("--burden-report cannot chain to the installed C-level profiler")
     active = _Profile(previous=previous, previous_recipes=_ACTIVE_RECIPES)
-    by_code = _targets()
+    monitoring = getattr(sys, "monitoring", None)
+    if monitoring is not None:
+        if _MONITORING_TARGETS is None:
+            _MONITORING_TARGETS = _targets()
+            tool_id = monitoring.PROFILER_ID
+            monitoring.use_tool_id(tool_id, "draftwright test burden")
 
-    def profile(frame, event, arg):
-        if event == "call" and (name := by_code.get(frame.f_code)) is not None:
-            active.counts[name] += 1
-        if active.previous is not None:
-            active.previous(frame, event, arg)
+            def count_start(code, instruction_offset):
+                if _ACTIVE_PROFILE is not None:
+                    name = _MONITORING_TARGETS.get(code)
+                    if name is not None:
+                        _ACTIVE_PROFILE.counts[name] += 1
+
+            monitoring.register_callback(tool_id, monitoring.events.PY_START, count_start)
+            for code in _MONITORING_TARGETS:
+                monitoring.set_local_events(tool_id, code, monitoring.events.PY_START)
+        active.monitored = True
+        _ACTIVE_PROFILE = active
+    else:
+        if previous is not None and not callable(previous):
+            raise RuntimeError("--burden-report cannot chain to the installed C-level profiler")
+        by_code = _targets()
+
+        def profile(frame, event, arg):
+            if event == "call" and (name := by_code.get(frame.f_code)) is not None:
+                active.counts[name] += 1
+            if active.previous is not None:
+                active.previous(frame, event, arg)
+
+        sys.setprofile(profile)
 
     item.stash[_PROFILE] = active
     _ACTIVE_RECIPES = active.recipes
-    sys.setprofile(profile)
 
 
 def _stop_profile(item: pytest.Item) -> None:
-    global _ACTIVE_RECIPES
+    global _ACTIVE_PROFILE, _ACTIVE_RECIPES
     active = item.stash.get(_PROFILE, None)
     if active is None:
         return
-    # Fixture teardown has restored any sys.setprofile monkeypatch installed by the test.
-    sys.setprofile(active.previous)
+    if active.monitored:
+        _ACTIVE_PROFILE = None
+    else:
+        # Fixture teardown has restored any sys.setprofile monkeypatch installed by the test.
+        sys.setprofile(active.previous)
     _ACTIVE_RECIPES = active.previous_recipes
 
 
@@ -219,3 +245,16 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
                     _collect_report(state, report)
     state.path.parent.mkdir(parents=True, exist_ok=True)
     state.path.write_text(json.dumps(_document(state), indent=2, sort_keys=True) + "\n")
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    global _MONITORING_TARGETS
+    monitoring = getattr(sys, "monitoring", None)
+    if monitoring is None or _MONITORING_TARGETS is None:
+        return
+    tool_id = monitoring.PROFILER_ID
+    for code in _MONITORING_TARGETS:
+        monitoring.set_local_events(tool_id, code, 0)
+    monitoring.register_callback(tool_id, monitoring.events.PY_START, None)
+    monitoring.free_tool_id(tool_id)
+    _MONITORING_TARGETS = None
