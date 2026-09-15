@@ -59,3 +59,8 @@ the two distinct complex substrates.
 Migrating `test_place_dimension.py` preserved its six builds and all seven behaviors while
 recognition acquisitions fell from six to five (16.7%). Only the two tests with identical
 geometry and `scale=2.0` share an analysis seed; every other option/geometry remains distinct.
+
+Migrating the read-only repetitions in `test_sheet_furniture.py` to `shared_drawing` reduced
+its PR-distributed drawing and recognition executions from 13 to 9 (30.8%) and shape
+constructions from 36,426 to 25,725 (29.4%). The four avoided builds are same-class cache
+hits under xdist `loadscope`; unique scale/page combinations remain independent.
