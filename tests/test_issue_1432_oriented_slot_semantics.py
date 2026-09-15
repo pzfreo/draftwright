@@ -8,6 +8,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from _parts import part as named_part
 from build123d import Align, Axis, Box, Pos, Rot
 from quiddity import (
@@ -173,14 +174,12 @@ def test_generated_sheet_losslessly_replays_high_precision_authored_values() -> 
     sheet = Sheet(_part()).authored_dimensions()
     sheet.oriented_slot(**kwargs)
 
-    source = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N")
+    source = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N", formats=())
     namespace = {"part": _part()}
-    exec(compile(source, "<precise-oriented-slot>", "exec"), namespace)  # noqa: S102
+    drawing = execute_sheet_script_without_export(source, "<precise-oriented-slot>", namespace)
 
     rebuilt = next(
-        feature
-        for feature in namespace["drawing"].model().features
-        if feature.kind == "oriented_slot"
+        feature for feature in drawing.model().features if feature.kind == "oriented_slot"
     )
     assert rebuilt == expected
 

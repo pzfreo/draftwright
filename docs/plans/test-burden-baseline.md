@@ -495,3 +495,8 @@ The partial-chain overall-height generated script now replays in memory because 
 rebuilt `62` label, measurement identity, and exact lint outcome rather than file serialization.
 Across all nineteen unchanged module outcomes, format exports fall from one to zero, and the
 complete module passes under pull-request distribution.
+
+The high-precision oriented-slot generated script now replays in memory because its contract is the
+exact reconstructed feature, including authored dimensions and directions. Across all one hundred
+unchanged module outcomes, format exports fall from one to zero, and the complete module passes
+under pull-request distribution.
