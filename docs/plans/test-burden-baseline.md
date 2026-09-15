@@ -231,3 +231,10 @@ from 43,484 to 19,692 shape constructions (54.7%). Across the unchanged 66-item 
 builds fall from 52 to 45 (13.5%), recognition acquisitions from 55 to 48 (12.7%), STEP imports from
 27 to 20 (25.9%), and shapes from 250,926 to 226,392 (9.8%). All malformed-schema, topology,
 correspondence, declaration, drawing, and cached-solid integrity outcomes remain passing.
+
+The plate provider-deletion and malformed-record probes now use the same clean reduced corpus as
+the family's interval and identity mutations. Their combined drawing, recognition, and STEP-import
+work falls from 22 runs to six (72.7%), and shapes from 86,629 to 21,603 (75.1%). Across all 53
+unchanged plate outcomes, drawing builds fall from 92 to 74 (19.6%), recognition acquisitions from
+91 to 73 (19.8%), STEP imports from 49 to 31 (36.7%), and shapes from 775,016 to 701,905 (9.4%).
+The full eleven-case topology corpus and every selected provider mutation remain passing.
