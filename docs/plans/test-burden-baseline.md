@@ -440,3 +440,8 @@ assertion groups exact extracted text objects by glyph and compares the complete
 neither repeated `1` can satisfy the other one's direction. The selected family falls from three
 integration items, drawing builds, and exports to one (66.7%). The complete searchable-PDF module
 falls from 33 to 31 items and from 28 to 26 exports; thirty outcomes pass and one remains skipped.
+
+The `C` and percent-glyph unknown-font fallbacks now share one PDF and assert that neither glyph was
+converted into a semantic text object. The selected family falls from two integration items,
+drawing builds, and exports to one (50.0%). The complete searchable-PDF module falls from 31 to
+thirty items and from 26 to 25 exports; 29 outcomes pass and one remains skipped.

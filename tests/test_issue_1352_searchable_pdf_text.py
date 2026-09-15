@@ -812,36 +812,38 @@ def test_raw_same_face_multi_outline_glyph_ignores_face_order(tmp_path):
         pdf.close()
 
 
-@pytest.mark.parametrize("label", ["C", "%"])
-def test_raw_unknown_single_glyph_font_keeps_vector_fallback(tmp_path, label):
+def test_raw_unknown_single_glyph_font_keeps_vector_fallback(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     drawing.draft.font_size = 20
     custom = Draft(font_size=20)
     custom.font_path = PLEX_SANS_CONDENSED
-    angle = math.radians(-170)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        10,
-        custom,
-        label=label,
-        basic=True,
-    )
-    box = annotation.bounding_box()
-    annotation.location = Location(
-        (100 - (box.min.X + box.max.X) / 2, 100 - (box.min.Y + box.max.Y) / 2, 0)
-    )
-    drawing.registry.add(annotation, "raw_custom_glyph", view=None)
-    drawing.items.append(annotation)
+    for index, (label, centre) in enumerate((("C", 75), ("%", 150))):
+        angle = math.radians(-170)
+        annotation = Dimension(
+            (50, 50, 0),
+            (50 + math.cos(angle), 50 + math.sin(angle), 0),
+            "above",
+            10,
+            custom,
+            label=label,
+            basic=True,
+        )
+        box = annotation.bounding_box()
+        annotation.location = Location(
+            (centre - (box.min.X + box.max.X) / 2, centre - (box.min.Y + box.max.Y) / 2, 0)
+        )
+        drawing.registry.add(annotation, f"raw_custom_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"raw_custom_glyph_{label}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_custom_glyphs"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     try:
-        assert not any(
-            isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == label
+        text = {
+            item.extract().strip()
             for item in text_page.parent.get_objects(textpage=text_page)
-        )
+            if isinstance(item, pdfium.PdfTextObj)
+        }
+        assert not {"C", "%"} & text
     finally:
         text_page.close()
         pdf.close()
