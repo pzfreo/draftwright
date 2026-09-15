@@ -260,3 +260,10 @@ unchanged outcomes under pull-request distribution, drawing builds fall from 50 
 recognition acquisitions from 51 to 43 (15.7%), STEP imports from 30 to 22 (26.7%), and shapes from
 473,013 to 433,377 (8.4%). The full corpus topology checks and every retained provider, generated-
 code, declaration, drawing, and lint mutation remain passing.
+
+The chamfer provider-deletion probe now uses the family's clean two-case cover. Its mutation work
+falls from ten to four drawing, recognition, and STEP-import runs (60.0%), and from 29,710 to
+12,114 shape constructions (59.2%). Across all 30 unchanged outcomes under pull-request
+distribution, drawing builds and recognition acquisitions fall from 51 to 45 (11.8%), STEP imports
+from 32 to 26 (18.8%), and shapes from 169,243 to 152,381 (10.0%). Full topology coverage and the
+retained provider, parameter, declaration, drawing, and quality mutations remain passing.
