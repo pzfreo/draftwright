@@ -174,3 +174,10 @@ shape constructions from 453,169 to 365,571 (19.3%); compilation (262), drawing 
 lint calls (177) are unchanged. Summed phase duration fell from 278.35 to 212.30 seconds (23.7%).
 A full 502-item emitter-module run retained 501 passes and one expected xfail, while module- and
 class-scoped teardown fingerprints proved no consumer mutated cached solids or recognition models.
+
+The adjacent 32-part declared-fidelity corpus now likewise constructs each solid and detection
+model once per loadscope worker. Across the same 143 outcomes (142 passes and one expected xfail),
+recognition acquisitions fell from 231 to 102 (55.8%), analysis runs from 252 to 123 (51.2%), and
+shape constructions from 891,411 to 500,233 (43.9%). Compilation (582), drawing builds (64), and
+lint calls (239) remain exact. Summed phase duration fell from 393.29 to 198.89 seconds (49.4%),
+and the class-scoped solid/model fingerprints remained unchanged after every consumer.

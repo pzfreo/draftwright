@@ -3779,6 +3779,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         return False
 
     @staticmethod
+    @cache
     def _corpus():
         from build123d import Box, Cylinder, Pos
 
@@ -3867,6 +3868,36 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             + Pos(0, 18.75, 15) * Box(50, 12.5, 18),
         }
 
+    @staticmethod
+    @cache
+    def _models():
+        return {
+            name: detect_part_model(part)
+            for name, part in TestTheDeclaredModelMatchesTheDetectedOne._corpus().items()
+        }
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def _cached_detected_corpus_stays_pristine(cls):
+        def signature(part):
+            bounds = part.bounding_box()
+            return (
+                part.volume,
+                tuple(bounds.min),
+                tuple(bounds.max),
+                len(part.solids()),
+                len(part.faces()),
+                len(part.edges()),
+            )
+
+        solids_before = {name: signature(part) for name, part in cls._corpus().items()}
+        models_before = {name: repr(model) for name, model in cls._models().items()}
+        yield
+        solids_after = {name: signature(part) for name, part in cls._corpus().items()}
+        models_after = {name: repr(model) for name, model in cls._models().items()}
+        assert solids_after == solids_before, "a fidelity test mutated cached corpus geometry"
+        assert models_after == models_before, "a fidelity test mutated cached detection evidence"
+
     #: Fixtures whose member ENUMERATION ORDER is a known defect, as STRICT xfails. Strict
     #: because an assertion that the models merely DIFFER — which this was first — stays green
     #: if a later change produces a DIFFERENT wrong answer, and because fixing the defect then
@@ -3937,7 +3968,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_corpus_detects_what_it_claims(self, name):
-        kinds = {f.kind for f in detect_part_model(self._corpus()[name]).features}
+        kinds = {f.kind for f in self._models()[name].features}
         expected = self._EXPECTED_KINDS[name]
         assert expected <= kinds, f"{name} detects {sorted(kinds)}, missing {sorted(expected)}"
 
@@ -4127,8 +4158,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         and a `declared` one in the declared corpus — no exemption list, and no phrase that
         can be edited to make the requirement disappear."""
         detected = set()
-        for part in self._corpus().values():
-            detected |= {f.kind for f in detect_part_model(part).features}
+        for model in self._models().values():
+            detected |= {f.kind for f in model.features}
         declared = set()
         for build in self._declared_corpus().values():
             _part, model = build()
@@ -4170,7 +4201,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         exemption rests on a checked fact rather than a sentence. Two plates in one part must
         share an origin, and it must be the part's bbox centre — that is what makes the field
         a placeholder rather than a position."""
-        model = detect_part_model(self._corpus()["plate"])
+        model = self._models()["plate"]
         plates = [f for f in model.features if f.kind == "plate"]
         assert len(plates) == 2, "the fixture must carry two slabs for this to mean anything"
         centre = model.bbox.center()
@@ -4197,7 +4228,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         # test an emitter call production does not make, and would assert the script matches
         # a decision it was never told about.
         src = emit_sheet_script(
-            detect_part_model(part),
+            self._models()[name],
             "part",
             "s",
             title="T",
@@ -4228,7 +4259,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         import dataclasses
 
         part = self._corpus()[name]
-        detected = detect_part_model(part)
+        detected = self._models()[name]
         src = emit_sheet_script(detected, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
         exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
@@ -4282,7 +4313,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         import dataclasses
 
         part = self._corpus()[name]
-        detected = detect_part_model(part)
+        detected = self._models()[name]
         src = emit_sheet_script(detected, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
         exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
