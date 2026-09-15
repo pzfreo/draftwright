@@ -148,3 +148,8 @@ before fingerprinting it. The guard's three-run median fell again from 10.94 sec
 (8.82, 9.54, 10.43), a 12.8% improvement. Comparing the old full-tree discovery with the pruned
 walk found the same 4,542 threshold-qualified candidates and identical equivalence classes. The
 complete unit tier measured 31.81 seconds with three loadscope workers, so further work remains.
+
+Memoizing the immutable deprecation census removes the second repository-wide parse performed by
+its sibling guard. The module's three-run median fell from 10.77 seconds (10.77, 10.52, 10.91) to
+8.25 seconds (8.25, 8.38, 7.36), a 23.4% improvement, with all three assertions unchanged. The
+complete unit tier reached 30.31 seconds with three loadscope workers, just above the stage target.
