@@ -62,9 +62,9 @@ class TestLintSummaryAndDrops:
         # A single-hole plate doesn't overflow the per-view callout cap.
         assert "callout_dropped" not in s["by_code"]
 
-    def test_quality_components_do_not_mix_semantic_and_layout_diagnostics(self):
+    def test_quality_components_do_not_mix_semantic_and_layout_diagnostics(self, fresh_drawing):
 
-        dwg = build_drawing(Box(60, 40, 30))
+        dwg = fresh_drawing("box_60x40x30")
         dwg.registry.record_issue(
             LintIssue(severity="warning", code="callout_dropped", message="layout")
         )
@@ -112,9 +112,9 @@ class TestLintSummaryAndDrops:
             ),
         }
 
-    def test_recorded_build_issue_surfaces_and_counts(self):
+    def test_recorded_build_issue_surfaces_and_counts(self, fresh_drawing):
 
-        dwg = build_drawing(Box(60, 40, 30))
+        dwg = fresh_drawing("box_60x40x30")
         before = dwg.lint_summary()
         dwg.registry.record_issue(
             LintIssue(severity="warning", code="callout_dropped", message="synthetic drop")
@@ -278,7 +278,7 @@ class TestLintSummaryAndDrops:
         assert all(abs(mid.feature.frame.origin[0] + 39.3) < 1e-6 for mid in issue.measurement_ids)
 
     @pytest.mark.timeout(120)
-    def test_auto_annotate_clears_stale_build_issues(self):
+    def test_auto_annotate_clears_stale_build_issues(self, fresh_drawing):
         # Re-annotating starts build-time lint tracking from a clean slate:
         # stale drop records from a prior pass are cleared, not accumulated.
         # (A full second pass is not idempotent — strip cursors advance — but
@@ -286,7 +286,7 @@ class TestLintSummaryAndDrops:
 
         from draftwright.annotate import _auto_annotate
 
-        dwg = build_drawing(Box(60, 40, 30))
+        dwg = fresh_drawing("box_60x40x30")
         dwg.registry.record_issue(
             LintIssue(severity="warning", code="callout_dropped", message="stale")
         )
@@ -307,11 +307,11 @@ class TestLintSummaryAndDrops:
         assert len(first) == len(second)
         assert dwg.lint_summary()["by_code"] == dwg.lint_summary()["by_code"]
 
-    def test_placement_unsatisfiable_is_error_severity(self):
+    def test_placement_unsatisfiable_is_error_severity(self, fresh_drawing):
         # placement_unsatisfiable (engine could not place a wanted annotation)
         # is error-severity, so it fails the `passed` gate.
 
-        dwg = build_drawing(Box(60, 40, 30))
+        dwg = fresh_drawing("box_60x40x30")
         assert dwg.lint_summary()["passed"] is True
         dwg.registry.record_issue(
             LintIssue(severity="error", code="placement_unsatisfiable", message="synthetic")

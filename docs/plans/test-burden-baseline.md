@@ -64,3 +64,9 @@ Migrating the read-only repetitions in `test_sheet_furniture.py` to `shared_draw
 its PR-distributed drawing and recognition executions from 13 to 9 (30.8%) and shape
 constructions from 36,426 to 25,725 (29.4%). The four avoided builds are same-class cache
 hits under xdist `loadscope`; unique scale/page combinations remain independent.
+
+Migrating the four mutation-heavy `box_60x40x30` cases in `test_lint_summary.py` to
+`fresh_drawing` preserved all ten drawing builds and 13 behaviors while recognition
+acquisitions fell from ten to seven (30.0%) in the PR-distributed run. Each test still owns
+its mutable drawing and registry; only the immutable analysis seed is reused within the
+loadscope worker.
