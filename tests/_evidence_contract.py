@@ -257,6 +257,7 @@ def assert_removing_the_placed_callout_loses_drawing_credit(
     observer and fixture part.
     """
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -266,9 +267,11 @@ def assert_removing_the_placed_callout_loses_drawing_credit(
         drawing.remove(name)
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", without_callout)
-    assert states("ir_adapter") == {"supported"}
-    assert states("drawing_consumer") == {"unsupported"}
+    with monkeypatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", without_callout)
+        assert states("ir_adapter") == {"supported"}
+        assert states("drawing_consumer") == {"unsupported"}
 
 
 def assert_quality_summary_counts_audited_requirements(

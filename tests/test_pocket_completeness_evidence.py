@@ -224,8 +224,9 @@ def test_removing_placed_pocket_callout_loses_drawing_credit(monkeypatch) -> Non
     assert_removing_the_placed_callout_loses_drawing_credit(monkeypatch, "m_pocket_", _states)
 
 
-def test_severing_one_directional_location_fact_loses_drawing_credit(monkeypatch) -> None:
+def test_severing_one_directional_location_fact_loses_drawing_credit() -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -242,16 +243,19 @@ def test_severing_one_directional_location_fact_loses_drawing_credit(monkeypatch
         drawing.registry.named(name).covers_hole_locations = ()
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", without_x_location_fact)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", without_x_location_fact)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
 @pytest.mark.parametrize(
     "wrong_label",
     ("6 × 30 × 12 DEEP", "12 999 × 30 × 6 DEEP"),
 )
-def test_wrong_pocket_nominal_ink_loses_drawing_credit(monkeypatch, wrong_label) -> None:
+def test_wrong_pocket_nominal_ink_loses_drawing_credit(wrong_label) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -263,8 +267,10 @@ def test_wrong_pocket_nominal_ink_loses_drawing_credit(monkeypatch, wrong_label)
         callout.label = wrong_label
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_wrong_ink)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
 def test_exact_pocket_ink_contract_accepts_compiler_approved_tolerances() -> None:
@@ -291,9 +297,10 @@ def test_exact_pocket_ink_contract_accepts_compiler_approved_tolerances() -> Non
 
 @pytest.mark.parametrize("wrong_label", ("19", "72 999"))
 def test_wrong_directional_pocket_location_ink_loses_drawing_credit(
-    monkeypatch, wrong_label
+    wrong_label,
 ) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -312,12 +319,17 @@ def test_wrong_directional_pocket_location_ink_loses_drawing_credit(
         location.label = wrong_label
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_location_ink)
-    assert _states("drawing_consumer") == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        # The generated-code boundary rebinds Sheet's import-time alias while this fault is
+        # active. Track that binding too so the wrapper cannot escape this test.
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_wrong_location_ink)
+        assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_wrong_side_opening_pocket_location_ink_loses_drawing_credit(monkeypatch) -> None:
+def test_wrong_side_opening_pocket_location_ink_loses_drawing_credit() -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -328,10 +340,12 @@ def test_wrong_side_opening_pocket_location_ink_loses_drawing_credit(monkeypatch
         location.label = "28 999"
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_location_ink)
-    part = import_step(CORPUS.parent / "pocket-side.step")
-    observed = _default_observers()["pockets"](part)
-    assert {fact.downstream["drawing_consumer"] for fact in observed} == {"unsupported"}
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_wrong_location_ink)
+        part = import_step(CORPUS.parent / "pocket-side.step")
+        observed = _default_observers()["pockets"](part)
+        assert {fact.downstream["drawing_consumer"] for fact in observed} == {"unsupported"}
 
 
 def test_side_opening_authored_location_omission_is_suppressed_not_missing() -> None:
