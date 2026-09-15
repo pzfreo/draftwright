@@ -119,6 +119,13 @@ recognition (one), and STEP imports (37) are exact. Recognition acquisitions fel
 (27.7%) and shape constructions from 571,761 to 527,923 (7.7%). Observer and injected-failure
 paths still build directly, and negative-axis substrates remain separate.
 
+The 33 repeated single-slot cases in the #1432 oriented-slot semantics module now build private
+drawings from one immutable analysis seed. All 100 outcomes remain collected and passing;
+drawing builds (70), analysis runs (70), compilation calls (87), format exports (one), lint calls
+(149), and raw recognition (one) are exact. Recognition acquisitions fell from 114 to 81 (28.9%)
+and shape constructions from 561,020 to 495,086 (11.8%). Rigid-motion, pattern, authored-model,
+and provider fault paths continue to construct their distinct substrates directly.
+
 A complete post-migration run of the #1166 family confirms the slices compose under one
 session cache: all 145 outcomes remain 139 passes and six expected strict xfails. Drawing
 builds (104), analysis runs (113), compilation calls (194), and lint calls (294) are unchanged;

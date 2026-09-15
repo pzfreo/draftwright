@@ -63,6 +63,18 @@ def _rectangular_pad(axis: str):
     return box((40, 10, 30), (0, 0, 0)) + box((15, 5, 10), (5, 10, 8))
 
 
+def _oriented_slot():
+    """Return the single 30-degree slot used by the #1432 evidence tests."""
+    from build123d import Align, Pos, Rot
+
+    tool = (
+        Pos(0, 0, 0)
+        * Rot(0, 0, 30)
+        * Box(24, 6, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    )
+    return Box(120, 90, 10) - tool
+
+
 # (length, width, height), in descending order of the census above. The cut was 23 calls.
 _BOX_SUBSTRATES: tuple[tuple[int, int, int], ...] = (
     (60, 40, 20),
@@ -90,7 +102,10 @@ PART_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
 )
 
 _ANALYSIS_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
-    {f"rectangular_pad_{axis}_positive": partial(_rectangular_pad, axis) for axis in "xyz"}
+    {
+        **{f"rectangular_pad_{axis}_positive": partial(_rectangular_pad, axis) for axis in "xyz"},
+        "oriented_slot_30deg": _oriented_slot,
+    }
 )
 
 _ALL_RECIPES = {**PART_RECIPES, **_ANALYSIS_RECIPES}
