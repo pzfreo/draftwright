@@ -1,10 +1,8 @@
 """Drawing pinning, annotation-query, and view-bound behavior."""
 
 import pytest
-from build123d import Box, Compound, Edge
+from build123d import Compound, Edge
 from build123d_drafting import Leader
-
-from draftwright import build_drawing
 
 
 @pytest.fixture
@@ -15,63 +13,63 @@ def plain_box_dwg(shared_drawing):
 class TestPin:
     """#89: a pinned annotation is never moved by the engine (repair today)."""
 
-    def _two_overlapping(self):
+    def _two_overlapping(self, fresh_drawing):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         p1, p2 = (40.0, 20.0, 0.0), (80.0, 20.0, 0.0)
         dwg._add(_dim(p1, p2, "above", 8, dwg.draft, label="AA"), "a")
         dwg._add(_dim(p1, p2, "above", 8, dwg.draft, label="BB"), "b")
         return dwg
 
-    def test_repair_does_not_move_a_pinned_dim(self):
+    def test_repair_does_not_move_a_pinned_dim(self, fresh_drawing):
         # Overlaps are not repaired by fixed-step placement anymore, so pinned and
         # unpinned dimensions alike stay put.
-        dwg = self._two_overlapping()
+        dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a")
         dwg.repair()
         assert dwg.get_annotation("a")._dw_spec.distance == 8
         assert dwg.get_annotation("b")._dw_spec.distance == 8
 
-    def test_unpin_lets_repair_move_it_again(self):
-        dwg = self._two_overlapping()
+    def test_unpin_lets_repair_move_it_again(self, fresh_drawing):
+        dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a").unpin("a")
         dwg.repair()
         assert dwg.get_annotation("a")._dw_spec.distance == 8
         assert dwg.get_annotation("b")._dw_spec.distance == 8
         assert [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
-    def test_pin_unknown_name_raises(self):
-        dwg = build_drawing(Box(60, 40, 20))
+    def test_pin_unknown_name_raises(self, fresh_drawing):
+        dwg = fresh_drawing("box_60x40x20")
         with pytest.raises(KeyError):
             dwg.pin("does_not_exist")
 
-    def test_pin_and_unpin_are_chainable(self):
-        dwg = self._two_overlapping()
+    def test_pin_and_unpin_are_chainable(self, fresh_drawing):
+        dwg = self._two_overlapping(fresh_drawing)
         assert dwg.pin("a") is dwg
         assert dwg.unpin("a") is dwg
 
-    def test_pinning_both_overlap_labels_is_a_noop(self):
+    def test_pinning_both_overlap_labels_is_a_noop(self, fresh_drawing):
         # Both deliberate → the engine respects both and leaves the overlap.
-        dwg = self._two_overlapping()
+        dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a").pin("b")
         dwg.repair()
         assert dwg.get_annotation("a")._dw_spec.distance == 8
         assert dwg.get_annotation("b")._dw_spec.distance == 8
 
-    def test_pinning_a_non_dim_then_repair_does_not_crash(self):
+    def test_pinning_a_non_dim_then_repair_does_not_crash(self, fresh_drawing):
         # _find_dim builds an id-set over pinned objects of any type; pinning a
         # Leader (not a re-placeable dim) must not break repair.
-        dwg = self._two_overlapping()
+        dwg = self._two_overlapping(fresh_drawing)
         dwg._add(Leader((0, 0, 0), (10, 10, 0), "L", dwg.draft), "ldr")
         dwg.pin("ldr")
         dwg.repair()  # must not raise
         assert "ldr" in dwg.annotations()
 
-    def test_removed_then_readded_name_is_not_still_pinned(self):
+    def test_removed_then_readded_name_is_not_still_pinned(self, fresh_drawing):
         from draftwright._core import _dim
 
-        dwg = self._two_overlapping()
+        dwg = self._two_overlapping(fresh_drawing)
         dwg.pin("a")
         dwg.remove("a")
         # Re-add a fresh "a" at the same overlapping spot; it must NOT inherit
@@ -87,8 +85,8 @@ class TestPin:
 class TestAnnotationsQuery:
     """#27: introspect existing annotations by name and type."""
 
-    def test_annotations_maps_name_to_type(self):
-        dwg = build_drawing(Box(60, 40, 20))
+    def test_annotations_maps_name_to_type(self, fresh_drawing):
+        dwg = fresh_drawing("box_60x40x20")
         anns = dwg.annotations()
         # A dict keyed by the names actually registered, valued by class name.
         assert isinstance(anns, dict)
@@ -98,36 +96,36 @@ class TestAnnotationsQuery:
         for name, type_name in anns.items():
             assert type(dwg.get_annotation(name)).__name__ == type_name
 
-    def test_annotations_omits_unnamed(self):
+    def test_annotations_omits_unnamed(self, fresh_drawing):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         before = dict(dwg.annotations())
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="U"))  # no name
         # Unnamed annotation lands in items but not in the name→type map.
         assert dwg.annotations() == before
         assert len(dwg.items) == len(before) + 1
 
-    def test_annotations_reflects_add_and_membership(self):
+    def test_annotations_reflects_add_and_membership(self, fresh_drawing):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         assert "q_dim" not in dwg.annotations()
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="Q"), "q_dim")
         assert dwg.annotations()["q_dim"] == "Dimension"
 
-    def test_get_annotation_returns_object_or_none(self):
+    def test_get_annotation_returns_object_or_none(self, fresh_drawing):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         obj = dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="G"), "g")
         assert dwg.get_annotation("g") is obj
         assert dwg.get_annotation("does_not_exist") is None
 
-    def test_get_annotation_follows_remove(self):
+    def test_get_annotation_follows_remove(self, fresh_drawing):
         from draftwright._core import _dim
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         dwg._add(_dim((0, 0, 0), (40, 0, 0), "above", 8, dwg.draft, label="R"), "r")
         assert dwg.get_annotation("r") is not None
         dwg.remove("r")
@@ -167,11 +165,11 @@ class TestViewBounds:
             x0, y0, x1, y1 = b
             assert x1 > x0 and y1 > y0, v
 
-    def test_view_bounds_includes_hidden_lines(self):
+    def test_view_bounds_includes_hidden_lines(self, fresh_drawing):
         # Bounds union the visible and hidden silhouettes. Replace the front
         # view's hidden compound with one that extends past the visible box and
         # confirm the right edge moves out to it.
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         vis, _ = dwg.views["front"]
         _, _, x1, _ = dwg.view_bounds("front")
         far = Compound(children=[Edge.make_line((x1 + 10, 0, 0), (x1 + 10, 5, 0))])

@@ -45,3 +45,8 @@ The fresh-drawing cache-boundary probe constructs two independent drawings and r
 builder/analysis executions but only one recognition acquisition. Mutating the first drawing's
 sheet membership and `PartModel` containers leaves the second drawing complete, proving the
 boundary reuses geometry evidence without sharing those mutable results.
+
+Migrating `test_drawing_state.py` to that boundary preserved its 14 fresh drawing builds and
+all 17 behavior tests while recognition acquisitions fell from 14 to 2 (85.7%) and shape
+constructions from 37,597 to 25,197 (33.0%). The remaining two acquisitions belong to the
+independent read-only drawing cache and the fresh-drawing seed.
