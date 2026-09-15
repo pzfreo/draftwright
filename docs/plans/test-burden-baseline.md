@@ -575,3 +575,9 @@ retains height—the historically distinct compiler-and-ladder path—in PR whil
 scheduled; their cheaper label and geometry contracts remain fast. Across the two families, the PR
 side retains 21 outcomes and four exporter calls, while four scheduled outcomes carry the other six
 calls. Full and scheduled collection partition all 8,756 outcomes as 8,690 fast and 66 scheduled.
+
+Ordinary pull-request compatibility jobs now invoke the changed-area manifest on every supported
+Python version, retaining full Git history so selection is anchored to the immutable PR base. The
+weekly, manual, and `full-matrix` paths invoke the complete fast manifest through the same runner.
+The coverage jobs remain on the complete fast suite until PR-tier global and changed-line coverage
+are measured; 110 workflow, version-gate, tier, clone, and suite-shape checks pass after the wiring.

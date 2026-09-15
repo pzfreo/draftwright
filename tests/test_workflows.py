@@ -133,6 +133,16 @@ def test_the_full_matrix_stays_reachable_without_editing_the_workflow():
     assert "full-matrix" in test_job  # opt in on a single pull request
 
 
+def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable():
+    test_job = _job(_workflow("ci.yml"), "test")
+
+    assert "fetch-depth: 0" in test_job
+    assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in test_job
+    assert "tier=full" in test_job
+    assert "tier=pr" in test_job
+    assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
+
+
 def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     workflow = _workflow("ci.yml")
 

@@ -153,7 +153,7 @@ jobs:
         # roughly 234 pull-request CI runs a month that is ~55,000 billed minutes, and it
         # exhausted the account's Actions allowance.
         #
-        # So pull requests run the fast tier on Linux only, plus the smoke+unit
+        # So pull requests run their changed-area tier on Linux only, plus the smoke+unit
         # `test-platform-canary` legs below (one macOS, one Windows — full tier was
         # tried on 2026-08-19 and rolled back the same day on cost/latency). The full
         # cross-platform surface runs in the weekly sweep, on `workflow_dispatch`, or
@@ -192,6 +192,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -203,12 +204,9 @@ jobs:
         run: uv sync --group dev
 
       - name: Run tests
-        # Fast tier only — the `slow` marker (heavy CTC fixture builds) is
-        # deselected by default via addopts. The slow tier runs post-merge in the
-        # `test-slow` job below.
-        # `-n auto --dist loadscope`: run across all cores (#153). The suite is
-        # build-bound and parallel-safe; loadscope keeps a class/module on one
-        # worker so test ordering and module-scoped fixtures hold.
+        # Ordinary PRs run the changed-area manifest; full-matrix PRs, scheduled
+        # sweeps, and manual runs execute the complete supported-behaviour tier.
+        # Checkout retains history so the selector can resolve the immutable PR base.
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
@@ -219,10 +217,17 @@ jobs:
         # shard; balance comes from the committed .test_durations (regenerate with
         # `--store-durations` when it drifts far from reality — stale entries only
         # unbalance the halves, never drop tests).
-        run: >-
-          uv run pytest tests/ -n auto --dist loadscope
-          --durations=25
-          ${{ matrix.shard && format('--splits 2 --group {0}', matrix.shard) || '' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TIER: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-matrix') }}
+        run: |
+          tier=full
+          if [[ "$PR_TIER" == "true" ]]; then
+            tier=pr
+          fi
+          uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
+            --durations=25 \
+            ${{ matrix.shard && format('--splits 2 --group {0}', matrix.shard) || '' }}
 
   coverage:
     needs: changes
