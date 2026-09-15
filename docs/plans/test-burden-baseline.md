@@ -267,3 +267,10 @@ falls from ten to four drawing, recognition, and STEP-import runs (60.0%), and f
 distribution, drawing builds and recognition acquisitions fall from 51 to 45 (11.8%), STEP imports
 from 32 to 26 (18.8%), and shapes from 169,243 to 152,381 (10.0%). Full topology coverage and the
 retained provider, parameter, declaration, drawing, and quality mutations remain passing.
+
+The fillet provider-deletion probe now uses the family's clean two-case cover. Its mutation work
+falls from ten to four drawing, recognition, and STEP-import runs (60.0%), and from 29,338 to
+13,546 shape constructions (53.8%). Across all 28 unchanged outcomes under pull-request
+distribution, drawing builds and recognition acquisitions fall from 47 to 39 (17.0%), STEP imports
+from 27 to 19 (29.6%), and shapes from 151,713 to 129,554 (14.6%). Full topology coverage and the
+retained provider, radius, declaration, drawing, and quality mutations remain passing.
