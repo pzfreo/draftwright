@@ -451,3 +451,9 @@ as a complete orientation multiset modulo 180 degrees, preserving the original d
 text contract without relying on object order. The selected family falls from two integration
 items, drawing builds, and exports to one (50.0%). The complete searchable-PDF module falls from
 thirty to 29 items and from 25 to 24 exports; 28 outcomes pass and one remains skipped.
+
+The two challenging default-font axes now share one PDF containing both rotations of every glyph.
+Each glyph's two extracted objects must have the complete `[-30, 95]` angle multiset, so neither
+axis nor any of the seven outline classes can disappear. The selected family falls from two
+integration items, drawing builds, and exports to one (50.0%). The complete searchable-PDF module
+falls from 29 to 28 items and from 24 to 23 exports; 27 outcomes pass and one remains skipped.

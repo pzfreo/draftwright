@@ -643,45 +643,46 @@ def test_raw_single_glyph_basic_dimension_recovers_rotation(tmp_path):
         pdf.close()
 
 
-@pytest.mark.parametrize(("axis", "expected"), [(-80, -30.0), (45, 95.0)])
-def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(
-    tmp_path, axis, expected
-):
+def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(font_size=20)
     glyphs = "BGCO069"
     glyph_set = set(glyphs)
-    for index, label in enumerate(glyphs):
+    for column, axis in enumerate((-80, 45)):
         angle = math.radians(axis)
-        y = 25 + index * 22
-        annotation = Dimension(
-            (50, y, 0),
-            (50 + math.cos(angle), y + math.sin(angle), 0),
-            "above",
-            10,
-            custom,
-            label=label,
-            basic=True,
-            rotation=30,
-        )
-        annotation.location = Location((0, 0, 0), (0, 0, 20))
-        drawing.registry.add(annotation, f"raw_single_glyph_{label}", view=None)
-        drawing.items.append(annotation)
+        x = 50 + column * 100
+        for row, label in enumerate(glyphs):
+            y = 25 + row * 22
+            annotation = Dimension(
+                (x, y, 0),
+                (x + math.cos(angle), y + math.sin(angle), 0),
+                "above",
+                10,
+                custom,
+                label=label,
+                basic=True,
+                rotation=30,
+            )
+            annotation.location = Location((0, 0, 0), (0, 0, 20))
+            drawing.registry.add(annotation, f"raw_single_glyph_{column}_{label}", view=None)
+            drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"raw_challenging_{axis}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_challenging"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     page = text_page.parent
     try:
-        text_objects = {
-            item.extract().strip(): item
+        text_objects = [
+            item
             for item in page.get_objects(textpage=text_page)
             if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() in glyph_set
-        }
-        assert set(text_objects) == glyph_set
+        ]
         for label in glyphs:
-            text_object = text_objects[label]
-            a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-            assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
+            angles = sorted(
+                math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0]))
+                for item in text_objects
+                if item.extract().strip() == label
+            )
+            assert angles == pytest.approx([-30.0, 95.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()
