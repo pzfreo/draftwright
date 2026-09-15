@@ -814,9 +814,9 @@ def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel(
 
 @pytest.mark.parametrize("unavailable_attribute", ["segments", "label_bbox"])
 def test_final_preflight_yields_when_landed_leader_metadata_is_unavailable(
-    monkeypatch, unavailable_attribute
+    monkeypatch, unavailable_attribute, fresh_drawing
 ):
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -848,9 +848,9 @@ def test_final_preflight_yields_when_landed_leader_metadata_is_unavailable(
 
 @pytest.mark.parametrize("rendered_failure", ["empty", "exception"])
 def test_final_preflight_fails_closed_when_rendered_faces_are_unavailable(
-    monkeypatch, rendered_failure
+    monkeypatch, rendered_failure, fresh_drawing
 ):
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,

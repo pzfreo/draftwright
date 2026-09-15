@@ -83,3 +83,8 @@ cases to `fresh_drawing` preserved five independent drawings while recognition a
 fell from five to one (80.0%) and shape constructions from 28,642 to 24,454 (14.6%). The
 complete family remains at 139 passes and six expected strict xfails, so the retained
 historical and bounded-failure signals are unchanged.
+
+The four parametrized #1166 final-preflight failure cases now reuse one immutable analysis
+seed while retaining four private drawings. Recognition acquisitions fell from four to one
+(75.0%) and shape constructions from 11,777 to 8,636 (26.7%). Their metadata and rendered-face
+faults are still installed after construction, so all four fail-closed behaviors remain direct.
