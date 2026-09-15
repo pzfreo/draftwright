@@ -233,9 +233,24 @@ def _ink_hits_box(candidate: _MeasuredLeaderCandidate, box) -> bool:
     return any(_convex_polygon_overlaps_box(polygon, box) for polygon in candidate.ink_polygons)
 
 
-def _candidate_conflict(left: _MeasuredLeaderCandidate, right: _MeasuredLeaderCandidate):
+def _polygon_bounds(polygon):
+    xs, ys = zip(*polygon, strict=True)
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _candidate_conflict(
+    left: _MeasuredLeaderCandidate,
+    right: _MeasuredLeaderCandidate,
+    *,
+    left_ink_bounds=None,
+    right_ink_bounds=None,
+):
     """Whether two alternatives' rendered leader ink cannot coexist."""
 
+    if left_ink_bounds is None:
+        left_ink_bounds = tuple(_polygon_bounds(polygon) for polygon in left.ink_polygons)
+    if right_ink_bounds is None:
+        right_ink_bounds = tuple(_polygon_bounds(polygon) for polygon in right.ink_polygons)
     if (
         left.label_box is not None
         and right.label_box is not None
@@ -243,18 +258,37 @@ def _candidate_conflict(left: _MeasuredLeaderCandidate, right: _MeasuredLeaderCa
     ):
         return True
     if left.label_box is not None and any(
-        _convex_polygon_overlaps_box(polygon, left.label_box) for polygon in right.ink_polygons
+        _boxes_overlap(bounds, left.label_box)
+        and _convex_polygon_overlaps_box(polygon, left.label_box)
+        for polygon, bounds in zip(right.ink_polygons, right_ink_bounds, strict=True)
     ):
         return True
     if right.label_box is not None and any(
-        _convex_polygon_overlaps_box(polygon, right.label_box) for polygon in left.ink_polygons
+        _boxes_overlap(bounds, right.label_box)
+        and _convex_polygon_overlaps_box(polygon, right.label_box)
+        for polygon, bounds in zip(left.ink_polygons, left_ink_bounds, strict=True)
     ):
         return True
     return any(
-        _convex_polygons_overlap(left_polygon, right_polygon)
-        for left_polygon in left.ink_polygons
-        for right_polygon in right.ink_polygons
+        _boxes_overlap(left_bounds, right_bounds)
+        and _convex_polygons_overlap(left_polygon, right_polygon)
+        for left_polygon, left_bounds in zip(left.ink_polygons, left_ink_bounds, strict=True)
+        for right_polygon, right_bounds in zip(right.ink_polygons, right_ink_bounds, strict=True)
     )
+
+
+def _candidate_bounds(candidate: _MeasuredLeaderCandidate):
+    """Return one conservative AABB around every rendered component of a candidate."""
+
+    xs: list[float] = []
+    ys: list[float] = []
+    if candidate.label_box is not None:
+        xs.extend((candidate.label_box[0], candidate.label_box[2]))
+        ys.extend((candidate.label_box[1], candidate.label_box[3]))
+    for polygon in candidate.ink_polygons:
+        xs.extend(point[0] for point in polygon)
+        ys.extend(point[1] for point in polygon)
+    return (min(xs), min(ys), max(xs), max(ys)) if xs else None
 
 
 def _axis_residual_ink(tip, elbow, draft):
@@ -1959,6 +1993,16 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 pair_probes=pair_probes,
             )
 
+    component_bounds_by_job = [
+        [
+            tuple(_polygon_bounds(polygon) for polygon in candidate.ink_polygons)
+            for candidate in candidates
+        ]
+        for candidates in viable_by_job
+    ]
+    bounds_by_job = [
+        [_candidate_bounds(candidate) for candidate in candidates] for candidates in viable_by_job
+    ]
     conflicts = []
     for later_job, later_candidates in enumerate(viable_by_job):
         for earlier_job in range(later_job):
@@ -1966,7 +2010,20 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 continue
             for earlier_index, earlier in enumerate(viable_by_job[earlier_job]):
                 for later_index, later in enumerate(later_candidates):
-                    if _candidate_conflict(earlier, later):
+                    earlier_bounds = bounds_by_job[earlier_job][earlier_index]
+                    later_bounds = bounds_by_job[later_job][later_index]
+                    if (
+                        earlier_bounds is None
+                        or later_bounds is None
+                        or not _boxes_overlap(earlier_bounds, later_bounds)
+                    ):
+                        continue
+                    if _candidate_conflict(
+                        earlier,
+                        later,
+                        left_ink_bounds=component_bounds_by_job[earlier_job][earlier_index],
+                        right_ink_bounds=component_bounds_by_job[later_job][later_index],
+                    ):
                         conflicts.append((earlier_job, earlier_index, later_job, later_index))
 
     assignment = _assign_by_view(
@@ -1984,15 +2041,6 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             )
         ],
     )
-
-    def all_conflict_names(job_index, candidate_index):
-        names = set()
-        for earlier_job, earlier_index, later_job, later_index in conflicts:
-            if (job_index, candidate_index) == (earlier_job, earlier_index):
-                names.add(jobs[later_job].name)
-            elif (job_index, candidate_index) == (later_job, later_index):
-                names.add(jobs[earlier_job].name)
-        return tuple(sorted(names))
 
     # Override the established producer layout only for a proven cardinality
     # improvement. A complete incumbent beats any floor with an empty job stream;
@@ -2015,6 +2063,15 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         # pre-#1166 lazy fallback.  Replaying that producer floor is the only
         # general guarantee that resource pressure cannot reduce semantic
         # cardinality relative to the established renderer.
+        conflict_names_by_candidate: dict[tuple[int, int], set[str]] = {}
+        for earlier_job, earlier_index, later_job, later_index in conflicts:
+            conflict_names_by_candidate.setdefault((earlier_job, earlier_index), set()).add(
+                jobs[later_job].name
+            )
+            conflict_names_by_candidate.setdefault((later_job, later_index), set()).add(
+                jobs[earlier_job].name
+            )
+
         abandoned_inventories = []
         for job_index, measured in enumerate(measured_by_job):
             rejected_lookup = dict(rejected_by_job[job_index])
@@ -2024,6 +2081,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             }
             inventory = []
             for candidate in measured:
+                conflict_names: tuple[str, ...]
                 if candidate.raw_index in rejected_lookup:
                     status = "fixed_rejected"
                     blockers = rejected_lookup[candidate.raw_index]
@@ -2032,7 +2090,9 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     status = "joint_abandoned"
                     candidate_index = viable_index[candidate.raw_index]
                     blockers = policy_blockers_by_job[job_index][candidate_index]
-                    conflict_names = all_conflict_names(job_index, candidate_index)
+                    conflict_names = tuple(
+                        sorted(conflict_names_by_candidate.get((job_index, candidate_index), ()))
+                    )
                 inventory.append(candidate_entry(candidate, status, blockers, conflict_names))
             abandoned_inventories.append(inventory)
         return greedy(
