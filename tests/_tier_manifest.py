@@ -119,6 +119,25 @@ PR_CORE_MODULES = frozenset(
     }
 )
 
+# Repository-policy guards scan source, tests, history, or CI configuration rather than one
+# production unit. They remain mandatory on every PR without lengthening the inner unit loop.
+PR_POLICY_MODULES = frozenset(
+    {
+        "test_api_docs.py",
+        "test_architecture_docs.py",
+        "test_carve_free_position_callers.py",
+        "test_clone_budget.py",
+        "test_deprecation_dates.py",
+        "test_import_boundaries.py",
+        "test_private_test_attr_reads.py",
+        "test_private_test_imports.py",
+        "test_suite_shape.py",
+        "test_tier_manifest.py",
+        "test_version_bump_ci.py",
+        "test_workflows.py",
+    }
+)
+
 # A critical public contract may run in PR/full or in all tiers, but never scheduled only.
 CRITICAL_CONTRACT_MODULES = frozenset(
     {
@@ -163,7 +182,7 @@ def selected_groups(changed_paths: list[str]) -> frozenset[str]:
 def pr_modules(tests_dir: Path, changed_paths: list[str]) -> list[str]:
     """Return stable module names for the PR core, changed tests, and selected groups."""
     available = {path.name for path in tests_dir.glob("test_*.py")}
-    modules = set(UNIT_MODULES) | set(PR_CORE_MODULES)
+    modules = set(UNIT_MODULES) | set(PR_CORE_MODULES) | set(PR_POLICY_MODULES)
     modules.update(
         Path(path).name
         for path in changed_paths

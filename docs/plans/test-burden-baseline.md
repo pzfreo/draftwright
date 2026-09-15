@@ -553,3 +553,10 @@ loadscope runs completed inside pytest in 52.36, 48.24, and 43.87 seconds (48.24
 The five new selector guards take 0.49 seconds together and do not explain the increase; current
 repository-wide policy scans dominate the durations. Worksteal was slower at 51.56 seconds, so the
 canonical runner remains loadscope while the scan cost and module balance are reduced again.
+
+Repository-wide AST, clone, workflow, documentation, history, and tier guards now form an explicit
+always-run PR policy set instead of lengthening the production unit loop. All 141 policy outcomes
+pass independently in 33.71 seconds and remain selected by every pull request. The production unit
+manifest contains 293 outcomes; with three loadscope workers its three-run pytest median is 28.76
+seconds (28.76, 33.84, 23.54), versus the current four-worker median of 48.24 seconds. No outcome was
+deleted or moved out of pre-merge execution, and the unit loop again meets its under-30-second gate.

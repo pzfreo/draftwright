@@ -7,6 +7,7 @@ from _tier_manifest import (
     CONTRACT_GROUPS,
     CRITICAL_CONTRACT_MODULES,
     PR_CORE_MODULES,
+    PR_POLICY_MODULES,
     pr_modules,
     selected_groups,
 )
@@ -29,7 +30,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         assert name in selected_groups([path])
         selected = set(pr_modules(_TESTS, [path]))
         assert selected <= all_modules
-        assert selected - PR_CORE_MODULES - UNIT_MODULES, name
+        assert selected - PR_CORE_MODULES - PR_POLICY_MODULES - UNIT_MODULES, name
 
 
 def test_unknown_production_module_selects_every_contract_group():
@@ -39,7 +40,13 @@ def test_unknown_production_module_selects_every_contract_group():
 
 
 def test_nonproduction_changes_do_not_expand_the_core():
-    assert set(pr_modules(_TESTS, ["docs/guide.md"])) == set(PR_CORE_MODULES) | set(UNIT_MODULES)
+    assert set(pr_modules(_TESTS, ["docs/guide.md"])) == (
+        set(PR_CORE_MODULES) | set(PR_POLICY_MODULES) | set(UNIT_MODULES)
+    )
+
+
+def test_repository_policy_guards_are_pr_only():
+    assert PR_POLICY_MODULES.isdisjoint(UNIT_MODULES)
 
 
 def test_changed_test_module_is_selected_directly():
