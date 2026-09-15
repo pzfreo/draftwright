@@ -639,13 +639,16 @@ def test_raw_single_glyph_basic_dimension_recovers_rotation(tmp_path, axis, expe
 def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(
     tmp_path, axis, expected
 ):
-    for label in "BGCO069":
-        drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-        custom = Draft(font_size=20)
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    custom = Draft(font_size=20)
+    glyphs = "BGCO069"
+    glyph_set = set(glyphs)
+    for index, label in enumerate(glyphs):
         angle = math.radians(axis)
+        y = 25 + index * 22
         annotation = Dimension(
-            (50, 50, 0),
-            (50 + math.cos(angle), 50 + math.sin(angle), 0),
+            (50, y, 0),
+            (50 + math.cos(angle), y + math.sin(angle), 0),
             "above",
             10,
             custom,
@@ -654,25 +657,26 @@ def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(
             rotation=30,
         )
         annotation.location = Location((0, 0, 0), (0, 0, 20))
-        drawing.registry.add(annotation, "raw_single_glyph", view=None)
+        drawing.registry.add(annotation, f"raw_single_glyph_{label}", view=None)
         drawing.items.append(annotation)
 
-        pdf_path = drawing.export(
-            str(tmp_path / f"raw_challenging_{axis}_{label}"), formats=("pdf",)
-        )["pdf"]
-        pdf, text_page, _extracted = _pdf_text(pdf_path)
-        page = text_page.parent
-        try:
-            text_object = next(
-                item
-                for item in page.get_objects(textpage=text_page)
-                if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == label
-            )
+    pdf_path = drawing.export(str(tmp_path / f"raw_challenging_{axis}"), formats=("pdf",))["pdf"]
+    pdf, text_page, _extracted = _pdf_text(pdf_path)
+    page = text_page.parent
+    try:
+        text_objects = {
+            item.extract().strip(): item
+            for item in page.get_objects(textpage=text_page)
+            if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() in glyph_set
+        }
+        assert set(text_objects) == glyph_set
+        for label in glyphs:
+            text_object = text_objects[label]
             a, b, _c, _d, _e, _f = text_object.get_matrix().get()
             assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
-        finally:
-            text_page.close()
-            pdf.close()
+    finally:
+        text_page.close()
+        pdf.close()
 
 
 @pytest.mark.parametrize(

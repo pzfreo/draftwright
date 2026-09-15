@@ -327,3 +327,11 @@ sixteen integration items to eight plus the pure guard (43.8%), drawing builds f
 compilations from 104 to 52, lint calls from 80 to 40, and shapes from 130,596 to 68,218 (47.8%).
 Summed phase time falls from 136.98 to 51.08 seconds (62.7%). The complete dimension-text module
 falls from 102 to 95 items and all 95 pass under pull-request distribution.
+
+The challenging single-glyph rotation contract now places all seven independent glyph probes on
+one drawing per axis and checks every resulting PDF text object, instead of exporting seven
+one-glyph drawings per axis. Across the unchanged two test outcomes, PDF exports and drawing builds
+fall from fourteen to two (85.7%), shapes from 93,549 to 17,505 (81.3%), and summed phase time from
+43.77 to 8.24 seconds (81.2%). Across all 49 unchanged searchable-PDF outcomes, format exports fall
+from 56 to 44 (21.4%), drawing builds from 55 to 43, and shapes from 396,487 to 322,235 (18.7%);
+all 48 runnable contracts pass and the existing optional-tool contract remains skipped.
