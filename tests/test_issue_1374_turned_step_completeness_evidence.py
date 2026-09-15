@@ -1092,6 +1092,7 @@ def test_turned_step_observer_retains_malformed_source_as_explicit_invalid_evide
     monkeypatch,
 ) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
     from draftwright.evaluation.step_analysis import _DOWNSTREAM_BOUNDARIES
 
     original = builder.build_drawing
@@ -1113,6 +1114,7 @@ def test_turned_step_observer_retains_malformed_source_as_explicit_invalid_evide
         injected = True
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_malformed_source)
 
     facts = _default_observers()["turned-steps"](_shaft())
@@ -1220,6 +1222,7 @@ def test_missing_per_band_boundary_outcomes_fail_closed(monkeypatch) -> None:
 
 def test_observer_failure_cannot_pass_zero_band_negative(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     corpus = load_corpus(CORPUS)
     negative = next(case for case in corpus.cases if case.case_id == "turned-step-plain-negative")
@@ -1227,6 +1230,7 @@ def test_observer_failure_cannot_pass_zero_band_negative(monkeypatch) -> None:
     def failed_build(*_args, **_kwargs):
         raise RuntimeError("negative-case probe")
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", failed_build)
     with pytest.raises(ObservationError, match="drawing build failed"):
         _default_observers()["turned-steps"](Box(20, 20, 20))
@@ -1298,6 +1302,7 @@ def test_generated_steps_preserve_odd_thousandth_span_midpoints(variant: str) ->
 @pytest.mark.parametrize("prefix", ["m_steplen", "m_dia"])
 def test_removing_placed_step_measurement_loses_drawing_credit(monkeypatch, prefix: str) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1307,12 +1312,14 @@ def test_removing_placed_step_measurement_loses_drawing_credit(monkeypatch, pref
         drawing.remove(name)
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", without_measurement)
     assert "unsupported" in _states("drawing_consumer")
 
 
 def test_moving_step_length_witness_off_physical_span_loses_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1323,6 +1330,7 @@ def test_moving_step_length_witness_off_physical_span_loses_credit(monkeypatch) 
         spec.p1 = (float(spec.p1[0]) + 3.0, float(spec.p1[1]), 0)
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_wrong_span)
     assert "unsupported" in _states("drawing_consumer")
 
@@ -1330,6 +1338,7 @@ def test_moving_step_length_witness_off_physical_span_loses_credit(monkeypatch) 
 @pytest.mark.parametrize("label", ["2× 10", "3× 999 NOTE 10"])
 def test_grouped_length_label_requires_exact_count_and_value(monkeypatch, label: str) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1339,6 +1348,7 @@ def test_grouped_length_label_requires_exact_count_and_value(monkeypatch, label:
         drawing.registry.named(name).label = label
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_wrong_multiplier)
     states = _states("drawing_consumer", part=_shaft("turned-step-repeated-lengths.step"))
     assert states.count("unsupported") == 3
@@ -1364,6 +1374,7 @@ def test_generated_grouped_length_requires_exact_complete_label(monkeypatch) -> 
 
 def test_grouped_length_cannot_skip_an_equal_adjacent_member(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1378,6 +1389,7 @@ def test_grouped_length_cannot_skip_an_equal_adjacent_member(monkeypatch) -> Non
         drawing.registry.named(name).label = "2× 10"
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_gapped_claim)
     states = _states("drawing_consumer", part=_shaft("turned-step-repeated-lengths.step"))
     assert states.count("unsupported") == 3
@@ -1385,6 +1397,7 @@ def test_grouped_length_cannot_skip_an_equal_adjacent_member(monkeypatch) -> Non
 
 def test_moving_diameter_leader_off_physical_surface_loses_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1394,12 +1407,14 @@ def test_moving_diameter_leader_off_physical_surface_loses_credit(monkeypatch) -
         drawing.registry.named(name).position = (50.0, 0.0, 0.0)
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_wrong_tip)
     assert "unsupported" in _states("drawing_consumer")
 
 
 def test_native_step_diameter_requires_exact_complete_label(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1409,12 +1424,19 @@ def test_native_step_diameter_requires_exact_complete_label(monkeypatch) -> None
         drawing.registry.named(name).label = "ø999 NOTE 20"
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_false_diameter)
     assert "unsupported" in _states("drawing_consumer")
 
 
-def test_moving_global_od_witness_off_exact_diameter_loses_credit(monkeypatch) -> None:
+def test_moving_global_od_witness_off_exact_diameter_loses_credit() -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
+
+    part = _shaft("turned-step-axis-z.step")
+    assert set(_states("ir_adapter", part=part)) == {"supported"}
+    assert set(_states("dsl_declaration", part=part)) == {"supported"}
+    assert set(_states("generated_code", part=part)) == {"supported"}
 
     original = builder.build_drawing
 
@@ -1424,16 +1446,15 @@ def test_moving_global_od_witness_off_exact_diameter_loses_credit(monkeypatch) -
         spec.p1 = (float(spec.p1[0]) + 3.0, float(spec.p1[1]), 0)
         return drawing
 
-    monkeypatch.setattr(builder, "build_drawing", with_wrong_od_span)
-    part = _shaft("turned-step-axis-z.step")
-    assert set(_states("ir_adapter", part=part)) == {"supported"}
-    assert set(_states("dsl_declaration", part=part)) == {"supported"}
-    assert set(_states("generated_code", part=part)) == {"supported"}
-    assert "unsupported" in _states("drawing_consumer", part=part)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
+        patch.setattr(builder, "build_drawing", with_wrong_od_span)
+        assert "unsupported" in _states("drawing_consumer", part=part)
 
 
 def test_global_od_requires_exact_complete_label(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1442,6 +1463,7 @@ def test_global_od_requires_exact_complete_label(monkeypatch) -> None:
         drawing.registry.named("dim_od").label = "ø999 NOTE 28"
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_false_diameter)
     part = _shaft("turned-step-axis-z.step")
     assert "unsupported" in _states("drawing_consumer", part=part)
@@ -1449,6 +1471,7 @@ def test_global_od_requires_exact_complete_label(monkeypatch) -> None:
 
 def test_severing_step_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -1460,6 +1483,7 @@ def test_severing_step_measurement_provenance_loses_drawing_credit(monkeypatch) 
         drawing.registry.reapply(name, identity)
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", without_provenance)
     assert "unsupported" in _states("drawing_consumer")
 
