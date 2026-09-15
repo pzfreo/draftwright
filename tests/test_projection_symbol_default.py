@@ -75,7 +75,9 @@ def test_invalid_visibility_refused_before_loading_input(entry, invalid, tmp_pat
 
 @pytest.mark.parametrize("route", ["direct", "step_script", "object_script"])
 @pytest.mark.parametrize("visible", [True, False])
-def test_cli_policy_reaches_rendered_exports(route, visible, plate, tmp_path, monkeypatch):
+def test_cli_policy_reaches_drawing_and_representative_exports(
+    route, visible, plate, tmp_path, monkeypatch
+):
     from draftwright import cli
 
     part, _ = plate
@@ -86,11 +88,19 @@ def test_cli_policy_reaches_rendered_exports(route, visible, plate, tmp_path, mo
         source.write_text("from build123d import Box\npart = Box(50, 35, 12)\n")
         source = f"{source}:part"
     drawings = []
+    export_requests = []
     original_export = Drawing.export
+    # Routing and visibility are drawing semantics. Keep one complete three-format export as
+    # this feature's serialization canary instead of repeating it for every matrix member.
+    serialize = route == "direct" and visible
 
     def capture(self, *args, **kwargs):
         drawings.append(self)
-        return original_export(self, *args, **kwargs)
+        export_requests.append(tuple(kwargs["formats"]))
+        if serialize:
+            return original_export(self, *args, **kwargs)
+        formats = kwargs["formats"]
+        return {fmt: str(tmp_path / f"result.{fmt}") for fmt in formats}
 
     monkeypatch.setattr(Drawing, "export", capture)
     stem = tmp_path / "result"
@@ -106,11 +116,15 @@ def test_cli_policy_reaches_rendered_exports(route, visible, plate, tmp_path, mo
         assert ("projection_symbol=False" in script) is (not visible)
         exec(compile(script, str(stem.with_suffix(".py")), "exec"), {})
     assert drawings
+    assert export_requests == [("svg", "pdf", "dxf")]
     for drawing in drawings:
         assert drawing.view_plan.convention == "third"
         assert ("projection_symbol" in drawing.annotations()) is visible
-    for suffix in ("svg", "pdf", "dxf"):
-        assert Path(f"{stem}.{suffix}").stat().st_size > 100
+    outputs = [Path(f"{stem}.{suffix}") for suffix in ("svg", "pdf", "dxf")]
+    if serialize:
+        assert all(path.stat().st_size > 100 for path in outputs)
+    else:
+        assert not any(path.exists() for path in outputs)
 
 
 @pytest.mark.parametrize(

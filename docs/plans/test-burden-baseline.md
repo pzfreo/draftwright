@@ -510,3 +510,10 @@ The generated GRM04 radius-leader contract now replays in memory because it chec
 leader tip against the trimmed profile arcs and never inspects a file. Across all 36 unchanged
 module outcomes, format exports fall from one to zero, and the complete module passes under
 pull-request distribution.
+
+The projection-symbol CLI matrix now checks all three input routes and both visibility policies at
+the constructed-drawing boundary, while the visible direct route retains the module's complete
+SVG/PDF/DXF canary. Across all 36 unchanged module outcomes, format exports fall from six to one,
+lint calls from 92 to 87, and shape constructions from 241,342 to 147,553 (38.9%). The five
+semantic-only cases also prove that no visual file was written, and the complete module passes
+under pull-request distribution.
