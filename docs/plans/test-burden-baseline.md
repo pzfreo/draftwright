@@ -159,3 +159,10 @@ reduced its scan set from 110 files to 20. The import-boundary module's three-ru
 15.55 seconds to 13.92 seconds (14.94, 13.92, 13.91), a 10.5% improvement. All 19 guards and the
 five synthetic reporting-import spellings remain passing. The complete unit tier then completed in
 29.30 seconds with three loadscope workers, crossing the stage wall-time target inside pytest.
+
+The canonical unit runner now keeps each module in one worker so module-scoped syntax and policy
+caches remain effective, and uses four workers after the serial scan reductions changed the optimal
+balance. Against `auto/worksteal`, its three-run median fell from 38.63 seconds inside pytest
+(29.32, 38.63, 40.20; 39.43 seconds process wall time) to 27.72 seconds (27.72, 26.36, 33.57;
+28.38 seconds process wall time), a 28.3% pytest-time reduction. All three runs selected and passed
+the same 424 unit items without constructing CAD shapes. This closes the stage 1 exit gate.

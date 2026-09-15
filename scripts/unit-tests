@@ -15,7 +15,7 @@ from _unit_manifest import unit_paths  # noqa: E402
 
 
 def main() -> int:
-    args = [*unit_paths(ROOT / "tests"), "-n", "auto", "--dist", "worksteal", *sys.argv[1:]]
+    args = [*unit_paths(ROOT / "tests"), "-n", "4", "--dist", "loadscope", *sys.argv[1:]]
     return pytest.main(args)
 
 
