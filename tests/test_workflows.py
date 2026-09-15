@@ -143,6 +143,13 @@ def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable
     assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
 
 
+def test_coverage_shards_measure_the_explicit_full_tier():
+    coverage_job = _job(_workflow("ci.yml"), "coverage")
+
+    assert "uv run scripts/test-tier full --workers auto" in coverage_job
+    assert "uv run pytest tests/" not in coverage_job
+
+
 def test_local_changed_line_gate_uses_the_pinned_diff_cover_tool():
     command = (ROOT / "scripts" / "pr-check").read_text(encoding="utf-8")
 

@@ -270,7 +270,7 @@ jobs:
         # pyproject floor for the shard: half the suite legitimately covers less than
         # 90%, and the real gate runs on the combined data in `coverage-report`.
         run: >-
-          uv run pytest tests/ -n auto --dist loadscope
+          uv run scripts/test-tier full --workers auto
           --splits 2 --group ${{ matrix.shard }}
           --cov=src/draftwright
           --cov-report=
