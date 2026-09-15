@@ -95,6 +95,7 @@ timeout = 300
 # the full slow tier after merge, and the fast tier across its compatibility matrix.
 markers = [
     "slow: end-to-end integration builds, including CTC fixtures (deselected by default)",
+    "scheduled: compatibility and broad-corpus contracts selected by the scheduled tier",
     "real_part_canary: bounded real STEP semantic/export gate, selected once in PR CI",
     "smoke: curated build-light subset for a fast local check (~30 s)",
     "unit: pure-logic inner-loop tier — constructs NO OCC geometry (enforced by conftest, #656)",

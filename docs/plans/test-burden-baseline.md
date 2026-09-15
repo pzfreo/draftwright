@@ -539,3 +539,17 @@ Across the same four outcomes, format exports fall from four to one, compilation
 lint calls from 30 to 27, and shape constructions from 141,349 to 83,335 (41.0%). The other
 three cases explicitly prove that no file was written; all still compare measurement identity,
 rear-view ownership, convention, and the complete expected label set.
+
+Stage 6 starts with one checked-in tier catalog. The full expression selects 8,692 fast outcomes
+and the complementary scheduled expression selects 62 slow outcomes; together they partition all
+8,754 collected outcomes without omission. Pull-request selection always includes the unit manifest
+and five public pipeline contracts, includes changed test modules directly, and expands production
+changes to complete recognition, compilation, placement, reporting, or export contract groups.
+Unknown production modules and broad pipeline coordinators select every group rather than silently
+under-testing a new area. Five pure selector guards pass alongside the clone and suite-shape guards.
+
+Rechecking the current 433-item unit manifest reopened the wall-time gate: three four-worker
+loadscope runs completed inside pytest in 52.36, 48.24, and 43.87 seconds (48.24-second median).
+The five new selector guards take 0.49 seconds together and do not explain the increase; current
+repository-wide policy scans dominate the durations. Worksteal was slower at 51.56 seconds, so the
+canonical runner remains loadscope while the scan cost and module balance are reduced again.

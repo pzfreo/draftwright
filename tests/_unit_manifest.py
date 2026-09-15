@@ -31,6 +31,7 @@ UNIT_MODULES = frozenset(
         "test_recogniser_policy.py",
         "test_registry.py",
         "test_suite_shape.py",
+        "test_tier_manifest.py",
         "test_workflows.py",
         "test_version_bump_ci.py",
     }

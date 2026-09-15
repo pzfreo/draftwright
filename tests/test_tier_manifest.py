@@ -1,0 +1,55 @@
+"""Cost-aware tier manifests remain complete and conservative."""
+
+from pathlib import Path
+
+from _tier_manifest import (
+    BROAD_SOURCE_PATTERNS,
+    CONTRACT_GROUPS,
+    CRITICAL_CONTRACT_MODULES,
+    PR_CORE_MODULES,
+    pr_modules,
+    selected_groups,
+)
+from _unit_manifest import UNIT_MODULES
+
+_TESTS = Path(__file__).resolve().parent
+
+
+def test_each_named_contract_group_resolves_to_existing_modules():
+    all_modules = {path.name for path in _TESTS.glob("test_*.py")}
+    probes = {
+        "recognition": "src/draftwright/recognition_frame.py",
+        "compilation": "src/draftwright/intents.py",
+        "placement": "src/draftwright/layout.py",
+        "reporting": "src/draftwright/reporting.py",
+        "export": "src/draftwright/export.py",
+    }
+    assert set(probes) == set(CONTRACT_GROUPS)
+    for name, path in probes.items():
+        assert name in selected_groups([path])
+        selected = set(pr_modules(_TESTS, [path]))
+        assert selected <= all_modules
+        assert selected - PR_CORE_MODULES - UNIT_MODULES, name
+
+
+def test_unknown_production_module_selects_every_contract_group():
+    assert selected_groups(["src/draftwright/a_new_area.py"]) == frozenset(CONTRACT_GROUPS)
+    for pattern in BROAD_SOURCE_PATTERNS:
+        assert selected_groups([pattern]) == frozenset(CONTRACT_GROUPS)
+
+
+def test_nonproduction_changes_do_not_expand_the_core():
+    assert set(pr_modules(_TESTS, ["docs/guide.md"])) == set(PR_CORE_MODULES) | set(UNIT_MODULES)
+
+
+def test_changed_test_module_is_selected_directly():
+    assert "test_tier_manifest.py" in pr_modules(_TESTS, ["tests/test_tier_manifest.py"])
+
+
+def test_critical_contracts_are_fast_and_exist():
+    available = {path.name for path in _TESTS.glob("test_*.py")}
+    assert CRITICAL_CONTRACT_MODULES <= available
+    for module in CRITICAL_CONTRACT_MODULES:
+        source = (_TESTS / module).read_text()
+        assert "pytest.mark.slow" not in source
+        assert "pytest.mark.scheduled" not in source
