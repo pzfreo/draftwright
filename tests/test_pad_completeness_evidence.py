@@ -15,6 +15,7 @@ from _evidence_contract import (
     assert_versioned_corpus_covers_every_required_case_class,
 )
 from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
+from _parts import part
 from build123d import Align, Box, Location
 
 from draftwright.evaluation.step_analysis import (
@@ -43,16 +44,18 @@ def _box(size, position):
 
 
 def _lone(axis: str = "z", direction: int = 1):
+    if direction > 0:
+        return part(f"rectangular_pad_{axis}_positive")
     if axis == "z":
-        body_pos = (0, 0, 0 if direction > 0 else 5)
-        pad_pos = (5, 8, 10 if direction > 0 else 0)
+        body_pos = (0, 0, 5)
+        pad_pos = (5, 8, 0)
         return _box((40, 30, 10), body_pos) + _box((15, 10, 5), pad_pos)
     if axis == "x":
-        body_pos = (0 if direction > 0 else 5, 0, 0)
-        pad_pos = (10 if direction > 0 else 0, 8, 5)
+        body_pos = (5, 0, 0)
+        pad_pos = (0, 8, 5)
         return _box((10, 30, 40), body_pos) + _box((5, 10, 15), pad_pos)
-    body_pos = (0, 0 if direction > 0 else 5, 0)
-    pad_pos = (5, 10 if direction > 0 else 0, 8)
+    body_pos = (0, 5, 0)
+    pad_pos = (5, 0, 8)
     return _box((40, 10, 30), body_pos) + _box((15, 5, 10), pad_pos)
 
 
@@ -118,13 +121,12 @@ def test_pad_observer_normalises_ir_bounds_and_frame_owned_axis() -> None:
     }
 
 
-def test_pad_ledger_tracks_five_physical_requirements_and_fails_closed() -> None:
-    from draftwright import build_drawing
+def test_pad_ledger_tracks_five_physical_requirements_and_fails_closed(fresh_drawing) -> None:
     from draftwright.linting.pad_coverage import pad_requirement_outcomes
     from draftwright.model.compiled import compile_dimensions
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     outcomes = pad_requirement_outcomes(
@@ -157,10 +159,9 @@ def test_pad_ledger_tracks_five_physical_requirements_and_fails_closed() -> None
     )
 
 
-def test_pad_ledger_rejects_foreign_results_malformed_and_duplicate_ir() -> None:
+def test_pad_ledger_rejects_foreign_results_malformed_and_duplicate_ir(fresh_drawing) -> None:
     from quiddity import build_raw_recognition_result
 
-    from draftwright import build_drawing
     from draftwright.linting.pad_coverage import pad_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
@@ -186,7 +187,7 @@ def test_pad_ledger_rejects_foreign_results_malformed_and_duplicate_ir() -> None
     assert len(malformed) == 1
     assert (malformed[0].state, malformed[0].requirement_count) == ("unverifiable", 5)
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     feature = next(item for item in drawing.model().features if item.kind == "pad")
     duplicate = pad_requirement_outcomes(recognition, (feature, feature), AnnotationRegistry())
     assert len(duplicate) == 1
@@ -205,12 +206,13 @@ def test_pad_ledger_rejects_foreign_results_malformed_and_duplicate_ir() -> None
         "location_stem",
     ),
 )
-def test_pad_ledger_rejects_every_malformed_compiler_parameter_contract(corruption) -> None:
-    from draftwright import build_drawing
+def test_pad_ledger_rejects_every_malformed_compiler_parameter_contract(
+    fresh_drawing, corruption
+) -> None:
     from draftwright.linting.pad_coverage import pad_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "pad")
@@ -252,12 +254,13 @@ def test_pad_ledger_rejects_every_malformed_compiler_parameter_contract(corrupti
 
 @pytest.mark.parametrize("axis", tuple("xyz"))
 @pytest.mark.parametrize("corruption", ("frame_origin", "parameter_value", "axis_roles"))
-def test_pad_correspondence_rejects_compiler_significant_ir_corruption(axis, corruption) -> None:
-    from draftwright import build_drawing
+def test_pad_correspondence_rejects_compiler_significant_ir_corruption(
+    fresh_drawing, axis, corruption
+) -> None:
     from draftwright.linting.pad_coverage import pad_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_lone(axis))
+    drawing = fresh_drawing(f"rectangular_pad_{axis}_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "pad")
@@ -295,14 +298,13 @@ def test_pad_correspondence_rejects_compiler_significant_ir_corruption(axis, cor
     assert (outcomes[0].state, outcomes[0].requirement_count) == ("unverifiable", 5)
 
 
-def test_pad_ledger_distinguishes_suppressed_inapplicable_and_dropped() -> None:
-    from draftwright import build_drawing
+def test_pad_ledger_distinguishes_suppressed_inapplicable_and_dropped(fresh_drawing) -> None:
     from draftwright.linting.issues import LintIssue
     from draftwright.linting.pad_coverage import pad_requirement_outcomes
     from draftwright.model.compiled import DimensionId
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "pad")
@@ -343,13 +345,14 @@ def test_pad_ledger_distinguishes_suppressed_inapplicable_and_dropped() -> None:
     assert states["pad_length.length"] == "missing"
 
 
-def test_pad_ledger_retains_structured_note_satisfaction_separately_from_ink() -> None:
-    from draftwright import build_drawing
+def test_pad_ledger_retains_structured_note_satisfaction_separately_from_ink(
+    fresh_drawing,
+) -> None:
     from draftwright.linting.pad_coverage import pad_requirement_outcomes
     from draftwright.model.compiled import DimensionId
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "pad")
@@ -380,14 +383,13 @@ def test_pad_ledger_retains_structured_note_satisfaction_separately_from_ink() -
     assert states["pad_width.length"] == "missing"
 
 
-def test_pad_coverage_does_not_duplicate_a_placement_drop() -> None:
-    from draftwright import build_drawing
+def test_pad_coverage_does_not_duplicate_a_placement_drop(fresh_drawing) -> None:
     from draftwright.linting.issues import LintIssue
     from draftwright.linting.pad_coverage import lint_pad_coverage
     from draftwright.model.compiled import DimensionId
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "pad")
@@ -528,10 +530,8 @@ def test_wrong_pad_measurement_ink_loses_drawing_credit(monkeypatch, parameter) 
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_swapping_valid_x_y_pad_location_values_loses_drawing_credit() -> None:
-    from draftwright import build_drawing
-
-    drawing = build_drawing(_lone())
+def test_swapping_valid_x_y_pad_location_values_loses_drawing_credit(fresh_drawing) -> None:
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     x_name = _annotation_for_parameter(drawing, "location_pad.location.x")
@@ -543,10 +543,8 @@ def test_swapping_valid_x_y_pad_location_values_loses_drawing_credit() -> None:
     assert _pad_drawing_outcomes(tuple(recognition.pads), drawing) == ["unsupported"]
 
 
-def test_pad_drawing_ignores_malformed_and_foreign_location_riders() -> None:
-    from draftwright import build_drawing
-
-    drawing = build_drawing(_lone())
+def test_pad_drawing_ignores_malformed_and_foreign_location_riders(fresh_drawing) -> None:
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     name = _annotation_for_parameter(drawing, "location_pad.location.x")
@@ -562,12 +560,13 @@ def test_pad_drawing_ignores_malformed_and_foreign_location_riders() -> None:
 
 
 @pytest.mark.parametrize("corruption", ("missing_axis", "non_numeric"))
-def test_invalid_directional_pad_approval_loses_drawing_credit(monkeypatch, corruption) -> None:
-    from draftwright import build_drawing
+def test_invalid_directional_pad_approval_loses_drawing_credit(
+    fresh_drawing, monkeypatch, corruption
+) -> None:
     from draftwright.linting import evidence
     from draftwright.model.compiled import compile_dimensions
 
-    drawing = build_drawing(_lone())
+    drawing = fresh_drawing("rectangular_pad_z_positive")
     recognition = drawing.recognition()
     assert recognition is not None
     original = evidence.compiled_values
@@ -729,10 +728,10 @@ def test_weakening_provider_identity_reduces_detection_recall(
     assert damaged.detection.false_positives == reduced_baseline.detection.matched
 
 
-def test_deleting_pad_declaration_cannot_shrink_quality_denominator() -> None:
-    from draftwright import Sheet, build_drawing
+def test_deleting_pad_declaration_cannot_shrink_quality_denominator(fresh_drawing) -> None:
+    from draftwright import Sheet
 
-    complete = build_drawing(_lone())
+    complete = fresh_drawing("rectangular_pad_z_positive")
     sparse = Sheet(_lone())
     envelope = sparse.envelope()
     sparse.dimension(envelope, "width.length")

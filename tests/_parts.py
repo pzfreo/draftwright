@@ -46,6 +46,23 @@ from types import MappingProxyType
 
 from build123d import Box
 
+
+def _rectangular_pad(axis: str):
+    """Return the positive principal-axis pad used by the #1372 evidence tests."""
+    from build123d import Align, Location
+
+    align = (Align.MIN, Align.MIN, Align.MIN)
+
+    def box(size, position):
+        return Box(*size, align=align).moved(Location(position))
+
+    if axis == "z":
+        return box((40, 30, 10), (0, 0, 0)) + box((15, 10, 5), (5, 8, 10))
+    if axis == "x":
+        return box((10, 30, 40), (0, 0, 0)) + box((5, 10, 15), (10, 8, 5))
+    return box((40, 10, 30), (0, 0, 0)) + box((15, 5, 10), (5, 10, 8))
+
+
 # (length, width, height), in descending order of the census above. The cut was 23 calls.
 _BOX_SUBSTRATES: tuple[tuple[int, int, int], ...] = (
     (60, 40, 20),
@@ -72,15 +89,21 @@ PART_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
     }
 )
 
+_ANALYSIS_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
+    {f"rectangular_pad_{axis}_positive": partial(_rectangular_pad, axis) for axis in "xyz"}
+)
+
+_ALL_RECIPES = {**PART_RECIPES, **_ANALYSIS_RECIPES}
+
 
 def part(recipe: str):
     """Build a fresh solid for *recipe*, failing with the known names if it is not one."""
     try:
-        builder = PART_RECIPES[recipe]
+        builder = _ALL_RECIPES[recipe]
     except KeyError:
         raise KeyError(
             f"unknown part recipe {recipe!r}; tests/_parts.py holds "
-            f"{', '.join(sorted(PART_RECIPES))}. Add one only when its substrate is copied "
+            f"{', '.join(sorted(_ALL_RECIPES))}. Add one only when its substrate is copied "
             "widely enough to be worth a name — a one-off block belongs in its own test."
         ) from None
     return builder()

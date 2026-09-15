@@ -112,6 +112,13 @@ classification outcomes while sharing one immutable analysis seed. Recognition a
 fell from two to one (50.0%); shape constructions fell from 12,088 to 11,041 (8.7%), so this
 slice qualifies by removing a measured duplicate rather than by the 10% cost threshold.
 
+The 26 direct positive-pad builds in the #1372 completeness-evidence module now obtain fresh
+drawings from three principal-axis analysis seeds. All 54 outcomes remain collected and passing;
+drawing builds (83), analysis runs (120), compilation calls (457), lint calls (280), raw
+recognition (one), and STEP imports (37) are exact. Recognition acquisitions fell from 83 to 60
+(27.7%) and shape constructions from 571,761 to 527,923 (7.7%). Observer and injected-failure
+paths still build directly, and negative-axis substrates remain separate.
+
 A complete post-migration run of the #1166 family confirms the slices compose under one
 session cache: all 145 outcomes remain 139 passes and six expected strict xfails. Drawing
 builds (104), analysis runs (113), compilation calls (194), and lint calls (294) are unchanged;
