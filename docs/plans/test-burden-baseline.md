@@ -428,3 +428,9 @@ profile, pattern, callout, and measurement meaning, while the sibling wording ma
 formats. Their format exports fall from four to zero, compilations from 32 to 28, lint calls from
 twenty to sixteen, and shapes from 54,698 to 35,674 (34.8%). The complete 52-outcome module now
 passes with one exporter call, down from the original twelve, while retaining every wording value.
+
+The eight raw basic-dimension span and rotation probes now occupy separate regions of one drawing
+and use unique labels, so every extracted text object remains independently attributable. The
+selected family falls from eight integration items, drawing builds, and PDF exports to one (87.5%),
+and shapes from 57,337 to 12,905 (77.5%). The complete searchable-PDF module falls from forty to 33
+items and from 35 to 28 exports; all 32 runnable outcomes pass and its optional-tool case is skipped.

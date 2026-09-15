@@ -359,64 +359,49 @@ def test_basic_dimension_semantic_text_is_normalised_upright(tmp_path):
         pdf.close()
 
 
-@pytest.mark.parametrize(
-    ("start", "end", "label", "label_offset_x", "rotation", "live_rotation", "expected"),
-    [
-        ((50, 50, 0), (90, 50, 0), "X", -20, 0, 0, 0.0),
-        ((50, 50, 0), (50, 90, 0), "W" * 40, 0, 0, 0, 90.0),
-        ((50, 50, 0), (90, 90, 0), "W" * 40, 0, 0, 0, 45.0),
-        ((50, 90, 0), (90, 50, 0), "W" * 40, 0, 0, 0, -45.0),
-        (
-            (50, 50, 0),
-            (56.945927, 89.39231, 0),
-            "UPRIGHT",
-            0,
-            30,
-            0,
-            110.0,
-        ),
-        (
-            (50, 50, 0),
-            (56.945927, 89.39231, 0),
-            "UPRIGHT",
-            0,
-            30,
-            20,
-            130.0,
-        ),
-        ((50, 50, 0), (90, 50, 0), "UPRIGHT", 0, 220, 0, -140.0),
-        ((50, 50, 0), (90, 50, 0), "UPRIGHT", 0, 400, 0, 40.0),
-    ],
-)
-def test_raw_basic_dimension_rotation_survives_missing_or_mixed_spans(
-    tmp_path, start, end, label, label_offset_x, rotation, live_rotation, expected
-):
+def test_raw_basic_dimension_rotation_survives_missing_or_mixed_spans(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    annotation = Dimension(
-        start,
-        end,
-        "above",
-        4,
-        drawing.draft,
-        label=label,
-        basic=True,
-        label_offset_x=label_offset_x,
-        rotation=rotation,
-    )
-    annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
-    drawing.registry.add(annotation, "raw_basic", view=None)
-    drawing.items.append(annotation)
+    cases = [
+        ((20, 20, 0), (60, 20, 0), "X", -20, 0, 0, 0.0),
+        ((50, 30, 0), (50, 70, 0), "W" * 39 + "A", 0, 0, 0, 90.0),
+        ((60, 90, 0), (100, 130, 0), "W" * 39 + "B", 0, 0, 0, 45.0),
+        ((60, 200, 0), (100, 160, 0), "W" * 39 + "C", 0, 0, 0, -45.0),
+        ((130, 20, 0), (136.945927, 59.39231, 0), "UPRIGHT0", 0, 30, 0, 110.0),
+        ((130, 75, 0), (136.945927, 114.39231, 0), "UPRIGHT1", 0, 30, 20, 130.0),
+        ((130, 150, 0), (170, 150, 0), "UPRIGHT2", 0, 220, 0, -140.0),
+        ((130, 220, 0), (170, 220, 0), "UPRIGHT3", 0, 400, 0, 40.0),
+    ]
+    annotations = []
+    for index, (start, end, label, offset, rotation, live_rotation, expected) in enumerate(cases):
+        annotation = Dimension(
+            start,
+            end,
+            "above",
+            4,
+            drawing.draft,
+            label=label,
+            basic=True,
+            label_offset_x=offset,
+            rotation=rotation,
+        )
+        annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
+        drawing.registry.add(annotation, f"raw_basic_{index}", view=None)
+        drawing.items.append(annotation)
+        annotations.append((label, expected, annotation))
 
-    pdf_path = drawing.export(str(tmp_path / f"raw_basic_{expected}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_basic_spans"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert label in extracted
-        if math.cos(math.radians(expected)) < -1e-9:
-            _assert_first_character_overlaps_annotation(text_page, extracted, label, annotation)
-        else:
-            assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
-                expected, abs=1.0
-            )
+        for label, expected, annotation in annotations:
+            assert label in extracted
+            if math.cos(math.radians(expected)) < -1e-9:
+                _assert_first_character_overlaps_annotation(
+                    text_page, extracted, label, annotation
+                )
+            else:
+                assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
+                    expected, abs=1.0
+                )
     finally:
         text_page.close()
         pdf.close()
