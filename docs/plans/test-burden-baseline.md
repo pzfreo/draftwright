@@ -388,3 +388,8 @@ their execution namespaces for assertions about the rebuilt sheet and part. Acro
 unchanged module outcomes under pull-request distribution, format exports fall from five to zero,
 and compilations and lint calls each fall by five. The original, side-edited, and emitted-roundtrip
 drawings retain their layout, authored-side, and measurement-equivalence checks.
+
+The supported-placement roundtrip now inspects its replayed drawing and authored Sheet directly,
+without running the empty-format exporter. Across all 29 unchanged dimension-option outcomes,
+format exports fall from one to zero, and compilation and lint calls each fall by one. The real
+build still proves that the advertised plan-side bore dimension reaches a rendered annotation.
