@@ -77,3 +77,9 @@ builds (65.5%), 28 to 9 recognition acquisitions (67.9%), and 75,947 to 27,633 s
 constructions (63.6%). Four loadscope workers account for four cache misses; the other 19
 harness requests are measured cache hits. The stand-ins own their registries and item lists,
 and borrow the real drawing only for immutable draft, page, and furniture evidence.
+
+Within the #1166 cross-pass leader regression family, moving five mutation-heavy fixed-ink
+cases to `fresh_drawing` preserved five independent drawings while recognition acquisitions
+fell from five to one (80.0%) and shape constructions from 28,642 to 24,454 (14.6%). The
+complete family remains at 139 passes and six expected strict xfails, so the retained
+historical and bounded-failure signals are unchanged.

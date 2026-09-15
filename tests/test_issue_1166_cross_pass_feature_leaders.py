@@ -306,8 +306,8 @@ def test_near_clear_witness_is_not_falsely_classified_by_strip_padding():
     assert not any("3× ⌀8 THRU" in message for message in issues)
 
 
-def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -365,8 +365,8 @@ def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.lint())
 
 
-def test_circular_center_furniture_keeps_its_empty_interior_available():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_circular_center_furniture_keeps_its_empty_interior_available(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -532,8 +532,8 @@ def test_filled_datum_face_is_part_of_the_fixed_ink_inventory(inked_box_dwg):
     assert blockers[0].startswith("datum_test:ink:")
 
 
-def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -698,8 +698,8 @@ def test_global_axis_exemption_keeps_every_non_attachment_collision(case):
     assert _candidate_hits_component(candidate, component)
 
 
-def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -752,8 +752,8 @@ def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
     assert feature_leader_fixed_conflicts(drawing, ("test_global_axis",)) == ()
 
 
-def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
