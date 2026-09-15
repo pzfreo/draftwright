@@ -173,6 +173,7 @@ def test_removing_the_placed_flat_callout_loses_drawing_credit(monkeypatch) -> N
 
 def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -184,6 +185,7 @@ def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:
         callout.label = "16 A/F"
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
     assert _states("ir_adapter") == {"supported"}
     assert _states("drawing_consumer") == {"unsupported"}
@@ -191,6 +193,7 @@ def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:
 
 def test_severing_flat_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -203,6 +206,7 @@ def test_severing_flat_measurement_provenance_loses_drawing_credit(monkeypatch) 
         drawing.registry.reapply(name, identity)
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", without_provenance)
     assert _states("ir_adapter") == {"supported"}
     assert _states("drawing_consumer") == {"unsupported"}
