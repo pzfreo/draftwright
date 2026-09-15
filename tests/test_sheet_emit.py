@@ -9,6 +9,7 @@ import math
 import os
 import subprocess
 import sys
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -3092,7 +3093,8 @@ def test_every_ir_kind_is_classified_for_mirror_coverage():
     )
 
 
-def _kinds_the_mirror_dimensions() -> set[str]:
+@cache
+def _kinds_the_mirror_dimensions() -> frozenset[str]:
     """Feature kinds some corpus fixture contributes an APPROVED dimension for.
 
     Asked of the compiler, not of detection. A fixture can detect a chamfer perfectly and
@@ -3110,7 +3112,7 @@ def _kinds_the_mirror_dimensions() -> set[str]:
             feature = resolve_feature(owner.ref) if owner.ref is not None else None
             if feature is not None:
                 covered.add(feature.kind)
-    return covered
+    return frozenset(covered)
 
 
 def _declared_measurement_model():
