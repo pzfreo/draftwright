@@ -150,15 +150,24 @@ def test_shape_fingerprint_erases_names_and_literals_only() -> None:
     assert _shape_fingerprint(left) != _shape_fingerprint(different_structure)
 
 
+def _test_functions(tree: ast.Module) -> Iterable[ast.FunctionDef]:
+    """Yield test definitions without walking their bodies a second time."""
+    pending: list[ast.AST] = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+            yield node
+            continue
+        pending.extend(reversed(list(ast.iter_child_nodes(node))))
+
+
 @cache
 def _clone_groups() -> dict[str, list[tuple[str, str]]]:
     """Structurally identical test bodies that span more than one module."""
     shapes: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
     for path in sorted(TESTS.glob("test_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.FunctionDef) and node.name.startswith("test_")):
-                continue
+        for node in _test_functions(tree):
             body = [
                 statement
                 for statement in node.body

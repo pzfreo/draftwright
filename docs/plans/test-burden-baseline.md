@@ -142,3 +142,9 @@ median fell from 15.22 seconds (15.81, 15.22, 14.70) to 10.94 seconds (10.75, 11
 28.1% improvement. An exhaustive review comparison over all 4,544 candidates found identical
 normalized node counts and the same 4,417 equivalence classes. The complete unit tier improved to
 32.92 seconds with three loadscope workers; it remains above the 30-second stage target.
+
+Stopping clone discovery at each collected test definition avoids traversing every test body once
+before fingerprinting it. The guard's three-run median fell again from 10.94 seconds to 9.54 seconds
+(8.82, 9.54, 10.43), a 12.8% improvement. Comparing the old full-tree discovery with the pruned
+walk found the same 4,542 threshold-qualified candidates and identical equivalence classes. The
+complete unit tier measured 31.81 seconds with three loadscope workers, so further work remains.
