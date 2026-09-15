@@ -1997,13 +1997,15 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
 
 
 @pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title"))
-def test_resource_fallback_never_bypasses_hard_boundaries(monkeypatch, tmp_path, hard_boundary):
+def test_resource_fallback_never_bypasses_hard_boundaries(
+    monkeypatch, tmp_path, hard_boundary, fresh_drawing
+):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     monkeypatch.setattr(
         "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
         0,
     )
     trace_path = tmp_path / f"hard-{hard_boundary}.json"
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     title = drawing.get_annotation("title_block").bounding_box()
     if hard_boundary == "page":
         tip = (270.0, 100.0)
@@ -2120,8 +2122,10 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch, 
     )
 
 
-def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypatch):
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(
+    monkeypatch, fresh_drawing
+):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     rendered_title_box = drawing.get_annotation("title_block").bounding_box()
     analysis = SimpleNamespace(
         margin=10.0,
@@ -2229,8 +2233,8 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
     assert any(issue.code == "callout_dropped" for issue in drawing.registry.issues)
 
 
-def test_rendered_title_keeps_the_whole_mandatory_band_hard():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_rendered_title_keeps_the_whole_mandatory_band_hard(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     title = drawing.get_annotation("title_block")
     title_box = title.bounding_box()
     bounds = drawing.view_bounds("front")

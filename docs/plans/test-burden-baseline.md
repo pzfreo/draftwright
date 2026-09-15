@@ -100,3 +100,9 @@ The ten #1166 rendered-survivor validation cases now reuse immutable analysis ac
 independent drawings and traces. Recognition acquisitions fell from ten to one (90.0%) and
 shape constructions from 59,514 to 50,091 (15.8%), with all analytical-ink, producer-tail,
 and mesh-failure outcomes retained.
+
+Five #1166 hard-boundary cases now reuse one immutable analysis seed while keeping private
+placement contexts and drawings. Recognition acquisitions fell from five to one (80.0%) and
+shape constructions from 18,215 to 14,027 (23.0%). The resource cap is installed after
+construction, and page, silhouette, future-section, and rendered-title behavior remains
+independently asserted.
