@@ -187,3 +187,11 @@ reduced STEP imports from 136 to 36 (73.5%) while retaining all 110 outcomes, in
 fault-injection and downstream-observer mutations. Recognition (206), analysis (404), compilation
 (931), drawing builds (210), and lint calls (711) remain exact. A module-scoped teardown comparison
 of volume, bounds, solids, faces, and edges proved no consumer mutated a cached imported shape.
+
+Canonicalizing and caching the five STEP solids directly reused by the Double-D completeness module
+reduced STEP imports from 66 to 27 (59.1%). All 66 outcomes remain passing, including malformed
+provider records, correspondence mutations, negative controls, and the real corpus evaluator;
+recognition (55), analysis (52), compilation (266), drawing builds (52), lint (106), and raw
+recognition (20) counts are exact. Its teardown both fingerprints every cached topology and rejects
+an unlisted cache key; that check caught and prompted removal of an omitted-default duplicate during
+review.

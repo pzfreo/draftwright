@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import cache
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,10 +30,44 @@ from draftwright.evaluation.step_analysis import (
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-double-d-bores-v1.json"
 CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
+_PART_FIXTURES = (
+    "double-d-blind.step",
+    "double-d-coaxial-compound.step",
+    "double-d-opposed-blind.step",
+    "double-d-round-bore.step",
+    "double-d-single-z.step",
+)
+
+
+@cache
+def _cached_part(name: str):
+    return import_step(CORPUS.parent / name)
 
 
 def _part(name: str = "double-d-single-z.step"):
-    return import_step(CORPUS.parent / name)
+    return _cached_part(name)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cached_parts_stay_pristine():
+    def signature(part):
+        bounds = part.bounding_box()
+        return (
+            part.volume,
+            tuple(bounds.min),
+            tuple(bounds.max),
+            len(part.solids()),
+            len(part.faces()),
+            len(part.edges()),
+        )
+
+    before = {name: signature(_part(name)) for name in _PART_FIXTURES}
+    yield
+    after = {name: signature(_part(name)) for name in _PART_FIXTURES}
+    assert _cached_part.cache_info().currsize == len(_PART_FIXTURES), (
+        "an imported Double-D part is cached without a topology fingerprint"
+    )
+    assert after == before, "a Double-D test mutated cached STEP geometry"
 
 
 def _states(boundary: str) -> set[str]:
