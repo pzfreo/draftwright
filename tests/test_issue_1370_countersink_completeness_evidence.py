@@ -400,7 +400,7 @@ def test_unparseable_claim_expectation_cannot_receive_role_specific_ink_credit()
 
 
 def test_deleting_provider_seats_cannot_shrink_the_independent_denominator(
-    monkeypatch,
+    monkeypatch, reduced_baseline
 ) -> None:
     import draftwright.analysis as analysis
 
@@ -412,10 +412,10 @@ def test_deleting_provider_seats_cannot_shrink_the_independent_denominator(
         return replace(result, countersinks=(), holes=holes, hole_patterns=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_countersinks)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 7
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

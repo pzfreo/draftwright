@@ -281,3 +281,10 @@ falls from eight to four drawing, recognition, and STEP-import runs (50.0%), and
 distribution, drawing builds and recognition acquisitions fall from 65 to 61 (6.2%), STEP imports
 from 29 to 25 (13.8%), and shapes from 461,277 to 432,920 (6.1%). Full topology coverage and the
 retained provider, parameter, identity, declaration, drawing, and quality mutations remain passing.
+
+The countersink provider-deletion probe now uses the family's clean two-case cover. Its mutation
+work falls from seven to four drawing, recognition, and STEP-import runs (42.9%), and from 27,180
+to 19,349 shape constructions (28.8%). Across all 27 unchanged outcomes under pull-request
+distribution, drawing builds and recognition acquisitions fall from 43 to 40 (7.0%), STEP imports
+from 45 to 42 (6.7%), and shapes from 189,205 to 182,297 (3.7%). Full topology coverage and the
+retained malformed-provider, declaration, drawing, and negative-control mutations remain passing.
