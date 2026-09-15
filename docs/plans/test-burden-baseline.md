@@ -166,3 +166,11 @@ balance. Against `auto/worksteal`, its three-run median fell from 38.63 seconds 
 (29.32, 38.63, 40.20; 39.43 seconds process wall time) to 27.72 seconds (27.72, 26.36, 33.57;
 28.38 seconds process wall time), a 28.3% pytest-time reduction. All three runs selected and passed
 the same 424 unit items without constructing CAD shapes. This closes the stage 1 exit gate.
+
+Caching the 32 immutable mirror-corpus solids and their detected models within each worker removed
+the second recognition pass paid by `TestTheDimensionMirror`. Across its unchanged 75 items,
+recognition acquisitions fell from 73 to 39 (46.6%), analysis runs from 163 to 129 (20.9%), and
+shape constructions from 453,169 to 365,571 (19.3%); compilation (262), drawing builds (66), and
+lint calls (177) are unchanged. Summed phase duration fell from 278.35 to 212.30 seconds (23.7%).
+A full 502-item emitter-module run retained 501 passes and one expected xfail, while module- and
+class-scoped teardown fingerprints proved no consumer mutated cached solids or recognition models.

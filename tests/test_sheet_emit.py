@@ -2574,6 +2574,7 @@ class TestTheDimensionMirror:
     """
 
     @staticmethod
+    @cache
     def _corpus():
         from build123d import Align, Axis, Box, Cylinder, Pos, Rot
 
@@ -2654,6 +2655,22 @@ class TestTheDimensionMirror:
         }
 
     @staticmethod
+    @cache
+    def _models():
+        return {
+            name: detect_part_model(part)
+            for name, part in TestTheDimensionMirror._corpus().items()
+        }
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def _cached_models_stay_pristine(cls):
+        before = {name: repr(model) for name, model in cls._models().items()}
+        yield
+        after = {name: repr(model) for name, model in cls._models().items()}
+        assert after == before, "a mirror test mutated cached recognition evidence"
+
+    @staticmethod
     def _run(src, part):
         ns: dict = {"part": part}
         body = src.replace("\npart\n", "\n", 1)
@@ -2703,7 +2720,7 @@ class TestTheDimensionMirror:
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_corpus_detects_what_it_claims(self, name):
         """A fixture named for a kind it does not produce is coverage theatre."""
-        kinds = {f.kind for f in detect_part_model(self._corpus()[name]).features}
+        kinds = {f.kind for f in self._models()[name].features}
         expected = self._EXPECTED_KINDS[name]
         assert expected <= kinds, (
             f"{name} detects {sorted(kinds)}, missing {sorted(expected - kinds)}"
@@ -2725,14 +2742,14 @@ class TestTheDimensionMirror:
                 lug = Pos(x, -2, z) * Box(10, 4, 10)
                 # Only the radius-2 bore is removed from each nominal lug volume.
                 assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
-        model = detect_part_model(part)
+        model = self._models()["flange (no envelope feature)"]
         assert not [f for f in model.features if f.kind == "pocket"]
 
     def test_the_side_drilled_fixture_reaches_the_off_axis_location_path(self):
         """Named because it is the path that was silently uncovered. An X-axis bore's
         position is compiled by `_compile_off_axis_hole_locations`, a different code path
         from the Z-normal ladder (#925)."""
-        model = detect_part_model(self._corpus()["side-drilled"])
+        model = self._models()["side-drilled"]
         from draftwright.model.compiled import compile_dimensions
 
         roles = {loc.role for loc in compile_dimensions(model).locations}
@@ -2906,6 +2923,25 @@ class TestTheDimensionMirror:
             if current != initial:
                 changed[name] = (initial, current)
         assert not changed, f"shared automatic drawings were mutated: {sorted(changed)}"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cached_mirror_corpus_stays_pristine():
+    def signature(part):
+        bounds = part.bounding_box()
+        return (
+            part.volume,
+            tuple(bounds.min),
+            tuple(bounds.max),
+            len(part.solids()),
+            len(part.faces()),
+            len(part.edges()),
+        )
+
+    before = {name: signature(part) for name, part in TestTheDimensionMirror._corpus().items()}
+    yield
+    after = {name: signature(part) for name, part in TestTheDimensionMirror._corpus().items()}
+    assert after == before, "a sheet-emitter test mutated cached mirror-corpus geometry"
 
 
 #: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
@@ -3382,7 +3418,7 @@ def mirror_automatic_drawings():
     """
     cases = {}
     for name, part in TestTheDimensionMirror._corpus().items():
-        model = detect_part_model(part)
+        model = TestTheDimensionMirror._models()[name]
         drawing = build_drawing(part, model=model, title="T", number="N")
         cases[name] = (part, model, drawing, _annotation_signature(drawing))
     return cases
