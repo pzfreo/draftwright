@@ -44,6 +44,7 @@ DAG violation today, so they are accepted rather than chased):
 from __future__ import annotations
 
 import ast
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -252,6 +253,7 @@ def _typing_tc_names(tree: ast.Module) -> set[str]:
     return names
 
 
+@cache
 def _classify(path: Path) -> dict[int, set[tuple[str, ...]]]:
     """Split a file's draftwright imports into {runtime, TYPE_CHECKING, lazy} full-module sets,
     by the context that actually executes each import (see the module docstring)."""

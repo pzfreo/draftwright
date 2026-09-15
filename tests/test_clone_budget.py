@@ -50,6 +50,7 @@ from __future__ import annotations
 import ast
 import collections
 import hashlib
+from functools import cache
 from pathlib import Path
 
 TESTS = Path(__file__).parent
@@ -111,6 +112,7 @@ class _Shape(ast.NodeTransformer):
         return ast.copy_location(ast.keyword(arg="_", value=node.value), node)
 
 
+@cache
 def _clone_groups() -> dict[str, list[tuple[str, str]]]:
     """Structurally identical test bodies that span more than one module."""
     shapes: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
