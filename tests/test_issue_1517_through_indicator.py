@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import asdict
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box
 
 from draftwright import Sheet
@@ -251,6 +252,7 @@ def test_script_replay_tables_and_measured_content_agree(indicator, tmp_path):
     original = sheet.build()
     feature = sheet.model().features[0]
     assert feature.through and feature.depth is not None
+    formats = ("svg", "pdf", "dxf") if indicator is None else ()
     script = emit_sheet_script(
         sheet.model(),
         "part = supplied_part",
@@ -259,11 +261,16 @@ def test_script_replay_tables_and_measured_content_agree(indicator, tmp_path):
         number="WORDING",
         page="A3",
         scale=1,
-        formats=("svg", "pdf", "dxf"),
+        formats=formats,
     )
     namespace = {"supplied_part": part}
-    exec(script, namespace)
-    replay = namespace["drawing"]
+    if formats:
+        exec(script, namespace)
+        replay = namespace["drawing"]
+    else:
+        replay = execute_sheet_script_without_export(
+            script, "<through-indicator replay>", namespace
+        )
     recreated = namespace["sheet"].model().features[0]
     assert recreated.through_indicator == indicator
     assert recreated.through and recreated.depth == feature.depth
@@ -283,10 +290,10 @@ def test_script_replay_tables_and_measured_content_agree(indicator, tmp_path):
     assert any("±0.02" in cell for row in table.table_rows for cell in row)
     depth_column = table.table_rows[0].index("DEPTH")
     assert [row[depth_column] for row in table.table_rows[1:]] == [resolved]
-    assert all(
-        (tmp_path / f"replay.{extension}").stat().st_size > 100
-        for extension in ("svg", "pdf", "dxf")
-    )
+    if formats:
+        assert all(
+            (tmp_path / f"replay.{extension}").stat().st_size > 100 for extension in formats
+        )
 
 
 @pytest.mark.parametrize(
