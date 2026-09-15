@@ -171,12 +171,11 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     )
 
 
-def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules():
+def test_post_merge_gate_runs_the_complete_scheduled_tier():
     slow_job = _job(_workflow("ci.yml"), "test-slow")
 
-    assert re.findall(r"run: (uv run pytest tests/ -m slow[^\n]*)", slow_job) == [
-        "uv run pytest tests/ -m slow -n auto --dist load"
-    ]
+    assert "uv run scripts/test-tier scheduled --workers auto --dist load" in slow_job
+    assert "uv run pytest tests/ -m slow" not in slow_job
 
 
 @pytest.mark.parametrize(

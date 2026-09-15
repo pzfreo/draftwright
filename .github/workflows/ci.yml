@@ -386,8 +386,8 @@ jobs:
         run: uv run pytest tests/test_issue_827_real_part_canary.py tests/test_issue_1544_frame_document_canary.py -m real_part_canary -v -s --durations=1
 
   test-slow:
-    # Heavy end-to-end CTC fixture builds (minutes each); run once, not across
-    # the full OS/Python matrix.
+    # Heavy end-to-end CTC builds and the scheduled compatibility corpus run once,
+    # not across the full OS/Python matrix.
     #
     # POST-MERGE ONLY — runs on push to main, not on pull_request, so it no
     # longer gates PR merge (#153). Rationale: since #149 pinned the fonts,
@@ -407,11 +407,11 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: uv sync --group dev
-      - name: Run slow tests
-        # Slow cases isolate their outputs with tmp_path and carry no cross-test ordering
-        # contract. Distribute individual cases: loadscope serialized the 18-case standards
-        # module and left most workers idle (#1108).
-        run: uv run pytest tests/ -m slow -n auto --dist load
+      - name: Run scheduled tests
+        # Scheduled cases isolate their outputs with tmp_path and carry no cross-test ordering
+        # contract. They include every legacy slow case plus broad topology and exporter
+        # compatibility checks deliberately removed from pull-request and full tiers.
+        run: uv run scripts/test-tier scheduled --workers auto --dist load
 
   test-platform-canary:
     # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the
