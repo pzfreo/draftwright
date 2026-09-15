@@ -61,6 +61,10 @@ def main(argv: list[str] | None = None) -> int:
         args = [str(TESTS), "-m", FULL_EXPRESSION]
     else:
         args = [str(TESTS), "-m", SCHEDULED_EXPRESSION]
+        # Dense STEP builds take about 320 s alone and can take longer when the
+        # scheduled workers contend for CPU. Keep this tier bounded without making
+        # the fast and full feedback loops tolerate a ten-minute hang.
+        common.append("--timeout=600")
     return pytest.main([*args, *common, *pytest_args])
 
 
