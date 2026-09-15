@@ -641,7 +641,9 @@ def test_severing_one_pad_measurement_claim_loses_drawing_credit(monkeypatch) ->
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_deleting_provider_pads_cannot_shrink_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_pads_cannot_shrink_independent_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -651,10 +653,10 @@ def test_deleting_provider_pads_cannot_shrink_independent_denominator(monkeypatc
         return replace(result, pads=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_pads)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 12
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

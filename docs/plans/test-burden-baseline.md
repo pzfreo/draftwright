@@ -296,3 +296,9 @@ unchanged outcomes under pull-request distribution, drawing builds fall from 210
 recognition acquisitions from 206 to 192 (6.8%), and shapes from 773,652 to 729,534 (5.7%). Full
 topology coverage, cached-solid integrity, and all retained correspondence, provider, parameter,
 declaration, generated-code, and drawing mutations remain passing.
+
+The pad provider-deletion probe now uses the family's clean two-case cover. Its
+clean-plus-damaged work falls from twelve to four drawing, recognition, and STEP-import runs
+(66.7%), and from 59,376 to 37,872 shape constructions (36.2%). All 54 module outcomes pass under
+pull-request distribution, including the full topology corpus and every retained correspondence,
+provider, parameter, identity, declaration, generated-code, drawing, and quality mutation.
