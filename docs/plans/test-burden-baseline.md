@@ -567,3 +567,11 @@ partition all 8,755 current outcomes (8,693 fast and 62 scheduled). Against `ori
 long-running #1637 branch conservatively selects 4,964 outcomes from 179 modules because 167 test
 modules have changed and are therefore included directly. This is the honest Stage 6 starting point;
 the ten-minute PR exit remains open until subsequent tier and corpus slices reduce that selection.
+
+The end-to-end standards matrix now retains the plate object and STEP-route exports in PR while its
+cylinder and stepped-geometry compatibility cases run scheduled; only the retained plate keeps the
+cross-platform smoke marker. The envelope-tolerance ink matrix
+retains height—the historically distinct compiler-and-ladder path—in PR while width and depth run
+scheduled; their cheaper label and geometry contracts remain fast. Across the two families, the PR
+side retains 21 outcomes and four exporter calls, while four scheduled outcomes carry the other six
+calls. Full and scheduled collection partition all 8,756 outcomes as 8,690 fast and 66 scheduled.

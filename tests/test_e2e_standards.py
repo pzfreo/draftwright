@@ -93,9 +93,15 @@ def _assert_ctc_diagnostic_contract(dwg, svg_path, dxf_path, *, expect_incomplet
         assert dwg.lint_summary()["passed"] is True
 
 
-@pytest.mark.smoke  # representative full build → annotate → export → lint → standards
 @pytest.mark.timeout(120)
-@pytest.mark.parametrize("name", ["cylinder", "plate", "stepped"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("cylinder", marks=pytest.mark.scheduled),
+        pytest.param("plate", marks=pytest.mark.smoke),
+        pytest.param("stepped", marks=pytest.mark.scheduled),
+    ],
+)
 def test_e2e_from_object_meets_standards(tmp_path, name):
     part = _make_parts()[name]
     stem = str(tmp_path / name)
