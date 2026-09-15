@@ -382,3 +382,9 @@ shared replay helper and inspect the constructed drawing without serializing it.
 unchanged module outcomes, format exports fall from eleven to zero, compilations from 133 to 122,
 and lint calls from 95 to 84. This retains both replays of each deliberately edited pattern script,
 as well as every member, axis, profile, order, and bolt-circle identity assertion.
+
+The semantic-side generated scripts now use the same in-memory replay boundary while retaining
+their execution namespaces for assertions about the rebuilt sheet and part. Across all fifteen
+unchanged module outcomes under pull-request distribution, format exports fall from five to zero,
+and compilations and lint calls each fall by five. The original, side-edited, and emitted-roundtrip
+drawings retain their layout, authored-side, and measurement-equivalence checks.

@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Cylinder, Pos
 
 from draftwright import Sheet, build_drawing
@@ -16,7 +17,7 @@ from draftwright.sheet_emit import emit_sheet_script, generate_sheet_script
 
 def _execute(source):
     namespace = {}
-    exec(compile(source, "<semantic-sides>", "exec"), namespace)
+    execute_sheet_script_without_export(source, "<semantic-sides>", namespace)
     return namespace
 
 
@@ -93,12 +94,12 @@ def test_discovery_and_emission_preserve_the_supported_sides(grm04_scripts):
         formats=(),
     )
     namespace = {"part": edited["part"]}
-    exec(compile(source, "<side-roundtrip>", "exec"), namespace)
+    replayed = execute_sheet_script_without_export(source, "<side-roundtrip>", namespace)
     repeated = namespace["sheet"].model().authored_dimensions
     assert [(r.role, r.view, r.side) for r in repeated] == [
         (r.role, r.view, r.side) for r in model.authored_dimensions
     ]
-    assert _measurements(namespace["drawing"]) == _measurements(edited["drawing"])
+    assert _measurements(replayed) == _measurements(edited["drawing"])
 
 
 def test_grm04_edit_preserves_measurement_meaning_under_shared_declaration(grm04_scripts):
