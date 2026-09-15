@@ -144,6 +144,7 @@ class TestTurnedLengths:
         )  # skipped, not off-page
         assert dwg.lint_summary()["by_code"].get("axial_length_missing", 0) >= 1
 
+    @pytest.mark.scheduled
     def test_dense_chain_skips_instead_of_cramming(self):
         # A genuinely dense turned shaft (many fine non-uniform steps) whose labels
         # cannot be spaced legibly must SKIP the chain, not overprint a wall of
