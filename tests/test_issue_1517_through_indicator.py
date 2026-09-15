@@ -350,11 +350,10 @@ def test_pattern_member_script_preserves_wording_counts_and_depth(indicator, tmp
         number="PATTERN",
         page="A3",
         scale=1,
-        formats=("svg",),
+        formats=(),
     )
     namespace = {"supplied_part": part}
-    exec(script, namespace)
-    replay = namespace["drawing"]
+    replay = execute_sheet_script_without_export(script, "<through-pattern replay>", namespace)
     original = sheet.model().features[0]
     recreated = namespace["sheet"].model().features[0]
     assert recreated.member.through_indicator == indicator

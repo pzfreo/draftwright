@@ -416,3 +416,9 @@ the default wording and replays the three authored wording variants in memory. A
 outcomes remain independent, while their format exports fall from four to one, compilations from 36
 to 33, lint calls from twenty to seventeen, and shapes from 107,209 to 49,882 (53.5%). The complete
 52-outcome module passes under pull-request distribution with nine exporter calls, down from twelve.
+
+The four through-pattern wording cases now replay their generated declarations in memory because
+they assert only reconstructed pattern semantics and measurement equivalence; the sibling matrix
+owns this module's explicit format evidence. Their format exports fall from four to zero,
+compilations from 32 to 28, lint calls from twenty to sixteen, and shapes from 46,291 to 28,572
+(38.3%). All 52 module outcomes pass with five exporter calls, down from nine after the prior slice.
