@@ -302,3 +302,10 @@ clean-plus-damaged work falls from twelve to four drawing, recognition, and STEP
 (66.7%), and from 59,376 to 37,872 shape constructions (36.2%). All 54 module outcomes pass under
 pull-request distribution, including the full topology corpus and every retained correspondence,
 provider, parameter, identity, declaration, generated-code, drawing, and quality mutation.
+
+The flat provider-deletion probe now uses the family's clean two-case cover. Its mutation work
+falls from seven to four drawing, recognition, and STEP-import runs (42.9%), and from 18,665 to
+12,080 shape constructions (35.3%). Across all 15 unchanged outcomes under pull-request
+distribution, drawing builds and recognition acquisitions fall from 36 to 33 (8.3%), STEP imports
+from 21 to 18 (14.3%), and shapes from 105,903 to 100,048 (5.5%). Full topology coverage and all
+retained provider, parameter, declaration, generated-code, and drawing mutations remain passing.
