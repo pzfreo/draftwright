@@ -525,3 +525,10 @@ explicit-output object case is covered by the STEP output-path contract and the 
 canary. The module falls from five to four integration items, format exports from five to two,
 compilations from ten to six, lint calls from sixteen to eleven, and shape constructions from
 100,964 to 46,271 (54.2%). All four surviving contracts pass under pull-request distribution.
+
+The dimension-text CLI routing matrix now retains its direct SVG canary and replays both generated
+script routes without serialization; the module's declared angular-script contract still exports
+SVG, PDF, and DXF. Across all 95 unchanged module outcomes, format exports fall from four to two,
+compilations from 80 to 78, lint calls from 62 to 60, and shape constructions from 141,282
+to 131,742 (6.8%). Every route still proves that it requested SVG, reconstructed the selected text
+style, and produced the expected horizontal automatic dimension ink.

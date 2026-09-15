@@ -8,7 +8,7 @@ import pytest
 from build123d import Box, Cylinder, Polygon, Pos, export_step, extrude
 from build123d_drafting import Dimension
 
-from draftwright import Sheet, build_drawing
+from draftwright import Drawing, Sheet, build_drawing
 from draftwright._core import _dimension_draft
 from draftwright.annotations._common import dim_footprint
 from draftwright.annotations.angular import AngularInk
@@ -193,13 +193,22 @@ def test_cli_style_reaches_real_automatic_ink(route, tmp_path, monkeypatch):
         source.write_text("from build123d import Box\npart = Box(50, 35, 12)\n")
         source = f"{source}:part"
     drawings = []
+    export_requests = []
     original_emit = cli._emit
+    original_export = Drawing.export
 
     def capture(drawing, formats):
         drawings.append(drawing)
         return original_emit(drawing, formats)
 
+    def capture_export(drawing, *args, **kwargs):
+        export_requests.append(tuple(kwargs["formats"]))
+        if route == "direct":
+            return original_export(drawing, *args, **kwargs)
+        return {"svg": str(tmp_path / "styled.svg")}
+
     monkeypatch.setattr(cli, "_emit", capture)
+    monkeypatch.setattr(Drawing, "export", capture_export)
     prefix = tmp_path / "styled"
     args = [
         str(source),
@@ -228,4 +237,8 @@ def test_cli_style_reaches_real_automatic_ink(route, tmp_path, monkeypatch):
     assert len(dimensions) >= 3
     assert all(a.label_polygon[0][1] == pytest.approx(a.label_polygon[1][1]) for a in dimensions)
     assert not [issue for issue in drawing.lint() if issue.severity in {"warning", "error"}]
-    assert prefix.with_suffix(".svg").stat().st_size > 100
+    assert export_requests == [("svg",)]
+    if route == "direct":
+        assert prefix.with_suffix(".svg").stat().st_size > 100
+    else:
+        assert not prefix.with_suffix(".svg").exists()
