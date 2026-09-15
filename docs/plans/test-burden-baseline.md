@@ -404,3 +404,9 @@ The nominal-mismatch generated-script contract now inspects its reconstructed au
 without an empty-format export. Across all nine unchanged module outcomes, format exports fall from
 one to zero, and compilation and lint calls each fall by one. The exact nominal value, source
 identity, and lowering-blocker assertions remain unchanged.
+
+The rounded-pocket generated-script contracts now replay in memory while retaining the inspected
+SVG export for the ordinary roundtrip. Across all twenty unchanged module outcomes, format exports
+fall from three to one. The SVG export populates the placed-outcome registry for its case; an
+explicit critique does the same for the authored-radius case, preserving its unverifiable outcome
+without serializing a file.
