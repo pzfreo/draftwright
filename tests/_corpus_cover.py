@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from itertools import combinations
 from typing import Any
 
@@ -34,6 +34,7 @@ def case_coverage_signature(
     *,
     scope: Iterable[str],
     topology_variants: Iterable[str] = (),
+    include_classifications: bool = True,
     lint_codes: Iterable[str],
     mutation_kills: Iterable[str],
 ) -> CoverageSignature:
@@ -48,10 +49,11 @@ def case_coverage_signature(
     facts = tuple(case.expected)
     families = frozenset(scope) | frozenset(fact.family for fact in facts)
     topology = {
-        *(f"classification:{tag}" for tag in case.classification.split("+") if tag),
         *(f"declared:{variant}" for variant in topology_variants),
         f"fact-cardinality:{len(facts)}",
     }
+    if include_classifications:
+        topology.update(f"classification:{tag}" for tag in case.classification.split("+") if tag)
     outcomes = {f"case:{case.expected_outcome}"}
     compiler = set()
     for fact in facts:
@@ -70,6 +72,17 @@ def case_coverage_signature(
         lint_codes=frozenset(lint_codes),
         mutation_kills=frozenset(mutation_kills),
     )
+
+
+def corpus_subset(corpus: Any, case_ids: Iterable[str]):
+    """Return *corpus* with exactly the named cases in original corpus order."""
+
+    requested = frozenset(case_ids)
+    available = {case.case_id for case in corpus.cases}
+    unknown = requested - available
+    if unknown:
+        raise KeyError(f"selected cases are absent from the corpus: {sorted(unknown)}")
+    return replace(corpus, cases=tuple(case for case in corpus.cases if case.case_id in requested))
 
 
 def minimum_coverage_cases(

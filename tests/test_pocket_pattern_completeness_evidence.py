@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _corpus_cover import case_coverage_signature, corpus_subset, minimum_coverage_cases
 from _evidence_contract import (
     assert_every_boundary_is_supported,
     assert_missing_model_outcomes_fail_closed,
@@ -25,6 +26,66 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-pocket-patterns-v1.json"
+
+_MUTATION_CASES = (
+    "pocket-pattern-grid",
+    "pocket-pattern-linear",
+    "pocket-pattern-unequal-spacing",
+)
+
+
+def _mutation_corpus():
+    return corpus_subset(load_corpus(CORPUS), _MUTATION_CASES)
+
+
+@pytest.fixture(scope="module")
+def mutation_baseline():
+    baseline = evaluate_step_corpus(_mutation_corpus())
+    assert baseline.detection.recall == 1.0
+    assert baseline.detection.false_positives == 0
+    assert baseline.parameter_fidelity.score == 1.0
+    assert baseline.downstream_usefulness.score == 1.0
+    assert baseline.complete_cases == baseline.conformant_cases == len(baseline.cases)
+    return baseline
+
+
+def _assert_mutation_corpus_is_the_exact_signature_cover(corpus) -> None:
+    signatures = {}
+    for case in corpus.cases:
+        kinds = {fact.identity["kind"].value for fact in case.expected}
+        kind = next(iter(kinds), "negative")
+        kills = (
+            ("delete-provider", "pitch-grid", "orientation-grid", "invalid-lattice-grid")
+            if kind == "grid"
+            else (
+                "delete-provider",
+                "pitch-linear",
+                "orientation-linear",
+                "invalid-lattice-linear",
+            )
+            if kind == "linear"
+            else ()
+        )
+        signatures[case.case_id] = case_coverage_signature(
+            case,
+            scope=corpus.scope,
+            topology_variants=(f"kind:{kind}",),
+            include_classifications=False,
+            lint_codes=("clean",),
+            mutation_kills=kills,
+        ).tokens()
+
+    # The exact solver minimizes item count, then case ID. Pin the simple grid over an
+    # equivalent compound grid because this campaign measures mutation sensitivity and the
+    # simple fixture performs the same branch work with fewer bodies. The ambiguous negative
+    # is the non-vacuous false-positive guard; the linear case earns its place from unique kills.
+    assert (
+        minimum_coverage_cases(
+            signatures,
+            required=("pocket-pattern-grid", "pocket-pattern-unequal-spacing"),
+        )
+        == _MUTATION_CASES
+    )
 
 
 def _grid_part():
@@ -54,6 +115,7 @@ def _annotation_for_parameter(drawing, parameter: str) -> str:
 
 def test_versioned_pocket_pattern_corpus_covers_every_required_case_class() -> None:
     corpus = load_corpus(CORPUS)
+    _assert_mutation_corpus_is_the_exact_signature_cover(corpus)
 
     assert (corpus.corpus_version, corpus.metric_version) == ("1.1.0", 1)
     assert corpus.scope == ("pocket-patterns",)
@@ -792,7 +854,9 @@ def test_pitch_fallback_rejects_unverifiable_real_geometry(
     assert [issue.code for issue in registry.issues] == [drop_code]
 
 
-def test_deleting_provider_patterns_cannot_shrink_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_patterns_cannot_shrink_independent_denominator(
+    mutation_baseline, monkeypatch
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -804,16 +868,16 @@ def test_deleting_provider_patterns_cannot_shrink_independent_denominator(monkey
         return replace(result, section_recess_patterns=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_patterns)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(_mutation_corpus())
 
-    assert len(removed) == 4
+    assert len(removed) == mutation_baseline.detection.matched == 2
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 4
+    assert damaged.detection.missed == 2
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 
 
-def test_misstating_observed_pitch_reduces_parameter_fidelity() -> None:
+def test_misstating_observed_pitch_reduces_parameter_fidelity(mutation_baseline) -> None:
     original = _default_observers()["pocket-patterns"]
 
     def weakened_patterns(part):
@@ -826,17 +890,22 @@ def test_misstating_observed_pitch_reduces_parameter_fidelity() -> None:
         return tuple(changed)
 
     damaged = evaluate_step_corpus(
-        load_corpus(CORPUS), observers={"pocket-patterns": weakened_patterns}
+        _mutation_corpus(), observers={"pocket-patterns": weakened_patterns}
     )
 
     assert damaged.detection.recall == 1.0
     assert damaged.detection.false_positives == 0
-    assert damaged.parameter_fidelity.passed == 37
-    assert damaged.parameter_fidelity.total == 41
-    assert damaged.parameter_fidelity.score == 37 / 41
+    assert damaged.parameter_fidelity.passed == mutation_baseline.parameter_fidelity.total - 2
+    assert damaged.parameter_fidelity.total == mutation_baseline.parameter_fidelity.total
+    assert (
+        damaged.parameter_fidelity.score
+        == damaged.parameter_fidelity.passed / damaged.parameter_fidelity.total
+    )
 
 
-def test_hardcoding_observed_arrangement_orientation_reduces_parameter_fidelity() -> None:
+def test_hardcoding_observed_arrangement_orientation_reduces_parameter_fidelity(
+    mutation_baseline,
+) -> None:
     original = _default_observers()["pocket-patterns"]
 
     def axis_aligned_patterns(part):
@@ -851,18 +920,21 @@ def test_hardcoding_observed_arrangement_orientation_reduces_parameter_fidelity(
         return tuple(changed)
 
     damaged = evaluate_step_corpus(
-        load_corpus(CORPUS), observers={"pocket-patterns": axis_aligned_patterns}
+        _mutation_corpus(), observers={"pocket-patterns": axis_aligned_patterns}
     )
 
     assert damaged.detection.recall == 1.0
-    assert damaged.parameter_fidelity.passed == 39
-    assert damaged.parameter_fidelity.total == 41
-    assert damaged.parameter_fidelity.score == 39 / 41
+    assert damaged.parameter_fidelity.passed == mutation_baseline.parameter_fidelity.total - 2
+    assert damaged.parameter_fidelity.total == mutation_baseline.parameter_fidelity.total
+    assert (
+        damaged.parameter_fidelity.score
+        == damaged.parameter_fidelity.passed / damaged.parameter_fidelity.total
+    )
 
 
 @pytest.mark.parametrize("corruption", ["pitch", "orientation"])
 def test_inconsistent_provider_lattice_cannot_receive_completeness_credit(
-    monkeypatch, caplog, corruption
+    mutation_baseline, monkeypatch, caplog, corruption
 ) -> None:
     import draftwright.analysis as analysis
 
@@ -888,11 +960,11 @@ def test_inconsistent_provider_lattice_cannot_receive_completeness_credit(
         return replace(result, section_recess_patterns=tuple(changed))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", inconsistent_patterns)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(_mutation_corpus())
 
-    assert len(mutations) == 4
+    assert len(mutations) == mutation_baseline.detection.matched == 2
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 4
+    assert damaged.detection.missed == 2
     assert damaged.complete_cases < len(damaged.cases)
     assert "recess pattern lattice does not identify each member exactly once" in caplog.text
 

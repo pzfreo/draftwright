@@ -1,9 +1,15 @@
 """The corpus reducer chooses a true minimum without dropping named regressions."""
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
-from _corpus_cover import CoverageSignature, case_coverage_signature, minimum_coverage_cases
+from _corpus_cover import (
+    CoverageSignature,
+    case_coverage_signature,
+    corpus_subset,
+    minimum_coverage_cases,
+)
 
 
 def test_signature_records_every_evidence_dimension_without_cross_category_collisions():
@@ -83,6 +89,37 @@ def test_case_signature_requires_lint_and_mutation_evidence():
 
     with pytest.raises(TypeError):
         case_coverage_signature(case, scope=("grooves",))
+
+
+def test_case_signature_can_limit_classifications_to_a_specific_mutation_campaign():
+    case = SimpleNamespace(
+        classification="compound+positive", expected_outcome="supported", expected=()
+    )
+
+    signature = case_coverage_signature(
+        case,
+        scope=("pocket-patterns",),
+        topology_variants=("kind:grid",),
+        include_classifications=False,
+        lint_codes=("clean",),
+        mutation_kills=("grid-pitch",),
+    )
+
+    assert "classification:compound" not in signature.tokens()
+    assert "topology_variants:declared:kind:grid" in signature.tokens()
+
+
+def test_corpus_subset_preserves_source_order_and_refuses_unknown_cases():
+    @dataclass(frozen=True)
+    class Corpus:
+        cases: tuple
+
+    cases = tuple(SimpleNamespace(case_id=name) for name in ("b", "a", "c"))
+    corpus = Corpus(cases)
+
+    assert [case.case_id for case in corpus_subset(corpus, ("c", "b")).cases] == ["b", "c"]
+    with pytest.raises(KeyError, match="missing"):
+        corpus_subset(corpus, ("missing",))
 
 
 def test_exact_cover_avoids_the_greedy_largest_case_trap():

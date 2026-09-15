@@ -216,3 +216,11 @@ recognition (55), analysis (52), compilation (266), drawing builds (52), lint (1
 recognition (20) counts are exact. Its teardown both fingerprints every cached topology and rejects
 an unlisted cache key; that check caught and prompted removal of an omitted-default duplicate during
 review.
+
+The pocket-pattern mutation campaign now uses the exact three-case signature cover: one linear
+pattern, one grid, and one confusable negative. A clean module-scoped evaluation prevents vacuous
+kills before five damaged evaluations reuse that cover. The five probes fall from 35 to 18 drawing
+and recognition runs (48.6%), 35 to 18 STEP imports, and 482,511 to 329,401 shape constructions
+(31.7%). Across the complete unchanged 36-item module, drawing and recognition runs fall from 74 to
+57 (23.0%), STEP imports from 44 to 27 (38.6%), and shapes from 1,088,678 to 935,551 (14.1%). All
+36 outcomes pass, including the full seven-case topology corpus and both lattice mutation branches.
