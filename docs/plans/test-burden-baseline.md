@@ -153,3 +153,9 @@ Memoizing the immutable deprecation census removes the second repository-wide pa
 its sibling guard. The module's three-run median fell from 10.77 seconds (10.77, 10.52, 10.91) to
 8.25 seconds (8.25, 8.38, 7.36), a 23.4% improvement, with all three assertions unchanged. The
 complete unit tier reached 30.31 seconds with three loadscope workers, just above the stage target.
+
+Rejecting source files without the literal module name before the reporting-contract AST walk
+reduced its scan set from 110 files to 20. The import-boundary module's three-run median fell from
+15.55 seconds to 13.92 seconds (14.94, 13.92, 13.91), a 10.5% improvement. All 19 guards and the
+five synthetic reporting-import spellings remain passing. The complete unit tier then completed in
+29.30 seconds with three loadscope workers, crossing the stage wall-time target inside pytest.

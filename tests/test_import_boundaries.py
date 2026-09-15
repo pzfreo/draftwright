@@ -626,6 +626,8 @@ def _private_reporting_imports(path: Path) -> list[str]:
     `annotations/` spells the same import, and it never looked at `ast.Import` at all. Both
     holes were found by mutation, not by reading.
     """
+    if "reporting" not in _source_text(path):
+        return []
 
     published = set(reporting.__all__)
     offenders: list[str] = []
