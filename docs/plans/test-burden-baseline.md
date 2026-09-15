@@ -238,3 +238,10 @@ work falls from 22 runs to six (72.7%), and shapes from 86,629 to 21,603 (75.1%)
 unchanged plate outcomes, drawing builds fall from 92 to 74 (19.6%), recognition acquisitions from
 91 to 73 (19.8%), STEP imports from 49 to 31 (36.7%), and shapes from 775,016 to 701,905 (9.4%).
 The full eleven-case topology corpus and every selected provider mutation remain passing.
+
+The polygonal-stock provider-deletion probe now uses its existing clean reduced corpus while the
+varied-positive mutation deliberately retains all thirteen fixtures. The deletion slice falls from
+13 to four drawing, recognition, and STEP-import runs (69.2%), and from 41,351 to 30,474 shapes
+(26.3%). Under the four-worker pull-request distribution, all 66 module outcomes pass; aggregate
+drawing builds fall from 91 to 82, recognition acquisitions from 104 to 95, and STEP imports from
+53 to 44. The complete varied-value and topology-order oracles remain unreduced.
