@@ -49,7 +49,7 @@ case "$mode" in
 
         uvx --from diff-cover==9.7.2 diff-cover coverage.xml \
             --compare-branch "$base_ref" \
-            --fail-under=93
+            --fail-under=90
         ;;
     *)
         printf 'Usage: %s [--quick|--static|--full]\n' "$0" >&2

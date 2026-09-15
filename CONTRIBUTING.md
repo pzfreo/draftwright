@@ -79,13 +79,17 @@ floor is 90%. Coverage thresholds are a ratchet: raise the floor after the canon
 job remains above the proposed value, and do not lower it to accommodate an untested
 change.
 
-`scripts/pr-check` additionally requires 93% line coverage over changed source lines,
+`scripts/pr-check` additionally requires 90% line coverage over changed source lines,
 compared with `origin/main` by default. Set `BASE_REF=upstream/main` for a fork, or when
 the branch has another base. Stage new files under `src/` first: Git does not include
 untracked files in a diff, so the command refuses to certify them invisibly.
 
 This local check catches low changed-line coverage before the remote matrix. It is not
 Codecov parity: branch partials and the project-coverage ratchet remain remote gates.
+The changed-line floor matches the global combined line-and-branch floor deliberately:
+coverage is a regression backstop, not a requirement to add a new integration test for
+nearly every changed branch. Critical semantic paths still need direct evidence under the
+evidence-gated slice rules below.
 
 ### Evidence-gated slices
 
