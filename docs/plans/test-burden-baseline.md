@@ -463,3 +463,9 @@ multiset. This retains the base-angle-only case and the composed constructor-plu
 case without depending on PDF object order. The selected family falls from two integration items,
 drawing builds, and exports to one (50.0%). The complete searchable-PDF module falls from 28 to 27
 items and from 23 to 22 exports; 26 outcomes pass and one remains skipped.
+
+The scale-policy warning and selection contracts now stop at `build_drawing`, the operation whose
+result and warnings they inspect, instead of invoking `make_drawing` and ignoring its files. The
+Sheet façade case still checks that its default PDF exists. Across all seven unchanged outcomes,
+format exports fall from six to one (83.3%); the complete module passes under pull-request
+distribution.
