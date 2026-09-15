@@ -1,5 +1,6 @@
 """Cost-aware tier manifests remain complete and conservative."""
 
+import os
 from pathlib import Path
 
 from _tier_manifest import (
@@ -60,3 +61,9 @@ def test_critical_contracts_are_fast_and_exist():
         source = (_TESTS / module).read_text()
         assert "pytest.mark.slow" not in source
         assert "pytest.mark.scheduled" not in source
+
+
+def test_tier_runner_is_executable():
+    runner = _TESTS.parent / "scripts" / "test-tier"
+    assert runner.is_file()
+    assert os.access(runner, os.X_OK)

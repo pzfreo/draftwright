@@ -560,3 +560,10 @@ pass independently in 33.71 seconds and remain selected by every pull request. T
 manifest contains 293 outcomes; with three loadscope workers its three-run pytest median is 28.76
 seconds (28.76, 33.84, 23.54), versus the current four-worker median of 48.24 seconds. No outcome was
 deleted or moved out of pre-merge execution, and the unit loop again meets its under-30-second gate.
+
+The executable `scripts/test-tier` front door now runs each checked-in manifest and derives PR
+selection from committed, staged, unstaged, and untracked paths. Full and scheduled collection still
+partition all 8,755 current outcomes (8,693 fast and 62 scheduled). Against `origin/main`, this
+long-running #1637 branch conservatively selects 4,964 outcomes from 179 modules because 167 test
+modules have changed and are therefore included directly. This is the honest Stage 6 starting point;
+the ten-minute PR exit remains open until subsequent tier and corpus slices reduce that selection.
