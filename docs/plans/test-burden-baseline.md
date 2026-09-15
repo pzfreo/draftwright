@@ -252,3 +252,11 @@ to 26,484 shapes (68.3%). Across all 41 unchanged outcomes under pull-request di
 builds fall from 70 to 63 (10.0%), recognition acquisitions from 69 to 62 (10.1%), STEP imports
 from 38 to 31 (18.4%), and shapes from 426,993 to 370,554 (13.2%). Full topology, malformed-provider,
 correspondence, generated-code, and drawing mutations remain passing.
+
+The pocket provider-deletion probe now evaluates the existing clean two-case cover instead of all
+ten corpus entries. Its clean-plus-damaged work falls from ten to four drawing, recognition, and
+STEP-import runs (60.0%), and from 50,849 to 23,170 shape constructions (54.4%). Across all 24
+unchanged outcomes under pull-request distribution, drawing builds fall from 50 to 42 (16.0%),
+recognition acquisitions from 51 to 43 (15.7%), STEP imports from 30 to 22 (26.7%), and shapes from
+473,013 to 433,377 (8.4%). The full corpus topology checks and every retained provider, generated-
+code, declaration, drawing, and lint mutation remain passing.

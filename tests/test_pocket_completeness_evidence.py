@@ -384,7 +384,9 @@ def test_side_opening_authored_location_omission_is_suppressed_not_missing() -> 
     assert not [issue for issue in drawing.lint() if issue.code == "pocket_requirement_missing"]
 
 
-def test_deleting_provider_pockets_cannot_shrink_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_pockets_cannot_shrink_independent_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -396,11 +398,11 @@ def test_deleting_provider_pockets_cannot_shrink_independent_denominator(monkeyp
         return replace(result, section_recesses=(), section_recess_patterns=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_pockets)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
-    assert len(removed) == 14
+    assert len(removed) >= reduced_baseline.detection.matched
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 13
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 
