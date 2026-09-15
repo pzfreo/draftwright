@@ -393,3 +393,9 @@ The supported-placement roundtrip now inspects its replayed drawing and authored
 without running the empty-format exporter. Across all 29 unchanged dimension-option outcomes,
 format exports fall from one to zero, and compilation and lint calls each fall by one. The real
 build still proves that the advertised plan-side bore dimension reaches a rendered annotation.
+
+The curved-pocket generated-script contracts now replay in memory before checking their declared
+features and exact geometric constraints. Across all 52 unchanged module outcomes, format exports
+fall from eleven to four; the four retained calls are the per-topology SVG contracts that inspect a
+nonempty file. Requirement-outcome checks still run after the operation that populates their
+registries: the retained SVG export for single pockets and an explicit lint pass for the pattern.
