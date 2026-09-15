@@ -585,8 +585,7 @@ def test_raw_numeric_freeform_label_keeps_authored_spelling(tmp_path):
         pdf.close()
 
 
-@pytest.mark.parametrize("basic", [False, True])
-def test_raw_freeform_dimension_from_a_different_draft_keeps_its_text(tmp_path, basic):
+def test_raw_freeform_dimensions_from_a_different_draft_keep_their_text(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(
         font_size=5,
@@ -595,22 +594,26 @@ def test_raw_freeform_dimension_from_a_different_draft_keeps_its_text(tmp_path, 
         display_units=False,
     )
     custom.font_path = None
-    annotation = Dimension(
-        (20, 20, 0),
-        (60, 20, 0),
-        "above",
-        10,
-        custom,
-        label="BOLD",
-        basic=basic,
-    )
-    drawing.registry.add(annotation, "raw_custom_draft", view=None)
-    drawing.items.append(annotation)
+    labels = []
+    for index, (basic, label) in enumerate(((False, "BOLD PLAIN"), (True, "BOLD BASIC"))):
+        y = 30 + index * 50
+        annotation = Dimension(
+            (20, y, 0),
+            (60, y, 0),
+            "above",
+            10,
+            custom,
+            label=label,
+            basic=basic,
+        )
+        drawing.registry.add(annotation, f"raw_custom_draft_{index}", view=None)
+        drawing.items.append(annotation)
+        labels.append(label)
 
-    pdf_path = drawing.export(str(tmp_path / f"raw_custom_{basic}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_custom"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert "BOLD" in extracted
+        assert all(label in extracted for label in labels)
         assert "40.0mm" not in extracted
     finally:
         text_page.close()

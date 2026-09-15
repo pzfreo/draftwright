@@ -353,6 +353,14 @@ module after the preceding consolidations, items fall from 42 to 41, format expo
 drawing builds from 36 to 35, and shapes from 277,428 to 271,219 (2.2%). All 40 runnable contracts
 pass and the existing optional-tool contract remains skipped.
 
+The plain and basic custom-draft free-form dimensions now share one PDF with distinct labels, while
+the contract still rejects a synthesized measurement label for either form. The selected family
+falls from two exports, builds, and integration items to one (50.0%), shapes from 13,296 to 7,257
+(45.4%), and summed phase time from 5.87 to 3.10 seconds (47.1%). Across the searchable-PDF module
+after the preceding consolidations, items fall from 41 to 40, format exports from 36 to 35, drawing
+builds from 35 to 34, and shapes from 271,219 to 265,840 (2.0%). All 39 runnable contracts pass and
+the existing optional-tool contract remains skipped.
+
 The three basic-dimension upright-orientation cases now share one PDF, using unique equal-length
 labels so each extracted angle remains independently attributable without changing the text-shape
 boundary under test. The selected family falls from three exports, builds, and integration items
