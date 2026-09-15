@@ -532,3 +532,10 @@ SVG, PDF, and DXF. Across all 95 unchanged module outcomes, format exports fall 
 compilations from 80 to 78, lint calls from 62 to 60, and shape constructions from 141,282
 to 131,742 (6.8%). Every route still proves that it requested SVG, reconstructed the selected text
 style, and produced the expected horizontal automatic dimension ink.
+
+The explicit-rear script families now assert both projection conventions at the reconstructed
+drawing boundary, while the combined third-angle scenario retains the module's SVG/PDF/DXF canary.
+Across the same four outcomes, format exports fall from four to one, compilations from 48 to 45,
+lint calls from 30 to 27, and shape constructions from 141,349 to 83,335 (41.0%). The other
+three cases explicitly prove that no file was written; all still compare measurement identity,
+rear-view ownership, convention, and the complete expected label set.
