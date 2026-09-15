@@ -270,6 +270,7 @@ jobs:
           --cov=src/draftwright
           --cov-report=
           --cov-fail-under=0
+          --burden-report burden-report-${{ matrix.shard }}.json
           --durations=25
 
       - name: Upload this shard's coverage data
@@ -279,6 +280,14 @@ jobs:
           path: coverage-data-${{ matrix.shard }}
           if-no-files-found: error
           retention-days: 1
+
+      - name: Upload this shard's test burden report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: burden-report-${{ matrix.shard }}
+          path: burden-report-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
 
   coverage-report:
     # The canonical reports and the ONE Codecov upload, over both shards combined.

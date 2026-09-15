@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import pytest
 
+pytest_plugins = ("_burden_report",)
+
 
 @contextmanager
 def counting_calls(functions: Mapping[str, Callable[..., object]]):
@@ -171,6 +173,7 @@ _UNIT_MODULES = frozenset(
     {
         "test_api_docs.py",
         "test_architecture_docs.py",
+        "test_burden_report.py",
         "test_carve_free_position_callers.py",
         "test_clone_budget.py",
         "test_counting_calls.py",
@@ -326,6 +329,9 @@ def shared_drawing(_built_drawing_cache, request):
                 f"{options!r} is not. Build it with unshared_drawing_for_mutation."
             ) from exc
         entry = _built_drawing_cache.get(key)
+        from _burden_report import record_recipe
+
+        record_recipe(recipe, options, cache_hit=entry is not None)
         if entry is None:
             drawing = build_drawing(part(recipe), **options)
             _built_drawing_cache[key] = _SharedDrawing(
