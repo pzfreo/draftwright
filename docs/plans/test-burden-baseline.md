@@ -111,3 +111,9 @@ The paired #1166 provisional and committed-section cases retain two private draw
 classification outcomes while sharing one immutable analysis seed. Recognition acquisitions
 fell from two to one (50.0%); shape constructions fell from 12,088 to 11,041 (8.7%), so this
 slice qualifies by removing a measured duplicate rather than by the 10% cost threshold.
+
+A complete post-migration run of the #1166 family confirms the slices compose under one
+session cache: all 145 outcomes remain 139 passes and six expected strict xfails. Drawing
+builds (104), analysis runs (113), compilation calls (194), and lint calls (294) are unchanged;
+recognition acquisitions fell from 107 to 18 (83.2%) and shape constructions from 499,281 to
+406,098 (18.7%). This whole-family census supersedes summing the isolated slice counts.
