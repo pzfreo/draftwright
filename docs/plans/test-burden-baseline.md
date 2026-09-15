@@ -485,3 +485,8 @@ The two canonical-angle sectors retain exact-reference, small-tolerance, emitted
 angle checks. The minor-sector representative keeps the SVG existence contract; the opposite sector
 replays in memory and proves it produced no file. Across all 58 unchanged module outcomes, format
 exports fall from two to one, and the complete module passes under pull-request distribution.
+
+The angle-pattern generated-script contract now replays in memory because it compares the complete
+compiled member-reference and final-label sequence and never inspects a file. Across all seventeen
+unchanged module outcomes, format exports fall from one to zero, and the complete module passes
+under pull-request distribution.

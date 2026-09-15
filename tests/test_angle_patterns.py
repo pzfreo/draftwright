@@ -4,6 +4,7 @@ from dataclasses import replace
 from math import sqrt
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Polygon, extrude
 
 from draftwright import Sheet
@@ -208,10 +209,10 @@ def test_quantity_claim_requires_the_complete_approved_roster(built_pattern, cor
 def test_pattern_round_trips_all_members_and_member_specific_tolerance(triangle, tmp_path):
     sheet, _ = _sheet(triangle, tolerance="included.angle.member2")
     source = emit_sheet_script(
-        sheet.model(), "part", str(tmp_path / "pattern"), title="T", number="N", formats=("svg",)
+        sheet.model(), "part", str(tmp_path / "pattern"), title="T", number="N", formats=()
     )
     namespace = {"part": triangle[0]}
-    exec(source, namespace)
+    execute_sheet_script_without_export(source, "<angle-pattern replay>", namespace)
     original = compile_dimensions(sheet.model()).of_kind("angle")[0]
     replayed = compile_dimensions(namespace["sheet"].model()).of_kind("angle")[0]
     assert [(d.id.parameter, d.angular_reference, d.final_label) for d in replayed.dims] == [
