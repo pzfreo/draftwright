@@ -399,3 +399,8 @@ features and exact geometric constraints. Across all 52 unchanged module outcome
 fall from eleven to four; the four retained calls are the per-topology SVG contracts that inspect a
 nonempty file. Requirement-outcome checks still run after the operation that populates their
 registries: the retained SVG export for single pockets and an explicit lint pass for the pattern.
+
+The nominal-mismatch generated-script contract now inspects its reconstructed authored dimension
+without an empty-format export. Across all nine unchanged module outcomes, format exports fall from
+one to zero, and compilation and lint calls each fall by one. The exact nominal value, source
+identity, and lowering-blocker assertions remain unchanged.
