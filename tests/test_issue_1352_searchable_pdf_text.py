@@ -6,6 +6,7 @@ import math
 import shutil
 import subprocess
 import warnings
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -455,36 +456,43 @@ def test_engine_dimension_keeps_its_construction_draft_and_rotation(tmp_path, ro
     assert expected_postscript_name in Path(pdf_path).read_bytes()
 
 
-@pytest.mark.parametrize(
-    ("dimension_kwargs", "expected"),
-    [
-        ({}, "10.0mm"),
-        ({"basic": True}, "10.0mm"),
-        ({"tolerance": 0.1}, "10.0 ±0.1mm"),
-        ({"basic": True, "tolerance": 0.1}, "10.0 ±0.1mm"),
-        ({"tolerance": (0.1, 0.2)}, "10.0 +0.1 -0.2mm"),
-        ({"label": "CUSTOM"}, "CUSTOM"),
-    ],
+_RAW_HELPER_LABEL_CASES = (
+    ({}, "10.0mm"),
+    ({"basic": True}, "10.0mm"),
+    ({"tolerance": 0.1}, "10.0 ±0.1mm"),
+    ({"basic": True, "tolerance": 0.1}, "10.0 ±0.1mm"),
+    ({"tolerance": (0.1, 0.2)}, "10.0 +0.1 -0.2mm"),
+    ({"label": "CUSTOM"}, "CUSTOM"),
 )
-def test_raw_helper_dimension_semantic_fallback_keeps_visible_label(
-    tmp_path, dimension_kwargs, expected
-):
+
+
+def test_raw_helper_dimension_semantic_fallback_keeps_visible_labels(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    annotation = Dimension(
-        (10, 10, 0),
-        (20, 10, 0),
-        "above",
-        10,
-        drawing.draft,
-        **dimension_kwargs,
-    )
-    drawing.registry.add(annotation, "raw_units", view=None)
-    drawing.items.append(annotation)
+    expected = Counter(label for _, label in _RAW_HELPER_LABEL_CASES)
+    for index, (dimension_kwargs, _label) in enumerate(_RAW_HELPER_LABEL_CASES):
+        y = 20 + index * 22
+        annotation = Dimension(
+            (10, y, 0),
+            (20, y, 0),
+            "above",
+            10,
+            drawing.draft,
+            **dimension_kwargs,
+        )
+        drawing.registry.add(annotation, f"raw_units_{index}", view=None)
+        drawing.items.append(annotation)
 
     pdf_path = drawing.export(str(tmp_path / "raw_units"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert expected in extracted
+        actual = Counter()
+        for item in text_page.parent.get_objects(textpage=text_page):
+            if isinstance(item, pdfium.PdfTextObj):
+                text = item.extract()
+                if text in expected:
+                    actual[text] += 1
+        assert actual == expected
+        assert all(label in extracted for label in expected)
     finally:
         text_page.close()
         pdf.close()

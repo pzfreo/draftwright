@@ -335,3 +335,12 @@ fall from fourteen to two (85.7%), shapes from 93,549 to 17,505 (81.3%), and sum
 43.77 to 8.24 seconds (81.2%). Across all 49 unchanged searchable-PDF outcomes, format exports fall
 from 56 to 44 (21.4%), drawing builds from 55 to 43, and shapes from 396,487 to 322,235 (18.7%);
 all 48 runnable contracts pass and the existing optional-tool contract remains skipped.
+
+The six raw-helper semantic fallback cases now share one PDF while retaining a separately named
+dimension for every constructor form. The assertion compares exact PDF text-object multiplicities,
+so the two pairs of equal visible labels cannot pass by collapsing to one object. The selected
+family falls from six exports, builds, and integration items to one (83.3%), shapes from 41,287 to
+9,602 (76.7%), and summed phase time from 17.62 to 4.70 seconds (73.3%). Across the searchable-PDF
+module after the preceding glyph consolidation, items fall from 49 to 44, format exports from 44 to
+39, drawing builds from 43 to 38, and shapes from 322,235 to 289,571 (10.1%). All 43 runnable
+contracts pass and the existing optional-tool contract remains skipped.
