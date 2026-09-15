@@ -376,3 +376,9 @@ fall from 141 to 131 and lint calls from 133 to 123 because an empty-format expo
 finalizes the drawing a second time. Collection remains at 64 items for the complete section-pocket
 module, and all 64 pass under pull-request distribution. Both existing consumers of the shared
 script-replay helper also pass unchanged.
+
+The location-identity generated-script contracts now supply their in-memory part namespace to the
+shared replay helper and inspect the constructed drawing without serializing it. Across all 49
+unchanged module outcomes, format exports fall from eleven to zero, compilations from 133 to 122,
+and lint calls from 95 to 84. This retains both replays of each deliberately edited pattern script,
+as well as every member, axis, profile, order, and bolt-circle identity assertion.

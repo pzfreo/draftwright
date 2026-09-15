@@ -9,7 +9,7 @@ from draftwright import Drawing
 from draftwright.sheet_emit import generate_sheet_script
 
 
-def execute_sheet_script_without_export(source, filename="<generated sheet>"):
+def execute_sheet_script_without_export(source, filename="<generated sheet>", namespace=None):
     """Execute generated Sheet code and return its drawing without serializing files."""
     captured = []
 
@@ -18,7 +18,9 @@ def execute_sheet_script_without_export(source, filename="<generated sheet>"):
         return {}
 
     with patch.object(Drawing, "export", capture):
-        exec(compile(source, filename, "exec"), {})  # noqa: S102 — our own generated script
+        exec(  # noqa: S102 — our own generated script
+            compile(source, filename, "exec"), {} if namespace is None else namespace
+        )
     assert len(captured) == 1
     return captured[0]
 
