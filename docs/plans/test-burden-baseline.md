@@ -135,3 +135,10 @@ Filtering the private-annotation import ratchet before parsing and sharing one A
 its direct and aliased forms reduced its three-run median from 11.33 to 6.32 seconds (6.10,
 6.32, 6.41), a 44.2% improvement. A new synthetic probe proves both detectable forms survive
 the filter. The full unit tier remains above target at 37.05 seconds with three loadscope workers.
+
+Streaming each clone candidate directly into its normalized structural fingerprint replaces the
+old copied-AST transform, second node walk, and full `ast.dump`. The standalone guard's three-run
+median fell from 15.22 seconds (15.81, 15.22, 14.70) to 10.94 seconds (10.75, 11.67, 10.94), a
+28.1% improvement. An exhaustive review comparison over all 4,544 candidates found identical
+normalized node counts and the same 4,417 equivalence classes. The complete unit tier improved to
+32.92 seconds with three loadscope workers; it remains above the 30-second stage target.

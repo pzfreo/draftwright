@@ -50,6 +50,7 @@ from __future__ import annotations
 import ast
 import collections
 import hashlib
+from collections.abc import Iterable
 from functools import cache
 from pathlib import Path
 
@@ -91,25 +92,62 @@ _MIN_STATEMENTS = 3
 _MIN_NODES = 16
 
 
-class _Shape(ast.NodeTransformer):
-    """Erase everything nameable, keep control flow and call structure."""
+def _shape_fingerprint(body: list[ast.stmt]) -> tuple[str, int]:
+    """Hash the normalized body in one pass and return its normalized AST size."""
+    digest = hashlib.md5(usedforsecurity=False)
+    nodes = 0
 
-    def visit_Name(self, node: ast.Name) -> ast.Name:
-        return ast.copy_location(ast.Name(id="_", ctx=node.ctx), node)
+    def add(value: object) -> None:
+        nonlocal nodes
+        if isinstance(value, ast.AST):
+            nodes += 1
+            digest.update(type(value).__name__.encode())
+            digest.update(b"(")
 
-    def visit_Attribute(self, node: ast.Attribute) -> ast.Attribute:
-        self.generic_visit(node)
-        return ast.copy_location(ast.Attribute(value=node.value, attr="_", ctx=node.ctx), node)
+            fields: Iterable[tuple[str, object]]
+            if isinstance(value, ast.Name):
+                fields = (("id", "_"), ("ctx", value.ctx))
+            elif isinstance(value, ast.Attribute):
+                fields = (("value", value.value), ("attr", "_"), ("ctx", value.ctx))
+            elif isinstance(value, ast.Constant):
+                fields = (("value", "_"), ("kind", None))
+            elif isinstance(value, ast.arg):
+                # `_Shape.visit_arg` deliberately discarded annotations and type comments.
+                fields = (("arg", "_"), ("annotation", None), ("type_comment", None))
+            elif isinstance(value, ast.keyword):
+                fields = (("arg", "_"), ("value", value.value))
+            else:
+                fields = ast.iter_fields(value)
 
-    def visit_Constant(self, node: ast.Constant) -> ast.Constant:
-        return ast.copy_location(ast.Constant(value="_"), node)
+            for field, child in fields:
+                digest.update(field.encode())
+                digest.update(b"=")
+                add(child)
+                digest.update(b";")
+            digest.update(b")")
+        elif isinstance(value, list):
+            digest.update(b"[")
+            for child in value:
+                add(child)
+                digest.update(b",")
+            digest.update(b"]")
+        else:
+            encoded = repr(value).encode()
+            digest.update(str(len(encoded)).encode())
+            digest.update(b":")
+            digest.update(encoded)
 
-    def visit_arg(self, node: ast.arg) -> ast.arg:
-        return ast.copy_location(ast.arg(arg="_"), node)
+    add(ast.Module(body=body, type_ignores=[]))
+    return digest.hexdigest(), nodes
 
-    def visit_keyword(self, node: ast.keyword) -> ast.keyword:
-        self.generic_visit(node)
-        return ast.copy_location(ast.keyword(arg="_", value=node.value), node)
+
+def test_shape_fingerprint_erases_names_and_literals_only() -> None:
+    left = ast.parse("result = build(1, mode='a')\nassert result.width == 2").body
+    renamed = ast.parse("value = create(9, option='b')\nassert value.height == 7").body
+    different_structure = ast.parse("value = create(9)\nassert value.height == 7").body
+
+    assert _shape_fingerprint(left) == _shape_fingerprint(renamed)
+    assert _shape_fingerprint(left) != _shape_fingerprint(different_structure)
 
 
 @cache
@@ -131,10 +169,9 @@ def _clone_groups() -> dict[str, list[tuple[str, str]]]:
             ]
             if len(body) < _MIN_STATEMENTS:
                 continue
-            normalised = _Shape().visit(ast.Module(body=body, type_ignores=[]))
-            if sum(1 for _ in ast.walk(normalised)) < _MIN_NODES:
+            digest, node_count = _shape_fingerprint(body)
+            if node_count < _MIN_NODES:
                 continue
-            digest = hashlib.md5(ast.dump(normalised).encode(), usedforsecurity=False).hexdigest()
             shapes[digest].append((path.name, node.name))
     return {
         digest: members
