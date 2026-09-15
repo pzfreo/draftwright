@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _parts import part as named_part
 from build123d import Align, Box, Compound, Cylinder, Pos, RegularPolygon, Rot, extrude
 from jsonschema import ValidationError
 from jsonschema.validators import validator_for
@@ -31,7 +32,7 @@ def _schema() -> dict:
 
 
 def _through_step_part():
-    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+    return named_part("through_step_report")
 
 
 def _oriented_slot_part():
@@ -66,8 +67,8 @@ def _coincident_body_local_evidence_part():
     return Compound(children=[stepped_block(), stepped_block()])
 
 
-def test_raw_report_has_the_closed_v3_shape_and_exact_owner() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_raw_report_has_the_closed_v3_shape_and_exact_owner(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
 
     report = drawing.report()
 
@@ -228,9 +229,11 @@ def test_report_preserves_no_argument_lint_summary_dispatch(monkeypatch) -> None
     assert calls == 1
 
 
-def test_report_requirement_reuse_is_bound_to_the_exact_drawing(monkeypatch) -> None:
+def test_report_requirement_reuse_is_bound_to_the_exact_drawing(
+    fresh_drawing, monkeypatch
+) -> None:
     outer = build_drawing(_grouped_holes_part())
-    nested = build_drawing(_through_step_part())
+    nested = fresh_drawing("through_step_report")
     original = outer.lint_summary
     nested_requirement_counts = []
 
@@ -292,10 +295,12 @@ def test_report_requirement_projection_matches_typed_family_ledgers(fixture: str
         assert counts[state] == completeness[state]
 
 
-def test_severed_annotation_provenance_loses_requirement_credit(monkeypatch) -> None:
+def test_severed_annotation_provenance_loses_requirement_credit(
+    fresh_drawing, monkeypatch
+) -> None:
     monkeypatch.setattr(AnnotationRegistry, "measurement_of", lambda _self, _name: ())
 
-    report = build_drawing(_through_step_part()).report()
+    report = fresh_drawing("through_step_report").report()
     requirements = report["recognition"]["requirements"]
 
     assert requirements
@@ -304,8 +309,8 @@ def test_severed_annotation_provenance_loses_requirement_credit(monkeypatch) -> 
     assert report["status"] == "needs-attention"
 
 
-def test_requirement_without_exact_source_record_fails_closed(monkeypatch) -> None:
-    drawing = build_drawing(_through_step_part())
+def test_requirement_without_exact_source_record_fails_closed(fresh_drawing, monkeypatch) -> None:
+    drawing = fresh_drawing("through_step_report")
 
     monkeypatch.setattr(
         requirement_module,
@@ -349,8 +354,10 @@ def test_report_rejects_repeated_evidence_record_identity(monkeypatch) -> None:
         ({"representation_reason": 1}, "invalid representation reason"),
     ),
 )
-def test_report_rejects_malformed_typed_outcomes(monkeypatch, changes, message) -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_rejects_malformed_typed_outcomes(
+    fresh_drawing, monkeypatch, changes, message
+) -> None:
+    drawing = fresh_drawing("through_step_report")
     evidence = drawing.recognition_evidence()
     assert evidence is not None
     record = evidence.record(evidence.features[0])
@@ -373,8 +380,10 @@ def test_report_rejects_malformed_typed_outcomes(monkeypatch, changes, message) 
         drawing.report()
 
 
-def test_report_collapses_duplicate_requirement_source_occurrence_ids(monkeypatch) -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_collapses_duplicate_requirement_source_occurrence_ids(
+    fresh_drawing, monkeypatch
+) -> None:
+    drawing = fresh_drawing("through_step_report")
     evidence = drawing.recognition_evidence()
     assert evidence is not None
     record = evidence.record(evidence.features[0])
@@ -397,8 +406,10 @@ def test_report_collapses_duplicate_requirement_source_occurrence_ids(monkeypatc
     assert report["recognition"]["requirements"][0]["occurrence_ids"] == ["through_steps:1"]
 
 
-def test_report_refuses_a_registry_without_the_provenance_contract(monkeypatch) -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_refuses_a_registry_without_the_provenance_contract(
+    fresh_drawing, monkeypatch
+) -> None:
+    drawing = fresh_drawing("through_step_report")
     monkeypatch.setattr(
         requirement_module, "recognized_requirement_outcomes", lambda *_a, **_k: {}
     )
@@ -409,8 +420,8 @@ def test_report_refuses_a_registry_without_the_provenance_contract(monkeypatch) 
         drawing.report()
 
 
-def test_report_refuses_invalid_annotation_names(monkeypatch) -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_refuses_invalid_annotation_names(fresh_drawing, monkeypatch) -> None:
+    drawing = fresh_drawing("through_step_report")
     monkeypatch.setattr(
         requirement_module, "recognized_requirement_outcomes", lambda *_a, **_k: {}
     )
@@ -421,8 +432,10 @@ def test_report_refuses_invalid_annotation_names(monkeypatch) -> None:
         drawing.report()
 
 
-def test_report_ignores_a_registry_entry_without_semantic_identity(monkeypatch) -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_ignores_a_registry_entry_without_semantic_identity(
+    fresh_drawing, monkeypatch
+) -> None:
+    drawing = fresh_drawing("through_step_report")
     evidence = drawing.recognition_evidence()
     assert evidence is not None
     record = evidence.record(evidence.features[0])
@@ -664,8 +677,8 @@ def test_equal_public_records_on_distinct_bodies_keep_distinct_report_local_ids(
     )
 
 
-def test_supported_owner_loss_is_machine_visible_and_cannot_look_clear() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_supported_owner_loss_is_machine_visible_and_cannot_look_clear(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
     evidence = drawing.recognition_evidence()
     ownership = drawing.recognition_ownership()
     model = drawing.model()
@@ -687,8 +700,8 @@ def test_supported_owner_loss_is_machine_visible_and_cannot_look_clear() -> None
     assert report["status"] == "needs-attention"
 
 
-def test_a_recorded_owner_removed_from_the_final_model_cannot_retain_credit() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_a_recorded_owner_removed_from_the_final_model_cannot_retain_credit(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
     evidence = drawing.recognition_evidence()
     ownership = drawing.recognition_ownership()
     model = drawing.model()
@@ -733,9 +746,9 @@ def test_repeated_report_reuses_one_recognition_run(monkeypatch) -> None:
     assert calls == 1
 
 
-def test_reproducible_builds_emit_the_same_report_document() -> None:
-    first = build_drawing(_through_step_part(), reproducible=True).report()
-    second = build_drawing(_through_step_part(), reproducible=True).report()
+def test_reproducible_builds_emit_the_same_report_document(fresh_drawing) -> None:
+    first = fresh_drawing("through_step_report", reproducible=True).report()
+    second = fresh_drawing("through_step_report", reproducible=True).report()
 
     assert first == second
 
@@ -756,8 +769,8 @@ def test_report_refuses_an_unknown_consumer_record_schema() -> None:
         reporting_module._record_schema_version("unknown_family", object())
 
 
-def test_report_projects_only_the_step_basename_as_source() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_projects_only_the_step_basename_as_source(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
 
     report = reporting_module.drawing_report(
         evidence=drawing.recognition_evidence(),
@@ -779,8 +792,8 @@ def test_report_refuses_malformed_or_repeated_final_ir_features() -> None:
         reporting_module._feature_ids(SimpleNamespace(features=(feature, feature)))
 
 
-def test_report_refuses_a_missing_final_model() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_refuses_a_missing_final_model(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
 
     with pytest.raises(ReportUnavailableError, match="no final IR model"):
         reporting_module.validate_report_inputs(
@@ -790,8 +803,8 @@ def test_report_refuses_a_missing_final_model() -> None:
         )
 
 
-def test_report_refuses_an_unknown_ledger_status() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_refuses_an_unknown_ledger_status(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
     ownership = drawing.recognition_ownership()
     assert ownership is not None
     (binding,) = ownership.bindings
@@ -810,8 +823,8 @@ def test_report_refuses_an_unknown_ledger_status() -> None:
         )
 
 
-def test_report_refuses_an_unclassified_accepted_occurrence() -> None:
-    drawing = build_drawing(_through_step_part())
+def test_report_refuses_an_unclassified_accepted_occurrence(fresh_drawing) -> None:
+    drawing = fresh_drawing("through_step_report")
     evidence = drawing.recognition_evidence()
     ownership = drawing.recognition_ownership()
     model = drawing.model()
@@ -844,8 +857,8 @@ def test_report_refuses_to_invent_ownership_across_an_unavailable_boundary(bound
         assert drawing.recognition_evidence() is None
 
 
-def test_report_projection_does_not_change_visual_output(tmp_path) -> None:
-    drawing = build_drawing(_through_step_part(), reproducible=True)
+def test_report_projection_does_not_change_visual_output(fresh_drawing, tmp_path) -> None:
+    drawing = fresh_drawing("through_step_report", reproducible=True)
     before = drawing.export(str(tmp_path / "before"), formats=("svg",))["svg"]
 
     drawing.report()
@@ -854,7 +867,7 @@ def test_report_projection_does_not_change_visual_output(tmp_path) -> None:
     assert Path(before).read_bytes() == Path(after).read_bytes()
 
 
-def test_documented_schema_has_the_same_closed_top_level() -> None:
+def test_documented_schema_has_the_same_closed_top_level(fresh_drawing) -> None:
     schema = _schema()
 
     assert schema["$id"].endswith("draftwright-report-v3.schema.json")
@@ -870,12 +883,12 @@ def test_documented_schema_has_the_same_closed_top_level() -> None:
         "lint",
     }
 
-    unknown = build_drawing(_through_step_part()).report()
+    unknown = fresh_drawing("through_step_report").report()
     unknown["unknown"] = True
     with pytest.raises(ValidationError):
         validator_for(schema)(schema).validate(unknown)
 
-    unknown_requirement = build_drawing(_through_step_part()).report()
+    unknown_requirement = fresh_drawing("through_step_report").report()
     unknown_requirement["recognition"]["requirements"][0]["unknown"] = True
     with pytest.raises(ValidationError):
         validator_for(schema)(schema).validate(unknown_requirement)

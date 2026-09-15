@@ -75,6 +75,13 @@ def _oriented_slot():
     return Box(120, 90, 10) - tool
 
 
+def _through_step_report_part():
+    """Return the through-step substrate used by the #1438 report tests."""
+    from build123d import Pos
+
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
 # (length, width, height), in descending order of the census above. The cut was 23 calls.
 _BOX_SUBSTRATES: tuple[tuple[int, int, int], ...] = (
     (60, 40, 20),
@@ -105,6 +112,7 @@ _ANALYSIS_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
     {
         **{f"rectangular_pad_{axis}_positive": partial(_rectangular_pad, axis) for axis in "xyz"},
         "oriented_slot_30deg": _oriented_slot,
+        "through_step_report": _through_step_report_part,
     }
 )
 

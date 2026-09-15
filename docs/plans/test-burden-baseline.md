@@ -126,6 +126,13 @@ drawing builds (70), analysis runs (70), compilation calls (87), format exports 
 and shape constructions from 561,020 to 495,086 (11.8%). Rigid-motion, pattern, authored-model,
 and provider fault paths continue to construct their distinct substrates directly.
 
+The 24 repeated through-step report cases now use fresh drawings backed by one analysis seed per
+build-option key. All 63 report-projection outcomes remain collected and passing; drawing builds
+(57), analysis runs (74), compilation calls (194), format exports (two), lint calls (212), and raw
+recognition (one) are exact. Recognition acquisitions fell from 55 to 31 (43.6%) and shape
+constructions from 285,863 to 251,615 (12.0%). The recognition-count probe and unavailable-model
+boundary cases retain direct builds so their construction boundaries remain observable.
+
 A complete post-migration run of the #1166 family confirms the slices compose under one
 session cache: all 145 outcomes remain 139 passes and six expected strict xfails. Drawing
 builds (104), analysis runs (113), compilation calls (194), and lint calls (294) are unchanged;
