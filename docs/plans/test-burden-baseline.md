@@ -344,3 +344,11 @@ family falls from six exports, builds, and integration items to one (83.3%), sha
 module after the preceding glyph consolidation, items fall from 49 to 44, format exports from 44 to
 39, drawing builds from 43 to 38, and shapes from 322,235 to 289,571 (10.1%). All 43 runnable
 contracts pass and the existing optional-tool contract remains skipped.
+
+The three basic-dimension upright-orientation cases now share one PDF, using unique equal-length
+labels so each extracted angle remains independently attributable without changing the text-shape
+boundary under test. The selected family falls from three exports, builds, and integration items
+to one (66.7%), shapes from 20,229 to 7,768 (61.6%), and summed phase time from 8.64 to 4.08 seconds
+(52.8%). Across the searchable-PDF module after the preceding consolidations, items fall from 44 to
+42, format exports from 39 to 37, drawing builds from 38 to 36, and shapes from 289,571 to 277,428
+(4.2%). All 41 runnable contracts pass and the existing optional-tool contract remains skipped.

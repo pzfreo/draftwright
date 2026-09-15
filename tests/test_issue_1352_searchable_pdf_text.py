@@ -330,26 +330,30 @@ def test_semantic_order_tiebreak_and_basic_dimension_rotation_are_total(tmp_path
         pdf.close()
 
 
-@pytest.mark.parametrize(
-    ("start", "end", "expected"),
-    [
-        ((50, 10, 0), (10, 50, 0), -45.0),
-        ((20, 50, 0), (20, 10, 0), 90.0),
-        ((10, 10, 0), (20, 10, 0), 0.0),
-    ],
+_UPRIGHT_CASES = (
+    ((50, 10, 0), (10, 50, 0), -45.0),
+    ((20, 50, 0), (20, 10, 0), 90.0),
+    ((10, 10, 0), (20, 10, 0), 0.0),
 )
-def test_basic_dimension_semantic_text_is_normalised_upright(tmp_path, start, end, expected):
-    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    annotation = Dimension(start, end, (0, 1, 0), 10, drawing.draft, label="UPRIGHT", basic=True)
-    drawing.registry.add(annotation, "upright", view=None)
-    drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"upright_{expected}"), formats=("pdf",))["pdf"]
+
+def test_basic_dimension_semantic_text_is_normalised_upright(tmp_path):
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    labels = []
+    for index, (start, end, expected) in enumerate(_UPRIGHT_CASES):
+        label = f"UPRIGHT{index}"
+        annotation = Dimension(start, end, (0, 1, 0), 10, drawing.draft, label=label, basic=True)
+        drawing.registry.add(annotation, f"upright_{index}", view=None)
+        drawing.items.append(annotation)
+        labels.append((label, expected))
+
+    pdf_path = drawing.export(str(tmp_path / "upright"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert _extracted_text_angle(text_page, extracted, "UPRIGHT") == pytest.approx(
-            expected, abs=1.0
-        )
+        for label, expected in labels:
+            assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
+                expected, abs=1.0
+            )
     finally:
         text_page.close()
         pdf.close()
