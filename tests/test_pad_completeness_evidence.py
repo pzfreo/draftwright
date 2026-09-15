@@ -437,11 +437,13 @@ def test_missing_per_pad_boundary_outcomes_fail_closed(monkeypatch) -> None:
 
 def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
     from draftwright.evaluation.step_analysis import ObservationError
 
     def failed_build(*_args, **_kwargs):
         raise RuntimeError("probe")
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", failed_build)
     with pytest.raises(ObservationError, match="drawing build failed: probe"):
         _default_observers()["rectangular-pads"](_lone())
@@ -517,6 +519,7 @@ def _annotation_for_parameter(drawing, parameter: str):
 )
 def test_wrong_pad_measurement_ink_loses_drawing_credit(monkeypatch, parameter) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -526,6 +529,7 @@ def test_wrong_pad_measurement_ink_loses_drawing_credit(monkeypatch, parameter) 
         annotation.label = "999"
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
     assert _states("drawing_consumer") == {"unsupported"}
 
@@ -604,6 +608,7 @@ def test_invalid_directional_pad_approval_loses_drawing_credit(
 
 def test_severing_one_directional_pad_location_fact_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -613,12 +618,14 @@ def test_severing_one_directional_pad_location_fact_loses_drawing_credit(monkeyp
         drawing.registry.named(name).covers_hole_locations = ()
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", without_x_location_fact)
     assert _states("drawing_consumer") == {"unsupported"}
 
 
 def test_severing_one_pad_measurement_claim_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -629,6 +636,7 @@ def test_severing_one_pad_measurement_claim_loses_drawing_credit(monkeypatch) ->
         drawing.registry.reapply(name, {**identity, "measurement": ()})
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", without_width_claim)
     assert _states("drawing_consumer") == {"unsupported"}
 
