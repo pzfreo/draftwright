@@ -1,6 +1,7 @@
 """A drawing-wide text choice must preserve content, ink bounds and replay."""
 
 import json
+from itertools import combinations
 from math import cos, radians, sin, sqrt
 
 import pytest
@@ -23,10 +24,27 @@ def plate():
     return part, model
 
 
-@pytest.mark.parametrize("position", ["inline", "above"])
-@pytest.mark.parametrize("orientation", ["aligned", "horizontal"])
-@pytest.mark.parametrize("projection", ["first", "third"])
-@pytest.mark.parametrize("scale", [None, 1])
+_PLATE_STYLE_CASES = (
+    ("inline", "aligned", "first", None),
+    ("inline", "aligned", "third", 1),
+    ("inline", "horizontal", "first", 1),
+    ("inline", "horizontal", "third", None),
+    ("above", "aligned", "first", 1),
+    ("above", "aligned", "third", None),
+    ("above", "horizontal", "first", None),
+    ("above", "horizontal", "third", 1),
+)
+
+
+def test_plate_style_cases_cover_every_boundary_and_pair() -> None:
+    levels = ({"inline", "above"}, {"aligned", "horizontal"}, {"first", "third"}, {None, 1})
+    for left, right in combinations(range(len(levels)), 2):
+        expected = {(a, b) for a in levels[left] for b in levels[right]}
+        actual = {(case[left], case[right]) for case in _PLATE_STYLE_CASES}
+        assert actual == expected
+
+
+@pytest.mark.parametrize("position,orientation,projection,scale", _PLATE_STYLE_CASES)
 def test_style_preserves_complete_plate_measurements(
     plate, position, orientation, projection, scale
 ):

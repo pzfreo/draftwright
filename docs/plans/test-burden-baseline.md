@@ -319,3 +319,11 @@ compilations from 128 to 32, lint calls from 192 to 48, and shapes from 196,660 
 Summed phase time falls from 193.86 to 40.58 seconds (79.1%). The complete feature-leader module
 falls from 145 to 98 items and retains 92 passes and six expected xfails under pull-request
 distribution.
+
+The complete plate text-style matrix now uses eight strength-two cases instead of the sixteen-case
+Cartesian product. A pure guard proves every value and every pair across text position, text
+orientation, projection convention, and scale remains represented. The selected family falls from
+sixteen integration items to eight plus the pure guard (43.8%), drawing builds from 32 to sixteen,
+compilations from 104 to 52, lint calls from 80 to 40, and shapes from 130,596 to 68,218 (47.8%).
+Summed phase time falls from 136.98 to 51.08 seconds (62.7%). The complete dimension-text module
+falls from 102 to 95 items and all 95 pass under pull-request distribution.
