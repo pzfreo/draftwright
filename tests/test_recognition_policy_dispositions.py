@@ -32,11 +32,14 @@ from draftwright.recognition_ownership import (
 _FIXTURES = Path(__file__).parent / "fixtures"
 _CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
 
+
 def _angled_step_part():
     return import_step(str(_FIXTURES / "issue_1247_angled_blind_step.step"))
 
+
 def _passage_part():
     return Box(40, 40, 10) - extrude(RegularPolygon(6, 6), amount=12, both=True)
+
 
 def _prismatic_pocket_part():
     with BuildPart() as tool:
@@ -45,18 +48,22 @@ def _prismatic_pocket_part():
         extrude(amount=20)
     return Box(120, 80, 20) - tool.part
 
+
 def _oriented_slot_part():
     part = Box(120, 90, 10)
     for x in (-30, 0, 30):
         part -= Pos(x, 0, 0) * Rot(0, 0, 30) * Box(24, 6, 20, align=_CENTER)
     return part
 
+
 def _repeating_profile_part():
     return import_step(str(_FIXTURES / "issue_1058_wheel_rh.step"))
+
 
 def _step_projection_evidence_part():
     aligned = (Align.MIN, Align.MIN, Align.MIN)
     return Box(60, 40, 20, align=aligned) - Pos(30, 0, 10) * Box(30, 40, 10, align=aligned)
+
 
 @pytest.mark.parametrize(
     ("part_factory", "family", "count", "disposition", "reason_code", "tracking"),
@@ -158,6 +165,7 @@ def test_settled_policy_classifies_each_exact_accepted_occurrence(
         assert occurrence not in ownership.owner_expected_occurrences
         assert occurrence not in ownership.unexpectedly_missing
 
+
 def test_policy_outcomes_follow_evidence_order_without_collapsing_equal_members() -> None:
     evidence = build_recognition_evidence(_oriented_slot_part())
     ownership = RecognitionOwnershipBuilder(evidence).snapshot()
@@ -169,6 +177,7 @@ def test_policy_outcomes_follow_evidence_order_without_collapsing_equal_members(
 
     assert tuple(outcome.occurrence for outcome in ownership.policy_outcomes) == occurrences
     assert len({id(outcome) for outcome in ownership.policy_outcomes}) == 3
+
 
 def test_equal_body_local_projection_evidence_keeps_distinct_outcomes() -> None:
     def stepped_block():
@@ -190,6 +199,7 @@ def test_equal_body_local_projection_evidence_keeps_distinct_outcomes() -> None:
         assert len({id(outcome) for outcome in outcomes}) == expected_count
         assert all(outcome.disposition == "evidence_only" for outcome in outcomes if outcome)
 
+
 def test_raw_step_ladder_keeps_supported_ir_beside_evidence_only_inputs() -> None:
     drawing = build_drawing(_step_projection_evidence_part())
     ownership = drawing.recognition_ownership()
@@ -206,6 +216,7 @@ def test_raw_step_ladder_keeps_supported_ir_beside_evidence_only_inputs() -> Non
         assert all(ownership.status(occurrence) == "evidence_only" for occurrence in occurrences)
         assert all(ownership.binding_for(occurrence) is None for occurrence in occurrences)
         assert all(occurrence not in ownership.unexpectedly_missing for occurrence in occurrences)
+
 
 @pytest.mark.parametrize("family", ["holes", "section_recesses"])
 def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch, family) -> None:
@@ -231,6 +242,7 @@ def test_an_occurrence_cannot_have_both_owner_and_ownerless_policy(monkeypatch, 
     with pytest.raises(RuntimeError, match="conflicting owner and policy"):
         RecognitionOwnershipBuilder(evidence)
 
+
 def test_policy_outcome_uses_the_existing_capability_declaration() -> None:
     declarations = {
         family["id"]: family for family in consumer_capability_declaration()["families"]
@@ -247,6 +259,7 @@ def test_policy_outcome_uses_the_existing_capability_declaration() -> None:
     assert outcome is not None
     assert outcome.disposition == declarations["angled-steps"]["disposition"]
     assert outcome.tracking == declarations["angled-steps"]["tracking"]
+
 
 def test_raw_automatic_build_attaches_policy_to_its_exact_evidence_authority() -> None:
     drawing = build_drawing(_passage_part())
