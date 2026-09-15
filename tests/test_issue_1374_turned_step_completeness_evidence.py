@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from fractions import Fraction
+from functools import cache
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -32,9 +33,42 @@ CORPUS = FIXTURES / "corpus-turned-steps-v1.json"
 #: Clean score of the subset the damage tests below use, asserted perfect.
 reduced_baseline = reduced_baseline_fixture(CORPUS)
 
+_SHAFT_FIXTURES = (
+    "groove-lone-y.step",
+    "turned-step-axis-x.step",
+    "turned-step-axis-z.step",
+    "turned-step-compound.step",
+    "turned-step-repeated-lengths.step",
+    "turned-step-through-bore.step",
+    "turned-step-translated-blind-bore.step",
+)
 
+
+@cache
 def _shaft(name: str = "turned-step-axis-x.step"):
     return import_step(FIXTURES / name)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cached_shafts_stay_pristine():
+    def signature(part):
+        bounds = part.bounding_box()
+        return (
+            part.volume,
+            tuple(bounds.min),
+            tuple(bounds.max),
+            len(part.solids()),
+            len(part.faces()),
+            len(part.edges()),
+        )
+
+    before = {name: signature(_shaft(name)) for name in _SHAFT_FIXTURES}
+    yield
+    after = {name: signature(_shaft(name)) for name in _SHAFT_FIXTURES}
+    assert _shaft.cache_info().currsize == len(_SHAFT_FIXTURES), (
+        "an imported shaft is cached without a topology fingerprint"
+    )
+    assert after == before, "a turned-step test mutated cached STEP geometry"
 
 
 def _stepped_shaft():
