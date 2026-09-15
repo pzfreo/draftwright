@@ -734,37 +734,40 @@ def test_raw_drawing_font_single_curved_glyph_keeps_exact_rotation(
         pdf.close()
 
 
-@pytest.mark.parametrize(
-    ("label", "axis", "expected"),
-    [("1", 45, 45.0), ("1", -45, -45.0), ("%", 45, 45.0)],
-)
-def test_raw_drawing_font_single_glyph_prefers_exact_outline(tmp_path, label, axis, expected):
+def test_raw_drawing_font_single_glyph_prefers_exact_outline(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    angle = math.radians(axis)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        1,
-        drawing.draft,
-        label=label,
-        basic=True,
-    )
-    drawing.registry.add(annotation, "raw_single_glyph", view=None)
-    drawing.items.append(annotation)
+    for index, (label, axis) in enumerate((("1", 45), ("1", -45), ("%", 45))):
+        angle = math.radians(axis)
+        origin = 50 + index * 50
+        annotation = Dimension(
+            (origin, origin, 0),
+            (origin + math.cos(angle), origin + math.sin(angle), 0),
+            "above",
+            1,
+            drawing.draft,
+            label=label,
+            basic=True,
+        )
+        drawing.registry.add(annotation, f"raw_single_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(
-        str(tmp_path / f"raw_single_glyph_{label}_{axis}"), formats=("pdf",)
-    )["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_single_glyphs"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     try:
-        text_object = next(
+        text_objects = [
             item
             for item in text_page.parent.get_objects(textpage=text_page)
-            if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == label
-        )
-        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-        assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
+            if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() in {"1", "%"}
+        ]
+        angles = {}
+        for label in ("1", "%"):
+            angles[label] = sorted(
+                math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0]))
+                for item in text_objects
+                if item.extract().strip() == label
+            )
+        assert angles["1"] == pytest.approx([-45.0, 45.0], abs=1.0)
+        assert angles["%"] == pytest.approx([45.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()

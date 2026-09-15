@@ -434,3 +434,9 @@ and use unique labels, so every extracted text object remains independently attr
 selected family falls from eight integration items, drawing builds, and PDF exports to one (87.5%),
 and shapes from 57,337 to 12,905 (77.5%). The complete searchable-PDF module falls from forty to 33
 items and from 35 to 28 exports; all 32 runnable outcomes pass and its optional-tool case is skipped.
+
+The two opposite rotations of the digit `1` and the percent-glyph rotation now share one PDF. The
+assertion groups exact extracted text objects by glyph and compares the complete angle multiset, so
+neither repeated `1` can satisfy the other one's direction. The selected family falls from three
+integration items, drawing builds, and exports to one (66.7%). The complete searchable-PDF module
+falls from 33 to 31 items and from 28 to 26 exports; thirty outcomes pass and one remains skipped.
