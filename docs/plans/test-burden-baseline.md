@@ -183,7 +183,7 @@ lint calls (239) remain exact. Summed phase duration fell from 393.29 to 198.89 
 and the class-scoped solid/model fingerprints remained unchanged after every consumer.
 
 Caching the seven immutable STEP solids used directly by the turned-step completeness module
-reduced STEP imports from 136 to 37 (72.8%) while retaining all 110 outcomes, including its
+reduced STEP imports from 136 to 36 (73.5%) while retaining all 110 outcomes, including its
 fault-injection and downstream-observer mutations. Recognition (206), analysis (404), compilation
 (931), drawing builds (210), and lint calls (711) remain exact. A module-scoped teardown comparison
 of volume, bounds, solids, faces, and edges proved no consumer mutated a cached imported shape.

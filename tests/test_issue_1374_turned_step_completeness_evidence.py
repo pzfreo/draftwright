@@ -45,8 +45,12 @@ _SHAFT_FIXTURES = (
 
 
 @cache
-def _shaft(name: str = "turned-step-axis-x.step"):
+def _cached_shaft(name: str):
     return import_step(FIXTURES / name)
+
+
+def _shaft(name: str = "turned-step-axis-x.step"):
+    return _cached_shaft(name)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -65,7 +69,7 @@ def _cached_shafts_stay_pristine():
     before = {name: signature(_shaft(name)) for name in _SHAFT_FIXTURES}
     yield
     after = {name: signature(_shaft(name)) for name in _SHAFT_FIXTURES}
-    assert _shaft.cache_info().currsize == len(_SHAFT_FIXTURES), (
+    assert _cached_shaft.cache_info().currsize == len(_SHAFT_FIXTURES), (
         "an imported shaft is cached without a topology fingerprint"
     )
     assert after == before, "a turned-step test mutated cached STEP geometry"
