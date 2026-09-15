@@ -13,6 +13,7 @@ from _evidence_contract import (
     assert_missing_model_outcomes_fail_closed,
     assert_observer_fails_closed_without_build_or_recognition,
 )
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Box, Compound, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -29,6 +30,7 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-double-d-bores-v1.json"
+reduced_baseline = reduced_baseline_fixture(CORPUS)
 CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
 _PART_FIXTURES = (
     "double-d-blind.step",
@@ -631,7 +633,9 @@ def test_missing_or_corrupt_across_flats_unit_loses_drawing_credit(
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_deleting_provider_records_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_records_cannot_shrink_the_independent_denominator(
+    reduced_baseline, monkeypatch
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -641,10 +645,10 @@ def test_deleting_provider_records_cannot_shrink_the_independent_denominator(mon
         return replace(result, double_d_bores=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_double_d)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 10
+    assert damaged.detection.missed == reduced_baseline.detection.matched == 2
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

@@ -224,3 +224,10 @@ and recognition runs (48.6%), 35 to 18 STEP imports, and 482,511 to 329,401 shap
 (31.7%). Across the complete unchanged 36-item module, drawing and recognition runs fall from 74 to
 57 (23.0%), STEP imports from 44 to 27 (38.6%), and shapes from 1,088,678 to 935,551 (14.1%). All
 36 outcomes pass, including the full seven-case topology corpus and both lattice mutation branches.
+
+The Double-D provider-deletion probe now evaluates the shared two-case reduced corpus after proving
+that subset clean. Its mutation work falls from 11 to four drawing and recognition runs (63.6%) and
+from 43,484 to 19,692 shape constructions (54.7%). Across the unchanged 66-item module, drawing
+builds fall from 52 to 45 (13.5%), recognition acquisitions from 55 to 48 (12.7%), STEP imports from
+27 to 20 (25.9%), and shapes from 250,926 to 226,392 (9.8%). All malformed-schema, topology,
+correspondence, declaration, drawing, and cached-solid integrity outcomes remain passing.
