@@ -1307,24 +1307,53 @@ def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path, fresh_dra
     assert item["producer_fallback"]["selected"]["candidate"] == 1
 
 
-@pytest.mark.parametrize("valid_tail", [True, False])
-@pytest.mark.parametrize("drop_callback", [False, True])
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "exception",
-        "geometry_none",
-        "missing_label",
-        "malformed_analytical",
-        "reversed_label",
-        "degenerate_label",
-        "nonfinite_segment",
-        "overflow_analytical",
-    ],
+_CANDIDATE_FAILURES = {
+    "exception",
+    "geometry_none",
+    "missing_label",
+    "malformed_analytical",
+    "reversed_label",
+    "degenerate_label",
+    "nonfinite_segment",
+    "overflow_analytical",
+}
+
+_CANDIDATE_FAILURE_CASES = (
+    ("exception", True, False, None),
+    ("exception", False, True, 0),
+    ("geometry_none", True, False, 0),
+    ("geometry_none", False, True, None),
+    ("missing_label", True, True, None),
+    ("missing_label", False, False, 0),
+    ("malformed_analytical", True, True, 0),
+    ("malformed_analytical", False, False, None),
+    ("reversed_label", True, False, None),
+    ("reversed_label", False, True, 0),
+    ("degenerate_label", True, False, 0),
+    ("degenerate_label", False, True, None),
+    ("nonfinite_segment", True, True, None),
+    ("nonfinite_segment", False, False, 0),
+    ("overflow_analytical", True, True, 0),
+    ("overflow_analytical", False, False, None),
 )
-@pytest.mark.parametrize("fixed_budget", [None, 0])
+
+
+def test_candidate_failure_cases_cover_every_boundary_and_pair() -> None:
+    levels = (
+        _CANDIDATE_FAILURES,
+        {True, False},
+        {True, False},
+        {None, 0},
+    )
+    for left, right in combinations(range(len(levels)), 2):
+        expected = {(a, b) for a in levels[left] for b in levels[right]}
+        actual = {(case[left], case[right]) for case in _CANDIDATE_FAILURE_CASES}
+        assert actual == expected
+
+
+@pytest.mark.parametrize("failure,valid_tail,drop_callback,fixed_budget", _CANDIDATE_FAILURE_CASES)
 def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
-    monkeypatch, tmp_path, valid_tail, drop_callback, failure, fixed_budget, fresh_drawing
+    monkeypatch, tmp_path, failure, valid_tail, drop_callback, fixed_budget, fresh_drawing
 ):
     drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     if fixed_budget is not None:

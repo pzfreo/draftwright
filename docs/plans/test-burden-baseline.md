@@ -309,3 +309,13 @@ falls from seven to four drawing, recognition, and STEP-import runs (42.9%), and
 distribution, drawing builds and recognition acquisitions fall from 36 to 33 (8.3%), STEP imports
 from 21 to 18 (14.3%), and shapes from 105,903 to 100,048 (5.5%). Full topology coverage and all
 retained provider, parameter, declaration, generated-code, and drawing mutations remain passing.
+
+The candidate-construction failure matrix now uses sixteen explicit pairwise cases instead of the
+64-case Cartesian product. Every one of the eight failure modes is paired with both values of
+valid-tail, drop-callback, and fixed-budget behavior; a pure guard also proves every pair of values
+across all four dimensions remains represented. The selected family falls from 64 integration
+items to sixteen plus the pure guard (73.4%), drawing and analysis runs from 64 to sixteen (75.0%),
+compilations from 128 to 32, lint calls from 192 to 48, and shapes from 196,660 to 52,465 (73.3%).
+Summed phase time falls from 193.86 to 40.58 seconds (79.1%). The complete feature-leader module
+falls from 145 to 98 items and retains 92 passes and six expected xfails under pull-request
+distribution.
