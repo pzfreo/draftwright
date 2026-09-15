@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from _evidence_contract import (
     assert_every_boundary_is_supported,
     assert_missing_model_outcomes_fail_closed,
@@ -63,6 +64,7 @@ def test_versioned_flat_corpus_covers_every_required_case_class() -> None:
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_flat_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=9, parameter_fidelity=27, downstream_usefulness=36

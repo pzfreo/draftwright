@@ -598,3 +598,12 @@ recognition acquisitions, and 3,901,579 shape constructions. A focused coverage 
 changed production files passes 127 outcomes and reports 100% coverage for all three changed
 executable lines. Exercising that gate exposed an obsolete `uvx --from` invocation in `pr-check`;
 the command now uses uv's supported, pinned `uv run --with diff-cover==9.7.2` form.
+
+The first complete coverage attempt exposed the remaining broad-corpus classification gap: the
+polygonal-stock all-layers corpus timed out at 600 seconds under parallel branch coverage after
+2,154 other fast outcomes had passed. Isolated without coverage it passes in 324.80 seconds. All
+fifteen `test_real_*corpus_scores_all_layers*` compatibility checks now run scheduled; together
+they represented 931.39 seconds of summed baseline phase time. Thirteen passed in the first
+scheduled run, and the two initially missing `pytest` imports then passed in 16.82 and 16.97
+seconds. Full and scheduled collection now partition all 8,758 outcomes as 8,677 fast and 81
+scheduled, while per-boundary observers and reduced mutation covers remain in the full tier.

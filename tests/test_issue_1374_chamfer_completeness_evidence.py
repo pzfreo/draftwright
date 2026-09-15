@@ -69,6 +69,7 @@ def test_versioned_chamfer_corpus_covers_every_required_case_class() -> None:
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_chamfer_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=12, parameter_fidelity=36, downstream_usefulness=48

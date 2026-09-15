@@ -64,6 +64,7 @@ def test_versioned_pocket_corpus_covers_every_required_case_class() -> None:
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_pocket_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=13, parameter_fidelity=52, downstream_usefulness=52

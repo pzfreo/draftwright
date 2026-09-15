@@ -106,6 +106,7 @@ def test_versioned_double_d_corpus_covers_each_required_case_class() -> None:
     )
 
 
+@pytest.mark.scheduled
 def test_real_double_d_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 

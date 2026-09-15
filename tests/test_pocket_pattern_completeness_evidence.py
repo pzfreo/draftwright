@@ -144,6 +144,7 @@ def test_versioned_pocket_pattern_corpus_covers_every_required_case_class() -> N
     assert rotated.parameters["angle"].value == 30.0
 
 
+@pytest.mark.scheduled
 def test_real_pocket_pattern_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=4, parameter_fidelity=41, downstream_usefulness=16

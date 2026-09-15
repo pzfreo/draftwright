@@ -86,6 +86,7 @@ def test_versioned_pad_corpus_covers_every_required_case_class() -> None:
     )
 
 
+@pytest.mark.scheduled
 def test_real_pad_corpus_scores_all_layers_and_topology_order_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=12, parameter_fidelity=36, downstream_usefulness=48

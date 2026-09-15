@@ -131,6 +131,7 @@ def test_versioned_turned_step_corpus_covers_every_required_case_class() -> None
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_turned_step_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=26, parameter_fidelity=52, downstream_usefulness=104

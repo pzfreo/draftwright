@@ -95,6 +95,7 @@ def test_consumer_contract_publishes_polygonal_stock_completeness_evidence() -> 
 
 
 @pytest.mark.timeout(600)  # 207 s on a fast hosted runner — the global 300 s cap is marginal.
+@pytest.mark.scheduled
 def test_real_polygonal_stock_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=6, parameter_fidelity=24, downstream_usefulness=24

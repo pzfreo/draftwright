@@ -91,6 +91,7 @@ def test_versioned_plate_corpus_covers_every_required_case_class() -> None:
     )
 
 
+@pytest.mark.scheduled
 def test_real_plate_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=20, parameter_fidelity=20, downstream_usefulness=80

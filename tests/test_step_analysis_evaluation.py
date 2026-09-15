@@ -244,6 +244,7 @@ def test_versioned_corpus_has_independent_provenance_and_required_case_classes()
     assert all(len(case.provenance["sha256"]) == 64 for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_step_corpus_scores_all_layers_and_topology_variants_deterministically() -> None:
     """The ONLY remaining repeat-evaluation check, and it covers this corpus alone.
 

@@ -68,6 +68,7 @@ def test_versioned_groove_corpus_covers_every_required_case_class() -> None:
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_groove_corpus_scores_all_layers_and_boolean_order_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=10, parameter_fidelity=20, downstream_usefulness=40

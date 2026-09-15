@@ -78,6 +78,7 @@ def test_versioned_polygonal_boss_corpus_covers_every_required_case_class() -> N
     )
 
 
+@pytest.mark.scheduled
 def test_real_polygonal_boss_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=10, parameter_fidelity=40, downstream_usefulness=40
