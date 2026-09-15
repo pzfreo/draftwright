@@ -117,3 +117,9 @@ session cache: all 145 outcomes remain 139 passes and six expected strict xfails
 builds (104), analysis runs (113), compilation calls (194), and lint calls (294) are unchanged;
 recognition acquisitions fell from 107 to 18 (83.2%) and shape constructions from 499,281 to
 406,098 (18.7%). This whole-family census supersedes summing the isolated slice counts.
+
+Reusing parsed syntax trees across the import-policy views and traversing each consumer tree
+once reduced the policy module's three-run post-change median to 19.15 seconds (18.66, 19.15,
+20.18). The comparable pre-change run was 22.90 seconds; the structural work reduction is
+exact: a consumer source tree is walked once rather than four times. All 19 policy and
+self-probe tests retain their original assertions.
