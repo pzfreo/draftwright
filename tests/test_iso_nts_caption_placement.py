@@ -99,7 +99,15 @@ class _StandIn:
         return self.views.get(view)
 
 
-def _harness(obstacle_boxes, view_boxes=(), iso_x=200.0, rider_boxes=(), furniture=(), shafts=()):
+def _harness(
+    shared_drawing,
+    obstacle_boxes,
+    view_boxes=(),
+    iso_x=200.0,
+    rider_boxes=(),
+    furniture=(),
+    shafts=(),
+):
     """A stand-in drawing plus the Analysis fields the placer reads.
 
     *obstacle_boxes* are placed annotations; *view_boxes* are projected views; *rider_boxes*
@@ -107,7 +115,7 @@ def _harness(obstacle_boxes, view_boxes=(), iso_x=200.0, rider_boxes=(), furnitu
     is bounded furniture with NO label box, reached only by the hull fallback); *shafts* are
     drawn strokes whose label sits elsewhere.
     """
-    drawing = build_drawing(Box(40, 30, 8), page="A3", auto_dims=False)
+    drawing = shared_drawing("box_40x30x8", page="A3", auto_dims=False)
     blockers = [_Blocker(box) for box in obstacle_boxes]
     blockers += [_Rider(box) for box in rider_boxes]
     blockers += [_Shaft(segment) for segment in shafts]
@@ -140,34 +148,34 @@ def _caption_box(stand_in):
 
 
 class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
-    def test_a_clear_natural_position_is_kept(self):
+    def test_a_clear_natural_position_is_kept(self, shared_drawing):
         # The common case must not move: today's placement is right whenever it is free,
         # and a fix that relocated every caption would be a gratuitous output change.
-        stand_in, analysis = _harness([])
+        stand_in, analysis = _harness(shared_drawing, [])
         place_iso_nts_note(stand_in, analysis, (180.0, 120.0, 220.0, 160.0))
         box = _caption_box(stand_in)
         font = stand_in.draft.font_size
         assert box[1] == pytest.approx(120.0 - 2 * font, abs=font)
 
-    def test_a_blocked_natural_position_moves(self):
+    def test_a_blocked_natural_position_moves(self, shared_drawing):
         # Mutation: delete the obstacle test and the caption lands inside `blocker`.
         blocker = (150.0, 100.0, 260.0, 122.0)  # covers the natural position
-        stand_in, analysis = _harness([blocker])
+        stand_in, analysis = _harness(shared_drawing, [blocker])
         place_iso_nts_note(stand_in, analysis, (180.0, 120.0, 220.0, 160.0))
         box = _caption_box(stand_in)
         assert not _boxes_overlap(box, blocker), (
             f"caption at {box} still overlaps the annotation at {blocker}"
         )
 
-    def test_the_caption_is_kept_even_when_nothing_is_clear(self):
+    def test_the_caption_is_kept_even_when_nothing_is_clear(self, shared_drawing):
         # Policy B: a caption saying which view is not to scale is required content. It
         # is never dropped to avoid an overlap — the overlap is reported instead.
         everywhere = (0.0, 0.0, 420.0, 297.0)
-        stand_in, analysis = _harness([everywhere])
+        stand_in, analysis = _harness(shared_drawing, [everywhere])
         place_iso_nts_note(stand_in, analysis, (180.0, 120.0, 220.0, 160.0))
         assert stand_in.registry.named("note_iso_nts") is not None
 
-    def test_a_sideways_fallback_is_refused_when_it_would_leave_the_page(self):
+    def test_a_sideways_fallback_is_refused_when_it_would_leave_the_page(self, shared_drawing):
         # The margin guard, driven rather than assumed. An iso block hard against the
         # right margin puts the right-hand fallback off the sheet, and every OTHER
         # candidate is blocked — so the guard is the only thing between the caption and
@@ -182,7 +190,7 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
         iso = (355.0, 120.0, 400.0, 160.0)
         blocker = (300.0, 100.0, 400.9, 170.0)
 
-        control, control_analysis = _harness([], iso_x=377.5)
+        control, control_analysis = _harness(shared_drawing, [], iso_x=377.5)
         place_iso_nts_note(control, control_analysis, iso)
         natural = _caption_box(control)
         font = control.draft.font_size
@@ -210,7 +218,7 @@ class TestTheCaptionAvoidsWhatIsAlreadyPlaced:
             f"{right_keep_clear}, so it — not the margin guard — is what rejects it"
         )
 
-        stand_in, analysis = _harness([blocker], iso_x=377.5)
+        stand_in, analysis = _harness(shared_drawing, [blocker], iso_x=377.5)
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert box[2] <= analysis.PAGE_W - analysis.margin + 1e-6, (
@@ -274,14 +282,14 @@ class TestTheCaptionIsPlacedBeforeTheFreelyPositionedFurniture:
 
 
 class TestTheCaptionKeepsTheSameClearanceAsOtherLateFurniture:
-    def test_a_flush_but_non_overlapping_neighbour_still_displaces_it(self):
+    def test_a_flush_but_non_overlapping_neighbour_still_displaces_it(self, shared_drawing):
         # `add_table` gives its late furniture `draft.pad_around_text` (2 mm) of keep-clear.
         # The caption accepted on strict overlap, so a neighbour 1 mm away counted as
         # clear — and the Policy-B backstop could not report it either: `annotation_overlap`
         # fires only past 0.5 mm in BOTH axes, so a flush caption was invisible twice over.
         # Mutation: set `clearance = 0.0` and the caption stays flush against the blocker.
         iso = (180.0, 120.0, 220.0, 160.0)
-        control, control_analysis = _harness([])
+        control, control_analysis = _harness(shared_drawing, [])
         place_iso_nts_note(control, control_analysis, iso)
         natural = _caption_box(control)
         clearance = control.draft.pad_around_text
@@ -294,7 +302,7 @@ class TestTheCaptionKeepsTheSameClearanceAsOtherLateFurniture:
             "check would reject it too and the clearance band is not what is tested"
         )
 
-        stand_in, analysis = _harness([blocker])
+        stand_in, analysis = _harness(shared_drawing, [blocker])
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         keep_clear = (
@@ -316,36 +324,36 @@ class TestTheCandidateOrderIsTheStatedOrder:
     nothing, so a future tidy-up could reorder the list and see 4,069 tests agree.
     """
 
-    def _positions(self, stand_in, analysis, iso):
-        control, control_analysis = _harness([], iso_x=analysis.ISO_X)
+    def _positions(self, shared_drawing, stand_in, analysis, iso):
+        control, control_analysis = _harness(shared_drawing, [], iso_x=analysis.ISO_X)
         place_iso_nts_note(control, control_analysis, iso)
         natural = _caption_box(control)
         return natural
 
-    def test_a_free_below_position_beats_a_free_above_one(self):
+    def test_a_free_below_position_beats_a_free_above_one(self, shared_drawing):
         # A caption printed over the view it labels is against drawing convention. With
         # the natural row blocked and BOTH the further-below and above-the-iso positions
         # free, it must go down. Mutation: move the above candidate back to second and
         # this fails.
         iso = (180.0, 120.0, 220.0, 160.0)
-        natural = self._positions(*_harness([], iso_x=200.0), iso)
+        natural = self._positions(shared_drawing, *_harness(shared_drawing, [], iso_x=200.0), iso)
         blocker = (natural[0] - 2.0, natural[1] - 1.0, natural[2] + 2.0, natural[3] + 1.0)
-        stand_in, analysis = _harness([blocker])
+        stand_in, analysis = _harness(shared_drawing, [blocker])
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert box[3] < iso[1], (
             f"caption at {box} went ABOVE the iso block {iso} while a position below it was free"
         )
 
-    def test_directly_below_beats_beside(self):
+    def test_directly_below_beats_beside(self, shared_drawing):
         # A caption beside the iso reads as captioning whatever view is next to it. With
         # the natural row blocked and further-below, left and right all free, the one
         # still under the iso wins. Mutation: reorder the two sideways candidates ahead
         # of the further-below one and this fails.
         iso = (180.0, 120.0, 220.0, 160.0)
-        natural = self._positions(*_harness([], iso_x=200.0), iso)
+        natural = self._positions(shared_drawing, *_harness(shared_drawing, [], iso_x=200.0), iso)
         blocker = (natural[0] - 2.0, natural[1] - 1.0, natural[2] + 2.0, natural[3] + 1.0)
-        stand_in, analysis = _harness([blocker])
+        stand_in, analysis = _harness(shared_drawing, [blocker])
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert box[0] == pytest.approx(natural[0], abs=1e-6), (
@@ -361,7 +369,7 @@ class TestUnlabelledFurnitureIsStillAnObstacle:
     inside the title-block hull while both sideways candidates were free, trading the
     callout overlap this fix removes for a title-block overlap it had room to avoid."""
 
-    def test_the_caption_does_not_settle_inside_the_title_block(self):
+    def test_the_caption_does_not_settle_inside_the_title_block(self, shared_drawing):
         # The block's decomposed grid lines bound TEXT-FILLED CELLS, so the stroke
         # occupancy alone leaves free pockets inside it — 1,584 of them are big enough to
         # hold this caption on an A3 sheet at zero clearance. With the 2 mm keep-clear
@@ -374,11 +382,11 @@ class TestUnlabelledFurnitureIsStillAnObstacle:
         # killed by no test in the repo. The hull is now pinned STRUCTURALLY, by
         # `test_the_shared_set_carries_the_title_block_as_one_hull`, which is the honest
         # scope: the policy is asserted, not a placement consequence it no longer has.
-        stand_in, analysis = _harness([], furniture=("title_block",), iso_x=272.6)
+        stand_in, analysis = _harness(shared_drawing, [], furniture=("title_block",), iso_x=272.6)
         hull = _anno_box(stand_in.get_annotation("title_block"))
         iso = (260.0, 19.77, 300.0, 60.0)
 
-        control, control_analysis = _harness([], iso_x=272.6)
+        control, control_analysis = _harness(shared_drawing, [], iso_x=272.6)
         place_iso_nts_note(control, control_analysis, iso)
         assert _boxes_overlap(_caption_box(control), hull), (
             "the unobstructed position is not inside the title block, so this asserts "
@@ -398,7 +406,7 @@ class TestLeaderShaftsAreOccupancyToo:
     Policy-B backstop this fallback appeals to. Same defect as the one being fixed, one
     layer down (#685 is why `occupancy_boxes` decomposes strokes at all)."""
 
-    def test_a_shaft_whose_label_is_elsewhere_still_blocks(self):
+    def test_a_shaft_whose_label_is_elsewhere_still_blocks(self, shared_drawing):
         # The label sits at the origin, far from every candidate; only the stroke reaches
         # the natural position. Mutation: drop `segment_boxes` from the obstacle set and
         # the caption stays on the shaft.
@@ -409,7 +417,7 @@ class TestLeaderShaftsAreOccupancyToo:
         # natural box — so the caption never had to move and the test survived deleting
         # the guard it claimed to cover.
         iso = (180.0, 120.0, 220.0, 160.0)
-        control, control_analysis = _harness([])
+        control, control_analysis = _harness(shared_drawing, [])
         place_iso_nts_note(control, control_analysis, iso)
         natural = _caption_box(control)
 
@@ -421,7 +429,7 @@ class TestLeaderShaftsAreOccupancyToo:
             f"this test would pass without the guard it claims to cover"
         )
 
-        stand_in, analysis = _harness([], shafts=[shaft])
+        stand_in, analysis = _harness(shared_drawing, [], shafts=[shaft])
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert not _boxes_overlap(box, struck), (
@@ -430,7 +438,7 @@ class TestLeaderShaftsAreOccupancyToo:
 
 
 class TestTheCaptionAvoidsViewsToo:
-    def test_a_view_blocks_a_fallback_position(self):
+    def test_a_view_blocks_a_fallback_position(self, shared_drawing):
         # Projected views live in `dwg.views`, NOT `dwg.items`, so an annotations-only
         # obstacle set relocates the caption onto a view's line-work and never notices.
         #
@@ -441,7 +449,7 @@ class TestTheCaptionAvoidsViewsToo:
         # The view now sits on the FURTHER-BELOW position, which is candidate 2, and the
         # scenario is asserted rather than described.
         iso = (180.0, 120.0, 220.0, 160.0)
-        control, control_analysis = _harness([])
+        control, control_analysis = _harness(shared_drawing, [])
         place_iso_nts_note(control, control_analysis, iso)
         natural = _caption_box(control)
         font = control.draft.font_size
@@ -459,7 +467,9 @@ class TestTheCaptionAvoidsViewsToo:
             "view is not what rejects it"
         )
 
-        stand_in, analysis = _harness([annotation_blocker], view_boxes=[view_blocker])
+        stand_in, analysis = _harness(
+            shared_drawing, [annotation_blocker], view_boxes=[view_blocker]
+        )
         place_iso_nts_note(stand_in, analysis, iso)
         box = _caption_box(stand_in)
         assert not _boxes_overlap(box, view_blocker), (
@@ -489,14 +499,14 @@ class TestRealDrawingsAreUnchangedWhereTheyWereClear:
         )
         assert not [i for i in dwg.lint() if i.code == "annotation_overlap"]
 
-    def test_a_page_spanning_rider_does_not_neutralise_the_check(self):
+    def test_a_page_spanning_rider_does_not_neutralise_the_check(self, shared_drawing):
         # THE finding-1 case as a unit. `sheet_frame` has no `label_bbox`, so an
         # `_anno_box` obstacle set gets the whole page back and rejects every candidate
         # — the check silently becomes a no-op whenever `frame=True` or `zones=True`.
         # Mutation: swap the obstacle set back to `_anno_box` and this stops relocating.
         page_rider = (10.0, 10.0, 410.0, 287.0)
         blocker = (150.0, 100.0, 260.0, 122.0)
-        stand_in, analysis = _harness([blocker], rider_boxes=[page_rider])
+        stand_in, analysis = _harness(shared_drawing, [blocker], rider_boxes=[page_rider])
         place_iso_nts_note(stand_in, analysis, (180.0, 120.0, 220.0, 160.0))
         box = _caption_box(stand_in)
         assert not _boxes_overlap(box, blocker), (
@@ -568,13 +578,13 @@ class TestAnUnmeasurableItemDoesNotTakeTheWholeSetDownWithIt:
     than raise: the caller is mid-build with a drawing half-assembled.
     """
 
-    def test_an_anonymous_item_that_cannot_be_measured_is_skipped(self):
+    def test_an_anonymous_item_that_cannot_be_measured_is_skipped(self, shared_drawing):
         # `Drawing.add(obj)` (supported until 0.5.0) yields items with no registry
         # identity, measured by full bbox. One that raises must not abort the walk and
         # lose every LATER obstacle with it.
         from draftwright.annotations._common import late_furniture_obstacles
 
-        stand_in, _analysis = _harness([(150.0, 100.0, 260.0, 122.0)])
+        stand_in, _analysis = _harness(shared_drawing, [(150.0, 100.0, 260.0, 122.0)])
         # In `items` but NOT in `_names`: that is what "anonymous" means here.
         stand_in.items.insert(0, _Unmeasurable())
         stand_in.items.append(_Blocker((10.0, 10.0, 20.0, 20.0)))
@@ -584,19 +594,21 @@ class TestAnUnmeasurableItemDoesNotTakeTheWholeSetDownWithIt:
             "an unmeasurable item earlier in the list swallowed the ones after it"
         )
 
-    def test_an_unmeasurable_title_block_leaves_the_rest_of_the_set_intact(self):
+    def test_an_unmeasurable_title_block_leaves_the_rest_of_the_set_intact(self, shared_drawing):
         # The hull is the fallback for a block with no label box; when even the hull
         # cannot be measured the decomposed grid lines remain, so the set degrades
         # rather than raising.
         from draftwright.annotations._common import late_furniture_obstacles
 
-        stand_in, _analysis = _harness([(150.0, 100.0, 260.0, 122.0)])
+        stand_in, _analysis = _harness(shared_drawing, [(150.0, 100.0, 260.0, 122.0)])
         stand_in._names["title_block"] = _Unmeasurable()
 
         boxes = late_furniture_obstacles(stand_in)
         assert (150.0, 100.0, 260.0, 122.0) in boxes
 
-    def test_a_caption_whose_own_box_is_unresolvable_is_still_placed(self, monkeypatch):
+    def test_a_caption_whose_own_box_is_unresolvable_is_still_placed(
+        self, monkeypatch, shared_drawing
+    ):
         # Policy B at its limit: if the caption cannot be measured it cannot be placed
         # *carefully*, but it is still required content and must reach the sheet. The
         # alternative — returning without placing — silently drops the one annotation
@@ -604,7 +616,7 @@ class TestAnUnmeasurableItemDoesNotTakeTheWholeSetDownWithIt:
         import draftwright.annotations._common as common
 
         monkeypatch.setattr(common, "_anno_box", lambda _o: None)
-        stand_in, analysis = _harness([])
+        stand_in, analysis = _harness(shared_drawing, [])
         place_iso_nts_note(stand_in, analysis, (180.0, 120.0, 220.0, 160.0))
         assert stand_in.registry.named("note_iso_nts") is not None, (
             "an unmeasurable caption was dropped instead of placed"

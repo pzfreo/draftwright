@@ -70,3 +70,10 @@ Migrating the four mutation-heavy `box_60x40x30` cases in `test_lint_summary.py`
 acquisitions fell from ten to seven (30.0%) in the PR-distributed run. Each test still owns
 its mutable drawing and registry; only the immutable analysis seed is reused within the
 loadscope worker.
+
+Sharing the read-only `box_40x30x8` substrate behind the ISO NTS stand-in harness preserved
+all 20 caption-placement behaviors while the PR-distributed cohort fell from 29 to 10 drawing
+builds (65.5%), 28 to 9 recognition acquisitions (67.9%), and 75,947 to 27,633 shape
+constructions (63.6%). Four loadscope workers account for four cache misses; the other 19
+harness requests are measured cache hits. The stand-ins own their registries and item lists,
+and borrow the real drawing only for immutable draft, page, and furniture evidence.
