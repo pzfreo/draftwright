@@ -18,28 +18,28 @@ def _place_dim(dwg, *args, **kwargs):
 class TestPlaceDim:
     """#25: the raw page-coordinate dim primitive stacks with the auto-dimension strip."""
 
-    def test_place_dim_adds_named_annotation(self):
-        dwg = build_drawing(Box(80, 60, 20))
+    def test_place_dim_adds_named_annotation(self, fresh_drawing):
+        dwg = fresh_drawing("box_80x60x20")
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
         _place_dim(dwg, p1, p2, "below", "plan", dwg.draft, name="my_dim", label="80")
         assert "my_dim" in dwg.annotations()
         assert dwg.get_annotation("my_dim").label == "80"
 
-    def test_place_dim_returns_dimension_object(self):
+    def test_place_dim_returns_dimension_object(self, fresh_drawing):
         from build123d_drafting.helpers import Dimension
 
-        dwg = build_drawing(Box(60, 40, 20))
+        dwg = fresh_drawing("box_60x40x20")
         p1 = dwg.at("front", -30, 0, -10)
         p2 = dwg.at("front", 30, 0, -10)
         result = _place_dim(dwg, p1, p2, "below", "front", dwg.draft)
         assert isinstance(result, Dimension)
 
-    def test_two_place_dim_calls_stack_without_overlap(self):
+    def test_two_place_dim_calls_stack_without_overlap(self, fresh_drawing):
         # Two dims on the same strip must land at different page positions.
         # Use auto_dims=False so the strip has no prior allocations, and
         # "above" where there is ample headroom for two consecutive allocations.
-        dwg = build_drawing(Box(80, 60, 20), auto_dims=False)
+        dwg = fresh_drawing("box_80x60x20", auto_dims=False)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
         d1 = _place_dim(dwg, p1, p2, "above", "plan", dwg.draft, name="d1")
@@ -69,13 +69,13 @@ class TestPlaceDim:
         result = _place_dim(dwg, (0, 0, 0), (80, 0, 0), "below", "plan", d, slot=8.0)
         assert isinstance(result, Dimension)
 
-    def test_place_dim_labels_real_world_length_at_non_unity_scale(self):
+    def test_place_dim_labels_real_world_length_at_non_unity_scale(self, fresh_drawing):
         # place_dim receives page-coordinate points; at 1:2 the page span is 2× the
         # world size. The auto label must read the real-world length, not the page
         # distance, or it disagrees with the geometry (and trips label_vs_measured).
         from draftwright.linting import lint_drawing
 
-        dwg = build_drawing(Box(80, 60, 20), scale=2.0)
+        dwg = fresh_drawing("box_80x60x20", scale=2.0)
         assert dwg.scale == 2.0
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
@@ -85,8 +85,8 @@ class TestPlaceDim:
             i for i in lint_drawing([d], drawing_scale=dwg.scale) if i.code == "label_vs_measured"
         ] == []
 
-    def test_place_dim_explicit_label_wins_over_scale_autolabel(self):
-        dwg = build_drawing(Box(80, 60, 20), scale=2.0)
+    def test_place_dim_explicit_label_wins_over_scale_autolabel(self, fresh_drawing):
+        dwg = fresh_drawing("box_80x60x20", scale=2.0)
         p1 = dwg.at("plan", -40, 0, 0)
         p2 = dwg.at("plan", 40, 0, 0)
         d = _place_dim(dwg, p1, p2, "below", "plan", dwg.draft, label="CUSTOM")

@@ -55,3 +55,7 @@ Migrating `test_repair.py` preserved 13 builds and all seven repair behaviors wh
 recognition acquisitions fell from 13 to 7 (46.2%) and shape constructions from 55,300 to
 49,277 (10.9%). The seven acquisitions are three option-keyed box seeds and four builds of
 the two distinct complex substrates.
+
+Migrating `test_place_dimension.py` preserved its six builds and all seven behaviors while
+recognition acquisitions fell from six to five (16.7%). Only the two tests with identical
+geometry and `scale=2.0` share an analysis seed; every other option/geometry remains distinct.
