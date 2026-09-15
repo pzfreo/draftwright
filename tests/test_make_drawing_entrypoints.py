@@ -4,8 +4,9 @@ from pathlib import Path
 
 import pytest
 from build123d import Box, Cylinder, export_step
+from build123d_drafting import Centerline
 
-from draftwright import make_drawing
+from draftwright import Drawing, make_drawing
 
 
 @pytest.mark.timeout(120)
@@ -35,46 +36,50 @@ def test_make_drawing_box(tmp_path):
 
 
 @pytest.mark.timeout(120)
-def test_make_drawing_cylinder_uses_centerline_and_holecallout(tmp_path):
-    """make_drawing() adds Centerline and HoleCallout for cylindrical parts."""
+def test_make_drawing_cylinder_uses_centerline(tmp_path, monkeypatch):
+    """make_drawing() retains automatic cylinder furniture before serialization."""
     cyl = Cylinder(radius=15, height=40)
     step_file = str(tmp_path / "cyl.step")
     export_step(cyl, step_file)
 
-    svg_path, _ = make_drawing(step_file, out=str(tmp_path / "cyl_drawing"), title="CYL")
+    captured = []
 
-    # The drawing must exist and be non-trivial
-    assert Path(svg_path).exists()
-    assert Path(svg_path).stat().st_size > 1000
+    def capture(drawing, *, formats):
+        captured.append((drawing, formats))
+        return {"svg": "unused.svg", "dxf": "unused.dxf"}
+
+    monkeypatch.setattr(Drawing, "export", capture)
+    make_drawing(step_file, out=str(tmp_path / "cyl_drawing"), title="CYL")
+
+    [(drawing, formats)] = captured
+    assert formats == ("svg", "dxf")
+    assert isinstance(drawing.get_annotation("centerline_front"), Centerline)
 
 
 @pytest.mark.timeout(120)
-def test_make_drawing_default_title(tmp_path):
-    """Title defaults to uppercased stem when not provided."""
+def test_make_drawing_default_title(tmp_path, monkeypatch):
+    """Title defaults to a display-formatted uppercase stem when not provided."""
     box = Box(10, 10, 10)
     step_file = str(tmp_path / "my_part.step")
     export_step(box, step_file)
 
-    svg_path, _ = make_drawing(step_file, out=str(tmp_path / "out"))
-    assert Path(svg_path).exists()
+    captured = []
 
+    def capture(drawing, *, formats):
+        captured.append(drawing)
+        return {"svg": "unused.svg", "dxf": "unused.dxf"}
 
-@pytest.mark.timeout(120)
-def test_make_drawing_accepts_build123d_object(tmp_path):
-    """make_drawing() draws an in-memory build123d Shape without a STEP file."""
-    box = Box(30, 20, 10)
-    out_stem = str(tmp_path / "box_obj")
+    monkeypatch.setattr(Drawing, "export", capture)
+    make_drawing(step_file, out=str(tmp_path / "out"))
 
-    svg_path, dxf_path = make_drawing(box, out=out_stem, title="BOX OBJ")
-
-    assert Path(svg_path).exists()
-    assert Path(dxf_path).exists()
-    assert Path(svg_path).stat().st_size > 1000
+    [drawing] = captured
+    title = drawing.get_annotation("title_block")
+    assert title.label == "MY PART"
 
 
 @pytest.mark.timeout(120)
 def test_make_drawing_object_defaults_out_to_drawing(tmp_path, monkeypatch):
-    """Passing an object with no out= writes to 'drawing.svg' in the cwd."""
+    """An in-memory object uses the default output stem and writes both public formats."""
     monkeypatch.chdir(tmp_path)
     box = Box(10, 10, 10)
 
@@ -83,3 +88,6 @@ def test_make_drawing_object_defaults_out_to_drawing(tmp_path, monkeypatch):
     assert Path(svg_path).name == "drawing.svg"
     assert Path(dxf_path).name == "drawing.dxf"
     assert (tmp_path / "drawing.svg").exists()
+    assert (tmp_path / "drawing.dxf").exists()
+    assert (tmp_path / "drawing.svg").stat().st_size > 1000
+    assert (tmp_path / "drawing.dxf").stat().st_size > 100

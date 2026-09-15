@@ -517,3 +517,11 @@ SVG/PDF/DXF canary. Across all 36 unchanged module outcomes, format exports fall
 lint calls from 92 to 87, and shape constructions from 241,342 to 147,553 (38.9%). The five
 semantic-only cases also prove that no visual file was written, and the complete module passes
 under pull-request distribution.
+
+The public `make_drawing` entrypoint contracts now retain real SVG/DXF canaries for both STEP-path
+and in-memory-object inputs. The cylinder and default-title cases inspect the constructed drawing
+directly, replacing file-existence proxies with exact centerline and title assertions; the duplicate
+explicit-output object case is covered by the STEP output-path contract and the retained object
+canary. The module falls from five to four integration items, format exports from five to two,
+compilations from ten to six, lint calls from sixteen to eleven, and shape constructions from
+100,964 to 46,271 (54.2%). All four surviving contracts pass under pull-request distribution.
