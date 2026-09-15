@@ -288,3 +288,11 @@ to 19,349 shape constructions (28.8%). Across all 27 unchanged outcomes under pu
 distribution, drawing builds and recognition acquisitions fall from 43 to 40 (7.0%), STEP imports
 from 45 to 42 (6.7%), and shapes from 189,205 to 182,297 (3.7%). Full topology coverage and the
 retained malformed-provider, declaration, drawing, and negative-control mutations remain passing.
+
+The turned-step provider-deletion probe now uses the family's clean two-case cover. Its
+clean-plus-damaged work falls from 22 to eight drawing and recognition runs (63.6%), from eleven to
+four STEP imports (63.6%), and from 72,310 to 26,521 shape constructions (63.3%). Across all 110
+unchanged outcomes under pull-request distribution, drawing builds fall from 210 to 196 (6.7%),
+recognition acquisitions from 206 to 192 (6.8%), and shapes from 773,652 to 729,534 (5.7%). Full
+topology coverage, cached-solid integrity, and all retained correspondence, provider, parameter,
+declaration, generated-code, and drawing mutations remain passing.

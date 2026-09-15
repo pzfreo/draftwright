@@ -1488,7 +1488,9 @@ def test_severing_step_measurement_provenance_loses_drawing_credit(monkeypatch) 
     assert "unsupported" in _states("drawing_consumer")
 
 
-def test_deleting_provider_profiles_cannot_shrink_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_profiles_cannot_shrink_independent_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -1498,10 +1500,10 @@ def test_deleting_provider_profiles_cannot_shrink_independent_denominator(monkey
         return replace(result, turned_steps=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_profiles)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 26
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 
