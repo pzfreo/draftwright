@@ -688,49 +688,43 @@ def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(tmp
         pdf.close()
 
 
-@pytest.mark.parametrize(
-    ("base_angle", "constructor_rotation", "live_rotation", "expected"),
-    [(-170, 0, 0, 10.0), (-45, 30, 20, 5.0)],
-)
-def test_raw_drawing_font_single_curved_glyph_keeps_exact_rotation(
-    tmp_path, base_angle, constructor_rotation, live_rotation, expected
-):
+def test_raw_drawing_font_single_curved_glyph_keeps_exact_rotation(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     drawing.draft.font_size = 20
-    angle = math.radians(base_angle)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        10,
-        drawing.draft,
-        label="C",
-        basic=True,
-        rotation=constructor_rotation,
-    )
-    annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
-    box = annotation.bounding_box()
-    annotation.location = (
-        Location((100 - (box.min.X + box.max.X) / 2, 100 - (box.min.Y + box.max.Y) / 2, 0))
-        * annotation.location
-    )
-    drawing.registry.add(annotation, "raw_curved_glyph", view=None)
-    drawing.items.append(annotation)
+    cases = ((-170, 0, 0, 75), (-45, 30, 20, 150))
+    for index, (base_angle, constructor_rotation, live_rotation, centre) in enumerate(cases):
+        angle = math.radians(base_angle)
+        annotation = Dimension(
+            (50, 50, 0),
+            (50 + math.cos(angle), 50 + math.sin(angle), 0),
+            "above",
+            10,
+            drawing.draft,
+            label="C",
+            basic=True,
+            rotation=constructor_rotation,
+        )
+        annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
+        box = annotation.bounding_box()
+        annotation.location = (
+            Location(
+                (centre - (box.min.X + box.max.X) / 2, centre - (box.min.Y + box.max.Y) / 2, 0)
+            )
+            * annotation.location
+        )
+        drawing.registry.add(annotation, f"raw_curved_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(
-        str(tmp_path / f"raw_curved_{base_angle}_{constructor_rotation}_{live_rotation}"),
-        formats=("pdf",),
-    )["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_curved_glyphs"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     page = text_page.parent
     try:
-        text_object = next(
-            item
+        angles = sorted(
+            math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0]))
             for item in page.get_objects(textpage=text_page)
             if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == "C"
         )
-        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-        assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
+        assert angles == pytest.approx([5.0, 10.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()

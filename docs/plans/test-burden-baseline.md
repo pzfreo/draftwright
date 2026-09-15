@@ -457,3 +457,9 @@ Each glyph's two extracted objects must have the complete `[-30, 95]` angle mult
 axis nor any of the seven outline classes can disappear. The selected family falls from two
 integration items, drawing builds, and exports to one (50.0%). The complete searchable-PDF module
 falls from 29 to 28 items and from 24 to 23 exports; 27 outcomes pass and one remains skipped.
+
+The two curved-`C` rotation paths now share one PDF and compare both exact extracted angles as a
+multiset. This retains the base-angle-only case and the composed constructor-plus-live rotation
+case without depending on PDF object order. The selected family falls from two integration items,
+drawing builds, and exports to one (50.0%). The complete searchable-PDF module falls from 28 to 27
+items and from 23 to 22 exports; 26 outcomes pass and one remains skipped.
