@@ -88,3 +88,10 @@ The four parametrized #1166 final-preflight failure cases now reuse one immutabl
 seed while retaining four private drawings. Recognition acquisitions fell from four to one
 (75.0%) and shape constructions from 11,777 to 8,636 (26.7%). Their metadata and rendered-face
 faults are still installed after construction, so all four fail-closed behaviors remain direct.
+
+The 64-case #1166 candidate-measurement failure matrix now prepares each private drawing from
+one immutable analysis seed. All 64 boundary combinations remain collected and passing;
+recognition acquisitions fell from 64 to one (98.4%) and shape constructions from 259,321 to
+193,360 (25.4%), while drawing, compilation, and lint counts stayed identical. The optional
+fixed-work budget is installed after drawing construction, matching its downstream subject and
+keeping monkeypatch state outside the cached boundary.

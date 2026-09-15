@@ -1327,15 +1327,15 @@ def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path):
 )
 @pytest.mark.parametrize("fixed_budget", [None, 0])
 def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
-    monkeypatch, tmp_path, valid_tail, drop_callback, failure, fixed_budget
+    monkeypatch, tmp_path, valid_tail, drop_callback, failure, fixed_budget, fresh_drawing
 ):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     if fixed_budget is not None:
         monkeypatch.setattr(
             "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
             fixed_budget,
         )
     trace_path = tmp_path / "candidate-construction.json"
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
