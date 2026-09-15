@@ -480,3 +480,8 @@ runs the X- and Y-axis semantic replays in memory. All three axes still compare 
 view, tolerance label, complete measurement-claim multiset, and lint result; the non-exporting cases
 also prove no file appeared. Across all fifteen unchanged module outcomes, format exports fall from
 three to one, and the complete module passes under pull-request distribution.
+
+The two canonical-angle sectors retain exact-reference, small-tolerance, emitted-model, and rendered
+angle checks. The minor-sector representative keeps the SVG existence contract; the opposite sector
+replays in memory and proves it produced no file. Across all 58 unchanged module outcomes, format
+exports fall from two to one, and the complete module passes under pull-request distribution.

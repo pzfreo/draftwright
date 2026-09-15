@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Axis, Cylinder, GeomType, Polygon, Pos, extrude, fillet
 from jsonschema import ValidationError
 from jsonschema.validators import validator_for
@@ -96,22 +97,25 @@ def test_omission_removes_angular_ink_and_reports_a_lost_named_measurement(angle
 @pytest.mark.parametrize("sector", ("minor", "opposite"))
 def test_script_executes_with_exact_references_and_small_tolerances(angle_part, tmp_path, sector):
     sheet, _ = _declared(angle_part, (0.000000123,), sector=sector)
+    formats = ("svg",) if sector == "minor" else ()
     source = emit_sheet_script(
-        sheet.model(), "part", str(tmp_path / "angle"), title="T", number="N", formats=("svg",)
+        sheet.model(), "part", str(tmp_path / "angle"), title="T", number="N", formats=formats
     )
     namespace = {"part": angle_part}
-    exec(source, namespace)
+    if formats:
+        exec(source, namespace)
+        drawing = namespace["drawing"]
+    else:
+        drawing = execute_sheet_script_without_export(
+            source, "<canonical-angle replay>", namespace
+        )
     (original,) = _approved(sheet.model())
     (replayed,) = _approved(namespace["sheet"].model())
     assert replayed.angular_reference == original.angular_reference
     assert replayed.final_label == original.final_label
-    marks = [
-        item
-        for _, item in namespace["drawing"].iter_annotations()
-        if hasattr(item, "measured_angle")
-    ]
+    marks = [item for _, item in drawing.iter_annotations() if hasattr(item, "measured_angle")]
     assert len(marks) == 1 and marks[0].label == original.final_label
-    assert (tmp_path / "angle.svg").is_file()
+    assert (tmp_path / "angle.svg").is_file() is bool(formats)
 
 
 def test_equal_valued_support_substitution_is_not_reported_preserved(angle_part):
