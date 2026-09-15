@@ -3,7 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, fields
 from itertools import combinations
+
+
+@dataclass(frozen=True)
+class CoverageSignature:
+    """The independent evidence dimensions a real-geometry case protects."""
+
+    recognizer_families: frozenset[str] = frozenset()
+    topology_variants: frozenset[str] = frozenset()
+    requirement_outcomes: frozenset[str] = frozenset()
+    compiler_paths: frozenset[str] = frozenset()
+    lint_codes: frozenset[str] = frozenset()
+    mutation_kills: frozenset[str] = frozenset()
+
+    def tokens(self) -> frozenset[str]:
+        """Namespace every value so equal spelling in two dimensions cannot collapse."""
+
+        return frozenset(
+            f"{field.name}:{value}"
+            for field in fields(self)
+            for value in getattr(self, field.name)
+        )
 
 
 def minimum_coverage_cases(
