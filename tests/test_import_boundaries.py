@@ -62,10 +62,17 @@ _RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
 
 
 @cache
+def _source_text(path: Path) -> str:
+    """Read one immutable source file once for every policy view in this module."""
+
+    return path.read_text(encoding="utf-8")
+
+
+@cache
 def _tree(path: Path) -> ast.Module:
     """Parse one immutable source file once for every policy view in this module."""
 
-    return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return ast.parse(_source_text(path), filename=str(path))
 
 
 # ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
@@ -895,6 +902,7 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
         dotted = _dotted_name(node)
         return resolve(dotted) if dotted is not None else None
 
+    assignments: list[tuple[str, str]] = []
     for node in nodes:
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
@@ -933,9 +941,6 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                     references.add((relative, module, "*"))
                     if alias.asname:
                         module_aliases[alias.asname] = module
-
-    assignments: list[tuple[str, str]] = []
-    for node in nodes:
         if isinstance(node, ast.Assign):
             dotted = _dotted_name(node.value)
             if dotted is not None:
@@ -962,12 +967,6 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                 module_aliases[binding] = actual
                 changed = True
 
-    for node in nodes:
-        if isinstance(node, ast.Attribute):
-            actual = resolve_expr(node)
-            if actual is not None:
-                record(actual)
-
     def literal(node: ast.expr | None) -> str | None:
         return (
             node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
@@ -980,6 +979,10 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
         return targets[0] if len(targets) == 1 else None
 
     for node in nodes:
+        if isinstance(node, ast.Attribute):
+            actual = resolve_expr(node)
+            if actual is not None:
+                record(actual)
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
             value = node.value
             dotted_target = literal(value)
@@ -1051,6 +1054,7 @@ def _consumer_recogniser_contract_violations(
         reference
         for path in sorted(tests.rglob("*.py"))
         if path.name != "test_import_boundaries.py"
+        if _PROVIDER_ROOT in _source_text(path)
         for reference in _recogniser_contract_references(path, relative_to=tests)
     }
     return (

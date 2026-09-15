@@ -123,3 +123,10 @@ once reduced the policy module's three-run post-change median to 19.15 seconds (
 20.18). The comparable pre-change run was 22.90 seconds; the structural work reduction is
 exact: a consumer source tree is walked once rather than four times. All 19 policy and
 self-probe tests retain their original assertions.
+
+Collapsing the provider-contract guard from four AST passes to two and rejecting source files
+without a literal provider reference before parsing reduced the import-policy module's
+three-run median from 19.15 to 15.55 seconds (14.47, 15.55, 15.61), an 18.8% improvement.
+All 19 boundary guards and their synthetic violation probes remain unchanged and passing.
+The complete unit tier is still above target at 36.23-38.49 seconds with three loadscope workers,
+so this slice does not close the unit-loop gate by itself.
