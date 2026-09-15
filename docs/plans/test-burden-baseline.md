@@ -500,3 +500,8 @@ The high-precision oriented-slot generated script now replays in memory because 
 exact reconstructed feature, including authored dimensions and directions. Across all one hundred
 unchanged module outcomes, format exports fall from one to zero, and the complete module passes
 under pull-request distribution.
+
+The GRM04 boss/blend generated script now replays in memory because its contract is emitted R4
+ownership, absence of a duplicate diameter, and complete feature coverage. Across all eight
+unchanged module outcomes, format exports fall from one to zero, and the complete module passes
+under pull-request distribution.
