@@ -50,3 +50,8 @@ Migrating `test_drawing_state.py` to that boundary preserved its 14 fresh drawin
 all 17 behavior tests while recognition acquisitions fell from 14 to 2 (85.7%) and shape
 constructions from 37,597 to 25,197 (33.0%). The remaining two acquisitions belong to the
 independent read-only drawing cache and the fresh-drawing seed.
+
+Migrating `test_repair.py` preserved 13 builds and all seven repair behaviors while
+recognition acquisitions fell from 13 to 7 (46.2%) and shape constructions from 55,300 to
+49,277 (10.9%). The seven acquisitions are three option-keyed box seeds and four builds of
+the two distinct complex substrates.
