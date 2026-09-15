@@ -143,6 +143,13 @@ def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable
     assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
 
 
+def test_local_changed_line_gate_uses_the_pinned_diff_cover_tool():
+    command = (ROOT / "scripts" / "pr-check").read_text(encoding="utf-8")
+
+    assert "uv run --with diff-cover==9.7.2 diff-cover coverage.xml" in command
+    assert "uvx --from" not in command
+
+
 def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     workflow = _workflow("ci.yml")
 

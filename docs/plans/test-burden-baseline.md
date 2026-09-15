@@ -590,3 +590,11 @@ constructions; exporter calls are 86.3% below the original 233-call fast-tier ba
 instrumentation extended the run to 181.69 seconds but reached only 42.0% combined global coverage.
 The PR selection therefore cannot replace the complete-suite global 90% gate; it supplies fast
 feedback and changed-area evidence while the full coverage job remains authoritative globally.
+
+The production-diff quality audit runs the shared-analysis isolation probes and every capability
+or evidence module newly named by `recogniser_contract.py`. All 485 retained regression and
+targeted mutation outcomes pass in 701.16 seconds; the run includes 502 drawing builds, 510
+recognition acquisitions, and 3,901,579 shape constructions. A focused coverage run over the two
+changed production files passes 127 outcomes and reports 100% coverage for all three changed
+executable lines. Exercising that gate exposed an obsolete `uvx --from` invocation in `pr-check`;
+the command now uses uv's supported, pinned `uv run --with diff-cover==9.7.2` form.
