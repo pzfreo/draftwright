@@ -368,3 +368,11 @@ to one (66.7%), shapes from 20,229 to 7,768 (61.6%), and summed phase time from 
 (52.8%). Across the searchable-PDF module after the preceding consolidations, items fall from 44 to
 42, format exports from 39 to 37, drawing builds from 38 to 36, and shapes from 289,571 to 277,428
 (4.2%). All 41 runnable contracts pass and the existing optional-tool contract remains skipped.
+
+The ten pocket-lowering topology cases now replay their generated Sheet scripts while intercepting
+the final export call and returning the constructed drawing directly. The same ten topology
+outcomes remain independently checked, while format exports fall from ten to zero. Compilations
+fall from 141 to 131 and lint calls from 133 to 123 because an empty-format export no longer
+finalizes the drawing a second time. Collection remains at 64 items for the complete section-pocket
+module, and all 64 pass under pull-request distribution. Both existing consumers of the shared
+script-replay helper also pass unchanged.

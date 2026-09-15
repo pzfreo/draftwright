@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 import quiddity
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Pos, import_step
 
 from draftwright import Sheet, build_drawing
@@ -119,9 +120,7 @@ def test_pocket_lowering_preserves_drawing_and_generated_sheet(pocket_case, tmp_
         number="1471",
         formats=(),
     )
-    namespace = {"__name__": "__migration_test__"}
-    exec(compile(source, "<generated migration sheet>", "exec"), namespace)
-    rebuilt = namespace["drawing"]
+    rebuilt = execute_sheet_script_without_export(source, "<generated migration sheet>")
     generated = [feature for feature in rebuilt.model().features if feature.kind == "pocket"]
     assert sorted(generated, key=lambda feature: feature.frame.origin) == sorted(
         converted, key=lambda feature: feature.frame.origin
