@@ -274,3 +274,10 @@ falls from ten to four drawing, recognition, and STEP-import runs (60.0%), and f
 distribution, drawing builds and recognition acquisitions fall from 47 to 39 (17.0%), STEP imports
 from 27 to 19 (29.6%), and shapes from 151,713 to 129,554 (14.6%). Full topology coverage and the
 retained provider, radius, declaration, drawing, and quality mutations remain passing.
+
+The groove provider-deletion probe now uses the family's clean two-case cover. Its mutation work
+falls from eight to four drawing, recognition, and STEP-import runs (50.0%), and from 44,552 to
+15,494 shape constructions (65.2%). Across all 45 unchanged outcomes under pull-request
+distribution, drawing builds and recognition acquisitions fall from 65 to 61 (6.2%), STEP imports
+from 29 to 25 (13.8%), and shapes from 461,277 to 432,920 (6.1%). Full topology coverage and the
+retained provider, parameter, identity, declaration, drawing, and quality mutations remain passing.
