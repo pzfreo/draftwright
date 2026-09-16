@@ -3296,7 +3296,8 @@ class PmiFeature:
     type remains as an explicit provenance-preserving escape hatch so unsupported records
     are visible instead of silently lost. ``source_id`` retains the external record identity
     needed to report that missing concept lowering; ``source_ids`` represents the repeated
-    source occurrences of one projected datum definition; ``gtol_modifiers`` and
+    source occurrences of one projected datum definition; ``gtol_modifiers`` (including
+    tolerance-zone and material-condition qualifiers) and
     ``lowering_blockers`` retain source facts and the explicit reason it stayed raw."""
 
     frame: Frame

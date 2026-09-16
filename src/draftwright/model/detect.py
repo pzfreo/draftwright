@@ -473,11 +473,18 @@ def build_pmi_features(
             cylindrical_refs=r.cylindrical_refs,
         )
         if r.source_category == "geometric_tolerance" and not r.lowering_blockers:
+            material_modifier = None
+            if "maximum_material_requirement" in r.gtol_modifiers:
+                material_modifier = "M"
+            elif "least_material_requirement" in r.gtol_modifiers:
+                material_modifier = "L"
             item = control_frame(
                 r.kind,
                 str(r.value),
                 raw,
                 datums=r.datum_refs,
+                diameter="diameter_zone" in r.gtol_modifiers,
+                modifier=material_modifier,
             )
             out.append(
                 replace(

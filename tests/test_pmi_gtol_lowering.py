@@ -123,6 +123,41 @@ def test_complete_all_over_tolerance_lowers_to_control_frame():
     assert feature.origin.gtol_modifiers == ("all_over",)
 
 
+@pytest.mark.parametrize(
+    ("modifiers", "diameter", "material"),
+    [
+        (("diameter_zone",), True, None),
+        (("diameter_zone", "maximum_material_requirement"), True, "M"),
+        (("least_material_requirement",), False, "L"),
+    ],
+)
+def test_zone_and_material_qualifiers_lower_to_control_frame(modifiers, diameter, material):
+    (feature,) = build_pmi_features(
+        (_record(modifiers=modifiers),), Box(20, 20, 20).bounding_box()
+    )
+
+    assert isinstance(feature, ControlFrame)
+    assert feature.diameter is diameter
+    assert feature.modifier == material
+    assert isinstance(feature.origin, PmiFeature)
+    assert feature.origin.gtol_modifiers == modifiers
+
+
+def test_generated_sheet_round_trips_imported_zone_and_material_qualifiers():
+    modifiers = ("diameter_zone", "maximum_material_requirement")
+    (feature,) = build_pmi_features(
+        (_record(modifiers=modifiers),), Box(20, 20, 20).bounding_box()
+    )
+
+    restored = _execute_feature_line(feature)
+
+    assert isinstance(restored, ControlFrame)
+    assert restored.diameter is True
+    assert restored.modifier == "M"
+    assert isinstance(restored.origin, PmiFeature)
+    assert restored.origin.gtol_modifiers == modifiers
+
+
 def test_lowering_does_not_round_the_source_tolerance_magnitude():
     (feature,) = build_pmi_features((_record(value=0.12345),), Box(20, 20, 20).bounding_box())
 
