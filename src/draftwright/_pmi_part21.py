@@ -75,6 +75,21 @@ class GeometricToleranceFact:
 
 
 @dataclass(frozen=True)
+class DimensionDisplayFact:
+    """Authored presentation policy for one Part21 dimensional characteristic."""
+
+    entity_id: str
+    semantic_name: str
+    kind: str
+    authored_value: float
+    value_mm: float
+    unit_factor_mm: float
+    value_decimals: int | None
+    tolerance_decimals: int | None
+    unit_name: str
+
+
+@dataclass(frozen=True)
 class DatumOccurrenceFact:
     """One datum reference used by one Part21 geometric-tolerance context.
 
@@ -556,6 +571,152 @@ def read_dimension_length_factor(step_file: str | Path) -> tuple[float | None, s
         distinct = tuple(dict.fromkeys(factors))
         return None, f"length dimensions use multiple unit scales: {distinct!r}"
     return reference, ""
+
+
+def _value_format_decimals(
+    step, item_ref: str, qualifications: dict[str, list[str]]
+) -> int | None:
+    item = step.get(item_ref)
+    qualifier_refs = list(qualifications.get(item_ref, ()))
+    qualified = _entity_named(item, "QUALIFIED_REPRESENTATION_ITEM")
+    if qualified is not None:
+        qualifier_refs.extend(_references(qualified.params))
+    decimals: set[int] = set()
+    for qualifier_ref in qualifier_refs:
+        qualifier = _entity_named(step.get(qualifier_ref), "VALUE_FORMAT_TYPE_QUALIFIER")
+        if qualifier is None or not qualifier.params or not isinstance(qualifier.params[0], str):
+            continue
+        match = re.fullmatch(r"NR\d+\s+\d+\.(\d+)", qualifier.params[0].strip())
+        if match:
+            precision = int(match.group(1))
+            if 0 <= precision <= 15:
+                decimals.add(precision)
+    return next(iter(decimals)) if len(decimals) == 1 else None
+
+
+def read_dimension_display_facts(step_file: str | Path) -> tuple[DimensionDisplayFact, ...]:
+    """Read exact authored units and decimal policies for semantic length dimensions."""
+    step = p21.readfile(step_file)
+    qualifications: dict[str, list[str]] = {}
+    tolerance_items: dict[str, list[str]] = {}
+    representations: dict[str, tuple[str, ...]] = {}
+    links: list[tuple[str, str]] = []
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            qualification = _entity_named(instance, "MEASURE_QUALIFICATION")
+            if qualification is not None and len(qualification.params) >= 4:
+                measure_ref = qualification.params[2]
+                if isinstance(measure_ref, p21.Reference):
+                    qualifications.setdefault(str(measure_ref), []).extend(
+                        _references(qualification.params[3])
+                    )
+            tolerance = _entity_named(instance, "PLUS_MINUS_TOLERANCE")
+            if tolerance is not None and len(tolerance.params) >= 2:
+                value_ref, characteristic_ref = tolerance.params[:2]
+                if isinstance(value_ref, p21.Reference) and isinstance(
+                    characteristic_ref, p21.Reference
+                ):
+                    tolerance_value = _entity_named(step.get(str(value_ref)), "TOLERANCE_VALUE")
+                    if tolerance_value is not None:
+                        tolerance_items.setdefault(str(characteristic_ref), []).extend(
+                            _references(tolerance_value.params)
+                        )
+            representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
+            if representation is not None and len(representation.params) >= 2:
+                representations[entity_id] = _references(representation.params[1])
+            link = _entity_named(instance, "DIMENSIONAL_CHARACTERISTIC_REPRESENTATION")
+            if link is not None and len(link.params) >= 2:
+                characteristic_ref, representation_ref = link.params[:2]
+                if isinstance(characteristic_ref, p21.Reference) and isinstance(
+                    representation_ref, p21.Reference
+                ):
+                    links.append((str(characteristic_ref), str(representation_ref)))
+
+    facts: list[DimensionDisplayFact] = []
+    for characteristic_ref, representation_ref in links:
+        characteristic = step.get(characteristic_ref)
+        size = _entity_named(characteristic, "DIMENSIONAL_SIZE")
+        location = _entity_named(characteristic, "DIMENSIONAL_LOCATION")
+        if size is not None and len(size.params) >= 2:
+            semantic_name = _text(size.params[1])
+            kind = {"diameter": "diameter", "thickness": "thickness"}.get(
+                semantic_name.casefold(), ""
+            )
+        elif location is not None and location.params:
+            semantic_name = _text(location.params[0])
+            kind = "linear" if semantic_name.casefold() == "linear distance" else ""
+        else:
+            continue
+        if not kind:
+            continue
+        nominal_refs = representations.get(representation_ref, ())
+        nominal_ref = ""
+        for ref in nominal_refs:
+            representation_item = _entity_named(step.get(ref), "REPRESENTATION_ITEM")
+            if (
+                representation_item is not None
+                and representation_item.params
+                and _text(representation_item.params[0]) == "nominal value"
+            ):
+                nominal_ref = ref
+                break
+        measure = _measure_with_unit(step.get(nominal_ref))
+        if measure is None:
+            continue
+        typed_value, unit_ref = measure.params[:2]
+        if not isinstance(typed_value, p21.TypedParameter) or not isinstance(
+            unit_ref, p21.Reference
+        ):
+            continue
+        if typed_value.type_name not in {"LENGTH_MEASURE", "POSITIVE_LENGTH_MEASURE"}:
+            continue
+        try:
+            authored_value = float(typed_value.param)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(authored_value):
+            continue
+        factor, reason = _unit_factor_mm(step, str(unit_ref))
+        if factor is None or reason:
+            continue
+        conversion = _entity_named(step.get(str(unit_ref)), "CONVERSION_BASED_UNIT")
+        unit_name = (
+            _text(conversion.params[0]) if conversion is not None and conversion.params else ""
+        )
+        tolerance_decimals = {
+            decimals
+            for ref in tolerance_items.get(characteristic_ref, ())
+            if (decimals := _value_format_decimals(step, ref, qualifications)) is not None
+        }
+        facts.append(
+            DimensionDisplayFact(
+                characteristic_ref,
+                semantic_name,
+                kind,
+                authored_value,
+                authored_value * factor,
+                factor,
+                _value_format_decimals(step, nominal_ref, qualifications),
+                next(iter(tolerance_decimals)) if len(tolerance_decimals) == 1 else None,
+                unit_name,
+            )
+        )
+    return tuple(facts)
+
+
+def match_dimension_display(
+    facts: tuple[DimensionDisplayFact, ...], semantic_name: str, kind: str, authored_value: float
+) -> DimensionDisplayFact | None:
+    """Return one unambiguous display policy; equivalent duplicate policies may collapse."""
+    matches = [
+        fact
+        for fact in facts
+        if fact.semantic_name == semantic_name
+        and fact.kind == kind
+        and math.isclose(fact.authored_value, authored_value, rel_tol=1e-9, abs_tol=1e-12)
+    ]
+    policies = {(fact.value_decimals, fact.tolerance_decimals, fact.unit_name) for fact in matches}
+    return matches[0] if matches and len(policies) == 1 else None
 
 
 def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricToleranceFact, ...]:

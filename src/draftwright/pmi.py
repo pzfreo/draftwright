@@ -31,11 +31,14 @@ from quiddity import PartFrame
 from draftwright._pmi_part21 import (
     DatumDefinitionFact,
     DatumOccurrenceFact,
+    DimensionDisplayFact,
     GeometricToleranceFact,
     match_datum_occurrence,
+    match_dimension_display,
     match_geometric_tolerance,
     read_datum_definitions,
     read_datum_occurrences,
+    read_dimension_display_facts,
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
@@ -477,28 +480,38 @@ def _make_label(
     *,
     lower_bound: float | None = None,
     upper_bound: float | None = None,
+    value_decimals: int | None = None,
+    tolerance_decimals: int | None = None,
+    unit_name: str = "",
 ) -> str:
     """Format the annotation label with optional deviation or limit tolerance."""
     from draftwright._core import _fmt
 
     prefix = _DIM_PREFIX.get(kind, "")
-    base = f"{prefix}{_fmt(value)}"
+    base = f"{prefix}{_fmt(value, value_decimals)}"
     if lower_bound is not None and upper_bound is not None:
-        return f"{prefix}{_fmt(lower_bound)} - {prefix}{_fmt(upper_bound)}"
+        base = (
+            f"{prefix}{_fmt(lower_bound, value_decimals)} - "
+            f"{prefix}{_fmt(upper_bound, value_decimals)}"
+        )
+        return f"{base} {unit_name}" if unit_name else base
     # OCCT returns tolerances as positive magnitudes regardless of sign
     # convention.  upper_tol is always the + deviation; lower_tol is always
     # the - deviation stored as a positive magnitude.  We add explicit signs
     # so the label is unambiguous on the drawing.
     if upper_tol is not None and lower_tol is not None:
         if abs(abs(upper_tol) - abs(lower_tol)) < 1e-4:
-            base += f" ±{_fmt(abs(upper_tol))}"
+            base += f" ±{_fmt(abs(upper_tol), tolerance_decimals)}"
         else:
-            base += f" +{_fmt(abs(upper_tol))}/-{_fmt(abs(lower_tol))}"
+            base += (
+                f" +{_fmt(abs(upper_tol), tolerance_decimals)}"
+                f"/-{_fmt(abs(lower_tol), tolerance_decimals)}"
+            )
     elif upper_tol is not None:
-        base += f" +{_fmt(abs(upper_tol))}"
+        base += f" +{_fmt(abs(upper_tol), tolerance_decimals)}"
     elif lower_tol is not None:
-        base += f" -{_fmt(abs(lower_tol))}"
-    return base
+        base += f" -{_fmt(abs(lower_tol), tolerance_decimals)}"
+    return f"{base} {unit_name}" if unit_name else base
 
 
 def _label_entry(label) -> str:
@@ -1141,6 +1154,7 @@ def _dimension_record(
     frame: PartFrame | None = None,
     length_factor_mm: float = 1.0,
     length_factor_reason: str = "",
+    display_facts: tuple[DimensionDisplayFact, ...] = (),
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert one semantic XCAF dimension label, allowing its caller to record failures."""
     partial_reasons = []
@@ -1187,6 +1201,15 @@ def _dimension_record(
             partial_reasons.append(f"upper range bound is unavailable ({_failure_reason(exc)})")
 
     kind = _DIM_TYPE.get(type_code, f"type{type_code}")
+    authored_value = value
+    try:
+        semantic_name_obj = obj.GetSemanticName()
+        semantic_name = (
+            str(semantic_name_obj.ToCString()).strip() if semantic_name_obj is not None else ""
+        )
+    except Exception:
+        semantic_name = ""
+    display_fact = match_dimension_display(display_facts, semantic_name, kind, authored_value)
     if kind in _LENGTH_DIMENSION_KINDS:
         if length_factor_reason:
             partial_reasons.append(length_factor_reason)
@@ -1251,13 +1274,40 @@ def _dimension_record(
             ref_pts=tuple(points),
             ref_bbox=ref_bbox,
             dominant_axis=dominant_axis,
-            label=_make_label(
-                kind,
-                value,
-                upper_tol,
-                lower_tol,
-                lower_bound=lower_bound,
-                upper_bound=upper_bound,
+            label=(
+                _make_label(
+                    kind,
+                    display_fact.authored_value,
+                    upper_tol / length_factor_mm if upper_tol is not None else None,
+                    lower_tol / length_factor_mm if lower_tol is not None else None,
+                    lower_bound=(
+                        lower_bound / length_factor_mm if lower_bound is not None else None
+                    ),
+                    upper_bound=(
+                        upper_bound / length_factor_mm if upper_bound is not None else None
+                    ),
+                    value_decimals=display_fact.value_decimals,
+                    tolerance_decimals=display_fact.tolerance_decimals,
+                    unit_name=display_fact.unit_name,
+                )
+                if (
+                    display_fact is not None
+                    and display_fact.unit_name
+                    and not length_factor_reason
+                    and math.isclose(
+                        display_fact.unit_factor_mm,
+                        length_factor_mm,
+                        rel_tol=1e-12,
+                    )
+                )
+                else _make_label(
+                    kind,
+                    value,
+                    upper_tol,
+                    lower_tol,
+                    lower_bound=lower_bound,
+                    upper_bound=upper_bound,
+                )
             ),
             source_id=source_id,
             source_category="dimension",
@@ -1565,6 +1615,7 @@ def _extract_pmi_census(
     dt.GetDimensionLabels(dims)
     length_factor_mm = 1.0
     length_factor_reason = ""
+    dimension_display_facts: tuple[DimensionDisplayFact, ...] = ()
     if dims.Length() > 0:
         try:
             candidate, length_factor_reason = read_dimension_length_factor(step_file)
@@ -1576,6 +1627,14 @@ def _extract_pmi_census(
             if candidate is not None:
                 length_factor_mm = candidate
                 length_factor_reason = ""
+        try:
+            dimension_display_facts = read_dimension_display_facts(step_file)
+        except Exception as exc:
+            _log.debug(
+                "PMI dimension display metadata unavailable for %s: %s",
+                Path(step_file).name,
+                exc,
+            )
     for index in range(1, dims.Length() + 1):
         label = dims.Value(index)
         source_id = _source_id("dimension", label)
@@ -1596,6 +1655,7 @@ def _extract_pmi_census(
                     source_id,
                     length_factor_mm=length_factor_mm,
                     length_factor_reason=length_factor_reason,
+                    display_facts=dimension_display_facts,
                 )
             else:
                 record, partial_reasons = _dimension_record(
@@ -1607,6 +1667,7 @@ def _extract_pmi_census(
                     frame,
                     length_factor_mm=length_factor_mm,
                     length_factor_reason=length_factor_reason,
+                    display_facts=dimension_display_facts,
                 )
         except Exception as exc:
             sources.append(

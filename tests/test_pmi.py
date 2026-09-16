@@ -64,6 +64,41 @@ class TestExtractPmi:
             for reason in record.rendering_blockers
         )
 
+    def test_ctc03_labels_preserve_authored_inch_precision(self, ctc03_extraction_report):
+        labels = {
+            record.source_id: record.label
+            for record in ctc03_extraction_report.records
+            if record.source_category == "dimension"
+        }
+
+        assert labels["dimension:0:1:4:39"] == "0.750 inch"
+        assert labels["dimension:0:1:4:40"] == "ø0.438 ±0.005 inch"
+        assert labels["dimension:0:1:4:44"] == "ø2.00 ±0.01 inch"
+        assert labels["dimension:0:1:4:47"] == "0.82 ±0.06 inch"
+        assert labels["dimension:0:1:4:48"] == "ø1.065 ±0.003 inch"
+
+    def test_authored_display_is_disabled_when_document_unit_normalization_fails(
+        self, monkeypatch
+    ):
+        import draftwright.pmi as pmi_module
+
+        monkeypatch.setattr(
+            pmi_module,
+            "read_dimension_length_factor",
+            lambda _step_file: (None, "length dimensions use multiple unit scales"),
+        )
+
+        report = pmi_module.extract_pmi_report(CTC03)
+        record = next(
+            record for record in report.records if record.source_id == "dimension:0:1:4:44"
+        )
+        source = next(source for source in report.sources if source.source_id == record.source_id)
+
+        assert record.label == "ø2 ±0.3"
+        assert "inch" not in record.label
+        assert source.outcome == "partially_extracted"
+        assert "multiple unit scales" in source.reason
+
     def test_ctc03_geometric_tolerance_qualifiers_are_preserved(self, ctc03_extraction_report):
         from draftwright.model import ControlFrame, build_pmi_features
 

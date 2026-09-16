@@ -100,7 +100,8 @@ def test_ap242_thickness_without_two_proven_groups_fails_closed():
     )
 
     assert record.source_id == "dimension:0:1:4:47"
-    assert record.value == pytest.approx(0.82)
+    assert record.value == pytest.approx(20.828)
+    assert record.label == "0.82 ±0.06 inch"
     assert record.dominant_axis == "?"
     assert record.lowering_blockers == ()
     assert record.rendering_blockers == (
