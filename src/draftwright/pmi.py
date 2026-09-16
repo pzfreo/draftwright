@@ -36,6 +36,7 @@ from draftwright._pmi_part21 import (
     match_datum_occurrence,
     match_dimension_display,
     match_geometric_tolerance,
+    part21_read_session,
     read_datum_definitions,
     read_datum_occurrences,
     read_dimension_display_facts,
@@ -1493,17 +1494,10 @@ def _manufacturing_requirement_topology(
     return tuple(projected)
 
 
-def extract_pmi_report(
+def _extract_pmi_report(
     step_file: str | Path, *, frame: PartFrame | None = None
 ) -> PmiExtractionReport:
-    """Inventory and extract semantic PMI, crediting the document it was read from.
-
-    A thin wrapper over :func:`_extract_pmi_census`, which has many exits. The provenance is
-    stamped once here so no exit can return an uncredited census: since #1563 the document is
-    not always the drawing's own geometry source, and a report that cannot say which file it
-    read is a reconciliation nobody can check. A digest failure is not an extraction failure —
-    the census stands, unattributed — so it never turns a readable file into an empty report.
-    """
+    """Implementation behind the extraction-scoped Part21 read session."""
     census = _extract_pmi_census(step_file, frame=frame)
     try:
         path = Path(step_file)
@@ -1988,6 +1982,20 @@ def _extract_pmi_census(
         partial_requirements,
     )
     return PmiExtractionReport(sources=tuple(sources), records=tuple(records))
+
+
+def extract_pmi_report(
+    step_file: str | Path, *, frame: PartFrame | None = None
+) -> PmiExtractionReport:
+    """Inventory and extract semantic PMI, crediting the document it was read from.
+
+    The Part21 overlay is parsed once for this extraction. Provenance is stamped once around
+    the census's many exits so no result can silently claim a different source document. A
+    digest failure leaves a readable census intact but unattributed.
+    """
+
+    with part21_read_session():
+        return _extract_pmi_report(step_file, frame=frame)
 
 
 def extract_pmi(step_file: str | Path, *, frame: PartFrame | None = None) -> list[PmiRecord]:

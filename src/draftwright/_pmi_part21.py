@@ -10,10 +10,41 @@ from __future__ import annotations
 
 import math
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
 from steputils import p21
+
+_READ_SESSION: ContextVar[dict[Path, object] | None] = ContextVar(
+    "draftwright_part21_read_session", default=None
+)
+
+
+@contextmanager
+def part21_read_session():
+    """Reuse one parsed Part21 document within a single extraction call."""
+
+    if _READ_SESSION.get() is not None:
+        yield
+        return
+    token = _READ_SESSION.set({})
+    try:
+        yield
+    finally:
+        _READ_SESSION.reset(token)
+
+
+def _readfile(step_file: str | Path):
+    session = _READ_SESSION.get()
+    if session is None:
+        return p21.readfile(step_file)
+    path = Path(step_file).resolve()
+    if path not in session:
+        session[path] = p21.readfile(step_file)
+    return session[path]
+
 
 _GTOL_ENTITY_KIND: dict[str, str] = {
     "ANGULARITY_TOLERANCE": "angularity",
@@ -316,7 +347,7 @@ def read_manufacturing_requirements(
     # literal check cannot interpret.
     if _PROPERTY_DEFINITION_MARKER.search(Path(step_file).read_bytes()) is None:
         return ()
-    step = p21.readfile(step_file)
+    step = _readfile(step_file)
     (
         definitions,
         representations,
@@ -524,7 +555,7 @@ def read_dimension_length_factor(step_file: str | Path) -> tuple[float | None, s
     Angular and presentation-only representation items are ignored.
     """
 
-    step = p21.readfile(step_file)
+    step = _readfile(step_file)
     factors: list[float] = []
     for section in step.data:
         for instance in section.instances.values():
@@ -596,7 +627,7 @@ def _value_format_decimals(
 
 def read_dimension_display_facts(step_file: str | Path) -> tuple[DimensionDisplayFact, ...]:
     """Read exact authored units and decimal policies for semantic length dimensions."""
-    step = p21.readfile(step_file)
+    step = _readfile(step_file)
     qualifications: dict[str, list[str]] = {}
     tolerance_items: dict[str, list[str]] = {}
     representations: dict[str, tuple[str, ...]] = {}
@@ -726,7 +757,7 @@ def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricTolerance
     extraction reason rather than turning a broken Part21 pass into a report-level failure.
     """
 
-    step = p21.readfile(step_file)
+    step = _readfile(step_file)
     facts: list[GeometricToleranceFact] = []
     for section in step.data:
         for entity_id, instance in section.instances.items():
@@ -785,7 +816,7 @@ def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricTolerance
 
 def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, ...]:
     """Read exact datum-feature uses from Part21 without collapsing repeated occurrences."""
-    step = p21.readfile(step_file)
+    step = _readfile(step_file)
     datum_features = _datum_feature_relationships(step)
     reference_items = _datum_reference_items(step)
     facts: list[DatumOccurrenceFact] = []
@@ -893,7 +924,7 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
 
 def read_datum_definitions(step_file: str | Path) -> tuple[DatumDefinitionFact, ...]:
     """Read every authored datum definition, including those unused by a tolerance."""
-    step = p21.readfile(step_file)
+    step = _readfile(step_file)
     datum_features = _datum_feature_relationships(step)
     reference_items = _datum_reference_items(step)
     facts: list[DatumDefinitionFact] = []

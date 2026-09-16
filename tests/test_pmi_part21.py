@@ -73,6 +73,27 @@ def _read_requirements(tmp_path, name: str, *instances: str):
     return read_manufacturing_requirements(step)
 
 
+def test_part21_read_session_reuses_one_parse_and_does_not_leak(tmp_path, monkeypatch):
+    import draftwright._pmi_part21 as part21
+
+    step = tmp_path / "empty.step"
+    step.write_text(_step(), encoding="utf-8")
+    original = part21.p21.readfile
+    calls = []
+
+    def counted(path):
+        calls.append(path)
+        return original(path)
+
+    monkeypatch.setattr(part21.p21, "readfile", counted)
+    with part21.part21_read_session():
+        assert read_geometric_tolerances(step) == ()
+        assert read_datum_definitions(step) == ()
+    assert read_geometric_tolerances(step) == ()
+
+    assert calls == [step, step]
+
+
 def test_ctc01_geometric_tolerance_facts_are_exact():
     facts = read_geometric_tolerances(CTC01)
 
