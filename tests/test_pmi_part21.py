@@ -11,12 +11,14 @@ from draftwright._pmi_part21 import (
     match_datum_occurrence,
     match_geometric_tolerance,
     read_datum_occurrences,
+    read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
 )
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
 CTC03 = Path(__file__).parent / "fixtures" / "nist_ctc_03_asme1_ap242.stp"
+CTC05 = Path(__file__).parent / "fixtures" / "nist_ctc_05_asme1_ap242.stp"
 
 
 def _step(*instances: str) -> str:
@@ -484,6 +486,119 @@ def test_ctc03_inch_geometric_tolerances_are_resolved_to_millimetres():
     assert [fact.value_mm for fact in facts] == pytest.approx(
         [0.254, 1.016, 0.127, 1.524, 0.762, 1.27, 1.27, 0.508, 1.524, 2.032, 0.762, 0.254, 0.254]
     )
+
+
+def test_ctc03_dimension_length_factor_is_resolved_from_authored_representations():
+    factor, reason = read_dimension_length_factor(CTC03)
+
+    assert factor == pytest.approx(25.4)
+    assert reason == ""
+
+
+def test_ctc01_dimension_length_factor_is_already_millimetres():
+    factor, reason = read_dimension_length_factor(CTC01)
+
+    assert factor == pytest.approx(1.0)
+    assert reason == ""
+
+
+def test_ctc05_positive_length_measures_and_presentation_items_are_supported():
+    factor, reason = read_dimension_length_factor(CTC05)
+
+    assert factor == pytest.approx(25.4)
+    assert reason == ""
+
+
+def test_mixed_dimension_length_units_fail_closed(tmp_path):
+    step = tmp_path / "mixed-dimension-units.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2,#3),#9);",
+            "#2=(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() "
+            "MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#4) REPRESENTATION_ITEM(''));",
+            "#3=(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() "
+            "MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#5) REPRESENTATION_ITEM(''));",
+            "#4=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+            "#5=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.CENTI.,.METRE.));",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == "length dimensions use multiple unit scales: (1.0, 10.0)"
+
+
+def test_valid_factor_plus_malformed_dimension_item_fails_closed(tmp_path):
+    step = tmp_path / "malformed-dimension-unit.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2),#9);",
+            "#2=(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() "
+            "MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#4) REPRESENTATION_ITEM(''));",
+            "#3=SHAPE_DIMENSION_REPRESENTATION('',(#6),#9);",
+            "#4=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+            "#6=REPRESENTATION_ITEM('missing measure');",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == "shape-dimension item #6 has no measure with unit"
+
+
+@pytest.mark.parametrize(
+    ("item", "expected_reason"),
+    [
+        (
+            "#2=MEASURE_WITH_UNIT(1.0,#4);",
+            "shape-dimension item #2 has no typed measure",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(COUNT_MEASURE(1.0),#4);",
+            "shape-dimension item #2 uses unsupported measure type COUNT_MEASURE",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),$);",
+            "shape-dimension item #2 has no unit reference",
+        ),
+    ],
+)
+def test_malformed_dimension_measures_fail_closed(tmp_path, item, expected_reason):
+    step = tmp_path / "malformed-dimension-measure.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2),#9);",
+            item,
+            "#4=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == expected_reason
+
+
+def test_dimension_representation_without_semantic_length_has_explicit_reason(tmp_path):
+    step = tmp_path / "angular-dimension.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2),#9);",
+            "#2=MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(45.0),#4);",
+            "#4=(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.));",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == "no authored length-dimension unit is available"
 
 
 @pytest.mark.parametrize(

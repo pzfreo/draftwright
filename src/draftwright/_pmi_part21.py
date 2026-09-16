@@ -489,6 +489,64 @@ def _length_value_mm(step, measure_ref: str) -> tuple[float | None, str]:
     return value_mm, ""
 
 
+def read_dimension_length_factor(step_file: str | Path) -> tuple[float | None, str]:
+    """Return one unambiguous authored length-dimension scale to millimetres.
+
+    XCAF exposes dimension nominal values in their authored unit while its reference geometry
+    and tolerance values are already normalized to millimetres.  A document-wide factor is
+    safe only when every semantic length-dimension representation names the same scale.
+    Angular and presentation-only representation items are ignored.
+    """
+
+    step = p21.readfile(step_file)
+    factors: list[float] = []
+    for section in step.data:
+        for instance in section.instances.values():
+            representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
+            if representation is None:
+                continue
+            if len(representation.params) < 2:
+                return None, f"shape-dimension representation {instance.ref} has no items"
+            measure_refs = _references(representation.params[1])
+            if not measure_refs:
+                return None, f"shape-dimension representation {instance.ref} has no items"
+            for measure_ref in measure_refs:
+                measure = step.get(measure_ref)
+                measure_with_unit = _measure_with_unit(measure)
+                if measure_with_unit is None:
+                    item_kinds = {entity.name for entity in _entities(measure)}
+                    if item_kinds and item_kinds <= {
+                        "COMPOUND_REPRESENTATION_ITEM",
+                        "DESCRIPTIVE_REPRESENTATION_ITEM",
+                    }:
+                        continue
+                    return None, f"shape-dimension item {measure_ref} has no measure with unit"
+                typed_value, unit_ref = measure_with_unit.params[:2]
+                if not isinstance(typed_value, p21.TypedParameter):
+                    return None, f"shape-dimension item {measure_ref} has no typed measure"
+                if typed_value.type_name == "PLANE_ANGLE_MEASURE":
+                    continue
+                if typed_value.type_name not in {"LENGTH_MEASURE", "POSITIVE_LENGTH_MEASURE"}:
+                    return None, (
+                        f"shape-dimension item {measure_ref} uses unsupported measure type "
+                        f"{typed_value.type_name}"
+                    )
+                if not isinstance(unit_ref, p21.Reference):
+                    return None, f"shape-dimension item {measure_ref} has no unit reference"
+                factor, reason = _unit_factor_mm(step, str(unit_ref))
+                if factor is None:
+                    return None, reason
+                factors.append(factor)
+
+    if not factors:
+        return None, "no authored length-dimension unit is available"
+    reference = factors[0]
+    if any(not math.isclose(factor, reference, rel_tol=1e-12) for factor in factors[1:]):
+        distinct = tuple(dict.fromkeys(factors))
+        return None, f"length dimensions use multiple unit scales: {distinct!r}"
+    return reference, ""
+
+
 def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricToleranceFact, ...]:
     """Read supported geometric-tolerance facts without inferring entity order.
 

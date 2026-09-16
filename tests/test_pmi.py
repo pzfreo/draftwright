@@ -21,6 +21,7 @@ _CTC01_SHA256 = hashlib.sha256(
 
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
+CTC03 = FIXTURES / "nist_ctc_03_asme1_ap242.stp"
 
 pytestmark = pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
 
@@ -35,10 +36,33 @@ def ctc01_extraction_report():
     return extract_pmi_report(CTC01)
 
 
+@pytest.fixture(scope="module")
+def ctc03_extraction_report():
+    return extract_pmi_report(CTC03)
+
+
 class TestExtractPmi:
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         assert len(recs) > 0
+
+    def test_ctc03_length_nominals_are_normalized_before_geometry_checks(
+        self, ctc03_extraction_report
+    ):
+        dimensions = [
+            record
+            for record in ctc03_extraction_report.records
+            if record.source_category == "dimension" and record.value > 0
+        ]
+
+        assert [record.value for record in dimensions] == pytest.approx(
+            [19.05, 11.1252, 11.1252, 15.875, 11.1252, 50.8, 38.1, 20.828, 27.051]
+        )
+        assert not any(
+            "differs from nominal" in reason
+            for record in dimensions
+            for reason in record.rendering_blockers
+        )
 
     def test_nist_ctc01_dim_count(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
@@ -492,6 +516,20 @@ class TestExtractPmi:
         assert record.value == 12.0
         assert reasons == ("referenced geometry is unavailable",)
 
+        record, reasons = pmi_module._dimension_record(
+            object(),
+            FakeObject(FakeArray()),
+            15,
+            shape_tool,
+            "dimension:unitless",
+            length_factor_reason="authored length-dimension unit is unavailable",
+        )
+        assert record.value == 12.0
+        assert reasons == (
+            "authored length-dimension unit is unavailable",
+            "referenced geometry is unavailable",
+        )
+
         refs[:] = [None]
         _record, reasons = pmi_module._dimension_record(
             object(), FakeObject(None), 15, shape_tool, "dimension:b"
@@ -879,10 +917,10 @@ class TestExtractPmi:
         )
         original = pmi_module._dimension_record
 
-        def fail_one(label, obj, type_code, shape_tool, source_id):
+        def fail_one(label, obj, type_code, shape_tool, source_id, *args, **kwargs):
             if source_id == target:
                 raise RuntimeError("mutation: conversion failed")
-            return original(label, obj, type_code, shape_tool, source_id)
+            return original(label, obj, type_code, shape_tool, source_id, *args, **kwargs)
 
         monkeypatch.setattr(pmi_module, "_dimension_record", fail_one)
         mutated = extract_pmi_report(CTC01)
@@ -907,8 +945,10 @@ class TestExtractPmi:
         )
         original = pmi_module._dimension_record
 
-        def partial_one(label, obj, type_code, shape_tool, source_id):
-            record, reasons = original(label, obj, type_code, shape_tool, source_id)
+        def partial_one(label, obj, type_code, shape_tool, source_id, *args, **kwargs):
+            record, reasons = original(
+                label, obj, type_code, shape_tool, source_id, *args, **kwargs
+            )
             if source_id == target:
                 reasons = (*reasons, "mutation: one field was lost")
             return record, reasons
