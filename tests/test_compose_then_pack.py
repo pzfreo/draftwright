@@ -49,6 +49,7 @@ class TestComposeThenPackRepack:
         return SimpleNamespace(
             _named=named,
             _anno_view=views,
+            box_cache={},
             iter_annotations=lambda: named.items(),
             get_annotation=lambda n: named.get(n),
             view_of=lambda n: views.get(n),
@@ -224,6 +225,47 @@ class TestComposeThenPackRepack:
         assert _annotations_out_of_bounds(over, a)
         untagged = self._fake_dwg({"d": self._line(overflow)}, {"d": "iso"})
         assert not _annotations_out_of_bounds(untagged, a)
+
+    def test_block_measurement_and_overflow_share_the_drawing_box_memo(self):
+        from types import SimpleNamespace
+
+        from draftwright.builder import _annotations_out_of_bounds, _measure_blocks
+
+        class CountedLine:
+            label_bbox = None
+
+            def __init__(self):
+                self.calls = 0
+
+            def bounding_box(self):
+                self.calls += 1
+                return SimpleNamespace(
+                    min=SimpleNamespace(X=20.0, Y=20.0),
+                    max=SimpleNamespace(X=25.0, Y=25.0),
+                )
+
+        line = CountedLine()
+        drawing = self._fake_dwg({"d": line}, {"d": "front"})
+        analysis = SimpleNamespace(
+            FV_X=0.0,
+            FV_Y=0.0,
+            fv_hw=10.0,
+            fv_hh=10.0,
+            PV_X=0.0,
+            PV_Y=40.0,
+            pv_hh=10.0,
+            SV_X=40.0,
+            SV_Y=0.0,
+            sv_hw=10.0,
+            margin=10.0,
+            PAGE_W=200.0,
+            PAGE_H=100.0,
+        )
+
+        _measure_blocks(drawing, analysis)
+        calls_after_measure = line.calls
+        assert not _annotations_out_of_bounds(drawing, analysis)
+        assert line.calls == calls_after_measure
 
     # --- disjoint block packing ------------------------------------------
 
