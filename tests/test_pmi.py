@@ -121,6 +121,42 @@ class TestExtractPmi:
             "datum reference surface is unavailable",
         )
 
+    def test_ctc03_standalone_datum_f_remains_in_the_census(self, ctc03_extraction_report):
+        datum_f = next(
+            record
+            for record in ctc03_extraction_report.records
+            if record.source_category == "datum" and record.label == "F"
+        )
+
+        assert datum_f.source_id == "datum_definition:#90"
+        assert datum_f.part21_id == "#96"
+        assert datum_f.reference_item_ids == ("#1379", "#1378")
+        assert datum_f.lowering_blockers == (
+            "one datum reference surface is not axis-aligned",
+            "datum reference surface is unavailable",
+        )
+        source = next(
+            source
+            for source in ctc03_extraction_report.sources
+            if source.source_id == datum_f.source_id
+        )
+        assert source.outcome == "partially_extracted"
+
+    def test_part21_datum_definitions_survive_an_empty_xcaf_datum_census(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        monkeypatch.setattr(
+            pmi_module.XCAFDoc_DimTolTool,
+            "GetDatumLabels",
+            lambda _self, _labels: None,
+        )
+
+        report = pmi_module.extract_pmi_report(CTC03)
+        datums = [record for record in report.records if record.source_category == "datum"]
+
+        assert {record.label for record in datums} == {"A", "B", "C", "D", "E", "F"}
+        assert all(record.source_id.startswith("datum_definition:") for record in datums)
+
     def test_nist_ctc01_dim_count(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         dims = [r for r in recs if r.kind not in ("gtol", "datum")]
@@ -938,14 +974,27 @@ class TestExtractPmi:
         sources = [source for source in report.sources if source.category == "datum"]
         records = [record for record in report.records if record.source_category == "datum"]
 
-        assert len(sources) == len(records) == 11
-        assert all(source.outcome == "partially_extracted" for source in sources)
+        occurrence_sources = [
+            source for source in sources if source.source_id.startswith("datum:")
+        ]
+        occurrence_records = [
+            record for record in records if record.source_id.startswith("datum:")
+        ]
+        definition_sources = [
+            source for source in sources if source.source_id.startswith("datum_definition:")
+        ]
+        assert len(occurrence_sources) == len(occurrence_records) == 11
+        assert all(source.outcome == "partially_extracted" for source in occurrence_sources)
         assert all(
             "Part21 datum read failed: RuntimeError: mutation: Part21 datum parser failed"
             in source.reason
-            for source in sources
+            for source in occurrence_sources
         )
-        assert all(record.part21_id == "" and len(record.source_ids) == 1 for record in records)
+        assert all(
+            record.part21_id == "" and len(record.source_ids) == 1 for record in occurrence_records
+        )
+        assert len(definition_sources) == 3
+        assert all(source.outcome == "extracted" for source in definition_sources)
 
     def test_a_failed_exact_topology_guard_keeps_all_datum_definitions_raw(self, monkeypatch):
         import draftwright.pmi as pmi_module
@@ -986,7 +1035,7 @@ class TestExtractPmi:
         assert all(source.outcome == "partially_extracted" for source in sources)
         assert all("topology map setup failed" in source.reason for source in sources)
 
-    def test_a_failed_datum_conversion_keeps_every_source_identity(self, monkeypatch):
+    def test_a_failed_xcaf_datum_conversion_keeps_part21_definitions(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
         def fail(_label):
@@ -997,13 +1046,20 @@ class TestExtractPmi:
         sources = [source for source in report.sources if source.category == "datum"]
         records = [record for record in report.records if record.source_category == "datum"]
 
-        assert len(sources) == 11
-        assert records == []
-        assert all(source.outcome == "not_extracted" for source in sources)
+        occurrence_sources = [
+            source for source in sources if source.source_id.startswith("datum:")
+        ]
+        definition_sources = [
+            source for source in sources if source.source_id.startswith("datum_definition:")
+        ]
+        assert len(occurrence_sources) == 11
         assert all(
             source.reason == "RuntimeError: mutation: datum conversion failed"
-            for source in sources
+            for source in occurrence_sources
         )
+        assert len(definition_sources) == 3
+        assert all(source.outcome == "extracted" for source in definition_sources)
+        assert {record.label for record in records} == {"A", "B", "C"}
 
     def test_a_failed_conversion_does_not_disappear_from_the_source_denominator(
         self, monkeypatch, ctc01_extraction_report
