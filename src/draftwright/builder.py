@@ -2342,6 +2342,13 @@ def build_drawing(
         # explicitly so a successful reduced plan cannot silently revert to three principals.
         original_scale = drawing.scale
         original_page = (drawing.page_w, drawing.page_h)
+        # A detail-bearing candidate can enter the larger-scale tail once to test whether
+        # the detail reservation was conservative, then enter the identical tail again when
+        # a source-owned placement loss asks the optional ISO to yield. Reuse those finished
+        # drawings: the second pass may apply a stricter qualification gate, but rebuilding
+        # identical geometry cannot change its answer (#1665).
+        selected_page_scale_candidates: dict[float, Drawing] = {}
+        selected_page_scale_failures: dict[float, Exception] = {}
 
         def _try_larger_standard_pages(
             starting_page,
@@ -2430,22 +2437,31 @@ def build_drawing(
                 :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
             ]
             for candidate_scale in candidate_scales:
-                try:
-                    candidate_drawing = _build(
-                        candidate_scale,
-                        arrangements=(settled_arrangement,),
-                        views=settled_principal_views,
-                        page_override=original_page,
-                        retry_reason=reason,
-                    )
-                except (ValueError, Standard_Failure) as exc:
-                    if not _is_expected_candidate_build_failure(exc):
-                        raise
+                candidate_drawing = selected_page_scale_candidates.get(candidate_scale)
+                failure = selected_page_scale_failures.get(candidate_scale)
+                if candidate_drawing is None and failure is None:
+                    try:
+                        candidate_drawing = _build(
+                            candidate_scale,
+                            arrangements=(settled_arrangement,),
+                            views=settled_principal_views,
+                            page_override=original_page,
+                            retry_reason=reason,
+                        )
+                    except (ValueError, Standard_Failure) as exc:
+                        if not _is_expected_candidate_build_failure(exc):
+                            raise
+                        selected_page_scale_failures[candidate_scale] = exc
+                        failure = exc
+                    else:
+                        candidate_drawing = _retain_arrangement(candidate_drawing)
+                        selected_page_scale_candidates[candidate_scale] = candidate_drawing
+                if failure is not None:
                     _log.info(
                         "%s %s:1 rejected (candidate build failed: %s)",
                         reason,
                         candidate_scale,
-                        exc,
+                        failure,
                     )
                     _record_attempt(
                         candidate_scale,
@@ -2453,10 +2469,10 @@ def build_drawing(
                         reason=reason,
                         views=drawing.views,
                         page=original_page,
-                        error=str(exc),
+                        error=str(failure),
                     )
                     continue
-                candidate_drawing = _retain_arrangement(candidate_drawing)
+                assert candidate_drawing is not None
                 assert (candidate_drawing.page_w, candidate_drawing.page_h) == original_page
                 issues, blockers, rejection = _qualify_candidate(
                     candidate_drawing,
