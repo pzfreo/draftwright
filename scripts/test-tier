@@ -34,9 +34,9 @@ def _git_paths(*arguments: str) -> set[str]:
 
 def changed_paths(base: str) -> list[str]:
     """Return every committed and local path the PR selector must account for."""
-    committed = _git_paths("diff", "--name-only", "--diff-filter=ACMR", f"{base}...HEAD")
-    staged = _git_paths("diff", "--cached", "--name-only", "--diff-filter=ACMR")
-    unstaged = _git_paths("diff", "--name-only", "--diff-filter=ACMR")
+    committed = _git_paths("diff", "--name-only", "--diff-filter=ACMRD", f"{base}...HEAD")
+    staged = _git_paths("diff", "--cached", "--name-only", "--diff-filter=ACMRD")
+    unstaged = _git_paths("diff", "--name-only", "--diff-filter=ACMRD")
     untracked = _git_paths("ls-files", "--others", "--exclude-standard")
     return sorted(committed | staged | unstaged | untracked)
 

@@ -213,7 +213,7 @@ def pr_modules(tests_dir: Path, changed_paths: list[str]) -> list[str]:
     modules.update(
         Path(path).name
         for path in changed_paths
-        if path.startswith("tests/test_") and path.endswith(".py")
+        if path.startswith("tests/test_") and path.endswith(".py") and Path(path).name in available
     )
     for name in selected_groups(changed_paths):
         patterns = CONTRACT_GROUPS[name].test_patterns

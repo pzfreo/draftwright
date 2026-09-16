@@ -1,6 +1,7 @@
 """Cost-aware tier manifests remain complete and conservative."""
 
 import os
+import runpy
 from pathlib import Path
 
 try:
@@ -58,6 +59,29 @@ def test_repository_policy_guards_are_pr_only():
 
 def test_changed_test_module_is_selected_directly():
     assert "test_tier_manifest.py" in pr_modules(_TESTS, ["tests/test_tier_manifest.py"])
+
+
+def test_deleted_test_module_is_not_reintroduced_as_a_missing_path():
+    selected = pr_modules(_TESTS, ["tests/test_deleted_contract.py"])
+
+    assert "test_deleted_contract.py" not in selected
+
+
+def test_tier_runner_includes_deletions_in_each_git_diff():
+    runner = _TESTS.parent / "scripts" / "test-tier"
+    namespace = runpy.run_path(str(runner))
+    calls = []
+
+    def record_git_paths(*arguments):
+        calls.append(arguments)
+        return set()
+
+    namespace["changed_paths"].__globals__["_git_paths"] = record_git_paths
+    namespace["changed_paths"]("base")
+
+    diff_calls = [arguments for arguments in calls if arguments[0] == "diff"]
+    assert len(diff_calls) == 3
+    assert all("--diff-filter=ACMRD" in arguments for arguments in diff_calls)
 
 
 def test_critical_contracts_are_fast_and_exist():
