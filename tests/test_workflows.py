@@ -144,6 +144,7 @@ def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable
 def test_coverage_shards_select_changed_or_full_scope_and_use_sysmon():
     coverage_job = _job(_workflow("ci.yml"), "coverage")
 
+    assert "fetch-depth: 0" in coverage_job
     assert 'if [[ "$COVERAGE_MODE" == "changed" ]]' in coverage_job
     assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto' in coverage_job
     assert "COVERAGE_CORE: sysmon" in coverage_job
@@ -166,6 +167,8 @@ def test_coverage_report_applies_the_gate_for_its_selected_scope():
     report_job = _job(_workflow("ci.yml"), "coverage-report")
 
     assert "diff-cover coverage.xml" in report_job
+    assert "coverage xml --fail-under=0" in report_job
+    assert "coverage html -d htmlcov --fail-under=0" in report_job
     assert '--compare-branch "$BASE_SHA"' in report_job
     assert "--fail-under=90" in report_job
     assert "if: needs.changes.outputs.coverage_mode == 'changed'" in report_job

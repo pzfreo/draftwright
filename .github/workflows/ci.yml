@@ -267,6 +267,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -359,16 +360,14 @@ jobs:
         # the matrix and in `--splits`, and a third place to update silently combines a
         # subset — which `coverage report` would then measure against `fail_under`.
         #
-        # ORDER IS LOAD-BEARING. `report` is what applies `fail_under = 90`, and the step
-        # runs under `bash -e`, so rendering the artefacts after it means a coverage breach
-        # aborts before `coverage.xml` and `htmlcov/` exist — the upload below then warns
-        # on an empty artefact and Codecov receives nothing, exactly when the drop needs
-        # diagnosing. pytest-cov rendered every report before failing; keep that property.
+        # XML and HTML are data artefacts, not gates, so explicitly suppress the configured
+        # global floor there. Full mode applies that floor once through `coverage report`;
+        # changed mode applies its own line gate through diff-cover below.
         run: |
           uv run coverage combine coverage-data-*
-          uv run coverage xml
+          uv run coverage xml --fail-under=0
           if [[ "${{ needs.changes.outputs.coverage_mode }}" == "full" ]]; then
-            uv run coverage html -d htmlcov
+            uv run coverage html -d htmlcov --fail-under=0
             uv run coverage report --show-missing
           fi
 
@@ -386,8 +385,7 @@ jobs:
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: coverage.xml
-          # Branch protection requires Codecov's project and patch checks. Fail this
-          # job too when the upload cannot produce those checks, rather than hanging.
+          # A deliberate full run must publish its canonical external report successfully.
           fail_ci_if_error: true
           override_pr: ${{ inputs.post_release_pr_number || github.event.pull_request.number }}
           use_oidc: true
@@ -490,7 +488,7 @@ jobs:
         run: uv run pytest tests/ -m "smoke or unit" -n auto --dist loadscope
 
   ci-ok:
-    # Required alongside codecov/project. This aggregate keeps protection independent
+    # The required branch-protection check. This aggregate keeps protection independent
     # of matrix shape while requiring the exact jobs selected by the verified diff.
     #
     # `if: always()` is load-bearing, not decoration. Without it a failing dependency
