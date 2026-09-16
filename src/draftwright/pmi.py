@@ -34,6 +34,7 @@ from draftwright._pmi_part21 import (
     match_datum_occurrence,
     match_geometric_tolerance,
     read_datum_occurrences,
+    read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
 )
@@ -108,6 +109,19 @@ _DIM_TYPE: dict[int, str] = {
 # despite having no numeric GetValue, so it must fail visibly until supported rather than be
 # discarded with presentation geometry (#623 review).
 _PRESENTATION_TYPES = {31}
+
+_LENGTH_DIMENSION_KINDS = frozenset(
+    (
+        "location",
+        "curved_dist",
+        "linear",
+        "oriented",
+        "curve_length",
+        "diameter",
+        "radius",
+        "thickness",
+    )
+)
 
 # prefix character for the label
 _DIM_PREFIX: dict[str, str] = {
@@ -1087,6 +1101,8 @@ def _dimension_record(
     shape_tool,
     source_id: str,
     frame: PartFrame | None = None,
+    length_factor_mm: float = 1.0,
+    length_factor_reason: str = "",
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert one semantic XCAF dimension label, allowing its caller to record failures."""
     partial_reasons = []
@@ -1132,13 +1148,23 @@ def _dimension_record(
         except Exception as exc:
             partial_reasons.append(f"upper range bound is unavailable ({_failure_reason(exc)})")
 
+    kind = _DIM_TYPE.get(type_code, f"type{type_code}")
+    if kind in _LENGTH_DIMENSION_KINDS:
+        if length_factor_reason:
+            partial_reasons.append(length_factor_reason)
+        else:
+            value *= length_factor_mm
+            if lower_bound is not None:
+                lower_bound *= length_factor_mm
+            if upper_bound is not None:
+                upper_bound *= length_factor_mm
+
     if frame is None:
         reference_geometry = _reference_geometry_with_groups(label, shape_tool)
     else:
         reference_geometry = _reference_geometry_with_groups(label, shape_tool, frame)
     points, ref_bbox, dominant_axis, reference_reasons, group_stations = reference_geometry
     partial_reasons.extend(reference_reasons)
-    kind = _DIM_TYPE.get(type_code, f"type{type_code}")
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     if kind in ("linear", "thickness"):
@@ -1495,6 +1521,19 @@ def _extract_pmi_census(
     # ---- Dimensions --------------------------------------------------------
     dims = TDF_LabelSequence()
     dt.GetDimensionLabels(dims)
+    length_factor_mm = 1.0
+    length_factor_reason = ""
+    if dims.Length() > 0:
+        try:
+            candidate, length_factor_reason = read_dimension_length_factor(step_file)
+        except Exception as exc:
+            length_factor_reason = (
+                f"authored length-dimension unit is unavailable ({_failure_reason(exc)})"
+            )
+        else:
+            if candidate is not None:
+                length_factor_mm = candidate
+                length_factor_reason = ""
     for index in range(1, dims.Length() + 1):
         label = dims.Value(index)
         source_id = _source_id("dimension", label)
@@ -1508,11 +1547,24 @@ def _extract_pmi_census(
                 continue
             if frame is None:
                 record, partial_reasons = _dimension_record(
-                    label, obj, type_code, shape_tool, source_id
+                    label,
+                    obj,
+                    type_code,
+                    shape_tool,
+                    source_id,
+                    length_factor_mm=length_factor_mm,
+                    length_factor_reason=length_factor_reason,
                 )
             else:
                 record, partial_reasons = _dimension_record(
-                    label, obj, type_code, shape_tool, source_id, frame
+                    label,
+                    obj,
+                    type_code,
+                    shape_tool,
+                    source_id,
+                    frame,
+                    length_factor_mm=length_factor_mm,
+                    length_factor_reason=length_factor_reason,
                 )
         except Exception as exc:
             sources.append(

@@ -489,6 +489,48 @@ def _length_value_mm(step, measure_ref: str) -> tuple[float | None, str]:
     return value_mm, ""
 
 
+def read_dimension_length_factor(step_file: str | Path) -> tuple[float | None, str]:
+    """Return one unambiguous authored length-dimension scale to millimetres.
+
+    XCAF exposes dimension nominal values in their authored unit while its reference geometry
+    and tolerance values are already normalized to millimetres.  A document-wide factor is
+    safe only when every semantic length-dimension representation names the same scale.
+    Angular and presentation-only representation items are ignored.
+    """
+
+    step = p21.readfile(step_file)
+    factors: list[float] = []
+    for section in step.data:
+        for instance in section.instances.values():
+            representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
+            if representation is None or len(representation.params) < 2:
+                continue
+            for measure_ref in _references(representation.params[1]):
+                measure = step.get(measure_ref)
+                measure_with_unit = _measure_with_unit(measure)
+                if measure_with_unit is None or len(measure_with_unit.params) < 2:
+                    continue
+                typed_value, unit_ref = measure_with_unit.params[:2]
+                if (
+                    not isinstance(typed_value, p21.TypedParameter)
+                    or typed_value.type_name != "LENGTH_MEASURE"
+                    or not isinstance(unit_ref, p21.Reference)
+                ):
+                    continue
+                factor, reason = _unit_factor_mm(step, str(unit_ref))
+                if factor is None:
+                    return None, reason
+                factors.append(factor)
+
+    if not factors:
+        return None, "no authored length-dimension unit is available"
+    reference = factors[0]
+    if any(not math.isclose(factor, reference, rel_tol=1e-12) for factor in factors[1:]):
+        distinct = tuple(dict.fromkeys(factors))
+        return None, f"length dimensions use multiple unit scales: {distinct!r}"
+    return reference, ""
+
+
 def read_geometric_tolerances(step_file: str | Path) -> tuple[GeometricToleranceFact, ...]:
     """Read supported geometric-tolerance facts without inferring entity order.
 
