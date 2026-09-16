@@ -183,8 +183,8 @@ def _datum_feature_relationships(step) -> dict[str, tuple[str, tuple[str, ...]]]
     }
 
 
-def _datum_feature_items(step) -> dict[str, tuple[str, ...]]:
-    """Return exact representation-item references for each authored datum feature."""
+def _datum_reference_items(step) -> dict[str, tuple[str, ...]]:
+    """Return exact representation-item references keyed by datum or datum feature."""
     result: dict[str, list[str]] = {}
     usage_names = ("GEOMETRIC_ITEM_SPECIFIC_USAGE", "ITEM_IDENTIFIED_REPRESENTATION_USAGE")
     for section in step.data:
@@ -193,12 +193,12 @@ def _datum_feature_items(step) -> dict[str, tuple[str, ...]]:
                 usage = _entity_named(instance, usage_name)
                 if usage is None or len(usage.params) < 5:
                     continue
-                feature = usage.params[2]
-                if not isinstance(feature, p21.Reference) or not _instance_is(
-                    step, str(feature), "DATUM_FEATURE"
+                subject = usage.params[2]
+                if not isinstance(subject, p21.Reference) or not any(
+                    _instance_is(step, str(subject), kind) for kind in ("DATUM", "DATUM_FEATURE")
                 ):
                     continue
-                result.setdefault(str(feature), []).extend(_references(usage.params[4]))
+                result.setdefault(str(subject), []).extend(_references(usage.params[4]))
     return {key: tuple(dict.fromkeys(values)) for key, values in result.items()}
 
 
@@ -615,7 +615,7 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
     """Read exact datum-feature uses from Part21 without collapsing repeated occurrences."""
     step = p21.readfile(step_file)
     datum_features = _datum_feature_relationships(step)
-    feature_items = _datum_feature_items(step)
+    reference_items = _datum_reference_items(step)
     facts: list[DatumOccurrenceFact] = []
 
     for section in step.data:
@@ -698,7 +698,12 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
                         )
                         continue
                     (feature_id,) = feature_ids
-                    items = feature_items.get(feature_id, ())
+                    feature_items = reference_items.get(feature_id, ())
+                    datum_items = reference_items.get(datum_id, ())
+                    items = feature_items or datum_items
+                    item_reason = (
+                        "" if items else f"datum feature {feature_id} has no representation items"
+                    )
                     facts.append(
                         DatumOccurrenceFact(
                             tolerance_id,
@@ -708,9 +713,7 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
                             datum_id,
                             letter,
                             items,
-                            ""
-                            if items
-                            else f"datum feature {feature_id} has no representation items",
+                            item_reason,
                         )
                     )
     return tuple(facts)

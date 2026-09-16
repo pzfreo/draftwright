@@ -105,6 +105,22 @@ class TestExtractPmi:
         assert sum(frame.diameter for frame in frames) == 7
         assert sum(frame.modifier == "M" for frame in frames) == 2
 
+    def test_ctc03_datum_level_geometry_restores_d_and_identifies_e(self, ctc03_extraction_report):
+        datums = {
+            record.label: record
+            for record in ctc03_extraction_report.records
+            if record.source_category == "datum" and record.label in {"D", "E"}
+        }
+
+        assert datums["D"].reference_item_ids == ("#1399",)
+        assert datums["D"].reference_axis == "Z"
+        assert datums["D"].lowering_blockers == ()
+        assert datums["E"].reference_item_ids == ("#1441",)
+        assert datums["E"].lowering_blockers == (
+            "one datum reference surface is not axis-aligned",
+            "datum reference surface is unavailable",
+        )
+
     def test_nist_ctc01_dim_count(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         dims = [r for r in recs if r.kind not in ("gtol", "datum")]
