@@ -46,7 +46,6 @@ from draftwright._core import (
     _log,
     _parse_page,
     _Projector,
-    _shape_box2d,
     _tb_width,
     _title_block_box,
 )
@@ -55,6 +54,7 @@ from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotations._common import (
     SolveTrace,
+    _geom_box,
     annotation_ink_obstacles,
     place_iso_nts_note,
 )
@@ -318,10 +318,8 @@ def _annotations_out_of_bounds(dwg, a, tol: float = BOUNDS_ROUNDOFF) -> bool:
         # Match the lint, which tests each item's FULL bounding_box (extension
         # lines, arrowheads, leader + balloon ring) — not just the label rect —
         # so a dimension whose extension lines overrun the page is caught too.
-        try:
-            b = o.bounding_box()
-            bb = (b.min.X, b.min.Y, b.max.X, b.max.Y)
-        except Exception:  # noqa: BLE001 — fall back to the label rect, else skip
+        bb = _geom_box(o, getattr(dwg, "box_cache", None))
+        if bb is None:  # fall back to the label rect, else skip
             lb = getattr(o, "label_bbox", None)
             if lb is None:
                 continue
@@ -351,7 +349,7 @@ def _measure_blocks(dwg, a) -> dict:
         bb = _inflate_box(bb, clearance if label else 0.0)
         # Outward arrows and extension lines also need paper. The overflow trigger reads
         # full ink; measuring only labels could stall a repack with the arrows still off-page.
-        ink = _shape_box2d(dwg.get_annotation(name))
+        ink = _geom_box(dwg.get_annotation(name), getattr(dwg, "box_cache", None))
         if ink is not None:
             bb = (min(bb[0], ink[0]), min(bb[1], ink[1]), max(bb[2], ink[2]), max(bb[3], ink[3]))
         e = ext[v]
