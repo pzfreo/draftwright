@@ -534,6 +534,75 @@ def test_length_conversion_overflow_fails_closed(tmp_path, measure, unit, expect
     assert fact.reason == expected_reason
 
 
+@pytest.mark.parametrize(
+    ("unit_entities", "expected_reason"),
+    [
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('CYCLE',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+            ),
+            "length unit #3 has a cyclic conversion",
+        ),
+        (
+            ("#3=(LENGTH_UNIT() NAMED_UNIT(#8));",),
+            "length unit #3 is not a supported length unit",
+        ),
+        (
+            ("#3=(CONVERSION_BASED_UNIT('BAD',1.0) LENGTH_UNIT() NAMED_UNIT(#8));",),
+            "length unit #3 has no referenced conversion factor",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=REPRESENTATION_ITEM('not a measure');",
+            ),
+            "length unit #3 has no usable conversion factor",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(1.0),#6);",
+            ),
+            "length unit #3 conversion factor is not a length measure",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),1.0);",
+            ),
+            "length unit #3 conversion factor has no referenced length unit",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(LENGTH_MEASURE('bad'),#6);",
+            ),
+            "length unit #3 conversion factor is not numeric",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(LENGTH_MEASURE(0.0),#6);",
+            ),
+            "length unit #3 conversion factor must be finite and positive",
+        ),
+    ],
+)
+def test_malformed_conversion_based_units_fail_closed(tmp_path, unit_entities, expected_reason):
+    (fact,) = _read(
+        tmp_path,
+        "malformed-conversion",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#2,#4) POSITION_TOLERANCE());",
+        "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+        *unit_entities,
+        "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+    )
+
+    assert fact.value_mm is None
+    assert fact.reason == expected_reason
+
+
 def test_simple_length_measure_with_unit_is_supported(tmp_path):
     facts = _read(
         tmp_path,
