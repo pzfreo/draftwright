@@ -448,8 +448,10 @@ def _unit_factor_mm(
     if base_factor is None:
         return None, reason
     factor = value * base_factor
-    if not math.isfinite(factor):
-        return None, f"length unit {unit_ref} conversion factor is not finite in millimetres"
+    if not math.isfinite(factor) or factor <= 0:
+        return None, (
+            f"length unit {unit_ref} conversion factor must be finite and positive in millimetres"
+        )
     return factor, ""
 
 
@@ -480,8 +482,10 @@ def _length_value_mm(step, measure_ref: str) -> tuple[float | None, str]:
     if factor is None:
         return None, reason
     value_mm = value * factor
-    if not math.isfinite(value_mm):
-        return None, f"tolerance magnitude {measure_ref} is not finite in millimetres"
+    if not math.isfinite(value_mm) or value_mm <= 0:
+        return None, (
+            f"tolerance magnitude {measure_ref} must be finite and positive in millimetres"
+        )
     return value_mm, ""
 
 

@@ -497,12 +497,27 @@ def test_ctc03_inch_geometric_tolerances_are_resolved_to_millimetres():
                 "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.EXA.,.METRE.));",
                 "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
             ),
-            "length unit #3 conversion factor is not finite in millimetres",
+            "length unit #3 conversion factor must be finite and positive in millimetres",
         ),
         (
             "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E308),#3);",
             ("#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.));",),
-            "tolerance magnitude #2 is not finite in millimetres",
+            "tolerance magnitude #2 must be finite and positive in millimetres",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+            (
+                "#3=(CONVERSION_BASED_UNIT('TINY',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-310),#6);",
+                "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.ATTO.,.METRE.));",
+                "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+            ),
+            "length unit #3 conversion factor must be finite and positive in millimetres",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-310),#3);",
+            ("#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.ATTO.,.METRE.));",),
+            "tolerance magnitude #2 must be finite and positive in millimetres",
         ),
     ],
 )
