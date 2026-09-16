@@ -248,6 +248,79 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(mon
     ]
 
 
+def test_optional_iso_page_recovery_may_retain_an_existing_detail(monkeypatch):
+    """Removing optional ISO need not also eliminate an already-required detail."""
+
+    dropped = LintIssue(
+        severity="warning",
+        code="pmi_dropped",
+        message="imported frame has no route",
+        source_ids=("geometric_tolerance:#1",),
+        outcome_stage="placement",
+    )
+
+    class FakeDrawing:
+        def __init__(self, *, page, include_iso, issues=()):
+            self.page_w, self.page_h = page
+            self.scale = 2.0
+            self.views = {"front": object(), "detail_a": object()}
+            if include_iso:
+                self.views["iso"] = object()
+            self.solve_trace = None
+            self._issues = tuple(issues)
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        dimensions = {
+            None: (297.0, 210.0),
+            (297.0, 210.0): (297.0, 210.0),
+            "A3": (420.0, 297.0),
+            "A2": (594.0, 420.0),
+            "A1": (841.0, 594.0),
+            "A0": (1189.0, 841.0),
+        }[page]
+        issues = () if page == "A3" and not _include_iso else (dropped,)
+        return FakeDrawing(page=dimensions, include_iso=_include_iso, issues=issues)
+
+    monkeypatch.setattr(builder, "_AUTOMATIC_UPSCALE_TRIAL_LIMIT", 0)
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+    monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
+
+    drawing = builder.build_drawing(object())
+
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert "iso" not in drawing.views
+    assert "detail_a" in drawing.views
+    assert drawing.lint() == ()
+    assert drawing.scale_decision["attempts"][-1] == {
+        "scale": 2.0,
+        "status": "complete",
+        "blockers": (),
+        "reason": "page_escalation_after_optional_iso",
+        "views": ("front", "detail_a"),
+        "page": (420.0, 297.0),
+    }
+
+
 def test_unrelated_drop_on_a_typed_owner_does_not_borrow_its_source(monkeypatch):
     """A step-length loss is not evidence that its surviving thread callout was lost."""
 

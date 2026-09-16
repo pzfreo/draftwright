@@ -2342,6 +2342,7 @@ def build_drawing(
         # explicitly so a successful reduced plan cannot silently revert to three principals.
         original_scale = drawing.scale
         original_page = (drawing.page_w, drawing.page_h)
+        original_has_recovery_detail = _has_detail_view(drawing.views)
         # A detail-bearing candidate can enter the larger-scale tail once to test whether
         # the detail reservation was conservative, then enter the identical tail again when
         # a source-owned placement loss asks the optional ISO to yield. Reuse those finished
@@ -2719,7 +2720,10 @@ def build_drawing(
                             # on the automatically selected sheet, try only the bounded
                             # sequence of larger standard pages. Each page chooses its scale
                             # through the established fixed-page policy and must pass the
-                            # same axial, structural, and required-outcome gates above.
+                            # same axial, structural, and required-outcome gates above. A
+                            # detail already required by the settled drawing may remain; this
+                            # correction must not reject completeness merely because removing
+                            # the optional ISO did not also eliminate that recovery view.
                             if page is None:
                                 larger, issues = _try_larger_standard_pages(
                                     original_page,
@@ -2729,6 +2733,7 @@ def build_drawing(
                                         name for name in drawing.views if name != "iso"
                                     ),
                                     require_axial_coverage=True,
+                                    allow_recovery_detail=original_has_recovery_detail,
                                 )
                                 if larger is not None:
                                     drawing = larger
