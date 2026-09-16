@@ -388,6 +388,65 @@ def test_complete_detail_drawing_stays_on_its_original_page(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize("upscale_error", [False, True])
+def test_detail_and_source_recovery_reuse_the_same_upscale_candidates(monkeypatch, upscale_error):
+    dropped = LintIssue(
+        severity="warning",
+        code="pmi_dropped",
+        message="imported frame has no route",
+        source_ids=("geometric_tolerance:#1",),
+        outcome_stage="placement",
+    )
+    calls = []
+
+    class FakeDrawing:
+        page_w, page_h = (297.0, 210.0)
+        solve_trace = None
+
+        def __init__(self, scale, include_iso):
+            self.scale = 2.0 if scale is None else scale
+            self.views = {"front": object(), "detail_a": object()}
+            self.registry = SimpleNamespace(record_issue=lambda _issue: None)
+            if include_iso:
+                self.views["iso"] = object()
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return (dropped,)
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        scale,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        calls.append((scale, page, _include_iso))
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        if upscale_error and scale is not None:
+            raise ValueError("drawing geometry degenerates at speculative scale")
+        return FakeDrawing(scale, _include_iso)
+
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+    monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
+
+    builder.build_drawing(object(), page="A4")
+
+    # The detail-reservation and optional-ISO gates both assess 5:1 and 10:1 on A4,
+    # but the geometry for each scale is assembled only once.
+    assert [call[0] for call in calls if call[2]] == [None, 5.0, 10.0]
+
+
 def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeypatch):
     class FakeDrawing:
         def __init__(self, *, page, include_iso):
