@@ -177,6 +177,50 @@ class TestExtractPmi:
         )
         assert source.outcome == "partially_extracted"
 
+    def test_ctc03_extracted_sources_survive_lowering_with_honest_fallbacks(
+        self, ctc03_extraction_report
+    ):
+        from draftwright.model import (
+            AuthoredDimension,
+            ControlFrame,
+            DatumRef,
+            PmiFeature,
+            build_pmi_features,
+        )
+
+        features = build_pmi_features(
+            ctc03_extraction_report.records, Box(100, 100, 100).bounding_box()
+        )
+        source_ownership = [
+            (source_id, feature)
+            for feature in features
+            for source_id in (
+                feature.source_ids if getattr(feature, "source_ids", ()) else (feature.source_id,)
+            )
+        ]
+        source_owners = dict(source_ownership)
+        extracted = {
+            source_id
+            for record in ctc03_extraction_report.records
+            for source_id in (record.source_ids or (record.source_id,))
+            if source_id
+        }
+
+        assert len(source_owners) == len(source_ownership)
+        assert set(source_owners) == extracted
+        assert sum(isinstance(feature, AuthoredDimension) for feature in features) == 9
+        assert sum(isinstance(feature, ControlFrame) for feature in features) == 12
+        assert sum(isinstance(feature, DatumRef) for feature in features) == 4
+        assert {
+            source_id
+            for source_id, feature in source_owners.items()
+            if isinstance(feature, PmiFeature)
+        } == {
+            "dimension:0:1:4:46",
+            "datum:0:1:4:38",
+            "datum_definition:#90",
+        }
+
     def test_part21_datum_definitions_survive_an_empty_xcaf_datum_census(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
