@@ -128,6 +128,17 @@ def _entity_named(instance, name: str):
     return next((entity for entity in _entities(instance) if entity.name == name), None)
 
 
+def _measure_with_unit(instance):
+    return next(
+        (
+            entity
+            for entity in _entities(instance)
+            if entity.name.endswith("MEASURE_WITH_UNIT") and len(entity.params) >= 2
+        ),
+        None,
+    )
+
+
 def _references(value) -> tuple[str, ...]:
     """Return Part21 references nested in a parameter, preserving source order."""
     if isinstance(value, p21.Reference):
@@ -390,34 +401,60 @@ def read_manufacturing_requirements(
     return tuple(facts)
 
 
-def _unit_factor_mm(step, unit_ref: str) -> tuple[float | None, str]:
+def _unit_factor_mm(
+    step, unit_ref: str, *, _seen: frozenset[str] = frozenset()
+) -> tuple[float | None, str]:
+    if unit_ref in _seen:
+        return None, f"length unit {unit_ref} has a cyclic conversion"
     unit = step.get(unit_ref)
     if unit is None:
         return None, f"length unit {unit_ref} is missing"
     si_unit = _entity_named(unit, "SI_UNIT")
-    if si_unit is None or len(si_unit.params) < 2:
+    if si_unit is not None and len(si_unit.params) >= 2:
+        prefix, unit_name = (str(param).upper() for param in si_unit.params[:2])
+        if unit_name == ".METRE." and prefix in _SI_METRE_TO_MM:
+            return _SI_METRE_TO_MM[prefix], ""
         return None, f"length unit {unit_ref} is not a supported SI metre unit"
-    prefix, unit_name = (str(param).upper() for param in si_unit.params[:2])
-    if unit_name != ".METRE." or prefix not in _SI_METRE_TO_MM:
-        return None, f"length unit {unit_ref} is not a supported SI metre unit"
-    return _SI_METRE_TO_MM[prefix], ""
+
+    conversion = _entity_named(unit, "CONVERSION_BASED_UNIT")
+    if (
+        conversion is None
+        or len(conversion.params) < 2
+        or _entity_named(unit, "LENGTH_UNIT") is None
+    ):
+        return None, f"length unit {unit_ref} is not a supported length unit"
+    conversion_ref = conversion.params[1]
+    if not isinstance(conversion_ref, p21.Reference):
+        return None, f"length unit {unit_ref} has no referenced conversion factor"
+    measure = step.get(str(conversion_ref))
+    measure_with_unit = _measure_with_unit(measure)
+    if measure_with_unit is None or len(measure_with_unit.params) < 2:
+        return None, f"length unit {unit_ref} has no usable conversion factor"
+    typed_value, base_unit_ref = measure_with_unit.params[:2]
+    if (
+        not isinstance(typed_value, p21.TypedParameter)
+        or typed_value.type_name != "LENGTH_MEASURE"
+    ):
+        return None, f"length unit {unit_ref} conversion factor is not a length measure"
+    if not isinstance(base_unit_ref, p21.Reference):
+        return None, f"length unit {unit_ref} conversion factor has no referenced length unit"
+    try:
+        value = float(typed_value.param)
+    except (TypeError, ValueError):
+        return None, f"length unit {unit_ref} conversion factor is not numeric"
+    if not math.isfinite(value) or value <= 0:
+        return None, f"length unit {unit_ref} conversion factor must be finite and positive"
+    base_factor, reason = _unit_factor_mm(step, str(base_unit_ref), _seen=_seen | {unit_ref})
+    if base_factor is None:
+        return None, reason
+    return value * base_factor, ""
 
 
 def _length_value_mm(step, measure_ref: str) -> tuple[float | None, str]:
     measure = step.get(measure_ref)
     if measure is None:
         return None, f"tolerance magnitude {measure_ref} is missing"
-    measure_with_unit = _entity_named(measure, "MEASURE_WITH_UNIT")
-    if measure_with_unit is None:
-        entity = next(
-            (
-                candidate
-                for candidate in _entities(measure)
-                if candidate.name.endswith("MEASURE_WITH_UNIT") and len(candidate.params) >= 2
-            ),
-            None,
-        )
-        measure_with_unit = entity
+    measure_with_unit = _measure_with_unit(measure)
     if measure_with_unit is None or len(measure_with_unit.params) < 2:
         return None, f"tolerance magnitude {measure_ref} is not a measure with unit"
 
