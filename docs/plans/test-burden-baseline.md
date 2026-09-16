@@ -607,3 +607,38 @@ they represented 931.39 seconds of summed baseline phase time. Thirteen passed i
 scheduled run, and the two initially missing `pytest` imports then passed in 16.82 and 16.97
 seconds. Full and scheduled collection now partition all 8,758 outcomes as 8,677 fast and 81
 scheduled, while per-boundary observers and reduced mutation covers remain in the full tier.
+
+## Completion evidence
+
+The completed tier catalog partitions all 8,760 outcomes: the full tier selects 8,678 and the
+scheduled tier selects the complementary 82. The authoritative full branch-coverage run completed
+with 8,657 passes, seven skips, and fourteen expected failures in 7,720.96 seconds, reporting
+96.14% combined line-and-branch coverage. Changed production lines are 100% covered. The final
+scheduled run completed with eighty passes and two expected failures in 1,960.31 seconds. Dense
+scheduled cases have a tier-local 600-second timeout because four-worker CPU contention can take a
+case beyond the global 300-second bound; the pull-request and full tiers retain that tighter bound.
+
+The final performance and fault-detection scorecard is:
+
+| Completion criterion | Required | Measured result |
+| --- | ---: | ---: |
+| Unit loop median | <30 s | 28.76 s (28.76, 33.84, 23.54) |
+| Representative small-CL PR median | <600 s | 146.28 s (134.55, 146.28, 148.58) |
+| Repeated CAD pipeline executions | at least 30% fewer | 59.6% to 83.2% fewer across the measured integration, mutation, and #1166 cohorts |
+| Selected integration items | at least 20% fewer | 67.5% fewer (80 to 26) |
+| PR exporter calls | at least 50% fewer | 86.3% fewer (233 to 32) |
+| Global combined coverage | at least 90% | 96.14% |
+| Changed-line coverage | at least 90% | 100% |
+| Selected mutation and retained regressions | no loss | 485 passed in 701.16 s |
+
+The repeated-work headline is intentionally a range rather than a sum across unlike cohorts. The
+selected mutation corpus fell from 178 to 72 CAD executions (59.6%), the selected pairwise
+integration family fell from 80 to 26 (67.5%), and the complete #1166 family fell from 107 to 18
+recognition acquisitions (83.2%). The retained tests preserve private mutable drawings and share
+only reviewed immutable inputs. As a further cost reduction, pruning provably disjoint leader
+conflicts reduced the dense layout benchmark median from 152.14 to 119.39 seconds (21.5%) without
+changing its drawing outcome.
+
+These measurements close every criterion in the test-burden reduction plan. The PR timing result
+describes a normal small change; the accumulated #1637 branch remains deliberately conservative
+against `origin/main` because every directly changed test module is selected.

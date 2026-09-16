@@ -1,6 +1,6 @@
 # Test burden reduction plan
 
-- **Status:** Ready
+- **Status:** Complete (16 September 2026)
 - **Baseline:** 8,809 collected items; 412 unit-tier items; 151 issue-named modules
 - **Coverage policy:** 90% combined line-and-branch coverage and 90% changed-line coverage
 - **Primary constraint:** preserve fault detection while reducing CAD construction and review latency
