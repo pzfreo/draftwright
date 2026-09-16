@@ -521,8 +521,6 @@ def read_dimension_length_factor(step_file: str | Path) -> tuple[float | None, s
                     }:
                         continue
                     return None, f"shape-dimension item {measure_ref} has no measure with unit"
-                if len(measure_with_unit.params) < 2:
-                    return None, f"shape-dimension item {measure_ref} has no unit"
                 typed_value, unit_ref = measure_with_unit.params[:2]
                 if not isinstance(typed_value, p21.TypedParameter):
                     return None, f"shape-dimension item {measure_ref} has no typed measure"

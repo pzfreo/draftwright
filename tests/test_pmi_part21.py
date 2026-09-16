@@ -551,6 +551,57 @@ def test_valid_factor_plus_malformed_dimension_item_fails_closed(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("item", "expected_reason"),
+    [
+        (
+            "#2=MEASURE_WITH_UNIT(1.0,#4);",
+            "shape-dimension item #2 has no typed measure",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(COUNT_MEASURE(1.0),#4);",
+            "shape-dimension item #2 uses unsupported measure type COUNT_MEASURE",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),$);",
+            "shape-dimension item #2 has no unit reference",
+        ),
+    ],
+)
+def test_malformed_dimension_measures_fail_closed(tmp_path, item, expected_reason):
+    step = tmp_path / "malformed-dimension-measure.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2),#9);",
+            item,
+            "#4=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == expected_reason
+
+
+def test_dimension_representation_without_semantic_length_has_explicit_reason(tmp_path):
+    step = tmp_path / "angular-dimension.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2),#9);",
+            "#2=MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(45.0),#4);",
+            "#4=(NAMED_UNIT(*) PLANE_ANGLE_UNIT() SI_UNIT($,.RADIAN.));",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == "no authored length-dimension unit is available"
+
+
+@pytest.mark.parametrize(
     ("measure", "unit", "expected_reason"),
     [
         (
