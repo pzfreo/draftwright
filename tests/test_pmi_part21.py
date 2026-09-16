@@ -1,5 +1,6 @@
 """Structured Part21 facts used to complete XCAF geometric tolerances."""
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,9 +11,11 @@ from draftwright._pmi_part21 import (
     GeometricToleranceFact,
     ManufacturingRequirementFact,
     match_datum_occurrence,
+    match_dimension_display,
     match_geometric_tolerance,
     read_datum_definitions,
     read_datum_occurrences,
+    read_dimension_display_facts,
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
@@ -56,6 +59,12 @@ def _read_datum_definitions(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
     return read_datum_definitions(step)
+
+
+def _read_dimension_display_facts(tmp_path, name: str, *instances: str):
+    step = tmp_path / f"{name}.step"
+    step.write_text(_step(*instances), encoding="utf-8")
+    return read_dimension_display_facts(step)
 
 
 def _read_requirements(tmp_path, name: str, *instances: str):
@@ -560,6 +569,52 @@ def test_ctc03_dimension_length_factor_is_resolved_from_authored_representations
 
     assert factor == pytest.approx(25.4)
     assert reason == ""
+
+
+def test_ctc03_dimension_display_facts_preserve_inch_precision():
+    facts = read_dimension_display_facts(CTC03)
+    by_id = {fact.entity_id: fact for fact in facts}
+
+    assert len(facts) == 9
+    assert by_id["#97"].authored_value == pytest.approx(0.75)
+    assert (by_id["#97"].kind, by_id["#97"].value_decimals) == ("linear", 3)
+    assert by_id["#267"].authored_value == pytest.approx(2.0)
+    assert (by_id["#267"].value_decimals, by_id["#267"].tolerance_decimals) == (2, 2)
+    assert by_id["#270"].authored_value == pytest.approx(0.82)
+    assert (by_id["#270"].value_decimals, by_id["#270"].tolerance_decimals) == (2, 2)
+    assert all(fact.unit_name == "inch" for fact in facts)
+
+
+def test_dimension_display_match_rejects_conflicting_source_policies():
+    fact = read_dimension_display_facts(CTC03)[0]
+
+    assert (
+        match_dimension_display(
+            (fact, replace(fact, unit_name="conflicting-unit")),
+            fact.semantic_name,
+            fact.kind,
+            fact.authored_value,
+        )
+        is None
+    )
+
+
+def test_dimension_display_rejects_unbounded_source_precision(tmp_path):
+    facts = _read_dimension_display_facts(
+        tmp_path,
+        "unbounded-precision",
+        "#1=DIMENSIONAL_SIZE(#99,'diameter');",
+        "#2=SHAPE_DIMENSION_REPRESENTATION('',(#3),#99);",
+        "#3=(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() "
+        "MEASURE_WITH_UNIT(LENGTH_MEASURE(1.),#5) "
+        "QUALIFIED_REPRESENTATION_ITEM((#6)) REPRESENTATION_ITEM('nominal value'));",
+        "#4=DIMENSIONAL_CHARACTERISTIC_REPRESENTATION(#1,#2);",
+        "#5=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+        "#6=VALUE_FORMAT_TYPE_QUALIFIER('NR2 0.1000000000');",
+    )
+
+    assert len(facts) == 1
+    assert facts[0].value_decimals is None
 
 
 def test_ctc01_dimension_length_factor_is_already_millimetres():
