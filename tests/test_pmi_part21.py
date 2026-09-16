@@ -394,6 +394,33 @@ def test_reversed_datum_relationship_is_exact_but_missing_items_remain_explicit(
     )
 
 
+def test_datum_level_geometry_is_used_when_the_feature_has_no_items(tmp_path):
+    facts = _read_datums(
+        tmp_path,
+        "datum-level-geometry",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#90,#91) "
+        "GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE((#2)) POSITION_TOLERANCE());",
+        "#2=DATUM_SYSTEM('',$,#99,.F.,(#3));",
+        "#3=DATUM_REFERENCE_COMPARTMENT('',$,#99,.F.,#4,$);",
+        "#4=DATUM('',$,#99,.F.,'A');",
+        "#5=DATUM_FEATURE('first',$,#99,.T.);",
+        "#6=SHAPE_ASPECT_RELATIONSHIP('',$,#5,#4);",
+        "#7=GEOMETRIC_ITEM_SPECIFIC_USAGE('','DATUM',#4,#99,#10);",
+    )
+
+    assert facts == (DatumOccurrenceFact("#1", "Probe", "position", "#5", "#4", "A", ("#10",)),)
+
+
+def test_ctc03_datum_level_geometry_recovers_d_and_e():
+    facts = read_datum_occurrences(CTC03)
+    by_letter = {
+        fact.letter: fact.reference_item_ids for fact in facts if fact.letter in {"D", "E"}
+    }
+
+    assert by_letter == {"D": ("#1399",), "E": ("#1441",)}
+    assert all(not fact.reason for fact in facts if fact.letter in {"D", "E"})
+
+
 def test_malformed_part21_datum_graphs_fail_closed(tmp_path):
     no_base_parameters = _read_datums(tmp_path, "empty-tolerance", "#1=POSITION_TOLERANCE();")
     assert no_base_parameters == ()
