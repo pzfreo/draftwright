@@ -38,6 +38,7 @@ def bump_repo(tmp_path):
     (tmp_path / "engine.py").write_text("answer = 42\n")
     (tmp_path / "scripts").mkdir()
     shutil.copyfile(ROOT / "scripts/check-version-bump", tmp_path / "scripts/check-version-bump")
+    shutil.copyfile(ROOT / "scripts/coverage-mode", tmp_path / "scripts/coverage-mode")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-qm", "base")
     base = _git(tmp_path, "rev-parse", "HEAD")
@@ -211,6 +212,7 @@ def test_workflow_classification_binds_dispatch_and_executes_the_base_verifier(
         "POST_RELEASE": "false" if scenario == "ordinary-manual" else "true",
         "PR_NUMBER": "1",
         "FULL_MATRIX": "true" if scenario == "full-matrix" else "false",
+        "FULL_COVERAGE": "false",
         "RUNNER_TEMP": str(runtime),
         "GITHUB_OUTPUT": str(output),
         "PR_METADATA": str(response),
@@ -236,7 +238,14 @@ def test_workflow_classification_binds_dispatch_and_executes_the_base_verifier(
     )
     assert result.returncode == 0, result.stdout + result.stderr
     expected = "true" if scenario in {"pr", "push", "dispatch"} else "false"
-    assert output.read_text().splitlines() == [f"version_only={expected}", f"head={head}"]
+    coverage_mode = (
+        "full" if scenario in {"ordinary-manual", "schedule", "full-matrix"} else "skip"
+    )
+    assert output.read_text().splitlines() == [
+        f"version_only={expected}",
+        f"coverage_mode={coverage_mode}",
+        f"head={head}",
+    ]
 
 
 @pytest.mark.parametrize("target", ["0.4.20.dev0", "0.4.23.dev0", "0.5.0.dev0", "0.4.22"])
