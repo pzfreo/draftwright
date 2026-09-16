@@ -37,6 +37,7 @@ jobs:
       pull-requests: read
     outputs:
       version_only: ${{ steps.classify.outputs.version_only }}
+      coverage_mode: ${{ steps.classify.outputs.coverage_mode }}
       head: ${{ steps.classify.outputs.head }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -52,6 +53,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           POST_RELEASE: ${{ inputs.post_release_bump }}
           FULL_MATRIX: ${{ contains(github.event.pull_request.labels.*.name, 'full-matrix') }}
+          FULL_COVERAGE: ${{ contains(github.event.pull_request.labels.*.name, 'full-coverage') }}
           PR_NUMBER: ${{ inputs.post_release_pr_number }}
         run: |
           version_only=false
@@ -78,9 +80,23 @@ jobs:
           if [[ "$FULL_MATRIX" == "true" ]]; then
             version_only=false
           fi
+          coverage_mode=skip
+          if [[ "$EVENT_NAME" == "pull_request" && "$version_only" != "true" ]]; then
+            coverage_args=()
+            if [[ "$FULL_MATRIX" == "true" || "$FULL_COVERAGE" == "true" ]]; then
+              coverage_args+=(--force-full)
+            fi
+            coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA" \
+              "${coverage_args[@]}")
+          elif [[ "$EVENT_NAME" == "schedule" \
+                  || ( "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" != "true" ) ]]; then
+            coverage_mode=full
+          fi
           echo "version_only=$version_only" >> "$GITHUB_OUTPUT"
+          echo "coverage_mode=$coverage_mode" >> "$GITHUB_OUTPUT"
           echo "head=$HEAD_SHA" >> "$GITHUB_OUTPUT"
           echo "version-only=$version_only"
+          echo "coverage-mode=$coverage_mode"
 
   version-only:
     needs: changes
@@ -145,7 +161,7 @@ jobs:
       matrix:
         # 3.10-3.12 resolve build123d 0.10 (cadquery-ocp + VTK); 3.13/3.14 resolve build123d
         # 0.11 (cadquery-ocp-novtk — VTK dropped, and the only kernel with 3.13/3.14 wheels).
-        # Linux covers every supported Python (3.13 is the coverage job below).
+        # Linux covers every supported Python (3.14 is the coverage job below).
         #
         # Non-Linux runners meter far above their wall clock — macOS at 10x, Windows at 2x.
         # Measured on run 31570091735, the four non-Linux jobs were 43 of 100 wall-clock
@@ -177,8 +193,8 @@ jobs:
                {"os":"ubuntu-latest","python-version":"3.11","shard":2},
                {"os":"ubuntu-latest","python-version":"3.12","shard":1},
                {"os":"ubuntu-latest","python-version":"3.12","shard":2},
-               {"os":"ubuntu-latest","python-version":"3.14","shard":1},
-               {"os":"ubuntu-latest","python-version":"3.14","shard":2}]'
+               {"os":"ubuntu-latest","python-version":"3.13","shard":1},
+               {"os":"ubuntu-latest","python-version":"3.13","shard":2}]'
           || '[{"os":"ubuntu-latest","python-version":"3.10"},
                 {"os":"ubuntu-latest","python-version":"3.11"},
                 {"os":"ubuntu-latest","python-version":"3.12"},
@@ -210,7 +226,7 @@ jobs:
         # No --timeout here: it would override the 300 s set in
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
-        # Coverage is measured only by the Ubuntu/Python 3.13 `coverage` shards below.
+        # Coverage is measured only by the Ubuntu/Python 3.14 `coverage` shards below.
         # Instrumenting all fourteen compatibility jobs adds ~13% runtime without
         # producing another retained or uploaded report.
         # `--splits/--group` (pytest-split) apply only when the matrix entry carries a
@@ -231,16 +247,16 @@ jobs:
 
   coverage:
     needs: changes
-    if: (github.event_name == 'pull_request' || inputs.post_release_bump) && needs.changes.outputs.version_only != 'true'
-    # The Python 3.13 compatibility entry, which also carries coverage. Unsharded it
+    if: needs.changes.outputs.coverage_mode != 'skip' && needs.changes.outputs.version_only != 'true'
+    # The Python 3.14 compatibility entry, which also carries coverage. Unsharded it
     # was the pull request's critical path: measured on run 34078991086 it took 63
     # minutes while the slowest sharded compatibility leg took 42, so every PR waited
     # on this one job well after the rest of the matrix had gone green.
     # Sharded the same way as the `test` matrix, it costs the same billed minutes and
-    # halves that wait. Coverage MEASUREMENT is per shard; the reports and the single
-    # Codecov upload belong to `coverage-report`, which combines the two data files —
-    # so `fail_under` is still applied once, to the whole suite, exactly as before.
-    name: test (ubuntu-latest, 3.13, ${{ matrix.shard }})
+    # halves that wait. Source PRs measure the affected test tier and enforce changed-line
+    # coverage; deliberate full runs measure the complete suite and enforce the global floor.
+    # Reports are combined across both shards by `coverage-report`.
+    name: test (ubuntu-latest, 3.14, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
@@ -251,12 +267,13 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -266,17 +283,29 @@ jobs:
           # A name without the leading dot: `actions/upload-artifact` skips hidden files
           # unless told otherwise, and `coverage combine` takes explicit paths anyway.
           COVERAGE_FILE: coverage-data-${{ matrix.shard }}
+          COVERAGE_CORE: sysmon
+          COVERAGE_MODE: ${{ needs.changes.outputs.coverage_mode }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         # `--cov-report=` renders nothing here and `--cov-fail-under=0` disables the
         # pyproject floor for the shard: half the suite legitimately covers less than
         # 90%, and the real gate runs on the combined data in `coverage-report`.
-        run: >-
-          uv run scripts/test-tier full --workers auto
-          --splits 2 --group ${{ matrix.shard }}
-          --cov=src/draftwright
-          --cov-report=
-          --cov-fail-under=0
-          --burden-report burden-report-${{ matrix.shard }}.json
-          --durations=25
+        run: |
+          tier=full
+          if [[ "$COVERAGE_MODE" == "changed" ]]; then
+            tier=pr
+          fi
+          burden_args=()
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            burden_args+=(--burden-report "burden-report-${{ matrix.shard }}.json")
+          fi
+          uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
+            --splits 2 --group ${{ matrix.shard }} \
+            --cov=src/draftwright \
+            --cov-report= \
+            --cov-fail-under=0 \
+            --durations=25 \
+            "${burden_args[@]}"
 
       - name: Upload this shard's coverage data
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -287,6 +316,7 @@ jobs:
           retention-days: 1
 
       - name: Upload this shard's test burden report
+        if: github.event_name == 'schedule'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: burden-report-${{ matrix.shard }}
@@ -295,10 +325,9 @@ jobs:
           retention-days: 14
 
   coverage-report:
-    # The canonical reports and the ONE Codecov upload, over both shards combined.
-    # Kept a separate job so only it needs an OIDC token, and so Codecov receives a
-    # single complete upload rather than two partial ones racing to compute a status.
-    if: (github.event_name == 'pull_request' || inputs.post_release_bump) && needs.changes.outputs.version_only != 'true'
+    # Combine both shards and apply the gate selected above. Full runs produce HTML and
+    # one Codecov upload; changed runs use diff-cover locally against the PR base.
+    if: needs.changes.outputs.coverage_mode != 'skip' && needs.changes.outputs.version_only != 'true'
     needs: [changes, coverage]
     runs-on: ubuntu-latest
     permissions:
@@ -307,12 +336,13 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install dependencies
         run: uv sync --group dev
@@ -330,23 +360,32 @@ jobs:
         # the matrix and in `--splits`, and a third place to update silently combines a
         # subset — which `coverage report` would then measure against `fail_under`.
         #
-        # ORDER IS LOAD-BEARING. `report` is what applies `fail_under = 90`, and the step
-        # runs under `bash -e`, so rendering the artefacts after it means a coverage breach
-        # aborts before `coverage.xml` and `htmlcov/` exist — the upload below then warns
-        # on an empty artefact and Codecov receives nothing, exactly when the drop needs
-        # diagnosing. pytest-cov rendered every report before failing; keep that property.
+        # XML and HTML are data artefacts, not gates, so explicitly suppress the configured
+        # global floor there. Full mode applies that floor once through `coverage report`;
+        # changed mode applies its own line gate through diff-cover below.
         run: |
           uv run coverage combine coverage-data-*
-          uv run coverage xml
-          uv run coverage html -d htmlcov
-          uv run coverage report --show-missing
+          uv run coverage xml --fail-under=0
+          if [[ "${{ needs.changes.outputs.coverage_mode }}" == "full" ]]; then
+            uv run coverage html -d htmlcov --fail-under=0
+            uv run coverage report --show-missing
+          fi
+
+      - name: Require changed production lines to remain covered
+        if: needs.changes.outputs.coverage_mode == 'changed'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: >-
+          uv run --with diff-cover==9.7.2 diff-cover coverage.xml
+          --compare-branch "$BASE_SHA"
+          --fail-under=90
 
       - name: Upload coverage to Codecov
+        if: needs.changes.outputs.coverage_mode == 'full'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: coverage.xml
-          # Branch protection requires Codecov's project and patch checks. Fail this
-          # job too when the upload cannot produce those checks, rather than hanging.
+          # A deliberate full run must publish its canonical external report successfully.
           fail_ci_if_error: true
           override_pr: ${{ inputs.post_release_pr_number || github.event.pull_request.number }}
           use_oidc: true
@@ -355,7 +394,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: coverage-linux-py3.13
+          name: coverage-linux-py3.14
           path: |
             coverage.xml
             htmlcov/
@@ -449,7 +488,7 @@ jobs:
         run: uv run pytest tests/ -m "smoke or unit" -n auto --dist loadscope
 
   ci-ok:
-    # Required alongside codecov/project. This aggregate keeps protection independent
+    # The required branch-protection check. This aggregate keeps protection independent
     # of matrix shape while requiring the exact jobs selected by the verified diff.
     #
     # `if: always()` is load-bearing, not decoration. Without it a failing dependency
@@ -476,6 +515,7 @@ jobs:
           POST_RELEASE: ${{ inputs.post_release_bump }}
           CHANGES: ${{ needs.changes.result }}
           VERSION_ONLY: ${{ needs.changes.outputs.version_only }}
+          COVERAGE_MODE: ${{ needs.changes.outputs.coverage_mode }}
           VERSION_CHECK: ${{ needs.version-only.result }}
           LINT: ${{ needs.lint.result }}
           TEST: ${{ needs.test.result }}
@@ -485,7 +525,8 @@ jobs:
           CANARY: ${{ needs.test-platform-canary.result }}
           REAL_PART: ${{ needs.test-real-part-canary.result }}
         run: |
-          if [[ "$CHANGES" != "success" || ! "$VERSION_ONLY" =~ ^(true|false)$ ]]; then
+          if [[ "$CHANGES" != "success" || ! "$VERSION_ONLY" =~ ^(true|false)$ \
+                || ! "$COVERAGE_MODE" =~ ^(skip|changed|full)$ ]]; then
             echo "::error::change classification did not produce a valid result"
             exit 1
           fi
@@ -507,9 +548,11 @@ jobs:
               expected_test=skipped
               expected_slow=success
             elif [[ "$EVENT_NAME" == "pull_request" ]]; then
-              expected_coverage=success
+              if [[ "$COVERAGE_MODE" != "skip" ]]; then
+                expected_coverage=success
+              fi
               expected_canary=success
-            elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" == "true" ]]; then
+            elif [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
               expected_coverage=success
             fi
           fi
