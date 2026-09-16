@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Choose skip, changed-area, or full coverage for a pull-request diff."""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+from pathlib import Path
+from typing import NamedTuple
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+class Change(NamedTuple):
+    """One name-status entry from Git, including both paths for a rename."""
+
+    status: str
+    paths: tuple[str, ...]
+
+
+def git_changes(base: str, head: str) -> list[Change]:
+    """Return the complete three-dot diff with rename identities preserved."""
+    result = subprocess.run(
+        ["git", "diff", "--name-status", "--find-renames", f"{base}...{head}"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    changes = []
+    for line in result.stdout.splitlines():
+        status, *paths = line.split("\t")
+        changes.append(Change(status[0], tuple(paths)))
+    return changes
+
+
+def classify(changes: list[Change], *, force_full: bool = False) -> str:
+    """Return ``skip``, ``changed``, or ``full`` for *changes*.
+
+    Source-neutral diffs need no production coverage measurement. Every production edit uses
+    the contract-aware PR tier. Full global coverage is deliberate release/scheduled evidence,
+    selected for a PR only through the explicit override.
+    """
+    if force_full:
+        return "full"
+
+    return (
+        "changed"
+        if any(path.startswith("src/draftwright/") for change in changes for path in change.paths)
+        else "skip"
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("base")
+    parser.add_argument("head")
+    parser.add_argument("--force-full", action="store_true")
+    options = parser.parse_args(argv)
+    print(classify(git_changes(options.base, options.head), force_full=options.force_full))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

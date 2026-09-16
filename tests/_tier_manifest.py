@@ -154,6 +154,7 @@ PR_POLICY_MODULES = frozenset(
         "test_architecture_docs.py",
         "test_carve_free_position_callers.py",
         "test_clone_budget.py",
+        "test_coverage_mode.py",
         "test_deprecation_dates.py",
         "test_import_boundaries.py",
         "test_private_test_attr_reads.py",

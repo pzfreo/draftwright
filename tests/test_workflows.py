@@ -100,8 +100,8 @@ def test_pull_requests_run_linux_only_to_stay_inside_the_runner_budget():
     # exhausted the account's Actions allowance. Hence: no non-Linux runner on a plain PR.
     assert {entry["os"] for entry in pr_matrix} == {"ubuntu-latest"}
 
-    # Every supported Python still runs on every PR; 3.13 is the separate coverage job.
-    assert {entry["python-version"] for entry in pr_matrix} | {"3.13"} == {
+    # Every supported Python still runs on every PR; 3.14 is the separate coverage job.
+    assert {entry["python-version"] for entry in pr_matrix} | {"3.14"} == {
         "3.10",
         "3.11",
         "3.12",
@@ -118,9 +118,7 @@ def test_pull_requests_run_linux_only_to_stay_inside_the_runner_budget():
         }
 
     assert "if: github.event_name != 'push'" in test_job
-    assert "if: (github.event_name == 'pull_request' || inputs.post_release_bump)" in _job(
-        workflow, "coverage"
-    )
+    assert "needs.changes.outputs.coverage_mode != 'skip'" in _job(workflow, "coverage")
 
 
 def test_the_full_matrix_stays_reachable_without_editing_the_workflow():
@@ -143,11 +141,39 @@ def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable
     assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
 
 
-def test_coverage_shards_measure_the_explicit_full_tier():
+def test_coverage_shards_select_changed_or_full_scope_and_use_sysmon():
     coverage_job = _job(_workflow("ci.yml"), "coverage")
 
-    assert "uv run scripts/test-tier full --workers auto" in coverage_job
+    assert "fetch-depth: 0" in coverage_job
+    assert 'if [[ "$COVERAGE_MODE" == "changed" ]]' in coverage_job
+    assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto' in coverage_job
+    assert "COVERAGE_CORE: sysmon" in coverage_job
+    assert 'python-version: "3.14"' in coverage_job
+    assert "if: github.event_name == 'schedule'" in coverage_job
     assert "uv run pytest tests/" not in coverage_job
+
+
+def test_coverage_mode_is_explicit_and_full_coverage_is_deliberate():
+    workflow = _workflow("ci.yml")
+    changes = _job(workflow, "changes")
+
+    assert "coverage_mode: ${{ steps.classify.outputs.coverage_mode }}" in changes
+    assert "scripts/coverage-mode" in changes
+    assert "full-coverage" in changes
+    assert 'elif [[ "$EVENT_NAME" == "schedule"' in changes
+
+
+def test_coverage_report_applies_the_gate_for_its_selected_scope():
+    report_job = _job(_workflow("ci.yml"), "coverage-report")
+
+    assert "diff-cover coverage.xml" in report_job
+    assert "coverage xml --fail-under=0" in report_job
+    assert "coverage html -d htmlcov --fail-under=0" in report_job
+    assert '--compare-branch "$BASE_SHA"' in report_job
+    assert "--fail-under=90" in report_job
+    assert "if: needs.changes.outputs.coverage_mode == 'changed'" in report_job
+    assert "if: needs.changes.outputs.coverage_mode == 'full'" in report_job
+    assert "codecov/codecov-action@" in report_job
 
 
 def test_local_changed_line_gate_uses_the_pinned_diff_cover_tool():
@@ -166,9 +192,7 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     # `test` also serves the weekly sweep and workflow_dispatch, so it is gated on "not a
     # merge to main" rather than on "is a pull request".
     assert "if: github.event_name != 'push'" in _job(workflow, "test")
-    assert "if: (github.event_name == 'pull_request' || inputs.post_release_bump)" in _job(
-        workflow, "coverage"
-    )
+    assert "needs.changes.outputs.coverage_mode != 'skip'" in _job(workflow, "coverage")
 
 
 def test_post_merge_gate_runs_the_complete_scheduled_tier():
@@ -219,6 +243,12 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
         ),
         pytest.param(
             "pull_request",
+            ("success", "success", "skipped", "skipped", "skipped", "success"),
+            True,
+            id="source-neutral-pull-request-green",
+        ),
+        pytest.param(
+            "pull_request",
             ("success", "success", "failure", "skipped", "skipped", "success"),
             False,
             id="pull-request-coverage-failed",
@@ -243,19 +273,19 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
         ),
         pytest.param(
             "schedule",
-            ("success", "success", "skipped", "skipped", "skipped", "skipped"),
+            ("success", "success", "success", "success", "skipped", "skipped"),
             True,
             id="schedule-green",
         ),
         pytest.param(
             "schedule",
-            ("success", "cancelled", "skipped", "skipped", "skipped", "skipped"),
+            ("success", "cancelled", "success", "success", "skipped", "skipped"),
             False,
             id="schedule-test-cancelled",
         ),
         pytest.param(
             "workflow_dispatch",
-            ("success", "success", "skipped", "skipped", "skipped", "skipped"),
+            ("success", "success", "success", "success", "skipped", "skipped"),
             True,
             id="manual-green",
         ),
@@ -283,6 +313,11 @@ def test_aggregate_gate_waits_for_slow_and_requires_success_on_main(event_name, 
             else "false",
             "CHANGES": "success",
             "VERSION_ONLY": "false",
+            "COVERAGE_MODE": (
+                "skip"
+                if coverage == "skipped"
+                else ("changed" if event_name == "pull_request" else "full")
+            ),
             "VERSION_CHECK": "skipped",
             "LINT": lint,
             "TEST": test,
@@ -313,6 +348,7 @@ def test_real_part_canary_requires_actual_success_before_merge(result):
             "POST_RELEASE": "false",
             "CHANGES": "success",
             "VERSION_ONLY": "false",
+            "COVERAGE_MODE": "changed",
             "VERSION_CHECK": "skipped",
             "LINT": "success",
             "TEST": "success",
@@ -468,6 +504,7 @@ def test_version_updater_changes_only_project_and_lock_identity(tmp_path: Path, 
         ({"CHANGES": "failure"}, False),
         ({"CHANGES": "skipped"}, False),
         ({"VERSION_ONLY": ""}, False),
+        ({"COVERAGE_MODE": ""}, False),
         ({"VERSION_CHECK": "failure"}, False),
         ({"VERSION_CHECK": "skipped"}, False),
         ({"VERSION_CHECK": "cancelled"}, False),
@@ -480,6 +517,7 @@ def test_version_updater_changes_only_project_and_lock_identity(tmp_path: Path, 
         "classifier-failed",
         "classifier-skipped",
         "missing-proof",
+        "missing-coverage-mode",
         "build-failed",
         "build-skipped",
         "build-cancelled",
@@ -498,6 +536,7 @@ def test_version_only_gate_requires_proof_and_successful_metadata_build(
         "POST_RELEASE": "true" if event_name == "workflow_dispatch" else "false",
         "CHANGES": "success",
         "VERSION_ONLY": "true",
+        "COVERAGE_MODE": "skip",
         "VERSION_CHECK": "success",
         "LINT": "skipped",
         "TEST": "skipped",
