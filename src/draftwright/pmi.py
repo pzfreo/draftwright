@@ -172,6 +172,14 @@ _GTOL_MODIFIER: dict[int, str] = {
     16: "all_over",
 }
 _SUPPORTED_GTOL_SCOPE_MODIFIERS = frozenset(("all_around", "all_over"))
+_GTOL_TYPE_OF_VALUE = {
+    1: "diameter_zone",
+    2: "spherical_diameter_zone",
+}
+_GTOL_MATERIAL_REQUIREMENT = {
+    1: "maximum_material_requirement",
+    2: "least_material_requirement",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +220,7 @@ class PmiRecord:
         datum_refs:     Ordered datum letters referenced by a geometric tolerance.
         part21_id:      Part21 entity id supplying an overlaid tolerance magnitude.
         source_category: Source inventory category; structural evidence for concept lowering.
-        gtol_modifiers: Stable names for the source geometric-tolerance modifier sequence.
+        gtol_modifiers: Stable names for source geometric-tolerance qualifiers and modifiers.
         lowering_blockers: Missing/unrepresented facts that make concept lowering unsafe.
         rendering_blockers: Source-geometry facts that make a typed dimension unsafe to draw.
         source_ids:     All source occurrences represented by one projected definition.
@@ -1055,14 +1063,42 @@ def _geometric_tolerance_modifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...
     return tuple(names), tuple(dict.fromkeys(reasons))
 
 
+def _geometric_tolerance_qualifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Preserve supported tolerance-zone shape and material-condition qualifiers."""
+    names: list[str] = []
+    reasons: list[str] = []
+    fields = (
+        ("GetTypeOfValue", "type-of-value", _GTOL_TYPE_OF_VALUE),
+        (
+            "GetMaterialRequirementModifier",
+            "material-requirement modifier",
+            _GTOL_MATERIAL_REQUIREMENT,
+        ),
+    )
+    for accessor, description, vocabulary in fields:
+        try:
+            code = int(getattr(obj, accessor)())
+        except Exception as exc:
+            reasons.append(
+                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
+            )
+            continue
+        if code == 0:
+            continue
+        name = vocabulary.get(code)
+        if name is None:
+            reasons.append(f"geometric-tolerance {description} {code} is unknown")
+            continue
+        names.append(name)
+        if name == "spherical_diameter_zone":
+            reasons.append("geometric-tolerance spherical-diameter zone is not supported")
+    return tuple(names), tuple(reasons)
+
+
 def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
     """Keep a source partial when XCAF exposes requirement fields we do not yet carry."""
     reasons: list[str] = []
-    enum_fields = (
-        ("GetTypeOfValue", "type-of-value"),
-        ("GetMaterialRequirementModifier", "material-requirement modifier"),
-        ("GetZoneModifier", "zone modifier"),
-    )
+    enum_fields = (("GetZoneModifier", "zone modifier"),)
     for accessor, description in enum_fields:
         try:
             enum_value = int(getattr(obj, accessor)())
@@ -1268,6 +1304,9 @@ def _geometric_tolerance_record(
             partial_reasons.append(f"tolerance magnitude is unavailable ({magnitude_reason})")
     gtol_modifiers, modifier_reasons = _geometric_tolerance_modifiers(obj)
     partial_reasons.extend(modifier_reasons)
+    qualifiers, qualifier_reasons = _geometric_tolerance_qualifiers(obj)
+    gtol_modifiers = tuple(dict.fromkeys((*gtol_modifiers, *qualifiers)))
+    partial_reasons.extend(qualifier_reasons)
     partial_reasons.extend(_unpreserved_geometric_tolerance_fields(obj))
     if frame is None:
         reference_geometry = _reference_geometry(label, shape_tool)

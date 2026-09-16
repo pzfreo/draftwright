@@ -64,6 +64,47 @@ class TestExtractPmi:
             for reason in record.rendering_blockers
         )
 
+    def test_ctc03_geometric_tolerance_qualifiers_are_preserved(self, ctc03_extraction_report):
+        from draftwright.model import ControlFrame, build_pmi_features
+
+        records = {
+            record.source_id: record
+            for record in ctc03_extraction_report.records
+            if record.source_category == "geometric_tolerance"
+        }
+
+        assert len(records) == 12
+        assert all(record.lowering_blockers == () for record in records.values())
+        diameter_zones = {
+            source_id
+            for source_id, record in records.items()
+            if "diameter_zone" in record.gtol_modifiers
+        }
+        material_conditions = {
+            source_id: record.gtol_modifiers
+            for source_id, record in records.items()
+            if "maximum_material_requirement" in record.gtol_modifiers
+        }
+        assert diameter_zones == {
+            "geometric_tolerance:0:1:4:12",
+            "geometric_tolerance:0:1:4:16",
+            "geometric_tolerance:0:1:4:20",
+            "geometric_tolerance:0:1:4:23",
+            "geometric_tolerance:0:1:4:27",
+            "geometric_tolerance:0:1:4:35",
+            "geometric_tolerance:0:1:4:37",
+        }
+        assert set(material_conditions) == {
+            "geometric_tolerance:0:1:4:12",
+            "geometric_tolerance:0:1:4:16",
+        }
+
+        frames = build_pmi_features(tuple(records.values()), Box(100, 100, 100).bounding_box())
+        assert len(frames) == 12
+        assert all(isinstance(frame, ControlFrame) for frame in frames)
+        assert sum(frame.diameter for frame in frames) == 7
+        assert sum(frame.modifier == "M" for frame in frames) == 2
+
     def test_nist_ctc01_dim_count(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         dims = [r for r in recs if r.kind not in ("gtol", "datum")]
@@ -655,8 +696,6 @@ class TestExtractPmi:
             GetModifiers=lambda: (15, 16),
         )
         assert pmi_module._unpreserved_geometric_tolerance_fields(nondefault) == (
-            "geometric-tolerance type-of-value 1 is not preserved",
-            "geometric-tolerance material-requirement modifier 2 is not preserved",
             "geometric-tolerance zone modifier 3 is not preserved",
             "geometric-tolerance zone-modifier value 0.4 is not preserved",
             "geometric-tolerance maximum-value modifier 0.5 is not preserved",
@@ -674,8 +713,53 @@ class TestExtractPmi:
             GetModifiers=unreadable,
         )
         reasons = pmi_module._unpreserved_geometric_tolerance_fields(broken)
-        assert len(reasons) == 5
+        assert len(reasons) == 3
         assert all("RuntimeError: unreadable" in reason for reason in reasons)
+
+    def test_geometric_tolerance_qualifiers_are_preserved_or_fail_closed(self):
+        import draftwright.pmi as pmi_module
+
+        def qualifiers(type_of_value, material):
+            return SimpleNamespace(
+                GetTypeOfValue=lambda: type_of_value,
+                GetMaterialRequirementModifier=lambda: material,
+            )
+
+        assert pmi_module._geometric_tolerance_qualifiers(qualifiers(1, 1)) == (
+            ("diameter_zone", "maximum_material_requirement"),
+            (),
+        )
+        assert pmi_module._geometric_tolerance_qualifiers(qualifiers(0, 2)) == (
+            ("least_material_requirement",),
+            (),
+        )
+        assert pmi_module._geometric_tolerance_qualifiers(qualifiers(2, 0)) == (
+            ("spherical_diameter_zone",),
+            ("geometric-tolerance spherical-diameter zone is not supported",),
+        )
+        assert pmi_module._geometric_tolerance_qualifiers(qualifiers(99, 98)) == (
+            (),
+            (
+                "geometric-tolerance type-of-value 99 is unknown",
+                "geometric-tolerance material-requirement modifier 98 is unknown",
+            ),
+        )
+
+        def unreadable():
+            raise RuntimeError("unreadable")
+
+        names, reasons = pmi_module._geometric_tolerance_qualifiers(
+            SimpleNamespace(
+                GetTypeOfValue=unreadable,
+                GetMaterialRequirementModifier=unreadable,
+            )
+        )
+        assert names == ()
+        assert reasons == (
+            "geometric-tolerance type-of-value is unavailable (RuntimeError: unreadable)",
+            "geometric-tolerance material-requirement modifier is unavailable "
+            "(RuntimeError: unreadable)",
+        )
 
     def test_xcaf_semantic_name_failures_are_explicit(self):
         import draftwright.pmi as pmi_module
