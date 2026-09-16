@@ -218,18 +218,18 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     if family_id == "section-recesses":
         completeness = _supported(
             "draftwright.linting.requirements.recognized_requirement_outcomes",
-            "tests/test_issue_1471_section_recess_pockets.py",
+            "tests/test_section_recess_pockets.py",
         )
         completeness["evidence"] = [
+            "tests/test_channel_ownership.py",
             "tests/test_issue_1245_passage_disposition.py",
             "tests/test_issue_1246_prismatic_pocket_disposition.py",
-            "tests/test_issue_1372_pocket_completeness_evidence.py",
-            "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
             "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
             "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-            "tests/test_issue_1438_channel_ownership.py",
-            "tests/test_issue_1471_section_recess_contract.py",
-            "tests/test_issue_1471_section_recess_pockets.py",
+            "tests/test_pocket_completeness_evidence.py",
+            "tests/test_pocket_pattern_completeness_evidence.py",
+            "tests/test_section_recess_contract.py",
+            "tests/test_section_recess_pockets.py",
         ]
     elif family_id == "bosses":
         completeness = _supported(
@@ -289,17 +289,17 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     elif family_id == "grooves":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_groove_completeness_evidence.py",
+            "tests/test_groove_completeness_evidence.py",
         )
     elif family_id == "rectangular-pads":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_pad_completeness_evidence.py",
+            "tests/test_pad_completeness_evidence.py",
         )
     elif family_id == "polygonal-bosses":
         completeness = _supported(
             "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-            "tests/test_issue_1372_polygonal_boss_completeness_evidence.py",
+            "tests/test_polygonal_boss_completeness_evidence.py",
         )
     elif family_id == "polygonal-stock":
         completeness = _supported(
@@ -309,12 +309,12 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     elif family_id == "paired-ramp-steps":
         completeness = _supported(
             "draftwright.linting.paired_ramp_step_coverage.lint_paired_ramp_step_coverage",
-            "tests/test_issue_1382_paired_ramp_semantics.py",
+            "tests/test_paired_ramp_semantics.py",
         )
     elif family_id == "circular-blind-steps":
         completeness = _supported(
             "draftwright.linting.circular_blind_step_coverage.lint_circular_blind_step_coverage",
-            "tests/test_issue_1382_circular_blind_step_semantics.py",
+            "tests/test_circular_blind_step_semantics.py",
         )
     elif family_id == "oriented-slots":
         completeness = _supported(
@@ -324,7 +324,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     elif family_id == "through-steps":
         completeness = _supported(
             "draftwright.linting.through_step_coverage.lint_through_step_coverage",
-            "tests/test_issue_1382_through_step_semantics.py",
+            "tests/test_through_step_semantics.py",
         )
     else:
         completeness = _deferred_completeness(family_id)
@@ -348,7 +348,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
                 in {"_annotate_holes", "render_pocket_patterns", "render_slot_patterns"}
                 else f"draftwright.annotations.from_model.{spec.drawing}"
             ),
-            "tests/test_make_drawing.py",
+            "tests/test_feature_provenance.py",
         ),
         "completeness": completeness,
         "documentation": {
@@ -363,7 +363,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     if family_id == "section-recesses":
         declaration["drawing_consumer"] = _supported(
             "draftwright.annotations.orchestrator._auto_annotate",
-            "tests/test_issue_1471_section_recess_pockets.py",
+            "tests/test_section_recess_pockets.py",
         )
 
     return declaration
@@ -582,7 +582,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_circular_blind_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
                 ],
                 "family": "circular-blind-steps",
@@ -594,7 +594,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "drawing_consumer",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_circular_blind_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
                 ],
                 "family": "circular-blind-steps",
@@ -606,7 +606,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "dsl_declaration",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_circular_blind_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
                 ],
                 "family": "circular-blind-steps",
@@ -618,7 +618,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "generated_code",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_circular_blind_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
                 ],
                 "family": "circular-blind-steps",
@@ -630,7 +630,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "ir_adapter",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_circular_blind_step_semantics.py",
+                    "tests/test_circular_blind_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
                 ],
                 "family": "circular-blind-steps",
@@ -670,7 +670,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1372_groove_completeness_evidence.py",
+                    "tests/test_groove_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
@@ -709,7 +709,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_paired_ramp_semantics.py",
+                    "tests/test_paired_ramp_semantics.py",
                     "tests/test_recogniser_capabilities.py",
                 ],
                 "family": "paired-ramp-steps",
@@ -734,7 +734,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1372_polygonal_boss_completeness_evidence.py",
+                    "tests/test_polygonal_boss_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
@@ -760,7 +760,7 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1372_pad_completeness_evidence.py",
+                    "tests/test_pad_completeness_evidence.py",
                     "tests/test_recogniser_capabilities.py",
                     "tests/test_step_analysis_evaluation.py",
                 ],
@@ -773,8 +773,8 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "completeness",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_through_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
+                    "tests/test_through_step_semantics.py",
                 ],
                 "family": "through-steps",
                 "from": "deferred",
@@ -785,8 +785,8 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "drawing_consumer",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_through_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
+                    "tests/test_through_step_semantics.py",
                 ],
                 "family": "through-steps",
                 "from": "unsupported",
@@ -797,8 +797,8 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "dsl_declaration",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_through_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
+                    "tests/test_through_step_semantics.py",
                 ],
                 "family": "through-steps",
                 "from": "unsupported",
@@ -809,8 +809,8 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "generated_code",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_through_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
+                    "tests/test_through_step_semantics.py",
                 ],
                 "family": "through-steps",
                 "from": "unsupported",
@@ -821,8 +821,8 @@ def consumer_capability_declaration() -> dict[str, Any]:
             {
                 "boundary": "ir_adapter",
                 "compatibility_evidence": [
-                    "tests/test_issue_1382_through_step_semantics.py",
                     "tests/test_recogniser_capabilities.py",
+                    "tests/test_through_step_semantics.py",
                 ],
                 "family": "through-steps",
                 "from": "unsupported",

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from runpy import run_path
 
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import import_step
 from quiddity.evidence import build_recognition_evidence
 
@@ -58,6 +58,7 @@ def test_generated_grm04_sheet_emits_r4_but_not_a_second_diameter(tmp_path) -> N
             scale_policy="strict",
             zones=True,
             projection="third",
+            formats=(),
         )
     )
     script = script_path.read_text()
@@ -66,7 +67,7 @@ def test_generated_grm04_sheet_emits_r4_but_not_a_second_diameter(tmp_path) -> N
     assert 'sheet.dimension(blend2, "blend.radius")' in script
     assert "sheet.diameter(diameter=8" not in script
     assert '"boss.diameter"' not in script
-    rebuilt = run_path(str(script_path))["drawing"]
+    rebuilt = execute_sheet_script_without_export(script, str(script_path))
     assert not [issue for issue in rebuilt.lint() if issue.code == "feature_not_dimensioned"]
 
 

@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Cylinder, Pos
 
 from draftwright import Sheet
@@ -199,8 +200,7 @@ def test_supported_placement_survives_generated_script_and_real_build(tmp_path):
         formats=(),
     )
     namespace = {"part": part}
-    exec(compile(source, "<options-roundtrip>", "exec"), namespace)
-    drawing = namespace["drawing"]
+    drawing = execute_sheet_script_without_export(source, "<options-roundtrip>", namespace)
     assert any(
         key["parameter_id"] == "bore.diameter"
         for name in drawing.annotations()

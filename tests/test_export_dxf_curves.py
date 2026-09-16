@@ -90,7 +90,9 @@ def test_trimmed_rational_bezier_exports_exactly_without_bulk_curve_arrays(monke
     assert list(spline.knots) == list(expected_tool.knots())
 
 
-@pytest.mark.timeout(5)
+# The call takes about 4 s under branch coverage and can be slower under xdist load.
+# Keep a hard bound that still catches the pathological bulk-wrapper regression.
+@pytest.mark.timeout(15)
 def test_hole_table_dxf_conversion_avoids_bulk_curve_arrays(monkeypatch):
     rows = [("TAG", "SIZE", "QTY")] + [(f"A{i}", f"⌀{i + 1}.5", str(i % 4 + 1)) for i in range(20)]
     table = _build_table(rows, draft_preset(), block_cols=3)

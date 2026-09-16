@@ -430,7 +430,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -442,7 +442,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "drawing_consumer",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -454,7 +454,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "dsl_declaration",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -466,7 +466,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "generated_code",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -478,7 +478,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "ir_adapter",
             "compatibility_evidence": [
-                "tests/test_issue_1382_circular_blind_step_semantics.py",
+                "tests/test_circular_blind_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "circular-blind-steps",
@@ -518,7 +518,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1372_groove_completeness_evidence.py",
+                "tests/test_groove_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
             ],
@@ -557,7 +557,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1382_paired_ramp_semantics.py",
+                "tests/test_paired_ramp_semantics.py",
                 "tests/test_recogniser_capabilities.py",
             ],
             "family": "paired-ramp-steps",
@@ -582,7 +582,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1372_polygonal_boss_completeness_evidence.py",
+                "tests/test_polygonal_boss_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
             ],
@@ -608,7 +608,7 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1372_pad_completeness_evidence.py",
+                "tests/test_pad_completeness_evidence.py",
                 "tests/test_recogniser_capabilities.py",
                 "tests/test_step_analysis_evaluation.py",
             ],
@@ -621,8 +621,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "completeness",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "deferred",
@@ -633,8 +633,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "drawing_consumer",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -645,8 +645,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "dsl_declaration",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -657,8 +657,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "generated_code",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -669,8 +669,8 @@ def test_retained_family_transitions_keep_their_review_evidence() -> None:
         {
             "boundary": "ir_adapter",
             "compatibility_evidence": [
-                "tests/test_issue_1382_through_step_semantics.py",
                 "tests/test_recogniser_capabilities.py",
+                "tests/test_through_step_semantics.py",
             ],
             "family": "through-steps",
             "from": "unsupported",
@@ -832,7 +832,7 @@ def test_groove_completeness_is_supported_by_independent_annular_recess_facts() 
     assert family["completeness"] == {
         "state": "supported",
         "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-        "evidence": ["tests/test_issue_1372_groove_completeness_evidence.py"],
+        "evidence": ["tests/test_groove_completeness_evidence.py"],
     }
 
 
@@ -842,7 +842,7 @@ def test_pad_completeness_is_supported_by_independent_protrusion_facts() -> None
     assert family["completeness"] == {
         "state": "supported",
         "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-        "evidence": ["tests/test_issue_1372_pad_completeness_evidence.py"],
+        "evidence": ["tests/test_pad_completeness_evidence.py"],
     }
 
 
@@ -855,13 +855,13 @@ def test_section_recess_completeness_names_all_supported_and_unsupported_grammar
     assert set(family["completeness"]["evidence"]) == {
         "tests/test_issue_1245_passage_disposition.py",
         "tests/test_issue_1246_prismatic_pocket_disposition.py",
-        "tests/test_issue_1372_pocket_completeness_evidence.py",
-        "tests/test_issue_1372_pocket_pattern_completeness_evidence.py",
+        "tests/test_pocket_completeness_evidence.py",
+        "tests/test_pocket_pattern_completeness_evidence.py",
         "tests/test_issue_1421_rectangular_blind_slot_completeness.py",
         "tests/test_issue_1421_round_bottom_blind_slot_completeness.py",
-        "tests/test_issue_1438_channel_ownership.py",
-        "tests/test_issue_1471_section_recess_contract.py",
-        "tests/test_issue_1471_section_recess_pockets.py",
+        "tests/test_channel_ownership.py",
+        "tests/test_section_recess_contract.py",
+        "tests/test_section_recess_pockets.py",
     }
 
 
@@ -899,7 +899,7 @@ def test_polygonal_boss_completeness_uses_independent_attached_prism_facts() -> 
     assert family["completeness"] == {
         "state": "supported",
         "implementation": "draftwright.evaluation.step_analysis.evaluate_step_corpus",
-        "evidence": ["tests/test_issue_1372_polygonal_boss_completeness_evidence.py"],
+        "evidence": ["tests/test_polygonal_boss_completeness_evidence.py"],
     }
 
 

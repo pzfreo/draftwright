@@ -5,6 +5,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Pos, RectangleRounded, extrude
 
 from draftwright import build_drawing
@@ -103,17 +104,16 @@ def test_rounded_pocket_script_round_trip_and_export(rounded, tmp_path):
     )
     assert "corner_radius=3" in source
     namespace = {"__name__": "__rounded_test__", "input_part": part}
-    exec(compile(source, "<rounded pocket>", "exec"), namespace)
-    rebuilt = namespace["drawing"]
+    rebuilt = execute_sheet_script_without_export(source, "<rounded pocket>", namespace)
     assert feature in rebuilt.model().features
     rows = [r for r in drawing.report()["recognition"]["requirements"] if r["family"] == "pockets"]
     assert len(rows) == 5 and {r["state"] for r in rows} == {"placed"}
+    paths = rebuilt.export(str(tmp_path / "rounded"), formats=("svg",))
+    assert Path(paths["svg"]).stat().st_size > 0
     outcomes = pocket_requirement_outcomes(
         rebuilt.recognition(), rebuilt.model().features, rebuilt.registry
     )
     assert len(outcomes) == 5 and {row.state for row in outcomes} == {"placed"}
-    paths = rebuilt.export(str(tmp_path / "rounded"), formats=("svg",))
-    assert Path(paths["svg"]).stat().st_size > 0
 
 
 def test_omitted_ir_pocket_keeps_the_physical_corner_requirement(rounded):
@@ -276,10 +276,11 @@ def test_authored_corner_geometry_keeps_its_precision_in_a_generated_declaration
         formats=(),
     )
     namespace = {"__name__": "__authored_radius_test__", "input_part": part}
-    exec(compile(source, "<authored rounded profile>", "exec"), namespace)
-    rebuilt = namespace["drawing"]
+    rebuilt = execute_sheet_script_without_export(source, "<authored rounded profile>", namespace)
     (actual,) = [f for f in rebuilt.model().features if f.kind == "pocket"]
     assert actual == changed
+    # Critique populates the requirement registry consumed below; serialization is irrelevant.
+    rebuilt.lint()
     (outcome,) = pocket_requirement_outcomes(
         rebuilt.recognition(), rebuilt.model().features, rebuilt.registry
     )

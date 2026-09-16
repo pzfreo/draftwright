@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Cylinder, Pos
 
 from draftwright import Sheet
@@ -185,11 +186,10 @@ def test_partial_chain_overall_survives_generated_script(partial_chain_drawing, 
         number="N",
         page="A3",
         scale=1,
-        formats=("svg",),
+        formats=(),
     )
     namespace = {"part": original.working_part}
-    exec(source, namespace)
-    replay = namespace["drawing"]
+    replay = execute_sheet_script_without_export(source, "<overall-height replay>", namespace)
     assert replay.registry.named("dim_height").label == "62"
     assert any(
         mid.parameter == "height.length" for mid in replay.registry.measurement_of("dim_height")

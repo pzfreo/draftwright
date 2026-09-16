@@ -27,10 +27,12 @@ way `fail_under` in `[tool.coverage.report]` does.
 
 **Within-module copies stay uncounted, and that is measured rather than assumed (#1637).**
 Running this module's own normaliser and thresholds per module instead of across modules
-finds 19 redundant bodies in the whole suite, in 8 groups: 9 in `test_make_drawing.py`, 4 in
-`test_tolerances.py`, 2 each in `test_declare.py`, `test_lint_reconciliation.py` and
-`test_issue_1382_framed_step_family_evidence.py`. One group has six members (the
-`test_overlap_*` cross-view family); the other seven have exactly three. #1637's issue body
+finds 19 redundant bodies in the whole suite, in 8 groups. The six-member `test_overlap_*`
+cross-view group is now in `test_compose_then_pack.py`; the remaining seven groups have
+three members apiece across
+`test_declare.py`, `test_framed_step_family_evidence.py`, `test_lint_reconciliation.py`,
+`test_sheet_furniture.py`, `test_tolerances.py` (two groups), and `test_view_coordinates.py`.
+#1637's issue body
 quotes 66 and 22 for the same scan — that is the count at `_MIN_GROUP_MEMBERS = 2`, which
 this guard deliberately does not use, because at two it measures coincidence.
 
@@ -48,6 +50,8 @@ from __future__ import annotations
 import ast
 import collections
 import hashlib
+from collections.abc import Iterable
+from functools import cache
 from pathlib import Path
 
 TESTS = Path(__file__).parent
@@ -88,35 +92,82 @@ _MIN_STATEMENTS = 3
 _MIN_NODES = 16
 
 
-class _Shape(ast.NodeTransformer):
-    """Erase everything nameable, keep control flow and call structure."""
+def _shape_fingerprint(body: list[ast.stmt]) -> tuple[str, int]:
+    """Hash the normalized body in one pass and return its normalized AST size."""
+    digest = hashlib.md5(usedforsecurity=False)
+    nodes = 0
 
-    def visit_Name(self, node: ast.Name) -> ast.Name:
-        return ast.copy_location(ast.Name(id="_", ctx=node.ctx), node)
+    def add(value: object) -> None:
+        nonlocal nodes
+        if isinstance(value, ast.AST):
+            nodes += 1
+            digest.update(type(value).__name__.encode())
+            digest.update(b"(")
 
-    def visit_Attribute(self, node: ast.Attribute) -> ast.Attribute:
-        self.generic_visit(node)
-        return ast.copy_location(ast.Attribute(value=node.value, attr="_", ctx=node.ctx), node)
+            fields: Iterable[tuple[str, object]]
+            if isinstance(value, ast.Name):
+                fields = (("id", "_"), ("ctx", value.ctx))
+            elif isinstance(value, ast.Attribute):
+                fields = (("value", value.value), ("attr", "_"), ("ctx", value.ctx))
+            elif isinstance(value, ast.Constant):
+                fields = (("value", "_"), ("kind", None))
+            elif isinstance(value, ast.arg):
+                # `_Shape.visit_arg` deliberately discarded annotations and type comments.
+                fields = (("arg", "_"), ("annotation", None), ("type_comment", None))
+            elif isinstance(value, ast.keyword):
+                fields = (("arg", "_"), ("value", value.value))
+            else:
+                fields = ast.iter_fields(value)
 
-    def visit_Constant(self, node: ast.Constant) -> ast.Constant:
-        return ast.copy_location(ast.Constant(value="_"), node)
+            for field, child in fields:
+                digest.update(field.encode())
+                digest.update(b"=")
+                add(child)
+                digest.update(b";")
+            digest.update(b")")
+        elif isinstance(value, list):
+            digest.update(b"[")
+            for child in value:
+                add(child)
+                digest.update(b",")
+            digest.update(b"]")
+        else:
+            encoded = repr(value).encode()
+            digest.update(str(len(encoded)).encode())
+            digest.update(b":")
+            digest.update(encoded)
 
-    def visit_arg(self, node: ast.arg) -> ast.arg:
-        return ast.copy_location(ast.arg(arg="_"), node)
-
-    def visit_keyword(self, node: ast.keyword) -> ast.keyword:
-        self.generic_visit(node)
-        return ast.copy_location(ast.keyword(arg="_", value=node.value), node)
+    add(ast.Module(body=body, type_ignores=[]))
+    return digest.hexdigest(), nodes
 
 
+def test_shape_fingerprint_erases_names_and_literals_only() -> None:
+    left = ast.parse("result = build(1, mode='a')\nassert result.width == 2").body
+    renamed = ast.parse("value = create(9, option='b')\nassert value.height == 7").body
+    different_structure = ast.parse("value = create(9)\nassert value.height == 7").body
+
+    assert _shape_fingerprint(left) == _shape_fingerprint(renamed)
+    assert _shape_fingerprint(left) != _shape_fingerprint(different_structure)
+
+
+def _test_functions(tree: ast.Module) -> Iterable[ast.FunctionDef]:
+    """Yield test definitions without walking their bodies a second time."""
+    pending: list[ast.AST] = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_"):
+            yield node
+            continue
+        pending.extend(reversed(list(ast.iter_child_nodes(node))))
+
+
+@cache
 def _clone_groups() -> dict[str, list[tuple[str, str]]]:
     """Structurally identical test bodies that span more than one module."""
     shapes: dict[str, list[tuple[str, str]]] = collections.defaultdict(list)
     for path in sorted(TESTS.glob("test_*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.FunctionDef) and node.name.startswith("test_")):
-                continue
+        for node in _test_functions(tree):
             body = [
                 statement
                 for statement in node.body
@@ -127,10 +178,9 @@ def _clone_groups() -> dict[str, list[tuple[str, str]]]:
             ]
             if len(body) < _MIN_STATEMENTS:
                 continue
-            normalised = _Shape().visit(ast.Module(body=body, type_ignores=[]))
-            if sum(1 for _ in ast.walk(normalised)) < _MIN_NODES:
+            digest, node_count = _shape_fingerprint(body)
+            if node_count < _MIN_NODES:
                 continue
-            digest = hashlib.md5(ast.dump(normalised).encode(), usedforsecurity=False).hexdigest()
             shapes[digest].append((path.name, node.name))
     return {
         digest: members

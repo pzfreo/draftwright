@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import cache
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,7 @@ from _evidence_contract import (
     assert_missing_model_outcomes_fail_closed,
     assert_observer_fails_closed_without_build_or_recognition,
 )
+from _mutation_corpus import reduced_baseline_fixture, reduced_corpus
 from build123d import Align, Box, Compound, Cylinder, Pos, import_step
 
 from draftwright.evaluation.step_analysis import (
@@ -28,11 +30,46 @@ from draftwright.evaluation.step_analysis import (
 )
 
 CORPUS = Path(__file__).parent / "fixtures" / "evaluation" / "corpus-double-d-bores-v1.json"
+reduced_baseline = reduced_baseline_fixture(CORPUS)
 CENTER = (Align.CENTER, Align.CENTER, Align.CENTER)
+_PART_FIXTURES = (
+    "double-d-blind.step",
+    "double-d-coaxial-compound.step",
+    "double-d-opposed-blind.step",
+    "double-d-round-bore.step",
+    "double-d-single-z.step",
+)
+
+
+@cache
+def _cached_part(name: str):
+    return import_step(CORPUS.parent / name)
 
 
 def _part(name: str = "double-d-single-z.step"):
-    return import_step(CORPUS.parent / name)
+    return _cached_part(name)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cached_parts_stay_pristine():
+    def signature(part):
+        bounds = part.bounding_box()
+        return (
+            part.volume,
+            tuple(bounds.min),
+            tuple(bounds.max),
+            len(part.solids()),
+            len(part.faces()),
+            len(part.edges()),
+        )
+
+    before = {name: signature(_part(name)) for name in _PART_FIXTURES}
+    yield
+    after = {name: signature(_part(name)) for name in _PART_FIXTURES}
+    assert _cached_part.cache_info().currsize == len(_PART_FIXTURES), (
+        "an imported Double-D part is cached without a topology fingerprint"
+    )
+    assert after == before, "a Double-D test mutated cached STEP geometry"
 
 
 def _states(boundary: str) -> set[str]:
@@ -69,6 +106,7 @@ def test_versioned_double_d_corpus_covers_each_required_case_class() -> None:
     )
 
 
+@pytest.mark.scheduled
 def test_real_double_d_corpus_scores_all_layers_and_topology_variants() -> None:
     corpus = load_corpus(CORPUS)
 
@@ -596,7 +634,9 @@ def test_missing_or_corrupt_across_flats_unit_loses_drawing_credit(
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_deleting_provider_records_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_records_cannot_shrink_the_independent_denominator(
+    reduced_baseline, monkeypatch
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -606,10 +646,10 @@ def test_deleting_provider_records_cannot_shrink_the_independent_denominator(mon
         return replace(result, double_d_bores=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_double_d)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 10
+    assert damaged.detection.missed == reduced_baseline.detection.matched == 2
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

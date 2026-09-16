@@ -3,6 +3,7 @@
 from collections import Counter
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Cylinder, Pos, Rot
 
 from draftwright import Sheet
@@ -142,7 +143,8 @@ def test_semantic_shoulder_detail_keeps_profile_scale_tolerance_and_supports(sho
 
 
 def test_shoulder_detail_round_trips_as_editable_intent(shoulder_detail, tmp_path):
-    drawing, _approved, _axis, constraints = shoulder_detail
+    drawing, _approved, axis, constraints = shoulder_detail
+    formats = ("svg",) if axis == "z" else ()
     source = emit_sheet_script(
         drawing.model(),
         "part",
@@ -153,11 +155,16 @@ def test_shoulder_detail_round_trips_as_editable_intent(shoulder_detail, tmp_pat
         scale=1,
         scale_policy="permissive",
         view_constraints=constraints,
-        formats=("svg",),
+        formats=formats,
     )
     namespace = {"part": drawing.working_part}
-    exec(source, namespace)
-    replayed = namespace["drawing"]
+    if formats:
+        exec(source, namespace)
+        replayed = namespace["drawing"]
+    else:
+        replayed = execute_sheet_script_without_export(
+            source, "<shoulder-detail replay>", namespace
+        )
     assert "detail_a" in replayed.views
     assert replayed.registry.named("detail_a_steplen0").label == "3 ±0.2"
 
@@ -170,7 +177,7 @@ def test_shoulder_detail_round_trips_as_editable_intent(shoulder_detail, tmp_pat
 
     assert claims(drawing) == claims(replayed)
     assert not [issue for issue in replayed.lint() if issue.severity != "info"]
-    assert (tmp_path / "shoulder.svg").is_file()
+    assert (tmp_path / "shoulder.svg").is_file() is bool(formats)
 
 
 @pytest.mark.parametrize("omitted", ("step.length", "step.diameter"))

@@ -9,9 +9,12 @@ import inspect
 import sys
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pytest
+from _unit_manifest import UNIT_MODULES
+
+pytest_plugins = ("_burden_report",)
 
 
 @contextmanager
@@ -155,7 +158,8 @@ def recognition_consumer_calls():
 
 # ── The `unit` tier (#656): pure-logic tests, zero OCC geometry ──────────────────────
 #
-# `uv run pytest -m unit` is the inner loop: it must run in seconds and build nothing.
+# `uv run scripts/unit-tests` is the inner loop: it passes only these modules to pytest,
+# avoiding full-suite collection, and must run in seconds and build nothing.
 # Membership is centralised here so the tier has one place to grow; honesty is enforced
 # by the runtest hooks below — constructing any build123d Shape while a unit-marked
 # test runs fails it, and the patch is installed in `pytest_runtest_setup`, BEFORE
@@ -167,48 +171,24 @@ def recognition_consumer_calls():
 # build would also show up as collection slowness. A module moves to this list only if
 # every test in it passes under the enforcement.
 
-_UNIT_MODULES = frozenset(
-    {
-        "test_api_docs.py",
-        "test_architecture_docs.py",
-        "test_carve_free_position_callers.py",
-        "test_clone_budget.py",
-        "test_counting_calls.py",
-        "test_deprecation_dates.py",
-        "test_import_boundaries.py",
-        "test_inspection_contract.py",
-        "test_label_provenance.py",
-        "test_layout.py",
-        "test_issue_1312_engine_costs.py",
-        "test_issue_1332_overlap_remedy.py",
-        "test_issue_1471_evidence_schema.py",
-        "test_lint_ink_overlap.py",
-        "test_linting.py",
-        "test_pmi_part21.py",
-        "test_principal_profile_classifier.py",
-        "test_private_test_attr_reads.py",
-        "test_private_test_imports.py",
-        "test_quality_components.py",
-        "test_recogniser_adoption.py",
-        "test_registry.py",
-        "test_suite_shape.py",
-        "test_workflows.py",
-        "test_version_bump_ci.py",
-    }
-)
-
 _SHAPE_INIT = pytest.StashKey()
 
 
 def pytest_collection_modifyitems(config, items):
     for item in items:
-        if item.path.name in _UNIT_MODULES:
+        in_manifest = item.path.name in UNIT_MODULES
+        if item.get_closest_marker("unit") is not None and not in_manifest:
+            raise pytest.UsageError(
+                f"{item.nodeid} has an explicit unit marker but its module is absent from "
+                "tests/_unit_manifest.py"
+            )
+        if in_manifest:
             item.add_marker(pytest.mark.unit)
 
 
 def _forbidden_shape_init(self, *args, **kwargs):
     raise AssertionError(
-        "this test is in the `unit` tier (conftest._UNIT_MODULES) but constructs "
+        "this test is in the `unit` tier (tests/_unit_manifest.py) but constructs "
         "build123d geometry — move the module out of the tier or make the test pure (#656)"
     )
 
@@ -259,6 +239,26 @@ class _SharedDrawing:
     borrower: str
 
 
+@dataclass(frozen=True)
+class _AnalysisSeed:
+    part: object
+    analysis: object
+
+
+def _isolated_analysis(analysis):
+    """Copy the mutable IR containers while retaining immutable geometry evidence."""
+    model = analysis.model
+    if model is None:
+        return replace(analysis)
+    isolated_model = replace(
+        model,
+        features=list(model.features),
+        datums=list(model.datums),
+        decorations=dict(model.decorations),
+    )
+    return replace(analysis, model=isolated_model)
+
+
 def _sheet_membership(drawing) -> tuple:
     """The part of a Drawing a read-only borrower must leave exactly as it found it.
 
@@ -300,6 +300,13 @@ def _built_drawing_cache():
     cache.clear()
 
 
+@pytest.fixture(scope="session")
+def _analysis_seed_cache():
+    cache: dict[tuple, _AnalysisSeed] = {}
+    yield cache
+    cache.clear()
+
+
 @pytest.fixture
 def shared_drawing(_built_drawing_cache, request):
     """`shared_drawing(recipe, **options)` → a READ-ONLY Drawing, built once per session.
@@ -324,6 +331,9 @@ def shared_drawing(_built_drawing_cache, request):
                 f"{options!r} is not. Build it with unshared_drawing_for_mutation."
             ) from exc
         entry = _built_drawing_cache.get(key)
+        from _burden_report import record_recipe
+
+        record_recipe(recipe, options, cache_hit=entry is not None)
         if entry is None:
             drawing = build_drawing(part(recipe), **options)
             _built_drawing_cache[key] = _SharedDrawing(
@@ -356,5 +366,38 @@ def unshared_drawing_for_mutation():
 
     def _build(recipe: str, **options):
         return build_drawing(part(recipe), **options)
+
+    return _build
+
+
+@pytest.fixture
+def fresh_drawing(_analysis_seed_cache):
+    """Build a fresh Drawing while reusing immutable analysis for a named substrate."""
+    from _parts import part
+
+    from draftwright import build_drawing
+
+    def _build(recipe: str, **options):
+        key = (recipe, tuple(sorted(options.items())))
+        try:
+            hash(key)
+        except TypeError as exc:
+            raise TypeError(
+                f"analysis-cache options must be hashable; {options!r} is not"
+            ) from exc
+        seed = _analysis_seed_cache.get(key)
+        if seed is not None:
+            return build_drawing(
+                seed.part,
+                _analysis_base=_isolated_analysis(seed.analysis),
+                **options,
+            )
+
+        source = part(recipe)
+        captured = []
+        drawing = build_drawing(source, _analysis_sink=captured.append, **options)
+        assert captured, "builder returned without publishing its analysis seed"
+        _analysis_seed_cache[key] = _AnalysisSeed(source, _isolated_analysis(captured[0]))
+        return drawing
 
     return _build

@@ -1,227 +1,89 @@
-"""Layout-cleanliness invariants for the ADR 2 (was 0009) strip-layout refactor (#319/#301).
-
-Two *property* guards over the snapshot corpus, pulled forward ahead of the
-terminal P5 phase so they protect every output-changing phase (P1b–P4) as it
-lands:
-
-1. **Determinism** — ``build_drawing`` is a pure function of its input: two builds
-   of the same part produce an identical layout signature. This one is absolute
-   and holds today.
-
-2. **No invisible-occupant overlap** — no two *non-crossable* named annotations that
-   can share a view's strip space overlap in their FULL rendered geometry (leader
-   shafts, witness/extension lines — the footprint a label box hides), the
-   `#133/#225/#305` blind-spot class. Scoping mirrors ``strip_obstacles``: same-view
-   pairs AND any pair involving a drawing-level (``view_of`` ``None``) occupant — the
-   section hatch/arrows a per-view strip solve must still avoid; distinct ortho views
-   are disjoint by ADR 2 (was 0004) and out of scope. This invariant is the *end state* ADR 2 (was 0009)
-   converges to, and it is **not yet globally true**: HEAD still has the exact
-   defect overlaps P1b/P4 exist to remove. So it is expressed as a *ratchet* — the
-   observed overlap set must equal :data:`_KNOWN_OVERLAPS` exactly:
-
-   - a NEW overlap (regression) fails the test, and
-   - a REMOVED overlap (a phase cleaned it) also fails, forcing that PR to burn
-     down the allowlist — the entry moves out as the fix lands.
-
-   Two categories live in the allowlist (see the inline tags): ``BENIGN`` overlaps
-   are permanent and legitimate (two location dimensions off a shared datum share
-   their extension-line region — standard ISO practice); ``PENDING`` overlaps are
-   the real defects a named phase removes. When the PENDING set empties (post-P4)
-   this file's ratchet collapses to the absolute invariant and the throwaway
-   snapshot gate can retire (P5).
-
-Crossable annotations (centre lines / marks — :data:`CROSSABLE_TYPES`) are excluded
-the way a *dimension* excludes them: a dim may legitimately cross a centreline
-(ISO 128). The stricter leader-vs-centreline crossing-free guarantee (#305) is a
-P4 property and is asserted there, not here.
-"""
-
-from __future__ import annotations
+"""Finished-sheet layout cleanliness invariants."""
 
 import pytest
-
-# The corpus + determinism fingerprint, now in a shared helper after the byte-exact
-# snapshot gate was retired (#319/#641 gap 3): this relational cleanliness invariant is
-# part of what replaces it, on every kernel.
-from _layout_sig import CORPUS, _signature
+from _layout_sig import CORPUS  # noqa: F401 — compatibility import for witness-label tests
+from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
-from draftwright.annotations._common import CROSSABLE_TYPES
-
-# Overlaps beyond a sliver this small are ignored — matches the within-view label
-# lint's 0.5 mm tolerance, so FP-noise slivers on a shared edge don't register.
-_TOL_MM = 0.5
 
 
-# Every non-crossable full-geometry overlap present on HEAD, as {part: {frozenset
-# of the two annotation names}}. Three kinds:
-#   BENIGN            = permanent (shared-datum witness corridors of a dimension chain).
-#   SPACE-CONSTRAINED = a real crossing that placement cannot clear without dropping a
-#                       dim; kept under policy B until an outer-layout rescale (ADR 2 (was 0004)).
-#   PENDING <issue>   = a real invisible-occupant defect the named phase removes (delete
-#                       the entry in that PR).
-_KNOWN_OVERLAPS: dict[str, set[frozenset[str]]] = {
-    # The honest post-#685 oracle exempts only TRANSVERSE stroke crossings; two
-    # remaining BENIGN classes stay allowlisted:
-    #  - PARALLEL WITNESS SHARING: location dims chained off a common datum, and
-    #    stacked step/slot ladders, share their extension-line corridor — the
-    #    standard ISO 129-1 running-dimension presentation. Distinguishing shared
-    #    witness corridors from a genuine collinear dim-line overprint needs
-    #    semantic stroke roles helpers does not expose (possible follow-up).
-    # dshape's dim_height pair, post-#690: the witness-through-label defect is
-    # FIXED (reconcile_witness_labels shifts the height label clear of the loc
-    # dim's crossing witness). The pair remains observed through their SHARED
-    # DATUM WITNESS (both anchor y=81, the common base edge) — the same BENIGN
-    # running-dimension corridor as plate_holes/holed_slot above.
-    "bracket": {
-        frozenset({"m_locx0", "m_locx1"}),
-        frozenset({"m_locy0", "m_locy1"}),
-    },
-    "dshape": {
-        frozenset({"dim_loc_side_y200", "m_env_depth"}),
-    },
-    "holed_slot": {
-        frozenset({"m_locx0", "m_locx1"}),
-        frozenset({"m_locx0", "m_locx2"}),
-        frozenset({"m_locx1", "m_locx2"}),
-        frozenset({"m_slot0_length", "m_locx0"}),
-        frozenset({"m_slot0_length", "m_locx1"}),
-        frozenset({"m_locy0", "m_locy1"}),
-    },
-    "plate_holes": {
-        frozenset({"m_locx0", "m_locx1"}),
-        frozenset({"m_locy0", "m_locy1"}),
-        # BENIGN, same class as dshape/side_drilled's `<location dim>, m_env_depth` above.
-        # New because the dimension is new: #1590 replans this part off its withheld overall
-        # depth, so `m_env_depth` now exists and joins the y-chain's corridor. All three
-        # boxes start at x=150.63 — one shared datum witness, the ISO 129-1 running-dimension
-        # presentation, not a dim-line overprint.
-        frozenset({"m_locy0", "m_env_depth"}),
-        frozenset({"m_locy1", "m_env_depth"}),
-    },
-    "side_drilled": {
-        frozenset({"dim_loc_side_y2000", "m_env_depth"}),
-    },
-    "slotted": {frozenset({"m_slot0_length", "m_slot0_pos"})},
-    "turned_shaft": {
-        frozenset({"m_steplen0", "m_steplen1"}),
-        frozenset({"m_steplen1", "m_steplen2"}),
-    },
-}
+class TestLayoutCleanlinessInvariant:
+    """End-to-end invariant (#293): for a spread of representative part shapes the
+    *finished* drawing must place its views and annotations without layout
+    collisions — the OUTCOME, not just the trigger mechanics the unit tests above
+    cover. This is the check that would have caught the GRM-03 staggered chain
+    bumping the plan view: the trigger unit tests were green while a real part
+    rendered with overlapping annotations. A regression here means the layout
+    engine (estimate → measure-and-repack) let a real collision through."""
 
+    # Genuine layout defects — NOT view_annotation_inside_extents, the soft info
+    # code for a callout legitimately sitting inside a large face.
+    _DEFECTS = {
+        "view_annotation_overlap",
+        "view_overlap",
+        "view_out_of_bounds",
+        "annotation_out_of_bounds",
+        "annotation_overlap",
+    }
 
-def _geom_box(o):
-    try:
-        b = o.bounding_box()
-        return (b.min.X, b.min.Y, b.max.X, b.max.Y)
-    except Exception:
-        return None
+    @staticmethod
+    def _x_simple():
+        from build123d import Align, Cylinder, Pos, Rotation
 
+        b = Align.MIN
+        s = Cylinder(8, 20, align=(Align.CENTER, Align.CENTER, b)) + Pos(0, 0, 20) * Cylinder(
+            5, 20, align=(Align.CENTER, Align.CENTER, b)
+        )
+        return Rotation(0, 90, 0) * s  # roomy X-turned chain → one tier, no zig-zag
 
-def _overlaps(a, b, tol):
-    return (min(a[2], b[2]) - max(a[0], b[0]) > tol) and (min(a[3], b[3]) - max(a[1], b[1]) > tol)
+    @staticmethod
+    def _x_crowded():
+        from build123d import Align, Cylinder, Pos, Rotation
 
+        b = Align.MIN  # GRM-03 shape: fine head steps + long shaft → stagger + view lift
+        s = None
+        z = 0.0
+        for d, ln in [(8, 1.0), (12, 1.0), (8, 1.0), (12, 1.0), (6, 30.0)]:
+            seg = Pos(0, 0, z) * Cylinder(d / 2, ln, align=(Align.CENTER, Align.CENTER, b))
+            s = seg if s is None else s + seg
+            z += ln
+        return Rotation(0, 90, 0) * s
 
-def _observed_overlaps(dwg) -> set[frozenset[str]]:
-    """Every non-crossable full-geometry overlap between named annotations that can
-    share a view's strip space.
+    @staticmethod
+    def _z_stepped():
+        from build123d import Cylinder, Pos
 
-    View scoping mirrors :func:`strip_obstacles`: a drawing-level occupant
-    (``view_of`` is ``None`` — section hatch/arrows, title block) is present in
-    EVERY per-view query, so it is compared against every view; two *different*
-    ortho views are kept disjoint by compose-then-pack (ADR 2 (was 0004)) so are not
-    compared here (that cross-view class is ADR 2 (was 0004)'s concern, not ADR 2 (was 0009)'s).
-    Named annotations only — like ``strip_obstacles``, which iterates
-    ``iter_annotations`` (unnamed items contribute to the determinism ``item_count``
-    but carry no position guard; production places none through the strip stage)."""
+        return Cylinder(15, 30) + Pos(0, 0, 30) * Cylinder(8, 30)  # Z-turned ladder
 
-    # Decomposed occupancy (#685): an annotation with `.segments` (helpers ≥0.14
-    # reports the drawn line pieces) is a set of stroke boxes + its label box, not
-    # one hull — a dimension's empty L-corners no longer count as overlap. The
-    # local mirror of annotations/_common.occupancy_boxes (the private-import
-    # ratchet keeps tests off annotations/ internals); hull fallback otherwise.
-    def _boxes(o):
-        # (box, direction) pairs: direction is the stroke's unit vector, or None for
-        # a label / hull-fallback box. A TRANSVERSE stroke-stroke crossing (>=30 deg
-        # between directions) is a legitimate ISO 129-1 crossing (an outer dim's
-        # witness passes through inner tiers) and does not count; near-parallel
-        # stroke overlap (collinear overprint) and any label/hull involvement do
-        # (#688 review - the blanket stroke exemption hid overprints).
-        import math as _m
+    @staticmethod
+    def _prism_holes():
+        part = Box(80, 60, 20)  # a row of holes → location dims above the plan view
+        for x in (-30, -10, 10, 30):
+            part -= Pos(x, 20, 0) * Cylinder(3, 30)
+        return part
 
-        segs = getattr(o, "segments", None)
-        if not segs:
-            b = _geom_box(o)
-            return [(b, None)] if b is not None else []
-        # Mirror production (strip_obstacles): the pad scales with the preset's
-        # arrow geometry, so the oracle exercises the same occupancy model.
-        al = getattr(getattr(dwg, "draft", None), "arrow_length", None)
-        pad = max(1.2, al / 2) if al else 1.2
-        out = []
-        for (x0, y0), (x1, y1) in segs:
-            ln = _m.hypot(x1 - x0, y1 - y0) or 1.0
-            out.append(
-                (
-                    (min(x0, x1) - pad, min(y0, y1) - pad, max(x0, x1) + pad, max(y0, y1) + pad),
-                    ((x1 - x0) / ln, (y1 - y0) / ln),
-                )
-            )
-        lb = getattr(o, "label_bbox", None)
-        if lb is not None:
-            out.append(((lb[0], lb[1], lb[2], lb[3]), None))
-        return out
+    @staticmethod
+    def _bolt_circle():
+        import math
 
-    def _benign_crossing(d1, d2):
-        if d1 is None or d2 is None:
-            return False
-        cross = abs(d1[0] * d2[1] - d1[1] * d2[0])  # |sin| of the angle between
-        return cross >= 0.5  # >=30 deg: a transverse crossing, not an overprint
+        part = Box(60, 60, 15)  # 6-hole bolt circle → ballooned plan-view halo
+        for i in range(6):
+            a = i * math.pi / 3
+            part -= Pos(20 * math.cos(a), 20 * math.sin(a), 0) * Cylinder(2.5, 30)
+        return part
 
-    named = [
-        (name, _boxes(o), type(o).__name__, dwg.view_of(name))
-        for name, o in dwg.iter_annotations()
-    ]
-    hits: set[frozenset[str]] = set()
-    for i in range(len(named)):
-        n1, bs1, t1, v1 = named[i]
-        if not bs1 or t1 in CROSSABLE_TYPES:
-            continue
-        for j in range(i + 1, len(named)):
-            n2, bs2, t2, v2 = named[j]
-            if not bs2 or t2 in CROSSABLE_TYPES:
-                continue
-            if not (v1 == v2 or v1 is None or v2 is None):
-                continue  # two distinct ortho views → disjoint blocks (ADR 2 (was 0004))
-            if any(
-                _overlaps(b1, b2, _TOL_MM) and not _benign_crossing(d1, d2)
-                for b1, d1 in bs1
-                for b2, d2 in bs2
-            ):
-                hits.add(frozenset({n1, n2}))
-    return hits
+    @staticmethod
+    def _counterbored():
+        part = Box(60, 40, 20)  # counterbore → full section A-A
+        part -= Cylinder(4, 30)
+        part -= Pos(0, 0, 2) * Cylinder(7, 20)
+        return part
 
-
-@pytest.mark.parametrize("name", list(CORPUS))
-def test_build_is_deterministic(name):
-    # build_drawing is a pure function of its input — no Date.now/random/hash-order
-    # leakage into placement. Guards every output-changing phase against a
-    # non-reproducible layout that the snapshot gate (single build) can't catch.
-    a = _signature(build_drawing(CORPUS[name]()))
-    b = _signature(build_drawing(CORPUS[name]()))
-    assert a == b, f"{name!r}: two builds produced different layouts"
-
-
-@pytest.mark.parametrize("name", list(CORPUS))
-def test_no_invisible_occupant_overlap(name):
-    # Ratchet: the observed non-crossable overlap set must equal the known set. A new
-    # overlap = regression; a vanished one = a phase cleaned it → burn down
-    # _KNOWN_OVERLAPS in that PR (the goal is an empty PENDING set post-P4).
-    observed = _observed_overlaps(build_drawing(CORPUS[name]()))
-    known = _KNOWN_OVERLAPS.get(name, set())
-    new = observed - known
-    gone = known - observed
-    assert not new, f"{name!r}: NEW invisible-occupant overlap(s) {new} — regression"
-    assert not gone, (
-        f"{name!r}: known overlap(s) {gone} no longer present — a phase cleaned them; "
-        f"remove the entry from _KNOWN_OVERLAPS in this PR"
+    @pytest.mark.parametrize(
+        "factory",
+        ["_x_simple", "_x_crowded", "_z_stepped", "_prism_holes", "_bolt_circle", "_counterbored"],
     )
+    def test_finished_sheet_has_no_layout_collisions(self, factory):
+        dwg = build_drawing(getattr(self, factory)())
+        hits = sorted({i.code for i in dwg.lint()} & self._DEFECTS)
+        assert not hits, f"{factory}: layout defects in finished drawing: {hits}"

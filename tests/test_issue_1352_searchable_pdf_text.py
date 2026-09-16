@@ -6,6 +6,7 @@ import math
 import shutil
 import subprocess
 import warnings
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -329,86 +330,27 @@ def test_semantic_order_tiebreak_and_basic_dimension_rotation_are_total(tmp_path
         pdf.close()
 
 
-@pytest.mark.parametrize(
-    ("start", "end", "expected"),
-    [
-        ((50, 10, 0), (10, 50, 0), -45.0),
-        ((20, 50, 0), (20, 10, 0), 90.0),
-        ((10, 10, 0), (20, 10, 0), 0.0),
-    ],
+_UPRIGHT_CASES = (
+    ((50, 10, 0), (10, 50, 0), -45.0),
+    ((20, 50, 0), (20, 10, 0), 90.0),
+    ((10, 10, 0), (20, 10, 0), 0.0),
 )
-def test_basic_dimension_semantic_text_is_normalised_upright(tmp_path, start, end, expected):
-    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    annotation = Dimension(start, end, (0, 1, 0), 10, drawing.draft, label="UPRIGHT", basic=True)
-    drawing.registry.add(annotation, "upright", view=None)
-    drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"upright_{expected}"), formats=("pdf",))["pdf"]
+
+def test_basic_dimension_semantic_text_is_normalised_upright(tmp_path):
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    labels = []
+    for index, (start, end, expected) in enumerate(_UPRIGHT_CASES):
+        label = f"UPRIGHT{index}"
+        annotation = Dimension(start, end, (0, 1, 0), 10, drawing.draft, label=label, basic=True)
+        drawing.registry.add(annotation, f"upright_{index}", view=None)
+        drawing.items.append(annotation)
+        labels.append((label, expected))
+
+    pdf_path = drawing.export(str(tmp_path / "upright"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert _extracted_text_angle(text_page, extracted, "UPRIGHT") == pytest.approx(
-            expected, abs=1.0
-        )
-    finally:
-        text_page.close()
-        pdf.close()
-
-
-@pytest.mark.parametrize(
-    ("start", "end", "label", "label_offset_x", "rotation", "live_rotation", "expected"),
-    [
-        ((50, 50, 0), (90, 50, 0), "X", -20, 0, 0, 0.0),
-        ((50, 50, 0), (50, 90, 0), "W" * 40, 0, 0, 0, 90.0),
-        ((50, 50, 0), (90, 90, 0), "W" * 40, 0, 0, 0, 45.0),
-        ((50, 90, 0), (90, 50, 0), "W" * 40, 0, 0, 0, -45.0),
-        (
-            (50, 50, 0),
-            (56.945927, 89.39231, 0),
-            "UPRIGHT",
-            0,
-            30,
-            0,
-            110.0,
-        ),
-        (
-            (50, 50, 0),
-            (56.945927, 89.39231, 0),
-            "UPRIGHT",
-            0,
-            30,
-            20,
-            130.0,
-        ),
-        ((50, 50, 0), (90, 50, 0), "UPRIGHT", 0, 220, 0, -140.0),
-        ((50, 50, 0), (90, 50, 0), "UPRIGHT", 0, 400, 0, 40.0),
-    ],
-)
-def test_raw_basic_dimension_rotation_survives_missing_or_mixed_spans(
-    tmp_path, start, end, label, label_offset_x, rotation, live_rotation, expected
-):
-    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    annotation = Dimension(
-        start,
-        end,
-        "above",
-        4,
-        drawing.draft,
-        label=label,
-        basic=True,
-        label_offset_x=label_offset_x,
-        rotation=rotation,
-    )
-    annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
-    drawing.registry.add(annotation, "raw_basic", view=None)
-    drawing.items.append(annotation)
-
-    pdf_path = drawing.export(str(tmp_path / f"raw_basic_{expected}"), formats=("pdf",))["pdf"]
-    pdf, text_page, extracted = _pdf_text(pdf_path)
-    try:
-        assert label in extracted
-        if math.cos(math.radians(expected)) < -1e-9:
-            _assert_first_character_overlaps_annotation(text_page, extracted, label, annotation)
-        else:
+        for label, expected in labels:
             assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
                 expected, abs=1.0
             )
@@ -417,34 +359,89 @@ def test_raw_basic_dimension_rotation_survives_missing_or_mixed_spans(
         pdf.close()
 
 
-@pytest.mark.parametrize("rotation", [30, 120])
-def test_engine_dimension_keeps_its_construction_draft_and_rotation(tmp_path, rotation):
+def test_raw_basic_dimension_rotation_survives_missing_or_mixed_spans(tmp_path):
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    cases = [
+        ((20, 20, 0), (60, 20, 0), "X", -20, 0, 0, 0.0),
+        ((50, 30, 0), (50, 70, 0), "W" * 39 + "A", 0, 0, 0, 90.0),
+        ((60, 90, 0), (100, 130, 0), "W" * 39 + "B", 0, 0, 0, 45.0),
+        ((60, 200, 0), (100, 160, 0), "W" * 39 + "C", 0, 0, 0, -45.0),
+        ((130, 20, 0), (136.945927, 59.39231, 0), "UPRIGHT0", 0, 30, 0, 110.0),
+        ((130, 75, 0), (136.945927, 114.39231, 0), "UPRIGHT1", 0, 30, 20, 130.0),
+        ((130, 150, 0), (170, 150, 0), "UPRIGHT2", 0, 220, 0, -140.0),
+        ((130, 220, 0), (170, 220, 0), "UPRIGHT3", 0, 400, 0, 40.0),
+    ]
+    annotations = []
+    for index, (start, end, label, offset, rotation, live_rotation, expected) in enumerate(cases):
+        annotation = Dimension(
+            start,
+            end,
+            "above",
+            4,
+            drawing.draft,
+            label=label,
+            basic=True,
+            label_offset_x=offset,
+            rotation=rotation,
+        )
+        annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
+        drawing.registry.add(annotation, f"raw_basic_{index}", view=None)
+        drawing.items.append(annotation)
+        annotations.append((label, expected, annotation))
+
+    pdf_path = drawing.export(str(tmp_path / "raw_basic_spans"), formats=("pdf",))["pdf"]
+    pdf, text_page, extracted = _pdf_text(pdf_path)
+    try:
+        for label, expected, annotation in annotations:
+            assert label in extracted
+            if math.cos(math.radians(expected)) < -1e-9:
+                _assert_first_character_overlaps_annotation(
+                    text_page, extracted, label, annotation
+                )
+            else:
+                assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
+                    expected, abs=1.0
+                )
+    finally:
+        text_page.close()
+        pdf.close()
+
+
+def test_engine_dimensions_keep_their_construction_draft_and_rotation(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(font_size=5, font="Arial", font_style=FontStyle.BOLD)
     custom.font_path = None
-    with pytest.warns(DeprecationWarning):
-        drawing.place_dim(
-            (20, 20, 0),
-            (60, 20, 0),
-            "above",
-            "front",
-            custom,
-            name="tagged",
-            basic=True,
-            label="TAGGED",
-            rotation=rotation,
-        )
+    labels = []
+    for index, rotation in enumerate((30, 120)):
+        label = f"TAGGED{rotation}"
+        y = 30 + index * 60
+        with pytest.warns(DeprecationWarning):
+            drawing.place_dim(
+                (20, y, 0),
+                (60, y, 0),
+                "above",
+                "front",
+                custom,
+                name=f"tagged_{rotation}",
+                basic=True,
+                label=label,
+                rotation=rotation,
+            )
+        labels.append((label, rotation))
 
-    pdf_path = drawing.export(str(tmp_path / f"tagged_{rotation}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "tagged"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        if math.cos(math.radians(rotation)) < -1e-9:
-            annotation = drawing.get_annotation("tagged")
-            _assert_first_character_overlaps_annotation(text_page, extracted, "TAGGED", annotation)
-        else:
-            assert _extracted_text_angle(text_page, extracted, "TAGGED") == pytest.approx(
-                rotation, abs=1.0
-            )
+        for label, rotation in labels:
+            if math.cos(math.radians(rotation)) < -1e-9:
+                annotation = drawing.get_annotation(f"tagged_{rotation}")
+                _assert_first_character_overlaps_annotation(
+                    text_page, extracted, label, annotation
+                )
+            else:
+                assert _extracted_text_angle(text_page, extracted, label) == pytest.approx(
+                    rotation, abs=1.0
+                )
     finally:
         text_page.close()
         pdf.close()
@@ -455,36 +452,43 @@ def test_engine_dimension_keeps_its_construction_draft_and_rotation(tmp_path, ro
     assert expected_postscript_name in Path(pdf_path).read_bytes()
 
 
-@pytest.mark.parametrize(
-    ("dimension_kwargs", "expected"),
-    [
-        ({}, "10.0mm"),
-        ({"basic": True}, "10.0mm"),
-        ({"tolerance": 0.1}, "10.0 ±0.1mm"),
-        ({"basic": True, "tolerance": 0.1}, "10.0 ±0.1mm"),
-        ({"tolerance": (0.1, 0.2)}, "10.0 +0.1 -0.2mm"),
-        ({"label": "CUSTOM"}, "CUSTOM"),
-    ],
+_RAW_HELPER_LABEL_CASES = (
+    ({}, "10.0mm"),
+    ({"basic": True}, "10.0mm"),
+    ({"tolerance": 0.1}, "10.0 ±0.1mm"),
+    ({"basic": True, "tolerance": 0.1}, "10.0 ±0.1mm"),
+    ({"tolerance": (0.1, 0.2)}, "10.0 +0.1 -0.2mm"),
+    ({"label": "CUSTOM"}, "CUSTOM"),
 )
-def test_raw_helper_dimension_semantic_fallback_keeps_visible_label(
-    tmp_path, dimension_kwargs, expected
-):
+
+
+def test_raw_helper_dimension_semantic_fallback_keeps_visible_labels(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    annotation = Dimension(
-        (10, 10, 0),
-        (20, 10, 0),
-        "above",
-        10,
-        drawing.draft,
-        **dimension_kwargs,
-    )
-    drawing.registry.add(annotation, "raw_units", view=None)
-    drawing.items.append(annotation)
+    expected = Counter(label for _, label in _RAW_HELPER_LABEL_CASES)
+    for index, (dimension_kwargs, _label) in enumerate(_RAW_HELPER_LABEL_CASES):
+        y = 20 + index * 22
+        annotation = Dimension(
+            (10, y, 0),
+            (20, y, 0),
+            "above",
+            10,
+            drawing.draft,
+            **dimension_kwargs,
+        )
+        drawing.registry.add(annotation, f"raw_units_{index}", view=None)
+        drawing.items.append(annotation)
 
     pdf_path = drawing.export(str(tmp_path / "raw_units"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert expected in extracted
+        actual = Counter()
+        for item in text_page.parent.get_objects(textpage=text_page):
+            if isinstance(item, pdfium.PdfTextObj):
+                text = item.extract()
+                if text in expected:
+                    actual[text] += 1
+        assert actual == expected
+        assert all(label in extracted for label in expected)
     finally:
         text_page.close()
         pdf.close()
@@ -566,8 +570,7 @@ def test_raw_numeric_freeform_label_keeps_authored_spelling(tmp_path):
         pdf.close()
 
 
-@pytest.mark.parametrize("basic", [False, True])
-def test_raw_freeform_dimension_from_a_different_draft_keeps_its_text(tmp_path, basic):
+def test_raw_freeform_dimensions_from_a_different_draft_keep_their_text(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(
         font_size=5,
@@ -576,184 +579,191 @@ def test_raw_freeform_dimension_from_a_different_draft_keeps_its_text(tmp_path, 
         display_units=False,
     )
     custom.font_path = None
-    annotation = Dimension(
-        (20, 20, 0),
-        (60, 20, 0),
-        "above",
-        10,
-        custom,
-        label="BOLD",
-        basic=basic,
-    )
-    drawing.registry.add(annotation, "raw_custom_draft", view=None)
-    drawing.items.append(annotation)
+    labels = []
+    for index, (basic, label) in enumerate(((False, "BOLD PLAIN"), (True, "BOLD BASIC"))):
+        y = 30 + index * 50
+        annotation = Dimension(
+            (20, y, 0),
+            (60, y, 0),
+            "above",
+            10,
+            custom,
+            label=label,
+            basic=basic,
+        )
+        drawing.registry.add(annotation, f"raw_custom_draft_{index}", view=None)
+        drawing.items.append(annotation)
+        labels.append(label)
 
-    pdf_path = drawing.export(str(tmp_path / f"raw_custom_{basic}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_custom"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     try:
-        assert "BOLD" in extracted
+        assert all(label in extracted for label in labels)
         assert "40.0mm" not in extracted
     finally:
         text_page.close()
         pdf.close()
 
 
-@pytest.mark.parametrize(("axis", "expected"), [(-80, -30.0), (45, 95.0)])
-def test_raw_single_glyph_basic_dimension_recovers_rotation(tmp_path, axis, expected):
+def test_raw_single_glyph_basic_dimension_recovers_rotation(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     custom = Draft(font_size=20)
-    angle = math.radians(axis)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        4,
-        custom,
-        label="R",
-        basic=True,
-        rotation=30,
-    )
-    annotation.location = Location((0, 0, 0), (0, 0, 20))
-    drawing.registry.add(annotation, "raw_single_glyph", view=None)
-    drawing.items.append(annotation)
+    for index, axis in enumerate((-80, 45)):
+        angle = math.radians(axis)
+        origin = 50 + index * 100
+        annotation = Dimension(
+            (origin, origin, 0),
+            (origin + math.cos(angle), origin + math.sin(angle), 0),
+            "above",
+            4,
+            custom,
+            label="R",
+            basic=True,
+            rotation=30,
+        )
+        annotation.location = Location((0, 0, 0), (0, 0, 20))
+        drawing.registry.add(annotation, f"raw_single_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"single_{axis}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "single_rotations"), formats=("pdf",))["pdf"]
     pdf, text_page, extracted = _pdf_text(pdf_path)
     page = text_page.parent
     try:
         assert "R" in extracted
-        text_object = next(
-            item
+        actual = sorted(
+            (math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0])) + 90)
+            % 180
+            - 90
             for item in page.get_objects(textpage=text_page)
             if isinstance(item, pdfium.PdfTextObj) and item.extract() == "R"
         )
-        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-        actual = math.degrees(math.atan2(b, a))
-        assert (actual - expected + 90.0) % 180.0 - 90.0 == pytest.approx(0.0, abs=1.0)
+        assert actual == pytest.approx([-85.0, -30.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()
 
 
-@pytest.mark.parametrize(("axis", "expected"), [(-80, -30.0), (45, 95.0)])
-def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(
-    tmp_path, axis, expected
-):
-    for label in "BGCO069":
-        drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-        custom = Draft(font_size=20)
+def test_raw_helper_default_font_recovers_challenging_single_glyph_rotations(tmp_path):
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    custom = Draft(font_size=20)
+    glyphs = "BGCO069"
+    glyph_set = set(glyphs)
+    for column, axis in enumerate((-80, 45)):
         angle = math.radians(axis)
+        x = 50 + column * 100
+        for row, label in enumerate(glyphs):
+            y = 25 + row * 22
+            annotation = Dimension(
+                (x, y, 0),
+                (x + math.cos(angle), y + math.sin(angle), 0),
+                "above",
+                10,
+                custom,
+                label=label,
+                basic=True,
+                rotation=30,
+            )
+            annotation.location = Location((0, 0, 0), (0, 0, 20))
+            drawing.registry.add(annotation, f"raw_single_glyph_{column}_{label}", view=None)
+            drawing.items.append(annotation)
+
+    pdf_path = drawing.export(str(tmp_path / "raw_challenging"), formats=("pdf",))["pdf"]
+    pdf, text_page, _extracted = _pdf_text(pdf_path)
+    page = text_page.parent
+    try:
+        text_objects = [
+            item
+            for item in page.get_objects(textpage=text_page)
+            if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() in glyph_set
+        ]
+        for label in glyphs:
+            angles = sorted(
+                math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0]))
+                for item in text_objects
+                if item.extract().strip() == label
+            )
+            assert angles == pytest.approx([-30.0, 95.0], abs=1.0)
+    finally:
+        text_page.close()
+        pdf.close()
+
+
+def test_raw_drawing_font_single_curved_glyph_keeps_exact_rotation(tmp_path):
+    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
+    drawing.draft.font_size = 20
+    cases = ((-170, 0, 0, 75), (-45, 30, 20, 150))
+    for index, (base_angle, constructor_rotation, live_rotation, centre) in enumerate(cases):
+        angle = math.radians(base_angle)
         annotation = Dimension(
             (50, 50, 0),
             (50 + math.cos(angle), 50 + math.sin(angle), 0),
             "above",
             10,
-            custom,
-            label=label,
+            drawing.draft,
+            label="C",
             basic=True,
-            rotation=30,
+            rotation=constructor_rotation,
         )
-        annotation.location = Location((0, 0, 0), (0, 0, 20))
-        drawing.registry.add(annotation, "raw_single_glyph", view=None)
+        annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
+        box = annotation.bounding_box()
+        annotation.location = (
+            Location(
+                (centre - (box.min.X + box.max.X) / 2, centre - (box.min.Y + box.max.Y) / 2, 0)
+            )
+            * annotation.location
+        )
+        drawing.registry.add(annotation, f"raw_curved_glyph_{index}", view=None)
         drawing.items.append(annotation)
 
-        pdf_path = drawing.export(
-            str(tmp_path / f"raw_challenging_{axis}_{label}"), formats=("pdf",)
-        )["pdf"]
-        pdf, text_page, _extracted = _pdf_text(pdf_path)
-        page = text_page.parent
-        try:
-            text_object = next(
-                item
-                for item in page.get_objects(textpage=text_page)
-                if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == label
-            )
-            a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-            assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
-        finally:
-            text_page.close()
-            pdf.close()
-
-
-@pytest.mark.parametrize(
-    ("base_angle", "constructor_rotation", "live_rotation", "expected"),
-    [(-170, 0, 0, 10.0), (-45, 30, 20, 5.0)],
-)
-def test_raw_drawing_font_single_curved_glyph_keeps_exact_rotation(
-    tmp_path, base_angle, constructor_rotation, live_rotation, expected
-):
-    drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    drawing.draft.font_size = 20
-    angle = math.radians(base_angle)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        10,
-        drawing.draft,
-        label="C",
-        basic=True,
-        rotation=constructor_rotation,
-    )
-    annotation.location = Location((0, 0, 0), (0, 0, live_rotation))
-    box = annotation.bounding_box()
-    annotation.location = (
-        Location((100 - (box.min.X + box.max.X) / 2, 100 - (box.min.Y + box.max.Y) / 2, 0))
-        * annotation.location
-    )
-    drawing.registry.add(annotation, "raw_curved_glyph", view=None)
-    drawing.items.append(annotation)
-
-    pdf_path = drawing.export(
-        str(tmp_path / f"raw_curved_{base_angle}_{constructor_rotation}_{live_rotation}"),
-        formats=("pdf",),
-    )["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_curved_glyphs"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     page = text_page.parent
     try:
-        text_object = next(
-            item
+        angles = sorted(
+            math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0]))
             for item in page.get_objects(textpage=text_page)
             if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == "C"
         )
-        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-        assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
+        assert angles == pytest.approx([5.0, 10.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()
 
 
-@pytest.mark.parametrize(
-    ("label", "axis", "expected"),
-    [("1", 45, 45.0), ("1", -45, -45.0), ("%", 45, 45.0)],
-)
-def test_raw_drawing_font_single_glyph_prefers_exact_outline(tmp_path, label, axis, expected):
+def test_raw_drawing_font_single_glyph_prefers_exact_outline(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
-    angle = math.radians(axis)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        1,
-        drawing.draft,
-        label=label,
-        basic=True,
-    )
-    drawing.registry.add(annotation, "raw_single_glyph", view=None)
-    drawing.items.append(annotation)
+    for index, (label, axis) in enumerate((("1", 45), ("1", -45), ("%", 45))):
+        angle = math.radians(axis)
+        origin = 50 + index * 50
+        annotation = Dimension(
+            (origin, origin, 0),
+            (origin + math.cos(angle), origin + math.sin(angle), 0),
+            "above",
+            1,
+            drawing.draft,
+            label=label,
+            basic=True,
+        )
+        drawing.registry.add(annotation, f"raw_single_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(
-        str(tmp_path / f"raw_single_glyph_{label}_{axis}"), formats=("pdf",)
-    )["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_single_glyphs"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     try:
-        text_object = next(
+        text_objects = [
             item
             for item in text_page.parent.get_objects(textpage=text_page)
-            if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == label
-        )
-        a, b, _c, _d, _e, _f = text_object.get_matrix().get()
-        assert math.degrees(math.atan2(b, a)) == pytest.approx(expected, abs=1.0)
+            if isinstance(item, pdfium.PdfTextObj) and item.extract().strip() in {"1", "%"}
+        ]
+        angles = {}
+        for label in ("1", "%"):
+            angles[label] = sorted(
+                math.degrees(math.atan2(item.get_matrix().get()[1], item.get_matrix().get()[0]))
+                for item in text_objects
+                if item.extract().strip() == label
+            )
+        assert angles["1"] == pytest.approx([-45.0, 45.0], abs=1.0)
+        assert angles["%"] == pytest.approx([45.0], abs=1.0)
     finally:
         text_page.close()
         pdf.close()
@@ -798,36 +808,38 @@ def test_raw_same_face_multi_outline_glyph_ignores_face_order(tmp_path):
         pdf.close()
 
 
-@pytest.mark.parametrize("label", ["C", "%"])
-def test_raw_unknown_single_glyph_font_keeps_vector_fallback(tmp_path, label):
+def test_raw_unknown_single_glyph_font_keeps_vector_fallback(tmp_path):
     drawing = build_drawing(Box(10, 10, 10), auto_dims=False)
     drawing.draft.font_size = 20
     custom = Draft(font_size=20)
     custom.font_path = PLEX_SANS_CONDENSED
-    angle = math.radians(-170)
-    annotation = Dimension(
-        (50, 50, 0),
-        (50 + math.cos(angle), 50 + math.sin(angle), 0),
-        "above",
-        10,
-        custom,
-        label=label,
-        basic=True,
-    )
-    box = annotation.bounding_box()
-    annotation.location = Location(
-        (100 - (box.min.X + box.max.X) / 2, 100 - (box.min.Y + box.max.Y) / 2, 0)
-    )
-    drawing.registry.add(annotation, "raw_custom_glyph", view=None)
-    drawing.items.append(annotation)
+    for index, (label, centre) in enumerate((("C", 75), ("%", 150))):
+        angle = math.radians(-170)
+        annotation = Dimension(
+            (50, 50, 0),
+            (50 + math.cos(angle), 50 + math.sin(angle), 0),
+            "above",
+            10,
+            custom,
+            label=label,
+            basic=True,
+        )
+        box = annotation.bounding_box()
+        annotation.location = Location(
+            (centre - (box.min.X + box.max.X) / 2, centre - (box.min.Y + box.max.Y) / 2, 0)
+        )
+        drawing.registry.add(annotation, f"raw_custom_glyph_{index}", view=None)
+        drawing.items.append(annotation)
 
-    pdf_path = drawing.export(str(tmp_path / f"raw_custom_glyph_{label}"), formats=("pdf",))["pdf"]
+    pdf_path = drawing.export(str(tmp_path / "raw_custom_glyphs"), formats=("pdf",))["pdf"]
     pdf, text_page, _extracted = _pdf_text(pdf_path)
     try:
-        assert not any(
-            isinstance(item, pdfium.PdfTextObj) and item.extract().strip() == label
+        text = {
+            item.extract().strip()
             for item in text_page.parent.get_objects(textpage=text_page)
-        )
+            if isinstance(item, pdfium.PdfTextObj)
+        }
+        assert not {"C", "%"} & text
     finally:
         text_page.close()
         pdf.close()

@@ -5,6 +5,7 @@ from math import sqrt
 from pathlib import Path
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Cylinder, Pos, Rotation
 
 from draftwright import Sheet, build_drawing
@@ -61,16 +62,15 @@ def test_curved_pocket_script_retains_the_exact_surface_and_exports(curved, tmp_
     )
     assert "mouth_radius=20" in source and "pocket_max_depth.length" in source
     namespace = {"__name__": "__curved_test__", "input_part": part}
-    exec(compile(source, "<curved pocket>", "exec"), namespace)
-    rebuilt = namespace["drawing"]
+    rebuilt = execute_sheet_script_without_export(source, "<curved pocket>", namespace)
     (actual,) = [f for f in rebuilt.model().features if f.kind == "pocket"]
     assert actual == feature
+    paths = rebuilt.export(str(tmp_path / "curved"), formats=("svg",))
+    assert Path(paths["svg"]).stat().st_size > 0
     outcomes = pocket_requirement_outcomes(
         rebuilt.recognition(), rebuilt.model().features, rebuilt.registry
     )
     assert len(outcomes) == 5 and {o.state for o in outcomes} == {"placed"}
-    paths = rebuilt.export(str(tmp_path / "curved"), formats=("svg",))
-    assert Path(paths["svg"]).stat().st_size > 0
 
 
 def test_a_planar_substitution_cannot_certify_the_curved_pocket(curved):
@@ -258,9 +258,10 @@ def test_repeated_curved_pockets_keep_one_group_and_every_original_occurrence(tm
         formats=(),
     )
     namespace = {"__name__": "__pattern_test__", "input_part": part}
-    exec(compile(source, "<curved pattern>", "exec"), namespace)
-    rebuilt = namespace["drawing"]
+    rebuilt = execute_sheet_script_without_export(source, "<curved pattern>", namespace)
     assert pattern in rebuilt.model().features
+    # Critique populates the requirement registry consumed below; serialization is irrelevant.
+    rebuilt.lint()
     from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
 
     outcomes = pocket_pattern_requirement_outcomes(
@@ -317,5 +318,5 @@ def test_authored_curved_geometry_round_trips_without_rounding_its_constraints(c
         formats=(),
     )
     namespace = {"__name__": "__curved_precision_test__", "input_part": part}
-    exec(compile(source, "<curved precision>", "exec"), namespace)
-    assert namespace["drawing"].model().features == drawing.model().features
+    rebuilt = execute_sheet_script_without_export(source, "<curved precision>", namespace)
+    assert rebuilt.model().features == drawing.model().features

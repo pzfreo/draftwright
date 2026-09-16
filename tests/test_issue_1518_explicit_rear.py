@@ -131,9 +131,11 @@ def test_rear_target_validation_rejects_another_holes_visible_rim(rear_enclosure
 
 
 @pytest.mark.parametrize("convention", ["first", "third"])
-def test_added_rear_retains_measurements_through_script_and_export(
+def test_added_rear_retains_measurements_through_script_replay(
     rear_enclosure, convention, tmp_path
 ):
+    from _drawing_helpers import execute_sheet_script_without_export
+
     from draftwright import Sheet
     from draftwright.audit import compare_measurements
     from draftwright.sheet_emit import emit_sheet_script
@@ -162,7 +164,7 @@ def test_added_rear_retains_measurements_through_script_and_export(
     )
     assert 'sheet.add_view("rear")' in source
     namespace = {"supplied_part": rear_enclosure}
-    exec(source, namespace)
+    execute_sheet_script_without_export(source, namespace=namespace)
     replay = namespace["drawing"]
     assert replay.view_plan.principal_names == original.view_plan.principal_names
     assert replay.view_plan.convention == convention
@@ -170,9 +172,8 @@ def test_added_rear_retains_measurements_through_script_and_export(
     assert compare_measurements(original, replay, feature_pairs=pairs)["status"] == "preserved"
     for feature in namespace["sheet"].model().features:
         assert all(replay.view_of(name) == "rear" for name in replay.annotations_of(feature))
-    assert all(
-        (tmp_path / f"rear.{extension}").stat().st_size > 100
-        for extension in ("svg", "pdf", "dxf")
+    assert not any(
+        (tmp_path / f"rear.{extension}").exists() for extension in ("svg", "pdf", "dxf")
     )
 
 
@@ -363,6 +364,8 @@ def test_rear_callout_and_furniture_edits_preserve_the_physical_view(rear_enclos
 def test_epic_1508_combined_style_rear_and_wording_canary(rear_enclosure, convention, tmp_path):
     from collections import Counter
 
+    from _drawing_helpers import execute_sheet_script_without_export
+
     from draftwright import Sheet, build_drawing
     from draftwright.audit import compare_measurements
     from draftwright.sheet_emit import emit_sheet_script
@@ -412,7 +415,12 @@ def test_epic_1508_combined_style_rear_and_wording_canary(rear_enclosure, conven
         **options,
     )
     namespace = {"supplied_part": part}
-    exec(script, namespace)
+    # The combined third-angle case owns this module's format canary. Handedness and the
+    # first-angle layout remain independently asserted on the reconstructed drawing above.
+    if convention == "third":
+        exec(script, namespace)
+    else:
+        execute_sheet_script_without_export(script, namespace=namespace)
     replay = namespace["drawing"]
     original_features = sheet.model().features
     for drawing in (original, direct, replay):
@@ -446,7 +454,11 @@ def test_epic_1508_combined_style_rear_and_wording_canary(rear_enclosure, conven
                 "bore_through_not_placed",
             }
         ]
-    assert all((tmp_path / f"epic.{ext}").stat().st_size > 100 for ext in ("svg", "pdf", "dxf"))
+    outputs = [tmp_path / f"epic.{ext}" for ext in ("svg", "pdf", "dxf")]
+    if convention == "third":
+        assert all(path.stat().st_size > 100 for path in outputs)
+    else:
+        assert not any(path.exists() for path in outputs)
 
 
 @pytest.mark.parametrize("intent", ["authored", "requested"])

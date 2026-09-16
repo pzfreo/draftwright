@@ -25,10 +25,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from _unit_manifest import UNIT_MODULES, unit_paths
+
 _TESTS = Path(__file__).resolve().parent
 
 # Measured at fee4931 with `ls tests | grep -c '^test_issue'`. MAY ONLY SHRINK.
-_MAX_ISSUE_MODULES = 194
+_MAX_ISSUE_MODULES = 151
+
+
+def test_unit_manifest_names_existing_test_modules_once():
+    """Direct paths and marker selection share one complete module manifest."""
+    paths = unit_paths(_TESTS)
+
+    assert len(paths) == len(UNIT_MODULES)
+    assert all(Path(path).is_file() for path in paths)
+    assert all(Path(path).name.startswith("test_") for path in paths)
 
 
 def _issue_named_modules() -> list[str]:

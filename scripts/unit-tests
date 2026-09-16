@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Run only the pure-logic test modules, without collecting the full suite."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tests"))
+
+from _unit_manifest import unit_paths  # noqa: E402
+
+
+def main() -> int:
+    args = [*unit_paths(ROOT / "tests"), "-n", "3", "--dist", "loadscope", *sys.argv[1:]]
+    return pytest.main(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

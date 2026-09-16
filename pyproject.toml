@@ -90,11 +90,13 @@ timeout = 300
 # `slow` covers end-to-end integration builds, including the large NIST CTC fixtures
 # (minutes each), deselected by default. `smoke` is a curated, build-light subset
 # (~30 s) for a quick local "did I break something obvious" check — run it with
-# `uv run pytest -m smoke`. The default run is the full fast tier (`-m 'not slow'`,
-# runtime depends on worker count). CI runs bounded real-part canaries before merge,
-# the full slow tier after merge, and the fast tier across its compatibility matrix.
+# `uv run pytest -m smoke`. The default run is the full supported-behavior tier
+# (`-m 'not slow and not scheduled'`; runtime depends on worker count). CI runs bounded
+# real-part canaries before merge, the scheduled tier after merge, and the full tier
+# across its compatibility matrix.
 markers = [
     "slow: end-to-end integration builds, including CTC fixtures (deselected by default)",
+    "scheduled: compatibility and broad-corpus contracts selected by the scheduled tier",
     "real_part_canary: bounded real STEP semantic/export gate, selected once in PR CI",
     "smoke: curated build-light subset for a fast local check (~30 s)",
     "unit: pure-logic inner-loop tier — constructs NO OCC geometry (enforced by conftest, #656)",
@@ -113,7 +115,7 @@ filterwarnings = [
 ]
 # Coverage is a CI concern (it adds ~13% locally and instruments every line); the
 # CI workflow passes the --cov flags explicitly. Keep the local default lean.
-addopts = "--tb=short -m 'not slow'"
+addopts = "--tb=short -m 'not slow and not scheduled'"
 
 [tool.coverage.run]
 source = ["src/draftwright"]

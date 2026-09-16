@@ -44,6 +44,7 @@ DAG violation today, so they are accepted rather than chased):
 from __future__ import annotations
 
 import ast
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,21 @@ _MODEL_DIR = _SRC / "model"
 _RECOGNISER_PUBLIC = frozenset(quiddity.__all__)
 _RECOGNISER_EVIDENCE_PUBLIC = frozenset(recogniser_evidence.__all__)
 _RECOGNISER_INSPECTION_PUBLIC = frozenset(recogniser_inspection.__all__)
+
+
+@cache
+def _source_text(path: Path) -> str:
+    """Read one immutable source file once for every policy view in this module."""
+
+    return path.read_text(encoding="utf-8")
+
+
+@cache
+def _tree(path: Path) -> ast.Module:
+    """Parse one immutable source file once for every policy view in this module."""
+
+    return ast.parse(_source_text(path), filename=str(path))
+
 
 # ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
 # Rank each top-level submodule (and subpackage) by its layer; a file may import only names
@@ -252,10 +268,11 @@ def _typing_tc_names(tree: ast.Module) -> set[str]:
     return names
 
 
+@cache
 def _classify(path: Path) -> dict[int, set[tuple[str, ...]]]:
     """Split a file's draftwright imports into {runtime, TYPE_CHECKING, lazy} full-module sets,
     by the context that actually executes each import (see the module docstring)."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = _tree(path)
     pkg = _package_parts(path)
     res: dict[int, set[tuple[str, ...]]] = {_RUN: set(), _TC: set(), _LAZY: set()}
     tc_names = _typing_tc_names(tree)  # names actually bound to typing.TYPE_CHECKING here
@@ -501,7 +518,7 @@ _MODEL_MAY_IMPORT = {
 def _draftwright_imports(path: Path) -> tuple[set[str], list[str]]:
     """The top-level ``draftwright.<name>`` submodules a source file imports, and any relative
     imports it uses (which the model waist forbids so the resolver need never interpret them)."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = _tree(path)
     submodules: set[str] = set()
     relative: list[str] = []
     for node in ast.walk(tree):
@@ -567,7 +584,7 @@ def test_linting_does_not_import_model():
 
 def _private_recogniser_imports(path: Path) -> list[str]:
     offenders: list[str] = []
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = _tree(path)
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             if (node.module or "").startswith("quiddity."):
@@ -609,10 +626,12 @@ def _private_reporting_imports(path: Path) -> list[str]:
     `annotations/` spells the same import, and it never looked at `ast.Import` at all. Both
     holes were found by mutation, not by reading.
     """
+    if "reporting" not in _source_text(path):
+        return []
 
     published = set(reporting.__all__)
     offenders: list[str] = []
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = _tree(path)
     aliases: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -701,7 +720,7 @@ def test_report_consumers_use_only_the_published_projector(tmp_path):
     consumers = {
         path.name
         for path in sorted(_SRC.rglob("*.py"))
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        for node in ast.walk(_tree(path))
         if isinstance(node, ast.ImportFrom) and node.module == "draftwright.reporting"
     }
     assert {"inspection.py", "sheet_emit.py", "drawing.py"} <= consumers, consumers
@@ -760,7 +779,7 @@ def test_the_published_projector_is_what_the_consumers_actually_call():
     # while it saw only FunctionDef/ClassDef, `REPORT_SCHEMA`, `REPORT_SCHEMA_VERSION` and
     # `JsonValue` could each be dropped from `__all__` with nothing failing, so the guard
     # passed for the wrong reason on exactly the names its own rationale is about.
-    module = ast.parse((_SRC / "reporting.py").read_text(encoding="utf-8"))
+    module = _tree(_SRC / "reporting.py")
     defined: set[str] = set()
     for node in module.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -838,7 +857,8 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
     """
 
     relative = path.relative_to(relative_to).as_posix()
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = _tree(path)
+    nodes = tuple(ast.walk(tree))
     references: set[tuple[str, str, str]] = set()
     module_aliases: dict[str, str] = {}
 
@@ -884,7 +904,8 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
         dotted = _dotted_name(node)
         return resolve(dotted) if dotted is not None else None
 
-    for node in ast.walk(tree):
+    assignments: list[tuple[str, str]] = []
+    for node in nodes:
         if isinstance(node, ast.ImportFrom):
             module = node.module or ""
             if module == _PROVIDER_ROOT:
@@ -922,9 +943,6 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                     references.add((relative, module, "*"))
                     if alias.asname:
                         module_aliases[alias.asname] = module
-
-    assignments: list[tuple[str, str]] = []
-    for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
             dotted = _dotted_name(node.value)
             if dotted is not None:
@@ -951,12 +969,6 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
                 module_aliases[binding] = actual
                 changed = True
 
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute):
-            actual = resolve_expr(node)
-            if actual is not None:
-                record(actual)
-
     def literal(node: ast.expr | None) -> str | None:
         return (
             node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
@@ -968,7 +980,11 @@ def _recogniser_contract_references(path: Path, *, relative_to: Path) -> set[tup
         targets = [item.value for item in node.keywords if item.arg == "target"]
         return targets[0] if len(targets) == 1 else None
 
-    for node in ast.walk(tree):
+    for node in nodes:
+        if isinstance(node, ast.Attribute):
+            actual = resolve_expr(node)
+            if actual is not None:
+                record(actual)
         if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
             value = node.value
             dotted_target = literal(value)
@@ -1040,6 +1056,7 @@ def _consumer_recogniser_contract_violations(
         reference
         for path in sorted(tests.rglob("*.py"))
         if path.name != "test_import_boundaries.py"
+        if _PROVIDER_ROOT in _source_text(path)
         for reference in _recogniser_contract_references(path, relative_to=tests)
     }
     return (
