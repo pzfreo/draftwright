@@ -5,11 +5,13 @@ from pathlib import Path
 import pytest
 
 from draftwright._pmi_part21 import (
+    DatumDefinitionFact,
     DatumOccurrenceFact,
     GeometricToleranceFact,
     ManufacturingRequirementFact,
     match_datum_occurrence,
     match_geometric_tolerance,
+    read_datum_definitions,
     read_datum_occurrences,
     read_dimension_length_factor,
     read_geometric_tolerances,
@@ -48,6 +50,12 @@ def _read_datums(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
     return read_datum_occurrences(step)
+
+
+def _read_datum_definitions(tmp_path, name: str, *instances: str):
+    step = tmp_path / f"{name}.step"
+    step.write_text(_step(*instances), encoding="utf-8")
+    return read_datum_definitions(step)
 
 
 def _read_requirements(tmp_path, name: str, *instances: str):
@@ -419,6 +427,38 @@ def test_ctc03_datum_level_geometry_recovers_d_and_e():
 
     assert by_letter == {"D": ("#1399",), "E": ("#1441",)}
     assert all(not fact.reason for fact in facts if fact.letter in {"D", "E"})
+
+
+def test_ctc03_datum_definitions_include_standalone_f():
+    facts = read_datum_definitions(CTC03)
+
+    assert [(fact.letter, fact.datum_feature_id) for fact in facts] == [
+        ("B", "#91"),
+        ("A", "#94"),
+        ("C", "#92"),
+        ("D", "#95"),
+        ("E", "#93"),
+        ("F", "#96"),
+    ]
+    assert facts[-1] == DatumDefinitionFact("#96", "#90", "F", ("#1379", "#1378"))
+
+
+def test_datum_definition_without_one_physical_feature_fails_closed(tmp_path):
+    facts = _read_datum_definitions(
+        tmp_path,
+        "unrelated-datum-definition",
+        "#4=DATUM('',$,#99,.F.,'A');",
+        "#5=SHAPE_ASPECT_RELATIONSHIP('',$,$,$);",
+    )
+
+    assert facts == (
+        DatumDefinitionFact(
+            "",
+            "#4",
+            "A",
+            reason="datum #4 has 0 related DATUM_FEATUREs",
+        ),
+    )
 
 
 def test_malformed_part21_datum_graphs_fail_closed(tmp_path):

@@ -94,6 +94,17 @@ class DatumOccurrenceFact:
 
 
 @dataclass(frozen=True)
+class DatumDefinitionFact:
+    """One authored datum and its physical feature, independent of tolerance use."""
+
+    datum_feature_id: str
+    datum_id: str
+    letter: str
+    reference_item_ids: tuple[str, ...] = ()
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class ManufacturingRequirementFact:
     """One authoritative semantic manufacturing requirement from Part 21.
 
@@ -716,6 +727,37 @@ def read_datum_occurrences(step_file: str | Path) -> tuple[DatumOccurrenceFact, 
                             item_reason,
                         )
                     )
+    return tuple(facts)
+
+
+def read_datum_definitions(step_file: str | Path) -> tuple[DatumDefinitionFact, ...]:
+    """Read every authored datum definition, including those unused by a tolerance."""
+    step = p21.readfile(step_file)
+    datum_features = _datum_feature_relationships(step)
+    reference_items = _datum_reference_items(step)
+    facts: list[DatumDefinitionFact] = []
+    for datum_id, (letter, feature_ids) in datum_features.items():
+        if len(feature_ids) != 1:
+            facts.append(
+                DatumDefinitionFact(
+                    "",
+                    datum_id,
+                    letter,
+                    reason=f"datum {datum_id} has {len(feature_ids)} related DATUM_FEATUREs",
+                )
+            )
+            continue
+        (feature_id,) = feature_ids
+        items = reference_items.get(feature_id, ()) or reference_items.get(datum_id, ())
+        facts.append(
+            DatumDefinitionFact(
+                feature_id,
+                datum_id,
+                letter,
+                items,
+                "" if items else f"datum feature {feature_id} has no representation items",
+            )
+        )
     return tuple(facts)
 
 

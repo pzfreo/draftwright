@@ -29,10 +29,12 @@ from typing import Literal, cast
 from quiddity import PartFrame
 
 from draftwright._pmi_part21 import (
+    DatumDefinitionFact,
     DatumOccurrenceFact,
     GeometricToleranceFact,
     match_datum_occurrence,
     match_geometric_tolerance,
+    read_datum_definitions,
     read_datum_occurrences,
     read_dimension_length_factor,
     read_geometric_tolerances,
@@ -1468,7 +1470,8 @@ def _extract_pmi_census(
     """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
 
     The report retains one source outcome for every dimension, geometric tolerance,
-    datum-reference occurrence and semantic manufacturing requirement. Graphical
+    datum-reference occurrence, standalone datum definition, and semantic manufacturing
+    requirement. Graphical
     presentation-only dimension labels are inventoried but are not manufacturing requirements.
     Repeated datum occurrences project onto their authored datum-feature definition without
     shrinking the source denominator.
@@ -1687,6 +1690,7 @@ def _extract_pmi_census(
     datums = TDF_LabelSequence()
     dt.GetDatumLabels(datums)
     datum_facts: tuple[DatumOccurrenceFact, ...] = ()
+    datum_definitions: tuple[DatumDefinitionFact, ...] = ()
     datum_part21_error = ""
     datum_topology = None
     datum_topology_error = ""
@@ -1696,16 +1700,20 @@ def _extract_pmi_census(
         except Exception as exc:
             datum_part21_error = f"Part21 datum read failed: {_failure_reason(exc)}"
             _log.debug("PMI datum overlay unavailable for %s: %s", Path(step_file).name, exc)
-        if not datum_part21_error:
-            try:
-                step_reader = reader.Reader()
-                imported_faces = TopTools_IndexedMapOfShape()
-                TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
-                datum_topology = _DatumTopologyResolver(step_reader, imported_faces)
-            except Exception as exc:
-                datum_topology_error = (
-                    f"datum imported-topology map is unavailable ({_failure_reason(exc)})"
-                )
+    try:
+        datum_definitions = read_datum_definitions(step_file)
+    except Exception as exc:
+        _log.debug("PMI datum definitions unavailable for %s: %s", Path(step_file).name, exc)
+    if datum_facts or datum_definitions:
+        try:
+            step_reader = reader.Reader()
+            imported_faces = TopTools_IndexedMapOfShape()
+            TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
+            datum_topology = _DatumTopologyResolver(step_reader, imported_faces)
+        except Exception as exc:
+            datum_topology_error = (
+                f"datum imported-topology map is unavailable ({_failure_reason(exc)})"
+            )
     datum_records: list[PmiRecord] = []
     for index in range(1, datums.Length() + 1):
         label = datums.Value(index)
@@ -1790,6 +1798,63 @@ def _extract_pmi_census(
                     "; ".join(blockers),
                 )
             )
+    represented_definitions = {record.part21_id for record in datum_records if record.part21_id}
+    for definition in datum_definitions:
+        definition_id = definition.datum_feature_id or definition.datum_id
+        if definition_id in represented_definitions:
+            continue
+        source_id = f"datum_definition:{definition.datum_id}"
+        definition_blockers = [definition.reason] if definition.reason else []
+        definition_points: tuple[tuple[float, float, float], ...] = ()
+        definition_bbox = None
+        definition_axis = ""
+        if not definition_blockers:
+            if datum_topology is None:
+                definition_blockers.append(datum_topology_error or datum_part21_error)
+            else:
+                topology_shapes, topology_reasons = datum_topology.resolve(
+                    definition_id, definition.reference_item_ids
+                )
+                definition_blockers.extend(topology_reasons)
+                if topology_shapes:
+                    if frame is None:
+                        datum_geometry = _datum_geometry_from_shapes(topology_shapes)
+                    else:
+                        datum_geometry = _datum_geometry_from_shapes(topology_shapes, frame)
+                    definition_points, definition_bbox, definition_axis, geometry_reasons = (
+                        datum_geometry
+                    )
+                    definition_blockers.extend(geometry_reasons)
+        if not definition.letter:
+            definition_blockers.append("datum definition has no letter")
+        unique_blockers = tuple(dict.fromkeys(reason for reason in definition_blockers if reason))
+        datum_records.append(
+            PmiRecord(
+                kind="datum",
+                type_code=None,
+                value=0.0,
+                ref_pts=definition_points,
+                ref_bbox=definition_bbox,
+                dominant_axis=definition_axis or "?",
+                label=definition.letter,
+                source_id=source_id,
+                part21_id=definition_id,
+                source_category="datum",
+                lowering_blockers=unique_blockers,
+                source_ids=(source_id,),
+                reference_item_ids=definition.reference_item_ids,
+                reference_axis=definition_axis,
+            )
+        )
+        sources.append(
+            PmiSourceEntity(
+                source_id,
+                "datum",
+                None,
+                "partially_extracted" if unique_blockers else "extracted",
+                "; ".join(unique_blockers),
+            )
+        )
     records.extend(_coalesce_datum_records(datum_records))
 
     # XCAF exposes neither authoritative descriptive text nor its shape-aspect association.
@@ -1828,6 +1893,7 @@ def _extract_pmi_census(
         source.category == "datum" and source.outcome == "partially_extracted"
         for source in sources
     )
+    datum_source_count = sum(source.category == "datum" for source in sources)
     extracted_requirements = sum(
         source.category == "manufacturing_requirement" and source.outcome == "extracted"
         for source in sources
@@ -1854,7 +1920,7 @@ def _extract_pmi_census(
         tolerances.Length(),
         partial_tolerances,
         extracted_datums,
-        datums.Length(),
+        datum_source_count,
         partial_datums,
         extracted_requirements,
         requirement_source_count,
