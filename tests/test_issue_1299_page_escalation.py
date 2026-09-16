@@ -248,8 +248,8 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(mon
     ]
 
 
-def test_optional_iso_page_recovery_may_retain_an_existing_detail(monkeypatch):
-    """Removing optional ISO need not also eliminate an already-required detail."""
+def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch):
+    """A complete recovery detail may replace the optional ISO on a larger page."""
 
     dropped = LintIssue(
         severity="warning",
@@ -260,12 +260,14 @@ def test_optional_iso_page_recovery_may_retain_an_existing_detail(monkeypatch):
     )
 
     class FakeDrawing:
-        def __init__(self, *, page, include_iso, issues=()):
+        def __init__(self, *, page, include_iso, detail=False, issues=()):
             self.page_w, self.page_h = page
             self.scale = 2.0
-            self.views = {"front": object(), "detail_a": object()}
+            self.views = {"front": object()}
             if include_iso:
                 self.views["iso"] = object()
+            if detail:
+                self.views["detail_a"] = object()
             self.solve_trace = None
             self._issues = tuple(issues)
 
@@ -299,7 +301,12 @@ def test_optional_iso_page_recovery_may_retain_an_existing_detail(monkeypatch):
             "A0": (1189.0, 841.0),
         }[page]
         issues = () if page == "A3" and not _include_iso else (dropped,)
-        return FakeDrawing(page=dimensions, include_iso=_include_iso, issues=issues)
+        return FakeDrawing(
+            page=dimensions,
+            include_iso=_include_iso,
+            detail=page in {"A3", "A2", "A1", "A0"},
+            issues=issues,
+        )
 
     monkeypatch.setattr(builder, "_AUTOMATIC_UPSCALE_TRIAL_LIMIT", 0)
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
