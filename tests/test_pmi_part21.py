@@ -486,6 +486,39 @@ def test_ctc03_inch_geometric_tolerances_are_resolved_to_millimetres():
     )
 
 
+@pytest.mark.parametrize(
+    ("measure", "unit", "expected_reason"),
+    [
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+            (
+                "#3=(CONVERSION_BASED_UNIT('HUGE',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E308),#6);",
+                "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.EXA.,.METRE.));",
+                "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+            ),
+            "length unit #3 conversion factor is not finite in millimetres",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E308),#3);",
+            ("#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.));",),
+            "tolerance magnitude #2 is not finite in millimetres",
+        ),
+    ],
+)
+def test_length_conversion_overflow_fails_closed(tmp_path, measure, unit, expected_reason):
+    (fact,) = _read(
+        tmp_path,
+        "overflow",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#2,#4) POSITION_TOLERANCE());",
+        measure,
+        *unit,
+    )
+
+    assert fact.value_mm is None
+    assert fact.reason == expected_reason
+
+
 def test_simple_length_measure_with_unit_is_supported(tmp_path):
     facts = _read(
         tmp_path,
