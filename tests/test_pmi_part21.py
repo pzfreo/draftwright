@@ -16,6 +16,7 @@ from draftwright._pmi_part21 import (
 )
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
+CTC03 = Path(__file__).parent / "fixtures" / "nist_ctc_03_asme1_ap242.stp"
 
 
 def _step(*instances: str) -> str:
@@ -455,22 +456,151 @@ def test_si_length_unit_is_resolved_to_millimetres(tmp_path):
     )
 
 
-def test_unsupported_length_unit_stays_explicitly_unresolved(tmp_path):
-    step = tmp_path / "unsupported-unit.step"
+def test_conversion_based_length_unit_is_resolved_to_millimetres(tmp_path):
+    step = tmp_path / "inch.step"
     step.write_text(
         _step(
             "#1=(GEOMETRIC_TOLERANCE('Probe','',#2,#4) POSITION_TOLERANCE());",
             "#2=(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() "
             "MEASURE_WITH_UNIT(LENGTH_MEASURE(1.25),#3) REPRESENTATION_ITEM(''));",
-            "#3=CONVERSION_BASED_UNIT('INCH',#5);",
+            "#3=(CONVERSION_BASED_UNIT('INCH',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+            "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(25.4),#6);",
+            "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+            "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
         ),
         encoding="utf-8",
     )
 
-    (fact,) = read_geometric_tolerances(step)
-    assert fact.entity_id == "#1"
+    assert read_geometric_tolerances(step) == (
+        GeometricToleranceFact("#1", "Probe", "position", 31.75),
+    )
+
+
+def test_ctc03_inch_geometric_tolerances_are_resolved_to_millimetres():
+    facts = read_geometric_tolerances(CTC03)
+
+    assert len(facts) == 13
+    assert all(fact.reason == "" for fact in facts)
+    assert [fact.value_mm for fact in facts] == pytest.approx(
+        [0.254, 1.016, 0.127, 1.524, 0.762, 1.27, 1.27, 0.508, 1.524, 2.032, 0.762, 0.254, 0.254]
+    )
+
+
+@pytest.mark.parametrize(
+    ("measure", "unit", "expected_reason"),
+    [
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+            (
+                "#3=(CONVERSION_BASED_UNIT('HUGE',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E308),#6);",
+                "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.EXA.,.METRE.));",
+                "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+            ),
+            "length unit #3 conversion factor must be finite and positive in millimetres",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E308),#3);",
+            ("#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.));",),
+            "tolerance magnitude #2 must be finite and positive in millimetres",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+            (
+                "#3=(CONVERSION_BASED_UNIT('TINY',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-310),#6);",
+                "#6=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.ATTO.,.METRE.));",
+                "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+            ),
+            "length unit #3 conversion factor must be finite and positive in millimetres",
+        ),
+        (
+            "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.E-310),#3);",
+            ("#3=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.ATTO.,.METRE.));",),
+            "tolerance magnitude #2 must be finite and positive in millimetres",
+        ),
+    ],
+)
+def test_length_conversion_overflow_fails_closed(tmp_path, measure, unit, expected_reason):
+    (fact,) = _read(
+        tmp_path,
+        "overflow",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#2,#4) POSITION_TOLERANCE());",
+        measure,
+        *unit,
+    )
+
     assert fact.value_mm is None
-    assert fact.reason == "length unit #3 is not a supported SI metre unit"
+    assert fact.reason == expected_reason
+
+
+@pytest.mark.parametrize(
+    ("unit_entities", "expected_reason"),
+    [
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('CYCLE',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=LENGTH_MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+            ),
+            "length unit #3 has a cyclic conversion",
+        ),
+        (
+            ("#3=(LENGTH_UNIT() NAMED_UNIT(#8));",),
+            "length unit #3 is not a supported length unit",
+        ),
+        (
+            ("#3=(CONVERSION_BASED_UNIT('BAD',1.0) LENGTH_UNIT() NAMED_UNIT(#8));",),
+            "length unit #3 has no referenced conversion factor",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=REPRESENTATION_ITEM('not a measure');",
+            ),
+            "length unit #3 has no usable conversion factor",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(PLANE_ANGLE_MEASURE(1.0),#6);",
+            ),
+            "length unit #3 conversion factor is not a length measure",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),1.0);",
+            ),
+            "length unit #3 conversion factor has no referenced length unit",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(LENGTH_MEASURE('bad'),#6);",
+            ),
+            "length unit #3 conversion factor is not numeric",
+        ),
+        (
+            (
+                "#3=(CONVERSION_BASED_UNIT('BAD',#5) LENGTH_UNIT() NAMED_UNIT(#8));",
+                "#5=MEASURE_WITH_UNIT(LENGTH_MEASURE(0.0),#6);",
+            ),
+            "length unit #3 conversion factor must be finite and positive",
+        ),
+    ],
+)
+def test_malformed_conversion_based_units_fail_closed(tmp_path, unit_entities, expected_reason):
+    (fact,) = _read(
+        tmp_path,
+        "malformed-conversion",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#2,#4) POSITION_TOLERANCE());",
+        "#2=MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#3);",
+        *unit_entities,
+        "#8=DIMENSIONAL_EXPONENTS(1.,0.,0.,0.,0.,0.,0.);",
+    )
+
+    assert fact.value_mm is None
+    assert fact.reason == expected_reason
 
 
 def test_simple_length_measure_with_unit_is_supported(tmp_path):
