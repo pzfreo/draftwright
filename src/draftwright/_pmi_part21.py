@@ -503,20 +503,38 @@ def read_dimension_length_factor(step_file: str | Path) -> tuple[float | None, s
     for section in step.data:
         for instance in section.instances.values():
             representation = _entity_named(instance, "SHAPE_DIMENSION_REPRESENTATION")
-            if representation is None or len(representation.params) < 2:
+            if representation is None:
                 continue
-            for measure_ref in _references(representation.params[1]):
+            if len(representation.params) < 2:
+                return None, f"shape-dimension representation {instance.ref} has no items"
+            measure_refs = _references(representation.params[1])
+            if not measure_refs:
+                return None, f"shape-dimension representation {instance.ref} has no items"
+            for measure_ref in measure_refs:
                 measure = step.get(measure_ref)
                 measure_with_unit = _measure_with_unit(measure)
-                if measure_with_unit is None or len(measure_with_unit.params) < 2:
-                    continue
+                if measure_with_unit is None:
+                    item_kinds = {entity.name for entity in _entities(measure)}
+                    if item_kinds and item_kinds <= {
+                        "COMPOUND_REPRESENTATION_ITEM",
+                        "DESCRIPTIVE_REPRESENTATION_ITEM",
+                    }:
+                        continue
+                    return None, f"shape-dimension item {measure_ref} has no measure with unit"
+                if len(measure_with_unit.params) < 2:
+                    return None, f"shape-dimension item {measure_ref} has no unit"
                 typed_value, unit_ref = measure_with_unit.params[:2]
-                if (
-                    not isinstance(typed_value, p21.TypedParameter)
-                    or typed_value.type_name != "LENGTH_MEASURE"
-                    or not isinstance(unit_ref, p21.Reference)
-                ):
+                if not isinstance(typed_value, p21.TypedParameter):
+                    return None, f"shape-dimension item {measure_ref} has no typed measure"
+                if typed_value.type_name == "PLANE_ANGLE_MEASURE":
                     continue
+                if typed_value.type_name not in {"LENGTH_MEASURE", "POSITIVE_LENGTH_MEASURE"}:
+                    return None, (
+                        f"shape-dimension item {measure_ref} uses unsupported measure type "
+                        f"{typed_value.type_name}"
+                    )
+                if not isinstance(unit_ref, p21.Reference):
+                    return None, f"shape-dimension item {measure_ref} has no unit reference"
                 factor, reason = _unit_factor_mm(step, str(unit_ref))
                 if factor is None:
                     return None, reason

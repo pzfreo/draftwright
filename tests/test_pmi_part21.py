@@ -18,6 +18,7 @@ from draftwright._pmi_part21 import (
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
 CTC03 = Path(__file__).parent / "fixtures" / "nist_ctc_03_asme1_ap242.stp"
+CTC05 = Path(__file__).parent / "fixtures" / "nist_ctc_05_asme1_ap242.stp"
 
 
 def _step(*instances: str) -> str:
@@ -501,6 +502,13 @@ def test_ctc01_dimension_length_factor_is_already_millimetres():
     assert reason == ""
 
 
+def test_ctc05_positive_length_measures_and_presentation_items_are_supported():
+    factor, reason = read_dimension_length_factor(CTC05)
+
+    assert factor == pytest.approx(25.4)
+    assert reason == ""
+
+
 def test_mixed_dimension_length_units_fail_closed(tmp_path):
     step = tmp_path / "mixed-dimension-units.step"
     step.write_text(
@@ -520,6 +528,26 @@ def test_mixed_dimension_length_units_fail_closed(tmp_path):
 
     assert factor is None
     assert reason == "length dimensions use multiple unit scales: (1.0, 10.0)"
+
+
+def test_valid_factor_plus_malformed_dimension_item_fails_closed(tmp_path):
+    step = tmp_path / "malformed-dimension-unit.step"
+    step.write_text(
+        _step(
+            "#1=SHAPE_DIMENSION_REPRESENTATION('',(#2),#9);",
+            "#2=(LENGTH_MEASURE_WITH_UNIT() MEASURE_REPRESENTATION_ITEM() "
+            "MEASURE_WITH_UNIT(LENGTH_MEASURE(1.0),#4) REPRESENTATION_ITEM(''));",
+            "#3=SHAPE_DIMENSION_REPRESENTATION('',(#6),#9);",
+            "#4=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.MILLI.,.METRE.));",
+            "#6=REPRESENTATION_ITEM('missing measure');",
+        ),
+        encoding="utf-8",
+    )
+
+    factor, reason = read_dimension_length_factor(step)
+
+    assert factor is None
+    assert reason == "shape-dimension item #6 has no measure with unit"
 
 
 @pytest.mark.parametrize(
