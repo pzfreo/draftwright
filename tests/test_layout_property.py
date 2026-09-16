@@ -1,7 +1,7 @@
 """Property/fuzz coverage for the layout-cleanliness invariant (#301, ADR 2 (was 0009) P5
 strand 4).
 
-`TestLayoutCleanlinessInvariant` (`test_make_drawing.py`, #293) proved the
+`TestLayoutCleanlinessInvariant` (`test_layout_cleanliness.py`, #293) proved the
 *mechanism* — six hand-picked part archetypes, each asserted defect-free — but
 six fixtures raise the floor without proving the ceiling: they miss combinations
 and extremes (varied aspect ratios, hole counts, pattern/slot/section mixes).
@@ -37,7 +37,7 @@ from build123d import Align, Box, Cylinder, Pos, Rotation
 
 from draftwright import build_drawing
 
-# Mirrors TestLayoutCleanlinessInvariant._DEFECTS (test_make_drawing.py, #293) —
+# Mirrors TestLayoutCleanlinessInvariant._DEFECTS (test_layout_cleanliness.py, #293) —
 # duplicated, not imported: importing that class here would make pytest collect
 # and re-run its own 6 tests a second time under this module too (a class bound
 # to a Test*-prefixed name at module level is collected wherever it's visible).

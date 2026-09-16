@@ -54,19 +54,19 @@ Each names the test that fails when it is broken. "Unguarded" lists the ones tha
    `model/detect.py`; `linting/` imports no `draftwright.model`; `FeatureRef`/`FaceRef` never
    enter the IR, the compiled plan, placement, generated scripts or output.
    `test_import_boundaries.py` (`test_linting_does_not_import_model`),
-   `test_issue_1438_occurrence_ownership.py`.
+   `test_occurrence_recognition_ownership.py`.
 7. **Occurrence ownership is captured at conversion, by identity.** Each accepted occurrence is
    bound to its exact IR owner where the adapter creates it; equal-valued copies, feature order,
    labels, coordinates, face overlap and topology indices establish nothing. An expected owner
    that did not reach the final model is `unexpectedly_missing`, never silently represented.
-   `test_issue_1438_occurrence_ownership.py`, `test_issue_1438_pattern_ownership.py`,
-   `test_issue_1438_nested_ownership.py`, `test_issue_1438_channel_ownership.py`,
-   `test_issue_1438_turned_step_ownership.py`, `test_issue_1438_through_step_ownership.py`,
-   `test_issue_1438_boss_ownership.py`, `test_issue_1438_plate_ownership.py`.
+   `test_occurrence_recognition_ownership.py`, `test_pattern_ownership.py`,
+   `test_nested_recognition_ownership.py`, `test_channel_ownership.py`,
+   `test_turned_step_ownership.py`, `test_through_step_ownership.py`,
+   `test_boss_ownership.py`, `test_plate_ownership.py`.
 8. **Ownerless policy is explicit per occurrence, from one source.** Families Draftwright does
    not draw carry `unsupported`, `deferred` or `evidence_only` with a closed reason code,
    projected from the same capability declaration the contract validates — never a second
-   registry. `test_issue_1438_policy_dispositions.py`, `test_issue_1245_passage_disposition.py`,
+   registry. `test_recognition_policy_dispositions.py`, `test_issue_1245_passage_disposition.py`,
    `test_issue_1246_prismatic_pocket_disposition.py`, `test_issue_1247_angled_step_disposition.py`.
 9. **Recognition is geometry-only.** Records are frozen, JSON-serializable geometry with no
    build123d type inside; drafting policy never enters the provider; PMI lowering may change
@@ -88,7 +88,7 @@ Each names the test that fails when it is broken. "Unguarded" lists the ones tha
     recognises, imports geometry or reads the filesystem, so a consumer that has already
     detected — script generation — projects its document from that aggregate rather than
     starting another. `test_issue_1460_step_inspection.py`,
-    `test_issue_1438_generation_snapshot.py`.
+    `test_sheet_generation_snapshot.py`.
 
 **Unguarded.** The provider's own explanation of a run — what it proposed and rejected, which
 families it did not evaluate — is on a separate entry point that re-runs recognition, so no

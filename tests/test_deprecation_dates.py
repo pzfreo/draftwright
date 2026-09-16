@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import cache
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parents[1] / "src" / "draftwright"
@@ -82,7 +83,8 @@ def _literal_text(node: ast.AST) -> str | None:
     return None
 
 
-def _scan() -> list[tuple[str, str | None]]:
+@cache
+def _scan() -> tuple[tuple[str, str | None], ...]:
     """``(location, message-or-None)`` for every deprecation announcement under src/."""
     out: list[tuple[str, str | None]] = []
     for path in sorted(_SRC.rglob("*.py")):
@@ -92,7 +94,7 @@ def _scan() -> list[tuple[str, str | None]]:
                 assert isinstance(node, ast.Call)
                 msg = _literal_text(node.args[0]) if node.args else None
                 out.append((f"{path.relative_to(_SRC)}:{node.lineno}", msg))
-    return out
+    return tuple(out)
 
 
 def test_every_deprecation_names_its_removal() -> None:

@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box
 
 from draftwright.model import plan_dimensions
@@ -96,9 +97,7 @@ def test_mismatch_survives_generated_sheet_without_crashing_or_changing_source(t
         number="1325",
         formats=(),
     )
-    namespace = {}
-    exec(compile(source, "<nominal-1325>", "exec"), namespace)
-    drawing = namespace["drawing"]
+    drawing = execute_sheet_script_without_export(source, "<nominal-1325>")
     retained = [f for f in drawing.model().features if isinstance(f, AuthoredDimension)]
     assert len(retained) == 1
     assert retained[0].value == 4

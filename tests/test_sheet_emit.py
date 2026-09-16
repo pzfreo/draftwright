@@ -9,6 +9,7 @@ import math
 import os
 import subprocess
 import sys
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -2573,6 +2574,7 @@ class TestTheDimensionMirror:
     """
 
     @staticmethod
+    @cache
     def _corpus():
         from build123d import Align, Axis, Box, Cylinder, Pos, Rot
 
@@ -2653,6 +2655,22 @@ class TestTheDimensionMirror:
         }
 
     @staticmethod
+    @cache
+    def _models():
+        return {
+            name: detect_part_model(part)
+            for name, part in TestTheDimensionMirror._corpus().items()
+        }
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def _cached_models_stay_pristine(cls):
+        before = {name: repr(model) for name, model in cls._models().items()}
+        yield
+        after = {name: repr(model) for name, model in cls._models().items()}
+        assert after == before, "a mirror test mutated cached recognition evidence"
+
+    @staticmethod
     def _run(src, part):
         ns: dict = {"part": part}
         body = src.replace("\npart\n", "\n", 1)
@@ -2702,7 +2720,7 @@ class TestTheDimensionMirror:
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_corpus_detects_what_it_claims(self, name):
         """A fixture named for a kind it does not produce is coverage theatre."""
-        kinds = {f.kind for f in detect_part_model(self._corpus()[name]).features}
+        kinds = {f.kind for f in self._models()[name].features}
         expected = self._EXPECTED_KINDS[name]
         assert expected <= kinds, (
             f"{name} detects {sorted(kinds)}, missing {sorted(expected - kinds)}"
@@ -2724,14 +2742,14 @@ class TestTheDimensionMirror:
                 lug = Pos(x, -2, z) * Box(10, 4, 10)
                 # Only the radius-2 bore is removed from each nominal lug volume.
                 assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
-        model = detect_part_model(part)
+        model = self._models()["flange (no envelope feature)"]
         assert not [f for f in model.features if f.kind == "pocket"]
 
     def test_the_side_drilled_fixture_reaches_the_off_axis_location_path(self):
         """Named because it is the path that was silently uncovered. An X-axis bore's
         position is compiled by `_compile_off_axis_hole_locations`, a different code path
         from the Z-normal ladder (#925)."""
-        model = detect_part_model(self._corpus()["side-drilled"])
+        model = self._models()["side-drilled"]
         from draftwright.model.compiled import compile_dimensions
 
         roles = {loc.role for loc in compile_dimensions(model).locations}
@@ -2905,6 +2923,25 @@ class TestTheDimensionMirror:
             if current != initial:
                 changed[name] = (initial, current)
         assert not changed, f"shared automatic drawings were mutated: {sorted(changed)}"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _cached_mirror_corpus_stays_pristine():
+    def signature(part):
+        bounds = part.bounding_box()
+        return (
+            part.volume,
+            tuple(bounds.min),
+            tuple(bounds.max),
+            len(part.solids()),
+            len(part.faces()),
+            len(part.edges()),
+        )
+
+    before = {name: signature(part) for name, part in TestTheDimensionMirror._corpus().items()}
+    yield
+    after = {name: signature(part) for name, part in TestTheDimensionMirror._corpus().items()}
+    assert after == before, "a sheet-emitter test mutated cached mirror-corpus geometry"
 
 
 #: Annotations a generated script legitimately does NOT declare, keyed by EXACT name prefix
@@ -3092,7 +3129,8 @@ def test_every_ir_kind_is_classified_for_mirror_coverage():
     )
 
 
-def _kinds_the_mirror_dimensions() -> set[str]:
+@cache
+def _kinds_the_mirror_dimensions() -> frozenset[str]:
     """Feature kinds some corpus fixture contributes an APPROVED dimension for.
 
     Asked of the compiler, not of detection. A fixture can detect a chamfer perfectly and
@@ -3110,7 +3148,7 @@ def _kinds_the_mirror_dimensions() -> set[str]:
             feature = resolve_feature(owner.ref) if owner.ref is not None else None
             if feature is not None:
                 covered.add(feature.kind)
-    return covered
+    return frozenset(covered)
 
 
 def _declared_measurement_model():
@@ -3380,7 +3418,7 @@ def mirror_automatic_drawings():
     """
     cases = {}
     for name, part in TestTheDimensionMirror._corpus().items():
-        model = detect_part_model(part)
+        model = TestTheDimensionMirror._models()[name]
         drawing = build_drawing(part, model=model, title="T", number="N")
         cases[name] = (part, model, drawing, _annotation_signature(drawing))
     return cases
@@ -3741,6 +3779,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         return False
 
     @staticmethod
+    @cache
     def _corpus():
         from build123d import Box, Cylinder, Pos
 
@@ -3829,6 +3868,36 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             + Pos(0, 18.75, 15) * Box(50, 12.5, 18),
         }
 
+    @staticmethod
+    @cache
+    def _models():
+        return {
+            name: detect_part_model(part)
+            for name, part in TestTheDeclaredModelMatchesTheDetectedOne._corpus().items()
+        }
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def _cached_detected_corpus_stays_pristine(cls):
+        def signature(part):
+            bounds = part.bounding_box()
+            return (
+                part.volume,
+                tuple(bounds.min),
+                tuple(bounds.max),
+                len(part.solids()),
+                len(part.faces()),
+                len(part.edges()),
+            )
+
+        solids_before = {name: signature(part) for name, part in cls._corpus().items()}
+        models_before = {name: repr(model) for name, model in cls._models().items()}
+        yield
+        solids_after = {name: signature(part) for name, part in cls._corpus().items()}
+        models_after = {name: repr(model) for name, model in cls._models().items()}
+        assert solids_after == solids_before, "a fidelity test mutated cached corpus geometry"
+        assert models_after == models_before, "a fidelity test mutated cached detection evidence"
+
     #: Fixtures whose member ENUMERATION ORDER is a known defect, as STRICT xfails. Strict
     #: because an assertion that the models merely DIFFER — which this was first — stays green
     #: if a later change produces a DIFFERENT wrong answer, and because fixing the defect then
@@ -3899,7 +3968,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
 
     @pytest.mark.parametrize("name", sorted(_corpus()))
     def test_the_corpus_detects_what_it_claims(self, name):
-        kinds = {f.kind for f in detect_part_model(self._corpus()[name]).features}
+        kinds = {f.kind for f in self._models()[name].features}
         expected = self._EXPECTED_KINDS[name]
         assert expected <= kinds, f"{name} detects {sorted(kinds)}, missing {sorted(expected)}"
 
@@ -4089,8 +4158,8 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         and a `declared` one in the declared corpus — no exemption list, and no phrase that
         can be edited to make the requirement disappear."""
         detected = set()
-        for part in self._corpus().values():
-            detected |= {f.kind for f in detect_part_model(part).features}
+        for model in self._models().values():
+            detected |= {f.kind for f in model.features}
         declared = set()
         for build in self._declared_corpus().values():
             _part, model = build()
@@ -4132,7 +4201,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         exemption rests on a checked fact rather than a sentence. Two plates in one part must
         share an origin, and it must be the part's bbox centre — that is what makes the field
         a placeholder rather than a position."""
-        model = detect_part_model(self._corpus()["plate"])
+        model = self._models()["plate"]
         plates = [f for f in model.features if f.kind == "plate"]
         assert len(plates) == 2, "the fixture must carry two slabs for this to mean anything"
         centre = model.bbox.center()
@@ -4159,7 +4228,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         # test an emitter call production does not make, and would assert the script matches
         # a decision it was never told about.
         src = emit_sheet_script(
-            detect_part_model(part),
+            self._models()[name],
             "part",
             "s",
             title="T",
@@ -4190,7 +4259,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         import dataclasses
 
         part = self._corpus()[name]
-        detected = detect_part_model(part)
+        detected = self._models()[name]
         src = emit_sheet_script(detected, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
         exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102
@@ -4244,7 +4313,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         import dataclasses
 
         part = self._corpus()[name]
-        detected = detect_part_model(part)
+        detected = self._models()[name]
         src = emit_sheet_script(detected, "part", "s", title="T", number="N")
         ns: dict = {"part": part}
         exec(compile(src[: src.index("drawing = sheet.build()")], "<emit>", "exec"), ns)  # noqa: S102

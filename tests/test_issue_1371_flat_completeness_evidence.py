@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from _evidence_contract import (
     assert_every_boundary_is_supported,
     assert_missing_model_outcomes_fail_closed,
@@ -63,6 +64,7 @@ def test_versioned_flat_corpus_covers_every_required_case_class() -> None:
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_flat_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=9, parameter_fidelity=27, downstream_usefulness=36
@@ -173,6 +175,7 @@ def test_removing_the_placed_flat_callout_loses_drawing_credit(monkeypatch) -> N
 
 def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -184,6 +187,7 @@ def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:
         callout.label = "16 A/F"
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", with_wrong_ink)
     assert _states("ir_adapter") == {"supported"}
     assert _states("drawing_consumer") == {"unsupported"}
@@ -191,6 +195,7 @@ def test_wrong_flat_nominal_ink_loses_drawing_credit(monkeypatch) -> None:
 
 def test_severing_flat_measurement_provenance_loses_drawing_credit(monkeypatch) -> None:
     import draftwright.builder as builder
+    import draftwright.sheet as sheet_module
 
     original = builder.build_drawing
 
@@ -203,12 +208,15 @@ def test_severing_flat_measurement_provenance_loses_drawing_credit(monkeypatch) 
         drawing.registry.reapply(name, identity)
         return drawing
 
+    monkeypatch.setattr(sheet_module, "build_drawing", sheet_module.build_drawing)
     monkeypatch.setattr(builder, "build_drawing", without_provenance)
     assert _states("ir_adapter") == {"supported"}
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -218,10 +226,10 @@ def test_deleting_provider_flats_cannot_shrink_the_independent_denominator(monke
         return replace(result, flats=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_flats)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 9
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

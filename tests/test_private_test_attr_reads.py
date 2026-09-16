@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
+from functools import cache
 from pathlib import Path
 
 _TESTS = Path(__file__).resolve().parent
@@ -201,6 +202,7 @@ def _read_counts(tree: ast.Module) -> Counter[str]:
     return counts
 
 
+@cache
 def _scan_all() -> Counter[str]:
     total: Counter[str] = Counter()
     # This guard file is NOT exempted (Codex #814 L5): it only references the private names as

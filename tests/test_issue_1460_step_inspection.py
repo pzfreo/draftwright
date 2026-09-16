@@ -359,7 +359,7 @@ def test_owners_name_ir_features_not_provider_or_topology_identities() -> None:
 
 def test_a_refused_occurrence_ledger_surfaces_as_an_inspection_failure(monkeypatch) -> None:
     """The refusal lives in the shared report projector and is tested against real unclassified
-    ledgers in `test_issue_1438_report_projection`. What is specific here is that inspection
+    ledgers in `test_report_projection`. What is specific here is that inspection
     propagates it rather than degrading to a document with a smaller denominator."""
 
     def refuse(*args, **kwargs):

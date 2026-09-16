@@ -8,6 +8,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
+from _parts import part as named_part
 from build123d import Align, Axis, Box, Pos, Rot
 from quiddity import (
     OrientedSlot,
@@ -32,6 +34,8 @@ _AUTHORED_CASES = ((-35.0, -18.0, 17.0), (8.0, 13.0, 43.0), (31.0, -7.0, 77.0))
 
 
 def _part(points=((0, 0),)):
+    if points == ((0, 0),):
+        return named_part("oriented_slot_30deg")
     part = Box(120, 90, 10)
     for x, y in points:
         part -= (
@@ -170,14 +174,12 @@ def test_generated_sheet_losslessly_replays_high_precision_authored_values() -> 
     sheet = Sheet(_part()).authored_dimensions()
     sheet.oriented_slot(**kwargs)
 
-    source = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N")
+    source = emit_sheet_script(sheet.model(), "part", "s", title="T", number="N", formats=())
     namespace = {"part": _part()}
-    exec(compile(source, "<precise-oriented-slot>", "exec"), namespace)  # noqa: S102
+    drawing = execute_sheet_script_without_export(source, "<precise-oriented-slot>", namespace)
 
     rebuilt = next(
-        feature
-        for feature in namespace["drawing"].model().features
-        if feature.kind == "oriented_slot"
+        feature for feature in drawing.model().features if feature.kind == "oriented_slot"
     )
     assert rebuilt == expected
 
@@ -305,8 +307,8 @@ def test_every_callout_tip_lands_on_the_physical_rotated_rim(angle, parameter_id
     assert annotation.tip[:2] != pytest.approx(drawing.at("plan", *feature.frame.origin)[:2])
 
 
-def test_drawing_places_one_solver_owned_two_requirement_callout() -> None:
-    drawing = build_drawing(_part())
+def test_drawing_places_one_solver_owned_two_requirement_callout(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     feature = next(item for item in drawing.model().features if item.kind == "oriented_slot")
     annotations = drawing.annotations_of(feature)
 
@@ -334,8 +336,8 @@ def test_pattern_members_remain_exclusively_deferred_to_the_pattern_family() -> 
     assert completeness["unscored_recognized_families"] == ["oriented_slot_patterns"]
 
 
-def test_raw_and_framed_rigid_motion_preserve_sizes_and_outcomes() -> None:
-    raw = build_drawing(_part())
+def test_raw_and_framed_rigid_motion_preserve_sizes_and_outcomes(fresh_drawing) -> None:
+    raw = fresh_drawing("oriented_slot_30deg")
     moved = _part().rotate(Axis.X, 23).rotate(Axis.Z, 31)
     framed = build_drawing(moved, framed_recognition=True)
 
@@ -438,8 +440,8 @@ def test_authored_corpus_oracle_detects_a_corrupt_lowering(monkeypatch) -> None:
         build_part_model(_authored_corpus_part())
 
 
-def test_removing_one_grouped_callout_exposes_both_requirements() -> None:
-    drawing = build_drawing(_part())
+def test_removing_one_grouped_callout_exposes_both_requirements(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     feature = next(item for item in drawing.model().features if item.kind == "oriented_slot")
     name = next(iter(drawing.annotations_of(feature)))
 
@@ -451,8 +453,8 @@ def test_removing_one_grouped_callout_exposes_both_requirements() -> None:
     ]
 
 
-def test_severing_compiler_provenance_fails_closed_for_both_values() -> None:
-    drawing = build_drawing(_part())
+def test_severing_compiler_provenance_fails_closed_for_both_values(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     feature = next(item for item in drawing.model().features if item.kind == "oriented_slot")
     name = next(iter(drawing.annotations_of(feature)))
     identity = drawing.registry.identity_of(name)
@@ -465,8 +467,8 @@ def test_severing_compiler_provenance_fails_closed_for_both_values() -> None:
     ]
 
 
-def test_full_source_passage_identity_is_load_bearing() -> None:
-    automatic = build_drawing(_part())
+def test_full_source_passage_identity_is_load_bearing(fresh_drawing) -> None:
+    automatic = fresh_drawing("oriented_slot_30deg")
     recognition = automatic.recognition()
     detected = _feature()
     assert detected.passage.body_key is not None
@@ -489,8 +491,8 @@ def test_full_source_passage_identity_is_load_bearing() -> None:
     ]
 
 
-def test_drop_evidence_retains_both_compiler_measurement_ids() -> None:
-    drawing = build_drawing(_part())
+def test_drop_evidence_retains_both_compiler_measurement_ids(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     feature = next(item for item in drawing.model().features if item.kind == "oriented_slot")
     name = next(iter(drawing.annotations_of(feature)))
     measurement_ids = drawing.registry.measurement_of(name)
@@ -534,8 +536,8 @@ def test_authored_omission_and_structured_note_have_distinct_outcomes(structured
     assert summary["requirements"] == 2
 
 
-def test_completeness_input_contracts_and_malformed_records_fail_closed() -> None:
-    drawing = build_drawing(_part())
+def test_completeness_input_contracts_and_malformed_records_fail_closed(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     feature = next(item for item in drawing.model().features if item.kind == "oriented_slot")
 
@@ -817,8 +819,8 @@ def test_grid_pattern_schema_is_strict_before_projection(mutation) -> None:
         {"body_key": [0.0]},
     ],
 )
-def test_malformed_provider_numerics_cannot_self_certify(mutation) -> None:
-    drawing = build_drawing(_part())
+def test_malformed_provider_numerics_cannot_self_certify(fresh_drawing, mutation) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     malformed = replace(recognition.oriented_slots[0], **mutation)
@@ -834,8 +836,8 @@ def test_malformed_provider_numerics_cannot_self_certify(mutation) -> None:
     assert {outcome.state for outcome in outcomes} == {"unverifiable"}
 
 
-def test_duck_typed_provider_passage_cannot_self_certify() -> None:
-    drawing = build_drawing(_part())
+def test_duck_typed_provider_passage_cannot_self_certify(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     slot = recognition.oriented_slots[0]
@@ -879,7 +881,7 @@ def test_duck_typed_provider_passage_cannot_self_certify() -> None:
 
 
 @pytest.mark.parametrize("field", ["vector", "boundary"])
-def test_tuple_subclasses_are_not_released_provider_schema(field) -> None:
+def test_tuple_subclasses_are_not_released_provider_schema(fresh_drawing, field) -> None:
     class ShortTuple(tuple):
         def __len__(self) -> int:
             return 3
@@ -887,7 +889,7 @@ def test_tuple_subclasses_are_not_released_provider_schema(field) -> None:
         def __iter__(self):
             return iter(tuple.__getitem__(self, slice(0, 2)))
 
-    drawing = build_drawing(_part())
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     slot = recognition.oriented_slots[0]
@@ -909,8 +911,8 @@ def test_tuple_subclasses_are_not_released_provider_schema(field) -> None:
 
 
 @pytest.mark.parametrize("mutation", ["orthogonal", "handed", "gauge", "basis", "origin"])
-def test_provider_frame_is_revalidated_at_the_adapter_boundary(mutation) -> None:
-    drawing = build_drawing(_part())
+def test_provider_frame_is_revalidated_at_the_adapter_boundary(fresh_drawing, mutation) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     slot = recognition.oriented_slots[0]
@@ -934,8 +936,8 @@ def test_provider_frame_is_revalidated_at_the_adapter_boundary(mutation) -> None
         oriented_slot_provider_key(replace(slot, source=source))
 
 
-def test_provider_and_ir_share_the_released_direction_length_limit() -> None:
-    drawing = build_drawing(_part())
+def test_provider_and_ir_share_the_released_direction_length_limit(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     slot = recognition.oriented_slots[0]
@@ -959,8 +961,10 @@ def test_provider_and_ir_share_the_released_direction_length_limit() -> None:
 
 
 @pytest.mark.parametrize("ordering", ["cyclic", "reversed"])
-def test_provider_and_ir_require_the_public_canonical_section_order(ordering) -> None:
-    drawing = build_drawing(_part())
+def test_provider_and_ir_require_the_public_canonical_section_order(
+    fresh_drawing, ordering
+) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     slot = recognition.oriented_slots[0]
@@ -985,8 +989,8 @@ def test_provider_and_ir_require_the_public_canonical_section_order(ordering) ->
         replace(feature.passage, boundary=malformed_ir)
 
 
-def test_none_body_identity_remains_distinct_and_valid() -> None:
-    drawing = build_drawing(_part())
+def test_none_body_identity_remains_distinct_and_valid(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     slot = replace(recognition.oriented_slots[0], body_key=None)
@@ -995,8 +999,10 @@ def test_none_body_identity_remains_distinct_and_valid() -> None:
 
 
 @pytest.mark.parametrize("mutation", ["width", "center", "feature-body", "source-body"])
-def test_source_to_ir_correspondence_is_exact_after_boundary_validation(mutation) -> None:
-    drawing = build_drawing(_part())
+def test_source_to_ir_correspondence_is_exact_after_boundary_validation(
+    fresh_drawing, mutation
+) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     source = recognition.oriented_slots[0]
@@ -1030,8 +1036,8 @@ def test_source_to_ir_correspondence_is_exact_after_boundary_validation(mutation
     assert {outcome.state for outcome in outcomes} == {"unverifiable"}
 
 
-def test_spoofed_ir_class_name_cannot_join_provider_evidence() -> None:
-    drawing = build_drawing(_part())
+def test_spoofed_ir_class_name_cannot_join_provider_evidence(fresh_drawing) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "oriented_slot")
@@ -1080,8 +1086,8 @@ def test_exact_ir_identity_registration_is_write_once() -> None:
 
 
 @pytest.mark.parametrize("width", [7.0, 6.0004])
-def test_provider_nominals_must_be_the_serialized_passage_projection(width) -> None:
-    drawing = build_drawing(_part())
+def test_provider_nominals_must_be_the_serialized_passage_projection(fresh_drawing, width) -> None:
+    drawing = fresh_drawing("oriented_slot_30deg")
     recognition = drawing.recognition()
     assert recognition is not None
     source = recognition.oriented_slots[0]

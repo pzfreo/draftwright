@@ -95,6 +95,7 @@ def test_consumer_contract_publishes_polygonal_stock_completeness_evidence() -> 
 
 
 @pytest.mark.timeout(600)  # 207 s on a fast hosted runner — the global 300 s cap is marginal.
+@pytest.mark.scheduled
 def test_real_polygonal_stock_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=6, parameter_fidelity=24, downstream_usefulness=24
@@ -1047,7 +1048,9 @@ def test_drawing_consumer_requires_both_compiler_approved_stock_dimensions(monke
     ]
 
 
-def test_deleting_provider_stock_cannot_shrink_the_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_stock_cannot_shrink_the_independent_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -1057,10 +1060,10 @@ def test_deleting_provider_stock_cannot_shrink_the_independent_denominator(monke
         return replace(result, polygonal_stock=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_stock)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 6
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

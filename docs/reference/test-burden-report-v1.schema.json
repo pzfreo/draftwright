@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schemas/test-burden-report-v1.schema.json",
+  "title": "Draftwright test burden report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["python", "schema_version", "tests", "totals", "workers"],
+  "properties": {
+    "python": {"type": "string"},
+    "schema_version": {"const": 1},
+    "workers": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "totals": {"$ref": "#/$defs/totals"},
+    "tests": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/test"}
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cache_hit", "options", "recipe"],
+      "properties": {
+        "cache_hit": {"type": "boolean"},
+        "options": {"type": "object", "additionalProperties": {"type": "string"}},
+        "recipe": {"type": "string"}
+      }
+    },
+    "phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duration", "outcome"],
+      "properties": {
+        "duration": {"type": "number", "minimum": 0},
+        "outcome": {"enum": ["failed", "passed", "skipped"]}
+      }
+    },
+    "recipe_total": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cache_hit", "count", "options", "recipe"],
+      "properties": {
+        "cache_hit": {"type": "boolean"},
+        "count": {"type": "integer", "minimum": 1},
+        "options": {"type": "object", "additionalProperties": {"type": "string"}},
+        "recipe": {"type": "string"}
+      }
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["counts", "nodeid", "phases", "recipes"],
+      "properties": {
+        "counts": {"$ref": "#/$defs/counts"},
+        "nodeid": {"type": "string"},
+        "phases": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "call": {"$ref": "#/$defs/phase"},
+            "setup": {"$ref": "#/$defs/phase"},
+            "teardown": {"$ref": "#/$defs/phase"}
+          }
+        },
+        "recipes": {"type": "array", "items": {"$ref": "#/$defs/recipe"}}
+      }
+    },
+    "totals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["counts", "duration", "recipe_requests"],
+      "properties": {
+        "counts": {"$ref": "#/$defs/counts"},
+        "duration": {"type": "number", "minimum": 0},
+        "recipe_requests": {"type": "array", "items": {"$ref": "#/$defs/recipe_total"}}
+      }
+    }
+  }
+}

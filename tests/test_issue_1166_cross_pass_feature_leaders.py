@@ -306,8 +306,8 @@ def test_near_clear_witness_is_not_falsely_classified_by_strip_padding():
     assert not any("3× ⌀8 THRU" in message for message in issues)
 
 
-def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -365,8 +365,8 @@ def test_unrelated_center_furniture_is_fixed_ink_but_own_mark_is_not():
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.lint())
 
 
-def test_circular_center_furniture_keeps_its_empty_interior_available():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_circular_center_furniture_keeps_its_empty_interior_available(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -532,8 +532,8 @@ def test_filled_datum_face_is_part_of_the_fixed_ink_inventory(inked_box_dwg):
     assert blockers[0].startswith("datum_test:ink:")
 
 
-def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_ownerless_section_centerline_at_the_tip_is_not_a_global_axis_exemption(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -698,8 +698,8 @@ def test_global_axis_exemption_keeps_every_non_attachment_collision(case):
     assert _candidate_hits_component(candidate, component)
 
 
-def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -752,8 +752,8 @@ def test_global_axis_tip_attachment_does_not_exempt_a_later_shelf_crossing():
     assert feature_leader_fixed_conflicts(drawing, ("test_global_axis",)) == ()
 
 
-def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -814,9 +814,9 @@ def test_global_axis_tip_attachment_does_not_exempt_near_collinear_shaft_travel(
 
 @pytest.mark.parametrize("unavailable_attribute", ["segments", "label_bbox"])
 def test_final_preflight_yields_when_landed_leader_metadata_is_unavailable(
-    monkeypatch, unavailable_attribute
+    monkeypatch, unavailable_attribute, fresh_drawing
 ):
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -848,9 +848,9 @@ def test_final_preflight_yields_when_landed_leader_metadata_is_unavailable(
 
 @pytest.mark.parametrize("rendered_failure", ["empty", "exception"])
 def test_final_preflight_fails_closed_when_rendered_faces_are_unavailable(
-    monkeypatch, rendered_failure
+    monkeypatch, rendered_failure, fresh_drawing
 ):
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     ctx = PlacementContext(
         registry=drawing.registry,
         coverage=drawing.coverage,
@@ -972,10 +972,11 @@ def test_selected_occ_survivor_validates_arrow_shaft_and_shelf_ink():
 
 def test_machined_leader_wrong_analytical_ink_fails_the_rendered_survivor_gate(
     monkeypatch,
+    fresh_drawing,
 ):
     import draftwright.annotations.leaders as leaders
 
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -1132,14 +1133,10 @@ def test_selected_occ_survivor_rejects_a_face_bridging_disjoint_components():
 @pytest.mark.parametrize("valid_tail", [True, False])
 @pytest.mark.parametrize("drop_callback", [False, True])
 def test_rendered_validation_failure_replays_the_producer_tail(
-    tmp_path, failure, valid_tail, drop_callback
+    tmp_path, failure, valid_tail, drop_callback, fresh_drawing
 ):
     trace_path = tmp_path / "geometry-feedback.json"
-    drawing = build_drawing(
-        Box(40, 30, 8),
-        page="A4",
-        auto_dims=False,
-    )
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -1242,9 +1239,9 @@ def test_rendered_validation_failure_replays_the_producer_tail(
         assert item["producer_fallback"]["selected"] is None
 
 
-def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path):
+def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path, fresh_drawing):
     trace_path = tmp_path / "prebuilt-geometry-feedback.json"
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -1310,32 +1307,61 @@ def test_prebuilt_survivor_mesh_failure_replays_a_valid_tail(tmp_path):
     assert item["producer_fallback"]["selected"]["candidate"] == 1
 
 
-@pytest.mark.parametrize("valid_tail", [True, False])
-@pytest.mark.parametrize("drop_callback", [False, True])
-@pytest.mark.parametrize(
-    "failure",
-    [
-        "exception",
-        "geometry_none",
-        "missing_label",
-        "malformed_analytical",
-        "reversed_label",
-        "degenerate_label",
-        "nonfinite_segment",
-        "overflow_analytical",
-    ],
+_CANDIDATE_FAILURES = {
+    "exception",
+    "geometry_none",
+    "missing_label",
+    "malformed_analytical",
+    "reversed_label",
+    "degenerate_label",
+    "nonfinite_segment",
+    "overflow_analytical",
+}
+
+_CANDIDATE_FAILURE_CASES = (
+    ("exception", True, False, None),
+    ("exception", False, True, 0),
+    ("geometry_none", True, False, 0),
+    ("geometry_none", False, True, None),
+    ("missing_label", True, True, None),
+    ("missing_label", False, False, 0),
+    ("malformed_analytical", True, True, 0),
+    ("malformed_analytical", False, False, None),
+    ("reversed_label", True, False, None),
+    ("reversed_label", False, True, 0),
+    ("degenerate_label", True, False, 0),
+    ("degenerate_label", False, True, None),
+    ("nonfinite_segment", True, True, None),
+    ("nonfinite_segment", False, False, 0),
+    ("overflow_analytical", True, True, 0),
+    ("overflow_analytical", False, False, None),
 )
-@pytest.mark.parametrize("fixed_budget", [None, 0])
+
+
+def test_candidate_failure_cases_cover_every_boundary_and_pair() -> None:
+    levels = (
+        _CANDIDATE_FAILURES,
+        {True, False},
+        {True, False},
+        {None, 0},
+    )
+    for left, right in combinations(range(len(levels)), 2):
+        expected = {(a, b) for a in levels[left] for b in levels[right]}
+        actual = {(case[left], case[right]) for case in _CANDIDATE_FAILURE_CASES}
+        assert actual == expected
+
+
+@pytest.mark.parametrize("failure,valid_tail,drop_callback,fixed_budget", _CANDIDATE_FAILURE_CASES)
 def test_candidate_measurement_failure_is_truthful_and_does_not_abort(
-    monkeypatch, tmp_path, valid_tail, drop_callback, failure, fixed_budget
+    monkeypatch, tmp_path, failure, valid_tail, drop_callback, fixed_budget, fresh_drawing
 ):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     if fixed_budget is not None:
         monkeypatch.setattr(
             "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
             fixed_budget,
         )
     trace_path = tmp_path / "candidate-construction.json"
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
@@ -2000,13 +2026,15 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
 
 
 @pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title"))
-def test_resource_fallback_never_bypasses_hard_boundaries(monkeypatch, tmp_path, hard_boundary):
+def test_resource_fallback_never_bypasses_hard_boundaries(
+    monkeypatch, tmp_path, hard_boundary, fresh_drawing
+):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     monkeypatch.setattr(
         "draftwright.annotations.leaders._FEATURE_LEADER_MAX_FIXED_WORK",
         0,
     )
     trace_path = tmp_path / f"hard-{hard_boundary}.json"
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
     title = drawing.get_annotation("title_block").bounding_box()
     if hard_boundary == "page":
         tip = (270.0, 100.0)
@@ -2123,8 +2151,10 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch, 
     )
 
 
-def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypatch):
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(
+    monkeypatch, fresh_drawing
+):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     rendered_title_box = drawing.get_annotation("title_block").bounding_box()
     analysis = SimpleNamespace(
         margin=10.0,
@@ -2232,8 +2262,8 @@ def test_future_section_cannot_veto_a_required_leader_but_title_is_hard(monkeypa
     assert any(issue.code == "callout_dropped" for issue in drawing.registry.issues)
 
 
-def test_rendered_title_keeps_the_whole_mandatory_band_hard():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_rendered_title_keeps_the_whole_mandatory_band_hard(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     title = drawing.get_annotation("title_block")
     title_box = title.bounding_box()
     bounds = drawing.view_bounds("front")
@@ -2283,8 +2313,8 @@ def test_rendered_title_keeps_the_whole_mandatory_band_hard():
     assert any(issue.code == "fillet_dropped" for issue in drawing.registry.issues)
 
 
-def test_provisional_section_refines_without_reducing_required_leaders():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_provisional_section_refines_without_reducing_required_leaders(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     mid_y = (bounds[1] + bounds[3]) / 2
@@ -2345,8 +2375,8 @@ def test_provisional_section_refines_without_reducing_required_leaders():
     assert not any(issue.code == "feature_leader_crossing" for issue in drawing.registry.issues)
 
 
-def test_non_provisional_section_prefixed_annotation_is_classified_immediately():
-    drawing = build_drawing(Box(40, 30, 8), page="A4", auto_dims=False)
+def test_non_provisional_section_prefixed_annotation_is_classified_immediately(fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
     bounds = drawing.view_bounds("front")
     assert bounds is not None
     tip = (bounds[2], (bounds[1] + bounds[3]) / 2)

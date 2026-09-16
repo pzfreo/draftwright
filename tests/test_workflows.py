@@ -133,6 +133,30 @@ def test_the_full_matrix_stays_reachable_without_editing_the_workflow():
     assert "full-matrix" in test_job  # opt in on a single pull request
 
 
+def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable():
+    test_job = _job(_workflow("ci.yml"), "test")
+
+    assert "fetch-depth: 0" in test_job
+    assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in test_job
+    assert "tier=full" in test_job
+    assert "tier=pr" in test_job
+    assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
+
+
+def test_coverage_shards_measure_the_explicit_full_tier():
+    coverage_job = _job(_workflow("ci.yml"), "coverage")
+
+    assert "uv run scripts/test-tier full --workers auto" in coverage_job
+    assert "uv run pytest tests/" not in coverage_job
+
+
+def test_local_changed_line_gate_uses_the_pinned_diff_cover_tool():
+    command = (ROOT / "scripts" / "pr-check").read_text(encoding="utf-8")
+
+    assert "uv run --with diff-cover==9.7.2 diff-cover coverage.xml" in command
+    assert "uvx --from" not in command
+
+
 def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     workflow = _workflow("ci.yml")
 
@@ -147,12 +171,11 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
     )
 
 
-def test_slow_gate_distributes_individual_cases_instead_of_serialising_modules():
+def test_post_merge_gate_runs_the_complete_scheduled_tier():
     slow_job = _job(_workflow("ci.yml"), "test-slow")
 
-    assert re.findall(r"run: (uv run pytest tests/ -m slow[^\n]*)", slow_job) == [
-        "uv run pytest tests/ -m slow -n auto --dist load"
-    ]
+    assert "uv run scripts/test-tier scheduled --workers auto --dist load" in slow_job
+    assert "uv run pytest tests/ -m slow" not in slow_job
 
 
 @pytest.mark.parametrize(

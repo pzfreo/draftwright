@@ -69,6 +69,7 @@ def test_versioned_chamfer_corpus_covers_every_required_case_class() -> None:
     assert all(case.provenance["license"] == "CC0-1.0" for case in corpus.cases)
 
 
+@pytest.mark.scheduled
 def test_real_chamfer_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=12, parameter_fidelity=36, downstream_usefulness=48
@@ -481,7 +482,9 @@ def test_severing_chamfer_measurement_provenance_loses_drawing_credit(monkeypatc
     assert _states("drawing_consumer") == {"unsupported"}
 
 
-def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(monkeypatch) -> None:
+def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -491,10 +494,10 @@ def test_deleting_provider_chamfers_cannot_shrink_independent_denominator(monkey
         return replace(result, chamfers=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_chamfers)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 12
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 

@@ -2,9 +2,9 @@
 
 from copy import deepcopy
 from pathlib import Path
-from runpy import run_path
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import GeomType, Pos, Vertex
 
 from draftwright import build_drawing
@@ -57,8 +57,9 @@ def test_automatic_radius_tips_land_on_trimmed_profile_arcs(automatic):
 
 
 def test_generated_authored_radius_tips_land_on_trimmed_profile_arcs(tmp_path):
-    script = generate_sheet_script(str(FIXTURE), out=str(tmp_path / "grm04"))
-    drawing = run_path(str(script))["drawing"]
+    script = generate_sheet_script(str(FIXTURE), out=str(tmp_path / "grm04"), formats=())
+    source = Path(script).read_text(encoding="utf-8")
+    drawing = execute_sheet_script_without_export(source, str(script))
     _assert_on_profile_arcs(drawing)
 
 

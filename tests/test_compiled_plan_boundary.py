@@ -82,7 +82,7 @@ def _crowded_staircase():
     trigger for the enlarged detail view — the only way to exercise the detail redraw at
     all. Narrow in X/Y so the detail footprint actually fits the sheet; a fixture whose
     detail is `detail_unplaceable` draws nothing and would make this test vacuous.
-    (Mirrors `_crowded_shoulder_part` in tests/test_make_drawing.py.)
+    (Mirrors `crowded_shoulder_part` in tests/_parts.py.)
     """
     part = Pos(0, 0, 3) * Box(20, 16, 6)
     z = 6.0

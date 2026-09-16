@@ -46,6 +46,42 @@ from types import MappingProxyType
 
 from build123d import Box
 
+
+def _rectangular_pad(axis: str):
+    """Return the positive principal-axis pad used by the #1372 evidence tests."""
+    from build123d import Align, Location
+
+    align = (Align.MIN, Align.MIN, Align.MIN)
+
+    def box(size, position):
+        return Box(*size, align=align).moved(Location(position))
+
+    if axis == "z":
+        return box((40, 30, 10), (0, 0, 0)) + box((15, 10, 5), (5, 8, 10))
+    if axis == "x":
+        return box((10, 30, 40), (0, 0, 0)) + box((5, 10, 15), (10, 8, 5))
+    return box((40, 10, 30), (0, 0, 0)) + box((15, 5, 10), (5, 10, 8))
+
+
+def _oriented_slot():
+    """Return the single 30-degree slot used by the #1432 evidence tests."""
+    from build123d import Align, Pos, Rot
+
+    tool = (
+        Pos(0, 0, 0)
+        * Rot(0, 0, 30)
+        * Box(24, 6, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    )
+    return Box(120, 90, 10) - tool
+
+
+def _through_step_report_part():
+    """Return the through-step substrate used by the #1438 report tests."""
+    from build123d import Pos
+
+    return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
+
+
 # (length, width, height), in descending order of the census above. The cut was 23 calls.
 _BOX_SUBSTRATES: tuple[tuple[int, int, int], ...] = (
     (60, 40, 20),
@@ -72,15 +108,99 @@ PART_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
     }
 )
 
+_ANALYSIS_RECIPES: Mapping[str, Callable[[], object]] = MappingProxyType(
+    {
+        **{f"rectangular_pad_{axis}_positive": partial(_rectangular_pad, axis) for axis in "xyz"},
+        "oriented_slot_30deg": _oriented_slot,
+        "through_step_report": _through_step_report_part,
+    }
+)
+
+_ALL_RECIPES = {**PART_RECIPES, **_ANALYSIS_RECIPES}
+
 
 def part(recipe: str):
     """Build a fresh solid for *recipe*, failing with the known names if it is not one."""
     try:
-        builder = PART_RECIPES[recipe]
+        builder = _ALL_RECIPES[recipe]
     except KeyError:
         raise KeyError(
             f"unknown part recipe {recipe!r}; tests/_parts.py holds "
-            f"{', '.join(sorted(PART_RECIPES))}. Add one only when its substrate is copied "
+            f"{', '.join(sorted(_ALL_RECIPES))}. Add one only when its substrate is copied "
             "widely enough to be worth a name — a one-off block belongs in its own test."
         ) from None
     return builder()
+
+
+def holed_plate():
+    """80×60×20 plate with four through holes and one blind centre hole."""
+    from build123d import Cylinder, Pos
+
+    return (
+        Box(80, 60, 20)
+        - Pos(25, 20, 0) * Cylinder(5, 20)
+        - Pos(-25, 20, 0) * Cylinder(5, 20)
+        - Pos(25, -20, 0) * Cylinder(5, 20)
+        - Pos(-25, -20, 0) * Cylinder(5, 20)
+        - Pos(0, 0, 5) * Cylinder(3, 10)
+    )
+
+
+def multi_hole_plate():
+    """120×80×20 plate with three Z-axis hole specifications."""
+    from build123d import Cylinder, Pos
+
+    return (
+        Box(120, 80, 20)
+        - Pos(40, 25, 0) * Cylinder(5, 30)
+        - Pos(-40, 25, 0) * Cylinder(5, 30)
+        - Pos(0, -25, 0) * Cylinder(8, 30)
+    )
+
+
+def dense_plate():
+    """70×50×12 plate crowded with 24 holes in five diameter groups."""
+    import itertools
+
+    from build123d import Cylinder, Pos
+
+    result = Box(70, 50, 12)
+    for index, (x, y) in enumerate(itertools.product([-25, -15, -5, 5, 15, 25], [-15, -5, 5, 15])):
+        result -= Pos(x, y, 0) * Cylinder(1.0 + (index % 5) * 0.4, 20)
+    return result
+
+
+def crowded_shoulder_part():
+    """Return a tall stepped block whose shoulders trigger an enlarged detail view."""
+    from build123d import Pos
+
+    parts = [Pos(0, 0, 3) * Box(20, 16, 6)]
+    z = 6
+    for width in (16, 13, 10, 7, 5):
+        height = 3
+        parts.append(Pos(0, 0, z + height / 2) * Box(width, 12, height))
+        z += height
+    part = parts[0]
+    for next_part in parts[1:]:
+        part = part + next_part
+    return part
+
+
+def uniform_staircase(n_treads=8, rise=15.0, going=20.0, width=30.0):
+    """Return a staircase solid with *n_treads* treads of equal rise and going."""
+    from build123d import Pos
+
+    part = None
+    for index in range(n_treads):
+        height = (index + 1) * rise
+        length = (n_treads - index) * going
+        tread = Pos(length / 2, 0, height / 2) * Box(length, width, height)
+        part = tread if part is None else part + tread
+    return part
+
+
+def x_stepped_shaft():
+    """Return a turned shaft lying along X: ø30×40 followed by ø16×30."""
+    from build123d import Cylinder, Pos, Rotation
+
+    return Rotation(0, 90, 0) * (Cylinder(15, 40) + Pos(0, 0, 35) * Cylinder(8, 30))

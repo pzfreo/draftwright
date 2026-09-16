@@ -91,6 +91,7 @@ def test_versioned_plate_corpus_covers_every_required_case_class() -> None:
     )
 
 
+@pytest.mark.scheduled
 def test_real_plate_corpus_scores_all_layers_and_topology_variants() -> None:
     assert_real_corpus_scores_all_layers(
         CORPUS, matched=20, parameter_fidelity=20, downstream_usefulness=80
@@ -1328,7 +1329,7 @@ def test_severing_one_plate_measurement_claim_loses_drawing_credit(monkeypatch) 
 
 
 def test_deleting_provider_plates_cannot_shrink_the_independent_denominator(
-    monkeypatch,
+    monkeypatch, reduced_baseline
 ) -> None:
     import draftwright.analysis as analysis
 
@@ -1339,15 +1340,17 @@ def test_deleting_provider_plates_cannot_shrink_the_independent_denominator(
         return replace(result, plates=())
 
     monkeypatch.setattr(analysis, "_result_from_evidence", without_plates)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
     assert damaged.detection.matched == 0
-    assert damaged.detection.missed == 20
+    assert damaged.detection.missed == reduced_baseline.detection.matched
     assert damaged.detection.recall == 0.0
     assert damaged.complete_cases < len(damaged.cases)
 
 
-def test_malformed_provider_plate_cannot_pass_or_shrink_the_denominator(monkeypatch) -> None:
+def test_malformed_provider_plate_cannot_pass_or_shrink_the_denominator(
+    monkeypatch, reduced_baseline
+) -> None:
     import draftwright.analysis as analysis
 
     original = analysis._result_from_evidence
@@ -1359,9 +1362,9 @@ def test_malformed_provider_plate_cannot_pass_or_shrink_the_denominator(monkeypa
         return replace(result, plates=(object(), *result.plates[1:]))
 
     monkeypatch.setattr(analysis, "_result_from_evidence", malformed)
-    damaged = evaluate_step_corpus(load_corpus(CORPUS))
+    damaged = evaluate_step_corpus(reduced_corpus(load_corpus(CORPUS)))
 
-    assert damaged.detection.missed > 0
+    assert 0 < damaged.detection.missed <= reduced_baseline.detection.matched
     assert damaged.complete_cases < len(damaged.cases)
     assert sum(case.detection.missed for case in damaged.cases) >= 1
 

@@ -3,6 +3,7 @@
 from dataclasses import replace
 
 import pytest
+from _drawing_helpers import execute_sheet_script_without_export
 from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import Sheet, SoftDeprecationWarning, build_drawing
@@ -101,9 +102,9 @@ def test_fine_location_round_trips_through_a_generated_declaration(grouped_holes
         scale=2,
         formats=(),
     )
-    namespace = {"part": grouped_holes[0]}
-    exec(compile(source, "<member-location>", "exec"), namespace)
-    after = namespace["drawing"]
+    after = execute_sheet_script_without_export(
+        source, "<member-location>", {"part": grouped_holes[0]}
+    )
     assert _locations(after) == _locations(before)
     assert [label for label, _ in _locations(after).values()] == ["35"]
 
@@ -139,9 +140,9 @@ def test_profiled_group_preserves_member_selection_in_generated_declaration(
         scale=2,
         formats=(),
     )
-    namespace = {"part": part}
-    exec(compile(source, "<profiled-member-location>", "exec"), namespace)
-    after = namespace["drawing"]
+    after = execute_sheet_script_without_export(
+        source, "<profiled-member-location>", {"part": part}
+    )
     assert _locations(after) == _locations(before)
     rebuilt = next(item for item in after.model().features if item.kind == "hole")
     assert rebuilt.members == members
@@ -400,18 +401,18 @@ def test_automatic_pattern_augmentation_survives_generated_declaration(
         scale=2,
         formats=(),
     )
-    namespace = {"part": part}
-    exec(compile(source, "<augmented-pattern>", "exec"), namespace)
-    assert _locations(namespace["drawing"]) == _locations(before)
+    replayed = execute_sheet_script_without_export(source, "<augmented-pattern>", {"part": part})
+    assert _locations(replayed) == _locations(before)
     line = next(
         line
         for line in source.splitlines()
         if '"location"' in line and 'axis="x"' in line and f"member={far_member}" in line
     )
     edited = source.replace(line, "# " + line)
-    namespace = {"part": part}
-    exec(compile(edited, "<omitted-pattern-component>", "exec"), namespace)
-    remaining = _locations(namespace["drawing"])
+    replayed = execute_sheet_script_without_export(
+        edited, "<omitted-pattern-component>", {"part": part}
+    )
+    remaining = _locations(replayed)
     assert sorted(label for label, _ in remaining.values()) == ["15", "15"]
     assert {keys[0]["parameter_id"]: label for label, keys in remaining.values()} == {
         keys[0]["parameter_id"]: label
@@ -491,9 +492,8 @@ def test_emission_preserves_the_declared_member_order(grouped_holes, tmp_path, r
         scale=2,
         formats=(),
     )
-    namespace = {"part": part}
-    exec(compile(source, "<member-order>", "exec"), namespace)
-    assert _locations(namespace["drawing"]) == _locations(before)
+    replayed = execute_sheet_script_without_export(source, "<member-order>", {"part": part})
+    assert _locations(replayed) == _locations(before)
     assert [label for label, _ in _locations(before).values()] == ["45" if reverse else "15"]
 
 
@@ -538,9 +538,8 @@ def test_bolt_circle_centre_is_distinct_from_a_member(grouped_holes, tmp_path, a
         scale=2,
         formats=(),
     )
-    namespace = {"part": part}
-    exec(compile(source, "<pattern-centre>", "exec"), namespace)
-    assert _locations(namespace["drawing"]) == _locations(before)
+    replayed = execute_sheet_script_without_export(source, "<pattern-centre>", {"part": part})
+    assert _locations(replayed) == _locations(before)
 
 
 @pytest.mark.parametrize("second_axis", ["x", "y"])

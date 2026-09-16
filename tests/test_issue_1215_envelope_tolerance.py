@@ -106,7 +106,14 @@ class TestTheTwoPathsAgree:
 class TestTheToleranceReachesTheInk:
     """Labels are metadata. This is what the reader sees."""
 
-    @pytest.mark.parametrize("axis", _AXES)
+    @pytest.mark.parametrize(
+        "axis",
+        [
+            pytest.param("width", marks=pytest.mark.scheduled),
+            pytest.param("depth", marks=pytest.mark.scheduled),
+            "height",
+        ],
+    )
     def test_the_tolerance_reaches_the_exported_ink(self, axis, tmp_path):
         # All three axes, not just width: the HEIGHT is the path with two code changes
         # (compiler rung + ladder renderer) and had no ink assertion at all (#1234 review r2).
