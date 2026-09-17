@@ -861,6 +861,20 @@ def test_ctc04_dimension_associations_preserve_authored_support_groups():
     ) == ("size", "diameter", "Linear Size.17", ("#19956",), (60,), "#20224", "")
     assert pattern.reference_item_groups[0][:4] == ("#6245", "#6263", "#6193", "#6211")
     assert pattern.reference_item_groups[0][-4:] == ("#6349", "#6367", "#6297", "#6315")
+    angular = facts["#19921"]
+    assert (
+        angular.kind,
+        angular.semantic_name,
+        angular.presentation_name,
+        len(angular.shape_aspect_ids),
+        tuple(map(len, angular.reference_item_groups)),
+        angular.callout_id,
+        angular.reason,
+    ) == ("angular", "angle", "Angular Size.1", 30, (2,) * 30, "#19937", "")
+    assert angular.shape_aspect_ids[:2] == ("#19581", "#19592")
+    assert angular.reference_item_groups[:2] == (("#6254", "#6272"), ("#6202", "#6220"))
+    assert angular.shape_aspect_ids[-2:] == ("#19889", "#19900")
+    assert angular.reference_item_groups[-2:] == (("#7658", "#7676"), ("#7728", "#7710"))
 
 
 def test_dimension_associations_keep_location_group_order(tmp_path):
@@ -888,6 +902,55 @@ def test_dimension_associations_keep_location_group_order(tmp_path):
             reference_item_groups=(("#101", "#102"), ("#201",)),
             callout_id="#2",
         ),
+    )
+
+
+def test_dimension_associations_keep_angular_member_pairs(tmp_path):
+    facts = _read_dimension_associations(
+        tmp_path,
+        "angular-members",
+        "#1=ANGULAR_SIZE(#10,'angle',.EQUAL.);",
+        "#2=DRAUGHTING_CALLOUT('Angular Size.1',());",
+        "#3=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#30,#2);",
+        "#10=COMPOSITE_GROUP_SHAPE_ASPECT('pattern','',#30,.T.);",
+        "#11=COMPOSITE_SHAPE_ASPECT('first member','',#30,.T.);",
+        "#12=SHAPE_ASPECT_RELATIONSHIP('','',#10,#11);",
+        "#13=SHAPE_ASPECT('','',#30,.T.);",
+        "#14=SHAPE_ASPECT_RELATIONSHIP('','',#11,#13);",
+        "#15=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#13,#30,(#101,#102));",
+        "#21=COMPOSITE_SHAPE_ASPECT('second member','',#30,.T.);",
+        "#22=SHAPE_ASPECT_RELATIONSHIP('','',#10,#21);",
+        "#23=SHAPE_ASPECT('','',#30,.T.);",
+        "#24=SHAPE_ASPECT_RELATIONSHIP('','',#21,#23);",
+        "#25=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#23,#30,(#201,#202));",
+    )
+
+    assert facts == (
+        DimensionAssociationFact(
+            entity_id="#1",
+            kind="angular",
+            semantic_name="angle",
+            presentation_name="Angular Size.1",
+            shape_aspect_ids=("#11", "#21"),
+            reference_item_groups=(("#101", "#102"), ("#201", "#202")),
+            callout_id="#2",
+        ),
+    )
+
+
+def test_dimension_associations_report_angular_size_without_members(tmp_path):
+    (fact,) = _read_dimension_associations(
+        tmp_path,
+        "empty-angular",
+        "#1=ANGULAR_SIZE(#10,'angle',.EQUAL.);",
+        "#10=COMPOSITE_GROUP_SHAPE_ASPECT('pattern','',#30,.T.);",
+    )
+
+    assert fact.shape_aspect_ids == ()
+    assert fact.reference_item_groups == ()
+    assert fact.reason == (
+        "dimension characteristic has 0 linked presentation callouts; "
+        "angular dimension has no related support members"
     )
 
 

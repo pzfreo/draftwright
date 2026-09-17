@@ -1083,7 +1083,7 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
     follows only explicit shape-aspect relationships and retains stable source order.
     """
     step = _readfile(step_file)
-    characteristics: list[tuple[str, str, str, tuple[str, ...]]] = []
+    characteristics: list[tuple[str, str, str, tuple[str, ...], bool]] = []
     aspect_children: dict[str, list[str]] = {}
     aspect_items: dict[str, list[str]] = {}
     association_callouts: dict[str, list[str]] = {}
@@ -1092,6 +1092,7 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
     for section in step.data:
         for entity_id, instance in section.instances.items():
             size = _entity_named(instance, "DIMENSIONAL_SIZE")
+            angular_size = _entity_named(instance, "ANGULAR_SIZE")
             location = _entity_named(instance, "DIMENSIONAL_LOCATION")
             if (
                 size is not None
@@ -1099,7 +1100,23 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
                 and isinstance(size.params[0], p21.Reference)
             ):
                 semantic_name = _text(size.params[1])
-                characteristics.append((entity_id, "size", semantic_name, (str(size.params[0]),)))
+                characteristics.append(
+                    (entity_id, "size", semantic_name, (str(size.params[0]),), False)
+                )
+            elif (
+                angular_size is not None
+                and len(angular_size.params) >= 2
+                and isinstance(angular_size.params[0], p21.Reference)
+            ):
+                characteristics.append(
+                    (
+                        entity_id,
+                        "angular",
+                        _text(angular_size.params[1]),
+                        (str(angular_size.params[0]),),
+                        True,
+                    )
+                )
             elif (
                 location is not None
                 and len(location.params) >= 4
@@ -1112,6 +1129,7 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
                         "location",
                         _text(location.params[0]),
                         (str(location.params[2]), str(location.params[3])),
+                        False,
                     )
                 )
 
@@ -1157,7 +1175,7 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
         return tuple(dict.fromkeys(items))
 
     facts: list[DimensionAssociationFact] = []
-    for entity_id, kind, semantic_name, shape_aspect_ids in characteristics:
+    for entity_id, kind, semantic_name, shape_aspect_ids, expand_direct_members in characteristics:
         reasons: list[str] = []
         callout_ids = tuple(dict.fromkeys(association_callouts.get(entity_id, ())))
         callout_id = callout_ids[0] if len(callout_ids) == 1 else ""
@@ -1168,6 +1186,11 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
         presentation_name = callout_names.get(callout_id, "") if callout_id else ""
         if callout_id and not presentation_name:
             reasons.append("dimension presentation callout has no name")
+        if expand_direct_members:
+            root_id = shape_aspect_ids[0]
+            shape_aspect_ids = tuple(dict.fromkeys(aspect_children.get(root_id, ())))
+            if not shape_aspect_ids:
+                reasons.append("angular dimension has no related support members")
         item_groups = tuple(related_items(aspect_id) for aspect_id in shape_aspect_ids)
         for index, item_group in enumerate(item_groups, start=1):
             if not item_group:
