@@ -100,13 +100,13 @@ class TestAutoHoleAnnotations:
         )
         dwg = build_drawing(part)
         assert len([n for n in dwg.annotations() if n.startswith("hc_front")]) == 2
-        # Both callouts and both X offsets land. The corrected side-right strip admits one
-        # Z-height companion; the remaining info-level placement drop is still a required
-        # outcome, so #1250 keeps this sheet from claiming a clean verdict while preserving
-        # this test's subject: both front-view callouts fit.
+        # Both callouts and both X offsets land. The initial optional-ISO plan loses one
+        # Z-height companion; automatic recovery removes that optional view and places the
+        # complete set without changing this test's subject: both front-view callouts fit.
         issues = dwg.lint()
-        assert [i.code for i in issues if i.severity == "error"] == ["plan_incomplete"]
-        assert [i.code for i in issues].count("off_axis_location_dropped") == 1
+        assert issues == []
+        assert dwg.scale_decision["status"] == "automatic_replanned"
+        assert dwg.scale_decision["attempts"][-1]["reason"] == "remove_optional_iso"
 
     @pytest.mark.timeout(60)
     def test_all_distinct_bores_get_callouts(self):

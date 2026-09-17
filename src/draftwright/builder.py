@@ -77,6 +77,7 @@ from draftwright.compose import (
 from draftwright.drawing import Drawing, feature_key
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
+from draftwright.linting.quality import is_unreadable_layout_issue
 from draftwright.model import (
     Datum,
     Feature,
@@ -2332,7 +2333,10 @@ def build_drawing(
                 if lint_axial_coverage(latest_analysis.part, candidate, **profile_kw):
                     return (), (), "axial_coverage_incomplete"
             issues, blockers = _automatic_assessment(candidate)
-            if any(issue.severity == "error" for issue in issues):
+            if any(
+                issue.severity == "error" or is_unreadable_layout_issue(issue)
+                for issue in issues
+            ):
                 return issues, blockers, "structural_error"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"

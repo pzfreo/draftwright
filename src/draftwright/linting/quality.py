@@ -527,6 +527,28 @@ def _is_legibility_issue(issue) -> bool:
     return issue.code in _LEGIBILITY_CODES or is_placement_drop(issue)
 
 
+_PHYSICAL_COLLISION_CODES = frozenset(
+    {
+        "feature_leader_crossing",
+        "leader_crosses_silhouette",
+    }
+)
+
+
+def is_unreadable_layout_issue(issue) -> bool:
+    """Whether *issue* proves ink is structurally unreadable or off sheet.
+
+    Placement drops are deliberately excluded. They belong to the completeness ledger and
+    may trigger a different recovery reason. Informational layout observations are also not
+    failures by default: for example, a callout on a large face may legitimately sit inside
+    its view extents. The two info-level codes above report observed physical crossings, so
+    they remain vetoes even at their intentionally advisory severity.
+    """
+    return issue.code in _LEGIBILITY_CODES and (
+        issue.severity in {"warning", "error"} or issue.code in _PHYSICAL_COLLISION_CODES
+    )
+
+
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}
 
 

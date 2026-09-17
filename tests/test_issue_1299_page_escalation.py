@@ -335,6 +335,110 @@ def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch)
     }
 
 
+@pytest.mark.parametrize(
+    ("layout_code", "severity", "veto"),
+    (
+        ("annotation_ink_overlap", "warning", True),
+        ("label_centerline_overlap", "warning", True),
+        ("dim_inside_part", "warning", True),
+        ("feature_leader_crossing", "info", True),
+        ("view_annotation_inside_extents", "info", False),
+    ),
+)
+def test_recovery_does_not_trade_a_required_drop_for_unreadable_ink(
+    monkeypatch, layout_code, severity, veto
+):
+    """A complete ledger is not a successful plan when its annotations are unreadable."""
+
+    dropped = LintIssue(
+        severity="warning",
+        code="hole_pattern_dim_dropped",
+        message="pitch dimension has no route",
+        measurement_ids=(
+            DimensionId(
+                StepFeature(
+                    Frame((0.0, 0.0, 0.0), "x"),
+                    1.0,
+                    1.0,
+                    ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                ),
+                "pitch.length",
+            ),
+        ),
+        outcome_stage="placement",
+    )
+    layout_issue = LintIssue(
+        severity=severity,
+        code=layout_code,
+        message="synthetic layout observation",
+    )
+
+    class FakeDrawing:
+        def __init__(self, *, page, include_iso, issues):
+            self.page_w, self.page_h = page
+            self.scale = 1.0
+            self.views = {"front": object()}
+            if include_iso:
+                self.views["iso"] = object()
+            self.solve_trace = None
+            self._issues = issues
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        dimensions = {
+            None: (297.0, 210.0),
+            (297.0, 210.0): (297.0, 210.0),
+            "A3": (420.0, 297.0),
+        }[page]
+        issues = (dropped,) if _include_iso else (layout_issue,) if page != "A3" else ()
+        return FakeDrawing(page=dimensions, include_iso=_include_iso, issues=issues)
+
+    monkeypatch.setattr(builder, "_AUTOMATIC_UPSCALE_TRIAL_LIMIT", 0)
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+    monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
+
+    drawing = builder.build_drawing(object())
+
+    attempts = [
+        (attempt["status"], attempt["reason"], attempt.get("rejection"))
+        for attempt in drawing.scale_decision["attempts"]
+    ]
+    if veto:
+        assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+        assert drawing.lint() == ()
+        assert attempts == [
+            ("required_outcome_dropped", "remove_optional_iso", None),
+            ("rejected", "remove_optional_iso", "structural_error"),
+            ("complete", "page_escalation_after_optional_iso", None),
+        ]
+    else:
+        assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
+        assert drawing.lint() == (layout_issue,)
+        assert attempts == [
+            ("required_outcome_dropped", "remove_optional_iso", None),
+            ("complete", "remove_optional_iso", None),
+        ]
+
+
 def test_geometry_drop_recovery_does_not_borrow_a_typed_owners_source(monkeypatch):
     """A step-length loss is recoverable without becoming a lost thread callout."""
 

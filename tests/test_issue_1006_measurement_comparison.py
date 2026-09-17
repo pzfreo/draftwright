@@ -192,13 +192,27 @@ def _replace_with_provenance(drawing, old, new, provenance):
 @pytest.mark.parametrize(
     ("fixture", "names"),
     [
-        ("grm04_drive_plate.step", ("dim_step_0", "dim_step_1")),
+        ("grm04_drive_plate.step", None),
         ("tuner_jig_blind_obround_pockets.step", ("m_locx0", "m_locy0")),
     ],
     ids=["step-spans", "pocket-location-axes"],
 )
 def test_swapping_labels_between_coarse_claims_changes_the_measurements(fixture, names):
-    drawing = build_drawing(Path(__file__).parent / "fixtures" / fixture)
+    path = Path(__file__).parent / "fixtures" / fixture
+    if names is None:
+        # Keep this measurement-comparison test independent of automatic view planning.
+        # GRM04's automatic 2:1 plan carries a detail marker, whose deliberately absent
+        # measurement identity makes the whole snapshot unknown. At explicit 5:1 both
+        # step spans are principal-view claims and remain fully comparable.
+        drawing = build_drawing(
+            path,
+            page="A4",
+            scale=5.0,
+            scale_policy="permissive",
+        )
+        names = ("dim_step_0", "dim_step_1")
+    else:
+        drawing = build_drawing(path)
     original = [drawing.get_annotation(name) for name in names]
     assert original[0].label != original[1].label
     before = drawing.measurement_snapshot()
