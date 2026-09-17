@@ -394,6 +394,42 @@ def _standalone_cylinder_blocker(references: tuple[CylindricalReference, ...]) -
     if len(references) < 2:
         return ""
     first = references[0]
+    directions = {
+        tuple(round(component, 9) for component in reference.axis_direction)
+        for reference in references
+    }
+    axis_lines = {
+        tuple(
+            round(
+                origin
+                - direction
+                * sum(
+                    component * axis_component
+                    for component, axis_component in zip(
+                        reference.axis_origin, reference.axis_direction, strict=True
+                    )
+                ),
+                6,
+            )
+            for origin, direction in zip(
+                reference.axis_origin, reference.axis_direction, strict=True
+            )
+        )
+        for reference in references
+    }
+    projected_oblique_pattern = (
+        first.principal_axis == "?"
+        and len(directions) == 1
+        and len(axis_lines) == len(references)
+        and min(abs(component) for component in first.axis_direction) <= 1e-6
+        and len({round(reference.radius, 6) for reference in references}) == 1
+        and len({reference.sense for reference in references}) == 1
+    )
+    if projected_oblique_pattern:
+        # The oblique renderer targets one exact member surface and retains the group as
+        # multiplicity. Distinct parallel axis lines are therefore evidence for a pattern,
+        # rather than a request to invent the centroid target guarded against below.
+        return ""
     if any(
         any(
             abs(left - right) > 0.01

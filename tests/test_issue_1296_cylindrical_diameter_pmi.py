@@ -15,6 +15,7 @@ from draftwright.model.declare import measured_dimension
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
+    CircularReference,
     CylindricalReference,
     Frame,
     HoleFeature,
@@ -341,6 +342,53 @@ def test_unmatched_distinct_cylinder_lines_fail_closed_instead_of_using_their_ce
     ]
 
 
+def test_projected_oblique_cylinder_pattern_keeps_its_exact_member_witness():
+    first = CylindricalReference(
+        axis_origin=(0, 0, 0),
+        axis_direction=(0, -0.6, 0.8),
+        radius=10,
+        axial_interval=(0, 20),
+        sense="external",
+    )
+    references = tuple(replace(first, axis_origin=(station, 0, 0)) for station in (-15, -5, 5, 15))
+    assert _standalone_cylinder_blocker(references) == ""
+    segmented = (
+        first,
+        replace(first, axial_interval=(20, 30)),
+        replace(first, axis_origin=(10, 0, 0)),
+    )
+    assert "multiple distinct cylinder axis lines" in _standalone_cylinder_blocker(segmented)
+
+    dimension = AuthoredDimension(
+        frame=Frame(first.midpoint, "z"),
+        dimension_kind="diameter",
+        value=20,
+        label="ø20 ±0.2",
+        dominant_axis="?",
+        ref_pts=(),
+        source_id="dimension:oblique-pattern",
+        cylindrical_refs=references,
+    )
+    lowered = lower_ap242_nominal_diameters(
+        PartModel(Box(40, 40, 40).bounding_box(), None, [dimension])
+    )
+    (fallback,) = lowered.features
+    assert isinstance(fallback, AuthoredDimension)
+    assert fallback.rendering_blockers == ()
+
+    drawing = build_drawing(Box(40, 40, 40), model=lowered, pmi="annotate")
+    names = drawing.registry.names_for_feature(fallback)
+    assert len(names) == 1
+    assert drawing.registry.named(names[0]).label == "4× ø20 ±0.2"
+    assert drawing.registry.view_of(names[0]) == "side"
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if "dimension:oblique-pattern" in issue.source_ids
+        and issue.code in {"authored_dim_source_unresolved", "pmi_not_rendered", "pmi_dropped"}
+    ]
+
+
 def test_unmatched_typed_cylinder_and_nominal_requirement_both_round_trip():
     reference = _cylinder(axis_origin=(0.0, 7.0, 0.0))
     fallback = lower_ap242_nominal_diameters(
@@ -608,6 +656,38 @@ def test_cylindrical_reference_canonical_rejects_invalid_kernel_values(changes, 
         CylindricalReference.canonical(**values)
 
 
+def test_circular_reference_canonicalises_an_unoriented_kernel_circle():
+    reference = CircularReference.canonical(center=(1, 2, 3), normal=(0, 0, -2), radius=10)
+
+    assert reference.center == (1.0, 2.0, 3.0)
+    assert reference.normal == (0.0, 0.0, 1.0)
+    assert reference.radius == 10.0
+    assert reference.diameter == 20.0
+    assert reference.principal_axis == "Z"
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"center": (0, 0)}, "finite 3-vector"),
+        ({"normal": (2, 0, 0)}, "unit length"),
+        ({"normal": (-1, 0, 0)}, "positive dominant"),
+        ({"radius": True}, "finite and positive"),
+        ({"radius": 0}, "finite and positive"),
+    ],
+)
+def test_circular_reference_rejects_invalid_provenance(changes, message):
+    values = {"center": (0, 0, 0), "normal": (1, 0, 0), "radius": 2}
+    values.update(changes)
+    with pytest.raises(ValueError, match=message):
+        CircularReference(**values)
+
+
+def test_circular_reference_canonical_rejects_zero_normal():
+    with pytest.raises(ValueError, match="non-zero"):
+        CircularReference.canonical(center=(0, 0, 0), normal=(0, 0, 0), radius=2)
+
+
 @pytest.mark.parametrize(
     ("value", "source", "source_ids", "message"),
     [
@@ -674,12 +754,59 @@ def test_measured_dimension_validates_and_derives_typed_cylinder_inputs():
         axial_interval=(0, 1),
         sense="external",
     )
-    with pytest.raises(ValueError, match="one principal-axis direction"):
+    projected = measured_dimension(
+        kind="diameter",
+        value=4,
+        dominant_axis="?",
+        cylindrical_refs=(oblique,),
+        **required,
+    )
+    assert projected.cylindrical_refs == (oblique,)
+    hinted = measured_dimension(
+        kind="diameter",
+        value=4,
+        label="ø4",
+        dominant_axis="?",
+        ref_pts=(),
+        cylindrical_refs=(oblique,),
+        view="plan",
+        side="right",
+    )
+    assert (hinted.view, hinted.side) == ("plan", "right")
+    with pytest.raises(ValueError, match="supported placement.*plan/right, plan/left"):
+        measured_dimension(
+            kind="diameter",
+            value=4,
+            label="ø4",
+            dominant_axis="?",
+            ref_pts=(),
+            cylindrical_refs=(oblique,),
+            view="side",
+        )
+    with pytest.raises(ValueError, match="multiplicity disagrees with cylindrical_refs"):
+        measured_dimension(
+            kind="diameter",
+            value=4,
+            label="2× ø4",
+            dominant_axis="?",
+            ref_pts=(),
+            cylindrical_refs=(oblique,),
+        )
+    with pytest.raises(ValueError, match=r"dominant_axis must be \?"):
         measured_dimension(
             kind="diameter",
             value=4,
             dominant_axis="X",
             cylindrical_refs=(oblique,),
+            **required,
+        )
+    fully_oblique = replace(oblique, axis_direction=(3**-0.5,) * 3)
+    with pytest.raises(ValueError, match="one direction in a principal projection plane"):
+        measured_dimension(
+            kind="diameter",
+            value=4,
+            dominant_axis="?",
+            cylindrical_refs=(fully_oblique,),
             **required,
         )
     blocked = measured_dimension(
@@ -700,6 +827,242 @@ def test_measured_dimension_validates_and_derives_typed_cylinder_inputs():
             cylindrical_refs=(reference,),
             **required,
         )
+
+
+def test_measured_dimension_preserves_typed_circular_supports():
+    reference = CircularReference(center=(1, 2, 3), normal=(0, 0, 1), radius=10)
+    required = {
+        "kind": "diameter",
+        "value": 20,
+        "label": "ø20",
+        "dominant_axis": "Z",
+        "ref_pts": (),
+    }
+
+    direct = measured_dimension(circular_refs=(reference,), **required)
+    mapped = measured_dimension(
+        circular_refs=({"center": (1, 2, 3), "normal": (0, 0, 1), "radius": 10},),
+        **required,
+    )
+
+    assert direct.circular_refs == (reference,)
+    assert mapped.circular_refs == (reference,)
+    assert direct.frame.origin == reference.center
+    with pytest.raises(ValueError, match="circular_refs items must be mappings"):
+        measured_dimension(circular_refs=(object(),), **required)
+    with pytest.raises(ValueError, match="circular reference is missing 'radius'"):
+        measured_dimension(circular_refs=({"center": (1, 2, 3), "normal": (0, 0, 1)},), **required)
+    with pytest.raises(ValueError, match="require a diameter"):
+        measured_dimension(
+            circular_refs=(reference,),
+            **{**required, "kind": "linear", "ref_pts": ((0, 0, 0), (1, 0, 0))},
+        )
+    with pytest.raises(ValueError, match="disagrees with circular_refs"):
+        measured_dimension(circular_refs=(reference,), **{**required, "dominant_axis": "X"})
+    with pytest.raises(ValueError, match="label multiplicity disagrees"):
+        measured_dimension(circular_refs=(reference,), **{**required, "label": "2× ø20"})
+
+    oblique = CircularReference.canonical(center=(0, 0, 0), normal=(0, 1, 1), radius=10)
+    with pytest.raises(ValueError, match="one principal-axis direction"):
+        measured_dimension(circular_refs=(oblique,), **required)
+    mixed = (
+        reference,
+        CircularReference(center=(1, 2, 3), normal=(1, 0, 0), radius=10),
+    )
+    with pytest.raises(ValueError, match="one principal-axis direction"):
+        measured_dimension(circular_refs=mixed, **required)
+
+    blocked = measured_dimension(
+        circular_refs=(oblique,),
+        source_id="dimension:blocked",
+        rendering_blockers=("unusable topology",),
+        **{**required, "dominant_axis": "?"},
+    )
+    assert blocked.frame.origin == oblique.center
+
+
+def test_generated_sheet_round_trips_circular_supports():
+    part = Box(40, 30, 20)
+    sheet = Sheet(part, number="circle-support")
+    sheet.authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="ø20",
+        dominant_axis="Z",
+        ref_pts=((0, 0, 10), (10, 0, 10)),
+        circular_refs=(CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10),),
+        rendering_blockers=("renderer pending",),
+    )
+    source = emit_sheet_script(
+        sheet.model(), "part", "circle-support", title="P", number="circle-support"
+    )
+    namespace = {"part": part}
+    exec(  # noqa: S102
+        compile(source[: source.index("drawing = sheet.build()")], "<circle-support>", "exec"),
+        namespace,
+    )
+
+    original = next(
+        feature for feature in sheet.model().features if feature.kind == "authored_dimension"
+    )
+    restored = next(
+        feature
+        for feature in namespace["sheet"].model().features
+        if feature.kind == "authored_dimension"
+    )
+    assert restored.circular_refs == original.circular_refs
+
+
+def test_circular_pattern_uses_one_exact_member_as_its_diameter_witness():
+    first = CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10)
+
+    def rendered_spec(second_x):
+        sheet = Sheet(Box(40, 30, 20), number="circle-member").authored_dimensions()
+        sheet.measured_dimension(
+            kind="diameter",
+            value=20,
+            label="2×ø20",
+            dominant_axis="Z",
+            ref_pts=(),
+            circular_refs=(
+                first,
+                CircularReference(center=(second_x, 0, 10), normal=(0, 0, 1), radius=10),
+            ),
+            source_id="dimension:circle-member",
+        )
+        drawing = sheet.build()
+        feature = next(
+            feature
+            for feature in drawing.model().features
+            if getattr(feature, "source_id", "") == "dimension:circle-member"
+        )
+        name = drawing.registry.names_for_feature(feature)[0]
+        return drawing.registry.named(name)._dw_spec
+
+    left, right = rendered_spec(-15), rendered_spec(15)
+    assert (left.p1, left.p2) == (right.p1, right.p2)
+
+
+def test_circular_support_renders_from_an_exact_member():
+    sheet = Sheet(Box(40, 30, 20), number="circle-render").authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="2×ø20",
+        dominant_axis="Z",
+        ref_pts=(),
+        circular_refs=(
+            CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10),
+            CircularReference(center=(15, 0, 10), normal=(0, 0, 1), radius=10),
+        ),
+        source_id="dimension:circle-render",
+    )
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == "dimension:circle-render"
+    )
+
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.named(names[0]).label == "2×ø20"
+    assert not [issue for issue in drawing.lint() if "dimension:circle-render" in issue.source_ids]
+
+
+def test_oblique_cylinder_pattern_renders_one_exact_surface_witness():
+    direction = (0.0, -0.6, 0.8)
+    references = tuple(
+        CylindricalReference(
+            axis_origin=(station, 0, 0),
+            axis_direction=direction,
+            radius=10,
+            axial_interval=(0, 20),
+            sense="external",
+        )
+        for station in (-15, -5, 5, 15)
+    )
+    sheet = Sheet(Box(40, 40, 40), number="oblique-render").authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="ø20 ±0.3",
+        dominant_axis="?",
+        ref_pts=(),
+        cylindrical_refs=references,
+        source_id="dimension:oblique-render",
+    )
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == "dimension:oblique-render"
+    )
+    names = drawing.registry.names_for_feature(feature)
+
+    assert len(names) == 1
+    annotation = drawing.registry.named(names[0])
+    assert annotation.label == "4× ø20 ±0.3"
+    assert drawing.registry.view_of(names[0]) == "side"
+    assert not [
+        issue for issue in drawing.lint() if "dimension:oblique-render" in issue.source_ids
+    ]
+
+    source = emit_sheet_script(
+        sheet.model(), "part", "oblique-render", title="P", number="oblique-render"
+    )
+    namespace = {"part": Box(40, 40, 40)}
+    exec(  # noqa: S102
+        compile(source[: source.index("drawing = sheet.build()")], "<oblique-render>", "exec"),
+        namespace,
+    )
+    restored = next(
+        candidate
+        for candidate in namespace["sheet"].model().features
+        if getattr(candidate, "source_id", "") == "dimension:oblique-render"
+    )
+    assert restored.cylindrical_refs == references
+
+
+@pytest.mark.parametrize(
+    "direction, view, side",
+    [
+        ((0.8, 0.0, 0.6), "front", "above"),
+        ((0.8, 0.6, 0.0), "plan", "right"),
+    ],
+)
+def test_oblique_cylinder_selects_each_preserving_projection(direction, view, side):
+    reference = CylindricalReference(
+        axis_origin=(0, 0, 0),
+        axis_direction=direction,
+        radius=10,
+        axial_interval=(0, 20),
+        sense="external",
+    )
+    sheet = Sheet(Box(40, 40, 40), number=f"oblique-{view}").authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="ø20",
+        dominant_axis="?",
+        ref_pts=(),
+        cylindrical_refs=(reference,),
+        source_id=f"dimension:oblique-{view}",
+        view=view,
+        side=side,
+    )
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == f"dimension:oblique-{view}"
+    )
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.view_of(names[0]) == view
 
 
 def test_owner_match_helpers_fail_closed_for_every_topology_component():

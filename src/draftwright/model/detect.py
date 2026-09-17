@@ -449,6 +449,7 @@ def build_pmi_features(
                     rendering_blockers=r.rendering_blockers,
                     cylindrical_refs=r.cylindrical_refs,
                     angular_reference=r.angular_reference,
+                    circular_refs=r.circular_refs,
                 )
             )
             continue

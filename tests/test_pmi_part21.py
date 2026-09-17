@@ -9,16 +9,19 @@ from draftwright._pmi_part21 import (
     CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
+    DimensionAssociationFact,
     GeometricToleranceFact,
     ManufacturingRequirementFact,
     SurfaceLabelFact,
     match_common_label,
     match_datum_occurrence,
+    match_dimension_association,
     match_dimension_display,
     match_geometric_tolerance,
     read_common_labels,
     read_datum_definitions,
     read_datum_occurrences,
+    read_dimension_associations,
     read_dimension_display_facts,
     read_dimension_length_factor,
     read_geometric_tolerances,
@@ -71,6 +74,12 @@ def _read_dimension_display_facts(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
     return read_dimension_display_facts(step)
+
+
+def _read_dimension_associations(tmp_path, name: str, *instances: str):
+    step = tmp_path / f"{name}.step"
+    step.write_text(_step(*instances), encoding="utf-8")
+    return read_dimension_associations(step)
 
 
 def _read_requirements(tmp_path, name: str, *instances: str):
@@ -806,6 +815,115 @@ def test_ctc03_dimension_display_facts_preserve_inch_precision():
     assert by_id["#270"].authored_value == pytest.approx(0.82)
     assert (by_id["#270"].value_decimals, by_id["#270"].tolerance_decimals) == (2, 2)
     assert all(fact.unit_name == "inch" for fact in facts)
+
+
+def test_ctc04_dimension_associations_preserve_authored_support_groups():
+    facts = {fact.entity_id: fact for fact in read_dimension_associations(CTC04)}
+
+    assert facts["#19475"] == DimensionAssociationFact(
+        entity_id="#19475",
+        kind="size",
+        semantic_name="diameter",
+        presentation_name="Linear Size.15",
+        shape_aspect_ids=("#19419",),
+        reference_item_groups=(
+            ("#6118", "#6100", "#6150", "#6168", "#5372", "#5390", "#5422", "#5440"),
+        ),
+        callout_id="#19491",
+    )
+    assert facts["#19540"] == DimensionAssociationFact(
+        entity_id="#19540",
+        kind="location",
+        semantic_name="linear distance",
+        presentation_name="Linear Size.16",
+        shape_aspect_ids=("#19510", "#19520"),
+        reference_item_groups=(("#13620", "#13329"), ("#2978", "#3570", "#3110", "#3438")),
+        callout_id="#19556",
+    )
+    assert facts["#20263"] == DimensionAssociationFact(
+        entity_id="#20263",
+        kind="location",
+        semantic_name="linear distance",
+        presentation_name="Linear Size.18",
+        shape_aspect_ids=("#19510", "#20243"),
+        reference_item_groups=(("#13620", "#13329"), ("#17569", "#17576", "#17583", "#17590")),
+        callout_id="#20280",
+    )
+    pattern = facts["#20208"]
+    assert (
+        pattern.kind,
+        pattern.semantic_name,
+        pattern.presentation_name,
+        pattern.shape_aspect_ids,
+        tuple(map(len, pattern.reference_item_groups)),
+        pattern.callout_id,
+        pattern.reason,
+    ) == ("size", "diameter", "Linear Size.17", ("#19956",), (60,), "#20224", "")
+    assert pattern.reference_item_groups[0][:4] == ("#6245", "#6263", "#6193", "#6211")
+    assert pattern.reference_item_groups[0][-4:] == ("#6349", "#6367", "#6297", "#6315")
+
+
+def test_dimension_associations_keep_location_group_order(tmp_path):
+    facts = _read_dimension_associations(
+        tmp_path,
+        "ordered-location",
+        "#1=DIMENSIONAL_LOCATION('linear distance','',#10,#20);",
+        "#2=DRAUGHTING_CALLOUT('Linear Size.1',());",
+        "#3=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#30,#2);",
+        "#10=COMPOSITE_SHAPE_ASPECT('first','',#30,.T.);",
+        "#11=SHAPE_ASPECT('','',#30,.T.);",
+        "#12=SHAPE_ASPECT_RELATIONSHIP('','',#10,#11);",
+        "#13=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#11,#30,(#101,#102));",
+        "#20=SHAPE_ASPECT('second','',#30,.T.);",
+        "#21=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#20,#30,#201);",
+    )
+
+    assert facts == (
+        DimensionAssociationFact(
+            entity_id="#1",
+            kind="location",
+            semantic_name="linear distance",
+            presentation_name="Linear Size.1",
+            shape_aspect_ids=("#10", "#20"),
+            reference_item_groups=(("#101", "#102"), ("#201",)),
+            callout_id="#2",
+        ),
+    )
+
+
+def test_dimension_associations_report_ambiguous_callouts_and_empty_groups(tmp_path):
+    (fact,) = _read_dimension_associations(
+        tmp_path,
+        "ambiguous-association",
+        "#1=DIMENSIONAL_SIZE(#10,'diameter');",
+        "#2=DRAUGHTING_CALLOUT('Linear Size.1',());",
+        "#3=DRAUGHTING_CALLOUT('Linear Size.2',());",
+        "#4=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#20,(#2,#3));",
+        "#10=SHAPE_ASPECT('','',#20,.T.);",
+    )
+
+    assert fact.callout_id == ""
+    assert fact.presentation_name == ""
+    assert fact.reference_item_groups == ((),)
+    assert fact.reason == (
+        "dimension characteristic has 2 linked presentation callouts; "
+        "dimension reference group 1 has no representation items"
+    )
+
+
+def test_dimension_association_match_requires_one_presentation_identity():
+    fact = read_dimension_associations(CTC04)[0]
+
+    assert match_dimension_association((fact,), fact.presentation_name) == (fact, "")
+    assert match_dimension_association((fact, fact), fact.presentation_name) == (
+        None,
+        f"Part21 dimension correspondence is ambiguous for {fact.presentation_name!r} "
+        f"({fact.entity_id}, {fact.entity_id})",
+    )
+    assert match_dimension_association((fact,), "") == (
+        None,
+        "XCAF dimension has no presentation name",
+    )
 
 
 def test_dimension_display_match_rejects_conflicting_source_policies():

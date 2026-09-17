@@ -654,6 +654,41 @@ class TestExtractPmi:
         for r in recs:
             assert isinstance(r, PmiRecord)
 
+    def test_pmi_record_keeps_the_existing_positional_tail_compatible(self):
+        record = PmiRecord(
+            "linear",
+            2,
+            3.0,
+            None,
+            None,
+            (),
+            None,
+            "X",
+            "3",
+            "dimension:test",
+            None,
+            None,
+            (),
+            "#1",
+            "dimension",
+            (),
+            (),
+            (),
+            (),
+            (),
+            "Y",
+            "semantic",
+            ("#2",),
+            (),
+            (),
+            None,
+        )
+
+        assert record.reference_axis == "Y"
+        assert record.semantic_name == "semantic"
+        assert record.shape_aspect_ids == ("#2",)
+        assert record.reference_item_groups == ()
+
     def test_records_only_api_remains_a_list_projection(self, ctc01_extraction_report):
         assert extract_pmi(CTC01) == list(ctc01_extraction_report.records)
 
@@ -671,6 +706,26 @@ class TestExtractPmi:
                 ("surface_label", "extracted"): 2,
             }
         )
+        unnamed_dimensions = {
+            record.source_id: record
+            for record in report.records
+            if record.source_id
+            in {
+                "dimension:0:1:4:9",
+                "dimension:0:1:4:10",
+                "dimension:0:1:4:27",
+                "dimension:0:1:4:28",
+            }
+        }
+        assert set(unnamed_dimensions) == {
+            "dimension:0:1:4:9",
+            "dimension:0:1:4:10",
+            "dimension:0:1:4:27",
+            "dimension:0:1:4:28",
+        }
+        assert all(record.ref_pts for record in unnamed_dimensions.values())
+        assert all(record.part21_id == "" for record in unnamed_dimensions.values())
+        assert all(record.reference_item_groups == () for record in unnamed_dimensions.values())
         assert {
             source_id
             for record in report.records

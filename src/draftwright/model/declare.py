@@ -27,6 +27,7 @@ shape with no cylindrical face, should use the explicit flavour.
 from __future__ import annotations
 
 import math
+import re
 import warnings
 
 from draftwright._geometry import (
@@ -49,6 +50,7 @@ from draftwright.model.ir import (
     ChannelFeature,
     CircularBlindStepFeature,
     CircularChannelFeature,
+    CircularReference,
     ControlFrame,
     CylindricalReference,
     DatumRef,
@@ -84,6 +86,7 @@ from draftwright.model.ir import (
     StepFeature,
     StepLevelFeature,
     ThroughStepFeature,
+    _linear_projection_view,
     validate_authored_dimension_placement,
 )
 
@@ -2441,6 +2444,25 @@ def angle_pattern(*members: AngularReference) -> AnglePatternFeature:
     return AnglePatternFeature(tuple(members))
 
 
+def _shared_projection_plane(cylinders: list[CylindricalReference]) -> str | None:
+    """Return the principal view plane containing one shared cylinder direction."""
+    directions = {
+        tuple(round(component, 9) for component in reference.axis_direction)
+        for reference in cylinders
+    }
+    if len(directions) != 1:
+        return None
+    direction = next(iter(directions))
+    return next(
+        (
+            view
+            for component, view in zip(direction, ("side", "front", "plan"), strict=True)
+            if abs(component) <= 1e-6
+        ),
+        None,
+    )
+
+
 def measured_dimension(
     *,
     kind: str,
@@ -2461,6 +2483,7 @@ def measured_dimension(
     lowering_blockers: tuple[str, ...] = (),
     rendering_blockers: tuple[str, ...] = (),
     cylindrical_refs=(),
+    circular_refs=(),
     view: str | None = None,
     side: str | None = None,
     angular_reference=None,
@@ -2534,18 +2557,46 @@ def measured_dimension(
             raise ValueError(
                 f"measured_dimension() cylindrical reference is missing {exc.args[0]!r}"
             ) from exc
+    circles: list[CircularReference] = []
+    for raw in circular_refs:
+        if isinstance(raw, CircularReference):
+            circles.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("measured_dimension() circular_refs items must be mappings")
+        try:
+            circles.append(
+                CircularReference(
+                    center=raw["center"],
+                    normal=raw["normal"],
+                    radius=raw["radius"],
+                )
+            )
+        except KeyError as exc:
+            raise ValueError(
+                f"measured_dimension() circular reference is missing {exc.args[0]!r}"
+            ) from exc
     imported_blocked = bool(source_id and rendering_blockers)
     cylindrical_diameter = dim_kind == "diameter" and bool(cylinders)
-    if len(pts) < 2 and not imported_blocked and not cylindrical_diameter:
+    circular_diameter = dim_kind == "diameter" and bool(circles)
+    if (
+        len(pts) < 2
+        and not imported_blocked
+        and not cylindrical_diameter
+        and not circular_diameter
+    ):
         raise ValueError("measured_dimension() needs at least two ref_pts")
     bbox = None if ref_bbox is None else tuple(float(c) for c in ref_bbox)
     if bbox is not None and len(bbox) != 6:
         raise ValueError("measured_dimension() ref_bbox must be a 6-tuple")
     dom = str(dominant_axis).upper()
+    cylinder_view = _shared_projection_plane(cylinders) if cylinders else None
     if dom not in ("X", "Y", "Z"):
         unresolved_import = dom == "?" and imported_blocked
         unresolved_bore = dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None
-        if not (unresolved_import or unresolved_bore):
+        projected_cylinder = dom == "?" and dim_kind == "diameter" and bool(cylinders)
+        projected_linear = dom == "?" and dim_kind == "linear" and _linear_projection_view(pts)
+        if not (unresolved_import or unresolved_bore or projected_cylinder or projected_linear):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
     validate_authored_dimension_placement(
         dim_kind,
@@ -2554,16 +2605,39 @@ def measured_dimension(
         side,
         owner="measured_dimension()",
         angular_reference=angular_reference,
+        cylindrical_refs=cylinders,
+        ref_pts=pts,
     )
     cylinder_axes = {reference.principal_axis for reference in cylinders}
     if cylinders and (len(cylinder_axes) != 1 or "?" in cylinder_axes):
-        if not imported_blocked:
+        if not imported_blocked and cylinder_view is None:
             raise ValueError(
-                "measured_dimension() cylindrical_refs need one principal-axis direction"
+                "measured_dimension() cylindrical_refs need one direction in a principal projection plane"
+            )
+        if not imported_blocked and dom != "?":
+            raise ValueError(
+                "measured_dimension() dominant_axis must be ? for an oblique cylindrical reference"
             )
     elif cylinders and dom != next(iter(cylinder_axes)):
         raise ValueError(
             "measured_dimension() dominant_axis disagrees with cylindrical_refs topology"
+        )
+    if circles and dim_kind != "diameter":
+        raise ValueError("measured_dimension() circular_refs require a diameter dimension")
+    multiplicity = re.match(r"^\s*(\d+)\s*[xX×]\s*", str(label))
+    if cylinders and multiplicity is not None and int(multiplicity.group(1)) != len(cylinders):
+        raise ValueError("measured_dimension() label multiplicity disagrees with cylindrical_refs")
+    if circles and multiplicity is not None and int(multiplicity.group(1)) != len(circles):
+        raise ValueError("measured_dimension() label multiplicity disagrees with circular_refs")
+    circle_axes = {reference.principal_axis for reference in circles}
+    if circles and (len(circle_axes) != 1 or "?" in circle_axes):
+        if not imported_blocked:
+            raise ValueError(
+                "measured_dimension() circular_refs need one principal-axis direction"
+            )
+    elif circles and dom != next(iter(circle_axes)):
+        raise ValueError(
+            "measured_dimension() dominant_axis disagrees with circular_refs topology"
         )
     if (lower_bound is None) != (upper_bound is None):
         raise ValueError("measured_dimension() needs both lower_bound and upper_bound")
@@ -2585,6 +2659,11 @@ def measured_dimension(
         elif cylinders:
             at = tuple(
                 sum(reference.midpoint[index] for reference in cylinders) / len(cylinders)
+                for index in range(3)
+            )
+        elif circles:
+            at = tuple(
+                sum(reference.center[index] for reference in circles) / len(circles)
                 for index in range(3)
             )
         else:
@@ -2613,4 +2692,5 @@ def measured_dimension(
         view=view,
         side=side,
         angular_reference=angular_reference,
+        circular_refs=tuple(circles),
     )

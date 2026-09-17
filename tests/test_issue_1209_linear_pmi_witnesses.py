@@ -7,7 +7,12 @@ import pytest
 
 from draftwright import extract_pmi_report
 from draftwright.annotations.from_model import _pmi_witness_from_bbox
-from draftwright.pmi import _dimension_geometry_blockers, _linear_reference_stations
+from draftwright.pmi import (
+    PmiRecord,
+    _dimension_geometry_blockers,
+    _dimension_support_topology,
+    _linear_reference_stations,
+)
 
 CTC04 = Path(__file__).parent / "fixtures" / "nist_ctc_04_asme1_ap242.stp"
 CTC03 = Path(__file__).parent / "fixtures" / "nist_ctc_03_asme1_ap242.stp"
@@ -32,15 +37,24 @@ def test_grm03_coaxial_end_faces_establish_their_x_station_span(value, stations)
     assert abs(points[1][0] - points[0][0]) == pytest.approx(value)
 
 
-def test_an_oblique_or_one_sided_relationship_fails_closed_without_nominal_guessing():
+def test_an_oblique_relationship_in_one_projection_plane_preserves_exact_stations():
     points, axis, blockers = _linear_reference_stations(
         ((0.0, 149.98174079291, -70.32125981157614), (0.0, 141.5491012236, -52.1456568216)),
         20.0,
     )
     assert len(points) == 2
     assert axis == "?"
-    assert blockers and "not principal-axis aligned" in blockers[0]
+    assert blockers == ()
 
+    points, axis, blockers = _linear_reference_stations(
+        ((0.0, 0.0, 0.0), (1.0, 2.0, 3.0)), 3.741657
+    )
+    assert len(points) == 2
+    assert axis == "?"
+    assert "does not lie in a principal projection plane" in blockers[0]
+
+
+def test_an_incomplete_or_wrong_length_relationship_fails_without_nominal_guessing():
     points, axis, blockers = _linear_reference_stations(
         ((0.0, 149.98174079291, -70.32125981157614), None), 25.0
     )
@@ -68,6 +82,22 @@ def test_a_partially_measured_group_cannot_render_from_its_incomplete_subset():
 def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     report = extract_pmi_report(CTC04)
     records = {record.source_id: record for record in report.records if record.kind == "linear"}
+    all_records = {record.source_id: record for record in report.records}
+
+    oblique_diameter = all_records["dimension:0:1:4:25"]
+    assert len(oblique_diameter.cylindrical_refs) == 4
+    assert len({reference.axis_origin for reference in oblique_diameter.cylindrical_refs}) == 4
+    assert oblique_diameter.circular_refs == ()
+    assert oblique_diameter.lowering_blockers == ()
+    assert oblique_diameter.rendering_blockers == ()
+
+    circular_pattern = all_records["dimension:0:1:4:28"]
+    assert circular_pattern.cylindrical_refs == ()
+    assert len(circular_pattern.circular_refs) == 30
+    assert {reference.diameter for reference in circular_pattern.circular_refs} == {20.0}
+    assert {reference.principal_axis for reference in circular_pattern.circular_refs} == {"Z"}
+    assert circular_pattern.lowering_blockers == ()
+    assert circular_pattern.rendering_blockers == ()
 
     truthful = records["dimension:0:1:4:22"]
     assert truthful.value == 75.0
@@ -76,22 +106,113 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert truthful.lowering_blockers == ()
 
     oblique = records["dimension:0:1:4:26"]
+    assert oblique.part21_id == "#19540"
+    assert oblique.shape_aspect_ids == ("#19510", "#19520")
+    assert oblique.reference_item_groups == (
+        ("#13620", "#13329"),
+        ("#2978", "#3570", "#3110", "#3438"),
+    )
     assert oblique.dominant_axis == "?"
     assert oblique.lowering_blockers == ()
-    assert "not principal-axis aligned" in oblique.rendering_blockers[0]
+    assert oblique.rendering_blockers == ()
 
     one_sided = records["dimension:0:1:4:29"]
-    assert one_sided.dominant_axis == "?"
-    assert len(one_sided.ref_pts) == 1
-    assert one_sided.lowering_blockers == ()
-    assert one_sided.rendering_blockers == (
-        "linear dimension needs two measurable authored reference groups",
+    assert one_sided.part21_id == "#20263"
+    assert one_sided.shape_aspect_ids == ("#19510", "#20243")
+    assert one_sided.reference_item_groups == (
+        ("#13620", "#13329"),
+        ("#17569", "#17576", "#17583", "#17590"),
     )
+    assert one_sided.dominant_axis == "?"
+    assert one_sided.ref_pts[0] == pytest.approx(
+        (0.0, 149.9817407929034, -70.3212598115755), abs=1e-8
+    )
+    assert one_sided.ref_pts[1] == pytest.approx((0.0, 139.6760682565, -47.50973754875))
+    assert one_sided.lowering_blockers == ()
+    assert one_sided.rendering_blockers == ()
 
     outcomes = {source.source_id: source for source in report.sources}
+    assert outcomes[oblique_diameter.source_id].outcome == "extracted"
+    assert outcomes[oblique_diameter.source_id].reason == ""
+    assert outcomes[circular_pattern.source_id].outcome == "extracted"
+    assert outcomes[circular_pattern.source_id].reason == ""
     assert outcomes[truthful.source_id].outcome == "extracted"
-    assert outcomes[oblique.source_id].outcome == "partially_extracted"
-    assert outcomes[one_sided.source_id].outcome == "partially_extracted"
+    assert outcomes[oblique.source_id].outcome == "extracted"
+    assert outcomes[one_sided.source_id].outcome == "extracted"
+
+
+def test_exact_part21_groups_supersede_direct_xcaf_reference_failures(monkeypatch):
+    import draftwright.pmi as pmi_module
+
+    original = pmi_module._reference_geometry_with_groups
+
+    def incomplete_xcaf_geometry(*args, **kwargs):
+        points, bbox, axis, reasons, stations = original(*args, **kwargs)
+        return (
+            points,
+            bbox,
+            axis,
+            (*reasons, "one referenced shape is unavailable"),
+            stations,
+        )
+
+    monkeypatch.setattr(pmi_module, "_reference_geometry_with_groups", incomplete_xcaf_geometry)
+    report = extract_pmi_report(CTC04)
+    record = next(record for record in report.records if record.source_id == "dimension:0:1:4:22")
+    source = next(source for source in report.sources if source.source_id == record.source_id)
+
+    assert record.lowering_blockers == ()
+    assert record.rendering_blockers == ()
+    assert source.outcome == "extracted"
+    assert source.reason == ""
+
+
+def test_failed_optional_overlay_distinguishes_complete_and_missing_direct_geometry(
+    monkeypatch,
+):
+    import draftwright.pmi as pmi_module
+
+    class FailedResolver:
+        def __init__(self, _reader):
+            pass
+
+        def resolve_group(self, _aspect_id, _item_ids):
+            return (), ("Part21 support transfer failed",)
+
+    monkeypatch.setattr(pmi_module, "_DimensionSupportResolver", FailedResolver)
+    common = dict(
+        kind="linear",
+        type_code=2,
+        value=20,
+        shape_aspect_ids=("#10", "#20"),
+        reference_item_groups=(("#101",), ("#201",)),
+    )
+    oblique = PmiRecord(
+        **common,
+        ref_pts=((0, 0, 0), (0, 8, 18)),
+        rendering_blockers=("linear reference relationship is not principal-axis aligned",),
+    )
+    incomplete = PmiRecord(
+        **common,
+        ref_pts=((0, 0, 0),),
+        rendering_blockers=("linear dimension needs two measurable authored reference groups",),
+    )
+    non_face_diameter = PmiRecord(
+        kind="diameter",
+        type_code=15,
+        value=20,
+        shape_aspect_ids=("#30",),
+        reference_item_groups=(("#301",),),
+        rendering_blockers=("one diameter reference is not a face",),
+    )
+
+    recovered = _dimension_support_topology((oblique, incomplete, non_face_diameter), object())
+
+    assert recovered[0] == oblique
+    assert recovered[1].rendering_blockers == incomplete.rendering_blockers
+    assert recovered[1].lowering_blockers == ("Part21 support transfer failed",)
+    assert recovered[2].rendering_blockers == non_face_diameter.rendering_blockers
+    assert recovered[2].lowering_blockers == ("Part21 support transfer failed",)
 
 
 def test_ap242_thickness_without_two_proven_groups_fails_closed():
@@ -145,6 +266,97 @@ def test_render_gate_distinguishes_correlation_from_geometry_blockers():
         issue for issue in drawing.lint() if issue.code == "authored_dim_source_unresolved"
     ]
     assert [issue.source_ids for issue in unresolved] == [("dimension:geometry-blocked",)]
+
+
+def test_oblique_linear_support_renders_its_exact_projected_span():
+    from build123d import Box
+
+    from draftwright import Sheet
+    from draftwright.compose import _compose_anno_boxes
+    from draftwright.sheet_emit import emit_sheet_script
+
+    # The 0.001 mm out-of-plane component is transfer noise within the extractor's shared
+    # projection tolerance. The same predicate must route declaration, compose, and render.
+    stations = ((0.0, 10.0, 5.0), (0.001, -2.0, 21.0))
+    sheet = Sheet(Box(40, 40, 40), number="oblique-linear").authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=20,
+        label="20 ±0.2",
+        dominant_axis="?",
+        ref_pts=stations,
+        source_id="dimension:oblique-linear",
+    )
+    reserved_sides = {box.side for box in _compose_anno_boxes(sheet.model(), n_steps=0)}
+    assert {"side_above", "side_below", "side_right", "left"} <= reserved_sides
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == "dimension:oblique-linear"
+    )
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.view_of(names[0]) == "side"
+    annotation = drawing.registry.named(names[0])
+    assert annotation.label == "20 ±0.2"
+    assert annotation._dw_spec.p1[0] != pytest.approx(annotation._dw_spec.p2[0])
+    assert annotation._dw_spec.p1[1] != pytest.approx(annotation._dw_spec.p2[1])
+    assert not [
+        issue for issue in drawing.lint() if "dimension:oblique-linear" in issue.source_ids
+    ]
+
+    source = emit_sheet_script(
+        sheet.model(), "part", "oblique-linear", title="P", number="oblique-linear"
+    )
+    namespace = {"part": Box(40, 40, 40)}
+    exec(  # noqa: S102
+        compile(source[: source.index("drawing = sheet.build()")], "<oblique-linear>", "exec"),
+        namespace,
+    )
+    restored = next(
+        candidate
+        for candidate in namespace["sheet"].model().features
+        if getattr(candidate, "source_id", "") == "dimension:oblique-linear"
+    )
+    assert restored.ref_pts == stations
+    assert (restored.view, restored.side) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "stations, view, side",
+    [
+        (((0.0, 0.0, 0.0), (12.0, 0.0, 16.0)), "front", "above"),
+        (((0.0, 0.0, 0.0), (12.0, 16.0, 0.0)), "plan", "right"),
+    ],
+)
+def test_oblique_linear_support_selects_each_preserving_projection(stations, view, side):
+    from build123d import Box
+
+    from draftwright import Sheet
+
+    sheet = Sheet(Box(40, 40, 40), number=f"oblique-{view}").authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=20,
+        label="20",
+        dominant_axis="?",
+        ref_pts=stations,
+        source_id=f"dimension:oblique-{view}",
+        view=view,
+        side=side,
+    )
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == f"dimension:oblique-{view}"
+    )
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.view_of(names[0]) == view
 
 
 def test_linear_witness_uses_stations_while_bbox_supplies_only_transverse_support():

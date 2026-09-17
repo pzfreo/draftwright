@@ -269,6 +269,19 @@ def _cylindrical_refs_arg(references) -> str:
     return "(" + ", ".join(values) + ("," if len(values) == 1 else "") + ")"
 
 
+def _circular_refs_arg(references) -> str:
+    values = []
+    for reference in references:
+        values.append(
+            "{"
+            f"'center': {_authored_pt(reference.center)}, "
+            f"'normal': {_authored_pt(reference.normal)}, "
+            f"'radius': {_authored_n(reference.radius)}"
+            "}"
+        )
+    return "(" + ", ".join(values) + ("," if len(values) == 1 else "") + ")"
+
+
 def _cylindrical_refs_expr(references) -> str:
     values = [
         "CylindricalReference("
@@ -536,6 +549,8 @@ def _measured_dimension_line(f) -> str:
         kw.append(f"rendering_blockers={f.rendering_blockers!r}")
     if getattr(f, "cylindrical_refs", ()):
         kw.append(f"cylindrical_refs={_cylindrical_refs_arg(f.cylindrical_refs)}")
+    if getattr(f, "circular_refs", ()):
+        kw.append(f"circular_refs={_circular_refs_arg(f.circular_refs)}")
     if angular is not None:
         # Preserve full point precision: short angular rays amplify coordinate rounding.
         reference = {

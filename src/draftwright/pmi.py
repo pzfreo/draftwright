@@ -32,23 +32,31 @@ from draftwright._pmi_part21 import (
     CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
+    DimensionAssociationFact,
     DimensionDisplayFact,
     GeometricToleranceFact,
     match_common_label,
     match_datum_occurrence,
+    match_dimension_association,
     match_dimension_display,
     match_geometric_tolerance,
     part21_read_session,
     read_common_labels,
     read_datum_definitions,
     read_datum_occurrences,
+    read_dimension_associations,
     read_dimension_display_facts,
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
     read_surface_labels,
 )
-from draftwright.model.ir import AngularReference, CylindricalReference
+from draftwright.model.ir import (
+    AngularReference,
+    CircularReference,
+    CylindricalReference,
+    _linear_projection_view,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -61,14 +69,21 @@ try:
     from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
-    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Plane
     from OCP.gp import gp_Trsf
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
-    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED, TopAbs_VERTEX
+    from OCP.TopAbs import (
+        TopAbs_COMPOUND,
+        TopAbs_EDGE,
+        TopAbs_FACE,
+        TopAbs_FORWARD,
+        TopAbs_REVERSED,
+        TopAbs_VERTEX,
+    )
     from OCP.TopExp import TopExp
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
@@ -242,11 +257,14 @@ class PmiRecord:
         source_ids:     All source occurrences represented by one projected definition.
         datum_contexts: Tolerance semantic names in which a datum definition is referenced.
         reference_item_ids: Exact Part21 representation items bound to a datum feature.
+        reference_item_groups: Ordered Part21 support groups bound to a dimension.
         reference_axis: Axis normal to a proven datum reference plane.
         semantic_name: Stable source name for a semantic manufacturing requirement.
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
         cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
                         requirement. Empty for other dimension families or unresolved geometry.
+        circular_refs: Canonical circular-edge topology referenced by a Size_Diameter
+                        requirement whose semantic association names edges rather than faces.
         angular_reference: Oriented planar supports for an angular requirement. ``None``
                         when the two source reference groups do not prove such supports.
     """
@@ -284,6 +302,8 @@ class PmiRecord:
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     angular_reference: AngularReference | None = None
+    reference_item_groups: tuple[tuple[str, ...], ...] = ()
+    circular_refs: tuple[CircularReference, ...] = ()
 
 
 PmiExtractionOutcome = Literal[
@@ -413,6 +433,7 @@ _LINEAR_AXIS_ABS_TOL = 0.005
 _LINEAR_AXIS_REL_TOL = 1e-3
 _LINEAR_VALUE_ABS_TOL = 0.01
 _LINEAR_VALUE_REL_TOL = 5e-4
+_LINEAR_OBLIQUE_VALUE_ABS_TOL = 0.05
 
 
 def _linear_reference_stations(
@@ -444,24 +465,29 @@ def _linear_reference_stations(
 
     transverse = max(value for index, value in enumerate(magnitudes) if index != axis_index)
     direction_tol = max(_LINEAR_AXIS_ABS_TOL, primary * _LINEAR_AXIS_REL_TOL)
-    if transverse > direction_tol:
+    oblique = transverse > direction_tol
+    if oblique and _linear_projection_view(measurable) is None:
         return (
             measurable,
             "?",
             (
-                "linear reference relationship is not principal-axis aligned "
+                "linear reference relationship does not lie in a principal projection plane "
                 f"(delta=({delta[0]:.6g}, {delta[1]:.6g}, {delta[2]:.6g}) mm)",
             ),
         )
 
-    axis = "XYZ"[axis_index]
-    value_tol = max(_LINEAR_VALUE_ABS_TOL, abs(nominal) * _LINEAR_VALUE_REL_TOL)
-    if abs(primary - nominal) > value_tol:
+    axis = "?" if oblique else "XYZ"[axis_index]
+    span = math.hypot(*delta) if oblique else primary
+    value_tol = max(
+        _LINEAR_OBLIQUE_VALUE_ABS_TOL if oblique else _LINEAR_VALUE_ABS_TOL,
+        abs(nominal) * _LINEAR_VALUE_REL_TOL,
+    )
+    if abs(span - nominal) > value_tol:
         return (
             measurable,
             axis,
             (
-                f"linear reference-station span {primary:.6g} mm differs from nominal "
+                f"linear reference-station span {span:.6g} mm differs from nominal "
                 f"{nominal:.6g} mm",
             ),
         )
@@ -484,6 +510,49 @@ def _dimension_geometry_blockers(
     if kind not in ("linear", "thickness"):
         return ()
     return tuple(dict.fromkeys((*reference_reasons, *station_reasons)))
+
+
+def _is_direct_xcaf_reference_failure(reason: str) -> bool:
+    exact = {"one referenced shape is unavailable", "referenced geometry is unavailable"}
+    return reason in exact or reason.startswith("one referenced shape could not be measured (")
+
+
+def _without_direct_xcaf_reference_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop only geometry failures superseded by an exact Part21 support overlay."""
+    return tuple(reason for reason in reasons if not _is_direct_xcaf_reference_failure(reason))
+
+
+def _is_direct_xcaf_diameter_failure(reason: str) -> bool:
+    prefixes = (
+        "one diameter reference shape is unavailable",
+        "one diameter reference is not a face",
+        "one diameter reference face is not cylindrical",
+        "one cylindrical reference has unsupported face orientation",
+        "one cylindrical reference could not be measured (",
+        "diameter reference geometry is unavailable",
+    )
+    return reason.startswith(prefixes)
+
+
+def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop face-only XCAF failures superseded by exact Part21 diameter supports."""
+    return tuple(reason for reason in reasons if not _is_direct_xcaf_diameter_failure(reason))
+
+
+def _direct_xcaf_support_is_incomplete(record: PmiRecord) -> bool:
+    """Whether direct XCAF failed to supply all support geometry, independent of rendering."""
+    reasons = (*record.lowering_blockers, *record.rendering_blockers)
+    missing_groups = (
+        "linear dimension needs two measurable authored reference groups",
+        "thickness dimension needs two measurable authored reference groups",
+        "diameter dimension needs a measurable",
+    )
+    return any(
+        _is_direct_xcaf_reference_failure(reason)
+        or _is_direct_xcaf_diameter_failure(reason)
+        or reason.startswith(missing_groups)
+        for reason in reasons
+    )
 
 
 def _make_label(
@@ -796,9 +865,13 @@ def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
     if source_count == 0:
         reasons.append("diameter reference geometry is unavailable")
 
-    # XCAF emits repeated labels for one logical cylindrical face in several benchmark
-    # files. Use a precision finer than generated-Sheet output to collapse only values that
-    # are genuinely the same topology, never nearby equal-diameter members.
+    return _unique_cylindrical_references(references), tuple(dict.fromkeys(reasons))
+
+
+def _unique_cylindrical_references(
+    references: list[CylindricalReference],
+) -> tuple[CylindricalReference, ...]:
+    """Coalesce repeated transfers of one canonical cylinder without merging neighbours."""
     unique: dict[tuple, CylindricalReference] = {}
     for reference in references:
         signature = (
@@ -809,7 +882,7 @@ def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
             reference.sense,
         )
         unique.setdefault(signature, reference)
-    return tuple(unique.values()), tuple(dict.fromkeys(reasons))
+    return tuple(unique.values())
 
 
 def _cylindrical_references_from_shapes(shapes, *, noun: str, frame: PartFrame | None = None):
@@ -856,7 +929,75 @@ def _cylindrical_references_from_shapes(shapes, *, noun: str, frame: PartFrame |
             reasons.append(f"one {noun} reference could not be measured ({_failure_reason(exc)})")
     if not references and not reasons:
         reasons.append(f"{noun} reference geometry is unavailable")
-    return tuple(references), tuple(dict.fromkeys(reasons))
+    return _unique_cylindrical_references(references), tuple(dict.fromkeys(reasons))
+
+
+def _circular_references_from_shapes(
+    shapes, *, noun: str, frame: PartFrame | None = None
+) -> tuple[tuple[CircularReference, ...], tuple[str, ...]]:
+    """Measure exact imported circular edges without inventing cylindrical extent or sense."""
+    references: list[CircularReference] = []
+    reasons: list[str] = []
+    for shape in shapes:
+        try:
+            if shape.ShapeType() != TopAbs_EDGE:
+                reasons.append(f"one {noun} reference is not an edge")
+                continue
+            curve = BRepAdaptor_Curve(TopoDS.Edge_s(shape))
+            if curve.GetType() != GeomAbs_Circle:
+                reasons.append(f"one {noun} reference edge is not circular")
+                continue
+            circle = curve.Circle()
+            center = circle.Location()
+            normal = circle.Axis().Direction()
+            references.append(
+                CircularReference.canonical(
+                    center=_frame_point((center.X(), center.Y(), center.Z()), frame),
+                    normal=_frame_vector((normal.X(), normal.Y(), normal.Z()), frame),
+                    radius=float(circle.Radius()),
+                )
+            )
+        except Exception as exc:
+            reasons.append(f"one {noun} reference could not be measured ({_failure_reason(exc)})")
+    if not references and not reasons:
+        reasons.append(f"{noun} reference geometry is unavailable")
+    unique: dict[tuple, CircularReference] = {}
+    for reference in references:
+        signature = (
+            *(round(value, 9) for value in reference.center),
+            *(round(value, 9) for value in reference.normal),
+            round(reference.radius, 9),
+        )
+        unique.setdefault(signature, reference)
+    return tuple(unique.values()), tuple(dict.fromkeys(reasons))
+
+
+def _circular_diameter_blockers(
+    references: tuple[CircularReference, ...], nominal: float, reasons: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Validate exact circular-edge evidence for one authored diameter."""
+    blockers = list(reasons)
+    if not references:
+        if not blockers:
+            blockers.append("diameter dimension needs a measurable circular-edge reference")
+        return tuple(dict.fromkeys(blockers))
+    normals = {
+        tuple(round(component, 9) for component in reference.normal) for reference in references
+    }
+    if len(normals) != 1:
+        blockers.append("diameter circular references do not share one normal direction")
+    value_tol = max(0.01, abs(nominal) * 5e-4)
+    mismatches = [
+        reference.diameter
+        for reference in references
+        if not math.isclose(reference.diameter, nominal, rel_tol=0.0, abs_tol=value_tol)
+    ]
+    if mismatches:
+        values = ", ".join(f"{value:.6g}" for value in mismatches)
+        blockers.append(
+            f"circular reference diameter(s) {values} mm differ from nominal {nominal:.6g} mm"
+        )
+    return tuple(dict.fromkeys(blockers))
 
 
 def _diameter_reference_blockers(
@@ -868,11 +1009,16 @@ def _diameter_reference_blockers(
         if not blockers:
             blockers.append("diameter dimension needs a measurable cylindrical-face reference")
         return tuple(dict.fromkeys(blockers))
-    axes = {reference.principal_axis for reference in references}
-    if "?" in axes:
-        blockers.append("diameter cylindrical-reference axis is not principal-axis aligned")
-    elif len(axes) != 1:
+    directions = {
+        tuple(round(component, 9) for component in reference.axis_direction)
+        for reference in references
+    }
+    if len(directions) != 1:
         blockers.append("diameter references do not share one cylinder axis direction")
+    else:
+        direction = next(iter(directions))
+        if min(abs(component) for component in direction) > 1e-6:
+            blockers.append("diameter cylinder axis does not lie in a principal projection plane")
     senses = {reference.sense for reference in references}
     if len(senses) != 1:
         blockers.append("diameter references mix internal and external cylindrical faces")
@@ -1105,6 +1251,84 @@ class _CommonLabelTopologyResolver(_DatumTopologyResolver):
     _exclusive_claims = False
 
 
+class _DimensionSupportResolver:
+    """Transfer exact dimension supports and prove B-rep items belong to the imported part."""
+
+    def __init__(self, step_reader):
+        self._reader = step_reader
+        self._model = step_reader.StepModel()
+        self._faces = TopTools_IndexedMapOfShape()
+        self._edges = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, self._faces)
+        TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_EDGE, self._edges)
+        self._items: dict[str, object] = {}
+        self._groups: dict[str, tuple[tuple[str, ...], tuple[object, ...]]] = {}
+
+    def _transfer(self, item_id: str):
+        cached = self._items.get(item_id)
+        if cached is not None:
+            return cached, ""
+        rank = self._model.NextNumberForLabel(item_id, 0, True)
+        if rank <= 0:
+            return None, f"Part21 dimension support item {item_id} is unavailable"
+        entity = self._model.Value(rank)
+        dynamic_type = entity.DynamicType().Name()
+        expected = {
+            "StepShape_AdvancedFace": (TopAbs_FACE, self._faces, "face"),
+            "StepShape_EdgeCurve": (TopAbs_EDGE, self._edges, "edge"),
+            "StepShape_GeometricCurveSet": (TopAbs_COMPOUND, None, "geometric curve set"),
+        }.get(dynamic_type)
+        if expected is None:
+            return None, (
+                f"Part21 dimension support item {item_id} has unsupported type {dynamic_type}"
+            )
+        before = self._reader.NbShapes()
+        try:
+            transferred = self._reader.TransferOne(rank)
+        except Exception as exc:
+            return None, (
+                f"Part21 dimension support item {item_id} could not be transferred "
+                f"({_failure_reason(exc)})"
+            )
+        after = self._reader.NbShapes()
+        if not transferred or after != before + 1:
+            return None, f"Part21 dimension support item {item_id} could not be transferred"
+        shape = self._reader.Shape(after)
+        expected_type, imported, noun = expected
+        if shape is None or shape.IsNull() or shape.ShapeType() != expected_type:
+            return None, f"Part21 dimension support item {item_id} did not transfer to one {noun}"
+        # Faces and edge curves are topology claims, so identity with the imported solid is
+        # mandatory. A geometric-curve-set is authored construction geometry rather than a
+        # B-rep subshape; its exact Part21 identity and successful transfer are the evidence.
+        if imported is not None and imported.FindIndex(shape) <= 0:
+            return None, f"Part21 dimension support item {item_id} is not in the imported topology"
+        self._items[item_id] = shape
+        return shape, ""
+
+    def resolve_group(self, aspect_id: str, item_ids: tuple[str, ...]):
+        cached = self._groups.get(aspect_id)
+        if cached is not None:
+            cached_item_ids, cached_shapes = cached
+            if cached_item_ids != item_ids:
+                return (), (f"dimension support group {aspect_id} has conflicting Part21 items",)
+            return cached_shapes, ()
+        if not item_ids:
+            return (), (f"dimension support group {aspect_id} has no Part21 items",)
+        shapes = []
+        reasons = []
+        for item_id in item_ids:
+            shape, reason = self._transfer(item_id)
+            if reason:
+                reasons.append(reason)
+            elif shape is not None:
+                shapes.append(shape)
+        if reasons:
+            return (), tuple(dict.fromkeys(reasons))
+        result = tuple(shapes)
+        self._groups[aspect_id] = (item_ids, result)
+        return result, ()
+
+
 def _datum_letter(label) -> tuple[str, str]:
     try:
         identification = XCAFDoc_Datum.Set_s(label).GetIdentification()
@@ -1319,9 +1543,13 @@ def _dimension_record(
     length_factor_mm: float = 1.0,
     length_factor_reason: str = "",
     display_facts: tuple[DimensionDisplayFact, ...] = (),
+    association_fact: DimensionAssociationFact | None = None,
+    association_reason: str = "",
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert one semantic XCAF dimension label, allowing its caller to record failures."""
-    partial_reasons = []
+    partial_reasons = [association_reason] if association_reason else []
+    if association_fact is not None and association_fact.reason:
+        partial_reasons.append(association_fact.reason)
     # Nominal value: scalar first, array fallback.
     value = 0.0
     try:
@@ -1487,8 +1715,20 @@ def _dimension_record(
                 )
             ),
             source_id=source_id,
+            part21_id=association_fact.entity_id if association_fact is not None else "",
             source_category="dimension",
             lowering_blockers=lowering_blockers,
+            reference_item_ids=(
+                tuple(item for group in association_fact.reference_item_groups for item in group)
+                if association_fact is not None
+                else ()
+            ),
+            reference_item_groups=(
+                association_fact.reference_item_groups if association_fact is not None else ()
+            ),
+            shape_aspect_ids=(
+                association_fact.shape_aspect_ids if association_fact is not None else ()
+            ),
             rendering_blockers=rendering_blockers,
             cylindrical_refs=cylindrical_refs,
             angular_reference=angular_reference,
@@ -1818,6 +2058,153 @@ def _common_label_topology(
     return tuple(projected)
 
 
+def _dimension_support_topology(
+    records, step_reader, frame: PartFrame | None = None
+) -> tuple[PmiRecord, ...]:
+    """Replace incomplete XCAF dimension supports with their exact Part21 groups."""
+    resolver = _DimensionSupportResolver(step_reader)
+    projected = []
+    for record in records:
+        if (
+            record.kind not in ("linear", "thickness", "diameter")
+            or not record.reference_item_groups
+        ):
+            projected.append(record)
+            continue
+        if len(record.shape_aspect_ids) != len(record.reference_item_groups):
+            reason = "dimension shape-aspect and support-group counts disagree"
+            projected.append(
+                replace(
+                    record,
+                    lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
+                )
+            )
+            continue
+
+        boxes = []
+        stations = []
+        group_shapes = []
+        topology_reasons = []
+        for aspect_id, item_ids in zip(
+            record.shape_aspect_ids, record.reference_item_groups, strict=True
+        ):
+            shapes, group_reasons = resolver.resolve_group(aspect_id, item_ids)
+            topology_reasons.extend(group_reasons)
+            group_shapes.append(shapes)
+            group_boxes = []
+            for shape in shapes:
+                try:
+                    box = _shape_bbox(shape) if frame is None else _shape_bbox(shape, frame)
+                except Exception as exc:
+                    topology_reasons.append(
+                        "dimension support geometry could not be measured "
+                        f"({_failure_reason(exc)})"
+                    )
+                else:
+                    boxes.append(box)
+                    group_boxes.append(box)
+            stations.append(_bbox_centroid(_merge_bboxes(group_boxes)) if group_boxes else None)
+
+        topology_reasons = list(dict.fromkeys(topology_reasons))
+        ref_bbox = _merge_bboxes(boxes) if boxes else None
+        if topology_reasons:
+            if _direct_xcaf_support_is_incomplete(record):
+                projected.append(
+                    replace(
+                        record,
+                        lowering_blockers=tuple(
+                            dict.fromkeys((*record.lowering_blockers, *topology_reasons))
+                        ),
+                    )
+                )
+            else:
+                projected.append(record)
+            continue
+        if record.kind == "diameter":
+            shapes = tuple(shape for group in group_shapes for shape in group)
+            shape_types = {shape.ShapeType() for shape in shapes}
+            cylindrical_refs: tuple[CylindricalReference, ...] = ()
+            circular_refs: tuple[CircularReference, ...] = ()
+            geometry_reasons: tuple[str, ...]
+            if shape_types == {TopAbs_FACE}:
+                cylindrical_refs, geometry_reasons = _cylindrical_references_from_shapes(
+                    shapes, noun="diameter", frame=frame
+                )
+                rendering_blockers = _diameter_reference_blockers(
+                    cylindrical_refs, record.value, geometry_reasons
+                )
+                points = tuple(reference.midpoint for reference in cylindrical_refs)
+                axes = {reference.principal_axis for reference in cylindrical_refs}
+            elif shape_types == {TopAbs_EDGE}:
+                circular_refs, geometry_reasons = _circular_references_from_shapes(
+                    shapes, noun="diameter", frame=frame
+                )
+                rendering_blockers = _circular_diameter_blockers(
+                    circular_refs, record.value, geometry_reasons
+                )
+                points = tuple(reference.center for reference in circular_refs)
+                axes = {reference.principal_axis for reference in circular_refs}
+            else:
+                geometry_reasons = ("diameter support groups mix face and edge topology",)
+                rendering_blockers = geometry_reasons
+                points = ()
+                axes = set()
+            blockers = tuple(dict.fromkeys((*topology_reasons, *geometry_reasons)))
+            projected.append(
+                replace(
+                    record,
+                    ref_pts=points,
+                    ref_bbox=ref_bbox,
+                    dominant_axis=(
+                        next(iter(axes)) if len(axes) == 1 and "?" not in axes else "?"
+                    ),
+                    lowering_blockers=tuple(
+                        dict.fromkeys(
+                            (
+                                *_without_direct_xcaf_diameter_failures(record.lowering_blockers),
+                                *blockers,
+                            )
+                        )
+                    ),
+                    rendering_blockers=rendering_blockers,
+                    cylindrical_refs=cylindrical_refs,
+                    circular_refs=circular_refs,
+                )
+            )
+            continue
+
+        points, dominant_axis, station_reasons = _linear_reference_stations(
+            tuple(stations), record.value
+        )
+        if record.kind == "thickness":
+            station_reasons = tuple(
+                reason.replace("linear dimension", "thickness dimension").replace(
+                    "linear reference", "thickness reference"
+                )
+                for reason in station_reasons
+            )
+        projected.append(
+            replace(
+                record,
+                ref_pts=points,
+                ref_bbox=ref_bbox,
+                dominant_axis=dominant_axis,
+                lowering_blockers=tuple(
+                    dict.fromkeys(
+                        (
+                            *_without_direct_xcaf_reference_failures(record.lowering_blockers),
+                            *topology_reasons,
+                        )
+                    )
+                ),
+                rendering_blockers=_dimension_geometry_blockers(
+                    record.kind, tuple(topology_reasons), station_reasons
+                ),
+            )
+        )
+    return tuple(projected)
+
+
 def _face_topology_witness(shape, frame: PartFrame | None = None) -> tuple[float, float, float]:
     """Choose a stable point proven to belong to one exact transferred face boundary."""
     vertices = TopTools_IndexedMapOfShape()
@@ -1969,6 +2356,8 @@ def _extract_pmi_census(
     length_factor_mm = 1.0
     length_factor_reason = ""
     dimension_display_facts: tuple[DimensionDisplayFact, ...] = ()
+    dimension_association_facts: tuple[DimensionAssociationFact, ...] = ()
+    dimension_association_error = ""
     common_label_facts: tuple[CommonLabelFact, ...] = ()
     common_label_error = ""
     if dims.Length() > 0:
@@ -1991,6 +2380,12 @@ def _extract_pmi_census(
                 exc,
             )
         try:
+            dimension_association_facts = read_dimension_associations(step_file)
+        except Exception as exc:
+            dimension_association_error = (
+                f"Part21 dimension-association read failed: {_failure_reason(exc)}"
+            )
+        try:
             common_label_facts = read_common_labels(step_file)
         except Exception as exc:
             common_label_error = f"Part21 common-label read failed: {_failure_reason(exc)}"
@@ -2002,11 +2397,11 @@ def _extract_pmi_census(
         try:
             obj = XCAFDoc_Dimension.Set_s(label).GetObject()
             type_code = int(obj.GetType())
+            presentation = obj.GetPresentationName()
+            presentation_name = (
+                str(presentation.ToCString()).strip() if presentation is not None else ""
+            )
             if type_code == 30:
-                presentation = obj.GetPresentationName()
-                presentation_name = (
-                    str(presentation.ToCString()).strip() if presentation is not None else ""
-                )
                 common_fact = None
                 match_reason = common_label_error
                 if not match_reason:
@@ -2048,29 +2443,47 @@ def _extract_pmi_census(
                     continue
             if type_code == 30:
                 pass
-            elif frame is None:
-                record, partial_reasons = _dimension_record(
-                    label,
-                    obj,
-                    type_code,
-                    shape_tool,
-                    source_id,
-                    length_factor_mm=length_factor_mm,
-                    length_factor_reason=length_factor_reason,
-                    display_facts=dimension_display_facts,
-                )
             else:
-                record, partial_reasons = _dimension_record(
-                    label,
-                    obj,
-                    type_code,
-                    shape_tool,
-                    source_id,
-                    frame,
-                    length_factor_mm=length_factor_mm,
-                    length_factor_reason=length_factor_reason,
-                    display_facts=dimension_display_facts,
-                )
+                association_fact = None
+                association_reason = ""
+                dimension_kind = _DIM_TYPE.get(type_code, f"type{type_code}")
+                # This overlay enriches XCAF's already-valid direct reference geometry. An
+                # unnamed dimension cannot be correlated to Part21, but that absence does not
+                # invalidate geometry XCAF did transfer. Once XCAF exposes a presentation
+                # identity, however, require its Part21 association to be unambiguous.
+                if presentation_name and dimension_kind in _LENGTH_DIMENSION_KINDS:
+                    association_reason = dimension_association_error
+                    if not association_reason:
+                        association_fact, association_reason = match_dimension_association(
+                            dimension_association_facts, presentation_name
+                        )
+                if frame is None:
+                    record, partial_reasons = _dimension_record(
+                        label,
+                        obj,
+                        type_code,
+                        shape_tool,
+                        source_id,
+                        length_factor_mm=length_factor_mm,
+                        length_factor_reason=length_factor_reason,
+                        display_facts=dimension_display_facts,
+                        association_fact=association_fact,
+                        association_reason=association_reason,
+                    )
+                else:
+                    record, partial_reasons = _dimension_record(
+                        label,
+                        obj,
+                        type_code,
+                        shape_tool,
+                        source_id,
+                        frame,
+                        length_factor_mm=length_factor_mm,
+                        length_factor_reason=length_factor_reason,
+                        display_facts=dimension_display_facts,
+                        association_fact=association_fact,
+                        association_reason=association_reason,
+                    )
         except Exception as exc:
             sources.append(
                 PmiSourceEntity(
@@ -2093,6 +2506,52 @@ def _extract_pmi_census(
                     "; ".join(partial_reasons),
                 )
             )
+
+    try:
+        if frame is None:
+            records = list(_dimension_support_topology(records, reader.Reader()))
+        else:
+            records = list(_dimension_support_topology(records, reader.Reader(), frame))
+    except Exception as exc:
+        reason = f"dimension support topology is unavailable ({_failure_reason(exc)})"
+        records = [
+            replace(
+                record,
+                lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
+            )
+            if record.kind in ("linear", "thickness", "diameter") and record.reference_item_groups
+            else record
+            for record in records
+        ]
+    dimension_records = {
+        record.source_id: record
+        for record in records
+        if record.kind in ("linear", "thickness", "diameter") and record.reference_item_groups
+    }
+    sources = [
+        replace(
+            source,
+            outcome=(
+                "partially_extracted"
+                if (
+                    dimension_records[source.source_id].lowering_blockers
+                    or dimension_records[source.source_id].rendering_blockers
+                )
+                else "extracted"
+            ),
+            reason="; ".join(
+                dict.fromkeys(
+                    (
+                        *dimension_records[source.source_id].lowering_blockers,
+                        *dimension_records[source.source_id].rendering_blockers,
+                    )
+                )
+            ),
+        )
+        if source.source_id in dimension_records
+        else source
+        for source in sources
+    ]
 
     try:
         if frame is None:

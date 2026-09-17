@@ -79,6 +79,23 @@ def validate_placement_intent(view: str | None, side: str | None, *, owner: str)
         raise ValueError(f"{owner} side must be one of {sorted(PLACEMENT_SIDES)} (got {side!r})")
 
 
+def _linear_projection_view(ref_pts) -> str | None:
+    """Return the principal view that preserves an exact two-point oblique span."""
+    if len(ref_pts) != 2:
+        return None
+    delta = tuple(right - left for left, right in zip(*ref_pts, strict=True))
+    if hypot(*delta) <= 1e-9:
+        return None
+    primary = max(abs(component) for component in delta)
+    projection_tolerance = max(0.005, primary * 1e-3)
+    zeros = [
+        index for index, component in enumerate(delta) if abs(component) <= projection_tolerance
+    ]
+    if len(zeros) != 1:
+        return None
+    return ("side", "front", "plan")[zeros[0]]
+
+
 def validate_authored_dimension_placement(
     dimension_kind: str,
     dominant_axis: str,
@@ -87,6 +104,8 @@ def validate_authored_dimension_placement(
     *,
     owner: str,
     angular_reference: AngularReference | None = None,
+    cylindrical_refs=(),
+    ref_pts=(),
 ) -> None:
     """Reject a view/side pair for which the authored-dimension renderer has no candidate."""
     validate_placement_intent(view, side, owner=owner)
@@ -107,7 +126,36 @@ def validate_authored_dimension_placement(
         )
     elif dimension_kind in ("diameter", "radius"):
         end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(dominant_axis)
-        valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
+        if end_view is None and dimension_kind == "diameter" and cylindrical_refs:
+            directions = {
+                tuple(round(component, 9) for component in reference.axis_direction)
+                for reference in cylindrical_refs
+            }
+            if len(directions) == 1:
+                direction = next(iter(directions))
+                end_view = next(
+                    (
+                        candidate
+                        for component, candidate in zip(
+                            direction, ("side", "front", "plan"), strict=True
+                        )
+                        if abs(component) <= 1e-6
+                    ),
+                    None,
+                )
+        if end_view == "plan" and dominant_axis == "?":
+            valid_pairs = ((end_view, "right"), (end_view, "left"))
+        else:
+            valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
+    elif dominant_axis == "?" and dimension_kind == "linear":
+        projection = _linear_projection_view(ref_pts)
+        valid_pairs = (
+            ()
+            if projection is None
+            else tuple(
+                (projection, candidate) for candidate in ("above", "below", "right", "left")
+            )
+        )
     else:
         valid_pairs = {
             "X": (("front", "above"), ("front", "below")),
@@ -136,6 +184,7 @@ def authored_dimension_target_view(
     view: str | None,
     side: str | None,
     angular_reference: AngularReference | None = None,
+    ref_pts=(),
 ) -> str | None:
     """Resolve the principal view selected by an explicit measured-dimension hint.
 
@@ -148,6 +197,8 @@ def authored_dimension_target_view(
         return view
     if dimension_kind == "angular" and angular_reference is not None:
         return {"X": "side", "Y": "front", "Z": "plan"}.get(angular_reference.principal_axis)
+    if dimension_kind == "linear" and dominant_axis == "?":
+        return _linear_projection_view(ref_pts)
     if side is None:
         return None
     if dimension_kind in ("diameter", "radius"):
@@ -308,6 +359,67 @@ class CylindricalReference:
             origin + station * direction
             for origin, direction in zip(self.axis_origin, self.axis_direction, strict=True)
         )  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class CircularReference:
+    """Kernel-free evidence for one authored circular-edge dimension support."""
+
+    center: Point
+    normal: Point
+    radius: float
+
+    def __post_init__(self) -> None:
+        center = _finite_point3("center", self.center)
+        normal = _finite_point3("normal", self.normal)
+        length = hypot(*normal)
+        if abs(length - 1.0) > 2e-6:
+            raise ValueError("normal must be unit length")
+        dominant = max(range(3), key=lambda index: abs(normal[index]))
+        if normal[dominant] <= 0:
+            raise ValueError("normal must have a positive dominant component")
+        if isinstance(self.radius, bool):
+            raise ValueError("radius must be finite and positive")
+        radius = float(self.radius)
+        if not isfinite(radius) or radius <= 0:
+            raise ValueError("radius must be finite and positive")
+        object.__setattr__(self, "center", center)
+        object.__setattr__(self, "normal", normal)
+        object.__setattr__(self, "radius", radius)
+
+    @classmethod
+    def canonical(cls, *, center, normal, radius: float) -> CircularReference:
+        """Canonicalise a kernel circle centre and unoriented unit normal."""
+        point = _finite_point3("center", center)
+        raw = _finite_point3("normal", normal)
+        length = hypot(*raw)
+        if length <= 1e-12:
+            raise ValueError("normal must be non-zero")
+        unit = tuple(component / length for component in raw)
+        dominant = max(range(3), key=lambda index: abs(unit[index]))
+        sign = -1.0 if unit[dominant] < 0 else 1.0
+        direction = tuple(sign * component for component in unit)
+        clean_center = tuple(0.0 if abs(value) < 1e-12 else value for value in point)
+        clean_direction = tuple(0.0 if abs(value) < 1e-12 else value for value in direction)
+        return cls(
+            center=clean_center,  # type: ignore[arg-type]
+            normal=clean_direction,  # type: ignore[arg-type]
+            radius=radius,
+        )
+
+    @property
+    def diameter(self) -> float:
+        return 2.0 * self.radius
+
+    @property
+    def principal_axis(self) -> str:
+        """``'X'``/``'Y'``/``'Z'`` when the circle normal is orthographic, else ``'?'``."""
+        dominant = max(range(3), key=lambda index: abs(self.normal[index]))
+        if abs(self.normal[dominant] - 1.0) > 1e-6 or any(
+            abs(self.normal[index]) > 1e-6 for index in range(3) if index != dominant
+        ):
+            return "?"
+        return "XYZ"[dominant]
 
 
 ParamKind = Literal["diameter", "length", "depth", "radius", "angle", "location", "thread"]
@@ -3264,6 +3376,7 @@ class AuthoredDimension:
     view: str | None = None
     side: str | None = None
     angular_reference: AngularReference | None = None
+    circular_refs: tuple[CircularReference, ...] = ()
     kind: ClassVar[str] = "authored_dimension"
 
     def __post_init__(self) -> None:
@@ -3282,6 +3395,8 @@ class AuthoredDimension:
             self.side,
             owner="authored dimension",
             angular_reference=self.angular_reference,
+            cylindrical_refs=self.cylindrical_refs,
+            ref_pts=self.ref_pts,
         )
 
     @property

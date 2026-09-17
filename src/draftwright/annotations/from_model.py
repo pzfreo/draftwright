@@ -19,6 +19,7 @@ once the holes epic landed (#251).
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
 from typing import Any, Literal, cast
@@ -142,6 +143,7 @@ from draftwright.model.ir import (
     PocketFeature,
     SlotFeature,
     ThreadRequirement,
+    _linear_projection_view,
     authored_dimension_target_view,
 )
 from draftwright.view_plan import views_showing
@@ -7096,6 +7098,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
         getattr(rec, "view", None),
         getattr(rec, "side", None),
         getattr(rec, "angular_reference", None),
+        getattr(rec, "ref_pts", ()),
     )
     if selected_view is not None:
         view = selected_view
@@ -7237,7 +7240,13 @@ def _authored_with_usable_references(record) -> bool:
         and record.value > 0
         and (
             len(record.ref_pts) >= 2
-            or (record.pmi_kind == "diameter" and bool(getattr(record, "cylindrical_refs", ())))
+            or (
+                record.pmi_kind == "diameter"
+                and (
+                    bool(getattr(record, "cylindrical_refs", ()))
+                    or bool(getattr(record, "circular_refs", ()))
+                )
+            )
         )
         and not getattr(record, "rendering_blockers", ())
     )
@@ -7363,6 +7372,17 @@ def _bore_info(rec):
             sum(point[1] for point in centres) / len(centres),
             sum(point[2] for point in centres) / len(centres),
         )
+
+    circles = tuple(getattr(rec, "circular_refs", ()))
+    if circles:
+        axes = {reference.principal_axis for reference in circles}
+        if len(axes) != 1 or "?" in axes:
+            return None
+        # A semantic size may own a pattern of equal circles. One exact member supplies the
+        # witness for the shared authored statement; averaging their centres would invent a
+        # target between features. Source order makes the representative deterministic.
+        representative = circles[0]
+        return (next(iter(axes)), *representative.center)
 
     bb = rec.ref_bbox
     if bb is None:
@@ -7492,6 +7512,92 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
     }
 
 
+def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
+    """Place an exact projected span parallel to its two authored witness stations."""
+    if strip is None:
+        return None
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    if length <= 1e-6:
+        return None
+    normal = (dy / length, -dx / length)
+    toward = {
+        "above": (0.0, 1.0),
+        "below": (0.0, -1.0),
+        "right": (1.0, 0.0),
+        "left": (-1.0, 0.0),
+    }[side]
+    if normal[0] * toward[0] + normal[1] * toward[1] < 0:
+        normal = (-normal[0], -normal[1])
+    axis = "y" if side in ("above", "below") else "x"
+    component = normal[1] if axis == "y" else normal[0]
+    if abs(component) <= 1e-6:
+        return None
+    midpoint = (
+        (p1[0] + p2[0]) / 2,
+        (p1[1] + p2[1]) / 2,
+    )
+    coordinate = midpoint[1] if axis == "y" else midpoint[0]
+    lo, hi, _inner = strip_free_span(strip)
+    if side in ("above", "right") and hi <= coordinate:
+        return None
+    if side in ("below", "left") and lo >= coordinate:
+        return None
+
+    def _build(pos, _component=component, _coordinate=coordinate):
+        distance = abs((pos - _coordinate) / _component)
+        return _dim(p1, p2, side, max(distance, 1e-6), draft, label=label)
+
+    perp = tuple(sorted((p1[0], p2[0]))) if axis == "y" else tuple(sorted((p1[1], p2[1])))
+    return {
+        "name": name,
+        "build": _build,
+        "strip": strip,
+        "view": view,
+        "side": side,
+        "axis": axis,
+        "perp": perp,
+        "order": (_PMI_SUBCHAIN, min(perp), name),
+    }
+
+
+def _oblique_linear_specs(a, rec, label, name, draft):
+    if len(rec.ref_pts) != 2:
+        return []
+    first, second = rec.ref_pts
+    projection_view = _linear_projection_view(rec.ref_pts)
+    if projection_view == "side":
+        view, zones = "side", a.sv_zones
+        p1 = (a.proj.side_x(first[1]), a.proj.side_z(first[2]), 0)
+        p2 = (a.proj.side_x(second[1]), a.proj.side_z(second[2]), 0)
+    elif projection_view == "front":
+        view, zones = "front", a.fv_zones
+        p1 = (a.proj.front_x(first[0]), a.proj.front_z(first[2]), 0)
+        p2 = (a.proj.front_x(second[0]), a.proj.front_z(second[2]), 0)
+    elif projection_view == "plan":
+        view, zones = "plan", a.pv_zones
+        p1 = (a.proj.plan_x(first[0]), a.proj.plan_y(first[1]), 0)
+        p2 = (a.proj.plan_x(second[0]), a.proj.plan_y(second[1]), 0)
+    else:
+        return []
+    if rec.view is not None and rec.view != view:
+        return []
+    sides: tuple[str, ...]
+    if rec.side is not None:
+        sides = (rec.side,)
+    else:
+        page_dx, page_dy = p2[0] - p1[0], p2[1] - p1[1]
+        sides = (
+            ("right", "left", "above", "below")
+            if abs(page_dy) >= abs(page_dx)
+            else ("above", "below", "right", "left")
+        )
+    return [
+        _oblique_pmi_dim_spec(p1, p2, getattr(zones, side), label, name, view, side, draft)
+        for side in sides
+    ]
+
+
 def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     if strip is None:
         return None
@@ -7513,6 +7619,51 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
         "perp": perp,
         "order": (_PMI_SUBCHAIN, order_coord, name),
     }
+
+
+def _oblique_cylinder_leader_specs(a, rec, label, name, draft):
+    """Build solved leader candidates from one exact finite-cylinder surface witness."""
+    cylinders = tuple(getattr(rec, "cylindrical_refs", ()))
+    if not cylinders:
+        return []
+    sides: tuple[str, ...]
+    reference = cylinders[0]
+    dx, dy, dz = reference.axis_direction
+    cx, cy, cz = reference.midpoint
+    if abs(dx) <= 1e-6:
+        view, zones, sides = "side", a.sv_zones, ("above", "below")
+        surface = (
+            a.proj.side_x(cy - dz * reference.radius),
+            a.proj.side_z(cz + dy * reference.radius),
+            0,
+        )
+    elif abs(dy) <= 1e-6:
+        view, zones, sides = "front", a.fv_zones, ("above", "below")
+        surface = (
+            a.proj.front_x(cx - dz * reference.radius),
+            a.proj.front_z(cz + dx * reference.radius),
+            0,
+        )
+    elif abs(dz) <= 1e-6:
+        view, zones, sides = "plan", a.pv_zones, ("right", "left")
+        surface = (
+            a.proj.plan_x(cx - dy * reference.radius),
+            a.proj.plan_y(cy + dx * reference.radius),
+            0,
+        )
+    else:
+        return []
+    if rec.view is not None and rec.view != view:
+        return []
+    if rec.side is not None:
+        sides = tuple(side for side in sides if side == rec.side)
+    # ``surface`` is derived by moving one radius perpendicular to the cylinder axis in
+    # its containing projection plane. It is therefore an actual face witness, while the
+    # leader shelf remains governed by the ordinary corridor solve.
+    return [
+        _pmi_leader_spec(surface, getattr(zones, side), label, name, view, side, draft)
+        for side in sides
+    ]
 
 
 def _place_corridor_option(
@@ -7832,6 +7983,19 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     """
     ax = rec.dominant_axis
     label = rec.label
+    circular_refs = tuple(getattr(rec, "circular_refs", ()))
+    cylindrical_refs = tuple(getattr(rec, "cylindrical_refs", ()))
+    pattern_count = len(circular_refs) or (
+        len(cylindrical_refs)
+        if cylindrical_refs and cylindrical_refs[0].principal_axis == "?"
+        else 0
+    )
+    if (
+        rec.pmi_kind == "diameter"
+        and pattern_count > 1
+        and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None
+    ):
+        label = f"{pattern_count}× {label}"
     placed = False
     name_x = f"pmi_x_{idx}"
     name_z = f"pmi_z_{idx}"
@@ -7850,6 +8014,16 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
             rec,
         )
     elif rec.pmi_kind in ("diameter", "radius"):
+        if rec.pmi_kind == "diameter" and cylindrical_refs and ax == "?":
+            placed = _pmi_queue_options(
+                dwg,
+                ctx,
+                _oblique_cylinder_leader_specs(a, rec, label, name_d, draft),
+                ax,
+                label,
+                rec,
+            )
+            return bool(placed)
         # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value
         # (#1208). See `_bore_span_offsets`.
         info = _bore_info(rec)
@@ -7929,6 +8103,16 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
                     label,
                     rec,
                 )
+
+    elif rec.pmi_kind == "linear" and ax == "?":
+        placed = _pmi_queue_options(
+            dwg,
+            ctx,
+            _oblique_linear_specs(a, rec, label, f"pmi_oblique_{idx}", draft),
+            ax,
+            label,
+            rec,
+        )
 
     elif ax == "X":
         placed = _pmi_front_linear(dwg, a, ctx, rec, ax, label, name_x, "above", "below", a.FV_Y)
