@@ -6,14 +6,17 @@ from pathlib import Path
 import pytest
 
 from draftwright._pmi_part21 import (
+    CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
     GeometricToleranceFact,
     ManufacturingRequirementFact,
     SurfaceLabelFact,
+    match_common_label,
     match_datum_occurrence,
     match_dimension_display,
     match_geometric_tolerance,
+    read_common_labels,
     read_datum_definitions,
     read_datum_occurrences,
     read_dimension_display_facts,
@@ -25,6 +28,7 @@ from draftwright._pmi_part21 import (
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
 CTC03 = Path(__file__).parent / "fixtures" / "nist_ctc_03_asme1_ap242.stp"
+CTC04 = Path(__file__).parent / "fixtures" / "nist_ctc_04_asme1_ap242.stp"
 CTC05 = Path(__file__).parent / "fixtures" / "nist_ctc_05_asme1_ap242.stp"
 
 
@@ -79,6 +83,12 @@ def _read_surface_labels(tmp_path, name: str, *instances: str):
     step = tmp_path / f"{name}.step"
     step.write_text(_step(*instances), encoding="utf-8")
     return read_surface_labels(step)
+
+
+def _read_common_labels(tmp_path, name: str, *instances: str):
+    step = tmp_path / f"{name}.step"
+    step.write_text(_step(*instances), encoding="utf-8")
+    return read_common_labels(step)
 
 
 def test_part21_read_session_reuses_one_parse_and_does_not_leak(tmp_path, monkeypatch):
@@ -221,6 +231,143 @@ def test_ctc01_surface_labels_preserve_text_and_exact_geometry_chain():
             reference_item_ids=("#1844",),
         ),
     )
+
+
+def test_ctc04_common_labels_preserve_each_occurrence_and_exact_geometry_chain():
+    facts = read_common_labels(CTC04)
+
+    assert [
+        (
+            fact.entity_id,
+            fact.presentation_name,
+            fact.text,
+            fact.shape_aspect_id,
+            fact.reference_item_ids,
+            fact.reason,
+        )
+        for fact in facts
+    ] == [
+        ("#20358", "Text.12", "A", "#18302", ("#12933",), ""),
+        (
+            "#20386",
+            "Text.13",
+            "⌴",
+            "#19419",
+            ("#6118", "#6100", "#6150", "#6168", "#5372", "#5390", "#5422", "#5440"),
+            "",
+        ),
+        ("#20414", "Text.14", "C", "#18382", ("#832", "#856"), ""),
+        ("#20442", "Text.15", "B", "#18341", ("#8212", "#8194"), ""),
+    ]
+
+
+def test_common_labels_do_not_collapse_equal_text_or_composite_members(tmp_path):
+    facts = _read_common_labels(
+        tmp_path,
+        "common-label-multiplicity",
+        "#1=SHAPE_ASPECT('group','feature group',#99,.T.);",
+        "#2=SHAPE_ASPECT('member 1','',#99,.T.);",
+        "#3=SHAPE_ASPECT('member 2','',#99,.T.);",
+        "#4=SHAPE_ASPECT_RELATIONSHIP('','',#1,#2);",
+        "#5=SHAPE_ASPECT_RELATIONSHIP('','',#1,#3);",
+        "#6=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#2,#98,(#90));",
+        "#7=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#3,#98,(#91));",
+        "#10=PROPERTY_DEFINITION('semantic text','',#1);",
+        "#11=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','4X');",
+        "#12=REPRESENTATION('',(#11),#97);",
+        "#13=PROPERTY_DEFINITION_REPRESENTATION(#10,#12);",
+        "#14=DRAUGHTING_CALLOUT('Text.1',());",
+        "#15=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#10,#96,#14);",
+        "#16=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#96,#14);",
+        "#20=PROPERTY_DEFINITION('semantic text','',#2);",
+        "#21=DESCRIPTIVE_REPRESENTATION_ITEM('Text.2','4X');",
+        "#22=REPRESENTATION('',(#21),#97);",
+        "#23=PROPERTY_DEFINITION_REPRESENTATION(#20,#22);",
+        "#24=DRAUGHTING_CALLOUT('Text.2',());",
+        "#25=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#20,#96,#24);",
+        "#26=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#2,#96,#24);",
+    )
+
+    assert [(fact.entity_id, fact.text) for fact in facts] == [("#10", "4X"), ("#20", "4X")]
+    assert facts[0].reference_item_ids == ("#90", "#91")
+    assert facts[1].reference_item_ids == ("#90",)
+    assert all(not fact.reason for fact in facts)
+
+
+def test_incomplete_common_label_keeps_one_explicit_reason_set(tmp_path):
+    (fact,) = _read_common_labels(
+        tmp_path,
+        "incomplete-common-label",
+        "#1=SHAPE_ASPECT('feature','',#99,.T.);",
+        "#2=PROPERTY_DEFINITION('semantic text','',#1);",
+        "#3=REPRESENTATION('',(),#98);",
+        "#4=PROPERTY_DEFINITION_REPRESENTATION(#2,#3);",
+    )
+
+    assert fact == CommonLabelFact(
+        entity_id="#2",
+        presentation_name="",
+        text="",
+        shape_aspect_id="#1",
+        representation_id="#3",
+        reason=(
+            "linked representation has 0 descriptive items; "
+            "common label has 0 shared semantic/presentation callouts; "
+            "common-label shape aspect has no representation items"
+        ),
+    )
+
+
+def test_semantic_text_for_a_non_shape_definition_is_not_a_common_label(tmp_path):
+    assert (
+        _read_common_labels(
+            tmp_path,
+            "non-shape-semantic-text",
+            "#1=PRODUCT_DEFINITION('part','',#98,#97);",
+            "#2=PROPERTY_DEFINITION('semantic text','',#1);",
+            "#3=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','label');",
+            "#4=REPRESENTATION('',(#3),#96);",
+            "#5=PROPERTY_DEFINITION_REPRESENTATION(#2,#4);",
+        )
+        == ()
+    )
+
+
+def test_common_label_matching_requires_one_exact_presentation_identity():
+    one = CommonLabelFact("#1", "Text.1", "A")
+    duplicate = CommonLabelFact("#2", "Text.1", "A")
+
+    assert match_common_label((one,), "Text.1") == (one, "")
+    assert match_common_label((one,), "text.1") == (
+        None,
+        "Part21 has no common label named 'text.1'",
+    )
+    assert match_common_label((one, duplicate), "Text.1") == (
+        None,
+        "Part21 common-label correspondence is ambiguous for 'Text.1' (#1, #2)",
+    )
+
+
+def test_common_label_with_multiple_shared_callouts_fails_closed(tmp_path):
+    (fact,) = _read_common_labels(
+        tmp_path,
+        "ambiguous-common-label-callout",
+        "#1=SHAPE_ASPECT('feature','',#99,.T.);",
+        "#2=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#1,#98,(#90));",
+        "#3=PROPERTY_DEFINITION('semantic text','',#1);",
+        "#4=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','A');",
+        "#5=REPRESENTATION('',(#4),#97);",
+        "#6=PROPERTY_DEFINITION_REPRESENTATION(#3,#5);",
+        "#7=DRAUGHTING_CALLOUT('Text.1',());",
+        "#8=DRAUGHTING_CALLOUT('Text.1 duplicate',());",
+        "#9=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#3,#96,#7);",
+        "#10=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#3,#96,#8);",
+        "#11=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#96,#7);",
+        "#12=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#96,#8);",
+    )
+
+    assert fact.callout_ids == ("#7", "#8")
+    assert fact.reason == "common label has 2 shared semantic/presentation callouts"
 
 
 def test_surface_label_missing_associations_remain_explicit(tmp_path):

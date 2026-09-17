@@ -93,6 +93,13 @@ _SI_METRE_TO_MM: dict[str, float] = {
 # only the invariant token: Part 21 comments may legally separate it from the opening ``(``.
 _PROPERTY_DEFINITION_MARKER = re.compile(rb"\bPROPERTY_DEFINITION\b", re.IGNORECASE)
 
+# Common-label properties attach to this small AP242 shape-aspect family in the supported
+# corpus.  Keep the admission list explicit: PROPERTY_DEFINITION can characterize many other
+# entity families, and treating those as geometric labels would invent source relationships.
+_COMMON_LABEL_ASPECT_ENTITIES = frozenset(
+    {"SHAPE_ASPECT", "DATUM_FEATURE", "COMPOSITE_GROUP_SHAPE_ASPECT"}
+)
+
 
 @dataclass(frozen=True)
 class GeometricToleranceFact:
@@ -177,6 +184,21 @@ class SurfaceLabelFact:
     """One descriptive label authored against an exact surface-group shape aspect."""
 
     entity_id: str
+    text: str
+    shape_aspect_id: str = ""
+    representation_id: str = ""
+    descriptive_item_id: str = ""
+    callout_ids: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class CommonLabelFact:
+    """One AP242 semantic-text occurrence attached to a non-NOTE shape aspect."""
+
+    entity_id: str
+    presentation_name: str
     text: str
     shape_aspect_id: str = ""
     representation_id: str = ""
@@ -586,6 +608,180 @@ def read_surface_labels(step_file: str | Path) -> tuple[SurfaceLabelFact, ...]:
             )
         )
     return tuple(facts)
+
+
+def read_common_labels(step_file: str | Path) -> tuple[CommonLabelFact, ...]:
+    """Read semantic text attached to datum, feature, or feature-group shape aspects.
+
+    OCCT imports these occurrences as ``CommonLabel`` dimensions, retaining only their
+    presentation names.  Part21 owns the authoritative text and the exact shape-aspect chain.
+    Composite aspects are expanded only through authored ``SHAPE_ASPECT_RELATIONSHIP`` links;
+    geometry is never inferred from label text or proximity.
+    """
+    step = _readfile(step_file)
+    properties: list[tuple[str, str]] = []
+    representations: dict[str, list[str]] = {}
+    note_aspects: set[str] = set()
+    aspect_children: dict[str, list[str]] = {}
+    aspect_items: dict[str, list[str]] = {}
+    association_callouts: dict[str, list[str]] = {}
+
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            aspect = _entity_named(instance, "SHAPE_ASPECT")
+            if (
+                aspect is not None
+                and len(aspect.params) >= 2
+                and _text(aspect.params[1]) == "NOTE"
+            ):
+                note_aspects.add(entity_id)
+
+            definition = _entity_named(instance, "PROPERTY_DEFINITION")
+            if (
+                definition is not None
+                and len(definition.params) >= 3
+                and _text(definition.params[0]).casefold() == "semantic text"
+                and isinstance(definition.params[2], p21.Reference)
+                and any(
+                    entity.name in _COMMON_LABEL_ASPECT_ENTITIES
+                    for entity in _entities(step.get(str(definition.params[2])))
+                )
+            ):
+                properties.append((entity_id, str(definition.params[2])))
+
+            link = _entity_named(instance, "PROPERTY_DEFINITION_REPRESENTATION")
+            if link is not None and len(link.params) >= 2:
+                definition_ref, representation_ref = link.params[:2]
+                if isinstance(definition_ref, p21.Reference) and isinstance(
+                    representation_ref, p21.Reference
+                ):
+                    representations.setdefault(str(definition_ref), []).append(
+                        str(representation_ref)
+                    )
+
+            relationship = _entity_named(instance, "SHAPE_ASPECT_RELATIONSHIP")
+            if relationship is not None and len(relationship.params) >= 4:
+                parent, child = relationship.params[2:4]
+                if isinstance(parent, p21.Reference) and isinstance(child, p21.Reference):
+                    aspect_children.setdefault(str(parent), []).append(str(child))
+
+            usage = _entity_named(instance, "GEOMETRIC_ITEM_SPECIFIC_USAGE")
+            if usage is not None and len(usage.params) >= 5:
+                aspect_ref = usage.params[2]
+                if isinstance(aspect_ref, p21.Reference):
+                    aspect_items.setdefault(str(aspect_ref), []).extend(
+                        _references(usage.params[4])
+                    )
+
+            association = _entity_named(instance, "DRAUGHTING_MODEL_ITEM_ASSOCIATION")
+            if association is not None and len(association.params) >= 5:
+                subject = association.params[2]
+                if isinstance(subject, p21.Reference):
+                    association_callouts.setdefault(str(subject), []).extend(
+                        ref
+                        for ref in _references(association.params[4])
+                        if _instance_is(step, ref, "DRAUGHTING_CALLOUT")
+                    )
+
+    def related_items(root: str) -> tuple[str, ...]:
+        pending = [root]
+        visited: set[str] = set()
+        items: list[str] = []
+        while pending:
+            aspect_id = pending.pop(0)
+            if aspect_id in visited:
+                continue
+            visited.add(aspect_id)
+            items.extend(aspect_items.get(aspect_id, ()))
+            pending.extend(aspect_children.get(aspect_id, ()))
+        return tuple(dict.fromkeys(items))
+
+    facts: list[CommonLabelFact] = []
+    for entity_id, aspect_id in properties:
+        if aspect_id in note_aspects:
+            continue
+        reasons: list[str] = []
+        representation_ids = tuple(dict.fromkeys(representations.get(entity_id, ())))
+        representation_id = representation_ids[0] if len(representation_ids) == 1 else ""
+        if len(representation_ids) != 1:
+            reasons.append(f"common label has {len(representation_ids)} linked representations")
+
+        descriptive_ids: tuple[str, ...] = ()
+        if representation_id:
+            representation = _entity_named(step.get(representation_id), "REPRESENTATION")
+            if representation is None or len(representation.params) < 2:
+                reasons.append(
+                    f"linked representation {representation_id} is unavailable or malformed"
+                )
+            else:
+                descriptive_ids = tuple(
+                    dict.fromkeys(
+                        ref
+                        for ref in _references(representation.params[1])
+                        if _instance_is(step, ref, "DESCRIPTIVE_REPRESENTATION_ITEM")
+                    )
+                )
+        descriptive_item_id = descriptive_ids[0] if len(descriptive_ids) == 1 else ""
+        if representation_id and len(descriptive_ids) != 1:
+            reasons.append(f"linked representation has {len(descriptive_ids)} descriptive items")
+
+        presentation_name = ""
+        label_text = ""
+        if descriptive_item_id:
+            item = _entity_named(step.get(descriptive_item_id), "DESCRIPTIVE_REPRESENTATION_ITEM")
+            if item is None or len(item.params) < 2:
+                reasons.append(f"descriptive item {descriptive_item_id} is malformed")
+            else:
+                presentation_name = _text(item.params[0])
+                label_text = _text(item.params[1])
+                if not presentation_name:
+                    reasons.append("common label has no presentation name")
+                if not label_text:
+                    reasons.append("common label has no authoritative text")
+
+        property_callouts = set(association_callouts.get(entity_id, ()))
+        aspect_callouts = set(association_callouts.get(aspect_id, ()))
+        callout_ids = tuple(sorted(property_callouts & aspect_callouts))
+        if len(callout_ids) != 1:
+            reasons.append(
+                f"common label has {len(callout_ids)} shared semantic/presentation callouts"
+            )
+        reference_item_ids = related_items(aspect_id)
+        if not reference_item_ids:
+            reasons.append("common-label shape aspect has no representation items")
+
+        facts.append(
+            CommonLabelFact(
+                entity_id=entity_id,
+                presentation_name=presentation_name,
+                text=label_text,
+                shape_aspect_id=aspect_id,
+                representation_id=representation_id,
+                descriptive_item_id=descriptive_item_id,
+                callout_ids=callout_ids,
+                reference_item_ids=reference_item_ids,
+                reason="; ".join(dict.fromkeys(reasons)),
+            )
+        )
+    return tuple(facts)
+
+
+def match_common_label(
+    facts: tuple[CommonLabelFact, ...], presentation_name: str
+) -> tuple[CommonLabelFact | None, str]:
+    """Match one XCAF CommonLabel by its exact retained presentation identity."""
+    if not presentation_name:
+        return None, "XCAF common label has no presentation name"
+    matches = tuple(fact for fact in facts if fact.presentation_name == presentation_name)
+    if not matches:
+        return None, f"Part21 has no common label named {presentation_name!r}"
+    if len(matches) != 1:
+        ids = ", ".join(fact.entity_id for fact in matches)
+        return (
+            None,
+            f"Part21 common-label correspondence is ambiguous for {presentation_name!r} ({ids})",
+        )
+    return matches[0], ""
 
 
 def _unit_factor_mm(

@@ -29,14 +29,17 @@ from typing import Literal, cast
 from quiddity import PartFrame
 
 from draftwright._pmi_part21 import (
+    CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
     DimensionDisplayFact,
     GeometricToleranceFact,
+    match_common_label,
     match_datum_occurrence,
     match_dimension_display,
     match_geometric_tolerance,
     part21_read_session,
+    read_common_labels,
     read_datum_definitions,
     read_datum_occurrences,
     read_dimension_display_facts,
@@ -55,6 +58,7 @@ _log = logging.getLogger(__name__)
 
 try:
     from OCP.Bnd import Bnd_Box
+    from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
     from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
@@ -64,7 +68,7 @@ try:
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
-    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED, TopAbs_VERTEX
     from OCP.TopExp import TopExp
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
@@ -544,14 +548,6 @@ def _dimension_without_record(source_id: str, type_code: int) -> PmiSourceEntity
             type_code=type_code,
             outcome="presentation_only",
             reason="graphical presentation is not a semantic requirement",
-        )
-    if type_code == 30:
-        return PmiSourceEntity(
-            source_id=source_id,
-            category="dimension",
-            type_code=type_code,
-            outcome="not_extracted",
-            reason="common-label dimension extraction is not implemented",
         )
     return None
 
@@ -1101,6 +1097,12 @@ class _SurfaceLabelTopologyResolver(_DatumTopologyResolver):
 
     def _expected_shape_type(self):
         return TopAbs_EDGE
+
+
+class _CommonLabelTopologyResolver(_DatumTopologyResolver):
+    """Resolve common-label face items without claiming them away from other PMI."""
+
+    _exclusive_claims = False
 
 
 def _datum_letter(label) -> tuple[str, str]:
@@ -1773,6 +1775,67 @@ def _surface_label_topology(
     return tuple(projected)
 
 
+def _common_label_topology(
+    records, step_reader, frame: PartFrame | None = None
+) -> tuple[PmiRecord, ...]:
+    """Attach exact imported face sites to XCAF common-label occurrences."""
+    imported_faces = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, imported_faces)
+    resolver = _CommonLabelTopologyResolver(step_reader, imported_faces)
+    projected = []
+    for record in records:
+        if record.kind != "common_label" or record.lowering_blockers:
+            projected.append(record)
+            continue
+        definition_id = record.shape_aspect_ids[0] if len(record.shape_aspect_ids) == 1 else ""
+        shapes, topology_reasons = resolver.resolve(
+            definition_id, record.reference_item_ids, noun="common label"
+        )
+        boxes = []
+        witnesses = []
+        geometry_reasons = []
+        for shape in shapes:
+            try:
+                boxes.append(_shape_bbox(shape) if frame is None else _shape_bbox(shape, frame))
+                witnesses.append(_face_topology_witness(shape, frame))
+            except Exception as exc:
+                geometry_reasons.append(
+                    f"common-label reference could not be measured ({_failure_reason(exc)})"
+                )
+        ref_bbox = _merge_bboxes(boxes) if boxes else None
+        blockers = tuple(
+            dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
+        )
+        projected.append(
+            replace(
+                record,
+                ref_pts=tuple(witnesses),
+                ref_bbox=ref_bbox,
+                dominant_axis=_dominant_from_bbox(ref_bbox) if ref_bbox is not None else "?",
+                lowering_blockers=blockers,
+            )
+        )
+    return tuple(projected)
+
+
+def _face_topology_witness(shape, frame: PartFrame | None = None) -> tuple[float, float, float]:
+    """Choose a stable point proven to belong to one exact transferred face boundary."""
+    vertices = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_VERTEX, vertices)
+    if vertices.Extent() == 0:
+        raise ValueError("face has no topological vertices")
+    candidates = []
+    for index in range(1, vertices.Extent() + 1):
+        point = BRep_Tool.Pnt_s(TopoDS.Vertex_s(vertices.FindKey(index)))
+        candidates.append(_frame_point((point.X(), point.Y(), point.Z()), frame))
+    bbox = _shape_bbox(shape) if frame is None else _shape_bbox(shape, frame)
+    center = _bbox_centroid(bbox)
+    return min(
+        candidates,
+        key=lambda point: sum((point[index] - center[index]) ** 2 for index in range(3)),
+    )
+
+
 def _extract_pmi_report(
     step_file: str | Path, *, frame: PartFrame | None = None
 ) -> PmiExtractionReport:
@@ -1906,6 +1969,8 @@ def _extract_pmi_census(
     length_factor_mm = 1.0
     length_factor_reason = ""
     dimension_display_facts: tuple[DimensionDisplayFact, ...] = ()
+    common_label_facts: tuple[CommonLabelFact, ...] = ()
+    common_label_error = ""
     if dims.Length() > 0:
         try:
             candidate, length_factor_reason = read_dimension_length_factor(step_file)
@@ -1925,18 +1990,65 @@ def _extract_pmi_census(
                 Path(step_file).name,
                 exc,
             )
+        try:
+            common_label_facts = read_common_labels(step_file)
+        except Exception as exc:
+            common_label_error = f"Part21 common-label read failed: {_failure_reason(exc)}"
     for index in range(1, dims.Length() + 1):
         label = dims.Value(index)
         source_id = _source_id("dimension", label)
         type_code: int | None = None
+        partial_reasons: tuple[str, ...] = ()
         try:
             obj = XCAFDoc_Dimension.Set_s(label).GetObject()
             type_code = int(obj.GetType())
-            without_record = _dimension_without_record(source_id, type_code)
-            if without_record is not None:
-                sources.append(without_record)
-                continue
-            if frame is None:
+            if type_code == 30:
+                presentation = obj.GetPresentationName()
+                presentation_name = (
+                    str(presentation.ToCString()).strip() if presentation is not None else ""
+                )
+                common_fact = None
+                match_reason = common_label_error
+                if not match_reason:
+                    common_fact, match_reason = match_common_label(
+                        common_label_facts, presentation_name
+                    )
+                if common_fact is None:
+                    sources.append(
+                        PmiSourceEntity(
+                            source_id,
+                            "dimension",
+                            type_code,
+                            "not_extracted",
+                            match_reason,
+                        )
+                    )
+                    continue
+                blockers = (common_fact.reason,) if common_fact.reason else ()
+                record = PmiRecord(
+                    kind="common_label",
+                    type_code=type_code,
+                    value=0.0,
+                    label=common_fact.text,
+                    source_id=source_id,
+                    part21_id=common_fact.entity_id,
+                    source_category="dimension",
+                    lowering_blockers=blockers,
+                    source_ids=(source_id,),
+                    reference_item_ids=common_fact.reference_item_ids,
+                    shape_aspect_ids=(
+                        (common_fact.shape_aspect_id,) if common_fact.shape_aspect_id else ()
+                    ),
+                )
+                partial_reasons = blockers
+            else:
+                without_record = _dimension_without_record(source_id, type_code)
+                if without_record is not None:
+                    sources.append(without_record)
+                    continue
+            if type_code == 30:
+                pass
+            elif frame is None:
                 record, partial_reasons = _dimension_record(
                     label,
                     obj,
@@ -1981,6 +2093,37 @@ def _extract_pmi_census(
                     "; ".join(partial_reasons),
                 )
             )
+
+    try:
+        if frame is None:
+            records = list(_common_label_topology(records, reader.Reader()))
+        else:
+            records = list(_common_label_topology(records, reader.Reader(), frame))
+    except Exception as exc:
+        reason = f"common-label topology is unavailable ({_failure_reason(exc)})"
+        records = [
+            replace(
+                record,
+                lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
+            )
+            if record.kind == "common_label"
+            else record
+            for record in records
+        ]
+    common_label_records = {
+        record.source_id: record for record in records if record.kind == "common_label"
+    }
+    sources = [
+        replace(
+            source,
+            outcome="partially_extracted",
+            reason="; ".join(common_label_records[source.source_id].lowering_blockers),
+        )
+        if source.source_id in common_label_records
+        and common_label_records[source.source_id].lowering_blockers
+        else source
+        for source in sources
+    ]
 
     # ---- Geometric tolerances ----------------------------------------------
     tolerances = TDF_LabelSequence()
