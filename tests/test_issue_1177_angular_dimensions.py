@@ -397,13 +397,9 @@ class TestTheRefusalKeepsItsWeightInTheSummary:
             "a refused dimension stopped counting as missing content"
         )
 
-    def test_an_ap242_sourced_refusal_is_an_error(self):
-        # In annotate mode a requirement that came from the FILE and is absent from the
-        # drawing is an error — the convention `_record_pmi_no_candidate` and all three
-        # `lint_pmi_*` checks already follow. Suppressing the sibling `pmi_not_rendered`
-        # error must not quietly downgrade the outcome to a warning, which is what the
-        # first cut did.
+    def test_ctc01_ap242_toleranced_angle_renders_from_its_proven_supports(self):
         from draftwright import build_drawing
+        from draftwright.model import AuthoredDimension
 
         drawing = build_drawing(
             "tests/fixtures/nist_ctc_01_asme1_ap242.stp",
@@ -411,11 +407,23 @@ class TestTheRefusalKeepsItsWeightInTheSummary:
             number="N-1",
             pmi="annotate",
         )
-        refusals = [i for i in drawing.lint() if i.code == "dimension_kind_unsupported"]
-        assert refusals, "CTC-01 no longer carries an angular record"
-        assert all(i.severity == "error" for i in refusals), (
-            f"an AP242-sourced omission is reported at {[i.severity for i in refusals]}"
+        angular = next(
+            feature
+            for feature in drawing.model().features
+            if isinstance(feature, AuthoredDimension) and feature.dimension_kind == "angular"
         )
+        names = drawing.registry.names_for_feature(angular)
+
+        assert len(names) == 1
+        annotation = drawing.get_annotation(next(iter(names)))
+        assert annotation.label == "60 ±0.5"
+        assert annotation.measured_angle == pytest.approx(60.0)
+        assert not [
+            issue
+            for issue in drawing.lint()
+            if issue.code in {"dimension_kind_unsupported", "pmi_not_rendered"}
+            and angular.source_id in issue.source_ids
+        ]
 
     def test_an_authored_refusal_with_no_source_is_a_warning(self):
         # The other half of the same convention: an author's own declaration is theirs to
