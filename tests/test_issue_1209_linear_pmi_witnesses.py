@@ -7,7 +7,12 @@ import pytest
 
 from draftwright import extract_pmi_report
 from draftwright.annotations.from_model import _pmi_witness_from_bbox
-from draftwright.pmi import _dimension_geometry_blockers, _linear_reference_stations
+from draftwright.pmi import (
+    PmiRecord,
+    _dimension_geometry_blockers,
+    _dimension_support_topology,
+    _linear_reference_stations,
+)
 
 CTC04 = Path(__file__).parent / "fixtures" / "nist_ctc_04_asme1_ap242.stp"
 CTC03 = Path(__file__).parent / "fixtures" / "nist_ctc_03_asme1_ap242.stp"
@@ -151,6 +156,44 @@ def test_exact_part21_groups_supersede_direct_xcaf_reference_failures(monkeypatc
     assert record.rendering_blockers == ()
     assert source.outcome == "extracted"
     assert source.reason == ""
+
+
+def test_failed_optional_overlay_distinguishes_complete_and_missing_direct_geometry(
+    monkeypatch,
+):
+    import draftwright.pmi as pmi_module
+
+    class FailedResolver:
+        def __init__(self, _reader):
+            pass
+
+        def resolve_group(self, _aspect_id, _item_ids):
+            return (), ("Part21 support transfer failed",)
+
+    monkeypatch.setattr(pmi_module, "_DimensionSupportResolver", FailedResolver)
+    common = dict(
+        kind="linear",
+        type_code=2,
+        value=20,
+        shape_aspect_ids=("#10", "#20"),
+        reference_item_groups=(("#101",), ("#201",)),
+    )
+    oblique = PmiRecord(
+        **common,
+        ref_pts=((0, 0, 0), (0, 8, 18)),
+        rendering_blockers=("linear reference relationship is not principal-axis aligned",),
+    )
+    incomplete = PmiRecord(
+        **common,
+        ref_pts=((0, 0, 0),),
+        rendering_blockers=("linear dimension needs two measurable authored reference groups",),
+    )
+
+    recovered = _dimension_support_topology((oblique, incomplete), object())
+
+    assert recovered[0] == oblique
+    assert recovered[1].rendering_blockers == incomplete.rendering_blockers
+    assert recovered[1].lowering_blockers == ("Part21 support transfer failed",)
 
 
 def test_ap242_thickness_without_two_proven_groups_fails_closed():

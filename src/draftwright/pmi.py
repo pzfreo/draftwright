@@ -525,6 +525,22 @@ def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[st
     return tuple(reason for reason in reasons if not reason.startswith(prefixes))
 
 
+def _direct_xcaf_support_is_incomplete(record: PmiRecord) -> bool:
+    """Whether direct XCAF failed to supply all support geometry, independent of rendering."""
+    reasons = (*record.lowering_blockers, *record.rendering_blockers)
+    prefixes = (
+        "one referenced shape is unavailable",
+        "one referenced shape could not be measured (",
+        "referenced geometry is unavailable",
+        "linear dimension needs two measurable authored reference groups",
+        "thickness dimension needs two measurable authored reference groups",
+        "one diameter reference shape is unavailable",
+        "diameter reference geometry is unavailable",
+        "diameter dimension needs a measurable",
+    )
+    return any(reason.startswith(prefixes) for reason in reasons)
+
+
 def _make_label(
     kind: str,
     value: float,
@@ -2073,7 +2089,7 @@ def _dimension_support_topology(
         topology_reasons = list(dict.fromkeys(topology_reasons))
         ref_bbox = _merge_bboxes(boxes) if boxes else None
         if topology_reasons:
-            if record.rendering_blockers:
+            if _direct_xcaf_support_is_incomplete(record):
                 projected.append(
                     replace(
                         record,
