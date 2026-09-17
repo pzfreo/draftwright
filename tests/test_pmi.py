@@ -850,15 +850,13 @@ class TestExtractPmi:
         assert all(record.lowering_blockers == () for record in datums)
         assert all(record.ref_bbox is not None for record in datums)
 
-    def test_non_record_dimension_types_fail_closed(self):
+    def test_only_presentation_dimension_types_are_classified_without_records(self):
         import draftwright.pmi as pmi_module
 
         presentation = pmi_module._dimension_without_record("dimension:p", 31)
-        common_label = pmi_module._dimension_without_record("dimension:c", 30)
 
         assert presentation is not None and presentation.outcome == "presentation_only"
-        assert common_label is not None and common_label.outcome == "not_extracted"
-        assert "not implemented" in common_label.reason
+        assert pmi_module._dimension_without_record("dimension:c", 30) is None
         assert pmi_module._dimension_without_record("dimension:d", 15) is None
 
     def test_dimension_field_failures_are_explicit_partial_outcomes(self, monkeypatch):

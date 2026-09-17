@@ -742,8 +742,10 @@ def read_common_labels(step_file: str | Path) -> tuple[CommonLabelFact, ...]:
         property_callouts = set(association_callouts.get(entity_id, ()))
         aspect_callouts = set(association_callouts.get(aspect_id, ()))
         callout_ids = tuple(sorted(property_callouts & aspect_callouts))
-        if not callout_ids:
-            reasons.append("common label has no shared semantic/presentation callout")
+        if len(callout_ids) != 1:
+            reasons.append(
+                f"common label has {len(callout_ids)} shared semantic/presentation callouts"
+            )
         reference_item_ids = related_items(aspect_id)
         if not reference_item_ids:
             reasons.append("common-label shape aspect has no representation items")
@@ -762,6 +764,24 @@ def read_common_labels(step_file: str | Path) -> tuple[CommonLabelFact, ...]:
             )
         )
     return tuple(facts)
+
+
+def match_common_label(
+    facts: tuple[CommonLabelFact, ...], presentation_name: str
+) -> tuple[CommonLabelFact | None, str]:
+    """Match one XCAF CommonLabel by its exact retained presentation identity."""
+    if not presentation_name:
+        return None, "XCAF common label has no presentation name"
+    matches = tuple(fact for fact in facts if fact.presentation_name == presentation_name)
+    if not matches:
+        return None, f"Part21 has no common label named {presentation_name!r}"
+    if len(matches) != 1:
+        ids = ", ".join(fact.entity_id for fact in matches)
+        return (
+            None,
+            f"Part21 common-label correspondence is ambiguous for {presentation_name!r} ({ids})",
+        )
+    return matches[0], ""
 
 
 def _unit_factor_mm(

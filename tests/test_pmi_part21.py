@@ -12,6 +12,7 @@ from draftwright._pmi_part21 import (
     GeometricToleranceFact,
     ManufacturingRequirementFact,
     SurfaceLabelFact,
+    match_common_label,
     match_datum_occurrence,
     match_dimension_display,
     match_geometric_tolerance,
@@ -311,7 +312,7 @@ def test_incomplete_common_label_keeps_one_explicit_reason_set(tmp_path):
         representation_id="#3",
         reason=(
             "linked representation has 0 descriptive items; "
-            "common label has no shared semantic/presentation callout; "
+            "common label has 0 shared semantic/presentation callouts; "
             "common-label shape aspect has no representation items"
         ),
     )
@@ -330,6 +331,43 @@ def test_semantic_text_for_a_non_shape_definition_is_not_a_common_label(tmp_path
         )
         == ()
     )
+
+
+def test_common_label_matching_requires_one_exact_presentation_identity():
+    one = CommonLabelFact("#1", "Text.1", "A")
+    duplicate = CommonLabelFact("#2", "Text.1", "A")
+
+    assert match_common_label((one,), "Text.1") == (one, "")
+    assert match_common_label((one,), "text.1") == (
+        None,
+        "Part21 has no common label named 'text.1'",
+    )
+    assert match_common_label((one, duplicate), "Text.1") == (
+        None,
+        "Part21 common-label correspondence is ambiguous for 'Text.1' (#1, #2)",
+    )
+
+
+def test_common_label_with_multiple_shared_callouts_fails_closed(tmp_path):
+    (fact,) = _read_common_labels(
+        tmp_path,
+        "ambiguous-common-label-callout",
+        "#1=SHAPE_ASPECT('feature','',#99,.T.);",
+        "#2=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#1,#98,(#90));",
+        "#3=PROPERTY_DEFINITION('semantic text','',#1);",
+        "#4=DESCRIPTIVE_REPRESENTATION_ITEM('Text.1','A');",
+        "#5=REPRESENTATION('',(#4),#97);",
+        "#6=PROPERTY_DEFINITION_REPRESENTATION(#3,#5);",
+        "#7=DRAUGHTING_CALLOUT('Text.1',());",
+        "#8=DRAUGHTING_CALLOUT('Text.1 duplicate',());",
+        "#9=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#3,#96,#7);",
+        "#10=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#3,#96,#8);",
+        "#11=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#96,#7);",
+        "#12=DRAUGHTING_MODEL_ITEM_ASSOCIATION('','',#1,#96,#8);",
+    )
+
+    assert fact.callout_ids == ("#7", "#8")
+    assert fact.reason == "common label has 2 shared semantic/presentation callouts"
 
 
 def test_surface_label_missing_associations_remain_explicit(tmp_path):

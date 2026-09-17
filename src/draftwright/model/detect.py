@@ -514,7 +514,7 @@ def build_pmi_features(
                 )
             )
             continue
-        if r.source_category == "surface_label" and not r.lowering_blockers and r.ref_pts:
+        if r.kind in ("surface_label", "common_label") and not r.lowering_blockers and r.ref_pts:
             view = {"X": "front", "Y": "side", "Z": "front"}.get(r.dominant_axis, "front")
             label_origin = r.ref_pts[0]
             vertical_index = 2 if view in ("front", "side") else 1

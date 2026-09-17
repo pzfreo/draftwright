@@ -599,7 +599,16 @@ class TestEmit:
         assert restored.semantic_name == "probe requirement"
         assert restored.shape_aspect_ids == ("#456",)
 
-    def test_imported_surface_label_round_trips_nested_pmi_provenance(self):
+    @pytest.mark.parametrize(
+        ("pmi_kind", "source_id", "source_category"),
+        [
+            ("surface_label", "surface_label:#10", "surface_label"),
+            ("common_label", "dimension:0:1:4:31", "dimension"),
+        ],
+    )
+    def test_imported_label_round_trips_nested_pmi_provenance(
+        self, pmi_kind, source_id, source_category
+    ):
         import dataclasses
 
         from draftwright.builder import detect_part_model
@@ -610,15 +619,15 @@ class TestEmit:
         model = detect_part_model(part)
         source = PmiFeature(
             frame=Frame((20.0, 0.0, 0.0), "z"),
-            pmi_kind="surface_label",
+            pmi_kind=pmi_kind,
             value=0.0,
             label="A",
             dominant_axis="Z",
             ref_bbox=(20.0, -10.0, -5.0, 20.0, 10.0, 5.0),
             ref_pts=((20.0, 0.0, 0.0),),
-            source_id="surface_label:#10",
+            source_id=source_id,
             part21_id="#10",
-            source_category="surface_label",
+            source_category=source_category,
             reference_item_ids=("#12",),
             shape_aspect_ids=("#11",),
         )
@@ -645,7 +654,7 @@ class TestEmit:
         )
 
         assert restored.text == "A"
-        assert restored.source_ids == ("surface_label:#10",)
+        assert restored.source_ids == (source_id,)
         assert restored.part21_id == "#10"
         assert isinstance(restored.origin, PmiFeature)
         assert restored.origin.reference_item_ids == ("#12",)
