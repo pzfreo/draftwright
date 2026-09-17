@@ -198,7 +198,7 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
 def test_post_merge_gate_runs_the_complete_scheduled_tier():
     slow_job = _job(_workflow("ci.yml"), "test-slow")
 
-    assert "uv run scripts/test-tier scheduled --workers auto --dist load" in slow_job
+    assert "uv run scripts/test-tier scheduled --workers 1" in slow_job
     assert "uv run pytest tests/ -m slow" not in slow_job
 
 
