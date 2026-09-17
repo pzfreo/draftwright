@@ -76,11 +76,23 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert truthful.lowering_blockers == ()
 
     oblique = records["dimension:0:1:4:26"]
+    assert oblique.part21_id == "#19540"
+    assert oblique.shape_aspect_ids == ("#19510", "#19520")
+    assert oblique.reference_item_groups == (
+        ("#13620", "#13329"),
+        ("#2978", "#3570", "#3110", "#3438"),
+    )
     assert oblique.dominant_axis == "?"
     assert oblique.lowering_blockers == ()
     assert "not principal-axis aligned" in oblique.rendering_blockers[0]
 
     one_sided = records["dimension:0:1:4:29"]
+    assert one_sided.part21_id == "#20263"
+    assert one_sided.shape_aspect_ids == ("#19510", "#20243")
+    assert one_sided.reference_item_groups == (
+        ("#13620", "#13329"),
+        ("#17569", "#17576", "#17583", "#17590"),
+    )
     assert one_sided.dominant_axis == "?"
     assert len(one_sided.ref_pts) == 1
     assert one_sided.lowering_blockers == ()

@@ -15,6 +15,7 @@ from draftwright._pmi_part21 import (
     SurfaceLabelFact,
     match_common_label,
     match_datum_occurrence,
+    match_dimension_association,
     match_dimension_display,
     match_geometric_tolerance,
     read_common_labels,
@@ -907,6 +908,21 @@ def test_dimension_associations_report_ambiguous_callouts_and_empty_groups(tmp_p
     assert fact.reason == (
         "dimension characteristic has 2 linked presentation callouts; "
         "dimension reference group 1 has no representation items"
+    )
+
+
+def test_dimension_association_match_requires_one_presentation_identity():
+    fact = read_dimension_associations(CTC04)[0]
+
+    assert match_dimension_association((fact,), fact.presentation_name) == (fact, "")
+    assert match_dimension_association((fact, fact), fact.presentation_name) == (
+        None,
+        f"Part21 dimension correspondence is ambiguous for {fact.presentation_name!r} "
+        f"({fact.entity_id}, {fact.entity_id})",
+    )
+    assert match_dimension_association((fact,), "") == (
+        None,
+        "XCAF dimension has no presentation name",
     )
 
 

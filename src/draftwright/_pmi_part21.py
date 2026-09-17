@@ -1187,6 +1187,24 @@ def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssocia
     return tuple(facts)
 
 
+def match_dimension_association(
+    facts: tuple[DimensionAssociationFact, ...], presentation_name: str
+) -> tuple[DimensionAssociationFact | None, str]:
+    """Match one XCAF dimension by its exact retained presentation identity."""
+    if not presentation_name:
+        return None, "XCAF dimension has no presentation name"
+    matches = tuple(fact for fact in facts if fact.presentation_name == presentation_name)
+    if not matches:
+        return None, f"Part21 has no dimension named {presentation_name!r}"
+    if len(matches) != 1:
+        ids = ", ".join(fact.entity_id for fact in matches)
+        return (
+            None,
+            f"Part21 dimension correspondence is ambiguous for {presentation_name!r} ({ids})",
+        )
+    return matches[0], ""
+
+
 def match_dimension_display(
     facts: tuple[DimensionDisplayFact, ...], semantic_name: str, kind: str, authored_value: float
 ) -> DimensionDisplayFact | None:

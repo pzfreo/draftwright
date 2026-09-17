@@ -32,16 +32,19 @@ from draftwright._pmi_part21 import (
     CommonLabelFact,
     DatumDefinitionFact,
     DatumOccurrenceFact,
+    DimensionAssociationFact,
     DimensionDisplayFact,
     GeometricToleranceFact,
     match_common_label,
     match_datum_occurrence,
+    match_dimension_association,
     match_dimension_display,
     match_geometric_tolerance,
     part21_read_session,
     read_common_labels,
     read_datum_definitions,
     read_datum_occurrences,
+    read_dimension_associations,
     read_dimension_display_facts,
     read_dimension_length_factor,
     read_geometric_tolerances,
@@ -242,6 +245,7 @@ class PmiRecord:
         source_ids:     All source occurrences represented by one projected definition.
         datum_contexts: Tolerance semantic names in which a datum definition is referenced.
         reference_item_ids: Exact Part21 representation items bound to a datum feature.
+        reference_item_groups: Ordered Part21 support groups bound to a dimension.
         reference_axis: Axis normal to a proven datum reference plane.
         semantic_name: Stable source name for a semantic manufacturing requirement.
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
@@ -276,6 +280,7 @@ class PmiRecord:
     source_ids: tuple[str, ...] = ()
     datum_contexts: tuple[str, ...] = ()
     reference_item_ids: tuple[str, ...] = ()
+    reference_item_groups: tuple[tuple[str, ...], ...] = ()
     reference_axis: str = ""
     semantic_name: str = ""
     shape_aspect_ids: tuple[str, ...] = ()
@@ -1319,9 +1324,13 @@ def _dimension_record(
     length_factor_mm: float = 1.0,
     length_factor_reason: str = "",
     display_facts: tuple[DimensionDisplayFact, ...] = (),
+    association_fact: DimensionAssociationFact | None = None,
+    association_reason: str = "",
 ) -> tuple[PmiRecord, tuple[str, ...]]:
     """Convert one semantic XCAF dimension label, allowing its caller to record failures."""
-    partial_reasons = []
+    partial_reasons = [association_reason] if association_reason else []
+    if association_fact is not None and association_fact.reason:
+        partial_reasons.append(association_fact.reason)
     # Nominal value: scalar first, array fallback.
     value = 0.0
     try:
@@ -1487,8 +1496,20 @@ def _dimension_record(
                 )
             ),
             source_id=source_id,
+            part21_id=association_fact.entity_id if association_fact is not None else "",
             source_category="dimension",
             lowering_blockers=lowering_blockers,
+            reference_item_ids=(
+                tuple(item for group in association_fact.reference_item_groups for item in group)
+                if association_fact is not None
+                else ()
+            ),
+            reference_item_groups=(
+                association_fact.reference_item_groups if association_fact is not None else ()
+            ),
+            shape_aspect_ids=(
+                association_fact.shape_aspect_ids if association_fact is not None else ()
+            ),
             rendering_blockers=rendering_blockers,
             cylindrical_refs=cylindrical_refs,
             angular_reference=angular_reference,
@@ -1969,6 +1990,8 @@ def _extract_pmi_census(
     length_factor_mm = 1.0
     length_factor_reason = ""
     dimension_display_facts: tuple[DimensionDisplayFact, ...] = ()
+    dimension_association_facts: tuple[DimensionAssociationFact, ...] = ()
+    dimension_association_error = ""
     common_label_facts: tuple[CommonLabelFact, ...] = ()
     common_label_error = ""
     if dims.Length() > 0:
@@ -1991,6 +2014,12 @@ def _extract_pmi_census(
                 exc,
             )
         try:
+            dimension_association_facts = read_dimension_associations(step_file)
+        except Exception as exc:
+            dimension_association_error = (
+                f"Part21 dimension-association read failed: {_failure_reason(exc)}"
+            )
+        try:
             common_label_facts = read_common_labels(step_file)
         except Exception as exc:
             common_label_error = f"Part21 common-label read failed: {_failure_reason(exc)}"
@@ -2002,11 +2031,11 @@ def _extract_pmi_census(
         try:
             obj = XCAFDoc_Dimension.Set_s(label).GetObject()
             type_code = int(obj.GetType())
+            presentation = obj.GetPresentationName()
+            presentation_name = (
+                str(presentation.ToCString()).strip() if presentation is not None else ""
+            )
             if type_code == 30:
-                presentation = obj.GetPresentationName()
-                presentation_name = (
-                    str(presentation.ToCString()).strip() if presentation is not None else ""
-                )
                 common_fact = None
                 match_reason = common_label_error
                 if not match_reason:
@@ -2048,29 +2077,43 @@ def _extract_pmi_census(
                     continue
             if type_code == 30:
                 pass
-            elif frame is None:
-                record, partial_reasons = _dimension_record(
-                    label,
-                    obj,
-                    type_code,
-                    shape_tool,
-                    source_id,
-                    length_factor_mm=length_factor_mm,
-                    length_factor_reason=length_factor_reason,
-                    display_facts=dimension_display_facts,
-                )
             else:
-                record, partial_reasons = _dimension_record(
-                    label,
-                    obj,
-                    type_code,
-                    shape_tool,
-                    source_id,
-                    frame,
-                    length_factor_mm=length_factor_mm,
-                    length_factor_reason=length_factor_reason,
-                    display_facts=dimension_display_facts,
-                )
+                association_fact = None
+                association_reason = ""
+                dimension_kind = _DIM_TYPE.get(type_code, f"type{type_code}")
+                if presentation_name and dimension_kind in _LENGTH_DIMENSION_KINDS:
+                    association_reason = dimension_association_error
+                    if not association_reason:
+                        association_fact, association_reason = match_dimension_association(
+                            dimension_association_facts, presentation_name
+                        )
+                if frame is None:
+                    record, partial_reasons = _dimension_record(
+                        label,
+                        obj,
+                        type_code,
+                        shape_tool,
+                        source_id,
+                        length_factor_mm=length_factor_mm,
+                        length_factor_reason=length_factor_reason,
+                        display_facts=dimension_display_facts,
+                        association_fact=association_fact,
+                        association_reason=association_reason,
+                    )
+                else:
+                    record, partial_reasons = _dimension_record(
+                        label,
+                        obj,
+                        type_code,
+                        shape_tool,
+                        source_id,
+                        frame,
+                        length_factor_mm=length_factor_mm,
+                        length_factor_reason=length_factor_reason,
+                        display_facts=dimension_display_facts,
+                        association_fact=association_fact,
+                        association_reason=association_reason,
+                    )
         except Exception as exc:
             sources.append(
                 PmiSourceEntity(
