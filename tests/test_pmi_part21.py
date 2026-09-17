@@ -585,6 +585,28 @@ def test_datum_correspondence_fails_closed_when_context_and_letter_are_ambiguous
     assert "#1/#10, #1/#11" in reason
 
 
+def test_datum_correspondence_accepts_repeated_paths_to_the_same_definition():
+    facts = (
+        DatumOccurrenceFact("#1", "Position.1", "position", "#10", "#20", "A", ("#30",)),
+        DatumOccurrenceFact("#2", "Position.1", "position", "#10", "#20", "A", ("#30",)),
+    )
+
+    assert match_datum_occurrence(facts, "Position.1", "A") == (facts[0], "")
+
+
+def test_datum_correspondence_rejects_repeated_paths_with_conflicting_supports():
+    facts = (
+        DatumOccurrenceFact("#1", "Position.1", "position", "#10", "#20", "A", ("#30",)),
+        DatumOccurrenceFact("#2", "Position.1", "position", "#10", "#20", "A", ("#31",)),
+    )
+
+    fact, reason = match_datum_occurrence(facts, "Position.1", "A")
+
+    assert fact is None
+    assert "ambiguous" in reason
+    assert "#1/#10, #2/#10" in reason
+
+
 def test_part21_datum_with_two_feature_relationships_stays_ambiguous(tmp_path):
     facts = _read_datums(
         tmp_path,

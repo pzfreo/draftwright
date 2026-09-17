@@ -1449,7 +1449,12 @@ def read_datum_definitions(step_file: str | Path) -> tuple[DatumDefinitionFact, 
 def match_datum_occurrence(
     facts: tuple[DatumOccurrenceFact, ...], tolerance_name: str, letter: str
 ) -> tuple[DatumOccurrenceFact | None, str]:
-    """Require one exact datum occurrence for an XCAF tolerance context and letter."""
+    """Require one exact datum definition for an XCAF tolerance context and letter.
+
+    A STEP file may repeat the same named tolerance relationship while every path resolves
+    to the same datum definition and support items. Those paths corroborate one occurrence;
+    only distinct definition/support facts are ambiguous.
+    """
     name, datum_letter = tolerance_name.strip(), letter.strip()
     if not name:
         return None, "XCAF datum occurrence has no tolerance context"
@@ -1460,7 +1465,18 @@ def match_datum_occurrence(
     ]
     if not matches:
         return None, f"Part21 has no datum {datum_letter!r} in tolerance {name!r}"
-    if len(matches) > 1:
+    identities = {
+        (
+            fact.tolerance_kind,
+            fact.datum_feature_id,
+            fact.datum_id,
+            fact.letter,
+            fact.reference_item_ids,
+            fact.reason,
+        )
+        for fact in matches
+    }
+    if len(identities) > 1:
         ids = ", ".join(f"{fact.tolerance_id}/{fact.datum_feature_id}" for fact in matches)
         return (
             None,
