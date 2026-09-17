@@ -90,7 +90,7 @@ def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutB
                 tuple(
                     (name, value)
                     for name, value in spec.items()
-                    if name not in {"count", "measurements", "source_ids"}
+                    if name not in {"count", "measurements"}
                 ),
             )
             if compatible
@@ -587,7 +587,27 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         # Exact imported source(s) whose typed rider is printed by this compound callout.
         # For a pattern the rider lives on ``member`` above, while its measurements belong
         # to the pattern owner; carrying the source here preserves that intentional split.
-        "source_ids": tuple(thread_source_ids),
+        "source_ids": tuple(
+            dict.fromkeys(
+                (
+                    *thread_source_ids,
+                    *(
+                        source_id
+                        for planned in (
+                            bore_pd,
+                            depth_pd,
+                            recess_dia_pd,
+                            recess_depth_pd,
+                            csink_dia_pd,
+                            csink_angle_pd,
+                            thread_depth_pd,
+                        )
+                        if planned is not None and not planned.suppressed
+                        for source_id in planned.param.source_ids
+                    ),
+                )
+            )
+        ),
         # Structured coverage for physical critique. This is deliberately absent when the
         # A/F parameter was suppressed: ``DOUBLE-D`` without its defining A/F is incomplete.
         "profile_coverage": (

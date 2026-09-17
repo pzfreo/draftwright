@@ -118,6 +118,42 @@ def test_member_specific_requirements_split_a_count_group_without_lying_about_si
     assert lowered.decorations[(holes[1], "diameter")].value == (0.1, 0.2)
 
 
+def test_independent_equal_requirements_keep_per_member_source_identity():
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
+    members = ((-10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+    hole = _hole(at=members[0], members=members)
+    first = _dimension(
+        lower_tol=0.1,
+        upper_tol=0.1,
+        bbox=(-15.1, -5.1, -0.1, -4.9, 5.1, 8.1),
+        source_id="dimension:first",
+    )
+    second = replace(
+        first,
+        ref_bbox=(4.9, -5.1, -0.1, 15.1, 5.1, 8.1),
+        source_id="dimension:second",
+    )
+
+    lowered = lower_ap242_hole_tolerances(_model(hole, first, second))
+    owners = [feature for feature in lowered.features if isinstance(feature, HoleFeature)]
+
+    assert [(owner.count, owner.members) for owner in owners] == [
+        (1, (members[0],)),
+        (1, (members[1],)),
+    ]
+    assert [lowered.decorations[(owner, "diameter")] for owner in owners] == [
+        ToleranceDecoration(0.1, "ap242_pmi", ("dimension:first",)),
+        ToleranceDecoration(0.1, "ap242_pmi", ("dimension:second",)),
+    ]
+    batches = hole_callout_batches(plan_dimensions(lowered))
+    assert [batch.spec["source_ids"] for batch in batches] == [
+        ("dimension:first",),
+        ("dimension:second",),
+    ]
+
+
 def test_pattern_wide_requirement_preserves_pattern_identity_and_membership():
     members = ((-10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
     member = _hole(at=members[0])

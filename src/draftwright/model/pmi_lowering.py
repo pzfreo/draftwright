@@ -251,18 +251,19 @@ def lower_ap242_hole_tolerances(
             if isinstance(key, tuple) and key and key[0] == feature
         ]:
             del decorations[key]
-        # Group members by effective tolerance, retaining first-member order.  ``None`` is
-        # the untoleranced remainder; equal member requirements keep their count× callout.
-        groups: dict[ToleranceValue | None, list[int]] = {}
-        group_sources: dict[ToleranceValue | None, list[int]] = {}
+        # Group members by the requirement that owns them, retaining first-member order.
+        # One source that references several members may truthfully keep a count× callout.
+        # Independent sources remain separate even when their numeric tolerances are equal:
+        # merging those would erase which source requirement applies to which physical member.
+        GroupKey = tuple[ToleranceValue | None, tuple[int, ...]]
+        groups: dict[GroupKey, list[int]] = {}
         for member_index in range(len(points)):
-            dim_indices = member_requirements.get(member_index, [])
-            value = proposals[dim_indices[0]][2] if dim_indices else None
-            groups.setdefault(value, []).append(member_index)
-            group_sources.setdefault(value, []).extend(dim_indices)
+            member_dim_indices = tuple(member_requirements.get(member_index, ()))
+            value = proposals[member_dim_indices[0]][2] if member_dim_indices else None
+            groups.setdefault((value, member_dim_indices), []).append(member_index)
         replacements: list[Feature] = []
         replacement_member_groups: list[tuple[int, ...]] = []
-        for value, group_member_indices in groups.items():
+        for (value, group_dim_indices), group_member_indices in groups.items():
             members = tuple(points[index] for index in group_member_indices)
             split = replace(
                 feature,
@@ -279,7 +280,7 @@ def lower_ap242_hole_tolerances(
                 ids = tuple(
                     dict.fromkeys(
                         source_id
-                        for dim_index in group_sources[value]
+                        for dim_index in group_dim_indices
                         for source_id in _source_ids(dimensions[dim_index])
                     )
                 )

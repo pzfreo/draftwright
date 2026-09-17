@@ -468,6 +468,10 @@ class DimParameter:
     # Angular geometry travels with the approved measurement, not through the
     # structural feature facts where suppression could be bypassed.
     angular_reference: AngularReference | None = None
+    # Imported requirement identities carried with a decorated parameter.  Geometry-derived
+    # parameters leave this empty.  The renderer uses it to preserve source ownership when
+    # deciding whether otherwise identical physical callouts may be consolidated.
+    source_ids: tuple[str, ...] = ()
 
     @property
     def parameter_id(self) -> ParameterId:

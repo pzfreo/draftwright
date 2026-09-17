@@ -1678,17 +1678,21 @@ class TestBuildDrawingPmi:
         requirements = [
             (key[0], value)
             for key, value in ctc01_annotated.model().decorations.items()
-            if isinstance(value, ToleranceDecoration) and set(value.source_ids) == source_ids
+            if isinstance(value, ToleranceDecoration) and set(value.source_ids) <= source_ids
+            and value.source_ids
         ]
         annotations = dict(ctc01_annotated.iter_annotations())
 
-        assert len(requirements) == 1
-        owner, requirement = requirements[0]
-        assert owner.diameter == 35.0 and owner.count == 2
-        assert requirement.value == 0.2  # 34.8 / 35.2 retained as -0.2 / +0.2
-        assert any(
-            annotations[name].label == "2× ⌀35 ±0.2 THRU"
-            for name in ctc01_annotated.registry.names_for_feature(owner)
+        assert len(requirements) == 2
+        assert {requirement.source_ids[0] for _owner, requirement in requirements} == source_ids
+        assert all(owner.diameter == 35.0 and owner.count == 1 for owner, _ in requirements)
+        assert all(requirement.value == 0.2 for _owner, requirement in requirements)
+        assert all(
+            any(
+                annotations[name].label == "⌀35 ±0.2 THRU"
+                for name in ctc01_annotated.registry.names_for_feature(owner)
+            )
+            for owner, _requirement in requirements
         )
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
