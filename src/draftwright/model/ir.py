@@ -87,6 +87,7 @@ def validate_authored_dimension_placement(
     *,
     owner: str,
     angular_reference: AngularReference | None = None,
+    cylindrical_refs=(),
 ) -> None:
     """Reject a view/side pair for which the authored-dimension renderer has no candidate."""
     validate_placement_intent(view, side, owner=owner)
@@ -107,7 +108,27 @@ def validate_authored_dimension_placement(
         )
     elif dimension_kind in ("diameter", "radius"):
         end_view = {"X": "side", "Y": "front", "Z": "plan"}.get(dominant_axis)
-        valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
+        if end_view is None and dimension_kind == "diameter" and cylindrical_refs:
+            directions = {
+                tuple(round(component, 9) for component in reference.axis_direction)
+                for reference in cylindrical_refs
+            }
+            if len(directions) == 1:
+                direction = next(iter(directions))
+                end_view = next(
+                    (
+                        candidate
+                        for component, candidate in zip(
+                            direction, ("side", "front", "plan"), strict=True
+                        )
+                        if abs(component) <= 1e-6
+                    ),
+                    None,
+                )
+        if end_view == "plan" and dominant_axis == "?":
+            valid_pairs = ((end_view, "right"), (end_view, "left"))
+        else:
+            valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
     else:
         valid_pairs = {
             "X": (("front", "above"), ("front", "below")),
@@ -3344,6 +3365,7 @@ class AuthoredDimension:
             self.side,
             owner="authored dimension",
             angular_reference=self.angular_reference,
+            cylindrical_refs=self.cylindrical_refs,
         )
 
     @property

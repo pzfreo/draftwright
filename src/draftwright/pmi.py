@@ -998,11 +998,18 @@ def _diameter_reference_blockers(
         if not blockers:
             blockers.append("diameter dimension needs a measurable cylindrical-face reference")
         return tuple(dict.fromkeys(blockers))
-    axes = {reference.principal_axis for reference in references}
-    if "?" in axes:
-        blockers.append("diameter cylindrical-reference axis is not principal-axis aligned")
-    elif len(axes) != 1:
+    directions = {
+        tuple(round(component, 9) for component in reference.axis_direction)
+        for reference in references
+    }
+    if len(directions) != 1:
         blockers.append("diameter references do not share one cylinder axis direction")
+    else:
+        direction = next(iter(directions))
+        if min(abs(component) for component in direction) > 1e-6:
+            blockers.append(
+                "diameter cylinder axis does not lie in a principal projection plane"
+            )
     senses = {reference.sense for reference in references}
     if len(senses) != 1:
         blockers.append("diameter references mix internal and external cylindrical faces")

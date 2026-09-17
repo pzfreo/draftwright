@@ -709,12 +709,59 @@ def test_measured_dimension_validates_and_derives_typed_cylinder_inputs():
         axial_interval=(0, 1),
         sense="external",
     )
-    with pytest.raises(ValueError, match="one principal-axis direction"):
+    projected = measured_dimension(
+        kind="diameter",
+        value=4,
+        dominant_axis="?",
+        cylindrical_refs=(oblique,),
+        **required,
+    )
+    assert projected.cylindrical_refs == (oblique,)
+    hinted = measured_dimension(
+        kind="diameter",
+        value=4,
+        label="ø4",
+        dominant_axis="?",
+        ref_pts=(),
+        cylindrical_refs=(oblique,),
+        view="plan",
+        side="right",
+    )
+    assert (hinted.view, hinted.side) == ("plan", "right")
+    with pytest.raises(ValueError, match="supported placement.*plan/right, plan/left"):
+        measured_dimension(
+            kind="diameter",
+            value=4,
+            label="ø4",
+            dominant_axis="?",
+            ref_pts=(),
+            cylindrical_refs=(oblique,),
+            view="side",
+        )
+    with pytest.raises(ValueError, match="multiplicity disagrees with cylindrical_refs"):
+        measured_dimension(
+            kind="diameter",
+            value=4,
+            label="2× ø4",
+            dominant_axis="?",
+            ref_pts=(),
+            cylindrical_refs=(oblique,),
+        )
+    with pytest.raises(ValueError, match=r"dominant_axis must be \?"):
         measured_dimension(
             kind="diameter",
             value=4,
             dominant_axis="X",
             cylindrical_refs=(oblique,),
+            **required,
+        )
+    fully_oblique = replace(oblique, axis_direction=(3**-0.5,) * 3)
+    with pytest.raises(ValueError, match="one direction in a principal projection plane"):
+        measured_dimension(
+            kind="diameter",
+            value=4,
+            dominant_axis="?",
+            cylindrical_refs=(fully_oblique,),
             **required,
         )
     blocked = measured_dimension(
@@ -855,6 +902,61 @@ def test_circular_support_renders_from_an_exact_member():
     assert len(names) == 1
     assert drawing.registry.named(names[0]).label == "2×ø20"
     assert not [issue for issue in drawing.lint() if "dimension:circle-render" in issue.source_ids]
+
+
+def test_oblique_cylinder_pattern_renders_one_exact_surface_witness():
+    direction = (0.0, -0.6, 0.8)
+    references = tuple(
+        CylindricalReference(
+            axis_origin=(station, 0, 0),
+            axis_direction=direction,
+            radius=10,
+            axial_interval=(0, 20),
+            sense="external",
+        )
+        for station in (-15, -5, 5, 15)
+    )
+    sheet = Sheet(Box(40, 40, 40), number="oblique-render").authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="ø20 ±0.3",
+        dominant_axis="?",
+        ref_pts=(),
+        cylindrical_refs=references,
+        source_id="dimension:oblique-render",
+    )
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == "dimension:oblique-render"
+    )
+    names = drawing.registry.names_for_feature(feature)
+
+    assert len(names) == 1
+    annotation = drawing.registry.named(names[0])
+    assert annotation.label == "4× ø20 ±0.3"
+    assert drawing.registry.view_of(names[0]) == "side"
+    assert not [
+        issue for issue in drawing.lint() if "dimension:oblique-render" in issue.source_ids
+    ]
+
+    source = emit_sheet_script(
+        sheet.model(), "part", "oblique-render", title="P", number="oblique-render"
+    )
+    namespace = {"part": Box(40, 40, 40)}
+    exec(  # noqa: S102
+        compile(source[: source.index("drawing = sheet.build()")], "<oblique-render>", "exec"),
+        namespace,
+    )
+    restored = next(
+        candidate
+        for candidate in namespace["sheet"].model().features
+        if getattr(candidate, "source_id", "") == "dimension:oblique-render"
+    )
+    assert restored.cylindrical_refs == references
 
 
 def test_owner_match_helpers_fail_closed_for_every_topology_component():

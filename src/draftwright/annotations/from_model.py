@@ -7533,6 +7533,50 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     }
 
 
+def _oblique_cylinder_leader_specs(a, rec, label, name, draft):
+    """Build solved leader candidates from one exact finite-cylinder surface witness."""
+    cylinders = tuple(getattr(rec, "cylindrical_refs", ()))
+    if not cylinders:
+        return []
+    reference = cylinders[0]
+    dx, dy, dz = reference.axis_direction
+    cx, cy, cz = reference.midpoint
+    if abs(dx) <= 1e-6:
+        view, zones, sides = "side", a.sv_zones, ("above", "below")
+        surface = (
+            a.proj.side_x(cy - dz * reference.radius),
+            a.proj.side_z(cz + dy * reference.radius),
+            0,
+        )
+    elif abs(dy) <= 1e-6:
+        view, zones, sides = "front", a.fv_zones, ("above", "below")
+        surface = (
+            a.proj.front_x(cx - dz * reference.radius),
+            a.proj.front_z(cz + dx * reference.radius),
+            0,
+        )
+    elif abs(dz) <= 1e-6:
+        view, zones, sides = "plan", a.pv_zones, ("right", "left")
+        surface = (
+            a.proj.plan_x(cx - dy * reference.radius),
+            a.proj.plan_y(cy + dx * reference.radius),
+            0,
+        )
+    else:
+        return []
+    if rec.view is not None and rec.view != view:
+        return []
+    if rec.side is not None:
+        sides = tuple(side for side in sides if side == rec.side)
+    # ``surface`` is derived by moving one radius perpendicular to the cylinder axis in
+    # its containing projection plane. It is therefore an actual face witness, while the
+    # leader shelf remains governed by the ordinary corridor solve.
+    return [
+        _pmi_leader_spec(surface, getattr(zones, side), label, name, view, side, draft)
+        for side in sides
+    ]
+
+
 def _place_corridor_option(
     dwg,
     spec,
@@ -7851,12 +7895,18 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     ax = rec.dominant_axis
     label = rec.label
     circular_refs = tuple(getattr(rec, "circular_refs", ()))
+    cylindrical_refs = tuple(getattr(rec, "cylindrical_refs", ()))
+    pattern_count = len(circular_refs) or (
+        len(cylindrical_refs)
+        if cylindrical_refs and cylindrical_refs[0].principal_axis == "?"
+        else 0
+    )
     if (
         rec.pmi_kind == "diameter"
-        and len(circular_refs) > 1
+        and pattern_count > 1
         and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None
     ):
-        label = f"{len(circular_refs)}× {label}"
+        label = f"{pattern_count}× {label}"
     placed = False
     name_x = f"pmi_x_{idx}"
     name_z = f"pmi_z_{idx}"
@@ -7875,6 +7925,16 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
             rec,
         )
     elif rec.pmi_kind in ("diameter", "radius"):
+        if rec.pmi_kind == "diameter" and cylindrical_refs and ax == "?":
+            placed = _pmi_queue_options(
+                dwg,
+                ctx,
+                _oblique_cylinder_leader_specs(a, rec, label, name_d, draft),
+                ax,
+                label,
+                rec,
+            )
+            return placed
         # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value
         # (#1208). See `_bore_span_offsets`.
         info = _bore_info(rec)

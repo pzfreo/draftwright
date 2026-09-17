@@ -2443,6 +2443,25 @@ def angle_pattern(*members: AngularReference) -> AnglePatternFeature:
     return AnglePatternFeature(tuple(members))
 
 
+def _shared_projection_plane(cylinders: list[CylindricalReference]) -> str | None:
+    """Return the principal view plane containing one shared cylinder direction."""
+    directions = {
+        tuple(round(component, 9) for component in reference.axis_direction)
+        for reference in cylinders
+    }
+    if len(directions) != 1:
+        return None
+    direction = next(iter(directions))
+    return next(
+        (
+            view
+            for component, view in zip(direction, ("side", "front", "plan"), strict=True)
+            if abs(component) <= 1e-6
+        ),
+        None,
+    )
+
+
 def measured_dimension(
     *,
     kind: str,
@@ -2570,10 +2589,12 @@ def measured_dimension(
     if bbox is not None and len(bbox) != 6:
         raise ValueError("measured_dimension() ref_bbox must be a 6-tuple")
     dom = str(dominant_axis).upper()
+    cylinder_view = _shared_projection_plane(cylinders) if cylinders else None
     if dom not in ("X", "Y", "Z"):
         unresolved_import = dom == "?" and imported_blocked
         unresolved_bore = dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None
-        if not (unresolved_import or unresolved_bore):
+        projected_cylinder = dom == "?" and dim_kind == "diameter" and bool(cylinders)
+        if not (unresolved_import or unresolved_bore or projected_cylinder):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
     validate_authored_dimension_placement(
         dim_kind,
@@ -2582,12 +2603,17 @@ def measured_dimension(
         side,
         owner="measured_dimension()",
         angular_reference=angular_reference,
+        cylindrical_refs=cylinders,
     )
     cylinder_axes = {reference.principal_axis for reference in cylinders}
     if cylinders and (len(cylinder_axes) != 1 or "?" in cylinder_axes):
-        if not imported_blocked:
+        if not imported_blocked and cylinder_view is None:
             raise ValueError(
-                "measured_dimension() cylindrical_refs need one principal-axis direction"
+                "measured_dimension() cylindrical_refs need one direction in a principal projection plane"
+            )
+        if not imported_blocked and dom != "?":
+            raise ValueError(
+                "measured_dimension() dominant_axis must be ? for an oblique cylindrical reference"
             )
     elif cylinders and dom != next(iter(cylinder_axes)):
         raise ValueError(
@@ -2596,6 +2622,8 @@ def measured_dimension(
     if circles and dim_kind != "diameter":
         raise ValueError("measured_dimension() circular_refs require a diameter dimension")
     multiplicity = re.match(r"^\s*(\d+)\s*[xX×]\s*", str(label))
+    if cylinders and multiplicity is not None and int(multiplicity.group(1)) != len(cylinders):
+        raise ValueError("measured_dimension() label multiplicity disagrees with cylindrical_refs")
     if circles and multiplicity is not None and int(multiplicity.group(1)) != len(circles):
         raise ValueError("measured_dimension() label multiplicity disagrees with circular_refs")
     circle_axes = {reference.principal_axis for reference in circles}

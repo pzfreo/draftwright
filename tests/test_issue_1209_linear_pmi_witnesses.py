@@ -80,9 +80,7 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert len({reference.axis_origin for reference in oblique_diameter.cylindrical_refs}) == 4
     assert oblique_diameter.circular_refs == ()
     assert oblique_diameter.lowering_blockers == ()
-    assert oblique_diameter.rendering_blockers == (
-        "diameter cylindrical-reference axis is not principal-axis aligned",
-    )
+    assert oblique_diameter.rendering_blockers == ()
 
     circular_pattern = all_records["dimension:0:1:4:28"]
     assert circular_pattern.cylindrical_refs == ()
@@ -125,6 +123,8 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert "not principal-axis aligned" in one_sided.rendering_blockers[0]
 
     outcomes = {source.source_id: source for source in report.sources}
+    assert outcomes[oblique_diameter.source_id].outcome == "extracted"
+    assert outcomes[oblique_diameter.source_id].reason == ""
     assert outcomes[circular_pattern.source_id].outcome == "extracted"
     assert outcomes[circular_pattern.source_id].reason == ""
     assert outcomes[truthful.source_id].outcome == "extracted"
