@@ -128,6 +128,20 @@ class DimensionDisplayFact:
 
 
 @dataclass(frozen=True)
+class DimensionAssociationFact:
+    """One dimensional characteristic and its exact ordered shape-aspect groups."""
+
+    entity_id: str
+    kind: str
+    semantic_name: str
+    presentation_name: str
+    shape_aspect_ids: tuple[str, ...]
+    reference_item_groups: tuple[tuple[str, ...], ...]
+    callout_id: str = ""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
 class DatumOccurrenceFact:
     """One datum reference used by one Part21 geometric-tolerance context.
 
@@ -1056,6 +1070,118 @@ def read_dimension_display_facts(step_file: str | Path) -> tuple[DimensionDispla
                 _value_format_decimals(step, nominal_ref, qualifications),
                 next(iter(tolerance_decimals)) if len(tolerance_decimals) == 1 else None,
                 unit_name,
+            )
+        )
+    return tuple(facts)
+
+
+def read_dimension_associations(step_file: str | Path) -> tuple[DimensionAssociationFact, ...]:
+    """Read exact Part21 topology groups for size and location characteristics.
+
+    Group order is semantic: a size owns one aspect, while a location owns its relating and
+    related aspects in the order authored by ``DIMENSIONAL_LOCATION``. Composite expansion
+    follows only explicit shape-aspect relationships and retains stable source order.
+    """
+    step = _readfile(step_file)
+    characteristics: list[tuple[str, str, str, tuple[str, ...]]] = []
+    aspect_children: dict[str, list[str]] = {}
+    aspect_items: dict[str, list[str]] = {}
+    association_callouts: dict[str, list[str]] = {}
+    callout_names: dict[str, str] = {}
+
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            size = _entity_named(instance, "DIMENSIONAL_SIZE")
+            location = _entity_named(instance, "DIMENSIONAL_LOCATION")
+            if (
+                size is not None
+                and len(size.params) >= 2
+                and isinstance(size.params[0], p21.Reference)
+            ):
+                semantic_name = _text(size.params[1])
+                characteristics.append((entity_id, "size", semantic_name, (str(size.params[0]),)))
+            elif (
+                location is not None
+                and len(location.params) >= 4
+                and isinstance(location.params[2], p21.Reference)
+                and isinstance(location.params[3], p21.Reference)
+            ):
+                characteristics.append(
+                    (
+                        entity_id,
+                        "location",
+                        _text(location.params[0]),
+                        (str(location.params[2]), str(location.params[3])),
+                    )
+                )
+
+            relationship = _entity_named(instance, "SHAPE_ASPECT_RELATIONSHIP")
+            if relationship is not None and len(relationship.params) >= 4:
+                parent, child = relationship.params[2:4]
+                if isinstance(parent, p21.Reference) and isinstance(child, p21.Reference):
+                    aspect_children.setdefault(str(parent), []).append(str(child))
+
+            usage = _entity_named(instance, "GEOMETRIC_ITEM_SPECIFIC_USAGE")
+            if usage is not None and len(usage.params) >= 5:
+                aspect_ref = usage.params[2]
+                if isinstance(aspect_ref, p21.Reference):
+                    aspect_items.setdefault(str(aspect_ref), []).extend(
+                        _references(usage.params[4])
+                    )
+
+            callout = _entity_named(instance, "DRAUGHTING_CALLOUT")
+            if callout is not None and callout.params:
+                callout_names[entity_id] = _text(callout.params[0])
+
+            association = _entity_named(instance, "DRAUGHTING_MODEL_ITEM_ASSOCIATION")
+            if association is not None and len(association.params) >= 5:
+                subject = association.params[2]
+                if isinstance(subject, p21.Reference):
+                    association_callouts.setdefault(str(subject), []).extend(
+                        ref
+                        for ref in _references(association.params[4])
+                        if _instance_is(step, ref, "DRAUGHTING_CALLOUT")
+                    )
+
+    def related_items(root: str) -> tuple[str, ...]:
+        pending = [root]
+        visited: set[str] = set()
+        items: list[str] = []
+        while pending:
+            aspect_id = pending.pop(0)
+            if aspect_id in visited:
+                continue
+            visited.add(aspect_id)
+            items.extend(aspect_items.get(aspect_id, ()))
+            pending.extend(aspect_children.get(aspect_id, ()))
+        return tuple(dict.fromkeys(items))
+
+    facts: list[DimensionAssociationFact] = []
+    for entity_id, kind, semantic_name, shape_aspect_ids in characteristics:
+        reasons: list[str] = []
+        callout_ids = tuple(dict.fromkeys(association_callouts.get(entity_id, ())))
+        callout_id = callout_ids[0] if len(callout_ids) == 1 else ""
+        if len(callout_ids) != 1:
+            reasons.append(
+                f"dimension characteristic has {len(callout_ids)} linked presentation callouts"
+            )
+        presentation_name = callout_names.get(callout_id, "") if callout_id else ""
+        if callout_id and not presentation_name:
+            reasons.append("dimension presentation callout has no name")
+        item_groups = tuple(related_items(aspect_id) for aspect_id in shape_aspect_ids)
+        for index, item_group in enumerate(item_groups, start=1):
+            if not item_group:
+                reasons.append(f"dimension reference group {index} has no representation items")
+        facts.append(
+            DimensionAssociationFact(
+                entity_id=entity_id,
+                kind=kind,
+                semantic_name=semantic_name,
+                presentation_name=presentation_name,
+                shape_aspect_ids=shape_aspect_ids,
+                reference_item_groups=item_groups,
+                callout_id=callout_id,
+                reason="; ".join(dict.fromkeys(reasons)),
             )
         )
     return tuple(facts)
