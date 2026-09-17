@@ -37,15 +37,24 @@ def test_grm03_coaxial_end_faces_establish_their_x_station_span(value, stations)
     assert abs(points[1][0] - points[0][0]) == pytest.approx(value)
 
 
-def test_an_oblique_or_one_sided_relationship_fails_closed_without_nominal_guessing():
+def test_an_oblique_relationship_in_one_projection_plane_preserves_exact_stations():
     points, axis, blockers = _linear_reference_stations(
         ((0.0, 149.98174079291, -70.32125981157614), (0.0, 141.5491012236, -52.1456568216)),
         20.0,
     )
     assert len(points) == 2
     assert axis == "?"
-    assert blockers and "not principal-axis aligned" in blockers[0]
+    assert blockers == ()
 
+    points, axis, blockers = _linear_reference_stations(
+        ((0.0, 0.0, 0.0), (1.0, 2.0, 3.0)), 3.741657
+    )
+    assert len(points) == 2
+    assert axis == "?"
+    assert "does not lie in a principal projection plane" in blockers[0]
+
+
+def test_an_incomplete_or_wrong_length_relationship_fails_without_nominal_guessing():
     points, axis, blockers = _linear_reference_stations(
         ((0.0, 149.98174079291, -70.32125981157614), None), 25.0
     )
@@ -105,7 +114,7 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     )
     assert oblique.dominant_axis == "?"
     assert oblique.lowering_blockers == ()
-    assert "not principal-axis aligned" in oblique.rendering_blockers[0]
+    assert oblique.rendering_blockers == ()
 
     one_sided = records["dimension:0:1:4:29"]
     assert one_sided.part21_id == "#20263"
@@ -120,7 +129,7 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     )
     assert one_sided.ref_pts[1] == pytest.approx((0.0, 139.6760682565, -47.50973754875))
     assert one_sided.lowering_blockers == ()
-    assert "not principal-axis aligned" in one_sided.rendering_blockers[0]
+    assert one_sided.rendering_blockers == ()
 
     outcomes = {source.source_id: source for source in report.sources}
     assert outcomes[oblique_diameter.source_id].outcome == "extracted"
@@ -128,8 +137,8 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert outcomes[circular_pattern.source_id].outcome == "extracted"
     assert outcomes[circular_pattern.source_id].reason == ""
     assert outcomes[truthful.source_id].outcome == "extracted"
-    assert outcomes[oblique.source_id].outcome == "partially_extracted"
-    assert outcomes[one_sided.source_id].outcome == "partially_extracted"
+    assert outcomes[oblique.source_id].outcome == "extracted"
+    assert outcomes[one_sided.source_id].outcome == "extracted"
 
 
 def test_exact_part21_groups_supersede_direct_xcaf_reference_failures(monkeypatch):

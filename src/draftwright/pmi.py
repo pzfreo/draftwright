@@ -428,6 +428,7 @@ _LINEAR_AXIS_ABS_TOL = 0.005
 _LINEAR_AXIS_REL_TOL = 1e-3
 _LINEAR_VALUE_ABS_TOL = 0.01
 _LINEAR_VALUE_REL_TOL = 5e-4
+_LINEAR_OBLIQUE_VALUE_ABS_TOL = 0.05
 
 
 def _linear_reference_stations(
@@ -459,24 +460,29 @@ def _linear_reference_stations(
 
     transverse = max(value for index, value in enumerate(magnitudes) if index != axis_index)
     direction_tol = max(_LINEAR_AXIS_ABS_TOL, primary * _LINEAR_AXIS_REL_TOL)
-    if transverse > direction_tol:
+    oblique = transverse > direction_tol
+    if oblique and min(magnitudes) > direction_tol:
         return (
             measurable,
             "?",
             (
-                "linear reference relationship is not principal-axis aligned "
+                "linear reference relationship does not lie in a principal projection plane "
                 f"(delta=({delta[0]:.6g}, {delta[1]:.6g}, {delta[2]:.6g}) mm)",
             ),
         )
 
-    axis = "XYZ"[axis_index]
-    value_tol = max(_LINEAR_VALUE_ABS_TOL, abs(nominal) * _LINEAR_VALUE_REL_TOL)
-    if abs(primary - nominal) > value_tol:
+    axis = "?" if oblique else "XYZ"[axis_index]
+    span = math.hypot(*delta) if oblique else primary
+    value_tol = max(
+        _LINEAR_OBLIQUE_VALUE_ABS_TOL if oblique else _LINEAR_VALUE_ABS_TOL,
+        abs(nominal) * _LINEAR_VALUE_REL_TOL,
+    )
+    if abs(span - nominal) > value_tol:
         return (
             measurable,
             axis,
             (
-                f"linear reference-station span {primary:.6g} mm differs from nominal "
+                f"linear reference-station span {span:.6g} mm differs from nominal "
                 f"{nominal:.6g} mm",
             ),
         )
@@ -1007,9 +1013,7 @@ def _diameter_reference_blockers(
     else:
         direction = next(iter(directions))
         if min(abs(component) for component in direction) > 1e-6:
-            blockers.append(
-                "diameter cylinder axis does not lie in a principal projection plane"
-            )
+            blockers.append("diameter cylinder axis does not lie in a principal projection plane")
     senses = {reference.sense for reference in references}
     if len(senses) != 1:
         blockers.append("diameter references mix internal and external cylindrical faces")
