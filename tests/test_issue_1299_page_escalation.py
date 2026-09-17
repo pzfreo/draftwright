@@ -164,14 +164,21 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
     ]
 
 
-def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(monkeypatch):
-    """Complete shoulders do not make a sheet complete when a callout was lost."""
+@pytest.mark.parametrize(
+    "source_ids",
+    [("manufacturing_requirement:#2004",), ()],
+    ids=("source-owned", "geometry-owned"),
+)
+def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(
+    monkeypatch, source_ids
+):
+    """Complete shoulders do not make a sheet complete when a required mark was lost."""
 
     dropped = LintIssue(
         severity="warning",
         code="callout_dropped",
         message="required typed-PMI callout has no route",
-        source_ids=("manufacturing_requirement:#2004",),
+        source_ids=source_ids,
         outcome_stage="placement",
     )
 
@@ -328,8 +335,8 @@ def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch)
     }
 
 
-def test_unrelated_drop_on_a_typed_owner_does_not_borrow_its_source(monkeypatch):
-    """A step-length loss is not evidence that its surviving thread callout was lost."""
+def test_geometry_drop_recovery_does_not_borrow_a_typed_owners_source(monkeypatch):
+    """A step-length loss is recoverable without becoming a lost thread callout."""
 
     from collections import namedtuple
 
@@ -383,9 +390,15 @@ def test_unrelated_drop_on_a_typed_owner_does_not_borrow_its_source(monkeypatch)
     with pytest.warns(builder.ScaleCompletenessWarning):
         drawing = builder.build_drawing(object())
 
-    assert calls == [True]
+    assert calls[0] is True
+    assert False in calls
     assert drawing.scale_decision["status"] == "incomplete"
     assert drawing.scale_decision["blockers"][0]["source_ids"] == ()
+    assert all(
+        blocker["source_ids"] == ()
+        for attempt in drawing.scale_decision["attempts"]
+        for blocker in attempt["blockers"]
+    )
 
 
 def test_complete_detail_drawing_stays_on_its_original_page(monkeypatch):
