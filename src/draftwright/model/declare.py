@@ -2487,6 +2487,9 @@ def measured_dimension(
     view: str | None = None,
     side: str | None = None,
     angular_reference=None,
+    angular_references=(),
+    angular_member_ids=(),
+    angular_reference_item_groups=(),
 ) -> AuthoredDimension:
     """A pre-authored drafting dimension from explicit measured values — the IR constructor
     behind :meth:`Sheet.measured_dimension` (#704: extracted so ``build_drawing(model=…)``
@@ -2536,6 +2539,23 @@ def measured_dimension(
         if pts and pts != angular_points:
             raise ValueError("angular ref_pts must agree with first, vertex, second")
         pts = angular_points
+    angular_members: list[AngularReference] = []
+    for raw in angular_references:
+        if isinstance(raw, AngularReference):
+            angular_members.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("measured_dimension() angular_references items must be mappings")
+        try:
+            angular_members.append(AngularReference(**raw))
+        except (KeyError, TypeError) as exc:
+            raise ValueError(
+                "measured_dimension() angular reference mapping is incomplete"
+            ) from exc
+    if angular_members and angular_reference is not None:
+        raise ValueError(
+            "measured_dimension() cannot combine angular_reference and angular_references"
+        )
     cylinders: list[CylindricalReference] = []
     for raw in cylindrical_refs:
         if isinstance(raw, CylindricalReference):
@@ -2579,11 +2599,13 @@ def measured_dimension(
     imported_blocked = bool(source_id and rendering_blockers)
     cylindrical_diameter = dim_kind == "diameter" and bool(cylinders)
     circular_diameter = dim_kind == "diameter" and bool(circles)
+    angular_pattern = dim_kind == "angular" and bool(angular_members)
     if (
         len(pts) < 2
         and not imported_blocked
         and not cylindrical_diameter
         and not circular_diameter
+        and not angular_pattern
     ):
         raise ValueError("measured_dimension() needs at least two ref_pts")
     bbox = None if ref_bbox is None else tuple(float(c) for c in ref_bbox)
@@ -2604,7 +2626,7 @@ def measured_dimension(
         view,
         side,
         owner="measured_dimension()",
-        angular_reference=angular_reference,
+        angular_reference=(angular_reference or (angular_members[0] if angular_members else None)),
         cylindrical_refs=cylinders,
         ref_pts=pts,
     )
@@ -2666,6 +2688,12 @@ def measured_dimension(
                 sum(reference.center[index] for reference in circles) / len(circles)
                 for index in range(3)
             )
+        elif angular_members:
+            at = tuple(
+                sum(reference.vertex[index] for reference in angular_members)
+                / len(angular_members)
+                for index in range(3)
+            )
         else:
             n = len(pts)
             at = tuple(sum(p[i] for p in pts) / n for i in range(3))
@@ -2693,4 +2721,9 @@ def measured_dimension(
         side=side,
         angular_reference=angular_reference,
         circular_refs=tuple(circles),
+        angular_references=tuple(angular_members),
+        angular_member_ids=tuple(str(member_id) for member_id in angular_member_ids),
+        angular_reference_item_groups=tuple(
+            tuple(str(item_id) for item_id in group) for group in angular_reference_item_groups
+        ),
     )

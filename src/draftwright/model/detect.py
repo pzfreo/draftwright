@@ -450,6 +450,15 @@ def build_pmi_features(
                     cylindrical_refs=r.cylindrical_refs,
                     angular_reference=r.angular_reference,
                     circular_refs=r.circular_refs,
+                    angular_references=getattr(r, "angular_references", ()),
+                    angular_member_ids=(
+                        tuple(r.shape_aspect_ids) if getattr(r, "angular_references", ()) else ()
+                    ),
+                    angular_reference_item_groups=(
+                        tuple(r.reference_item_groups)
+                        if getattr(r, "angular_references", ())
+                        else ()
+                    ),
                 )
             )
             continue

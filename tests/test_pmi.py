@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Edge, export_step
+from build123d import Box, Cone, Edge, export_step
+from quiddity import FrameGauge, PartFrame
 
 from draftwright import build_drawing, extract_pmi, extract_pmi_report
 from draftwright._pmi_part21 import GeometricToleranceFact, ManufacturingRequirementFact
@@ -22,6 +23,7 @@ _CTC01_SHA256 = hashlib.sha256(
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 CTC03 = FIXTURES / "nist_ctc_03_asme1_ap242.stp"
+CTC04 = FIXTURES / "nist_ctc_04_asme1_ap242.stp"
 
 pytestmark = pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
 
@@ -76,6 +78,108 @@ class TestExtractPmi:
         assert labels["dimension:0:1:4:44"] == "ø2.00 ±0.01 inch"
         assert labels["dimension:0:1:4:47"] == "0.82 ±0.06 inch"
         assert labels["dimension:0:1:4:48"] == "ø1.065 ±0.003 inch"
+
+    def test_ctc04_angular_source_retains_exact_part21_support_members(self):
+        report = extract_pmi_report(CTC04)
+        record = next(
+            record for record in report.records if record.source_id == "dimension:0:1:4:27"
+        )
+
+        assert record.part21_id == "#19921"
+        assert len(record.shape_aspect_ids) == 30
+        assert tuple(map(len, record.reference_item_groups)) == (2,) * 30
+        assert record.reference_item_groups[:2] == (
+            ("#6254", "#6272"),
+            ("#6202", "#6220"),
+        )
+        assert record.reference_item_groups[-2:] == (
+            ("#7658", "#7676"),
+            ("#7728", "#7710"),
+        )
+        assert record.angular_reference is None
+        assert len(record.angular_references) == 30
+        assert all(
+            reference.angle_degrees == pytest.approx(90.0)
+            for reference in record.angular_references
+        )
+        assert {reference.principal_axis for reference in record.angular_references} == {"Y"}
+        assert record.dominant_axis == "Y"
+        assert record.lowering_blockers == ()
+        assert record.rendering_blockers == ()
+        source = next(source for source in report.sources if source.source_id == record.source_id)
+        assert (source.outcome, source.reason) == ("extracted", "")
+        from draftwright.model.detect import build_pmi_features
+
+        feature = next(
+            feature
+            for feature in build_pmi_features(report.records, Box(500, 800, 100).bounding_box())
+            if getattr(feature, "source_id", "") == record.source_id
+        )
+        assert feature.angular_references == record.angular_references
+        assert feature.angular_member_ids == record.shape_aspect_ids
+        assert feature.angular_reference_item_groups == record.reference_item_groups
+
+    def test_conical_angular_supports_fail_closed_for_non_conical_faces(self):
+        from draftwright.pmi import _angular_reference_from_shapes
+
+        cone_face = Cone(7, 10, 3).faces()[0].wrapped
+        reference, reasons = _angular_reference_from_shapes((cone_face, cone_face), 90.0)
+
+        assert reference is not None
+        assert reference.angle_degrees == pytest.approx(90.0)
+        assert reasons == ()
+        assert reference.first[2] > reference.vertex[2]
+        assert reference.second[2] > reference.vertex[2]
+
+        reverse_face = Cone(10, 7, 3).faces()[0].wrapped
+        frame = PartFrame(
+            origin=(3.0, 4.0, 5.0),
+            x=(0.0, 1.0, 0.0),
+            y=(0.0, 0.0, 1.0),
+            z=(1.0, 0.0, 0.0),
+            gauge=FrameGauge.FULL,
+        )
+        reference, reasons = _angular_reference_from_shapes(
+            (reverse_face, reverse_face), 90.0, frame
+        )
+        assert reference is not None
+        assert reasons == ()
+        assert reference.first[1] < reference.vertex[1]
+        assert reference.second[1] < reference.vertex[1]
+        assert reference.principal_axis == "Z"
+        reference, reasons = _angular_reference_from_shapes((cone_face,), 90.0)
+        assert reference is None and "exactly two" in reasons[0]
+        reference, reasons = _angular_reference_from_shapes(
+            (Box(1, 1, 1).vertices()[0].wrapped, cone_face), 90.0
+        )
+        assert reference is None and reasons == ("one support is not a face",)
+        reference, reasons = _angular_reference_from_shapes((cone_face, cone_face), 45.0)
+        assert reference is not None and "differs from nominal" in reasons[0]
+
+        plane_face = Box(1, 1, 1).faces()[0].wrapped
+        reference, reasons = _angular_reference_from_shapes((cone_face, plane_face), 90.0)
+        assert reference is None
+        assert reasons == ("one support face is not conical",)
+
+        conflicting_face = Cone(14, 20, 3).faces()[0].wrapped
+        reference, reasons = _angular_reference_from_shapes((cone_face, conflicting_face), 90.0)
+        assert reference is None
+        assert reasons == ("support faces do not share one cone semi-angle",)
+
+    def test_ctc01_angular_location_remains_directly_extracted(self, ctc01_extraction_report):
+        source_id = "dimension:0:1:4:17"
+        record = next(
+            record for record in ctc01_extraction_report.records if record.source_id == source_id
+        )
+        source = next(
+            source for source in ctc01_extraction_report.sources if source.source_id == source_id
+        )
+
+        assert record.type_code == 11
+        assert record.angular_reference is not None
+        assert record.part21_id == ""
+        assert source.outcome == "extracted"
+        assert source.reason == ""
 
     def test_authored_display_is_disabled_when_document_unit_normalization_fails(
         self, monkeypatch

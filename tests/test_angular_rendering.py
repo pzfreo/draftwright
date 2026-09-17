@@ -6,7 +6,7 @@ from math import cos, radians, sin
 from types import SimpleNamespace
 
 import pytest
-from build123d import Axis, Compound, Edge, GeomType, Location, Polygon, Rot, Vertex, extrude
+from build123d import Axis, Box, Compound, Edge, GeomType, Location, Polygon, Rot, Vertex, extrude
 
 from draftwright import Sheet, build_drawing
 from draftwright.annotations.angular import AngularInk
@@ -43,6 +43,99 @@ def _angle_annotation(drawing):
     ]
     assert len(annotations) == 1, "one angular requirement must reach one visible mark"
     return annotations[0]
+
+
+def test_imported_angular_pattern_uses_one_mark_with_every_member_identity():
+    references = (
+        AngularReference((2, 2, 2), (7, 2, 2), (2, 7, 2)),
+        AngularReference((12, 12, 2), (17, 12, 2), (12, 17, 2)),
+    )
+    sheet = Sheet(Box(20, 20, 2))
+    sheet.measured_dimension(
+        kind="angular",
+        value=90,
+        label="90 ±1",
+        dominant_axis="z",
+        ref_pts=(),
+        source_id="dimension:test",
+        angular_references=references,
+        angular_member_ids=("#10", "#20"),
+        angular_reference_item_groups=(("#101", "#102"), ("#201", "#202")),
+    )
+    sheet.authored_dimensions()
+    feature = sheet.model().features[0]
+
+    drawing = sheet.build()
+    name, annotation = _angle_annotation(drawing)
+
+    assert annotation.label == "90 ±1"
+    assert drawing.registry.names_for_feature(feature) == [name]
+    assert drawing.registry.measurement_of(name) == ()
+    assert feature.source_id == "dimension:test"
+    assert feature.angular_references == references
+    assert feature.angular_member_ids == ("#10", "#20")
+    assert feature.angular_reference_item_groups == (("#101", "#102"), ("#201", "#202"))
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code
+        in {
+            "angular_label_vs_geometry",
+            "angular_support_mismatch",
+            "angular_support_unverifiable",
+            "claimed_measurement_not_compiled",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("member_ids", "item_groups", "view", "points"),
+    [
+        (("#10",), (("#101", "#102"), ("#201", "#202")), "plan", None),
+        (("#10", "#10"), (("#101", "#102"), ("#201", "#202")), "plan", None),
+        (("#10", "#20"), (("#101",), ("#201", "#202")), "plan", None),
+        (("#10", "#20"), (("#101", "#102"), ("#201", "#202")), "front", None),
+        (
+            ("#10", "#20"),
+            (("#101", "#102"), ("#201", "#202")),
+            "plan",
+            ((30, 30), (29, 30), (30, 29)),
+        ),
+    ],
+)
+def test_imported_angular_pattern_lint_fails_closed_on_corrupt_provenance(
+    member_ids, item_groups, view, points
+):
+    from draftwright.linting.angular import lint_angular_supports
+
+    references = (
+        AngularReference((2, 2, 2), (7, 2, 2), (2, 7, 2)),
+        AngularReference((12, 12, 2), (17, 12, 2), (12, 17, 2)),
+    )
+    owner = SimpleNamespace(
+        angular_references=references,
+        angular_member_ids=member_ids,
+        angular_reference_item_groups=item_groups,
+    )
+    item = SimpleNamespace(
+        angular_points=points or ((7, 2), (2, 2), (2, 7)),
+        measured_angle=90,
+        label="90 ±1",
+    )
+    registry = SimpleNamespace(
+        names=lambda: {"angle"},
+        named=lambda _name: item,
+        feature_of=lambda _name: owner,
+        measurement_of=lambda _name: (),
+        view_of=lambda _name: view,
+    )
+    findings = lint_angular_supports(
+        [item], registry=registry, to_page=lambda _view, *point: point
+    )
+
+    assert [(finding.severity, finding.code) for finding in findings] == [
+        ("error", "angular_support_mismatch")
+    ]
 
 
 @pytest.fixture(scope="module")

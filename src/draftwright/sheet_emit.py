@@ -282,6 +282,22 @@ def _circular_refs_arg(references) -> str:
     return "(" + ", ".join(values) + ("," if len(values) == 1 else "") + ")"
 
 
+def _angular_refs_arg(references) -> str:
+    values = [
+        repr(
+            {
+                "vertex": reference.vertex,
+                "first": reference.first,
+                "second": reference.second,
+                "sector": reference.sector,
+                "virtual_vertex": reference.virtual_vertex,
+            }
+        )
+        for reference in references
+    ]
+    return "(" + ", ".join(values) + ("," if len(values) == 1 else "") + ")"
+
+
 def _cylindrical_refs_expr(references) -> str:
     values = [
         "CylindricalReference("
@@ -561,6 +577,12 @@ def _measured_dimension_line(f) -> str:
             "virtual_vertex": angular.virtual_vertex,
         }
         kw.append(f"angular_reference={reference!r}")
+    if angular_pattern := getattr(f, "angular_references", ()):
+        kw.append(f"angular_references={_angular_refs_arg(angular_pattern)}")
+    if member_ids := getattr(f, "angular_member_ids", ()):
+        kw.append(f"angular_member_ids={member_ids!r}")
+    if item_groups := getattr(f, "angular_reference_item_groups", ()):
+        kw.append(f"angular_reference_item_groups={item_groups!r}")
     if getattr(f, "view", None) is not None:
         kw.append(f"view={f.view!r}")
     if getattr(f, "side", None) is not None:
