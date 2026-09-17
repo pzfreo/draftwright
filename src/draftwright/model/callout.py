@@ -44,6 +44,17 @@ class HoleCalloutBatch:
     spec: dict
 
 
+def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
+    """Format the bore value after the callout's leading diameter symbol."""
+    if limits := spec.get("diameter_limits"):
+        lower, upper = limits
+        return f"{_fmt(lower)} - ⌀{_fmt(upper)}"
+    return (
+        f"{_fmt(spec['diameter'], spec.get('diameter_decimals'))}"
+        f"{tolerance_suffix(spec.get('tolerance'))}"
+    )
+
+
 def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutBatch, ...]:
     """Group compatible printed content without replacing any feature or identity.
 
@@ -90,7 +101,14 @@ def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutB
                 tuple(
                     (name, value)
                     for name, value in spec.items()
-                    if name not in {"count", "measurements", "source_ids"}
+                    if name
+                    not in {
+                        "count",
+                        "measurements",
+                        "source_measurements",
+                        "geometry_measurements",
+                        "geometry_qualifiers",
+                    }
                 ),
             )
             if compatible
@@ -118,6 +136,23 @@ def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutB
         spec["measurements"] = tuple(
             identity for entry in batch for identity in entry[3]["measurements"]
         )
+        spec["source_measurements"] = tuple(
+            relation for entry in batch for relation in entry[3]["source_measurements"]
+        )
+        spec["geometry_measurements"] = tuple(
+            identity for entry in batch for identity in entry[3]["geometry_measurements"]
+        )
+        geometry_qualifiers = list(
+            dict.fromkeys(
+                qualifier
+                for entry in batch
+                for qualifier in entry[3]["geometry_qualifiers"]
+                if qualifier != "grouping.count"
+            )
+        )
+        if count > 1:
+            geometry_qualifiers.append("grouping.count")
+        spec["geometry_qualifiers"] = tuple(geometry_qualifiers)
         spec["source_ids"] = tuple(
             dict.fromkeys(source for entry in batch for source in entry[3].get("source_ids", ()))
         )
@@ -414,6 +449,20 @@ def _callout_measurements(group: DimensionGroup) -> tuple[DimensionId, ...]:
     return tuple(DimensionId(group.feature, pd.param.parameter_id) for pd in planned)
 
 
+def _callout_measurement_provenance(
+    group: DimensionGroup, measurements: tuple[DimensionId, ...]
+) -> tuple[tuple[tuple[str, DimensionId], ...], tuple[DimensionId, ...]]:
+    """Partition printed measurements into source-owned and geometry-derived claims."""
+    parameters = {pd.param.parameter_id: pd.param for pd in group.dims}
+    sourced = tuple(
+        (source_id, measurement)
+        for measurement in measurements
+        for source_id in parameters[measurement.parameter].source_ids
+    )
+    owned = {measurement for _source_id, measurement in sourced}
+    return sourced, tuple(measurement for measurement in measurements if measurement not in owned)
+
+
 def hole_callout_suffix(spec: dict, tolerance_suffix=lambda _value: "") -> str | None:
     """Format the riders shared by callout rendering and width estimation.
 
@@ -544,6 +593,10 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         if thread_depth_pd is None or thread_depth_pd.suppressed
         else float(thread_depth_pd.param.value)
     )
+    measurements = _callout_measurements(group)
+    source_measurements, geometry_measurements = _callout_measurement_provenance(
+        group, measurements
+    )
     spec = {
         "diameter": bore,
         "diameter_decimals": _display_decimals(group, "diameter", "bore"),
@@ -571,6 +624,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "thread_depth_tol": _tol_of(thread_depth_pd),
         "pattern_suffix": pattern_suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
+        "diameter_limits": bore_pd.param.limit_bounds if bore_pd is not None else None,
         # ...and one per remaining term, baked in the same way (#1234 review r7).
         # A BLIND hole's own depth tolerance. `callout_from_spec` and `compose.py` were both
         # given readers for this key and the spec never wrote it, so the reader always resolved
@@ -583,11 +637,47 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         # Exact compiler identities printed by this compound callout. Count and THRU are
         # non-dimensional facts carried separately as structured callout coverage; neither
         # rendered text nor an invented dimensional identity certifies them.
-        "measurements": _callout_measurements(group),
+        "measurements": measurements,
+        # A compound callout may mix an imported diameter with geometry-derived depth or
+        # THRU/count text. Keep those claims separately inspectable instead of letting the
+        # annotation-wide source_ids imply that every visible term came from AP242 PMI.
+        "source_measurements": source_measurements,
+        "geometry_measurements": geometry_measurements,
+        "geometry_qualifiers": tuple(
+            requirement
+            for requirement, shown in (
+                (
+                    "bore.through",
+                    hole.through and bool(resolved_through_indicator(hole)),
+                ),
+                ("grouping.count", bool(count and count > 1)),
+            )
+            if shown
+        ),
         # Exact imported source(s) whose typed rider is printed by this compound callout.
         # For a pattern the rider lives on ``member`` above, while its measurements belong
         # to the pattern owner; carrying the source here preserves that intentional split.
-        "source_ids": tuple(thread_source_ids),
+        "source_ids": tuple(
+            dict.fromkeys(
+                (
+                    *thread_source_ids,
+                    *(
+                        source_id
+                        for planned in (
+                            bore_pd,
+                            depth_pd,
+                            recess_dia_pd,
+                            recess_depth_pd,
+                            csink_dia_pd,
+                            csink_angle_pd,
+                            thread_depth_pd,
+                        )
+                        if planned is not None and not planned.suppressed
+                        for source_id in planned.param.source_ids
+                    ),
+                )
+            )
+        ),
         # Structured coverage for physical critique. This is deliberately absent when the
         # A/F parameter was suppressed: ``DOUBLE-D`` without its defining A/F is incomplete.
         "profile_coverage": (

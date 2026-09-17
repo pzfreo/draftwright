@@ -65,24 +65,35 @@ def _model(*features):
 
 
 @pytest.mark.parametrize(
-    ("dimension", "expected"),
+    ("dimension", "expected", "expected_limits"),
     (
-        (_dimension(lower_tol=0.1, upper_tol=0.1), 0.1),
-        (_dimension(lower_tol=0.05, upper_tol=0.1), (0.05, 0.1)),
-        (_dimension(lower_tol=0.1), (0.1, 0.0)),
-        (_dimension(upper_tol=0.1), (0.0, 0.1)),
-        (_dimension(value=10, lower_bound=9.8, upper_bound=10.15), (0.2, 0.15)),
+        (_dimension(lower_tol=0.1, upper_tol=0.1), 0.1, None),
+        (_dimension(lower_tol=0.05, upper_tol=0.1), (0.05, 0.1), None),
+        (_dimension(lower_tol=0.1), (0.1, 0.0), None),
+        (_dimension(upper_tol=0.1), (0.0, 0.1), None),
+        (
+            _dimension(value=10, lower_bound=9.8, upper_bound=10.15),
+            (0.2, 0.15),
+            (9.8, 10.15),
+        ),
     ),
     ids=("symmetric", "asymmetric", "lower-only", "upper-only", "limits"),
 )
-def test_supported_deviation_forms_lower_to_one_bore_decoration(dimension, expected):
+def test_supported_deviation_forms_lower_to_one_bore_decoration(
+    dimension, expected, expected_limits
+):
     hole = _hole()
     lowered = lower_ap242_hole_tolerances(_model(hole, dimension))
 
     assert not any(feature.kind == "authored_dimension" for feature in lowered.features)
     owner = next(feature for feature in lowered.features if feature.kind == "hole")
     requirement = lowered.decorations[(owner, "diameter")]
-    assert requirement == ToleranceDecoration(expected, "ap242_pmi", ("dimension:test",))
+    assert requirement == ToleranceDecoration(
+        expected,
+        "ap242_pmi",
+        ("dimension:test",),
+        expected_limits,
+    )
 
 
 def test_normalized_inch_source_values_are_not_scaled_a_second_time():
@@ -116,6 +127,48 @@ def test_member_specific_requirements_split_a_count_group_without_lying_about_si
     ]
     assert (holes[0], "diameter") not in lowered.decorations
     assert lowered.decorations[(holes[1], "diameter")].value == (0.1, 0.2)
+
+
+def test_independent_equal_requirements_keep_per_member_source_identity():
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
+    members = ((-10.0, 0.0, 0.0), (10.0, 0.0, 0.0))
+    hole = _hole(at=members[0], members=members)
+    first = _dimension(
+        lower_tol=0.1,
+        upper_tol=0.1,
+        bbox=(-15.1, -5.1, -0.1, -4.9, 5.1, 8.1),
+        source_id="dimension:first",
+    )
+    second = replace(
+        first,
+        ref_bbox=(4.9, -5.1, -0.1, 15.1, 5.1, 8.1),
+        source_id="dimension:second",
+    )
+
+    lowered = lower_ap242_hole_tolerances(_model(hole, first, second))
+    owners = [feature for feature in lowered.features if isinstance(feature, HoleFeature)]
+
+    assert [(owner.count, owner.members) for owner in owners] == [
+        (1, (members[0],)),
+        (1, (members[1],)),
+    ]
+    assert [lowered.decorations[(owner, "diameter")] for owner in owners] == [
+        ToleranceDecoration(0.1, "ap242_pmi", ("dimension:first",)),
+        ToleranceDecoration(0.1, "ap242_pmi", ("dimension:second",)),
+    ]
+    batches = hole_callout_batches(plan_dimensions(lowered))
+    assert [batch.spec["source_ids"] for batch in batches] == [
+        ("dimension:first",),
+        ("dimension:second",),
+    ]
+    assert [
+        tuple(source_id for source_id, _measurement in batch.spec["source_measurements"])
+        for batch in batches
+    ] == [("dimension:first",), ("dimension:second",)]
+    assert all(not batch.spec["geometry_measurements"] for batch in batches)
+    assert all(batch.spec["geometry_qualifiers"] == ("bore.through",) for batch in batches)
 
 
 def test_pattern_wide_requirement_preserves_pattern_identity_and_membership():
@@ -283,10 +336,14 @@ def test_conflicting_sources_fall_back_and_other_aspects_follow_a_split_group():
 
 def test_imported_tolerance_provenance_arguments_fail_loudly_when_incoherent():
     hole = Sheet(Box(20, 20, 10)).hole(diameter=5, at=(0, 0, 0), axis="z")
-    with pytest.raises(ValueError, match="source_ids require source"):
+    with pytest.raises(ValueError, match="source_ids/limit_bounds require source"):
         hole.tolerance(0.1, source_ids=("dimension:test",))
+    with pytest.raises(ValueError, match="source_ids/limit_bounds require source"):
+        hole.tolerance(0.1, limit_bounds=(4.9, 5.1))
     with pytest.raises(ValueError, match="source must be a non-empty string"):
         hole.tolerance(0.1, source="  ")
+    with pytest.raises(ValueError, match="disagree with the deviation"):
+        hole.tolerance(0.1, source="ap242_pmi", limit_bounds=(4.8, 5.1))
 
 
 def test_emitted_sheet_rebuilds_the_same_owner_value_membership_and_provenance():
@@ -326,6 +383,7 @@ def test_emitted_sheet_rebuilds_the_same_owner_value_membership_and_provenance()
                     value.value,
                     value.source,
                     value.source_ids,
+                    value.limit_bounds,
                 )
             )
         return sorted(output)
@@ -382,6 +440,7 @@ def test_ctc01_consumes_all_hole_tolerances_once_and_emits_provenance():
                 ),
                 value.value,
                 value.source_ids,
+                value.limit_bounds,
             )
             for key, value in part_model.decorations.items()
             if isinstance(value, ToleranceDecoration)

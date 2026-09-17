@@ -317,10 +317,27 @@ def test_omitted_machining_terms_still_prevent_grouping(machining):
     assert len(groups) == 2
     specs = [hole_callout_spec(group) for group in groups]
     # The author selected identical printed content, but physical machining differs.
-    assert {key: value for key, value in specs[0].items() if key != "measurements"} == {
-        key: value for key, value in specs[1].items() if key != "measurements"
+    identity_fields = {"measurements", "source_measurements", "geometry_measurements"}
+    assert {key: value for key, value in specs[0].items() if key not in identity_fields} == {
+        key: value for key, value in specs[1].items() if key not in identity_fields
     }
     assert len(hole_callout_batches(groups)) == 2
+
+
+def test_batching_single_holes_records_the_rendered_count_as_geometry_derived():
+    from draftwright.model.callout import hole_callout_batches
+    from draftwright.model.planner import plan_dimensions
+
+    sheet = Sheet(Box(50, 35, 12)).auto_dimensions()
+    sheet.hole(diameter=6, at=(-10, -6, 0), axis="z")
+    sheet.hole(diameter=6, at=(12, 7, 0), axis="z")
+
+    (batch,) = hole_callout_batches(plan_dimensions(sheet.model()))
+
+    assert batch.spec["count"] == 2
+    assert batch.spec["source_measurements"] == ()
+    assert len(batch.spec["geometry_measurements"]) == 2
+    assert batch.spec["geometry_qualifiers"] == ("bore.through", "grouping.count")
 
 
 @pytest.mark.parametrize("indicator", [None, "THRU", "", "THROUGH ALL"])

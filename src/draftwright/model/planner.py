@@ -579,9 +579,22 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
     # Imported AP242 provenance belongs to the authored aspect, not to geometry and not to
     # the renderer's tolerance algebra.  Unwrap it at the planner waist so every downstream
     # label/render path continues to see the established float/tuple/FitClass contract.
+    source_ids: tuple[str, ...] = ()
+    limit_bounds = None
     if isinstance(tol, ToleranceDecoration):
+        source_ids = tol.source_ids
+        limit_bounds = tol.limit_bounds
         tol = tol.value
-    return param if tol is None else replace(param, tolerance=tol)
+    return (
+        param
+        if tol is None
+        else replace(
+            param,
+            tolerance=tol,
+            source_ids=source_ids,
+            limit_bounds=limit_bounds,
+        )
+    )
 
 
 def _consolidated_owner(model: PartModel, feature: Feature, param: DimParameter):

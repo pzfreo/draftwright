@@ -1678,18 +1678,58 @@ class TestBuildDrawingPmi:
         requirements = [
             (key[0], value)
             for key, value in ctc01_annotated.model().decorations.items()
-            if isinstance(value, ToleranceDecoration) and set(value.source_ids) == source_ids
+            if isinstance(value, ToleranceDecoration)
+            and set(value.source_ids) <= source_ids
+            and value.source_ids
         ]
         annotations = dict(ctc01_annotated.iter_annotations())
 
-        assert len(requirements) == 1
-        owner, requirement = requirements[0]
-        assert owner.diameter == 35.0 and owner.count == 2
-        assert requirement.value == 0.2  # 34.8 / 35.2 retained as -0.2 / +0.2
-        assert any(
-            annotations[name].label == "2× ⌀35 ±0.2 THRU"
-            for name in ctc01_annotated.registry.names_for_feature(owner)
+        assert len(requirements) == 2
+        assert {requirement.source_ids[0] for _owner, requirement in requirements} == source_ids
+        assert all(owner.diameter == 35.0 and owner.count == 1 for owner, _ in requirements)
+        assert all(requirement.value == 0.2 for _owner, requirement in requirements)
+        assert all(
+            requirement.limit_bounds == (34.8, 35.2) for _owner, requirement in requirements
         )
+        assert all(
+            any(
+                annotations[name].label == "⌀34.8 - ⌀35.2 THRU"
+                for name in ctc01_annotated.registry.names_for_feature(owner)
+            )
+            for owner, _requirement in requirements
+        )
+
+    def test_pmi_callouts_distinguish_source_dimensions_from_geometry_qualifiers(
+        self, ctc01_annotated
+    ):
+        from draftwright.model.ir import ToleranceDecoration
+        from draftwright.model.planner import DimensionId
+
+        annotations = dict(ctc01_annotated.iter_annotations())
+        requirements = [
+            (key[0], value)
+            for key, value in ctc01_annotated.model().decorations.items()
+            if isinstance(value, ToleranceDecoration)
+        ]
+
+        for owner, requirement in requirements:
+            callouts = [
+                annotations[name]
+                for name in ctc01_annotated.registry.names_for_feature(owner)
+                if getattr(annotations[name], "source_measurements", ())
+            ]
+            assert len(callouts) == 1
+            callout = callouts[0]
+            source_id = requirement.source_ids[0]
+            assert callout.source_measurements == (
+                (source_id, DimensionId(owner, "bore.diameter")),
+            )
+            if source_id in {"dimension:0:1:4:23", "dimension:0:1:4:24"}:
+                assert callout.geometry_measurements == (DimensionId(owner, "bore.depth"),)
+                assert callout.geometry_qualifiers == ()
+            else:
+                assert callout.geometry_measurements == ()
+                assert callout.geometry_qualifiers == ("bore.through",)
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]
