@@ -1373,6 +1373,7 @@ def _build_drawing_once(
             getattr(feature, "view", None),
             getattr(feature, "side", None),
             getattr(feature, "angular_reference", None),
+            getattr(feature, "ref_pts", ()),
         )
         if (
             getattr(feature, "kind", None) != "authored_dimension"
@@ -1436,6 +1437,7 @@ def _build_drawing_once(
                         view,
                         getattr(feature, "side", None),
                         getattr(feature, "angular_reference", None),
+                        getattr(feature, "ref_pts", ()),
                     )
                 if isinstance(view, str) and view in third_angle_view_names():
                     aspect_views.add(view)

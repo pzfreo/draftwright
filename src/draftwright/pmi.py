@@ -51,7 +51,12 @@ from draftwright._pmi_part21 import (
     read_manufacturing_requirements,
     read_surface_labels,
 )
-from draftwright.model.ir import AngularReference, CircularReference, CylindricalReference
+from draftwright.model.ir import (
+    AngularReference,
+    CircularReference,
+    CylindricalReference,
+    _linear_projection_view,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -461,7 +466,7 @@ def _linear_reference_stations(
     transverse = max(value for index, value in enumerate(magnitudes) if index != axis_index)
     direction_tol = max(_LINEAR_AXIS_ABS_TOL, primary * _LINEAR_AXIS_REL_TOL)
     oblique = transverse > direction_tol
-    if oblique and min(magnitudes) > direction_tol:
+    if oblique and _linear_projection_view(measurable) is None:
         return (
             measurable,
             "?",

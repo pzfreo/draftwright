@@ -547,14 +547,23 @@ def _compose_anno_boxes(
         view_hint = getattr(feature, "view", None)
         side_hint = getattr(feature, "side", None)
         angular_reference = getattr(feature, "angular_reference", None)
+        target_view = authored_dimension_target_view(
+            kind,
+            axis,
+            view_hint,
+            side_hint,
+            angular_reference,
+            getattr(feature, "ref_pts", ()),
+        )
         if view_hint is None and side_hint is None and angular_reference is None:
-            if kind not in ("diameter", "radius", "angular") and axis == "Z":
+            if kind == "linear" and axis == "?" and target_view is not None:
+                pass
+            elif kind not in ("diameter", "radius", "angular") and axis == "Z":
                 _reserve("front", "left")
                 _reserve("front", "right")
-            continue
-        target_view = authored_dimension_target_view(
-            kind, axis, view_hint, side_hint, angular_reference
-        )
+                continue
+            else:
+                continue
         if target_view is None:
             continue
         if angular_reference is not None:
@@ -563,6 +572,8 @@ def _compose_anno_boxes(
         sides: tuple[str, ...]
         if side_hint is not None:
             sides = (side_hint,)
+        elif kind == "linear" and axis == "?":
+            sides = ("above", "below", "left", "right")
         elif kind in ("diameter", "radius") or axis == "X":
             sides = ("above", "below")
         elif axis == "Z":

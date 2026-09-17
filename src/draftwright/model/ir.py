@@ -79,6 +79,23 @@ def validate_placement_intent(view: str | None, side: str | None, *, owner: str)
         raise ValueError(f"{owner} side must be one of {sorted(PLACEMENT_SIDES)} (got {side!r})")
 
 
+def _linear_projection_view(ref_pts) -> str | None:
+    """Return the principal view that preserves an exact two-point oblique span."""
+    if len(ref_pts) != 2:
+        return None
+    delta = tuple(right - left for left, right in zip(*ref_pts, strict=True))
+    if hypot(*delta) <= 1e-9:
+        return None
+    primary = max(abs(component) for component in delta)
+    projection_tolerance = max(0.005, primary * 1e-3)
+    zeros = [
+        index for index, component in enumerate(delta) if abs(component) <= projection_tolerance
+    ]
+    if len(zeros) != 1:
+        return None
+    return ("side", "front", "plan")[zeros[0]]
+
+
 def validate_authored_dimension_placement(
     dimension_kind: str,
     dominant_axis: str,
@@ -88,6 +105,7 @@ def validate_authored_dimension_placement(
     owner: str,
     angular_reference: AngularReference | None = None,
     cylindrical_refs=(),
+    ref_pts=(),
 ) -> None:
     """Reject a view/side pair for which the authored-dimension renderer has no candidate."""
     validate_placement_intent(view, side, owner=owner)
@@ -129,6 +147,15 @@ def validate_authored_dimension_placement(
             valid_pairs = ((end_view, "right"), (end_view, "left"))
         else:
             valid_pairs = () if end_view is None else ((end_view, "above"), (end_view, "below"))
+    elif dominant_axis == "?" and dimension_kind == "linear":
+        projection = _linear_projection_view(ref_pts)
+        valid_pairs = (
+            ()
+            if projection is None
+            else tuple(
+                (projection, candidate) for candidate in ("above", "below", "right", "left")
+            )
+        )
     else:
         valid_pairs = {
             "X": (("front", "above"), ("front", "below")),
@@ -157,6 +184,7 @@ def authored_dimension_target_view(
     view: str | None,
     side: str | None,
     angular_reference: AngularReference | None = None,
+    ref_pts=(),
 ) -> str | None:
     """Resolve the principal view selected by an explicit measured-dimension hint.
 
@@ -169,6 +197,8 @@ def authored_dimension_target_view(
         return view
     if dimension_kind == "angular" and angular_reference is not None:
         return {"X": "side", "Y": "front", "Z": "plan"}.get(angular_reference.principal_axis)
+    if dimension_kind == "linear" and dominant_axis == "?":
+        return _linear_projection_view(ref_pts)
     if side is None:
         return None
     if dimension_kind in ("diameter", "radius"):
@@ -3366,6 +3396,7 @@ class AuthoredDimension:
             owner="authored dimension",
             angular_reference=self.angular_reference,
             cylindrical_refs=self.cylindrical_refs,
+            ref_pts=self.ref_pts,
         )
 
     @property

@@ -268,6 +268,62 @@ def test_render_gate_distinguishes_correlation_from_geometry_blockers():
     assert [issue.source_ids for issue in unresolved] == [("dimension:geometry-blocked",)]
 
 
+def test_oblique_linear_support_renders_its_exact_projected_span():
+    from build123d import Box
+
+    from draftwright import Sheet
+    from draftwright.compose import _compose_anno_boxes
+    from draftwright.sheet_emit import emit_sheet_script
+
+    # The 0.001 mm out-of-plane component is transfer noise within the extractor's shared
+    # projection tolerance. The same predicate must route declaration, compose, and render.
+    stations = ((0.0, 10.0, 5.0), (0.001, -2.0, 21.0))
+    sheet = Sheet(Box(40, 40, 40), number="oblique-linear").authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=20,
+        label="20 ±0.2",
+        dominant_axis="?",
+        ref_pts=stations,
+        source_id="dimension:oblique-linear",
+    )
+    reserved_sides = {box.side for box in _compose_anno_boxes(sheet.model(), n_steps=0)}
+    assert {"side_above", "side_below", "side_right", "left"} <= reserved_sides
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == "dimension:oblique-linear"
+    )
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.view_of(names[0]) == "side"
+    annotation = drawing.registry.named(names[0])
+    assert annotation.label == "20 ±0.2"
+    assert annotation._dw_spec.p1[0] != pytest.approx(annotation._dw_spec.p2[0])
+    assert annotation._dw_spec.p1[1] != pytest.approx(annotation._dw_spec.p2[1])
+    assert not [
+        issue for issue in drawing.lint() if "dimension:oblique-linear" in issue.source_ids
+    ]
+
+    source = emit_sheet_script(
+        sheet.model(), "part", "oblique-linear", title="P", number="oblique-linear"
+    )
+    namespace = {"part": Box(40, 40, 40)}
+    exec(  # noqa: S102
+        compile(source[: source.index("drawing = sheet.build()")], "<oblique-linear>", "exec"),
+        namespace,
+    )
+    restored = next(
+        candidate
+        for candidate in namespace["sheet"].model().features
+        if getattr(candidate, "source_id", "") == "dimension:oblique-linear"
+    )
+    assert restored.ref_pts == stations
+    assert (restored.view, restored.side) == (None, None)
+
+
 def test_linear_witness_uses_stations_while_bbox_supplies_only_transverse_support():
     def identity(value):
         return value

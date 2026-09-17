@@ -86,6 +86,7 @@ from draftwright.model.ir import (
     StepFeature,
     StepLevelFeature,
     ThroughStepFeature,
+    _linear_projection_view,
     validate_authored_dimension_placement,
 )
 
@@ -2594,7 +2595,8 @@ def measured_dimension(
         unresolved_import = dom == "?" and imported_blocked
         unresolved_bore = dom == "?" and dim_kind in ("diameter", "radius") and bbox is not None
         projected_cylinder = dom == "?" and dim_kind == "diameter" and bool(cylinders)
-        if not (unresolved_import or unresolved_bore or projected_cylinder):
+        projected_linear = dom == "?" and dim_kind == "linear" and _linear_projection_view(pts)
+        if not (unresolved_import or unresolved_bore or projected_cylinder or projected_linear):
             raise ValueError("measured_dimension() dominant_axis must be X, Y, or Z")
     validate_authored_dimension_placement(
         dim_kind,
@@ -2604,6 +2606,7 @@ def measured_dimension(
         owner="measured_dimension()",
         angular_reference=angular_reference,
         cylindrical_refs=cylinders,
+        ref_pts=pts,
     )
     cylinder_axes = {reference.principal_axis for reference in cylinders}
     if cylinders and (len(cylinder_axes) != 1 or "?" in cylinder_axes):

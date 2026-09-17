@@ -143,6 +143,7 @@ from draftwright.model.ir import (
     PocketFeature,
     SlotFeature,
     ThreadRequirement,
+    _linear_projection_view,
     authored_dimension_target_view,
 )
 from draftwright.view_plan import views_showing
@@ -7097,6 +7098,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
         getattr(rec, "view", None),
         getattr(rec, "side", None),
         getattr(rec, "angular_reference", None),
+        getattr(rec, "ref_pts", ()),
     )
     if selected_view is not None:
         view = selected_view
@@ -7508,6 +7510,91 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
         "perp": perp,
         "order": (_PMI_SUBCHAIN, order_coord, name),
     }
+
+
+def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
+    """Place an exact projected span parallel to its two authored witness stations."""
+    if strip is None:
+        return None
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    if length <= 1e-6:
+        return None
+    normal = (dy / length, -dx / length)
+    toward = {
+        "above": (0.0, 1.0),
+        "below": (0.0, -1.0),
+        "right": (1.0, 0.0),
+        "left": (-1.0, 0.0),
+    }[side]
+    if normal[0] * toward[0] + normal[1] * toward[1] < 0:
+        normal = (-normal[0], -normal[1])
+    axis = "y" if side in ("above", "below") else "x"
+    component = normal[1] if axis == "y" else normal[0]
+    if abs(component) <= 1e-6:
+        return None
+    midpoint = (
+        (p1[0] + p2[0]) / 2,
+        (p1[1] + p2[1]) / 2,
+    )
+    coordinate = midpoint[1] if axis == "y" else midpoint[0]
+    lo, hi, _inner = strip_free_span(strip)
+    if side in ("above", "right") and hi <= coordinate:
+        return None
+    if side in ("below", "left") and lo >= coordinate:
+        return None
+
+    def _build(pos, _component=component, _coordinate=coordinate):
+        distance = abs((pos - _coordinate) / _component)
+        return _dim(p1, p2, side, max(distance, 1e-6), draft, label=label)
+
+    perp = tuple(sorted((p1[0], p2[0]))) if axis == "y" else tuple(sorted((p1[1], p2[1])))
+    return {
+        "name": name,
+        "build": _build,
+        "strip": strip,
+        "view": view,
+        "side": side,
+        "axis": axis,
+        "perp": perp,
+        "order": (_PMI_SUBCHAIN, min(perp), name),
+    }
+
+
+def _oblique_linear_specs(a, rec, label, name, draft):
+    if len(rec.ref_pts) != 2:
+        return []
+    first, second = rec.ref_pts
+    projection_view = _linear_projection_view(rec.ref_pts)
+    if projection_view == "side":
+        view, zones = "side", a.sv_zones
+        p1 = (a.proj.side_x(first[1]), a.proj.side_z(first[2]), 0)
+        p2 = (a.proj.side_x(second[1]), a.proj.side_z(second[2]), 0)
+    elif projection_view == "front":
+        view, zones = "front", a.fv_zones
+        p1 = (a.proj.front_x(first[0]), a.proj.front_z(first[2]), 0)
+        p2 = (a.proj.front_x(second[0]), a.proj.front_z(second[2]), 0)
+    elif projection_view == "plan":
+        view, zones = "plan", a.pv_zones
+        p1 = (a.proj.plan_x(first[0]), a.proj.plan_y(first[1]), 0)
+        p2 = (a.proj.plan_x(second[0]), a.proj.plan_y(second[1]), 0)
+    else:
+        return []
+    if rec.view is not None and rec.view != view:
+        return []
+    if rec.side is not None:
+        sides = (rec.side,)
+    else:
+        page_dx, page_dy = p2[0] - p1[0], p2[1] - p1[1]
+        sides = (
+            ("right", "left", "above", "below")
+            if abs(page_dy) >= abs(page_dx)
+            else ("above", "below", "right", "left")
+        )
+    return [
+        _oblique_pmi_dim_spec(p1, p2, getattr(zones, side), label, name, view, side, draft)
+        for side in sides
+    ]
 
 
 def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
@@ -8014,6 +8101,16 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
                     label,
                     rec,
                 )
+
+    elif rec.pmi_kind == "linear" and ax == "?":
+        placed = _pmi_queue_options(
+            dwg,
+            ctx,
+            _oblique_linear_specs(a, rec, label, f"pmi_oblique_{idx}", draft),
+            ax,
+            label,
+            rec,
+        )
 
     elif ax == "X":
         placed = _pmi_front_linear(dwg, a, ctx, rec, ax, label, name_x, "above", "below", a.FV_Y)
