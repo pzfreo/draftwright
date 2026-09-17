@@ -7582,6 +7582,7 @@ def _oblique_linear_specs(a, rec, label, name, draft):
         return []
     if rec.view is not None and rec.view != view:
         return []
+    sides: tuple[str, ...]
     if rec.side is not None:
         sides = (rec.side,)
     else:
@@ -7625,6 +7626,7 @@ def _oblique_cylinder_leader_specs(a, rec, label, name, draft):
     cylinders = tuple(getattr(rec, "cylindrical_refs", ()))
     if not cylinders:
         return []
+    sides: tuple[str, ...]
     reference = cylinders[0]
     dx, dy, dz = reference.axis_direction
     cx, cy, cz = reference.midpoint
@@ -8021,7 +8023,7 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
                 label,
                 rec,
             )
-            return placed
+            return bool(placed)
         # Bore size: a diameter spans centroid ± value/2; a radius runs centroid → +value
         # (#1208). See `_bore_span_offsets`.
         info = _bore_info(rec)
