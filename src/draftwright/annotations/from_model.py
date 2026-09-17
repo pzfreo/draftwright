@@ -285,6 +285,9 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     callout.label = " ".join(terms)
     callout.measurements = tuple(spec.get("measurements", ()))
     callout.source_ids = tuple(spec.get("source_ids", ()))
+    callout.source_measurements = tuple(spec.get("source_measurements", ()))
+    callout.geometry_measurements = tuple(spec.get("geometry_measurements", ()))
+    callout.geometry_qualifiers = tuple(spec.get("geometry_qualifiers", ()))
     callout.source_features = tuple(spec.get("source_features", ()))
     callout.covers_hole_requirements = tuple(
         requirement

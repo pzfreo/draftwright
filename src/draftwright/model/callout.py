@@ -101,7 +101,14 @@ def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutB
                 tuple(
                     (name, value)
                     for name, value in spec.items()
-                    if name not in {"count", "measurements"}
+                    if name
+                    not in {
+                        "count",
+                        "measurements",
+                        "source_measurements",
+                        "geometry_measurements",
+                        "geometry_qualifiers",
+                    }
                 ),
             )
             if compatible
@@ -129,6 +136,23 @@ def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutB
         spec["measurements"] = tuple(
             identity for entry in batch for identity in entry[3]["measurements"]
         )
+        spec["source_measurements"] = tuple(
+            relation for entry in batch for relation in entry[3]["source_measurements"]
+        )
+        spec["geometry_measurements"] = tuple(
+            identity for entry in batch for identity in entry[3]["geometry_measurements"]
+        )
+        geometry_qualifiers = list(
+            dict.fromkeys(
+                qualifier
+                for entry in batch
+                for qualifier in entry[3]["geometry_qualifiers"]
+                if qualifier != "grouping.count"
+            )
+        )
+        if count > 1:
+            geometry_qualifiers.append("grouping.count")
+        spec["geometry_qualifiers"] = tuple(geometry_qualifiers)
         spec["source_ids"] = tuple(
             dict.fromkeys(source for entry in batch for source in entry[3].get("source_ids", ()))
         )
@@ -425,6 +449,20 @@ def _callout_measurements(group: DimensionGroup) -> tuple[DimensionId, ...]:
     return tuple(DimensionId(group.feature, pd.param.parameter_id) for pd in planned)
 
 
+def _callout_measurement_provenance(
+    group: DimensionGroup, measurements: tuple[DimensionId, ...]
+) -> tuple[tuple[tuple[str, DimensionId], ...], tuple[DimensionId, ...]]:
+    """Partition printed measurements into source-owned and geometry-derived claims."""
+    parameters = {pd.param.parameter_id: pd.param for pd in group.dims}
+    sourced = tuple(
+        (source_id, measurement)
+        for measurement in measurements
+        for source_id in parameters[measurement.parameter].source_ids
+    )
+    owned = {measurement for _source_id, measurement in sourced}
+    return sourced, tuple(measurement for measurement in measurements if measurement not in owned)
+
+
 def hole_callout_suffix(spec: dict, tolerance_suffix=lambda _value: "") -> str | None:
     """Format the riders shared by callout rendering and width estimation.
 
@@ -555,6 +593,10 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         if thread_depth_pd is None or thread_depth_pd.suppressed
         else float(thread_depth_pd.param.value)
     )
+    measurements = _callout_measurements(group)
+    source_measurements, geometry_measurements = _callout_measurement_provenance(
+        group, measurements
+    )
     spec = {
         "diameter": bore,
         "diameter_decimals": _display_decimals(group, "diameter", "bore"),
@@ -595,7 +637,23 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         # Exact compiler identities printed by this compound callout. Count and THRU are
         # non-dimensional facts carried separately as structured callout coverage; neither
         # rendered text nor an invented dimensional identity certifies them.
-        "measurements": _callout_measurements(group),
+        "measurements": measurements,
+        # A compound callout may mix an imported diameter with geometry-derived depth or
+        # THRU/count text. Keep those claims separately inspectable instead of letting the
+        # annotation-wide source_ids imply that every visible term came from AP242 PMI.
+        "source_measurements": source_measurements,
+        "geometry_measurements": geometry_measurements,
+        "geometry_qualifiers": tuple(
+            requirement
+            for requirement, shown in (
+                (
+                    "bore.through",
+                    hole.through and bool(resolved_through_indicator(hole)),
+                ),
+                ("grouping.count", bool(count and count > 1)),
+            )
+            if shown
+        ),
         # Exact imported source(s) whose typed rider is printed by this compound callout.
         # For a pattern the rider lives on ``member`` above, while its measurements belong
         # to the pattern owner; carrying the source here preserves that intentional split.

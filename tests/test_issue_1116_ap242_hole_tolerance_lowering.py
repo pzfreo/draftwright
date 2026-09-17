@@ -163,6 +163,12 @@ def test_independent_equal_requirements_keep_per_member_source_identity():
         ("dimension:first",),
         ("dimension:second",),
     ]
+    assert [
+        tuple(source_id for source_id, _measurement in batch.spec["source_measurements"])
+        for batch in batches
+    ] == [("dimension:first",), ("dimension:second",)]
+    assert all(not batch.spec["geometry_measurements"] for batch in batches)
+    assert all(batch.spec["geometry_qualifiers"] == ("bore.through",) for batch in batches)
 
 
 def test_pattern_wide_requirement_preserves_pattern_identity_and_membership():

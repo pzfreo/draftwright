@@ -119,6 +119,9 @@ def _profiled_callout_leader(*, callout, **kw):
     )
     leader.source_features = tuple(getattr(callout, "source_features", ()))
     leader.source_ids = tuple(getattr(callout, "source_ids", ()))
+    leader.source_measurements = tuple(getattr(callout, "source_measurements", ()))
+    leader.geometry_measurements = tuple(getattr(callout, "geometry_measurements", ()))
+    leader.geometry_qualifiers = tuple(getattr(callout, "geometry_qualifiers", ()))
     return leader
 
 
