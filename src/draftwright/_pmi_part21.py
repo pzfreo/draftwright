@@ -172,6 +172,20 @@ class ManufacturingRequirementFact:
     reason: str = ""
 
 
+@dataclass(frozen=True)
+class SurfaceLabelFact:
+    """One descriptive label authored against an exact surface-group shape aspect."""
+
+    entity_id: str
+    text: str
+    shape_aspect_id: str = ""
+    representation_id: str = ""
+    descriptive_item_id: str = ""
+    callout_ids: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
+    reason: str = ""
+
+
 def _entities(instance) -> tuple:
     if instance is None:
         return ()
@@ -451,6 +465,122 @@ def read_manufacturing_requirements(
                 descriptive_item_id=descriptive_item_id,
                 callout_ids=tuple(dict.fromkeys(callout_ids)),
                 shape_aspect_ids=shape_aspect_ids,
+                reference_item_ids=reference_item_ids,
+                reason="; ".join(dict.fromkeys(reasons)),
+            )
+        )
+    return tuple(facts)
+
+
+def read_surface_labels(step_file: str | Path) -> tuple[SurfaceLabelFact, ...]:
+    """Read descriptive NOTE labels and their exact authored geometry associations."""
+    step = _readfile(step_file)
+    properties: list[tuple[str, str]] = []
+    representations: dict[str, list[str]] = {}
+    note_aspects: set[str] = set()
+    aspect_items: dict[str, list[str]] = {}
+    association_callouts: dict[str, list[str]] = {}
+
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            aspect = _entity_named(instance, "SHAPE_ASPECT")
+            if (
+                aspect is not None
+                and len(aspect.params) >= 2
+                and _text(aspect.params[1]) == "NOTE"
+            ):
+                note_aspects.add(entity_id)
+
+            definition = _entity_named(instance, "PROPERTY_DEFINITION")
+            if definition is not None and len(definition.params) >= 3:
+                target = definition.params[2]
+                if isinstance(target, p21.Reference):
+                    properties.append((entity_id, str(target)))
+
+            relationship = _entity_named(instance, "PROPERTY_DEFINITION_REPRESENTATION")
+            if relationship is not None and len(relationship.params) >= 2:
+                definition_ref, representation_ref = relationship.params[:2]
+                if isinstance(definition_ref, p21.Reference) and isinstance(
+                    representation_ref, p21.Reference
+                ):
+                    representations.setdefault(str(definition_ref), []).append(
+                        str(representation_ref)
+                    )
+
+            usage = _entity_named(instance, "GEOMETRIC_ITEM_SPECIFIC_USAGE")
+            if usage is not None and len(usage.params) >= 5:
+                aspect_ref = usage.params[2]
+                if isinstance(aspect_ref, p21.Reference):
+                    aspect_items.setdefault(str(aspect_ref), []).extend(
+                        _references(usage.params[4])
+                    )
+
+            association = _entity_named(instance, "DRAUGHTING_MODEL_ITEM_ASSOCIATION")
+            if association is not None and len(association.params) >= 5:
+                subject = association.params[2]
+                if isinstance(subject, p21.Reference):
+                    association_callouts.setdefault(str(subject), []).extend(
+                        ref
+                        for ref in _references(association.params[4])
+                        if _instance_is(step, ref, "DRAUGHTING_CALLOUT")
+                    )
+
+    facts = []
+    for entity_id, aspect_id in properties:
+        if aspect_id not in note_aspects:
+            continue
+        reasons: list[str] = []
+        representation_ids = tuple(dict.fromkeys(representations.get(entity_id, ())))
+        representation_id = representation_ids[0] if len(representation_ids) == 1 else ""
+        if len(representation_ids) != 1:
+            reasons.append(f"surface label has {len(representation_ids)} linked representations")
+
+        descriptive_ids: tuple[str, ...] = ()
+        if representation_id:
+            representation = _entity_named(step.get(representation_id), "REPRESENTATION")
+            if representation is None or len(representation.params) < 2:
+                reasons.append(
+                    f"linked representation {representation_id} is unavailable or malformed"
+                )
+            else:
+                descriptive_ids = tuple(
+                    dict.fromkeys(
+                        ref
+                        for ref in _references(representation.params[1])
+                        if _instance_is(step, ref, "DESCRIPTIVE_REPRESENTATION_ITEM")
+                    )
+                )
+        descriptive_item_id = descriptive_ids[0] if len(descriptive_ids) == 1 else ""
+        if representation_id and len(descriptive_ids) != 1:
+            reasons.append(f"linked representation has {len(descriptive_ids)} descriptive items")
+
+        text = ""
+        if descriptive_item_id:
+            item = _entity_named(step.get(descriptive_item_id), "DESCRIPTIVE_REPRESENTATION_ITEM")
+            if item is None or len(item.params) < 2:
+                reasons.append(f"descriptive item {descriptive_item_id} is malformed")
+            else:
+                text = _text(item.params[1])
+                if not text:
+                    reasons.append("surface label has no authoritative text")
+
+        property_callouts = set(association_callouts.get(entity_id, ()))
+        aspect_callouts = set(association_callouts.get(aspect_id, ()))
+        callout_ids = tuple(sorted(property_callouts & aspect_callouts))
+        if not callout_ids:
+            reasons.append("surface label has no shared semantic/presentation callout")
+        reference_item_ids = tuple(dict.fromkeys(aspect_items.get(aspect_id, ())))
+        if not reference_item_ids:
+            reasons.append("surface label shape aspect has no representation items")
+
+        facts.append(
+            SurfaceLabelFact(
+                entity_id=entity_id,
+                text=text,
+                shape_aspect_id=aspect_id,
+                representation_id=representation_id,
+                descriptive_item_id=descriptive_item_id,
+                callout_ids=callout_ids,
                 reference_item_ids=reference_item_ids,
                 reason="; ".join(dict.fromkeys(reasons)),
             )

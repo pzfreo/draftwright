@@ -10,6 +10,7 @@ from draftwright._pmi_part21 import (
     DatumOccurrenceFact,
     GeometricToleranceFact,
     ManufacturingRequirementFact,
+    SurfaceLabelFact,
     match_datum_occurrence,
     match_dimension_display,
     match_geometric_tolerance,
@@ -19,6 +20,7 @@ from draftwright._pmi_part21 import (
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
+    read_surface_labels,
 )
 
 CTC01 = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
@@ -73,6 +75,12 @@ def _read_requirements(tmp_path, name: str, *instances: str):
     return read_manufacturing_requirements(step)
 
 
+def _read_surface_labels(tmp_path, name: str, *instances: str):
+    step = tmp_path / f"{name}.step"
+    step.write_text(_step(*instances), encoding="utf-8")
+    return read_surface_labels(step)
+
+
 def test_part21_read_session_reuses_one_parse_and_does_not_leak(tmp_path, monkeypatch):
     import draftwright._pmi_part21 as part21
 
@@ -89,6 +97,7 @@ def test_part21_read_session_reuses_one_parse_and_does_not_leak(tmp_path, monkey
     with part21.part21_read_session():
         assert read_geometric_tolerances(step) == ()
         assert read_datum_definitions(step) == ()
+        assert read_surface_labels(step) == ()
     assert read_geometric_tolerances(step) == ()
 
     assert calls == [step, step]
@@ -189,6 +198,52 @@ def test_ctc01_datum_occurrences_preserve_context_and_feature_identity():
 
 def test_ctc01_has_no_custom_manufacturing_requirement_properties():
     assert read_manufacturing_requirements(CTC01) == ()
+
+
+def test_ctc01_surface_labels_preserve_text_and_exact_geometry_chain():
+    assert read_surface_labels(CTC01) == (
+        SurfaceLabelFact(
+            entity_id="#4340",
+            text="B",
+            shape_aspect_id="#316",
+            representation_id="#4325",
+            descriptive_item_id="#4349",
+            callout_ids=("#621",),
+            reference_item_ids=("#1850",),
+        ),
+        SurfaceLabelFact(
+            entity_id="#4341",
+            text="A",
+            shape_aspect_id="#317",
+            representation_id="#4326",
+            descriptive_item_id="#4350",
+            callout_ids=("#622",),
+            reference_item_ids=("#1844",),
+        ),
+    )
+
+
+def test_surface_label_missing_associations_remain_explicit(tmp_path):
+    (fact,) = _read_surface_labels(
+        tmp_path,
+        "incomplete-surface-label",
+        "#1=SHAPE_ASPECT('','NOTE',#99,.F.);",
+        "#2=PROPERTY_DEFINITION('',$,#1);",
+        "#3=REPRESENTATION('',(),#98);",
+        "#4=PROPERTY_DEFINITION_REPRESENTATION(#2,#3);",
+    )
+
+    assert fact == SurfaceLabelFact(
+        entity_id="#2",
+        text="",
+        shape_aspect_id="#1",
+        representation_id="#3",
+        reason=(
+            "linked representation has 0 descriptive items; "
+            "surface label has no shared semantic/presentation callout; "
+            "surface label shape aspect has no representation items"
+        ),
+    )
 
 
 def test_manufacturing_requirement_preserves_authoritative_text_and_geometry_chain(tmp_path):

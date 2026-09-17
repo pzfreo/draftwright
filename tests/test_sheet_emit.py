@@ -435,6 +435,10 @@ class TestEmit:
         assert "sheet.add(PmiFeature(" in src
         assert "sheet.add(ControlFrame(" in src
         assert src.count("sheet.add(DatumRef(") == 3
+        assert src.count("sheet.add(Note(") == 2
+        assert "text='A'" in src and "text='B'" in src
+        assert "source_id='surface_label:#4340'" in src
+        assert "source_id='surface_label:#4341'" in src
         assert all(
             f"letter={letter!r}" in src and f"part21_id={part21_id!r}" in src
             for letter, part21_id in (("A", "#34"), ("B", "#35"), ("C", "#36"))
@@ -449,7 +453,8 @@ class TestEmit:
             ln for ln in src.splitlines() if ln.startswith("from draftwright.model")
         )
         assert all(
-            name in import_line for name in ("ControlFrame", "DatumRef", "Frame", "PmiFeature")
+            name in import_line
+            for name in ("ControlFrame", "DatumRef", "Frame", "Note", "PmiFeature")
         )
         assert "StepLevelFeature" not in import_line
 
@@ -591,6 +596,58 @@ class TestEmit:
         )
         assert restored.semantic_name == "probe requirement"
         assert restored.shape_aspect_ids == ("#456",)
+
+    def test_imported_surface_label_round_trips_nested_pmi_provenance(self):
+        import dataclasses
+
+        from draftwright.builder import detect_part_model
+        from draftwright.model import Frame, Note, PmiFeature
+        from draftwright.sheet_emit import emit_sheet_script
+
+        part = Box(40, 20, 10)
+        model = detect_part_model(part)
+        source = PmiFeature(
+            frame=Frame((20.0, 0.0, 0.0), "z"),
+            pmi_kind="surface_label",
+            value=0.0,
+            label="A",
+            dominant_axis="Z",
+            ref_bbox=(20.0, -10.0, -5.0, 20.0, 10.0, 5.0),
+            ref_pts=((20.0, 0.0, 0.0),),
+            source_id="surface_label:#10",
+            part21_id="#10",
+            source_category="surface_label",
+            reference_item_ids=("#12",),
+            shape_aspect_ids=("#11",),
+        )
+        label = Note(
+            frame=source.frame,
+            text="A",
+            view="front",
+            side="above",
+            origin=source,
+            source_id=source.source_id,
+            source_ids=(source.source_id,),
+            part21_id=source.part21_id,
+        )
+        model = dataclasses.replace(model, features=[*model.features, label])
+
+        src = emit_sheet_script(model, "part", "surface-label", title="P", number="N")
+        namespace = {"part": part}
+        body = src[: src.index("drawing = sheet.build()")]
+        exec(compile(body, "<surface-label-emit>", "exec"), namespace)  # noqa: S102
+        restored = next(
+            feature
+            for feature in namespace["sheet"].model().features
+            if isinstance(feature, Note) and feature.source_id == label.source_id
+        )
+
+        assert restored.text == "A"
+        assert restored.source_ids == ("surface_label:#10",)
+        assert restored.part21_id == "#10"
+        assert isinstance(restored.origin, PmiFeature)
+        assert restored.origin.reference_item_ids == ("#12",)
+        assert restored.origin.shape_aspect_ids == ("#11",)
 
     def test_measured_dimension_rejects_unrenderable_kind(self):
         from draftwright import Sheet

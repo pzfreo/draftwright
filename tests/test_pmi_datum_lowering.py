@@ -213,6 +213,23 @@ def test_datum_topology_resolution_rejects_two_definitions_claiming_one_face(mon
     assert any("already claimed by datum feature #36" in reason for reason in reasons)
 
 
+def test_surface_labels_may_share_one_exact_imported_edge(monkeypatch):
+    imported = _Face("shared-edge")
+    reader = _StepReader(
+        {"#1850": 7},
+        {7: imported},
+        entity_type="StepShape_EdgeCurve",
+    )
+    monkeypatch.setattr(pmi_module, "TopAbs_EDGE", "face")
+    resolver = pmi_module._SurfaceLabelTopologyResolver(reader, _ImportedFaces(imported))
+
+    first, first_reasons = resolver.resolve("#316", ("#1850",), noun="surface label")
+    second, second_reasons = resolver.resolve("#317", ("#1850",), noun="surface label")
+
+    assert first_reasons == second_reasons == ()
+    assert first == second == (imported,)
+
+
 def test_unresolved_datum_geometry_remains_one_provenance_rich_raw_definition():
     blocker = "referenced geometry is unavailable"
     (feature,) = build_pmi_features(

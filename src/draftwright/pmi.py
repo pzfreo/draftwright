@@ -43,6 +43,7 @@ from draftwright._pmi_part21 import (
     read_dimension_length_factor,
     read_geometric_tolerances,
     read_manufacturing_requirements,
+    read_surface_labels,
 )
 from draftwright.model.ir import AngularReference, CylindricalReference
 
@@ -54,7 +55,7 @@ _log = logging.getLogger(__name__)
 
 try:
     from OCP.Bnd import Bnd_Box
-    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
     from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
     from OCP.gp import gp_Trsf
@@ -63,7 +64,7 @@ try:
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
-    from OCP.TopAbs import TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED
     from OCP.TopExp import TopExp
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
@@ -193,7 +194,11 @@ _GTOL_MATERIAL_REQUIREMENT = {
 # ---------------------------------------------------------------------------
 
 PmiSourceCategory = Literal[
-    "dimension", "geometric_tolerance", "datum", "manufacturing_requirement"
+    "dimension",
+    "geometric_tolerance",
+    "datum",
+    "manufacturing_requirement",
+    "surface_label",
 ]
 
 
@@ -203,7 +208,8 @@ class PmiRecord:
 
     Attributes:
         kind:           Human-readable category (``"linear"``, ``"diameter"``,
-                        ``"angular"``, ``"gtol"``, ``"datum"``, ``"external_thread"``).
+                        ``"angular"``, ``"gtol"``, ``"datum"``, ``"surface_label"``,
+                        ``"external_thread"``).
         type_code:      Raw OCCT enum integer.
         value:          Nominal value in mm (or degrees for angular).
         upper_tol:      Upper tolerance in mm, or ``None``.
@@ -985,6 +991,14 @@ class _DatumTopologyResolver:
     imported topology; no geometric comparison participates in correspondence.
     """
 
+    _dynamic_type = "StepShape_AdvancedFace"
+    _part21_noun = "advanced face"
+    _shape_noun = "face"
+    _exclusive_claims = True
+
+    def _expected_shape_type(self):
+        return TopAbs_FACE
+
     def __init__(self, step_reader, imported_faces):
         self._reader = step_reader
         self._model = step_reader.StepModel()
@@ -1001,8 +1015,8 @@ class _DatumTopologyResolver:
         if rank <= 0:
             return None, f"Part21 representation item {item_id} is unavailable"
         entity = self._model.Value(rank)
-        if entity.DynamicType().Name() != "StepShape_AdvancedFace":
-            return None, f"Part21 representation item {item_id} is not an advanced face"
+        if entity.DynamicType().Name() != self._dynamic_type:
+            return None, f"Part21 representation item {item_id} is not an {self._part21_noun}"
         before = self._reader.NbShapes()
         try:
             transferred = self._reader.TransferOne(rank)
@@ -1015,12 +1029,15 @@ class _DatumTopologyResolver:
         if not transferred or after != before + 1:
             return None, f"Part21 representation item {item_id} could not be transferred"
         shape = self._reader.Shape(after)
-        if shape is None or shape.IsNull() or shape.ShapeType() != TopAbs_FACE:
-            return None, f"Part21 representation item {item_id} did not transfer to one face"
+        if shape is None or shape.IsNull() or shape.ShapeType() != self._expected_shape_type():
+            return None, (
+                f"Part21 representation item {item_id} did not transfer to one {self._shape_noun}"
+            )
         face_index = self._imported_faces.FindIndex(shape)
         if face_index <= 0:
             return None, (
-                f"Part21 representation item {item_id} is not a face in the imported topology"
+                f"Part21 representation item {item_id} is not a {self._shape_noun} in the "
+                "imported topology"
             )
         result = (shape, face_index)
         self._items[item_id] = result
@@ -1053,19 +1070,37 @@ class _DatumTopologyResolver:
 
         indices = [face_index for _shape, face_index in resolved]
         if len(set(indices)) != len(indices):
-            return (), ("datum feature representation items resolve to the same imported face",)
-        for face_index in indices:
-            owner = self._claims.get(face_index)
-            if owner is not None and owner != definition_id:
-                reasons.append(f"one imported face is already claimed by {noun} {owner}")
-        if reasons:
-            return (), tuple(dict.fromkeys(reasons))
+            return (), (
+                f"{noun} representation items resolve to the same imported {self._shape_noun}",
+            )
+        if self._exclusive_claims:
+            for face_index in indices:
+                owner = self._claims.get(face_index)
+                if owner is not None and owner != definition_id:
+                    reasons.append(
+                        f"one imported {self._shape_noun} is already claimed by {noun} {owner}"
+                    )
+            if reasons:
+                return (), tuple(dict.fromkeys(reasons))
 
         shapes = tuple(shape for shape, _face_index in resolved)
-        for face_index in indices:
-            self._claims[face_index] = definition_id
+        if self._exclusive_claims:
+            for face_index in indices:
+                self._claims[face_index] = definition_id
         self._definitions[definition_id] = shapes
         return shapes, ()
+
+
+class _SurfaceLabelTopologyResolver(_DatumTopologyResolver):
+    """Resolve surface-label edge items through the same identity-proof boundary."""
+
+    _dynamic_type = "StepShape_EdgeCurve"
+    _part21_noun = "edge curve"
+    _shape_noun = "edge"
+    _exclusive_claims = False
+
+    def _expected_shape_type(self):
+        return TopAbs_EDGE
 
 
 def _datum_letter(label) -> tuple[str, str]:
@@ -1597,6 +1632,62 @@ def _manufacturing_requirement_projection(
     return tuple(sources), tuple(records)
 
 
+def _surface_label_projection(
+    step_file: str | Path,
+) -> tuple[tuple[PmiSourceEntity, ...], tuple[PmiRecord, ...]]:
+    """Build the Part21-only source/record projection for associated descriptive labels."""
+    sources: list[PmiSourceEntity] = []
+    records: list[PmiRecord] = []
+    try:
+        facts = read_surface_labels(step_file)
+    except Exception as exc:
+        reason = f"Part21 surface-label read failed: {_failure_reason(exc)}"
+        return (
+            PmiSourceEntity(
+                source_id="surface_label:part21",
+                category="surface_label",
+                type_code=None,
+                outcome="not_extracted",
+                reason=reason,
+            ),
+        ), ()
+
+    for fact in facts:
+        source_id = f"surface_label:{fact.entity_id}"
+        blockers = (fact.reason,) if fact.reason else ()
+        if fact.text:
+            records.append(
+                PmiRecord(
+                    kind="surface_label",
+                    type_code=None,
+                    value=0.0,
+                    label=fact.text,
+                    source_id=source_id,
+                    part21_id=fact.entity_id,
+                    source_category="surface_label",
+                    lowering_blockers=blockers,
+                    reference_item_ids=fact.reference_item_ids,
+                    shape_aspect_ids=(fact.shape_aspect_id,) if fact.shape_aspect_id else (),
+                )
+            )
+        sources.append(
+            PmiSourceEntity(
+                source_id=source_id,
+                category="surface_label",
+                type_code=None,
+                outcome=(
+                    "partially_extracted"
+                    if fact.text and fact.reason
+                    else "extracted"
+                    if fact.text
+                    else "not_extracted"
+                ),
+                reason=fact.reason,
+            )
+        )
+    return tuple(sources), tuple(records)
+
+
 _CYLINDRICAL_REQUIREMENT_KINDS = frozenset(("external_thread", "internal_thread", "knurl"))
 
 
@@ -1634,6 +1725,54 @@ def _manufacturing_requirement_topology(
     return tuple(projected)
 
 
+def _surface_label_topology(
+    records, step_reader, frame: PartFrame | None = None
+) -> tuple[PmiRecord, ...]:
+    """Attach exact imported edge sites to semantic surface labels."""
+    imported_edges = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_EDGE, imported_edges)
+    resolver = _SurfaceLabelTopologyResolver(step_reader, imported_edges)
+    projected = []
+    for record in records:
+        if record.source_category != "surface_label" or record.lowering_blockers:
+            projected.append(record)
+            continue
+        definition_id = record.shape_aspect_ids[0] if len(record.shape_aspect_ids) == 1 else ""
+        shapes, topology_reasons = resolver.resolve(
+            definition_id, record.reference_item_ids, noun="surface label"
+        )
+        boxes = []
+        witnesses = []
+        geometry_reasons = []
+        for shape in shapes:
+            try:
+                boxes.append(_shape_bbox(shape) if frame is None else _shape_bbox(shape, frame))
+                curve = BRepAdaptor_Curve(TopoDS.Edge_s(shape))
+                first, last = curve.FirstParameter(), curve.LastParameter()
+                if not (math.isfinite(first) and math.isfinite(last)):
+                    raise ValueError("edge has no finite parameter interval")
+                point = curve.Value((first + last) / 2)
+                witnesses.append(_frame_point((point.X(), point.Y(), point.Z()), frame))
+            except Exception as exc:
+                geometry_reasons.append(
+                    f"surface label reference could not be measured ({_failure_reason(exc)})"
+                )
+        ref_bbox = _merge_bboxes(boxes) if boxes else None
+        blockers = tuple(
+            dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
+        )
+        projected.append(
+            replace(
+                record,
+                ref_pts=tuple(witnesses),
+                ref_bbox=ref_bbox,
+                dominant_axis=_dominant_from_bbox(ref_bbox) if ref_bbox is not None else "?",
+                lowering_blockers=blockers,
+            )
+        )
+    return tuple(projected)
+
+
 def _extract_pmi_report(
     step_file: str | Path, *, frame: PartFrame | None = None
 ) -> PmiExtractionReport:
@@ -1654,8 +1793,8 @@ def _extract_pmi_census(
     """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
 
     The report retains one source outcome for every dimension, geometric tolerance,
-    datum-reference occurrence, standalone datum definition, and semantic manufacturing
-    requirement. Graphical
+    datum-reference occurrence, standalone datum definition, associated surface label, and
+    semantic manufacturing requirement. Graphical
     presentation-only dimension labels are inventoried but are not manufacturing requirements.
     Repeated datum occurrences project onto their authored datum-feature definition without
     shrinking the source denominator.
@@ -1663,11 +1802,12 @@ def _extract_pmi_census(
     Returns an empty report (with a report-level error where applicable) when no source
     identities can be recovered and:
 
-    - the file contains neither XCAF GDT data nor semantic manufacturing requirements;
+    - the file contains neither XCAF GDT data nor semantic Part21 annotations;
     - the file uses AP203/AP214 which carry no semantic PMI.
 
-    Part21-only manufacturing requirements remain inventoried even when OCP's GDT support is
-    unavailable or the XCAF transfer fails; the report also retains that global XCAF error.
+    Part21-only manufacturing requirements and surface labels remain inventoried even when
+    OCP's GDT support is unavailable or the XCAF transfer fails; the report also retains that
+    global XCAF error.
 
     Geometry evidence is returned in global STEP coordinates by default. Passing ``frame``
     expresses points, vectors, boxes, cylinders, and datum geometry in that frame's local
@@ -1677,11 +1817,12 @@ def _extract_pmi_census(
     Does **not** modify the solid geometry — purely a read-only second pass.
     """
     requirement_sources, requirement_records = _manufacturing_requirement_projection(step_file)
+    label_sources, label_records = _surface_label_projection(step_file)
 
     def failed(reason: str) -> PmiExtractionReport:
         return PmiExtractionReport(
-            sources=requirement_sources,
-            records=requirement_records,
+            sources=(*requirement_sources, *label_sources),
+            records=(*requirement_records, *label_records),
             error=reason,
         )
 
@@ -1739,6 +1880,21 @@ def _extract_pmi_census(
             if record.kind in _CYLINDRICAL_REQUIREMENT_KINDS
             else record
             for record in requirement_records
+        )
+
+    try:
+        if frame is None:
+            label_records = _surface_label_topology(label_records, reader.Reader())
+        else:
+            label_records = _surface_label_topology(label_records, reader.Reader(), frame)
+    except Exception as exc:
+        reason = f"surface-label topology is unavailable ({_failure_reason(exc)})"
+        label_records = tuple(
+            replace(
+                record,
+                lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
+            )
+            for record in label_records
         )
 
     records: list[PmiRecord] = []
@@ -2057,6 +2213,8 @@ def _extract_pmi_census(
     # transfer failure; append it after XCAF categories to keep the established report order.
     sources.extend(requirement_sources)
     records.extend(requirement_records)
+    sources.extend(label_sources)
+    records.extend(label_records)
 
     semantic_dimensions = sum(
         source.category == "dimension" and source.outcome != "presentation_only"

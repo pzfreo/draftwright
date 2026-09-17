@@ -3425,8 +3425,12 @@ class Note:
     # Canonical ParameterIds whose manufacturing requirements this authored note explicitly
     # carries (#1351). Kept separate from ``parameters()``: the note does not become a
     # dimension, and coverage can distinguish a drawn measurement from an authored semantic
-    # assertion instead of parsing prose.
+    # assertion instead of parsing prose. Imported labels append their source identities so
+    # placement and the AP242 ledger can account for the same note.
     satisfies: tuple[DimensionParameterId, ...] = ()
+    source_id: str = ""
+    source_ids: tuple[str, ...] = ()
+    part21_id: str = ""
     kind: ClassVar[str] = "note"
 
     def __post_init__(self) -> None:

@@ -104,9 +104,11 @@ def test_frame_primitives_distinguish_points_vectors_and_bound_transformed_topol
     assert _shape_bbox(source.wrapped, None) == expected
 
 
-def test_ctc01_angular_supports_follow_the_requested_part_frame():
-    source = next(record for record in extract_pmi(CTC01) if record.kind == "angular")
-    local = next(record for record in extract_pmi(CTC01, frame=FRAME) if record.kind == "angular")
+def test_ctc01_angular_supports_and_surface_labels_follow_the_requested_part_frame():
+    source_records = extract_pmi(CTC01)
+    local_records = extract_pmi(CTC01, frame=FRAME)
+    source = next(record for record in source_records if record.kind == "angular")
+    local = next(record for record in local_records if record.kind == "angular")
 
     assert source.angular_reference is not None
     assert local.angular_reference is not None
@@ -117,6 +119,24 @@ def test_ctc01_angular_supports_follow_the_requested_part_frame():
     assert local.angular_reference.principal_axis == "Y"
     assert source.angular_reference.virtual_vertex is True
     assert local.angular_reference.virtual_vertex is True
+
+    source_labels = {
+        record.source_id: record
+        for record in source_records
+        if record.source_category == "surface_label"
+    }
+    local_labels = {
+        record.source_id: record
+        for record in local_records
+        if record.source_category == "surface_label"
+    }
+    assert local_labels.keys() == source_labels.keys()
+    for source_label, local_label in zip(
+        source_labels.values(), local_labels.values(), strict=True
+    ):
+        assert local_label.label == source_label.label
+        _assert_point(local_label.ref_pts[0], _expected_point(source_label.ref_pts[0]))
+        _assert_bbox(local_label.ref_bbox, _expected_bbox(source_label.ref_bbox))
 
 
 @pytest.mark.parametrize("fixture", [CTC03, GRM03], ids=("ctc03", "grm03"))
