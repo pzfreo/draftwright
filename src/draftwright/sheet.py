@@ -1630,6 +1630,9 @@ class Sheet:
         view: str | None = None,
         side: str | None = None,
         angular_reference=None,
+        angular_references=(),
+        angular_member_ids=(),
+        angular_reference_item_groups=(),
     ) -> _Params:
         """Declare a drafting dimension from explicit **measured** values.
 
@@ -1686,6 +1689,9 @@ class Sheet:
                 view=view,
                 side=side,
                 angular_reference=angular_reference,
+                angular_references=angular_references,
+                angular_member_ids=angular_member_ids,
+                angular_reference_item_groups=angular_reference_item_groups,
             )
         )
         # A handle like every other declaration verb (#922). A measured dimension carries its

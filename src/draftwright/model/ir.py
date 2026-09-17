@@ -3377,6 +3377,9 @@ class AuthoredDimension:
     side: str | None = None
     angular_reference: AngularReference | None = None
     circular_refs: tuple[CircularReference, ...] = ()
+    angular_references: tuple[AngularReference, ...] = ()
+    angular_member_ids: tuple[str, ...] = ()
+    angular_reference_item_groups: tuple[tuple[str, ...], ...] = ()
     kind: ClassVar[str] = "authored_dimension"
 
     def __post_init__(self) -> None:
@@ -3388,13 +3391,69 @@ class AuthoredDimension:
             reference = self.angular_reference
             if self.ref_pts != (reference.first, reference.vertex, reference.second):
                 raise ValueError("angular ref_pts must agree with first, vertex, second")
+        object.__setattr__(self, "angular_references", tuple(self.angular_references))
+        object.__setattr__(self, "angular_member_ids", tuple(self.angular_member_ids))
+        object.__setattr__(
+            self,
+            "angular_reference_item_groups",
+            tuple(tuple(group) for group in self.angular_reference_item_groups),
+        )
+        has_angular_pattern_metadata = bool(
+            self.angular_member_ids or self.angular_reference_item_groups
+        )
+        if has_angular_pattern_metadata and self.dimension_kind != "angular":
+            raise ValueError("angular pattern provenance requires an angular dimension")
+        if has_angular_pattern_metadata and self.angular_reference is not None:
+            raise ValueError("singular angular_reference cannot carry angular pattern provenance")
+        if (
+            self.angular_member_ids
+            and self.angular_reference_item_groups
+            and len(self.angular_member_ids) != len(self.angular_reference_item_groups)
+        ):
+            raise ValueError("angular_member_ids must align with angular_reference_item_groups")
+        if self.angular_references:
+            if self.dimension_kind != "angular":
+                raise ValueError("angular_references require an angular dimension")
+            if self.angular_reference is not None:
+                raise ValueError(
+                    "angular dimension cannot combine singular and pattern references"
+                )
+            if len(self.angular_references) < 2 or not all(
+                isinstance(reference, AngularReference) for reference in self.angular_references
+            ):
+                raise ValueError(
+                    "angular_references require at least two AngularReference members"
+                )
+            count = len(self.angular_references)
+            if self.angular_member_ids and len(self.angular_member_ids) != count:
+                raise ValueError("angular_member_ids must align with angular_references")
+            if (
+                self.angular_reference_item_groups
+                and len(self.angular_reference_item_groups) != count
+            ):
+                raise ValueError(
+                    "angular_reference_item_groups must align with angular_references"
+                )
+            first = self.angular_references[0]
+            if first.principal_axis == "?" or any(
+                reference.principal_axis != first.principal_axis
+                or reference.sector != first.sector
+                or abs(reference.angle_degrees - first.angle_degrees) > 1e-6
+                for reference in self.angular_references[1:]
+            ):
+                raise ValueError(
+                    "angular_references must share one principal projection, sector and angle"
+                )
         validate_authored_dimension_placement(
             self.dimension_kind,
             self.dominant_axis,
             self.view,
             self.side,
             owner="authored dimension",
-            angular_reference=self.angular_reference,
+            angular_reference=(
+                self.angular_reference
+                or (self.angular_references[0] if self.angular_references else None)
+            ),
             cylindrical_refs=self.cylindrical_refs,
             ref_pts=self.ref_pts,
         )

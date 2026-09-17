@@ -115,6 +115,16 @@ class TestExtractPmi:
             "partially_extracted",
             "angular support pattern needs pattern-aware lowering",
         )
+        from draftwright.model.detect import build_pmi_features
+
+        feature = next(
+            feature
+            for feature in build_pmi_features(report.records, Box(500, 800, 100).bounding_box())
+            if getattr(feature, "source_id", "") == record.source_id
+        )
+        assert feature.angular_references == record.angular_references
+        assert feature.angular_member_ids == record.shape_aspect_ids
+        assert feature.angular_reference_item_groups == record.reference_item_groups
 
     def test_conical_angular_supports_fail_closed_for_non_conical_faces(self):
         from draftwright.pmi import _angular_reference_from_shapes

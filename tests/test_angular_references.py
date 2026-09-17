@@ -88,6 +88,43 @@ def test_explicit_reference_survives_executed_sheet_emission(sector):
     assert replayed.angular_reference.angle_degrees == reference.angle_degrees
 
 
+def test_imported_angular_pattern_evidence_survives_executed_sheet_emission():
+    references = (
+        AngularReference((0, 0, 0), (1, 0, 1), (-1, 0, 1), virtual_vertex=True),
+        AngularReference((5, 7, 0), (6, 7, 1), (4, 7, 1), virtual_vertex=True),
+    )
+    original = measured_dimension(
+        kind="angular",
+        value=90,
+        label="90 ±1",
+        dominant_axis="y",
+        ref_pts=(),
+        source="pmi",
+        source_id="dimension:test",
+        lowering_blockers=("angular support pattern needs pattern-aware lowering",),
+        rendering_blockers=("angular support pattern needs pattern-aware lowering",),
+        angular_references=references,
+        angular_member_ids=("#10", "#20"),
+        angular_reference_item_groups=(("#101", "#102"), ("#201", "#202")),
+        view="front",
+        side="above",
+    )
+
+    line = _measured_dimension_line(original)
+    sheet = Sheet(Box(10, 10, 2)).authored_dimensions()
+    namespace = {"sheet": sheet}
+    exec("handle = " + line, namespace)
+    replayed = sheet.model().features[0]
+
+    assert replayed == original
+    assert replayed.angular_references == references
+    assert replayed.angular_member_ids == ("#10", "#20")
+    assert replayed.angular_reference_item_groups == (
+        ("#101", "#102"),
+        ("#201", "#202"),
+    )
+
+
 def test_reference_cannot_disagree_with_generic_stations_or_dimension_kind():
     reference = AngularReference((0, 0, 0), (1, 0, 0), (0, 1, 0))
     arguments = dict(
@@ -108,6 +145,15 @@ def test_reference_cannot_disagree_with_generic_stations_or_dimension_kind():
         replace(valid, dimension_kind="linear")
     with pytest.raises(ValueError, match="ref_pts must agree"):
         replace(valid, ref_pts=((0, 0, 0), (3, 0, 0)))
+    with pytest.raises(ValueError, match="singular angular_reference cannot carry"):
+        measured_dimension(**arguments, angular_member_ids=("#10",))
+    with pytest.raises(ValueError, match="pattern provenance requires an angular"):
+        replace(
+            valid,
+            dimension_kind="linear",
+            angular_reference=None,
+            angular_member_ids=("#10",),
+        )
 
 
 @pytest.mark.parametrize(
