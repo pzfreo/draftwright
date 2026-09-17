@@ -22,6 +22,7 @@ _CTC01_SHA256 = hashlib.sha256(
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 CTC03 = FIXTURES / "nist_ctc_03_asme1_ap242.stp"
+CTC04 = FIXTURES / "nist_ctc_04_asme1_ap242.stp"
 
 pytestmark = pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
 
@@ -76,6 +77,39 @@ class TestExtractPmi:
         assert labels["dimension:0:1:4:44"] == "ø2.00 ±0.01 inch"
         assert labels["dimension:0:1:4:47"] == "0.82 ±0.06 inch"
         assert labels["dimension:0:1:4:48"] == "ø1.065 ±0.003 inch"
+
+    def test_ctc04_angular_source_retains_exact_part21_support_members(self):
+        report = extract_pmi_report(CTC04)
+        record = next(
+            record for record in report.records if record.source_id == "dimension:0:1:4:27"
+        )
+
+        assert record.part21_id == "#19921"
+        assert len(record.shape_aspect_ids) == 30
+        assert tuple(map(len, record.reference_item_groups)) == (2,) * 30
+        assert record.reference_item_groups[:2] == (
+            ("#6254", "#6272"),
+            ("#6202", "#6220"),
+        )
+        assert record.reference_item_groups[-2:] == (
+            ("#7658", "#7676"),
+            ("#7728", "#7710"),
+        )
+
+    def test_ctc01_angular_location_remains_directly_extracted(self, ctc01_extraction_report):
+        source_id = "dimension:0:1:4:17"
+        record = next(
+            record for record in ctc01_extraction_report.records if record.source_id == source_id
+        )
+        source = next(
+            source for source in ctc01_extraction_report.sources if source.source_id == source_id
+        )
+
+        assert record.type_code == 11
+        assert record.angular_reference is not None
+        assert record.part21_id == ""
+        assert source.outcome == "extracted"
+        assert source.reason == ""
 
     def test_authored_display_is_disabled_when_document_unit_normalization_fails(
         self, monkeypatch

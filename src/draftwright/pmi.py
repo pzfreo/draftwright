@@ -2451,7 +2451,9 @@ def _extract_pmi_census(
                 # unnamed dimension cannot be correlated to Part21, but that absence does not
                 # invalidate geometry XCAF did transfer. Once XCAF exposes a presentation
                 # identity, however, require its Part21 association to be unambiguous.
-                if presentation_name and dimension_kind in _LENGTH_DIMENSION_KINDS:
+                if presentation_name and (
+                    dimension_kind in _LENGTH_DIMENSION_KINDS or type_code == 28
+                ):
                     association_reason = dimension_association_error
                     if not association_reason:
                         association_fact, association_reason = match_dimension_association(
