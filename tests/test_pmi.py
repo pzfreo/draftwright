@@ -173,6 +173,57 @@ class TestExtractPmi:
         }
         assert set(affected.values()) == {("extracted", "")}
 
+    def test_ctc04_all_controls_and_affected_datums_lower_with_provenance(
+        self, ctc04_extraction_report
+    ):
+        from draftwright.model import ControlFrame, DatumRef, build_pmi_features
+
+        features = build_pmi_features(
+            ctc04_extraction_report.records, Box(500, 800, 100).bounding_box()
+        )
+        frames = [feature for feature in features if isinstance(feature, ControlFrame)]
+
+        assert [frame.source_id for frame in frames] == [
+            "geometric_tolerance:0:1:4:1",
+            "geometric_tolerance:0:1:4:5",
+            "geometric_tolerance:0:1:4:9",
+            "geometric_tolerance:0:1:4:12",
+            "geometric_tolerance:0:1:4:16",
+            "geometric_tolerance:0:1:4:18",
+        ]
+        assert [frame.datums for frame in frames] == [
+            ("A", "B", "C"),
+            ("D", "E", "F"),
+            ("D", "E"),
+            ("D", "G", "H"),
+            ("D",),
+            ("A", "B", "C"),
+        ]
+        assert [frame.diameter for frame in frames] == [True, True, True, False, False, False]
+
+        affected_features = [
+            feature
+            for feature in features
+            if isinstance(feature, DatumRef) and feature.letter in {"B", "C", "D", "E"}
+        ]
+        assert [feature.letter for feature in affected_features] == ["B", "C", "D", "E"]
+        affected = {feature.letter: feature for feature in affected_features}
+        assert affected["B"].source_ids == ("datum:0:1:4:3", "datum:0:1:4:20")
+        assert affected["C"].source_ids == ("datum:0:1:4:4", "datum:0:1:4:21")
+        assert affected["D"].source_ids == (
+            "datum:0:1:4:6",
+            "datum:0:1:4:10",
+            "datum:0:1:4:13",
+            "datum:0:1:4:17",
+        )
+        assert affected["E"].source_ids == ("datum:0:1:4:7", "datum:0:1:4:11")
+        assert {letter: feature.part21_id for letter, feature in affected.items()} == {
+            "B": "#18341",
+            "C": "#18382",
+            "D": "#18423",
+            "E": "#18457",
+        }
+
     def test_conical_angular_supports_fail_closed_for_non_conical_faces(self):
         from draftwright.pmi import _angular_reference_from_shapes
 
