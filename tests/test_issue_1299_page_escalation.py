@@ -255,6 +255,78 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(
     ]
 
 
+def test_required_drop_without_iso_still_uses_bounded_scale_and_page_recovery(monkeypatch):
+    """Required placement losses spend available space without an ISO to remove."""
+
+    dropped = LintIssue(
+        severity="warning",
+        code="callout_dropped",
+        message="required callout has no route",
+        outcome_stage="placement",
+    )
+
+    class FakeDrawing:
+        def __init__(self, *, page, scale, issues=()):
+            self.page_w, self.page_h = page
+            self.scale = scale
+            self.views = {"front": object()}
+            self.solve_trace = None
+            self._issues = tuple(issues)
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        scale,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        assert not _include_iso
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        dimensions = "A3" if page == "A3" else (297.0, 210.0)
+        page_dimensions = (420.0, 297.0) if dimensions == "A3" else dimensions
+        candidate_scale = 2.0 if scale is None else scale
+        issues = () if page == "A3" else (dropped,)
+        return FakeDrawing(page=page_dimensions, scale=candidate_scale, issues=issues)
+
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+
+    drawing = builder.build_drawing(object(), _include_iso=False)
+
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert tuple(drawing.views) == ("front",)
+    assert [
+        (attempt["status"], attempt["reason"], attempt.get("rejection"))
+        for attempt in drawing.scale_decision["attempts"]
+    ] == [
+        ("required_outcome_dropped", "required_outcome_recovery", None),
+        (
+            "rejected",
+            "scale_escalation_after_required_drop",
+            "required_outcome_dropped",
+        ),
+        (
+            "rejected",
+            "scale_escalation_after_required_drop",
+            "required_outcome_dropped",
+        ),
+        ("complete", "page_escalation_after_required_drop", None),
+    ]
+
+
 def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch):
     """A complete recovery detail may replace the optional ISO on a larger page."""
 

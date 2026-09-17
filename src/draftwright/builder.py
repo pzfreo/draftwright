@@ -2551,6 +2551,46 @@ def build_drawing(
                         settled_issues = larger_issues
                         replanned = True
 
+        # #1678: a required placement loss must spend the bounded scale/page recovery
+        # budget even when there is no optional ISO to yield.  The older recovery block
+        # below was entered only when an ISO was present, so an explicitly disabled ISO
+        # (or a topology that did not produce one) could report an incomplete plan without
+        # trying otherwise viable space.  Keep the ISO-removal path specialised, but give
+        # every other automatic plan the same scale-first, page-second opportunity.
+        if (
+            dimensions_are_automatic
+            and views_are_automatic
+            and not (_include_iso and "iso" in drawing.views)
+        ):
+            original_issues, required_blockers = _automatic_assessment(drawing)
+            settled_issues = original_issues
+            if required_blockers:
+                _record_attempt(
+                    drawing.scale,
+                    "required_outcome_dropped",
+                    required_blockers,
+                    reason="required_outcome_recovery",
+                    candidate=drawing,
+                )
+                recovered, recovered_issues = _try_larger_scales_on_selected_page(
+                    drawing.scale,
+                    reason="scale_escalation_after_required_drop",
+                    require_axial_coverage=False,
+                )
+                if recovered is None and page is None:
+                    recovered, recovered_issues = _try_larger_standard_pages(
+                        original_page,
+                        include_iso=_include_iso,
+                        reason="page_escalation_after_required_drop",
+                        fallback_views=tuple(drawing.views),
+                        require_axial_coverage=False,
+                        allow_recovery_detail=True,
+                    )
+                if recovered is not None:
+                    drawing = recovered
+                    settled_issues = recovered_issues
+                    replanned = True
+
         # #443/#1299: a pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.
         # GRM-03 originally selected 2:1 with ISO, collapsed its 0.5 + 2 mm head
