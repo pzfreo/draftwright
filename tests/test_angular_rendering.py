@@ -77,7 +77,7 @@ def test_imported_angular_pattern_uses_one_mark_with_every_member_identity():
     assert feature.angular_reference_item_groups == (("#101", "#102"), ("#201", "#202"))
     assert not [
         issue
-        for issue in drawing.lint(physical=False)
+        for issue in drawing.lint()
         if issue.code
         in {
             "angular_label_vs_geometry",
@@ -85,6 +85,56 @@ def test_imported_angular_pattern_uses_one_mark_with_every_member_identity():
             "angular_support_unverifiable",
             "claimed_measurement_not_compiled",
         }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("member_ids", "item_groups", "view", "points"),
+    [
+        (("#10",), (("#101", "#102"), ("#201", "#202")), "plan", None),
+        (("#10", "#10"), (("#101", "#102"), ("#201", "#202")), "plan", None),
+        (("#10", "#20"), (("#101",), ("#201", "#202")), "plan", None),
+        (("#10", "#20"), (("#101", "#102"), ("#201", "#202")), "front", None),
+        (
+            ("#10", "#20"),
+            (("#101", "#102"), ("#201", "#202")),
+            "plan",
+            ((30, 30), (29, 30), (30, 29)),
+        ),
+    ],
+)
+def test_imported_angular_pattern_lint_fails_closed_on_corrupt_provenance(
+    member_ids, item_groups, view, points
+):
+    from draftwright.linting.angular import lint_angular_supports
+
+    references = (
+        AngularReference((2, 2, 2), (7, 2, 2), (2, 7, 2)),
+        AngularReference((12, 12, 2), (17, 12, 2), (12, 17, 2)),
+    )
+    owner = SimpleNamespace(
+        angular_references=references,
+        angular_member_ids=member_ids,
+        angular_reference_item_groups=item_groups,
+    )
+    item = SimpleNamespace(
+        angular_points=points or ((7, 2), (2, 2), (2, 7)),
+        measured_angle=90,
+        label="90 ±1",
+    )
+    registry = SimpleNamespace(
+        names=lambda: {"angle"},
+        named=lambda _name: item,
+        feature_of=lambda _name: owner,
+        measurement_of=lambda _name: (),
+        view_of=lambda _name: view,
+    )
+    findings = lint_angular_supports(
+        [item], registry=registry, to_page=lambda _view, *point: point
+    )
+
+    assert [(finding.severity, finding.code) for finding in findings] == [
+        ("error", "angular_support_mismatch")
     ]
 
 

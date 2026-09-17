@@ -154,6 +154,85 @@ def test_reference_cannot_disagree_with_generic_stations_or_dimension_kind():
         )
 
 
+def test_pattern_reference_input_is_typed_and_mutually_exclusive():
+    raw = {"vertex": (0, 0, 0), "first": (1, 0, 0), "second": (0, 1, 0)}
+    other = {"vertex": (5, 0, 0), "first": (6, 0, 0), "second": (5, 1, 0)}
+    arguments = dict(kind="angular", value=90, label="90°", dominant_axis="z", ref_pts=())
+
+    assert (
+        len(measured_dimension(**arguments, angular_references=(raw, other)).angular_references)
+        == 2
+    )
+    with pytest.raises(ValueError, match="items must be mappings"):
+        measured_dimension(**arguments, angular_references=(object(), other))
+    with pytest.raises(ValueError, match="mapping is incomplete"):
+        measured_dimension(**arguments, angular_references=({"vertex": (0, 0, 0)}, other))
+    with pytest.raises(ValueError, match="cannot combine"):
+        measured_dimension(
+            **arguments,
+            angular_reference=AngularReference(**raw),
+            angular_references=(raw, other),
+        )
+
+
+def test_pattern_reference_roster_and_geometry_must_align():
+    first = AngularReference((0, 0, 0), (1, 0, 0), (0, 1, 0))
+    second = AngularReference((5, 0, 0), (6, 0, 0), (5, 1, 0))
+    base = measured_dimension(
+        kind="angular",
+        value=90,
+        label="90°",
+        dominant_axis="z",
+        ref_pts=(),
+        angular_references=(first, second),
+        angular_member_ids=("#1", "#2"),
+        angular_reference_item_groups=(("#11", "#12"), ("#21", "#22")),
+    )
+
+    with pytest.raises(ValueError, match="member_ids must align with angular_reference_item"):
+        replace(base, angular_member_ids=("#1",))
+    with pytest.raises(ValueError, match="requires an angular dimension"):
+        replace(base, dimension_kind="linear")
+    with pytest.raises(ValueError, match="cannot combine singular and pattern"):
+        replace(
+            base,
+            angular_reference=first,
+            ref_pts=(first.first, first.vertex, first.second),
+            angular_member_ids=(),
+            angular_reference_item_groups=(),
+        )
+    with pytest.raises(ValueError, match="at least two"):
+        replace(
+            base,
+            angular_references=(first,),
+            angular_member_ids=("#1",),
+            angular_reference_item_groups=(("#11", "#12"),),
+        )
+    with pytest.raises(ValueError, match="member_ids must align with angular_references"):
+        replace(
+            base,
+            angular_member_ids=("#1", "#2", "#3"),
+            angular_reference_item_groups=(
+                ("#11", "#12"),
+                ("#21", "#22"),
+                ("#31", "#32"),
+            ),
+        )
+    with pytest.raises(ValueError, match="item_groups must align with angular_references"):
+        replace(
+            base,
+            angular_member_ids=(),
+            angular_reference_item_groups=(
+                ("#11", "#12"),
+                ("#21", "#22"),
+                ("#31", "#32"),
+            ),
+        )
+    oblique = AngularReference((0, 0, 0), (1, 1, 0), (0, 0, 1))
+    with pytest.raises(ValueError, match="share one principal projection"):
+        replace(base, angular_references=(first, oblique))
+
+
 @pytest.mark.parametrize(
     ("view", "side"), [("front", "above"), ("plan", "left"), ("plan", "below")]
 )

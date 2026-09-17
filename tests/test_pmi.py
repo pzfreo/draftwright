@@ -147,6 +147,14 @@ class TestExtractPmi:
         assert reference.first[1] < reference.vertex[1]
         assert reference.second[1] < reference.vertex[1]
         assert reference.principal_axis == "Z"
+        reference, reasons = _angular_reference_from_shapes((cone_face,), 90.0)
+        assert reference is None and "exactly two" in reasons[0]
+        reference, reasons = _angular_reference_from_shapes(
+            (Box(1, 1, 1).vertices()[0].wrapped, cone_face), 90.0
+        )
+        assert reference is None and reasons == ("one support is not a face",)
+        reference, reasons = _angular_reference_from_shapes((cone_face, cone_face), 45.0)
+        assert reference is not None and "differs from nominal" in reasons[0]
 
         plane_face = Box(1, 1, 1).faces()[0].wrapped
         reference, reasons = _angular_reference_from_shapes((cone_face, plane_face), 90.0)
