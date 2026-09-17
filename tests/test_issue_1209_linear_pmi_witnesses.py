@@ -68,6 +68,25 @@ def test_a_partially_measured_group_cannot_render_from_its_incomplete_subset():
 def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     report = extract_pmi_report(CTC04)
     records = {record.source_id: record for record in report.records if record.kind == "linear"}
+    all_records = {record.source_id: record for record in report.records}
+
+    oblique_diameter = all_records["dimension:0:1:4:25"]
+    assert len(oblique_diameter.cylindrical_refs) == 8
+    assert oblique_diameter.circular_refs == ()
+    assert oblique_diameter.lowering_blockers == ()
+    assert oblique_diameter.rendering_blockers == (
+        "diameter cylindrical-reference axis is not principal-axis aligned",
+    )
+
+    circular_pattern = all_records["dimension:0:1:4:28"]
+    assert circular_pattern.cylindrical_refs == ()
+    assert len(circular_pattern.circular_refs) == 30
+    assert {reference.diameter for reference in circular_pattern.circular_refs} == {20.0}
+    assert {reference.principal_axis for reference in circular_pattern.circular_refs} == {"Z"}
+    assert circular_pattern.lowering_blockers == ()
+    assert circular_pattern.rendering_blockers == (
+        "diameter circular-edge support rendering is unavailable",
+    )
 
     truthful = records["dimension:0:1:4:22"]
     assert truthful.value == 75.0

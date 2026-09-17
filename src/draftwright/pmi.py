@@ -51,7 +51,7 @@ from draftwright._pmi_part21 import (
     read_manufacturing_requirements,
     read_surface_labels,
 )
-from draftwright.model.ir import AngularReference, CylindricalReference
+from draftwright.model.ir import AngularReference, CircularReference, CylindricalReference
 
 _log = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ try:
     from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
-    from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Plane
     from OCP.gp import gp_Trsf
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
@@ -258,6 +258,8 @@ class PmiRecord:
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
         cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
                         requirement. Empty for other dimension families or unresolved geometry.
+        circular_refs: Canonical circular-edge topology referenced by a Size_Diameter
+                        requirement whose semantic association names edges rather than faces.
         angular_reference: Oriented planar supports for an angular requirement. ``None``
                         when the two source reference groups do not prove such supports.
     """
@@ -296,6 +298,7 @@ class PmiRecord:
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     angular_reference: AngularReference | None = None
     reference_item_groups: tuple[tuple[str, ...], ...] = ()
+    circular_refs: tuple[CircularReference, ...] = ()
 
 
 PmiExtractionOutcome = Literal[
@@ -507,6 +510,19 @@ def _without_direct_xcaf_reference_failures(reasons: tuple[str, ...]) -> tuple[s
         if reason not in exact
         and not reason.startswith("one referenced shape could not be measured (")
     )
+
+
+def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop face-only XCAF failures superseded by exact Part21 diameter supports."""
+    prefixes = (
+        "one diameter reference shape is unavailable",
+        "one diameter reference is not a face",
+        "one diameter reference face is not cylindrical",
+        "one cylindrical reference has unsupported face orientation",
+        "one cylindrical reference could not be measured (",
+        "diameter reference geometry is unavailable",
+    )
+    return tuple(reason for reason in reasons if not reason.startswith(prefixes))
 
 
 def _make_label(
@@ -880,6 +896,74 @@ def _cylindrical_references_from_shapes(shapes, *, noun: str, frame: PartFrame |
     if not references and not reasons:
         reasons.append(f"{noun} reference geometry is unavailable")
     return tuple(references), tuple(dict.fromkeys(reasons))
+
+
+def _circular_references_from_shapes(
+    shapes, *, noun: str, frame: PartFrame | None = None
+) -> tuple[tuple[CircularReference, ...], tuple[str, ...]]:
+    """Measure exact imported circular edges without inventing cylindrical extent or sense."""
+    references: list[CircularReference] = []
+    reasons: list[str] = []
+    for shape in shapes:
+        try:
+            if shape.ShapeType() != TopAbs_EDGE:
+                reasons.append(f"one {noun} reference is not an edge")
+                continue
+            curve = BRepAdaptor_Curve(TopoDS.Edge_s(shape))
+            if curve.GetType() != GeomAbs_Circle:
+                reasons.append(f"one {noun} reference edge is not circular")
+                continue
+            circle = curve.Circle()
+            center = circle.Location()
+            normal = circle.Axis().Direction()
+            references.append(
+                CircularReference.canonical(
+                    center=_frame_point((center.X(), center.Y(), center.Z()), frame),
+                    normal=_frame_vector((normal.X(), normal.Y(), normal.Z()), frame),
+                    radius=float(circle.Radius()),
+                )
+            )
+        except Exception as exc:
+            reasons.append(f"one {noun} reference could not be measured ({_failure_reason(exc)})")
+    if not references and not reasons:
+        reasons.append(f"{noun} reference geometry is unavailable")
+    unique: dict[tuple, CircularReference] = {}
+    for reference in references:
+        signature = (
+            *(round(value, 9) for value in reference.center),
+            *(round(value, 9) for value in reference.normal),
+            round(reference.radius, 9),
+        )
+        unique.setdefault(signature, reference)
+    return tuple(unique.values()), tuple(dict.fromkeys(reasons))
+
+
+def _circular_diameter_blockers(
+    references: tuple[CircularReference, ...], nominal: float, reasons: tuple[str, ...]
+) -> tuple[str, ...]:
+    """Validate exact circular-edge evidence for one authored diameter."""
+    blockers = list(reasons)
+    if not references:
+        if not blockers:
+            blockers.append("diameter dimension needs a measurable circular-edge reference")
+        return tuple(dict.fromkeys(blockers))
+    normals = {
+        tuple(round(component, 9) for component in reference.normal) for reference in references
+    }
+    if len(normals) != 1:
+        blockers.append("diameter circular references do not share one normal direction")
+    value_tol = max(0.01, abs(nominal) * 5e-4)
+    mismatches = [
+        reference.diameter
+        for reference in references
+        if not math.isclose(reference.diameter, nominal, rel_tol=0.0, abs_tol=value_tol)
+    ]
+    if mismatches:
+        values = ", ".join(f"{value:.6g}" for value in mismatches)
+        blockers.append(
+            f"circular reference diameter(s) {values} mm differ from nominal {nominal:.6g} mm"
+        )
+    return tuple(dict.fromkeys(blockers))
 
 
 def _diameter_reference_blockers(
@@ -1938,11 +2022,14 @@ def _common_label_topology(
 def _dimension_support_topology(
     records, step_reader, frame: PartFrame | None = None
 ) -> tuple[PmiRecord, ...]:
-    """Replace incomplete XCAF linear supports with their exact Part21 groups."""
+    """Replace incomplete XCAF dimension supports with their exact Part21 groups."""
     resolver = _DimensionSupportResolver(step_reader)
     projected = []
     for record in records:
-        if record.kind not in ("linear", "thickness") or not record.reference_item_groups:
+        if (
+            record.kind not in ("linear", "thickness", "diameter")
+            or not record.reference_item_groups
+        ):
             projected.append(record)
             continue
         if len(record.shape_aspect_ids) != len(record.reference_item_groups):
@@ -1957,12 +2044,14 @@ def _dimension_support_topology(
 
         boxes = []
         stations = []
+        group_shapes = []
         topology_reasons = []
         for aspect_id, item_ids in zip(
             record.shape_aspect_ids, record.reference_item_groups, strict=True
         ):
             shapes, group_reasons = resolver.resolve_group(aspect_id, item_ids)
             topology_reasons.extend(group_reasons)
+            group_shapes.append(shapes)
             group_boxes = []
             for shape in shapes:
                 try:
@@ -1977,6 +2066,65 @@ def _dimension_support_topology(
                     group_boxes.append(box)
             stations.append(_bbox_centroid(_merge_bboxes(group_boxes)) if group_boxes else None)
 
+        topology_reasons = list(dict.fromkeys(topology_reasons))
+        ref_bbox = _merge_bboxes(boxes) if boxes else None
+        if record.kind == "diameter":
+            shapes = tuple(shape for group in group_shapes for shape in group)
+            shape_types = {shape.ShapeType() for shape in shapes}
+            cylindrical_refs: tuple[CylindricalReference, ...] = ()
+            circular_refs: tuple[CircularReference, ...] = ()
+            geometry_reasons: tuple[str, ...]
+            if shape_types == {TopAbs_FACE}:
+                cylindrical_refs, geometry_reasons = _cylindrical_references_from_shapes(
+                    shapes, noun="diameter", frame=frame
+                )
+                rendering_blockers = _diameter_reference_blockers(
+                    cylindrical_refs, record.value, geometry_reasons
+                )
+                points = tuple(reference.midpoint for reference in cylindrical_refs)
+                axes = {reference.principal_axis for reference in cylindrical_refs}
+            elif shape_types == {TopAbs_EDGE}:
+                circular_refs, geometry_reasons = _circular_references_from_shapes(
+                    shapes, noun="diameter", frame=frame
+                )
+                rendering_blockers = _circular_diameter_blockers(
+                    circular_refs, record.value, geometry_reasons
+                )
+                if not rendering_blockers:
+                    rendering_blockers = (
+                        "diameter circular-edge support rendering is unavailable",
+                    )
+                points = tuple(reference.center for reference in circular_refs)
+                axes = {reference.principal_axis for reference in circular_refs}
+            else:
+                geometry_reasons = ("diameter support groups mix face and edge topology",)
+                rendering_blockers = geometry_reasons
+                points = ()
+                axes = set()
+            blockers = tuple(dict.fromkeys((*topology_reasons, *geometry_reasons)))
+            projected.append(
+                replace(
+                    record,
+                    ref_pts=points,
+                    ref_bbox=ref_bbox,
+                    dominant_axis=(
+                        next(iter(axes)) if len(axes) == 1 and "?" not in axes else "?"
+                    ),
+                    lowering_blockers=tuple(
+                        dict.fromkeys(
+                            (
+                                *_without_direct_xcaf_diameter_failures(record.lowering_blockers),
+                                *blockers,
+                            )
+                        )
+                    ),
+                    rendering_blockers=rendering_blockers,
+                    cylindrical_refs=cylindrical_refs,
+                    circular_refs=circular_refs,
+                )
+            )
+            continue
+
         points, dominant_axis, station_reasons = _linear_reference_stations(
             tuple(stations), record.value
         )
@@ -1987,8 +2135,6 @@ def _dimension_support_topology(
                 )
                 for reason in station_reasons
             )
-        topology_reasons = list(dict.fromkeys(topology_reasons))
-        ref_bbox = _merge_bboxes(boxes) if boxes else None
         projected.append(
             replace(
                 record,
@@ -2325,14 +2471,14 @@ def _extract_pmi_census(
                 record,
                 lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
             )
-            if record.kind in ("linear", "thickness") and record.reference_item_groups
+            if record.kind in ("linear", "thickness", "diameter") and record.reference_item_groups
             else record
             for record in records
         ]
     dimension_records = {
         record.source_id: record
         for record in records
-        if record.kind in ("linear", "thickness") and record.reference_item_groups
+        if record.kind in ("linear", "thickness", "diameter") and record.reference_item_groups
     }
     sources = [
         replace(
