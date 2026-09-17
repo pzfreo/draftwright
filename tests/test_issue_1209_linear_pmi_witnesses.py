@@ -119,6 +119,8 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert "not principal-axis aligned" in one_sided.rendering_blockers[0]
 
     outcomes = {source.source_id: source for source in report.sources}
+    assert outcomes[circular_pattern.source_id].outcome == "extracted"
+    assert outcomes[circular_pattern.source_id].reason == ""
     assert outcomes[truthful.source_id].outcome == "extracted"
     assert outcomes[oblique.source_id].outcome == "partially_extracted"
     assert outcomes[one_sided.source_id].outcome == "partially_extracted"

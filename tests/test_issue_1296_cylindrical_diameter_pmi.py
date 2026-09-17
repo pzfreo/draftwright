@@ -849,7 +849,9 @@ def test_circular_support_renders_from_an_exact_member():
         if getattr(feature, "source_id", "") == "dimension:circle-render"
     )
 
-    assert drawing.registry.names_for_feature(feature)
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.named(names[0]).label == "2× ø20"
     assert not [issue for issue in drawing.lint() if "dimension:circle-render" in issue.source_ids]
 
 

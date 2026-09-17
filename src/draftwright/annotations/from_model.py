@@ -7849,6 +7849,9 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     """
     ax = rec.dominant_axis
     label = rec.label
+    circular_refs = tuple(getattr(rec, "circular_refs", ()))
+    if rec.pmi_kind == "diameter" and len(circular_refs) > 1:
+        label = f"{len(circular_refs)}× {label}"
     placed = False
     name_x = f"pmi_x_{idx}"
     name_z = f"pmi_z_{idx}"
