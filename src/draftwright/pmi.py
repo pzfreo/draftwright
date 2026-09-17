@@ -501,19 +501,17 @@ def _dimension_geometry_blockers(
     return tuple(dict.fromkeys((*reference_reasons, *station_reasons)))
 
 
+def _is_direct_xcaf_reference_failure(reason: str) -> bool:
+    exact = {"one referenced shape is unavailable", "referenced geometry is unavailable"}
+    return reason in exact or reason.startswith("one referenced shape could not be measured (")
+
+
 def _without_direct_xcaf_reference_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
     """Drop only geometry failures superseded by an exact Part21 support overlay."""
-    exact = {"one referenced shape is unavailable", "referenced geometry is unavailable"}
-    return tuple(
-        reason
-        for reason in reasons
-        if reason not in exact
-        and not reason.startswith("one referenced shape could not be measured (")
-    )
+    return tuple(reason for reason in reasons if not _is_direct_xcaf_reference_failure(reason))
 
 
-def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
-    """Drop face-only XCAF failures superseded by exact Part21 diameter supports."""
+def _is_direct_xcaf_diameter_failure(reason: str) -> bool:
     prefixes = (
         "one diameter reference shape is unavailable",
         "one diameter reference is not a face",
@@ -522,23 +520,28 @@ def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[st
         "one cylindrical reference could not be measured (",
         "diameter reference geometry is unavailable",
     )
-    return tuple(reason for reason in reasons if not reason.startswith(prefixes))
+    return reason.startswith(prefixes)
+
+
+def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop face-only XCAF failures superseded by exact Part21 diameter supports."""
+    return tuple(reason for reason in reasons if not _is_direct_xcaf_diameter_failure(reason))
 
 
 def _direct_xcaf_support_is_incomplete(record: PmiRecord) -> bool:
     """Whether direct XCAF failed to supply all support geometry, independent of rendering."""
     reasons = (*record.lowering_blockers, *record.rendering_blockers)
-    prefixes = (
-        "one referenced shape is unavailable",
-        "one referenced shape could not be measured (",
-        "referenced geometry is unavailable",
+    missing_groups = (
         "linear dimension needs two measurable authored reference groups",
         "thickness dimension needs two measurable authored reference groups",
-        "one diameter reference shape is unavailable",
-        "diameter reference geometry is unavailable",
         "diameter dimension needs a measurable",
     )
-    return any(reason.startswith(prefixes) for reason in reasons)
+    return any(
+        _is_direct_xcaf_reference_failure(reason)
+        or _is_direct_xcaf_diameter_failure(reason)
+        or reason.startswith(missing_groups)
+        for reason in reasons
+    )
 
 
 def _make_label(
