@@ -344,6 +344,53 @@ def test_unmatched_distinct_cylinder_lines_fail_closed_instead_of_using_their_ce
     ]
 
 
+def test_projected_oblique_cylinder_pattern_keeps_its_exact_member_witness():
+    first = CylindricalReference(
+        axis_origin=(0, 0, 0),
+        axis_direction=(0, -0.6, 0.8),
+        radius=10,
+        axial_interval=(0, 20),
+        sense="external",
+    )
+    references = tuple(replace(first, axis_origin=(station, 0, 0)) for station in (-15, -5, 5, 15))
+    assert _standalone_cylinder_blocker(references) == ""
+    segmented = (
+        first,
+        replace(first, axial_interval=(20, 30)),
+        replace(first, axis_origin=(10, 0, 0)),
+    )
+    assert "multiple distinct cylinder axis lines" in _standalone_cylinder_blocker(segmented)
+
+    dimension = AuthoredDimension(
+        frame=Frame(first.midpoint, "z"),
+        dimension_kind="diameter",
+        value=20,
+        label="ø20 ±0.2",
+        dominant_axis="?",
+        ref_pts=(),
+        source_id="dimension:oblique-pattern",
+        cylindrical_refs=references,
+    )
+    lowered = lower_ap242_nominal_diameters(
+        PartModel(Box(40, 40, 40).bounding_box(), None, [dimension])
+    )
+    (fallback,) = lowered.features
+    assert isinstance(fallback, AuthoredDimension)
+    assert fallback.rendering_blockers == ()
+
+    drawing = build_drawing(Box(40, 40, 40), model=lowered, pmi="annotate")
+    names = drawing.registry.names_for_feature(fallback)
+    assert len(names) == 1
+    assert drawing.registry.named(names[0]).label == "4× ø20 ±0.2"
+    assert drawing.registry.view_of(names[0]) == "side"
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if "dimension:oblique-pattern" in issue.source_ids
+        and issue.code in {"authored_dim_source_unresolved", "pmi_not_rendered", "pmi_dropped"}
+    ]
+
+
 def test_unmatched_typed_cylinder_and_nominal_requirement_both_round_trip():
     reference = _cylinder(axis_origin=(0.0, 7.0, 0.0))
     fallback = lower_ap242_nominal_diameters(
