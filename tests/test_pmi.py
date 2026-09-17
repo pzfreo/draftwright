@@ -407,6 +407,149 @@ class TestExtractPmi:
             assert record.label == "ø34.8 - ø35.2"
             assert record.upper_tol is None and record.lower_tol is None
 
+    def test_ctc01_angular_dimension_keeps_its_planar_supports(self, ctc01_extraction_report):
+        record = next(
+            record for record in ctc01_extraction_report.records if record.kind == "angular"
+        )
+        reference = record.angular_reference
+
+        assert record.source_id == "dimension:0:1:4:17"
+        assert reference is not None
+        assert reference.vertex == pytest.approx((110.0, -75.0, -25.0))
+        assert reference.first == pytest.approx((128.76388375, -107.5, -25.0))
+        assert reference.second == pytest.approx((91.23611625, -107.5, -25.0))
+        assert reference.angle_degrees == pytest.approx(60.0)
+        assert reference.principal_axis == "Z"
+        assert reference.virtual_vertex is True
+        assert record.ref_pts == (reference.first, reference.vertex, reference.second)
+        assert record.rendering_blockers == ()
+
+    def test_angular_support_rays_use_one_normal_section_when_face_stations_are_offset(self):
+        from draftwright.pmi import _angular_reference_from_planes
+
+        root_three = 3**0.5
+        planes = (
+            ((0.0, 0.0, 0.0), (-root_three / 2, -0.5, 0.0)),
+            ((0.0, 0.0, 0.0), (root_three / 2, -0.5, 0.0)),
+        )
+        # Deliberately off both support planes and at different stations along their
+        # intersection. Bbox centres with either property must not become angular rays.
+        stations = ((8.0, -10.0, 13.0), (-7.0, -9.0, -5.0))
+
+        reference, reasons = _angular_reference_from_planes(planes, stations, 60.0)
+
+        assert reasons == ()
+        assert reference is not None
+        assert reference.angle_degrees == pytest.approx(60.0)
+        assert reference.virtual_vertex is True
+        assert reference.first[2] == pytest.approx(reference.vertex[2])
+        assert reference.second[2] == pytest.approx(reference.vertex[2])
+        for point, (origin, normal) in zip(
+            (reference.first, reference.second), planes, strict=True
+        ):
+            assert sum(
+                normal[index] * (point[index] - origin[index]) for index in range(3)
+            ) == pytest.approx(0.0)
+
+    @pytest.mark.parametrize(
+        ("planes", "stations", "nominal", "expected"),
+        (
+            (
+                (((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)), ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0))),
+                ((1.0, 0.0, 0.0), None),
+                90.0,
+                "angular dimension needs two measurable authored reference groups",
+            ),
+            (
+                (((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)), ((2.0, 0.0, 0.0), (-1.0, 0.0, 0.0))),
+                ((0.0, 1.0, 0.0), (2.0, 1.0, 0.0)),
+                0.0,
+                "angular reference planes are parallel or coincident",
+            ),
+            (
+                (((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)), ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0))),
+                ((0.0, 0.0, 3.0), (0.0, 2.0, -4.0)),
+                90.0,
+                "one angular reference face does not select a support half-ray",
+            ),
+        ),
+    )
+    def test_unmeasurable_angular_supports_fail_closed(self, planes, stations, nominal, expected):
+        from draftwright.pmi import _angular_reference_from_planes
+
+        reference, reasons = _angular_reference_from_planes(planes, stations, nominal)
+
+        assert reference is None
+        assert reasons == (expected,)
+
+    def test_measured_angular_supports_report_a_nominal_mismatch(self):
+        from draftwright.pmi import _angular_reference_from_planes
+
+        perpendicular = (
+            ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+            ((0.0, 0.0, 0.0), (0.0, 1.0, 0.0)),
+        )
+        reference, reasons = _angular_reference_from_planes(
+            perpendicular, ((0.0, 1.0, 0.0), (1.0, 0.0, 0.0)), 45.0
+        )
+
+        assert reference is not None
+        assert reference.angle_degrees == pytest.approx(90.0)
+        assert reasons == ("angular reference angle 90 deg differs from nominal 45 deg",)
+
+    @pytest.mark.parametrize(
+        ("groups", "expected"),
+        (
+            (((), (object(),)), "angular dimension needs one planar face in each reference group"),
+            (
+                ((object(),), (object(),)),
+                "one angular reference is not a face",
+            ),
+        ),
+    )
+    def test_angular_reference_relationships_fail_closed_before_surface_measurement(
+        self, monkeypatch, groups, expected
+    ):
+        import draftwright.pmi as pmi_module
+
+        class FakeSequence:
+            def __init__(self):
+                self.items = []
+
+            def Append(self, item):
+                self.items.append(item)
+
+            def Length(self):
+                return len(self.items)
+
+            def Value(self, index):
+                return self.items[index - 1]
+
+        def get_refs(_label, first, second):
+            for item in groups[0]:
+                first.Append(item)
+            for item in groups[1]:
+                second.Append(item)
+
+        nonface = SimpleNamespace(IsNull=lambda: False, ShapeType=lambda: "edge")
+        monkeypatch.setattr(pmi_module, "TDF_LabelSequence", FakeSequence)
+        monkeypatch.setattr(
+            pmi_module,
+            "XCAFDoc_DimTolTool",
+            SimpleNamespace(GetRefShapeLabel_s=get_refs),
+        )
+        monkeypatch.setattr(pmi_module, "TopAbs_FACE", "face")
+
+        reference, reasons = pmi_module._angular_reference(
+            object(),
+            SimpleNamespace(GetShape_s=lambda _label: nonface),
+            ((0.0, 0.0, 0.0), (1.0, 1.0, 1.0)),
+            45.0,
+        )
+
+        assert reference is None
+        assert reasons == (expected,)
+
     def test_ref_pts_are_3d_tuples(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         for r in recs:
@@ -1751,6 +1894,10 @@ def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     assert len(frames) == 6
     assert len(datum_refs) == 3
     assert all(f.kind == "authored_dimension" for f in authored)
+    angular = next(feature for feature in authored if feature.dimension_kind == "angular")
+    assert angular.angular_reference is not None
+    assert angular.angular_reference.angle_degrees == pytest.approx(60.0)
+    assert angular.dominant_axis == "Z"
     assert all(f.kind == "pmi" for f in raw)
     assert {
         source_id

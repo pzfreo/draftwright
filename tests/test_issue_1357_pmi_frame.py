@@ -20,6 +20,7 @@ from draftwright.pmi import (
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CTC03 = FIXTURES / "nist_ctc_03_asme1_ap242.stp"
+CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 GRM03 = FIXTURES / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 
 FRAME = PartFrame(
@@ -101,6 +102,21 @@ def test_frame_primitives_distinguish_points_vectors_and_bound_transformed_topol
     assert inflated[3] - inflated[0] > actual[3] - actual[0] + 1.0
     assert inflated[4] - inflated[1] > actual[4] - actual[1] + 1.0
     assert _shape_bbox(source.wrapped, None) == expected
+
+
+def test_ctc01_angular_supports_follow_the_requested_part_frame():
+    source = next(record for record in extract_pmi(CTC01) if record.kind == "angular")
+    local = next(record for record in extract_pmi(CTC01, frame=FRAME) if record.kind == "angular")
+
+    assert source.angular_reference is not None
+    assert local.angular_reference is not None
+    _assert_point(local.angular_reference.vertex, _expected_point(source.angular_reference.vertex))
+    _assert_point(local.angular_reference.first, _expected_point(source.angular_reference.first))
+    _assert_point(local.angular_reference.second, _expected_point(source.angular_reference.second))
+    assert local.angular_reference.angle_degrees == pytest.approx(60.0)
+    assert local.angular_reference.principal_axis == "Y"
+    assert source.angular_reference.virtual_vertex is True
+    assert local.angular_reference.virtual_vertex is True
 
 
 @pytest.mark.parametrize("fixture", [CTC03, GRM03], ids=("ctc03", "grm03"))

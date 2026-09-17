@@ -44,7 +44,7 @@ from draftwright._pmi_part21 import (
     read_geometric_tolerances,
     read_manufacturing_requirements,
 )
-from draftwright.model.ir import CylindricalReference
+from draftwright.model.ir import AngularReference, CylindricalReference
 
 _log = logging.getLogger(__name__)
 
@@ -237,6 +237,8 @@ class PmiRecord:
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
         cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
                         requirement. Empty for other dimension families or unresolved geometry.
+        angular_reference: Oriented planar supports for an angular requirement. ``None``
+                        when the two source reference groups do not prove such supports.
     """
 
     kind: str
@@ -271,6 +273,7 @@ class PmiRecord:
     # canonical owner yet remain a truthful standalone dimension (#1116/#1209).
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+    angular_reference: AngularReference | None = None
 
 
 PmiExtractionOutcome = Literal[
@@ -604,6 +607,129 @@ def _reference_geometry(label, shape_tool, frame: PartFrame | None = None):
         geometry = _reference_geometry_with_groups(label, shape_tool, frame)
     points, ref_bbox, dominant_axis, reasons, _groups = geometry
     return points, ref_bbox, dominant_axis, reasons
+
+
+def _angular_reference_from_planes(
+    planes: tuple[
+        tuple[tuple[float, float, float], tuple[float, float, float]],
+        tuple[tuple[float, float, float], tuple[float, float, float]],
+    ],
+    group_stations: tuple[tuple[float, float, float] | None, ...],
+    nominal: float,
+) -> tuple[AngularReference | None, tuple[str, ...]]:
+    """Construct a common normal-section angle from two support-plane equations."""
+    if len(group_stations) != 2 or any(point is None for point in group_stations):
+        return None, ("angular dimension needs two measurable authored reference groups",)
+    first_point, second_point = cast(
+        tuple[tuple[float, float, float], tuple[float, float, float]], group_stations
+    )
+    target = (
+        (first_point[0] + second_point[0]) / 2,
+        (first_point[1] + second_point[1]) / 2,
+        (first_point[2] + second_point[2]) / 2,
+    )
+    (plane_a, normal_a), (plane_b, normal_b) = planes
+    coupling = sum(a * b for a, b in zip(normal_a, normal_b, strict=True))
+    determinant = 1.0 - coupling * coupling
+    if determinant <= 1e-12:
+        return None, ("angular reference planes are parallel or coincident",)
+    residual_a = sum(normal_a[index] * (plane_a[index] - target[index]) for index in range(3))
+    residual_b = sum(normal_b[index] * (plane_b[index] - target[index]) for index in range(3))
+    weight_a = (residual_a - coupling * residual_b) / determinant
+    weight_b = (residual_b - coupling * residual_a) / determinant
+    vertex = (
+        target[0] + weight_a * normal_a[0] + weight_b * normal_b[0],
+        target[1] + weight_a * normal_a[1] + weight_b * normal_b[1],
+        target[2] + weight_a * normal_a[2] + weight_b * normal_b[2],
+    )
+    line = (
+        normal_a[1] * normal_b[2] - normal_a[2] * normal_b[1],
+        normal_a[2] * normal_b[0] - normal_a[0] * normal_b[2],
+        normal_a[0] * normal_b[1] - normal_a[1] * normal_b[0],
+    )
+    line_length = math.hypot(*line)
+    if line_length <= 1e-12:
+        return None, ("angular reference planes are parallel or coincident",)
+    line = (line[0] / line_length, line[1] / line_length, line[2] / line_length)
+
+    witnesses: list[tuple[float, float, float]] = []
+    for station, normal in ((first_point, normal_a), (second_point, normal_b)):
+        # A bbox centre can sit off an oblique face, and two face centres can sit at
+        # different positions along the planes' intersection. Build the ray in the support
+        # plane and in one common normal section; the station chooses only which half-ray.
+        support = (
+            line[1] * normal[2] - line[2] * normal[1],
+            line[2] * normal[0] - line[0] * normal[2],
+            line[0] * normal[1] - line[1] * normal[0],
+        )
+        signed_distance = sum(
+            (station[index] - vertex[index]) * support[index] for index in range(3)
+        )
+        if abs(signed_distance) <= 1e-9:
+            return None, ("one angular reference face does not select a support half-ray",)
+        witnesses.append(
+            (
+                vertex[0] + signed_distance * support[0],
+                vertex[1] + signed_distance * support[1],
+                vertex[2] + signed_distance * support[2],
+            )
+        )
+    try:
+        reference = AngularReference(
+            vertex=vertex,
+            first=witnesses[0],
+            second=witnesses[1],
+            virtual_vertex=True,
+        )
+    except ValueError as exc:
+        return None, (f"angular reference is invalid ({exc})",)
+    if not math.isclose(reference.angle_degrees, nominal, rel_tol=0.0, abs_tol=0.01):
+        return reference, (
+            f"angular reference angle {reference.angle_degrees:.6g} deg differs from nominal "
+            f"{nominal:.6g} deg",
+        )
+    return reference, ()
+
+
+def _angular_reference(
+    label,
+    shape_tool,
+    group_stations: tuple[tuple[float, float, float] | None, ...],
+    nominal: float,
+    frame: PartFrame | None = None,
+) -> tuple[AngularReference | None, tuple[str, ...]]:
+    """Recover two oriented planar supports and their intersection from an XCAF relation."""
+    first_refs = TDF_LabelSequence()
+    second_refs = TDF_LabelSequence()
+    XCAFDoc_DimTolTool.GetRefShapeLabel_s(label, first_refs, second_refs)
+    groups = (first_refs, second_refs)
+    if tuple(group.Length() for group in groups) != (1, 1):
+        return None, ("angular dimension needs one planar face in each reference group",)
+
+    planes: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = []
+    for group in groups:
+        shape = shape_tool.GetShape_s(group.Value(1))
+        if shape is None or shape.IsNull() or shape.ShapeType() != TopAbs_FACE:
+            return None, ("one angular reference is not a face",)
+        try:
+            surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
+            if surface.GetType() != GeomAbs_Plane:
+                return None, ("one angular reference face is not planar",)
+            plane = surface.Plane()
+            location = plane.Location()
+            direction = plane.Axis().Direction()
+            planes.append(
+                (
+                    _frame_point((location.X(), location.Y(), location.Z()), frame),
+                    _frame_vector((direction.X(), direction.Y(), direction.Z()), frame),
+                )
+            )
+        except Exception as exc:
+            return None, (
+                f"one angular reference plane could not be measured ({_failure_reason(exc)})",
+            )
+    assert len(planes) == 2
+    return _angular_reference_from_planes((planes[0], planes[1]), group_stations, nominal)
 
 
 def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
@@ -1229,6 +1355,7 @@ def _dimension_record(
     partial_reasons.extend(reference_reasons)
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+    angular_reference: AngularReference | None = None
     if kind in ("linear", "thickness"):
         points, dominant_axis, station_reasons = _linear_reference_stations(group_stations, value)
         if kind == "thickness":
@@ -1261,6 +1388,18 @@ def _dimension_record(
             points = tuple(reference.midpoint for reference in cylindrical_refs)
             axes = {reference.principal_axis for reference in cylindrical_refs}
             dominant_axis = next(iter(axes)) if len(axes) == 1 and "?" not in axes else "?"
+    elif kind == "angular":
+        angular_reference, angular_reasons = _angular_reference(
+            label, shape_tool, group_stations, value, frame
+        )
+        rendering_blockers = tuple(dict.fromkeys((*reference_reasons, *angular_reasons)))
+        if angular_reference is not None:
+            dominant_axis = angular_reference.principal_axis
+            points = (
+                angular_reference.first,
+                angular_reference.vertex,
+                angular_reference.second,
+            )
     lowering_blockers = tuple(dict.fromkeys(partial_reasons))
     blockers = tuple(dict.fromkeys((*lowering_blockers, *rendering_blockers)))
     return (
@@ -1315,6 +1454,7 @@ def _dimension_record(
             lowering_blockers=lowering_blockers,
             rendering_blockers=rendering_blockers,
             cylindrical_refs=cylindrical_refs,
+            angular_reference=angular_reference,
         ),
         blockers,
     )
