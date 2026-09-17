@@ -447,10 +447,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run scheduled tests
-        # Scheduled cases isolate their outputs with tmp_path and carry no cross-test ordering
-        # contract. They include every legacy slow case plus broad topology and exporter
-        # compatibility checks deliberately removed from pull-request and full tiers.
-        run: uv run scripts/test-tier scheduled --workers auto --dist load
+        # Dense STEP builds saturate the two-core hosted runner. Running two together makes
+        # each slower than the 600 s per-test bound; serial execution completes sooner and
+        # preserves that bound. This tier includes every legacy slow case plus broad topology
+        # and exporter compatibility checks removed from pull-request and full tiers.
+        run: uv run scripts/test-tier scheduled --workers 1
 
   test-platform-canary:
     # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the
