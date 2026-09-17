@@ -498,6 +498,17 @@ def _dimension_geometry_blockers(
     return tuple(dict.fromkeys((*reference_reasons, *station_reasons)))
 
 
+def _without_direct_xcaf_reference_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop only geometry failures superseded by an exact Part21 support overlay."""
+    exact = {"one referenced shape is unavailable", "referenced geometry is unavailable"}
+    return tuple(
+        reason
+        for reason in reasons
+        if reason not in exact
+        and not reason.startswith("one referenced shape could not be measured (")
+    )
+
+
 def _make_label(
     kind: str,
     value: float,
@@ -1985,7 +1996,12 @@ def _dimension_support_topology(
                 ref_bbox=ref_bbox,
                 dominant_axis=dominant_axis,
                 lowering_blockers=tuple(
-                    dict.fromkeys((*record.lowering_blockers, *topology_reasons))
+                    dict.fromkeys(
+                        (
+                            *_without_direct_xcaf_reference_failures(record.lowering_blockers),
+                            *topology_reasons,
+                        )
+                    )
                 ),
                 rendering_blockers=_dimension_geometry_blockers(
                     record.kind, tuple(topology_reasons), station_reasons

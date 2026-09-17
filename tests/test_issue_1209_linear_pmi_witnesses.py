@@ -107,6 +107,32 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert outcomes[one_sided.source_id].outcome == "partially_extracted"
 
 
+def test_exact_part21_groups_supersede_direct_xcaf_reference_failures(monkeypatch):
+    import draftwright.pmi as pmi_module
+
+    original = pmi_module._reference_geometry_with_groups
+
+    def incomplete_xcaf_geometry(*args, **kwargs):
+        points, bbox, axis, reasons, stations = original(*args, **kwargs)
+        return (
+            points,
+            bbox,
+            axis,
+            (*reasons, "one referenced shape is unavailable"),
+            stations,
+        )
+
+    monkeypatch.setattr(pmi_module, "_reference_geometry_with_groups", incomplete_xcaf_geometry)
+    report = extract_pmi_report(CTC04)
+    record = next(record for record in report.records if record.source_id == "dimension:0:1:4:22")
+    source = next(source for source in report.sources if source.source_id == record.source_id)
+
+    assert record.lowering_blockers == ()
+    assert record.rendering_blockers == ()
+    assert source.outcome == "extracted"
+    assert source.reason == ""
+
+
 def test_ap242_thickness_without_two_proven_groups_fails_closed():
     record = next(
         record for record in extract_pmi_report(CTC03).records if record.kind == "thickness"
