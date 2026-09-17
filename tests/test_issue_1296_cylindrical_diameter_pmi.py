@@ -15,6 +15,7 @@ from draftwright.model.declare import measured_dimension
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
+    CircularReference,
     CylindricalReference,
     Frame,
     HoleFeature,
@@ -606,6 +607,38 @@ def test_cylindrical_reference_canonical_rejects_invalid_kernel_values(changes, 
     values.update(changes)
     with pytest.raises(ValueError, match=message):
         CylindricalReference.canonical(**values)
+
+
+def test_circular_reference_canonicalises_an_unoriented_kernel_circle():
+    reference = CircularReference.canonical(center=(1, 2, 3), normal=(0, 0, -2), radius=10)
+
+    assert reference.center == (1.0, 2.0, 3.0)
+    assert reference.normal == (0.0, 0.0, 1.0)
+    assert reference.radius == 10.0
+    assert reference.diameter == 20.0
+    assert reference.principal_axis == "Z"
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"center": (0, 0)}, "finite 3-vector"),
+        ({"normal": (2, 0, 0)}, "unit length"),
+        ({"normal": (-1, 0, 0)}, "positive dominant"),
+        ({"radius": True}, "finite and positive"),
+        ({"radius": 0}, "finite and positive"),
+    ],
+)
+def test_circular_reference_rejects_invalid_provenance(changes, message):
+    values = {"center": (0, 0, 0), "normal": (1, 0, 0), "radius": 2}
+    values.update(changes)
+    with pytest.raises(ValueError, match=message):
+        CircularReference(**values)
+
+
+def test_circular_reference_canonical_rejects_zero_normal():
+    with pytest.raises(ValueError, match="non-zero"):
+        CircularReference.canonical(center=(0, 0, 0), normal=(0, 0, 0), radius=2)
 
 
 @pytest.mark.parametrize(

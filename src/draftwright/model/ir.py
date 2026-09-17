@@ -310,6 +310,67 @@ class CylindricalReference:
         )  # type: ignore[return-value]
 
 
+@dataclass(frozen=True)
+class CircularReference:
+    """Kernel-free evidence for one authored circular-edge dimension support."""
+
+    center: Point
+    normal: Point
+    radius: float
+
+    def __post_init__(self) -> None:
+        center = _finite_point3("center", self.center)
+        normal = _finite_point3("normal", self.normal)
+        length = hypot(*normal)
+        if abs(length - 1.0) > 2e-6:
+            raise ValueError("normal must be unit length")
+        dominant = max(range(3), key=lambda index: abs(normal[index]))
+        if normal[dominant] <= 0:
+            raise ValueError("normal must have a positive dominant component")
+        if isinstance(self.radius, bool):
+            raise ValueError("radius must be finite and positive")
+        radius = float(self.radius)
+        if not isfinite(radius) or radius <= 0:
+            raise ValueError("radius must be finite and positive")
+        object.__setattr__(self, "center", center)
+        object.__setattr__(self, "normal", normal)
+        object.__setattr__(self, "radius", radius)
+
+    @classmethod
+    def canonical(cls, *, center, normal, radius: float) -> CircularReference:
+        """Canonicalise a kernel circle centre and unoriented unit normal."""
+        point = _finite_point3("center", center)
+        raw = _finite_point3("normal", normal)
+        length = hypot(*raw)
+        if length <= 1e-12:
+            raise ValueError("normal must be non-zero")
+        unit = tuple(component / length for component in raw)
+        dominant = max(range(3), key=lambda index: abs(unit[index]))
+        sign = -1.0 if unit[dominant] < 0 else 1.0
+        direction = tuple(sign * component for component in unit)
+        clean_center = tuple(0.0 if abs(value) < 1e-12 else value for value in point)
+        clean_direction = tuple(0.0 if abs(value) < 1e-12 else value for value in direction)
+        return cls(
+            center=clean_center,  # type: ignore[arg-type]
+            normal=clean_direction,  # type: ignore[arg-type]
+            radius=radius,
+        )
+
+    @property
+    def diameter(self) -> float:
+        return 2.0 * self.radius
+
+    @property
+    def principal_axis(self) -> str:
+        """``'X'``/``'Y'``/``'Z'`` when the circle normal is orthographic, else ``'?'``."""
+        dominant = max(range(3), key=lambda index: abs(self.normal[index]))
+        if abs(self.normal[dominant] - 1.0) > 1e-6 or any(
+            abs(self.normal[index]) > 1e-6 for index in range(3) if index != dominant
+        ):
+            return "?"
+        return "XYZ"[dominant]
+
+
 ParamKind = Literal["diameter", "length", "depth", "radius", "angle", "location", "thread"]
 AUTHORED_DIMENSION_KINDS = frozenset(
     {
