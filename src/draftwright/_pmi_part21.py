@@ -291,22 +291,51 @@ def _datum_feature_relationships(step) -> dict[str, tuple[str, tuple[str, ...]]]
 
 
 def _datum_reference_items(step) -> dict[str, tuple[str, ...]]:
-    """Return exact representation-item references keyed by datum or datum feature."""
-    result: dict[str, list[str]] = {}
+    """Return exact representation-item references keyed by datum or datum feature.
+
+    Composite datum features carry their geometry on directly related shape aspects rather
+    than on the ``DATUM_FEATURE`` instance itself.  Include those authored members while
+    keeping unrelated shape-aspect graphs outside the datum boundary.
+    """
+    direct: dict[str, list[str]] = {}
+    relationships: list[tuple[str, str]] = []
     usage_names = ("GEOMETRIC_ITEM_SPECIFIC_USAGE", "ITEM_IDENTIFIED_REPRESENTATION_USAGE")
     for section in step.data:
         for instance in section.instances.values():
+            relationship = _entity_named(instance, "SHAPE_ASPECT_RELATIONSHIP")
+            if relationship is not None and len(relationship.params) >= 4:
+                left, right = relationship.params[2:4]
+                if isinstance(left, p21.Reference) and isinstance(right, p21.Reference):
+                    relationships.append((str(left), str(right)))
             for usage_name in usage_names:
                 usage = _entity_named(instance, usage_name)
                 if usage is None or len(usage.params) < 5:
                     continue
                 subject = usage.params[2]
-                if not isinstance(subject, p21.Reference) or not any(
-                    _instance_is(step, str(subject), kind) for kind in ("DATUM", "DATUM_FEATURE")
-                ):
+                if not isinstance(subject, p21.Reference):
                     continue
-                result.setdefault(str(subject), []).extend(_references(usage.params[4]))
-    return {key: tuple(dict.fromkeys(values)) for key, values in result.items()}
+                direct.setdefault(str(subject), []).extend(_references(usage.params[4]))
+
+    datum_subjects: set[str] = set()
+    composite_datum_features: set[str] = set()
+    for section in step.data:
+        for entity_id, instance in section.instances.items():
+            if _entity_named(instance, "DATUM") is not None:
+                datum_subjects.add(entity_id)
+            if _entity_named(instance, "DATUM_FEATURE") is not None:
+                datum_subjects.add(entity_id)
+                if _entity_named(instance, "COMPOSITE_SHAPE_ASPECT") is not None:
+                    composite_datum_features.add(entity_id)
+    result = {subject: list(direct.get(subject, ())) for subject in datum_subjects}
+    for left, right in relationships:
+        for feature_id, member_id in ((left, right), (right, left)):
+            if feature_id not in composite_datum_features:
+                continue
+            if member_id in datum_subjects:
+                continue
+            if _instance_is(step, member_id, "SHAPE_ASPECT"):
+                result[feature_id].extend(direct.get(member_id, ()))
+    return {key: tuple(dict.fromkeys(values)) for key, values in result.items() if values}
 
 
 def _text(value) -> str:

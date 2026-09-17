@@ -152,6 +152,27 @@ class TestExtractPmi:
         }
         assert set(affected.values()) == {("extracted", "")}
 
+    def test_ctc04_composite_datums_lower_with_definition_geometry(self, ctc04_extraction_report):
+        records = {
+            record.label: record
+            for record in ctc04_extraction_report.records
+            if record.source_category == "datum" and record.label in {"B", "C"}
+        }
+
+        assert records["B"].part21_id == "#18341"
+        assert records["B"].reference_item_ids == ("#8212", "#8194")
+        assert records["B"].source_ids == ("datum:0:1:4:3", "datum:0:1:4:20")
+        assert records["C"].part21_id == "#18382"
+        assert records["C"].reference_item_ids == ("#832", "#856")
+        assert records["C"].source_ids == ("datum:0:1:4:4", "datum:0:1:4:21")
+        assert records["B"].lowering_blockers == records["C"].lowering_blockers == ()
+        affected = {
+            source.source_id: (source.outcome, source.reason)
+            for source in ctc04_extraction_report.sources
+            if source.source_id in {*records["B"].source_ids, *records["C"].source_ids}
+        }
+        assert set(affected.values()) == {("extracted", "")}
+
     def test_conical_angular_supports_fail_closed_for_non_conical_faces(self):
         from draftwright.pmi import _angular_reference_from_shapes
 
