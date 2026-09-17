@@ -472,6 +472,7 @@ class DimParameter:
     # parameters leave this empty.  The renderer uses it to preserve source ownership when
     # deciding whether otherwise identical physical callouts may be consolidated.
     source_ids: tuple[str, ...] = ()
+    limit_bounds: tuple[float, float] | None = None
 
     @property
     def parameter_id(self) -> ParameterId:
@@ -505,6 +506,10 @@ class ToleranceDecoration:
     value: float | tuple[float, float] | FitClass
     source: str
     source_ids: tuple[str, ...] = ()
+    # Absolute lower/upper values when the source authored a limit dimension. ``value``
+    # remains the deviation form used by tolerance algebra; this field preserves the
+    # distinct presentation semantics through canonical-feature lowering.
+    limit_bounds: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)

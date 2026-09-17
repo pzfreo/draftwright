@@ -187,18 +187,33 @@ def _tol_value(lo, hi):
     return lo if hi is None else (lo, hi)
 
 
-def _tolerance_decoration(lo, hi, *, source, source_ids):
+def _tolerance_decoration(lo, hi, *, source, source_ids, limit_bounds=None):
     """Keep ordinary Sheet tolerances source-free; preserve imported provenance explicitly."""
     value = _tol_value(lo, hi)
     ids = tuple(dict.fromkeys(str(source_id) for source_id in source_ids if source_id))
     if source is None:
-        if ids:
-            raise ValueError("tolerance() source_ids require source=")
+        if ids or limit_bounds is not None:
+            raise ValueError("tolerance() source_ids/limit_bounds require source=")
         return value
     source = str(source).strip()
     if not source:
         raise ValueError("tolerance() source must be a non-empty string")
-    return ToleranceDecoration(value=value, source=source, source_ids=ids)
+    limits = None
+    if limit_bounds is not None:
+        if len(limit_bounds) != 2 or limit_bounds[0] > limit_bounds[1]:
+            raise ValueError("tolerance() limit_bounds must be an ordered lower/upper pair")
+        limits = (float(limit_bounds[0]), float(limit_bounds[1]))
+        lower_deviation, upper_deviation = value if isinstance(value, tuple) else (value, value)
+        lower_nominal = limits[0] + float(lower_deviation)
+        upper_nominal = limits[1] - float(upper_deviation)
+        if abs(lower_nominal - upper_nominal) > 1e-6:
+            raise ValueError("tolerance() limit_bounds disagree with the deviation values")
+    return ToleranceDecoration(
+        value=value,
+        source=source,
+        source_ids=ids,
+        limit_bounds=limits,
+    )
 
 
 def _nominal_requirement(value, *, source, source_ids):
@@ -439,17 +454,23 @@ class _Hole(_Nameable):
         *,
         source: str | None = None,
         source_ids: tuple[str, ...] = (),
+        limit_bounds: tuple[float, float] | None = None,
     ) -> _Hole:
         """A ± tolerance on the bore ⌀: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
         limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). Generated import scripts use
-        ``source`` / ``source_ids`` to retain external requirement provenance."""
+        ``source`` / ``source_ids`` to retain external requirement provenance; generated
+        limit-dimension imports also carry their absolute bounds in ``limit_bounds``."""
         # A prior bore-only fit is the role-specific override of this generic diameter key.
         # Remove it so the later call wins for the bore, preserving the fluent API's existing
         # last-writer contract. In the other order, a later fit intentionally overrides only
         # the bore while this hole-wide tolerance remains on recess diameters (#1360 review).
         self._sheet._tolerances.pop((self._token, "diameter", "bore"), None)
         self._sheet._tolerances[(self._token, "diameter")] = _tolerance_decoration(
-            lo, hi, source=source, source_ids=source_ids
+            lo,
+            hi,
+            source=source,
+            source_ids=source_ids,
+            limit_bounds=limit_bounds,
         )
         return self
 
@@ -583,6 +604,7 @@ class _Dim(_Nameable):
         on: str | None = None,
         source: str | None = None,
         source_ids: tuple[str, ...] = (),
+        limit_bounds: tuple[float, float] | None = None,
     ) -> _Dim:
         """A ± tolerance on this dimension: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a
         limit pair ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` picks the parameter for
@@ -600,7 +622,11 @@ class _Dim(_Nameable):
                 f"choose from {sorted(parameter.parameter_id for parameter in parameters)}"
             )
         self._sheet._tolerances[(self._token, target)] = _tolerance_decoration(
-            lo, hi, source=source, source_ids=source_ids
+            lo,
+            hi,
+            source=source,
+            source_ids=source_ids,
+            limit_bounds=limit_bounds,
         )
         return self
 
@@ -767,6 +793,7 @@ class _Params(_Nameable):
         on: str | None = None,
         source: str | None = None,
         source_ids: tuple[str, ...] = (),
+        limit_bounds: tuple[float, float] | None = None,
     ) -> _Params:
         """A ± tolerance: symmetric ``.tolerance(0.05)`` (→ ``±0.05``) or a limit pair
         ``.tolerance(0.0, 0.1)`` (→ ``+0.1 -0.0``). ``on`` targets one parameter by its
@@ -774,7 +801,13 @@ class _Params(_Nameable):
         on a pocket → a role-keyed decoration); omit ``on`` to tolerance every parameter
         of the feature alike (the kind-keyed form). ``source`` / ``source_ids`` retain
         provenance on generated imported requirements."""
-        val = _tolerance_decoration(lo, hi, source=source, source_ids=source_ids)
+        val = _tolerance_decoration(
+            lo,
+            hi,
+            source=source,
+            source_ids=source_ids,
+            limit_bounds=limit_bounds,
+        )
         parameters = [
             p for p in self._sheet._features[self._i].parameters() if p.kind != "location"
         ]

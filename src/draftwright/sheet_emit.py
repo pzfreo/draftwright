@@ -1879,6 +1879,8 @@ def _feature_block(
                         provenance = f", source={tolerance.source!r}"
                         if tolerance.source_ids:
                             provenance += f", source_ids={tolerance.source_ids!r}"
+                        if tolerance.limit_bounds is not None:
+                            provenance += f", limit_bounds={tolerance.limit_bounds!r}"
                     on_target = "diameter" if f.kind == "step" else diameter_role
                     on = (
                         f", on={on_target!r}"
@@ -1936,6 +1938,8 @@ def _feature_block(
                         provenance = f", source={tolerance.source!r}"
                         if tolerance.source_ids:
                             provenance += f", source_ids={tolerance.source_ids!r}"
+                        if tolerance.limit_bounds is not None:
+                            provenance += f", limit_bounds={tolerance.limit_bounds!r}"
                     line += f".tolerance({args}, on={parameter.parameter_id!r}{provenance})"
 
             if isinstance(nominal, NominalRequirement):

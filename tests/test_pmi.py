@@ -1688,8 +1688,12 @@ class TestBuildDrawingPmi:
         assert all(owner.diameter == 35.0 and owner.count == 1 for owner, _ in requirements)
         assert all(requirement.value == 0.2 for _owner, requirement in requirements)
         assert all(
+            requirement.limit_bounds == (34.8, 35.2)
+            for _owner, requirement in requirements
+        )
+        assert all(
             any(
-                annotations[name].label == "⌀35 ±0.2 THRU"
+                annotations[name].label == "⌀34.8 - ⌀35.2 THRU"
                 for name in ctc01_annotated.registry.names_for_feature(owner)
             )
             for owner, _requirement in requirements

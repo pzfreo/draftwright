@@ -115,7 +115,12 @@ from draftwright.layout import StripCandidate, plan_strip
 # IR waist only so the page/scale estimator can share it instead of keeping a second copy that
 # drifts (#875 review). `as` form so the re-export is deliberate, not an unused import.
 from draftwright.model.callout import _first as _first
-from draftwright.model.callout import hole_callout_spec as hole_callout_spec
+from draftwright.model.callout import (
+    bore_callout_value,
+)
+from draftwright.model.callout import (
+    hole_callout_spec as hole_callout_spec,
+)
 from draftwright.model.callout import hole_callout_suffix as hole_callout_suffix
 from draftwright.model.compiled import (
     ApprovedDimension,
@@ -160,11 +165,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     def f(v, decimals=None):  # see #261 above — every value crosses as formatted text
         return _fmt(v, decimals) if v is not None else None
 
-    dia = f(spec["diameter"], spec.get("diameter_decimals"))
-    if dia is not None:
-        # P2a: bake the ± tolerance into the bore string (helpers' HoleCallout accepts a
-        # diameter carrying tolerance/fit text, "8 ±0.05"); no tolerance → empty suffix.
-        dia += _tol_suffix(spec.get("tolerance"), draft)
+    dia = bore_callout_value(spec, lambda tolerance: _tol_suffix(tolerance, draft))
 
     def ft(value, key, decimals_key):
         """A formatted term with its own authored tolerance baked in.

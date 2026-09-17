@@ -78,6 +78,12 @@ def _source_ids(dim: AuthoredDimension) -> tuple[str, ...]:
     return (dim.source_id,) if dim.source_id else ()
 
 
+def _limit_bounds(dim: AuthoredDimension) -> tuple[float, float] | None:
+    if dim.lower_bound is None or dim.upper_bound is None:
+        return None
+    return (float(dim.lower_bound), float(dim.upper_bound))
+
+
 def lower_ap242_hole_tolerances(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -234,7 +240,10 @@ def lower_ap242_hole_tolerances(
             )
             rebuilt.append(feature)
             decorations[(feature, "diameter", "bore")] = ToleranceDecoration(
-                value=value, source="ap242_pmi", source_ids=ids
+                value=value,
+                source="ap242_pmi",
+                source_ids=ids,
+                limit_bounds=_limit_bounds(dimensions[dim_indices[0]]),
             )
             continue
 
@@ -285,7 +294,10 @@ def lower_ap242_hole_tolerances(
                     )
                 )
                 decorations[(split, "diameter")] = ToleranceDecoration(
-                    value=value, source="ap242_pmi", source_ids=ids
+                    value=value,
+                    source="ap242_pmi",
+                    source_ids=ids,
+                    limit_bounds=_limit_bounds(dimensions[group_dim_indices[0]]),
                 )
         if feature_remap is not None:
             feature_remap(

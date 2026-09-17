@@ -44,6 +44,17 @@ class HoleCalloutBatch:
     spec: dict
 
 
+def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
+    """Format the bore value after the callout's leading diameter symbol."""
+    if limits := spec.get("diameter_limits"):
+        lower, upper = limits
+        return f"{_fmt(lower)} - ⌀{_fmt(upper)}"
+    return (
+        f"{_fmt(spec['diameter'], spec.get('diameter_decimals'))}"
+        f"{tolerance_suffix(spec.get('tolerance'))}"
+    )
+
+
 def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutBatch, ...]:
     """Group compatible printed content without replacing any feature or identity.
 
@@ -571,6 +582,7 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
         "thread_depth_tol": _tol_of(thread_depth_pd),
         "pattern_suffix": pattern_suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
+        "diameter_limits": bore_pd.param.limit_bounds if bore_pd is not None else None,
         # ...and one per remaining term, baked in the same way (#1234 review r7).
         # A BLIND hole's own depth tolerance. `callout_from_spec` and `compose.py` were both
         # given readers for this key and the spec never wrote it, so the reader always resolved

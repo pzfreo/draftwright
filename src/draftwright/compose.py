@@ -60,7 +60,7 @@ from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
-from draftwright.model.callout import hole_callout_batches, hole_callout_suffix
+from draftwright.model.callout import bore_callout_value, hole_callout_batches, hole_callout_suffix
 from draftwright.model.ir import ThroughStepFeature, authored_dimension_target_view
 from draftwright.model.planner import (
     angular_pattern_label,
@@ -276,7 +276,6 @@ def _est_planned_bore_callout_width(
         # THRU from a missing depth (the inference #868 removed from the renderer) and ignored
         # `suppressed` entirely, so a callout could be reserved 33 mm and rendered at 14 mm.
         spec = batch.spec
-        bore = spec["diameter"]
         depth = spec["depth"]
         cbore_dia, cbore_depth = spec["cbore_dia"], spec["cbore_depth"]
         suffix = hole_callout_suffix(spec, lambda tolerance: _tol_suffix(tolerance, draft))
@@ -287,8 +286,7 @@ def _est_planned_bore_callout_width(
         token_w.append(sym_w)  # ⌀ symbol
         token_w.append(
             _text_width(
-                f"{_fmt(bore, spec.get('diameter_decimals'))}"
-                f"{_tol_suffix(spec['tolerance'], draft)}",
+                bore_callout_value(spec, lambda tolerance: _tol_suffix(tolerance, draft)),
                 font_size,
             )
         )
