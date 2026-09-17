@@ -77,6 +77,7 @@ from draftwright.compose import (
 from draftwright.drawing import Drawing, feature_key
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
+from draftwright.linting.quality import is_unreadable_layout_issue
 from draftwright.model import (
     Datum,
     Feature,
@@ -2332,7 +2333,9 @@ def build_drawing(
                 if lint_axial_coverage(latest_analysis.part, candidate, **profile_kw):
                     return (), (), "axial_coverage_incomplete"
             issues, blockers = _automatic_assessment(candidate)
-            if any(issue.severity == "error" for issue in issues):
+            if any(
+                issue.severity == "error" or is_unreadable_layout_issue(issue) for issue in issues
+            ):
                 return issues, blockers, "structural_error"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"
@@ -2344,7 +2347,7 @@ def build_drawing(
         original_page = (drawing.page_w, drawing.page_h)
         # A detail-bearing candidate can enter the larger-scale tail once to test whether
         # the detail reservation was conservative, then enter the identical tail again when
-        # a source-owned placement loss asks the optional ISO to yield. Reuse those finished
+        # a required placement loss asks the optional ISO to yield. Reuse those finished
         # drawings: the second pass may apply a stricter qualification gate, but rebuilding
         # identical geometry cannot change its answer (#1665).
         selected_page_scale_candidates: dict[float, Drawing] = {}
@@ -2547,13 +2550,53 @@ def build_drawing(
                         settled_issues = larger_issues
                         replanned = True
 
+        # #1678: a required placement loss must spend the bounded scale/page recovery
+        # budget even when there is no optional ISO to yield.  The older recovery block
+        # below was entered only when an ISO was present, so an explicitly disabled ISO
+        # (or a topology that did not produce one) could report an incomplete plan without
+        # trying otherwise viable space.  Keep the ISO-removal path specialised, but give
+        # every other automatic plan the same scale-first, page-second opportunity.
+        if (
+            dimensions_are_automatic
+            and views_are_automatic
+            and not (_include_iso and "iso" in drawing.views)
+        ):
+            original_issues, required_blockers = _automatic_assessment(drawing)
+            settled_issues = original_issues
+            if required_blockers:
+                _record_attempt(
+                    drawing.scale,
+                    "required_outcome_dropped",
+                    required_blockers,
+                    reason="required_outcome_recovery",
+                    candidate=drawing,
+                )
+                recovered, recovered_issues = _try_larger_scales_on_selected_page(
+                    drawing.scale,
+                    reason="scale_escalation_after_required_drop",
+                    require_axial_coverage=False,
+                )
+                if recovered is None and page is None:
+                    recovered, recovered_issues = _try_larger_standard_pages(
+                        original_page,
+                        include_iso=_include_iso,
+                        reason="page_escalation_after_required_drop",
+                        fallback_views=tuple(drawing.views),
+                        require_axial_coverage=False,
+                        allow_recovery_detail=True,
+                    )
+                if recovered is not None:
+                    drawing = recovered
+                    settled_issues = recovered_issues
+                    replanned = True
+
         # #443/#1299: a pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.
         # GRM-03 originally selected 2:1 with ISO, collapsed its 0.5 + 2 mm head
         # steps into an unowned 2.5 mm block, then had no room for the recovery
-        # detail.  Typed PMI can reach the same correction for the complementary
-        # reason: all shoulders are covered, but a required feature callout has no
-        # route.  Re-plan once without the optional ISO in either case.  This is
+        # detail. Any required outcome can reach the same correction for the complementary
+        # reason: all shoulders are covered, but a required annotation has no route.
+        # Re-plan once without the optional ISO in either case. This is
         # deliberately a measured semantic comparison, not suppression of lint:
         # the candidate wins only after the same read-back and required-outcome
         # gates prove it complete.
@@ -2573,9 +2616,7 @@ def build_drawing(
                 lint_axial_coverage(latest_analysis.part, drawing, **profile_kw)
             )
             original_issues, original_blockers = _automatic_assessment(drawing)
-            source_blockers = tuple(
-                blocker for blocker in original_blockers if blocker["source_ids"]
-            )
+            required_blockers = original_blockers
             settled_issues = original_issues
             recovered_on_selected_page = False
             # #1590: the third symptom. A required envelope or step dimension that found no
@@ -2588,7 +2629,7 @@ def build_drawing(
             # isometric. One that settled without it never replans for this symptom, however
             # starved. Widening that is a separate question from the trigger.
             withheld = _replannable_losses(original_issues)
-            if original_has_axial_gap or source_blockers or withheld:
+            if original_has_axial_gap or required_blockers or withheld:
                 # The recorded status names WHICH symptom opened the ladder, so the
                 # decision reads back honestly, and the vocabulary is
                 # `_ISO_YIELD_TRIGGERS` — the declared list ADR 2 invariant 13 is about.
@@ -2597,14 +2638,14 @@ def build_drawing(
                 # nowhere to go.
                 if original_has_axial_gap:
                     entry_status = _ISO_YIELD_TRIGGERS[0]
-                elif source_blockers:
+                elif required_blockers:
                     entry_status = _ISO_YIELD_TRIGGERS[1]
                 else:
                     entry_status = _ISO_YIELD_TRIGGERS[2]
                 _record_attempt(
                     drawing.scale,
                     entry_status,
-                    source_blockers,
+                    required_blockers,
                     reason="remove_optional_iso",
                     candidate=drawing,
                 )
@@ -2626,7 +2667,7 @@ def build_drawing(
                     replanned = True
                     recovered_on_selected_page = True
             if (
-                original_has_axial_gap or source_blockers or withheld
+                original_has_axial_gap or required_blockers or withheld
             ) and not recovered_on_selected_page:
                 try:
                     without_iso_proposal = _build(

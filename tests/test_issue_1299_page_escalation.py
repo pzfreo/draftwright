@@ -164,14 +164,21 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
     ]
 
 
-def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(monkeypatch):
-    """Complete shoulders do not make a sheet complete when a callout was lost."""
+@pytest.mark.parametrize(
+    "source_ids",
+    [("manufacturing_requirement:#2004",), ()],
+    ids=("source-owned", "geometry-owned"),
+)
+def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(
+    monkeypatch, source_ids
+):
+    """Complete shoulders do not make a sheet complete when a required mark was lost."""
 
     dropped = LintIssue(
         severity="warning",
         code="callout_dropped",
         message="required typed-PMI callout has no route",
-        source_ids=("manufacturing_requirement:#2004",),
+        source_ids=source_ids,
         outcome_stage="placement",
     )
 
@@ -245,6 +252,78 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(mon
         ),
         ((297.0, 210.0), "rejected", "remove_optional_iso", "required_outcome_dropped"),
         ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
+    ]
+
+
+def test_required_drop_without_iso_still_uses_bounded_scale_and_page_recovery(monkeypatch):
+    """Required placement losses spend available space without an ISO to remove."""
+
+    dropped = LintIssue(
+        severity="warning",
+        code="callout_dropped",
+        message="required callout has no route",
+        outcome_stage="placement",
+    )
+
+    class FakeDrawing:
+        def __init__(self, *, page, scale, issues=()):
+            self.page_w, self.page_h = page
+            self.scale = scale
+            self.views = {"front": object()}
+            self.solve_trace = None
+            self._issues = tuple(issues)
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        scale,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        assert not _include_iso
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        dimensions = "A3" if page == "A3" else (297.0, 210.0)
+        page_dimensions = (420.0, 297.0) if dimensions == "A3" else dimensions
+        candidate_scale = 2.0 if scale is None else scale
+        issues = () if page == "A3" else (dropped,)
+        return FakeDrawing(page=page_dimensions, scale=candidate_scale, issues=issues)
+
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+
+    drawing = builder.build_drawing(object(), _include_iso=False)
+
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert tuple(drawing.views) == ("front",)
+    assert [
+        (attempt["status"], attempt["reason"], attempt.get("rejection"))
+        for attempt in drawing.scale_decision["attempts"]
+    ] == [
+        ("required_outcome_dropped", "required_outcome_recovery", None),
+        (
+            "rejected",
+            "scale_escalation_after_required_drop",
+            "required_outcome_dropped",
+        ),
+        (
+            "rejected",
+            "scale_escalation_after_required_drop",
+            "required_outcome_dropped",
+        ),
+        ("complete", "page_escalation_after_required_drop", None),
     ]
 
 
@@ -328,8 +407,112 @@ def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch)
     }
 
 
-def test_unrelated_drop_on_a_typed_owner_does_not_borrow_its_source(monkeypatch):
-    """A step-length loss is not evidence that its surviving thread callout was lost."""
+@pytest.mark.parametrize(
+    ("layout_code", "severity", "veto"),
+    (
+        ("annotation_ink_overlap", "warning", True),
+        ("label_centerline_overlap", "warning", True),
+        ("dim_inside_part", "warning", True),
+        ("feature_leader_crossing", "info", True),
+        ("view_annotation_inside_extents", "info", False),
+    ),
+)
+def test_recovery_does_not_trade_a_required_drop_for_unreadable_ink(
+    monkeypatch, layout_code, severity, veto
+):
+    """A complete ledger is not a successful plan when its annotations are unreadable."""
+
+    dropped = LintIssue(
+        severity="warning",
+        code="hole_pattern_dim_dropped",
+        message="pitch dimension has no route",
+        measurement_ids=(
+            DimensionId(
+                StepFeature(
+                    Frame((0.0, 0.0, 0.0), "x"),
+                    1.0,
+                    1.0,
+                    ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                ),
+                "pitch.length",
+            ),
+        ),
+        outcome_stage="placement",
+    )
+    layout_issue = LintIssue(
+        severity=severity,
+        code=layout_code,
+        message="synthetic layout observation",
+    )
+
+    class FakeDrawing:
+        def __init__(self, *, page, include_iso, issues):
+            self.page_w, self.page_h = page
+            self.scale = 1.0
+            self.views = {"front": object()}
+            if include_iso:
+                self.views["iso"] = object()
+            self.solve_trace = None
+            self._issues = issues
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        dimensions = {
+            None: (297.0, 210.0),
+            (297.0, 210.0): (297.0, 210.0),
+            "A3": (420.0, 297.0),
+        }[page]
+        issues = (dropped,) if _include_iso else (layout_issue,) if page != "A3" else ()
+        return FakeDrawing(page=dimensions, include_iso=_include_iso, issues=issues)
+
+    monkeypatch.setattr(builder, "_AUTOMATIC_UPSCALE_TRIAL_LIMIT", 0)
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+    monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
+
+    drawing = builder.build_drawing(object())
+
+    attempts = [
+        (attempt["status"], attempt["reason"], attempt.get("rejection"))
+        for attempt in drawing.scale_decision["attempts"]
+    ]
+    if veto:
+        assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+        assert drawing.lint() == ()
+        assert attempts == [
+            ("required_outcome_dropped", "remove_optional_iso", None),
+            ("rejected", "remove_optional_iso", "structural_error"),
+            ("complete", "page_escalation_after_optional_iso", None),
+        ]
+    else:
+        assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
+        assert drawing.lint() == (layout_issue,)
+        assert attempts == [
+            ("required_outcome_dropped", "remove_optional_iso", None),
+            ("complete", "remove_optional_iso", None),
+        ]
+
+
+def test_geometry_drop_recovery_does_not_borrow_a_typed_owners_source(monkeypatch):
+    """A step-length loss is recoverable without becoming a lost thread callout."""
 
     from collections import namedtuple
 
@@ -383,9 +566,15 @@ def test_unrelated_drop_on_a_typed_owner_does_not_borrow_its_source(monkeypatch)
     with pytest.warns(builder.ScaleCompletenessWarning):
         drawing = builder.build_drawing(object())
 
-    assert calls == [True]
+    assert calls[0] is True
+    assert False in calls
     assert drawing.scale_decision["status"] == "incomplete"
     assert drawing.scale_decision["blockers"][0]["source_ids"] == ()
+    assert all(
+        blocker["source_ids"] == ()
+        for attempt in drawing.scale_decision["attempts"]
+        for blocker in attempt["blockers"]
+    )
 
 
 def test_complete_detail_drawing_stays_on_its_original_page(monkeypatch):
