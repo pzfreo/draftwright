@@ -94,11 +94,12 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
         ("#17569", "#17576", "#17583", "#17590"),
     )
     assert one_sided.dominant_axis == "?"
-    assert len(one_sided.ref_pts) == 1
-    assert one_sided.lowering_blockers == ()
-    assert one_sided.rendering_blockers == (
-        "linear dimension needs two measurable authored reference groups",
+    assert one_sided.ref_pts[0] == pytest.approx(
+        (0.0, 149.9817407929034, -70.3212598115755), abs=1e-8
     )
+    assert one_sided.ref_pts[1] == pytest.approx((0.0, 139.6760682565, -47.50973754875))
+    assert one_sided.lowering_blockers == ()
+    assert "not principal-axis aligned" in one_sided.rendering_blockers[0]
 
     outcomes = {source.source_id: source for source in report.sources}
     assert outcomes[truthful.source_id].outcome == "extracted"

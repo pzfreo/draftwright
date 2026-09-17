@@ -71,7 +71,14 @@ try:
     from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
     from OCP.TDF import TDF_LabelSequence, TDF_Tool
     from OCP.TDocStd import TDocStd_Document
-    from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_FORWARD, TopAbs_REVERSED, TopAbs_VERTEX
+    from OCP.TopAbs import (
+        TopAbs_COMPOUND,
+        TopAbs_EDGE,
+        TopAbs_FACE,
+        TopAbs_FORWARD,
+        TopAbs_REVERSED,
+        TopAbs_VERTEX,
+    )
     from OCP.TopExp import TopExp
     from OCP.TopLoc import TopLoc_Location
     from OCP.TopoDS import TopoDS
@@ -1110,6 +1117,84 @@ class _CommonLabelTopologyResolver(_DatumTopologyResolver):
     _exclusive_claims = False
 
 
+class _DimensionSupportResolver:
+    """Transfer exact dimension supports and prove B-rep items belong to the imported part."""
+
+    def __init__(self, step_reader):
+        self._reader = step_reader
+        self._model = step_reader.StepModel()
+        self._faces = TopTools_IndexedMapOfShape()
+        self._edges = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_FACE, self._faces)
+        TopExp.MapShapes_s(step_reader.OneShape(), TopAbs_EDGE, self._edges)
+        self._items: dict[str, object] = {}
+        self._groups: dict[str, tuple[tuple[str, ...], tuple[object, ...]]] = {}
+
+    def _transfer(self, item_id: str):
+        cached = self._items.get(item_id)
+        if cached is not None:
+            return cached, ""
+        rank = self._model.NextNumberForLabel(item_id, 0, True)
+        if rank <= 0:
+            return None, f"Part21 dimension support item {item_id} is unavailable"
+        entity = self._model.Value(rank)
+        dynamic_type = entity.DynamicType().Name()
+        expected = {
+            "StepShape_AdvancedFace": (TopAbs_FACE, self._faces, "face"),
+            "StepShape_EdgeCurve": (TopAbs_EDGE, self._edges, "edge"),
+            "StepShape_GeometricCurveSet": (TopAbs_COMPOUND, None, "geometric curve set"),
+        }.get(dynamic_type)
+        if expected is None:
+            return None, (
+                f"Part21 dimension support item {item_id} has unsupported type {dynamic_type}"
+            )
+        before = self._reader.NbShapes()
+        try:
+            transferred = self._reader.TransferOne(rank)
+        except Exception as exc:
+            return None, (
+                f"Part21 dimension support item {item_id} could not be transferred "
+                f"({_failure_reason(exc)})"
+            )
+        after = self._reader.NbShapes()
+        if not transferred or after != before + 1:
+            return None, f"Part21 dimension support item {item_id} could not be transferred"
+        shape = self._reader.Shape(after)
+        expected_type, imported, noun = expected
+        if shape is None or shape.IsNull() or shape.ShapeType() != expected_type:
+            return None, f"Part21 dimension support item {item_id} did not transfer to one {noun}"
+        # Faces and edge curves are topology claims, so identity with the imported solid is
+        # mandatory. A geometric-curve-set is authored construction geometry rather than a
+        # B-rep subshape; its exact Part21 identity and successful transfer are the evidence.
+        if imported is not None and imported.FindIndex(shape) <= 0:
+            return None, f"Part21 dimension support item {item_id} is not in the imported topology"
+        self._items[item_id] = shape
+        return shape, ""
+
+    def resolve_group(self, aspect_id: str, item_ids: tuple[str, ...]):
+        cached = self._groups.get(aspect_id)
+        if cached is not None:
+            cached_item_ids, cached_shapes = cached
+            if cached_item_ids != item_ids:
+                return (), (f"dimension support group {aspect_id} has conflicting Part21 items",)
+            return cached_shapes, ()
+        if not item_ids:
+            return (), (f"dimension support group {aspect_id} has no Part21 items",)
+        shapes = []
+        reasons = []
+        for item_id in item_ids:
+            shape, reason = self._transfer(item_id)
+            if reason:
+                reasons.append(reason)
+            elif shape is not None:
+                shapes.append(shape)
+        if reasons:
+            return (), tuple(dict.fromkeys(reasons))
+        result = tuple(shapes)
+        self._groups[aspect_id] = (item_ids, result)
+        return result, ()
+
+
 def _datum_letter(label) -> tuple[str, str]:
     try:
         identification = XCAFDoc_Datum.Set_s(label).GetIdentification()
@@ -1839,6 +1924,77 @@ def _common_label_topology(
     return tuple(projected)
 
 
+def _dimension_support_topology(
+    records, step_reader, frame: PartFrame | None = None
+) -> tuple[PmiRecord, ...]:
+    """Replace incomplete XCAF linear supports with their exact Part21 groups."""
+    resolver = _DimensionSupportResolver(step_reader)
+    projected = []
+    for record in records:
+        if record.kind not in ("linear", "thickness") or not record.reference_item_groups:
+            projected.append(record)
+            continue
+        if len(record.shape_aspect_ids) != len(record.reference_item_groups):
+            reason = "dimension shape-aspect and support-group counts disagree"
+            projected.append(
+                replace(
+                    record,
+                    lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
+                )
+            )
+            continue
+
+        boxes = []
+        stations = []
+        topology_reasons = []
+        for aspect_id, item_ids in zip(
+            record.shape_aspect_ids, record.reference_item_groups, strict=True
+        ):
+            shapes, group_reasons = resolver.resolve_group(aspect_id, item_ids)
+            topology_reasons.extend(group_reasons)
+            group_boxes = []
+            for shape in shapes:
+                try:
+                    box = _shape_bbox(shape) if frame is None else _shape_bbox(shape, frame)
+                except Exception as exc:
+                    topology_reasons.append(
+                        "dimension support geometry could not be measured "
+                        f"({_failure_reason(exc)})"
+                    )
+                else:
+                    boxes.append(box)
+                    group_boxes.append(box)
+            stations.append(_bbox_centroid(_merge_bboxes(group_boxes)) if group_boxes else None)
+
+        points, dominant_axis, station_reasons = _linear_reference_stations(
+            tuple(stations), record.value
+        )
+        if record.kind == "thickness":
+            station_reasons = tuple(
+                reason.replace("linear dimension", "thickness dimension").replace(
+                    "linear reference", "thickness reference"
+                )
+                for reason in station_reasons
+            )
+        topology_reasons = list(dict.fromkeys(topology_reasons))
+        ref_bbox = _merge_bboxes(boxes) if boxes else None
+        projected.append(
+            replace(
+                record,
+                ref_pts=points,
+                ref_bbox=ref_bbox,
+                dominant_axis=dominant_axis,
+                lowering_blockers=tuple(
+                    dict.fromkeys((*record.lowering_blockers, *topology_reasons))
+                ),
+                rendering_blockers=_dimension_geometry_blockers(
+                    record.kind, tuple(topology_reasons), station_reasons
+                ),
+            )
+        )
+    return tuple(projected)
+
+
 def _face_topology_witness(shape, frame: PartFrame | None = None) -> tuple[float, float, float]:
     """Choose a stable point proven to belong to one exact transferred face boundary."""
     vertices = TopTools_IndexedMapOfShape()
@@ -2140,6 +2296,52 @@ def _extract_pmi_census(
                     "; ".join(partial_reasons),
                 )
             )
+
+    try:
+        if frame is None:
+            records = list(_dimension_support_topology(records, reader.Reader()))
+        else:
+            records = list(_dimension_support_topology(records, reader.Reader(), frame))
+    except Exception as exc:
+        reason = f"dimension support topology is unavailable ({_failure_reason(exc)})"
+        records = [
+            replace(
+                record,
+                lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
+            )
+            if record.kind in ("linear", "thickness") and record.reference_item_groups
+            else record
+            for record in records
+        ]
+    dimension_records = {
+        record.source_id: record
+        for record in records
+        if record.kind in ("linear", "thickness") and record.reference_item_groups
+    }
+    sources = [
+        replace(
+            source,
+            outcome=(
+                "partially_extracted"
+                if (
+                    dimension_records[source.source_id].lowering_blockers
+                    or dimension_records[source.source_id].rendering_blockers
+                )
+                else "extracted"
+            ),
+            reason="; ".join(
+                dict.fromkeys(
+                    (
+                        *dimension_records[source.source_id].lowering_blockers,
+                        *dimension_records[source.source_id].rendering_blockers,
+                    )
+                )
+            ),
+        )
+        if source.source_id in dimension_records
+        else source
+        for source in sources
+    ]
 
     try:
         if frame is None:
