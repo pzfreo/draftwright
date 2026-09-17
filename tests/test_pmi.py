@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, export_step
+from build123d import Box, Edge, export_step
 
 from draftwright import build_drawing, extract_pmi, extract_pmi_report
 from draftwright._pmi_part21 import GeometricToleranceFact, ManufacturingRequirementFact
@@ -424,6 +424,85 @@ class TestExtractPmi:
         assert record.ref_pts == (reference.first, reference.vertex, reference.second)
         assert record.rendering_blockers == ()
 
+    def test_ctc01_surface_group_labels_keep_their_authored_edge_sites(
+        self, ctc01_extraction_report
+    ):
+        labels = [
+            record
+            for record in ctc01_extraction_report.records
+            if record.source_category == "surface_label"
+        ]
+        assert [
+            (
+                record.label,
+                record.source_id,
+                record.part21_id,
+                record.shape_aspect_ids,
+                record.reference_item_ids,
+                record.ref_pts,
+                record.lowering_blockers,
+            )
+            for record in labels
+        ] == [
+            (
+                "B",
+                "surface_label:#4340",
+                "#4340",
+                ("#316",),
+                ("#1850",),
+                ((400.0, -175.0, -50.0),),
+                (),
+            ),
+            (
+                "A",
+                "surface_label:#4341",
+                "#4341",
+                ("#317",),
+                ("#1844",),
+                ((300.0, -225.0, -50.0),),
+                (),
+            ),
+        ]
+
+    def test_curved_surface_label_uses_a_point_on_its_authored_edge(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+        from draftwright.model.detect import build_pmi_features
+        from draftwright.model.ir import Note
+
+        edge = Edge.make_circle(5.0).wrapped
+
+        class Resolver:
+            def __init__(self, *_args):
+                pass
+
+            def resolve(self, *_args, **_kwargs):
+                return (edge,), ()
+
+        monkeypatch.setattr(pmi_module, "_SurfaceLabelTopologyResolver", Resolver)
+        monkeypatch.setattr(pmi_module.TopExp, "MapShapes_s", lambda *_args: None)
+        record = PmiRecord(
+            kind="surface_label",
+            type_code=None,
+            value=0.0,
+            label="A",
+            source_id="surface_label:#1",
+            source_category="surface_label",
+            reference_item_ids=("#3",),
+            shape_aspect_ids=("#2",),
+        )
+
+        (projected,) = pmi_module._surface_label_topology(
+            (record,), SimpleNamespace(OneShape=lambda: edge)
+        )
+
+        x, y, z = projected.ref_pts[0]
+        assert (x * x + y * y) ** 0.5 == pytest.approx(5.0)
+        assert z == pytest.approx(0.0)
+        assert projected.ref_pts[0] != pytest.approx((0.0, 0.0, 0.0))
+        (lowered,) = build_pmi_features((projected,), Box(20, 20, 20).bounding_box())
+        assert isinstance(lowered, Note)
+        assert lowered.frame.origin == projected.ref_pts[0]
+
     def test_angular_support_rays_use_one_normal_section_when_face_stations_are_offset(self):
         from draftwright.pmi import _angular_reference_from_planes
 
@@ -581,14 +660,15 @@ class TestExtractPmi:
     def test_report_preserves_the_complete_ctc01_source_denominator(self, ctc01_extraction_report):
         report = ctc01_extraction_report
         assert isinstance(report, PmiExtractionReport)
-        assert len(report.sources) == 38
-        assert len({source.source_id for source in report.sources}) == 38
+        assert len(report.sources) == 40
+        assert len({source.source_id for source in report.sources}) == 40
         assert Counter((source.category, source.outcome) for source in report.sources) == Counter(
             {
                 ("dimension", "extracted"): 12,
                 ("dimension", "presentation_only"): 9,
                 ("geometric_tolerance", "extracted"): 6,
                 ("datum", "extracted"): 11,
+                ("surface_label", "extracted"): 2,
             }
         )
         assert {
@@ -669,6 +749,23 @@ class TestExtractPmi:
             "RuntimeError: mutation: requirement parser failed"
         )
 
+    def test_surface_label_part21_failure_is_a_fail_closed_source_outcome(self, monkeypatch):
+        import draftwright.pmi as pmi_module
+
+        def fail(_step_file):
+            raise RuntimeError("mutation: surface-label parser failed")
+
+        monkeypatch.setattr(pmi_module, "read_surface_labels", fail)
+
+        report = extract_pmi_report(CTC01)
+        source = next(item for item in report.sources if item.source_id == "surface_label:part21")
+
+        assert source.category == "surface_label"
+        assert source.outcome == "not_extracted"
+        assert source.reason == (
+            "Part21 surface-label read failed: RuntimeError: mutation: surface-label parser failed"
+        )
+
     def test_part21_requirements_survive_when_xcaf_is_unavailable(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
@@ -680,6 +777,7 @@ class TestExtractPmi:
         monkeypatch.setattr(
             pmi_module, "read_manufacturing_requirements", lambda _step_file: (fact,)
         )
+        monkeypatch.setattr(pmi_module, "read_surface_labels", lambda _step_file: ())
         monkeypatch.setattr(pmi_module, "_PMI_AVAILABLE", False)
 
         report = extract_pmi_report(CTC01)
@@ -1436,6 +1534,7 @@ class TestBuildDrawingPmi:
         assert "21 dimensions" in ignored[0].message
         assert "6 geometric tolerances" in ignored[0].message
         assert "11 datum references" in ignored[0].message
+        assert "2 surface labels" in ignored[0].message
         assert "--pmi report" in ignored[0].message
         assert "--pmi annotate" in ignored[0].message
         assert not [issue for issue in issues if issue.code.startswith("pmi_not_")]
@@ -1443,9 +1542,14 @@ class TestBuildDrawingPmi:
         assert dwg.lint_summary()["pmi"] == {
             "mode": "off",
             "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
-            "sources": 38,
-            "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
-            "extracted": 29,
+            "sources": 40,
+            "by_category": {
+                "datum": 11,
+                "dimension": 21,
+                "geometric_tolerance": 6,
+                "surface_label": 2,
+            },
+            "extracted": 31,
             "lowered": 0,
             "rendered": 0,
             "dropped": 0,
@@ -1506,10 +1610,15 @@ class TestBuildDrawingPmi:
         assert dwg.lint_summary()["pmi"] == {
             "mode": "report",
             "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
-            "sources": 38,
-            "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
-            "extracted": 29,
-            "lowered": 25,
+            "sources": 40,
+            "by_category": {
+                "datum": 11,
+                "dimension": 21,
+                "geometric_tolerance": 6,
+                "surface_label": 2,
+            },
+            "extracted": 31,
+            "lowered": 27,
             "rendered": 0,
             "dropped": 0,
         }
@@ -1536,6 +1645,29 @@ class TestBuildDrawingPmi:
         pmi_names = [name for name in ctc01_annotated.annotations() if name.startswith("pmi_")]
         assert len(pmi_names) == 1
         assert pmi_names[0].startswith("pmi_angle_")
+
+    def test_pmi_annotate_places_each_source_surface_label_once(self, ctc01_annotated):
+        from draftwright.model.ir import Note
+
+        labels = [
+            feature
+            for feature in ctc01_annotated.model().features
+            if isinstance(feature, Note) and feature.source_id.startswith("surface_label:")
+        ]
+
+        assert [(label.text, label.source_id, label.part21_id) for label in labels] == [
+            ("B", "surface_label:#4340", "#4340"),
+            ("A", "surface_label:#4341", "#4341"),
+        ]
+        assert all(
+            len(ctc01_annotated.registry.names_for_feature(label.origin)) == 1 for label in labels
+        )
+        annotations = dict(ctc01_annotated.iter_annotations())
+        assert {
+            annotations[name].pdf_text
+            for label in labels
+            for name in ctc01_annotated.registry.names_for_feature(label.origin)
+        } == {"A", "B"}
 
     def test_pmi_annotate_renders_each_nist_range_requirement_with_both_limits(
         self, ctc01_annotated
@@ -1678,13 +1810,18 @@ class TestBuildDrawingPmi:
         assert ctc01_annotated.lint_summary()["pmi"] == {
             "mode": "annotate",
             "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
-            "sources": 38,
-            "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
-            "extracted": 29,
-            "lowered": 25,
+            "sources": 40,
+            "by_category": {
+                "datum": 11,
+                "dimension": 21,
+                "geometric_tolerance": 6,
+                "surface_label": 2,
+            },
+            "extracted": 31,
+            "lowered": 27,
             # Seven diameter sources ride canonical bore owners; the angular record renders
             # from its planar supports, and the four raw location records remain unlowered.
-            "rendered": 25,
+            "rendered": 27,
             "dropped": 0,
         }
 

@@ -663,6 +663,42 @@ def _datum_ref_line(f, origin_ref: str | None = None) -> str:
     )
 
 
+def _note_line(f, origin_ref: str | None = None) -> str:
+    """Emit fluent authored notes and provenance-rich imported labels without loss."""
+    raw_origin = getattr(f.origin, "kind", None) == "pmi"
+    if (
+        origin_ref is not None
+        and not raw_origin
+        and not (f.source_id or f.source_ids or f.part21_id)
+    ):
+        kwargs = [f"view={f.view!r}", f"side={f.side!r}"]
+        if f.satisfies:
+            kwargs.append(f"satisfies={f.satisfies!r}")
+        return f"{origin_ref}.note({f.text!r}, {', '.join(kwargs)})"
+    if raw_origin or origin_ref is not None:
+        origin = _raw_pmi_expr(f.origin) if raw_origin else origin_ref
+        kw = [
+            f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r})",
+            f"text={f.text!r}",
+            f"view={f.view!r}",
+            f"side={f.side!r}",
+            f"origin={origin}",
+        ]
+        if f.satisfies:
+            kw.append(f"satisfies={f.satisfies!r}")
+        if f.source_id:
+            kw.append(f"source_id={f.source_id!r}")
+        if f.source_ids:
+            kw.append(f"source_ids={f.source_ids!r}")
+        if f.part21_id:
+            kw.append(f"part21_id={f.part21_id!r}")
+        return (
+            "sheet.add(Note(" + ", ".join(kw) + "))"
+            "   # imported surface label; placement remains solver-owned"
+        )
+    return f"# note {f.text!r} — no declarative origin"
+
+
 def _feature_line(
     f,
     part_envelope=None,
@@ -688,11 +724,8 @@ def _feature_line(
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
         return _datum_ref_line(f, origin_ref)
-    if k == "note" and origin_ref is not None:
-        kwargs = [f"view={f.view!r}", f"side={f.side!r}"]
-        if f.satisfies:
-            kwargs.append(f"satisfies={f.satisfies!r}")
-        return f"{origin_ref}.note({f.text!r}, {', '.join(kwargs)})"
+    if k == "note":
+        return _note_line(f, origin_ref)
     if k == "envelope":
         if part_envelope is not None and f == part_envelope:
             # `sheet.envelope()` defaults to the whole part and now measures its SOLIDS with a
@@ -2264,6 +2297,17 @@ def emit_sheet_script(
         model_imports.update(["ControlFrame", "Frame"])
     if any(f.kind == "datum_ref" for f in model.features):
         model_imports.update(["DatumRef", "Frame"])
+    if any(
+        f.kind == "note"
+        and (
+            getattr(getattr(f, "origin", None), "kind", None) == "pmi"
+            or getattr(f, "source_id", "")
+            or getattr(f, "source_ids", ())
+            or getattr(f, "part21_id", "")
+        )
+        for f in model.features
+    ):
+        model_imports.update(["Frame", "Note", "PmiFeature"])
     typed_aspects = [
         aspect
         for feature in model.features
@@ -2278,7 +2322,7 @@ def emit_sheet_script(
     if any(isinstance(aspect, KnurlRequirement) for aspect in typed_aspects):
         model_imports.update(["CylindricalReference", "KnurlRequirement"])
     if any(
-        f.kind in ("control_frame", "datum_ref")
+        f.kind in ("control_frame", "datum_ref", "note")
         and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
         for f in model.features
     ):

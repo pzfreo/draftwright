@@ -144,6 +144,7 @@ def lint_pmi_ignored(
         "geometric_tolerance": "geometric tolerance",
         "datum": "datum reference",
         "manufacturing_requirement": "manufacturing requirement",
+        "surface_label": "surface label",
     }
     inventory = ", ".join(
         f"{count} {names[category]}{'s' if count != 1 else ''}"

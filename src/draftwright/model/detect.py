@@ -116,6 +116,7 @@ from draftwright.model.ir import (
     HexPocketFeature,
     HoleFeature,
     LevelSupport,
+    Note,
     OrientedSlotFeature,
     OrientedSlotPassage,
     PadFeature,
@@ -410,7 +411,7 @@ def _circular_blind_step_ownership_key(record) -> tuple:
 
 def build_pmi_features(
     pmi, bbox
-) -> list[AuthoredDimension | PmiFeature | ControlFrame | DatumRef]:
+) -> list[AuthoredDimension | PmiFeature | ControlFrame | DatumRef | Note]:
     """Re-home extracted STEP AP242 PMI records into drafting-concept IR (#208).
 
     Shared by :func:`build_part_model` (the detection path) and the declared-model PMI
@@ -420,7 +421,7 @@ def build_pmi_features(
     :class:`ControlFrame`; complete datum-feature definitions become :class:`DatumRef`;
     unsupported records remain raw :class:`PmiFeature` fallbacks. Empty/``None`` ``pmi`` →
     ``[]``."""
-    out: list[AuthoredDimension | PmiFeature | ControlFrame | DatumRef] = []
+    out: list[AuthoredDimension | PmiFeature | ControlFrame | DatumRef | Note] = []
     for r in pmi or ():
         if r.ref_bbox is not None:
             x0, y0, z0, x1, y1, z1 = r.ref_bbox
@@ -507,6 +508,26 @@ def build_pmi_features(
             out.append(
                 replace(
                     datum_item,
+                    source_id=r.source_id,
+                    source_ids=r.source_ids or ((r.source_id,) if r.source_id else ()),
+                    part21_id=r.part21_id,
+                )
+            )
+            continue
+        if r.source_category == "surface_label" and not r.lowering_blockers and r.ref_pts:
+            view = {"X": "front", "Y": "side", "Z": "front"}.get(r.dominant_axis, "front")
+            label_origin = r.ref_pts[0]
+            vertical_index = 2 if view in ("front", "side") else 1
+            center = bbox.center()
+            center_coord = (center.X, center.Y, center.Z)[vertical_index]
+            side = "above" if label_origin[vertical_index] >= center_coord else "below"
+            out.append(
+                Note(
+                    frame=Frame(origin=label_origin, axis=ax),
+                    text=r.label,
+                    view=view,
+                    side=side,
+                    origin=raw,
                     source_id=r.source_id,
                     source_ids=r.source_ids or ((r.source_id,) if r.source_id else ()),
                     part21_id=r.part21_id,
