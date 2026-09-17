@@ -280,7 +280,6 @@ class PmiRecord:
     source_ids: tuple[str, ...] = ()
     datum_contexts: tuple[str, ...] = ()
     reference_item_ids: tuple[str, ...] = ()
-    reference_item_groups: tuple[tuple[str, ...], ...] = ()
     reference_axis: str = ""
     semantic_name: str = ""
     shape_aspect_ids: tuple[str, ...] = ()
@@ -289,6 +288,7 @@ class PmiRecord:
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
     angular_reference: AngularReference | None = None
+    reference_item_groups: tuple[tuple[str, ...], ...] = ()
 
 
 PmiExtractionOutcome = Literal[

@@ -654,6 +654,41 @@ class TestExtractPmi:
         for r in recs:
             assert isinstance(r, PmiRecord)
 
+    def test_pmi_record_keeps_the_existing_positional_tail_compatible(self):
+        record = PmiRecord(
+            "linear",
+            2,
+            3.0,
+            None,
+            None,
+            (),
+            None,
+            "X",
+            "3",
+            "dimension:test",
+            None,
+            None,
+            (),
+            "#1",
+            "dimension",
+            (),
+            (),
+            (),
+            (),
+            (),
+            "Y",
+            "semantic",
+            ("#2",),
+            (),
+            (),
+            None,
+        )
+
+        assert record.reference_axis == "Y"
+        assert record.semantic_name == "semantic"
+        assert record.shape_aspect_ids == ("#2",)
+        assert record.reference_item_groups == ()
+
     def test_records_only_api_remains_a_list_projection(self, ctc01_extraction_report):
         assert extract_pmi(CTC01) == list(ctc01_extraction_report.records)
 
