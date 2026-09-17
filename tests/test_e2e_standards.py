@@ -19,6 +19,7 @@ ISO 128 line-type judgement) are out of scope — they are not machine-checkable
 """
 
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from build123d import Box, Cylinder, export_step
 from build123d_drafting import TitleBlock
 
 from draftwright import build_drawing, make_drawing
+from draftwright.builder import _is_required_scale_drop
 
 
 def _make_parts():
@@ -91,6 +93,50 @@ def _assert_ctc_diagnostic_contract(dwg, svg_path, dxf_path, *, expect_incomplet
     else:
         assert not errors, f"lint errors: {[(i.code, i.message) for i in errors]}"
         assert dwg.lint_summary()["passed"] is True
+
+
+def _assert_ctc04_layout_failure_contract(dwg):
+    """#1678: a bounded automatic plan may fail, but may not masquerade as success."""
+    issues = dwg.lint()
+    inventory = Counter(issue.code for issue in issues)
+    summaries = [issue for issue in issues if issue.code == "plan_incomplete"]
+
+    assert len(summaries) == 1
+    assert inventory["slot_dim_dropped"] > 0
+    assert inventory["location_ref_dropped"] > 0
+    assert inventory["plan_incomplete"] == 1
+
+    decision = dwg.scale_decision
+    assert decision["status"] == "incomplete"
+    assert decision["blockers"]
+    blocker_codes = {blocker["code"] for blocker in decision["blockers"]}
+    assert blocker_codes <= set(inventory)
+    assert {attempt["reason"] for attempt in decision["attempts"]} >= {
+        "scale_escalation_on_selected_page",
+        "remove_optional_iso",
+        "required_outcome_dropped",
+    }
+    final_attempt = decision["attempts"][-1]
+    assert final_attempt["status"] == "incomplete"
+    assert final_attempt["page"] == (dwg.page_w, dwg.page_h)
+    assert final_attempt["scale"] == dwg.scale
+    assert set(final_attempt["views"]) == set(dwg.views)
+
+    summary = summaries[0]
+    represented = (
+        set(summary.measurement_ids),
+        set(summary.hole_requirement_ids),
+        set(summary.source_ids),
+    )
+    assert any(represented)
+    required_drops = [issue for issue in issues if _is_required_scale_drop(issue)]
+    assert {issue.code for issue in required_drops} == blocker_codes
+    expected = (
+        {item for issue in required_drops for item in issue.measurement_ids},
+        {item for issue in required_drops for item in issue.hole_requirement_ids},
+        {item for issue in required_drops for item in issue.source_ids},
+    )
+    assert represented == expected
 
 
 @pytest.mark.timeout(120)
@@ -198,8 +244,17 @@ def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
-@pytest.mark.parametrize(("n", "expect_incomplete"), [(n, n != "01") for n in _CTC_AP242_OK])
+@pytest.mark.parametrize(
+    ("n", "expect_incomplete"),
+    [
+        pytest.param(
+            n,
+            n != "01",
+            marks=pytest.mark.timeout(900 if n == "04" else 600),
+        )
+        for n in _CTC_AP242_OK
+    ],
+)
 def test_ctc_ap242_exports_honest_result(tmp_path, n, expect_incomplete):
     step = FIXTURES / f"nist_ctc_{n}_asme1_ap242.stp"
     stem = str(tmp_path / f"ctc{n}_ap242")
@@ -208,6 +263,8 @@ def test_ctc_ap242_exports_honest_result(tmp_path, n, expect_incomplete):
     svg = _p["svg"]
     dxf = _p["dxf"]
     _assert_ctc_diagnostic_contract(dwg, svg, dxf, expect_incomplete=expect_incomplete)
+    if n == "04":
+        _assert_ctc04_layout_failure_contract(dwg)
 
 
 @pytest.mark.slow
