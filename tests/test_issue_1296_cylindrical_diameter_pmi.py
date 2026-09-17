@@ -5,13 +5,11 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder, import_step
 
 from draftwright import Sheet, build_drawing
-from draftwright.annotations.from_model import _bore_info
 from draftwright.model import plan_dimensions
 from draftwright.model.declare import measured_dimension
 from draftwright.model.ir import (
@@ -913,15 +911,33 @@ def test_generated_sheet_round_trips_circular_supports():
 
 
 def test_circular_pattern_uses_one_exact_member_as_its_diameter_witness():
-    first = CircularReference(center=(-110, 20, 30), normal=(0, 0, 1), radius=10)
-    second = CircularReference(center=(-35, 20, 30), normal=(0, 0, 1), radius=10)
+    first = CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10)
 
-    assert _bore_info(SimpleNamespace(cylindrical_refs=(), circular_refs=(first, second))) == (
-        "Z",
-        -110.0,
-        20.0,
-        30.0,
-    )
+    def rendered_spec(second_x):
+        sheet = Sheet(Box(40, 30, 20), number="circle-member").authored_dimensions()
+        sheet.measured_dimension(
+            kind="diameter",
+            value=20,
+            label="2×ø20",
+            dominant_axis="Z",
+            ref_pts=(),
+            circular_refs=(
+                first,
+                CircularReference(center=(second_x, 0, 10), normal=(0, 0, 1), radius=10),
+            ),
+            source_id="dimension:circle-member",
+        )
+        drawing = sheet.build()
+        feature = next(
+            feature
+            for feature in drawing.model().features
+            if getattr(feature, "source_id", "") == "dimension:circle-member"
+        )
+        name = drawing.registry.names_for_feature(feature)[0]
+        return drawing.registry.named(name)._dw_spec
+
+    left, right = rendered_spec(-15), rendered_spec(15)
+    assert (left.p1, left.p2) == (right.p1, right.p2)
 
 
 def test_circular_support_renders_from_an_exact_member():
