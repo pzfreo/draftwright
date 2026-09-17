@@ -14,8 +14,11 @@ from draftwright.fonts import PLEX_MONO
 class AngularInk(AngularGeometry):
     """A projected angular intent with measured text and bounded rendered candidates."""
 
-    def __init__(self, vertex, first, second, label, draft, *, sector="minor"):
+    def __init__(
+        self, vertex, first, second, label, draft, *, sector="minor", implicit_degrees=False
+    ):
         self.label = label
+        self.implicit_degrees = implicit_degrees
         self.font_path = getattr(draft, "font_path", PLEX_MONO)
         text_size = _text_size(
             label, draft.font_size, self.font_path, draft.font, draft.font_style
@@ -87,6 +90,7 @@ class AngularDimension(Compound):
         super().__init__(children=[*arrows, extensions, text], label=ink.label)
         self._angular_points = (ink.witnesses[0], ink.vertex, ink.witnesses[1])
         self.angular_sector = ink.sector
+        self._dw_implicit_degree_label = ink.label if ink.implicit_degrees else None
         self._label_polygon = ink.label_polygon(radius)
         self._extension_segments = segments
         self._radius = radius

@@ -100,12 +100,17 @@ def lint_angular_geometry(item, label_value):
 
     findings = []
     actual = degrees(angle)
-    nominal = re.search(r"[+-]?\d+(?:\.(\d+))?\s*(?:°|deg)", label, re.IGNORECASE)
+    # AngularDimension already establishes the quantity category. Imported AP242 labels
+    # commonly omit the degree glyph (for example ``90 ±1``), so requiring the glyph here
+    # rejects valid authored angle ink. Read the leading nominal while retaining its displayed
+    # precision; linear annotations never enter this function.
+    nominal = re.match(r"\s*[+-]?\d+(?:\.(\d+))?", label)
     # Interpret the nominal at its displayed resolution. A fixed percentage
     # both missed false precise claims and rejected correctly rounded small angles.
     rounding = 0.5 * 10 ** -len(nominal.group(1) or "") if nominal else 0.0
     if (
-        not is_angular_label(label)
+        (not is_angular_label(label) and getattr(item, "_dw_implicit_degree_label", None) != label)
+        or nominal is None
         or label_value is None
         or not isfinite(label_value)
         or abs(label_value - actual) > rounding + 1e-8
@@ -284,6 +289,12 @@ def _declared_physical_corner(owner, evidence, view=None, *, reference=None):
 
 
 def _angular_references(owner):
+    pattern = tuple(getattr(owner, "angular_references", ()))
+    if pattern:
+        return tuple(
+            (f"included.angle.member{index + 1}", reference)
+            for index, reference in enumerate(pattern)
+        )
     if getattr(owner, "angular_reference", None) is None:
         return ()
     parameters = owner.parameters() if callable(getattr(owner, "parameters", None)) else ()
@@ -293,6 +304,40 @@ def _angular_references(owner):
         if getattr(parameter, "angular_reference", None) is not None
     )
     return references or (("included.angle", owner.angular_reference),)
+
+
+def _imported_pattern_support_error(owner, item, name, registry, to_page):
+    """Validate one imported requirement against its exact typed support roster."""
+    references = tuple(getattr(owner, "angular_references", ()))
+    member_ids = tuple(getattr(owner, "angular_member_ids", ()))
+    item_groups = tuple(getattr(owner, "angular_reference_item_groups", ()))
+    if not references or not member_ids or not item_groups:
+        return None
+    if len(references) != len(member_ids) or len(references) != len(item_groups):
+        return "the imported angular support roster is misaligned"
+    if len(set(member_ids)) != len(member_ids) or any(len(group) != 2 for group in item_groups):
+        return "the imported angular support roster is not exact"
+    view = {"X": "side", "Y": "front", "Z": "plan"}.get(references[0].principal_axis)
+    if view is None or registry.view_of(name) != view:
+        return f"the imported supports require the {view or 'unknown'} true-angle view"
+    projected = [
+        tuple(
+            tuple(to_page(view, *point)[:2])
+            for point in (reference.first, reference.vertex, reference.second)
+        )
+        for reference in references
+    ]
+    actual = item.angular_points
+    if not any(
+        all(dist(a, b) <= 0.01 for a, b in zip(actual, candidate, strict=True))
+        for expected in projected
+        for candidate in (expected, expected[::-1])
+    ):
+        return "the drawn vertex or witnesses differ from every imported support member"
+    actual_angle = _projected_angle(actual)
+    if any(abs(_projected_angle(expected) - actual_angle) > 1e-5 for expected in projected):
+        return "the imported support members do not share the represented angle"
+    return ""
 
 
 def _corner_key(requirement):
@@ -327,6 +372,21 @@ def lint_angular_supports(items, *, registry=None, evidence=None, ownership=None
         owner = registry.feature_of(name) if name is not None else None
         references = dict(_angular_references(owner))
         claims = registry.measurement_of(name) if name is not None else ()
+        imported_error = (
+            _imported_pattern_support_error(owner, item, name, registry, to_page)
+            if name is not None and to_page is not None
+            else None
+        )
+        if imported_error is not None:
+            if imported_error:
+                findings.append(
+                    LintIssue(
+                        severity="error",
+                        code="angular_support_mismatch",
+                        message=f"Angle {item.label!r}: {imported_error}",
+                    )
+                )
+            continue
         parameters = tuple(claim.parameter for claim in claims)
         if not claims and len(references) == 1:
             parameters = tuple(references)

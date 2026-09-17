@@ -2269,10 +2269,6 @@ def _dimension_support_topology(
                 angular_geometry_reasons.append(
                     "angular members do not share one principal projection axis"
                 )
-            if references and not angular_geometry_reasons:
-                angular_geometry_reasons.append(
-                    "angular support pattern needs pattern-aware lowering"
-                )
             blockers = tuple(dict.fromkeys((*topology_reasons, *angular_geometry_reasons)))
             projected.append(
                 replace(

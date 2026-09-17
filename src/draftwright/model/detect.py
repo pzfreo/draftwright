@@ -451,8 +451,14 @@ def build_pmi_features(
                     angular_reference=r.angular_reference,
                     circular_refs=r.circular_refs,
                     angular_references=getattr(r, "angular_references", ()),
-                    angular_member_ids=tuple(r.shape_aspect_ids),
-                    angular_reference_item_groups=tuple(r.reference_item_groups),
+                    angular_member_ids=(
+                        tuple(r.shape_aspect_ids) if getattr(r, "angular_references", ()) else ()
+                    ),
+                    angular_reference_item_groups=(
+                        tuple(r.reference_item_groups)
+                        if getattr(r, "angular_references", ())
+                        else ()
+                    ),
                 )
             )
             continue

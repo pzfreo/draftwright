@@ -101,8 +101,6 @@ def test_imported_angular_pattern_evidence_survives_executed_sheet_emission():
         ref_pts=(),
         source="pmi",
         source_id="dimension:test",
-        lowering_blockers=("angular support pattern needs pattern-aware lowering",),
-        rendering_blockers=("angular support pattern needs pattern-aware lowering",),
         angular_references=references,
         angular_member_ids=("#10", "#20"),
         angular_reference_item_groups=(("#101", "#102"), ("#201", "#202")),

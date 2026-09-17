@@ -104,17 +104,10 @@ class TestExtractPmi:
         )
         assert {reference.principal_axis for reference in record.angular_references} == {"Y"}
         assert record.dominant_axis == "Y"
-        assert record.lowering_blockers == (
-            "angular support pattern needs pattern-aware lowering",
-        )
-        assert record.rendering_blockers == (
-            "angular support pattern needs pattern-aware lowering",
-        )
+        assert record.lowering_blockers == ()
+        assert record.rendering_blockers == ()
         source = next(source for source in report.sources if source.source_id == record.source_id)
-        assert (source.outcome, source.reason) == (
-            "partially_extracted",
-            "angular support pattern needs pattern-aware lowering",
-        )
+        assert (source.outcome, source.reason) == ("extracted", "")
         from draftwright.model.detect import build_pmi_features
 
         feature = next(

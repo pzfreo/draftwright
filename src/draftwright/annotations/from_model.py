@@ -7222,10 +7222,14 @@ _MEASUREMENT_BASIS = {
 
 def _angular_renderable(record) -> bool:
     reference = getattr(record, "angular_reference", None)
-    return (
+    references = tuple(getattr(record, "angular_references", ()))
+    return bool(
         record.pmi_kind == "angular"
-        and reference is not None
-        and reference.principal_axis in ("X", "Y", "Z")
+        and (reference is not None or references)
+        and all(
+            candidate.principal_axis in ("X", "Y", "Z")
+            for candidate in ((reference,) if reference is not None else references)
+        )
     )
 
 
@@ -7240,6 +7244,7 @@ def _authored_with_usable_references(record) -> bool:
         and record.value > 0
         and (
             len(record.ref_pts) >= 2
+            or bool(getattr(record, "angular_references", ()))
             or (
                 record.pmi_kind == "diameter"
                 and (
@@ -7803,7 +7808,7 @@ def _pmi_front_linear(dwg, a, ctx, rec, ax, label, name, primary, secondary, cen
     return placed
 
 
-def _angular_specs(a, reference, label, name, draft, *, side=None):
+def _angular_specs(a, reference, label, name, draft, *, side=None, implicit_degrees=False):
     axis = reference.principal_axis
     view, to_page, zones = {
         "X": ("side", lambda p: (a.proj.side_x(p[1]), a.proj.side_z(p[2])), a.sv_zones),
@@ -7817,6 +7822,7 @@ def _angular_specs(a, reference, label, name, draft, *, side=None):
         label,
         draft,
         sector=reference.sector,
+        implicit_degrees=implicit_degrees,
     )
     options = []
     for index in sorted(range(2), key=lambda i: -abs(ink.bisector[i])):
@@ -8003,12 +8009,24 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     name_d = f"pmi_d_{idx}"
 
     if rec.pmi_kind == "angular":
+        references = tuple(getattr(rec, "angular_references", ())) or (rec.angular_reference,)
+        options = [
+            option
+            for reference in references
+            for option in _angular_specs(
+                a,
+                reference,
+                rec.label,
+                f"pmi_angle_{idx}",
+                draft,
+                side=rec.side,
+                implicit_degrees=True,
+            )
+        ]
         placed = _pmi_queue_options(
             dwg,
             ctx,
-            _angular_specs(
-                a, rec.angular_reference, rec.label, f"pmi_angle_{idx}", draft, side=rec.side
-            ),
+            options,
             ax,
             label,
             rec,
