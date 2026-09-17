@@ -2090,10 +2090,6 @@ def _dimension_support_topology(
                 rendering_blockers = _circular_diameter_blockers(
                     circular_refs, record.value, geometry_reasons
                 )
-                if not rendering_blockers:
-                    rendering_blockers = (
-                        "diameter circular-edge support rendering is unavailable",
-                    )
                 points = tuple(reference.center for reference in circular_refs)
                 axes = {reference.principal_axis for reference in circular_refs}
             else:

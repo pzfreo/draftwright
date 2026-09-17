@@ -84,9 +84,7 @@ def test_ctc04_uses_authored_groups_and_reports_the_two_untruthful_records():
     assert {reference.diameter for reference in circular_pattern.circular_refs} == {20.0}
     assert {reference.principal_axis for reference in circular_pattern.circular_refs} == {"Z"}
     assert circular_pattern.lowering_blockers == ()
-    assert circular_pattern.rendering_blockers == (
-        "diameter circular-edge support rendering is unavailable",
-    )
+    assert circular_pattern.rendering_blockers == ()
 
     truthful = records["dimension:0:1:4:22"]
     assert truthful.value == 75.0

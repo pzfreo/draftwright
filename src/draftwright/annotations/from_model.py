@@ -7237,7 +7237,13 @@ def _authored_with_usable_references(record) -> bool:
         and record.value > 0
         and (
             len(record.ref_pts) >= 2
-            or (record.pmi_kind == "diameter" and bool(getattr(record, "cylindrical_refs", ())))
+            or (
+                record.pmi_kind == "diameter"
+                and (
+                    bool(getattr(record, "cylindrical_refs", ()))
+                    or bool(getattr(record, "circular_refs", ()))
+                )
+            )
         )
         and not getattr(record, "rendering_blockers", ())
     )
@@ -7363,6 +7369,17 @@ def _bore_info(rec):
             sum(point[1] for point in centres) / len(centres),
             sum(point[2] for point in centres) / len(centres),
         )
+
+    circles = tuple(getattr(rec, "circular_refs", ()))
+    if circles:
+        axes = {reference.principal_axis for reference in circles}
+        if len(axes) != 1 or "?" in axes:
+            return None
+        # A semantic size may own a pattern of equal circles. One exact member supplies the
+        # witness for the shared authored statement; averaging their centres would invent a
+        # target between features. Source order makes the representative deterministic.
+        representative = circles[0]
+        return (next(iter(axes)), *representative.center)
 
     bb = rec.ref_bbox
     if bb is None:

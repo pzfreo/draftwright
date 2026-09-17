@@ -5,11 +5,13 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from build123d import Box, Cylinder, import_step
 
 from draftwright import Sheet, build_drawing
+from draftwright.annotations.from_model import _bore_info
 from draftwright.model import plan_dimensions
 from draftwright.model.declare import measured_dimension
 from draftwright.model.ir import (
@@ -812,6 +814,43 @@ def test_generated_sheet_round_trips_circular_supports():
         if feature.kind == "authored_dimension"
     )
     assert restored.circular_refs == original.circular_refs
+
+
+def test_circular_pattern_uses_one_exact_member_as_its_diameter_witness():
+    first = CircularReference(center=(-110, 20, 30), normal=(0, 0, 1), radius=10)
+    second = CircularReference(center=(-35, 20, 30), normal=(0, 0, 1), radius=10)
+
+    assert _bore_info(SimpleNamespace(cylindrical_refs=(), circular_refs=(first, second))) == (
+        "Z",
+        -110.0,
+        20.0,
+        30.0,
+    )
+
+
+def test_circular_support_renders_from_an_exact_member():
+    sheet = Sheet(Box(40, 30, 20), number="circle-render").authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="ø20",
+        dominant_axis="Z",
+        ref_pts=(),
+        circular_refs=(
+            CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10),
+            CircularReference(center=(15, 0, 10), normal=(0, 0, 1), radius=10),
+        ),
+        source_id="dimension:circle-render",
+    )
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == "dimension:circle-render"
+    )
+
+    assert drawing.registry.names_for_feature(feature)
+    assert not [issue for issue in drawing.lint() if "dimension:circle-render" in issue.source_ids]
 
 
 def test_owner_match_helpers_fail_closed_for_every_topology_component():
