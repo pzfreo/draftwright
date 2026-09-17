@@ -403,7 +403,7 @@ def test_ctc01_consumes_all_hole_tolerances_once_and_emits_provenance():
     assert [(feature.dimension_kind, feature.source_id) for feature in authored] == [
         ("angular", "dimension:0:1:4:17")
     ]
-    assert {source_id for requirement in requirements for source_id in requirement.source_ids} == {
+    tolerance_source_ids = {
         "dimension:0:1:4:21",
         "dimension:0:1:4:22",
         "dimension:0:1:4:23",
@@ -412,12 +412,17 @@ def test_ctc01_consumes_all_hole_tolerances_once_and_emits_provenance():
         "dimension:0:1:4:26",
         "dimension:0:1:4:29",
     }
+    assert {
+        source_id for requirement in requirements for source_id in requirement.source_ids
+    } == tolerance_source_ids
     source = emit_sheet_script(model, "part", "ctc01", title="CTC01", number="N")
     assert source.count("sheet.measured_dimension(") == 1
-    assert source.count("source='ap242_pmi'") == 7
-    assert (
-        sum(".tolerance(" in line for line in source.splitlines() if " = sheet.hole(" in line) == 6
-    )
+    expected_source_ids = tolerance_source_ids | {"dimension:0:1:4:17"}
+    assert source.count("source='ap242_pmi'") == len(expected_source_ids)
+    assert all(source.count(repr(source_id)) == 1 for source_id in expected_source_ids)
+    assert sum(
+        ".tolerance(" in line for line in source.splitlines() if " = sheet.hole(" in line
+    ) == len(tolerance_source_ids)
     assert 'on="bore"' not in source  # CTC uses count-groups, not a recognised pattern.
 
     namespace = {"part": import_step(str(path))}
