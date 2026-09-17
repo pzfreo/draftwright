@@ -2334,8 +2334,7 @@ def build_drawing(
                     return (), (), "axial_coverage_incomplete"
             issues, blockers = _automatic_assessment(candidate)
             if any(
-                issue.severity == "error" or is_unreadable_layout_issue(issue)
-                for issue in issues
+                issue.severity == "error" or is_unreadable_layout_issue(issue) for issue in issues
             ):
                 return issues, blockers, "structural_error"
             if blockers:
