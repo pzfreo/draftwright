@@ -215,15 +215,11 @@ class TestLintSummaryAndDrops:
         assert n2 == 0
 
     @pytest.mark.timeout(120)
-    def test_location_tower_trimmed_to_legible_set(self):
-        # #43: many unpatterned holes with near-coincident X/Y positions trim to
-        # a legible set; the rest surface as location_ref_dropped.
-        #
-        # That drop is a REQUIRED placement failure, so since #1250 it also carries a
-        # `plan_incomplete` error — this test previously asserted "no error lint", which was
-        # the very combination #1250 names: a required annotation dropped and the drawing
-        # reporting success. The subject here is that the tower trims to a legible set, and
-        # that is unchanged; what changed is that the loss is no longer silent.
+    def test_location_tower_replans_until_every_reference_is_legible(self):
+        # #43: many unpatterned holes with near-coincident X/Y positions trim to a
+        # legible set on the initially selected sheet.  A trimmed location reference is a
+        # required placement loss, so #1678 now spends the bounded automatic recovery
+        # ladder instead of returning that incomplete candidate.
 
         plate = Box(80, 60, 8)
         pts = [
@@ -241,14 +237,17 @@ class TestLintSummaryAndDrops:
         for x, y in pts:
             plate -= Pos(x, y, 0) * Cylinder(1.2, 8)
         dwg = build_drawing(plate)
-        codes = {i.code for i in dwg.lint()}
         n_locx = len([n for n in dwg.annotations() if n.startswith("m_locx")])
         n_locy = len([n for n in dwg.annotations() if n.startswith("m_locy")])
-        assert "location_ref_dropped" in codes  # closely-spaced refs were trimmed
-        assert {i.code for i in dwg.lint() if i.severity == "error"} == {"plan_incomplete"}
-        # The kept set is strictly fewer than the ten holes per axis.
-        assert 0 < n_locx < 10
-        assert 0 < n_locy < 10
+        codes = {issue.code for issue in dwg.lint()}
+        assert "location_ref_dropped" not in codes
+        assert "plan_incomplete" not in codes
+        assert n_locx == 10
+        assert n_locy == 10
+        assert dwg.scale_decision["status"] == "automatic_replanned"
+        attempts = dwg.scale_decision["attempts"]
+        assert any(attempt["status"] == "required_outcome_dropped" for attempt in attempts)
+        assert attempts[-1]["status"] == "complete"
 
     @pytest.mark.timeout(120)
     def test_short_location_does_not_displace_its_legible_neighbour(self):
