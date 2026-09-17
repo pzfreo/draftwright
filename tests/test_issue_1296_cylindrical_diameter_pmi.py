@@ -792,7 +792,7 @@ def test_generated_sheet_round_trips_circular_supports():
     sheet.measured_dimension(
         kind="diameter",
         value=20,
-        label="2× ø20",
+        label="ø20",
         dominant_axis="Z",
         ref_pts=((0, 0, 10), (10, 0, 10)),
         circular_refs=(CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10),),
@@ -835,7 +835,7 @@ def test_circular_support_renders_from_an_exact_member():
     sheet.measured_dimension(
         kind="diameter",
         value=20,
-        label="ø20",
+        label="2×ø20",
         dominant_axis="Z",
         ref_pts=(),
         circular_refs=(
@@ -853,7 +853,7 @@ def test_circular_support_renders_from_an_exact_member():
 
     names = drawing.registry.names_for_feature(feature)
     assert len(names) == 1
-    assert drawing.registry.named(names[0]).label == "2× ø20"
+    assert drawing.registry.named(names[0]).label == "2×ø20"
     assert not [issue for issue in drawing.lint() if "dimension:circle-render" in issue.source_ids]
 
 

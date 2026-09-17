@@ -2595,7 +2595,7 @@ def measured_dimension(
         )
     if circles and dim_kind != "diameter":
         raise ValueError("measured_dimension() circular_refs require a diameter dimension")
-    multiplicity = re.match(r"^\s*(\d+)\s*[xX×]\s+", str(label))
+    multiplicity = re.match(r"^\s*(\d+)\s*[xX×]\s*", str(label))
     if circles and multiplicity is not None and int(multiplicity.group(1)) != len(circles):
         raise ValueError("measured_dimension() label multiplicity disagrees with circular_refs")
     circle_axes = {reference.principal_axis for reference in circles}

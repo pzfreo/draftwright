@@ -7854,7 +7854,7 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     if (
         rec.pmi_kind == "diameter"
         and len(circular_refs) > 1
-        and re.match(r"^\s*\d+\s*[xX×]\s+", label) is None
+        and re.match(r"^\s*\d+\s*[xX×]\s*", label) is None
     ):
         label = f"{len(circular_refs)}× {label}"
     placed = False
