@@ -763,6 +763,8 @@ def test_measured_dimension_preserves_typed_circular_supports():
         )
     with pytest.raises(ValueError, match="disagrees with circular_refs"):
         measured_dimension(circular_refs=(reference,), **{**required, "dominant_axis": "X"})
+    with pytest.raises(ValueError, match="label multiplicity disagrees"):
+        measured_dimension(circular_refs=(reference,), **{**required, "label": "2× ø20"})
 
     oblique = CircularReference.canonical(center=(0, 0, 0), normal=(0, 1, 1), radius=10)
     with pytest.raises(ValueError, match="one principal-axis direction"):
@@ -790,7 +792,7 @@ def test_generated_sheet_round_trips_circular_supports():
     sheet.measured_dimension(
         kind="diameter",
         value=20,
-        label="ø20",
+        label="2× ø20",
         dominant_axis="Z",
         ref_pts=((0, 0, 10), (10, 0, 10)),
         circular_refs=(CircularReference(center=(0, 0, 10), normal=(0, 0, 1), radius=10),),

@@ -27,6 +27,7 @@ shape with no cylindrical face, should use the explicit flavour.
 from __future__ import annotations
 
 import math
+import re
 import warnings
 
 from draftwright._geometry import (
@@ -2594,6 +2595,9 @@ def measured_dimension(
         )
     if circles and dim_kind != "diameter":
         raise ValueError("measured_dimension() circular_refs require a diameter dimension")
+    multiplicity = re.match(r"^\s*(\d+)\s*[xX×]\s+", str(label))
+    if circles and multiplicity is not None and int(multiplicity.group(1)) != len(circles):
+        raise ValueError("measured_dimension() label multiplicity disagrees with circular_refs")
     circle_axes = {reference.principal_axis for reference in circles}
     if circles and (len(circle_axes) != 1 or "?" in circle_axes):
         if not imported_blocked:

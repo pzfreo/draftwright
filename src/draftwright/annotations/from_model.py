@@ -19,6 +19,7 @@ once the holes epic landed (#251).
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
 from typing import Any, Literal, cast
@@ -7850,7 +7851,11 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
     ax = rec.dominant_axis
     label = rec.label
     circular_refs = tuple(getattr(rec, "circular_refs", ()))
-    if rec.pmi_kind == "diameter" and len(circular_refs) > 1:
+    if (
+        rec.pmi_kind == "diameter"
+        and len(circular_refs) > 1
+        and re.match(r"^\s*\d+\s*[xX×]\s+", label) is None
+    ):
         label = f"{len(circular_refs)}× {label}"
     placed = False
     name_x = f"pmi_x_{idx}"
