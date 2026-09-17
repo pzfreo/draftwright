@@ -585,6 +585,28 @@ def test_datum_correspondence_fails_closed_when_context_and_letter_are_ambiguous
     assert "#1/#10, #1/#11" in reason
 
 
+def test_datum_correspondence_accepts_repeated_paths_to_the_same_definition():
+    facts = (
+        DatumOccurrenceFact("#1", "Position.1", "position", "#10", "#20", "A", ("#30",)),
+        DatumOccurrenceFact("#2", "Position.1", "position", "#10", "#20", "A", ("#30",)),
+    )
+
+    assert match_datum_occurrence(facts, "Position.1", "A") == (facts[0], "")
+
+
+def test_datum_correspondence_rejects_repeated_paths_with_conflicting_supports():
+    facts = (
+        DatumOccurrenceFact("#1", "Position.1", "position", "#10", "#20", "A", ("#30",)),
+        DatumOccurrenceFact("#2", "Position.1", "position", "#10", "#20", "A", ("#31",)),
+    )
+
+    fact, reason = match_datum_occurrence(facts, "Position.1", "A")
+
+    assert fact is None
+    assert "ambiguous" in reason
+    assert "#1/#10, #2/#10" in reason
+
+
 def test_part21_datum_with_two_feature_relationships_stays_ambiguous(tmp_path):
     facts = _read_datums(
         tmp_path,
@@ -660,6 +682,75 @@ def test_datum_level_geometry_is_used_when_the_feature_has_no_items(tmp_path):
     assert facts == (DatumOccurrenceFact("#1", "Probe", "position", "#5", "#4", "A", ("#10",)),)
 
 
+def test_composite_datum_uses_directly_related_shape_aspect_geometry(tmp_path):
+    facts = _read_datums(
+        tmp_path,
+        "composite-datum-geometry",
+        "#1=(GEOMETRIC_TOLERANCE('Probe','',#90,#91) "
+        "GEOMETRIC_TOLERANCE_WITH_DATUM_REFERENCE((#2)) POSITION_TOLERANCE());",
+        "#2=DATUM_SYSTEM('',$,#99,.F.,(#3));",
+        "#3=DATUM_REFERENCE_COMPARTMENT('',$,#99,.F.,#4,$);",
+        "#4=DATUM('',$,#99,.F.,'A');",
+        "#5=(COMPOSITE_SHAPE_ASPECT() DATUM_FEATURE() SHAPE_ASPECT('datum','',#99,.T.));",
+        "#6=SHAPE_ASPECT_RELATIONSHIP('',$,#5,#4);",
+        "#7=SHAPE_ASPECT('first','',#99,.T.);",
+        "#8=SHAPE_ASPECT_RELATIONSHIP('',$,#5,#7);",
+        "#9=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#7,#99,#20);",
+        "#10=SHAPE_ASPECT('second','',#99,.T.);",
+        "#11=SHAPE_ASPECT_RELATIONSHIP('',$,#10,#5);",
+        "#12=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#10,#99,(#21,#22));",
+        "#13=SHAPE_ASPECT('unrelated','',#99,.T.);",
+        "#14=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#13,#99,#23);",
+    )
+
+    assert facts == (
+        DatumOccurrenceFact("#1", "Probe", "position", "#5", "#4", "A", ("#20", "#21", "#22")),
+    )
+
+
+def test_composite_datum_definition_uses_member_geometry(tmp_path):
+    facts = _read_datum_definitions(
+        tmp_path,
+        "composite-datum-definition",
+        "#4=DATUM('',$,#99,.F.,'A');",
+        "#5=(COMPOSITE_SHAPE_ASPECT() DATUM_FEATURE() SHAPE_ASPECT('datum','',#99,.T.));",
+        "#6=SHAPE_ASPECT_RELATIONSHIP('',$,#5,#4);",
+        "#7=SHAPE_ASPECT('member','',#99,.T.);",
+        "#8=SHAPE_ASPECT_RELATIONSHIP('',$,#5,#7);",
+        "#9=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#7,#99,#20);",
+    )
+
+    assert facts == (DatumDefinitionFact("#5", "#4", "A", ("#20",)),)
+
+
+def test_datum_member_geometry_does_not_cross_unproven_composite_boundaries(tmp_path):
+    facts = _read_datum_definitions(
+        tmp_path,
+        "datum-member-boundaries",
+        "#1=DATUM('',$,#99,.F.,'A');",
+        "#2=DATUM_FEATURE('ordinary',$,#99,.T.);",
+        "#3=SHAPE_ASPECT_RELATIONSHIP('',$,#2,#1);",
+        "#4=SHAPE_ASPECT('related aspect','',#99,.T.);",
+        "#5=SHAPE_ASPECT_RELATIONSHIP('',$,#2,#4);",
+        "#6=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#4,#99,#20);",
+        "#10=DATUM('',$,#99,.F.,'B');",
+        "#11=(COMPOSITE_SHAPE_ASPECT() DATUM_FEATURE() SHAPE_ASPECT('composite','',#99,.T.));",
+        "#12=SHAPE_ASPECT_RELATIONSHIP('',$,#11,#10);",
+        "#13=DATUM_FEATURE('other datum feature','',#99,.T.);",
+        "#14=SHAPE_ASPECT_RELATIONSHIP('',$,#11,#13);",
+        "#15=GEOMETRIC_ITEM_SPECIFIC_USAGE('','',#13,#99,#21);",
+    )
+
+    assert facts == (
+        DatumDefinitionFact(
+            "#2", "#1", "A", reason="datum feature #2 has no representation items"
+        ),
+        DatumDefinitionFact(
+            "#11", "#10", "B", reason="datum feature #11 has no representation items"
+        ),
+    )
+
+
 def test_ctc03_datum_level_geometry_recovers_d_and_e():
     facts = read_datum_occurrences(CTC03)
     by_letter = {
@@ -668,6 +759,16 @@ def test_ctc03_datum_level_geometry_recovers_d_and_e():
 
     assert by_letter == {"D": ("#1399",), "E": ("#1441",)}
     assert all(not fact.reason for fact in facts if fact.letter in {"D", "E"})
+
+
+def test_ctc04_composite_datums_retain_all_authored_support_faces():
+    facts = read_datum_occurrences(CTC04)
+    supports = {
+        fact.letter: fact.reference_item_ids for fact in facts if fact.letter in {"B", "C"}
+    }
+
+    assert supports == {"B": ("#8212", "#8194"), "C": ("#832", "#856")}
+    assert all(not fact.reason for fact in facts if fact.letter in {"B", "C"})
 
 
 def test_ctc03_datum_definitions_include_standalone_f():

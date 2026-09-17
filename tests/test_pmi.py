@@ -43,6 +43,11 @@ def ctc03_extraction_report():
     return extract_pmi_report(CTC03)
 
 
+@pytest.fixture(scope="module")
+def ctc04_extraction_report():
+    return extract_pmi_report(CTC04)
+
+
 class TestExtractPmi:
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
@@ -79,8 +84,10 @@ class TestExtractPmi:
         assert labels["dimension:0:1:4:47"] == "0.82 ±0.06 inch"
         assert labels["dimension:0:1:4:48"] == "ø1.065 ±0.003 inch"
 
-    def test_ctc04_angular_source_retains_exact_part21_support_members(self):
-        report = extract_pmi_report(CTC04)
+    def test_ctc04_angular_source_retains_exact_part21_support_members(
+        self, ctc04_extraction_report
+    ):
+        report = ctc04_extraction_report
         record = next(
             record for record in report.records if record.source_id == "dimension:0:1:4:27"
         )
@@ -118,6 +125,104 @@ class TestExtractPmi:
         assert feature.angular_references == record.angular_references
         assert feature.angular_member_ids == record.shape_aspect_ids
         assert feature.angular_reference_item_groups == record.reference_item_groups
+
+    def test_ctc04_repeated_datum_paths_corroborate_one_definition(self, ctc04_extraction_report):
+        records = {
+            record.label: record
+            for record in ctc04_extraction_report.records
+            if record.source_category == "datum" and record.label in {"D", "E"}
+        }
+
+        assert records["D"].part21_id == "#18423"
+        assert records["D"].reference_item_ids == ("#17160",)
+        assert records["D"].source_ids == (
+            "datum:0:1:4:6",
+            "datum:0:1:4:10",
+            "datum:0:1:4:13",
+            "datum:0:1:4:17",
+        )
+        assert records["E"].part21_id == "#18457"
+        assert records["E"].reference_item_ids == ("#10909",)
+        assert records["E"].source_ids == ("datum:0:1:4:7", "datum:0:1:4:11")
+        assert records["D"].lowering_blockers == records["E"].lowering_blockers == ()
+        affected = {
+            source.source_id: (source.outcome, source.reason)
+            for source in ctc04_extraction_report.sources
+            if source.source_id in {*records["D"].source_ids, *records["E"].source_ids}
+        }
+        assert set(affected.values()) == {("extracted", "")}
+
+    def test_ctc04_composite_datums_lower_with_definition_geometry(self, ctc04_extraction_report):
+        records = {
+            record.label: record
+            for record in ctc04_extraction_report.records
+            if record.source_category == "datum" and record.label in {"B", "C"}
+        }
+
+        assert records["B"].part21_id == "#18341"
+        assert records["B"].reference_item_ids == ("#8212", "#8194")
+        assert records["B"].source_ids == ("datum:0:1:4:3", "datum:0:1:4:20")
+        assert records["C"].part21_id == "#18382"
+        assert records["C"].reference_item_ids == ("#832", "#856")
+        assert records["C"].source_ids == ("datum:0:1:4:4", "datum:0:1:4:21")
+        assert records["B"].lowering_blockers == records["C"].lowering_blockers == ()
+        affected = {
+            source.source_id: (source.outcome, source.reason)
+            for source in ctc04_extraction_report.sources
+            if source.source_id in {*records["B"].source_ids, *records["C"].source_ids}
+        }
+        assert set(affected.values()) == {("extracted", "")}
+
+    def test_ctc04_all_controls_and_affected_datums_lower_with_provenance(
+        self, ctc04_extraction_report
+    ):
+        from draftwright.model import ControlFrame, DatumRef, build_pmi_features
+
+        features = build_pmi_features(
+            ctc04_extraction_report.records, Box(500, 800, 100).bounding_box()
+        )
+        frames = [feature for feature in features if isinstance(feature, ControlFrame)]
+
+        assert [frame.source_id for frame in frames] == [
+            "geometric_tolerance:0:1:4:1",
+            "geometric_tolerance:0:1:4:5",
+            "geometric_tolerance:0:1:4:9",
+            "geometric_tolerance:0:1:4:12",
+            "geometric_tolerance:0:1:4:16",
+            "geometric_tolerance:0:1:4:18",
+        ]
+        assert [frame.datums for frame in frames] == [
+            ("A", "B", "C"),
+            ("D", "E", "F"),
+            ("D", "E"),
+            ("D", "G", "H"),
+            ("D",),
+            ("A", "B", "C"),
+        ]
+        assert [frame.diameter for frame in frames] == [True, True, True, False, False, False]
+
+        affected_features = [
+            feature
+            for feature in features
+            if isinstance(feature, DatumRef) and feature.letter in {"B", "C", "D", "E"}
+        ]
+        assert [feature.letter for feature in affected_features] == ["B", "C", "D", "E"]
+        affected = {feature.letter: feature for feature in affected_features}
+        assert affected["B"].source_ids == ("datum:0:1:4:3", "datum:0:1:4:20")
+        assert affected["C"].source_ids == ("datum:0:1:4:4", "datum:0:1:4:21")
+        assert affected["D"].source_ids == (
+            "datum:0:1:4:6",
+            "datum:0:1:4:10",
+            "datum:0:1:4:13",
+            "datum:0:1:4:17",
+        )
+        assert affected["E"].source_ids == ("datum:0:1:4:7", "datum:0:1:4:11")
+        assert {letter: feature.part21_id for letter, feature in affected.items()} == {
+            "B": "#18341",
+            "C": "#18382",
+            "D": "#18423",
+            "E": "#18457",
+        }
 
     def test_conical_angular_supports_fail_closed_for_non_conical_faces(self):
         from draftwright.pmi import _angular_reference_from_shapes
