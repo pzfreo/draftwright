@@ -742,7 +742,7 @@ def test_measured_dimension_preserves_typed_circular_supports():
         "value": 20,
         "label": "ø20",
         "dominant_axis": "Z",
-        "ref_pts": ((1, 2, 3), (4, 5, 3)),
+        "ref_pts": (),
     }
 
     direct = measured_dimension(circular_refs=(reference,), **required)
@@ -753,10 +753,32 @@ def test_measured_dimension_preserves_typed_circular_supports():
 
     assert direct.circular_refs == (reference,)
     assert mapped.circular_refs == (reference,)
+    assert direct.frame.origin == reference.center
     with pytest.raises(ValueError, match="require a diameter"):
-        measured_dimension(circular_refs=(reference,), **{**required, "kind": "linear"})
+        measured_dimension(
+            circular_refs=(reference,),
+            **{**required, "kind": "linear", "ref_pts": ((0, 0, 0), (1, 0, 0))},
+        )
     with pytest.raises(ValueError, match="disagrees with circular_refs"):
         measured_dimension(circular_refs=(reference,), **{**required, "dominant_axis": "X"})
+
+    oblique = CircularReference.canonical(center=(0, 0, 0), normal=(0, 1, 1), radius=10)
+    with pytest.raises(ValueError, match="one principal-axis direction"):
+        measured_dimension(circular_refs=(oblique,), **required)
+    mixed = (
+        reference,
+        CircularReference(center=(1, 2, 3), normal=(1, 0, 0), radius=10),
+    )
+    with pytest.raises(ValueError, match="one principal-axis direction"):
+        measured_dimension(circular_refs=mixed, **required)
+
+    blocked = measured_dimension(
+        circular_refs=(oblique,),
+        source_id="dimension:blocked",
+        rendering_blockers=("unusable topology",),
+        **{**required, "dominant_axis": "?"},
+    )
+    assert blocked.frame.origin == oblique.center
 
 
 def test_generated_sheet_round_trips_circular_supports():

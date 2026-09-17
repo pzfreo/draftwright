@@ -2557,7 +2557,13 @@ def measured_dimension(
             ) from exc
     imported_blocked = bool(source_id and rendering_blockers)
     cylindrical_diameter = dim_kind == "diameter" and bool(cylinders)
-    if len(pts) < 2 and not imported_blocked and not cylindrical_diameter:
+    circular_diameter = dim_kind == "diameter" and bool(circles)
+    if (
+        len(pts) < 2
+        and not imported_blocked
+        and not cylindrical_diameter
+        and not circular_diameter
+    ):
         raise ValueError("measured_dimension() needs at least two ref_pts")
     bbox = None if ref_bbox is None else tuple(float(c) for c in ref_bbox)
     if bbox is not None and len(bbox) != 6:
@@ -2589,11 +2595,15 @@ def measured_dimension(
     if circles and dim_kind != "diameter":
         raise ValueError("measured_dimension() circular_refs require a diameter dimension")
     circle_axes = {reference.principal_axis for reference in circles}
-    if circles and len(circle_axes) == 1 and "?" not in circle_axes:
-        if dom != next(iter(circle_axes)):
+    if circles and (len(circle_axes) != 1 or "?" in circle_axes):
+        if not imported_blocked:
             raise ValueError(
-                "measured_dimension() dominant_axis disagrees with circular_refs topology"
+                "measured_dimension() circular_refs need one principal-axis direction"
             )
+    elif circles and dom != next(iter(circle_axes)):
+        raise ValueError(
+            "measured_dimension() dominant_axis disagrees with circular_refs topology"
+        )
     if (lower_bound is None) != (upper_bound is None):
         raise ValueError("measured_dimension() needs both lower_bound and upper_bound")
     lower = None if lower_bound is None else float(lower_bound)
@@ -2614,6 +2624,11 @@ def measured_dimension(
         elif cylinders:
             at = tuple(
                 sum(reference.midpoint[index] for reference in cylinders) / len(cylinders)
+                for index in range(3)
+            )
+        elif circles:
+            at = tuple(
+                sum(reference.center[index] for reference in circles) / len(circles)
                 for index in range(3)
             )
         else:
