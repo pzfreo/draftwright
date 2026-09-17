@@ -205,14 +205,26 @@ def test_failed_optional_overlay_distinguishes_complete_and_missing_direct_geome
         reference_item_groups=(("#301",),),
         rendering_blockers=("one diameter reference is not a face",),
     )
+    incomplete_angular = PmiRecord(
+        kind="angular",
+        type_code=28,
+        value=90,
+        shape_aspect_ids=("#40",),
+        reference_item_groups=(("#401", "#402"),),
+        rendering_blockers=("angular dimension needs one planar face in each reference group",),
+    )
 
-    recovered = _dimension_support_topology((oblique, incomplete, non_face_diameter), object())
+    recovered = _dimension_support_topology(
+        (oblique, incomplete, non_face_diameter, incomplete_angular), object()
+    )
 
     assert recovered[0] == oblique
     assert recovered[1].rendering_blockers == incomplete.rendering_blockers
     assert recovered[1].lowering_blockers == ("Part21 support transfer failed",)
     assert recovered[2].rendering_blockers == non_face_diameter.rendering_blockers
     assert recovered[2].lowering_blockers == ("Part21 support transfer failed",)
+    assert recovered[3].rendering_blockers == incomplete_angular.rendering_blockers
+    assert recovered[3].lowering_blockers == ("Part21 support transfer failed",)
 
 
 def test_ap242_thickness_without_two_proven_groups_fails_closed():

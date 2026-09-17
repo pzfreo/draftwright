@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Edge, export_step
+from build123d import Box, Cone, Edge, export_step
+from quiddity import FrameGauge, PartFrame
 
 from draftwright import build_drawing, extract_pmi, extract_pmi_report
 from draftwright._pmi_part21 import GeometricToleranceFact, ManufacturingRequirementFact
@@ -95,6 +96,64 @@ class TestExtractPmi:
             ("#7658", "#7676"),
             ("#7728", "#7710"),
         )
+        assert record.angular_reference is None
+        assert len(record.angular_references) == 30
+        assert all(
+            reference.angle_degrees == pytest.approx(90.0)
+            for reference in record.angular_references
+        )
+        assert {reference.principal_axis for reference in record.angular_references} == {"Y"}
+        assert record.dominant_axis == "Y"
+        assert record.lowering_blockers == (
+            "angular support pattern needs pattern-aware lowering",
+        )
+        assert record.rendering_blockers == (
+            "angular support pattern needs pattern-aware lowering",
+        )
+        source = next(source for source in report.sources if source.source_id == record.source_id)
+        assert (source.outcome, source.reason) == (
+            "partially_extracted",
+            "angular support pattern needs pattern-aware lowering",
+        )
+
+    def test_conical_angular_supports_fail_closed_for_non_conical_faces(self):
+        from draftwright.pmi import _angular_reference_from_shapes
+
+        cone_face = Cone(7, 10, 3).faces()[0].wrapped
+        reference, reasons = _angular_reference_from_shapes((cone_face, cone_face), 90.0)
+
+        assert reference is not None
+        assert reference.angle_degrees == pytest.approx(90.0)
+        assert reasons == ()
+        assert reference.first[2] > reference.vertex[2]
+        assert reference.second[2] > reference.vertex[2]
+
+        reverse_face = Cone(10, 7, 3).faces()[0].wrapped
+        frame = PartFrame(
+            origin=(3.0, 4.0, 5.0),
+            x=(0.0, 1.0, 0.0),
+            y=(0.0, 0.0, 1.0),
+            z=(1.0, 0.0, 0.0),
+            gauge=FrameGauge.FULL,
+        )
+        reference, reasons = _angular_reference_from_shapes(
+            (reverse_face, reverse_face), 90.0, frame
+        )
+        assert reference is not None
+        assert reasons == ()
+        assert reference.first[1] < reference.vertex[1]
+        assert reference.second[1] < reference.vertex[1]
+        assert reference.principal_axis == "Z"
+
+        plane_face = Box(1, 1, 1).faces()[0].wrapped
+        reference, reasons = _angular_reference_from_shapes((cone_face, plane_face), 90.0)
+        assert reference is None
+        assert reasons == ("one support face is not conical",)
+
+        conflicting_face = Cone(14, 20, 3).faces()[0].wrapped
+        reference, reasons = _angular_reference_from_shapes((cone_face, conflicting_face), 90.0)
+        assert reference is None
+        assert reasons == ("support faces do not share one cone semi-angle",)
 
     def test_ctc01_angular_location_remains_directly_extracted(self, ctc01_extraction_report):
         source_id = "dimension:0:1:4:17"

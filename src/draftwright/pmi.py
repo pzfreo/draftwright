@@ -24,7 +24,7 @@ import logging
 import math
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from quiddity import PartFrame
 
@@ -69,7 +69,7 @@ try:
     from OCP.BRep import BRep_Tool
     from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
     from OCP.BRepBndLib import BRepBndLib
-    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
     from OCP.gp import gp_Trsf
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
@@ -267,6 +267,8 @@ class PmiRecord:
                         requirement whose semantic association names edges rather than faces.
         angular_reference: Oriented planar supports for an angular requirement. ``None``
                         when the two source reference groups do not prove such supports.
+        angular_references: Ordered member references for an angular pattern. Their order
+                        matches ``shape_aspect_ids`` and ``reference_item_groups``.
     """
 
     kind: str
@@ -304,6 +306,7 @@ class PmiRecord:
     angular_reference: AngularReference | None = None
     reference_item_groups: tuple[tuple[str, ...], ...] = ()
     circular_refs: tuple[CircularReference, ...] = ()
+    angular_references: tuple[AngularReference, ...] = ()
 
 
 PmiExtractionOutcome = Literal[
@@ -539,6 +542,26 @@ def _without_direct_xcaf_diameter_failures(reasons: tuple[str, ...]) -> tuple[st
     return tuple(reason for reason in reasons if not _is_direct_xcaf_diameter_failure(reason))
 
 
+def _is_direct_xcaf_angular_failure(reason: str) -> bool:
+    prefixes = (
+        "angular dimension needs one planar face in each reference group",
+        "angular dimension needs two measurable authored reference groups",
+        "one angular reference is not a face",
+        "one angular reference face is not planar",
+        "one angular reference plane could not be measured (",
+        "angular reference planes are parallel or coincident",
+        "one angular reference face does not select a support half-ray",
+        "angular reference is invalid (",
+        "angular reference angle ",
+    )
+    return reason.startswith(prefixes)
+
+
+def _without_direct_xcaf_angular_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
+    """Drop angular XCAF failures superseded by exact Part21 member supports."""
+    return tuple(reason for reason in reasons if not _is_direct_xcaf_angular_failure(reason))
+
+
 def _direct_xcaf_support_is_incomplete(record: PmiRecord) -> bool:
     """Whether direct XCAF failed to supply all support geometry, independent of rendering."""
     reasons = (*record.lowering_blockers, *record.rendering_blockers)
@@ -550,6 +573,7 @@ def _direct_xcaf_support_is_incomplete(record: PmiRecord) -> bool:
     return any(
         _is_direct_xcaf_reference_failure(reason)
         or _is_direct_xcaf_diameter_failure(reason)
+        or _is_direct_xcaf_angular_failure(reason)
         or reason.startswith(missing_groups)
         for reason in reasons
     )
@@ -801,6 +825,110 @@ def _angular_reference(
             )
     assert len(planes) == 2
     return _angular_reference_from_planes((planes[0], planes[1]), group_stations, nominal)
+
+
+def _angular_reference_from_shapes(
+    shapes: tuple[Any, ...],
+    nominal: float,
+    frame: PartFrame | None = None,
+) -> tuple[AngularReference | None, tuple[str, ...]]:
+    """Recover one included cone angle from identity-proven split support faces."""
+    if len(shapes) != 2:
+        return None, (f"needs exactly two support faces (got {len(shapes)})",)
+
+    cones = []
+    for shape in shapes:
+        if shape.ShapeType() != TopAbs_FACE:
+            return None, ("one support is not a face",)
+        try:
+            surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
+            if surface.GetType() != GeomAbs_Cone:
+                return None, ("one support face is not conical",)
+            cone = surface.Cone()
+            apex = cone.Apex()
+            direction = cone.Axis().Direction()
+            axis = _frame_vector((direction.X(), direction.Y(), direction.Z()), frame)
+            length = math.hypot(*axis)
+            if length <= 1e-12:
+                return None, ("one conical support has a degenerate axis",)
+            axis = (axis[0] / length, axis[1] / length, axis[2] / length)
+            for component in axis:
+                if abs(component) > 1e-12:
+                    if component < 0:
+                        axis = (-axis[0], -axis[1], -axis[2])
+                    break
+            witness = _face_topology_witness(shape, frame)
+            transformed_apex = _frame_point((apex.X(), apex.Y(), apex.Z()), frame)
+            axial_offset = sum(
+                (witness[index] - transformed_apex[index]) * axis[index] for index in range(3)
+            )
+            if abs(axial_offset) <= 1e-9:
+                return None, ("one support face does not select a cone nappe",)
+            cones.append(
+                (
+                    transformed_apex,
+                    axis,
+                    abs(float(cone.SemiAngle())),
+                    1.0 if axial_offset > 0 else -1.0,
+                )
+            )
+        except Exception as exc:
+            return None, (f"conical support could not be measured ({_failure_reason(exc)})",)
+
+    first, second = cones
+    if any(
+        not math.isclose(a, b, rel_tol=0.0, abs_tol=1e-6)
+        for a, b in zip(first[0], second[0], strict=True)
+    ):
+        return None, ("support faces do not share one cone apex",)
+    if abs(sum(a * b for a, b in zip(first[1], second[1], strict=True))) < 1.0 - 1e-9:
+        return None, ("support faces do not share one cone axis",)
+    if not math.isclose(first[2], second[2], rel_tol=0.0, abs_tol=1e-9):
+        return None, ("support faces do not share one cone semi-angle",)
+    if first[3] != second[3]:
+        return None, ("support faces occupy opposite cone nappes",)
+
+    axis = first[1]
+    dominant = max(range(3), key=lambda index: abs(axis[index]))
+    if any(abs(axis[index]) > 1e-6 for index in range(3) if index != dominant):
+        return None, ("cone axis has no true-angle principal projection",)
+    principal_axis = cast(
+        tuple[float, float, float],
+        tuple(1.0 if index == dominant else 0.0 for index in range(3)),
+    )
+    radial_index = 1 if dominant == 0 else 0
+    radial = cast(
+        tuple[float, float, float],
+        tuple(1.0 if index == radial_index else 0.0 for index in range(3)),
+    )
+    cosine = math.cos(first[2])
+    sine = math.sin(first[2])
+    first_ray = cast(
+        tuple[float, float, float],
+        tuple(
+            first[0][index] + first[3] * principal_axis[index] * cosine + radial[index] * sine
+            for index in range(3)
+        ),
+    )
+    second_ray = cast(
+        tuple[float, float, float],
+        tuple(
+            first[0][index] + first[3] * principal_axis[index] * cosine - radial[index] * sine
+            for index in range(3)
+        ),
+    )
+    try:
+        reference = AngularReference(
+            vertex=first[0], first=first_ray, second=second_ray, virtual_vertex=True
+        )
+    except ValueError as exc:
+        return None, (f"conical angular reference is invalid ({exc})",)
+    if not math.isclose(reference.angle_degrees, nominal, rel_tol=0.0, abs_tol=0.01):
+        return reference, (
+            f"included cone angle {reference.angle_degrees:.6g} deg differs from nominal "
+            f"{nominal:.6g} deg",
+        )
+    return reference, ()
 
 
 def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
@@ -2066,7 +2194,7 @@ def _dimension_support_topology(
     projected = []
     for record in records:
         if (
-            record.kind not in ("linear", "thickness", "diameter")
+            record.kind not in ("linear", "thickness", "diameter", "angular")
             or not record.reference_item_groups
         ):
             projected.append(record)
@@ -2119,6 +2247,62 @@ def _dimension_support_topology(
                 )
             else:
                 projected.append(record)
+            continue
+        if record.kind == "angular":
+            references = []
+            angular_geometry_reasons: list[str] = []
+            for aspect_id, shapes in zip(record.shape_aspect_ids, group_shapes, strict=True):
+                reference, member_reasons = _angular_reference_from_shapes(
+                    shapes, record.value, frame
+                )
+                angular_geometry_reasons.extend(
+                    f"angular member {aspect_id}: {reason}" for reason in member_reasons
+                )
+                if reference is not None:
+                    references.append(reference)
+            if len(references) != len(group_shapes) and not angular_geometry_reasons:
+                angular_geometry_reasons.append(
+                    "one angular member produced no reference geometry"
+                )
+            axes = {reference.principal_axis for reference in references}
+            if len(axes) > 1:
+                angular_geometry_reasons.append(
+                    "angular members do not share one principal projection axis"
+                )
+            if references and not angular_geometry_reasons:
+                angular_geometry_reasons.append(
+                    "angular support pattern needs pattern-aware lowering"
+                )
+            blockers = tuple(dict.fromkeys((*topology_reasons, *angular_geometry_reasons)))
+            projected.append(
+                replace(
+                    record,
+                    ref_bbox=ref_bbox,
+                    dominant_axis=(next(iter(axes)) if len(axes) == 1 else record.dominant_axis),
+                    lowering_blockers=tuple(
+                        dict.fromkeys(
+                            (
+                                *_without_direct_xcaf_reference_failures(record.lowering_blockers),
+                                *blockers,
+                            )
+                        )
+                    ),
+                    rendering_blockers=tuple(
+                        dict.fromkeys(
+                            (
+                                *_without_direct_xcaf_reference_failures(
+                                    _without_direct_xcaf_angular_failures(
+                                        record.rendering_blockers
+                                    )
+                                ),
+                                *blockers,
+                            )
+                        )
+                    ),
+                    angular_reference=None,
+                    angular_references=tuple(references),
+                )
+            )
             continue
         if record.kind == "diameter":
             shapes = tuple(shape for group in group_shapes for shape in group)
@@ -2521,14 +2705,16 @@ def _extract_pmi_census(
                 record,
                 lowering_blockers=tuple(dict.fromkeys((*record.lowering_blockers, reason))),
             )
-            if record.kind in ("linear", "thickness", "diameter") and record.reference_item_groups
+            if record.kind in ("linear", "thickness", "diameter", "angular")
+            and record.reference_item_groups
             else record
             for record in records
         ]
     dimension_records = {
         record.source_id: record
         for record in records
-        if record.kind in ("linear", "thickness", "diameter") and record.reference_item_groups
+        if record.kind in ("linear", "thickness", "diameter", "angular")
+        and record.reference_item_groups
     }
     sources = [
         replace(
