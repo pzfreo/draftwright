@@ -848,6 +848,10 @@ def test_measured_dimension_preserves_typed_circular_supports():
     assert direct.circular_refs == (reference,)
     assert mapped.circular_refs == (reference,)
     assert direct.frame.origin == reference.center
+    with pytest.raises(ValueError, match="circular_refs items must be mappings"):
+        measured_dimension(circular_refs=(object(),), **required)
+    with pytest.raises(ValueError, match="circular reference is missing 'radius'"):
+        measured_dimension(circular_refs=({"center": (1, 2, 3), "normal": (0, 0, 1)},), **required)
     with pytest.raises(ValueError, match="require a diameter"):
         measured_dimension(
             circular_refs=(reference,),
@@ -1020,6 +1024,45 @@ def test_oblique_cylinder_pattern_renders_one_exact_surface_witness():
         if getattr(candidate, "source_id", "") == "dimension:oblique-render"
     )
     assert restored.cylindrical_refs == references
+
+
+@pytest.mark.parametrize(
+    "direction, view, side",
+    [
+        ((0.8, 0.0, 0.6), "front", "above"),
+        ((0.8, 0.6, 0.0), "plan", "right"),
+    ],
+)
+def test_oblique_cylinder_selects_each_preserving_projection(direction, view, side):
+    reference = CylindricalReference(
+        axis_origin=(0, 0, 0),
+        axis_direction=direction,
+        radius=10,
+        axial_interval=(0, 20),
+        sense="external",
+    )
+    sheet = Sheet(Box(40, 40, 40), number=f"oblique-{view}").authored_dimensions()
+    sheet.measured_dimension(
+        kind="diameter",
+        value=20,
+        label="ø20",
+        dominant_axis="?",
+        ref_pts=(),
+        cylindrical_refs=(reference,),
+        source_id=f"dimension:oblique-{view}",
+        view=view,
+        side=side,
+    )
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == f"dimension:oblique-{view}"
+    )
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.view_of(names[0]) == view
 
 
 def test_owner_match_helpers_fail_closed_for_every_topology_component():

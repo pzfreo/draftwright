@@ -324,6 +324,41 @@ def test_oblique_linear_support_renders_its_exact_projected_span():
     assert (restored.view, restored.side) == (None, None)
 
 
+@pytest.mark.parametrize(
+    "stations, view, side",
+    [
+        (((0.0, 0.0, 0.0), (12.0, 0.0, 16.0)), "front", "above"),
+        (((0.0, 0.0, 0.0), (12.0, 16.0, 0.0)), "plan", "right"),
+    ],
+)
+def test_oblique_linear_support_selects_each_preserving_projection(stations, view, side):
+    from build123d import Box
+
+    from draftwright import Sheet
+
+    sheet = Sheet(Box(40, 40, 40), number=f"oblique-{view}").authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=20,
+        label="20",
+        dominant_axis="?",
+        ref_pts=stations,
+        source_id=f"dimension:oblique-{view}",
+        view=view,
+        side=side,
+    )
+
+    drawing = sheet.build()
+    feature = next(
+        feature
+        for feature in drawing.model().features
+        if getattr(feature, "source_id", "") == f"dimension:oblique-{view}"
+    )
+    names = drawing.registry.names_for_feature(feature)
+    assert len(names) == 1
+    assert drawing.registry.view_of(names[0]) == view
+
+
 def test_linear_witness_uses_stations_while_bbox_supplies_only_transverse_support():
     def identity(value):
         return value
