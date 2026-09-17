@@ -7219,12 +7219,6 @@ def _angular_renderable(record) -> bool:
         record.pmi_kind == "angular"
         and reference is not None
         and reference.principal_axis in ("X", "Y", "Z")
-        # Structured angle tolerances still need compiler-owned label composition.
-        # Retain a refusal until that path can state every authored term.
-        and all(
-            getattr(record, field, None) is None
-            for field in ("upper_tol", "lower_tol", "lower_bound", "upper_bound")
-        )
     )
 
 
@@ -7280,8 +7274,7 @@ def _record_unsupported_dimension_kind(ctx, rec):
     """
     basis = _MEASUREMENT_BASIS[rec.pmi_kind]
     reason = (
-        "supported angular ink requires explicit coplanar rays in a principal view "
-        "and currently cannot compose structured angular tolerances"
+        "supported angular ink requires explicit coplanar rays in a principal view"
         if rec.pmi_kind == "angular"
         else "this renderer measures only a straight projected path"
     )

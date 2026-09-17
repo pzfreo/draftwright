@@ -1533,7 +1533,9 @@ class TestBuildDrawingPmi:
             "dimension:0:1:4:29",
         }
         assert all(ctc01_annotated.registry.names_for_feature(owner) for owner, _ in requirements)
-        assert not [name for name in ctc01_annotated.annotations() if name.startswith("pmi_")]
+        pmi_names = [name for name in ctc01_annotated.annotations() if name.startswith("pmi_")]
+        assert len(pmi_names) == 1
+        assert pmi_names[0].startswith("pmi_angle_")
 
     def test_pmi_annotate_renders_each_nist_range_requirement_with_both_limits(
         self, ctc01_annotated
@@ -1653,9 +1655,10 @@ class TestBuildDrawingPmi:
         # `dimension:0:1:4:17` is an ANGULAR dimension (label '60 ±0.5'). It used to render
         # through the linear path, producing an annotation whose label states an angle and
         # whose geometry states a length — the #1177 defect, present in a real NIST AP242
-        # fixture. It remains materialised and is refused by category. The seven diameter
-        # records are consumed once as canonical hole decorations (#1116), so they no longer
-        # appear in this authored-feature inventory or compete in the PMI placement pass.
+        # fixture. Its extracted planar supports now route it through the angular renderer,
+        # preserving the authored tolerance label. The seven diameter records are consumed
+        # once as canonical hole decorations (#1116), so they no longer appear in this
+        # authored-feature inventory or compete in the PMI placement pass.
         refused = {
             source_id
             for issue in ctc01_annotated.registry.issues
@@ -1666,11 +1669,9 @@ class TestBuildDrawingPmi:
             feature.source_id for feature in authored if feature.dimension_kind == "angular"
         }
         assert len(authored) == 1
-        assert len(rendered) == 0
+        assert rendered == angular
         assert len(dropped) == 0
-        assert refused == angular, (
-            f"category refusals {refused} do not match the angular records {angular}"
-        )
+        assert refused == set()
         assert rendered.isdisjoint(dropped) and rendered.isdisjoint(refused)
         assert rendered | dropped | refused == {feature.source_id for feature in authored}
         assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
@@ -1681,9 +1682,9 @@ class TestBuildDrawingPmi:
             "by_category": {"datum": 11, "dimension": 21, "geometric_tolerance": 6},
             "extracted": 29,
             "lowered": 25,
-            # Seven diameter sources now ride canonical bore owners. The angular record is
-            # still explicitly refused and the four raw location records remain unlowered.
-            "rendered": 24,
+            # Seven diameter sources ride canonical bore owners; the angular record renders
+            # from its planar supports, and the four raw location records remain unlowered.
+            "rendered": 25,
             "dropped": 0,
         }
 
