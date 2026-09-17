@@ -49,6 +49,7 @@ from draftwright.model.ir import (
     ChannelFeature,
     CircularBlindStepFeature,
     CircularChannelFeature,
+    CircularReference,
     ControlFrame,
     CylindricalReference,
     DatumRef,
@@ -2461,6 +2462,7 @@ def measured_dimension(
     lowering_blockers: tuple[str, ...] = (),
     rendering_blockers: tuple[str, ...] = (),
     cylindrical_refs=(),
+    circular_refs=(),
     view: str | None = None,
     side: str | None = None,
     angular_reference=None,
@@ -2534,6 +2536,25 @@ def measured_dimension(
             raise ValueError(
                 f"measured_dimension() cylindrical reference is missing {exc.args[0]!r}"
             ) from exc
+    circles: list[CircularReference] = []
+    for raw in circular_refs:
+        if isinstance(raw, CircularReference):
+            circles.append(raw)
+            continue
+        if not isinstance(raw, dict):
+            raise ValueError("measured_dimension() circular_refs items must be mappings")
+        try:
+            circles.append(
+                CircularReference(
+                    center=raw["center"],
+                    normal=raw["normal"],
+                    radius=raw["radius"],
+                )
+            )
+        except KeyError as exc:
+            raise ValueError(
+                f"measured_dimension() circular reference is missing {exc.args[0]!r}"
+            ) from exc
     imported_blocked = bool(source_id and rendering_blockers)
     cylindrical_diameter = dim_kind == "diameter" and bool(cylinders)
     if len(pts) < 2 and not imported_blocked and not cylindrical_diameter:
@@ -2565,6 +2586,14 @@ def measured_dimension(
         raise ValueError(
             "measured_dimension() dominant_axis disagrees with cylindrical_refs topology"
         )
+    if circles and dim_kind != "diameter":
+        raise ValueError("measured_dimension() circular_refs require a diameter dimension")
+    circle_axes = {reference.principal_axis for reference in circles}
+    if circles and len(circle_axes) == 1 and "?" not in circle_axes:
+        if dom != next(iter(circle_axes)):
+            raise ValueError(
+                "measured_dimension() dominant_axis disagrees with circular_refs topology"
+            )
     if (lower_bound is None) != (upper_bound is None):
         raise ValueError("measured_dimension() needs both lower_bound and upper_bound")
     lower = None if lower_bound is None else float(lower_bound)
@@ -2613,4 +2642,5 @@ def measured_dimension(
         view=view,
         side=side,
         angular_reference=angular_reference,
+        circular_refs=tuple(circles),
     )

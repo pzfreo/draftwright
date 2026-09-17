@@ -3325,6 +3325,7 @@ class AuthoredDimension:
     view: str | None = None
     side: str | None = None
     angular_reference: AngularReference | None = None
+    circular_refs: tuple[CircularReference, ...] = ()
     kind: ClassVar[str] = "authored_dimension"
 
     def __post_init__(self) -> None:
