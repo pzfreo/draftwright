@@ -2081,6 +2081,10 @@ def _extract_pmi_census(
                 association_fact = None
                 association_reason = ""
                 dimension_kind = _DIM_TYPE.get(type_code, f"type{type_code}")
+                # This overlay enriches XCAF's already-valid direct reference geometry. An
+                # unnamed dimension cannot be correlated to Part21, but that absence does not
+                # invalidate geometry XCAF did transfer. Once XCAF exposes a presentation
+                # identity, however, require its Part21 association to be unambiguous.
                 if presentation_name and dimension_kind in _LENGTH_DIMENSION_KINDS:
                     association_reason = dimension_association_error
                     if not association_reason:
