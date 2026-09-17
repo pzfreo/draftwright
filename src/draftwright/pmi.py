@@ -835,9 +835,13 @@ def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
     if source_count == 0:
         reasons.append("diameter reference geometry is unavailable")
 
-    # XCAF emits repeated labels for one logical cylindrical face in several benchmark
-    # files. Use a precision finer than generated-Sheet output to collapse only values that
-    # are genuinely the same topology, never nearby equal-diameter members.
+    return _unique_cylindrical_references(references), tuple(dict.fromkeys(reasons))
+
+
+def _unique_cylindrical_references(
+    references: list[CylindricalReference],
+) -> tuple[CylindricalReference, ...]:
+    """Coalesce repeated transfers of one canonical cylinder without merging neighbours."""
     unique: dict[tuple, CylindricalReference] = {}
     for reference in references:
         signature = (
@@ -848,7 +852,7 @@ def _cylindrical_references(label, shape_tool, frame: PartFrame | None = None):
             reference.sense,
         )
         unique.setdefault(signature, reference)
-    return tuple(unique.values()), tuple(dict.fromkeys(reasons))
+    return tuple(unique.values())
 
 
 def _cylindrical_references_from_shapes(shapes, *, noun: str, frame: PartFrame | None = None):
@@ -895,7 +899,7 @@ def _cylindrical_references_from_shapes(shapes, *, noun: str, frame: PartFrame |
             reasons.append(f"one {noun} reference could not be measured ({_failure_reason(exc)})")
     if not references and not reasons:
         reasons.append(f"{noun} reference geometry is unavailable")
-    return tuple(references), tuple(dict.fromkeys(reasons))
+    return _unique_cylindrical_references(references), tuple(dict.fromkeys(reasons))
 
 
 def _circular_references_from_shapes(
@@ -2068,6 +2072,19 @@ def _dimension_support_topology(
 
         topology_reasons = list(dict.fromkeys(topology_reasons))
         ref_bbox = _merge_bboxes(boxes) if boxes else None
+        if topology_reasons:
+            if record.rendering_blockers:
+                projected.append(
+                    replace(
+                        record,
+                        lowering_blockers=tuple(
+                            dict.fromkeys((*record.lowering_blockers, *topology_reasons))
+                        ),
+                    )
+                )
+            else:
+                projected.append(record)
+            continue
         if record.kind == "diameter":
             shapes = tuple(shape for group in group_shapes for shape in group)
             shape_types = {shape.ShapeType() for shape in shapes}
