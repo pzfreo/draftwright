@@ -256,14 +256,17 @@ class TestCardinalityIsNotTradedForCleanliness:
         pytest.param(
             stem,
             floor,
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=_HistoricalCalloutFloorNotMet,
-                reason=(
-                    "accepted recess-inventory limitation, still reproduced at the "
-                    "pinned quiddity version: "
-                    "https://github.com/pzfreo/draftwright/issues/1471"
+            marks=(
+                pytest.mark.xfail(
+                    strict=True,
+                    raises=_HistoricalCalloutFloorNotMet,
+                    reason=(
+                        "accepted recess-inventory limitation, still reproduced at the "
+                        "pinned quiddity version: "
+                        "https://github.com/pzfreo/draftwright/issues/1471"
+                    ),
                 ),
+                *((pytest.mark.ctc04,) if "ctc_04" in stem else ()),
             ),
         )
         for stem, floor in (

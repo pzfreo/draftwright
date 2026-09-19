@@ -199,7 +199,10 @@ def _ap203_drawing(n):
 
 @pytest.mark.slow
 @pytest.mark.timeout(600)
-@pytest.mark.parametrize("n", _CTC_AP203_OK)
+@pytest.mark.parametrize(
+    "n",
+    [pytest.param(n, marks=pytest.mark.ctc04 if n == "04" else ()) for n in _CTC_AP203_OK],
+)
 def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
     from draftwright.export import _MIN_ARC_RADIUS, _SVG_ARC_RE
 
@@ -258,7 +261,10 @@ def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
         pytest.param(
             n,
             n != "01",
-            marks=pytest.mark.timeout(900 if n == "04" else 600),
+            marks=(
+                pytest.mark.timeout(900 if n == "04" else 600),
+                *((pytest.mark.ctc04,) if n == "04" else ()),
+            ),
         )
         for n in _CTC_AP242_OK
     ],
@@ -290,6 +296,7 @@ def test_ctc02_infeasible_hole_table_restores_feature_callouts():
 
 
 @pytest.mark.slow
+@pytest.mark.ctc04
 @pytest.mark.timeout(600)
 def test_ctc04_infeasible_hole_table_restores_complete_fallback():
     """#1144: real fallback remains complete when every row cannot be keyed."""

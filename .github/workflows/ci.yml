@@ -435,6 +435,17 @@ jobs:
     # main; a regression here is caught right after merge.
     needs: changes
     if: github.event_name == 'push' && needs.changes.outputs.version_only != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: ctc04
+            workers: 1
+            selection: ctc04
+          - lane: remaining
+            workers: auto
+            selection: not ctc04
+    name: test-slow (${{ matrix.lane }})
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -447,11 +458,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run scheduled tests
-        # Dense STEP builds saturate the two-core hosted runner. Running two together makes
-        # each slower than the 600 s per-test bound; serial execution completes sooner and
-        # preserves that bound. This tier includes every legacy slow case plus broad topology
-        # and exporter compatibility checks removed from pull-request and full tiers.
-        run: uv run scripts/test-tier scheduled --workers 1
+        # CTC-04 saturates a two-core hosted runner and stays serial on its own runner.
+        # The disjoint remaining lane can use xdist without making CTC-04 exceed its
+        # per-test bound. Together the lanes still cover the complete scheduled tier.
+        run: >-
+          uv run scripts/test-tier scheduled
+          --workers "${{ matrix.workers }}"
+          --selection "${{ matrix.selection }}"
 
   test-platform-canary:
     # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the

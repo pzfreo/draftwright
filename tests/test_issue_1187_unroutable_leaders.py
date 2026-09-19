@@ -121,6 +121,7 @@ def _clear_routes(dwg, name, *, directions=64, reaches=(0.6, 0.8, 1.0, 1.3, 1.7,
 
 
 @pytest.mark.slow
+@pytest.mark.ctc04
 @pytest.mark.parametrize(
     ("fixture", "name"),
     [

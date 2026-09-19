@@ -99,6 +99,18 @@ def test_tier_runner_is_executable():
     assert os.access(runner, os.X_OK)
 
 
+def test_scheduled_selection_is_intersected_with_the_tier(monkeypatch):
+    runner = _TESTS.parent / "scripts" / "test-tier"
+    namespace = runpy.run_path(str(runner))
+    captured = []
+
+    monkeypatch.setattr(namespace["pytest"], "main", lambda args: captured.extend(args) or 0)
+
+    assert namespace["main"](["scheduled", "--selection", "ctc04", "--workers", "1"]) == 0
+    marker = captured[captured.index("-m") + 1]
+    assert marker == "(slow or scheduled) and (ctc04)"
+
+
 def test_default_pytest_selection_matches_the_full_tier():
     config = tomllib.loads((_TESTS.parent / "pyproject.toml").read_text(encoding="utf-8"))
 
