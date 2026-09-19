@@ -107,6 +107,10 @@ _RECOGNISED_REQUIREMENT_FAMILIES = {
     "oriented_slots": "oriented_slots",
     "slot_patterns": "slot_patterns",
     "grooves": "grooves",
+    # Pattern records correlate the same physical rib occurrences; their pitch/mirror
+    # requirement is carried by the shared gusset-ribs outcome ledger.
+    "gusset_ribs": "gusset_ribs",
+    "gusset_rib_patterns": "gusset_ribs",
     "flats": "flats",
     "pads": "pads",
     "plates": "plates",
@@ -166,6 +170,7 @@ _AUDITED_FAMILIES = (
     "paired_ramp_steps",
     "flats",
     "grooves",
+    "gusset_ribs",
     "hole_patterns",
     "holes",
     "oriented_slots",
