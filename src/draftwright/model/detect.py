@@ -34,6 +34,9 @@ from quiddity import (
     Fillet,
     Flat,
     Groove,
+    GussetRib,
+    GussetRibArray,
+    GussetRibMirrorPair,
     HoleRecord,
     HoleSpec,
     LinearArray,
@@ -1163,6 +1166,16 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
 # tier so neither unsupported evidence nor its compatibility records disappear into substrate
 # merely because neither has an IR converter (#1244).
 _UNCONSUMED_RECORDS: dict[type, str] = {
+    GussetRib: (
+        "an accepted reinforcement occurrence whose correlated thickness, support legs, and "
+        "location grammar is tracked for adoption in #1705"
+    ),
+    GussetRibArray: (
+        "a derived gusset array awaiting the member-preserving pattern adapter in #1705"
+    ),
+    GussetRibMirrorPair: (
+        "a derived mirrored gusset pair awaiting the member-preserving pattern adapter in #1705"
+    ),
     AngledStep: (
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
         "`chamfers`; its available measurements do not choose a truthful general dimension "

@@ -31,6 +31,9 @@ _SCHEMA_1_RECORDS = {
     ("oriented-slot-patterns", "OrientedSlotArray"),
     ("hole-patterns", "BoltCircle"),
     ("holes", "CounterBore"),
+    ("gusset-ribs", "GussetRib"),
+    ("gusset-rib-patterns", "GussetRibArray"),
+    ("gusset-rib-patterns", "GussetRibMirrorPair"),
 }
 
 _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
