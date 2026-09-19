@@ -737,7 +737,7 @@ def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
     assert "paired-ramp-steps" not in pending_family_declarations()
 
 
-def test_quiddity_030_gusset_families_are_explicitly_deferred_for_adoption() -> None:
+def test_quiddity_030_gusset_families_have_explicit_consumer_paths() -> None:
     families = _families(consumer_capability_declaration())
     expected = {
         "gusset-ribs": {"GussetRib": [1]},
@@ -747,8 +747,7 @@ def test_quiddity_030_gusset_families_are_explicitly_deferred_for_adoption() -> 
     for family_id, schemas in expected.items():
         family = families[family_id]
         assert family["record_schemas"] == schemas
-        assert family["disposition"] == "deferred"
-        assert family["tracking"] == "https://github.com/pzfreo/draftwright/issues/1705"
+        assert family["disposition"] == "supported"
         assert {
             family[boundary]["state"]
             for boundary in (
@@ -758,7 +757,7 @@ def test_quiddity_030_gusset_families_are_explicitly_deferred_for_adoption() -> 
                 "drawing_consumer",
                 "completeness",
             )
-        } == {"deferred"}
+        } == {"supported"}
         assert family_id not in pending_family_declarations()
 
 
@@ -1109,6 +1108,8 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "fillets": "fillet",
         "flats": "flat",
         "grooves": "groove",
+        "gusset-rib-patterns": "gusset_rib",
+        "gusset-ribs": "gusset_rib",
         "hole-patterns": "pattern",
         "holes": "hole",
         "plates": "plate",

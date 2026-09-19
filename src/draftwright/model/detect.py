@@ -116,6 +116,7 @@ from draftwright.model.ir import (
     FlatFeature,
     Frame,
     GrooveFeature,
+    GussetRibFeature,
     HexPocketFeature,
     HoleFeature,
     LevelSupport,
@@ -1024,6 +1025,44 @@ def _convert_paired_ramp_step(step: PairedRampStep, ctx: ConvContext) -> PairedR
     )
 
 
+def _gusset_feature(
+    ribs: tuple[GussetRib, ...],
+    pattern: GussetRibArray | GussetRibMirrorPair | None,
+    ctx: ConvContext,
+) -> GussetRibFeature:
+    """Lower only public gusset facts; pattern membership is provider object identity."""
+    first = ribs[0]
+    if any(
+        rib.thickness_axis != first.thickness_axis
+        or rib.supports != first.supports
+        or rib.legs != first.legs
+        or rib.directions != first.directions
+        for rib in ribs[1:]
+    ):
+        raise ValueError("a gusset-rib pattern must have one common section")
+    centres = tuple((rib.thickness_bounds[0] + rib.thickness_bounds[1]) / 2 for rib in ribs)
+    coordinates = {axis: value for axis, value in first.supports}
+    coordinates[first.thickness_axis] = sum(centres) / len(centres)
+    if isinstance(pattern, GussetRibArray):
+        pattern_kind, pitch, mirror_plane = "linear", pattern.pitch, None
+    elif isinstance(pattern, GussetRibMirrorPair):
+        pattern_kind, pitch, mirror_plane = "mirror", None, pattern.mirror_plane
+    else:
+        pattern_kind, pitch, mirror_plane = "single", None, None
+    return GussetRibFeature(
+        frame=Frame(tuple(coordinates[axis] for axis in "xyz"), first.thickness_axis),
+        axis=first.thickness_axis,
+        supports=first.supports,
+        legs=first.legs,
+        directions=first.directions,
+        member_bounds=tuple(rib.thickness_bounds for rib in ribs),
+        datum=getattr(ctx.bbox.min, first.thickness_axis.upper()),
+        pattern=pattern_kind,
+        pitch=pitch,
+        mirror_plane=mirror_plane,
+    )
+
+
 def _convert_through_step(step: ThroughStep, ctx: ConvContext) -> ThroughStepFeature:
     return ThroughStepFeature(
         frame=Frame((step.at[0], step.at[1], step.at[2]), step.axis),
@@ -1132,6 +1171,9 @@ _DERIVED_CONVERTERS: dict[type, Callable[..., Feature]] = {
     SectionRecessGrid: _pocket_pattern_feature,
     SlotArray: _slot_pattern_feature,
     SlotGrid: _slot_pattern_feature,
+    GussetRib: _gusset_feature,
+    GussetRibArray: _gusset_feature,
+    GussetRibMirrorPair: _gusset_feature,
 }
 
 # Tier 3 — orchestrated/evidence records: no per-record converter, by design. Each is a
@@ -1166,16 +1208,6 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
 # tier so neither unsupported evidence nor its compatibility records disappear into substrate
 # merely because neither has an IR converter (#1244).
 _UNCONSUMED_RECORDS: dict[type, str] = {
-    GussetRib: (
-        "an accepted reinforcement occurrence whose correlated thickness, support legs, and "
-        "location grammar is tracked for adoption in #1705"
-    ),
-    GussetRibArray: (
-        "a derived gusset array awaiting the member-preserving pattern adapter in #1705"
-    ),
-    GussetRibMirrorPair: (
-        "a derived mirrored gusset pair awaiting the member-preserving pattern adapter in #1705"
-    ),
     AngledStep: (
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
         "`chamfers`; its available measurements do not choose a truthful general dimension "
@@ -1506,6 +1538,8 @@ def build_part_model(
     circular_blind_steps=None,
     paired_ramp_steps=None,
     through_steps=None,
+    gusset_ribs=None,
+    gusset_rib_patterns=None,
     plates=None,
     grooves=None,
     flats=None,
@@ -1593,6 +1627,8 @@ def build_part_model(
                 circular_blind_steps,
                 paired_ramp_steps,
                 through_steps,
+                gusset_ribs,
+                gusset_rib_patterns,
                 plates,
                 grooves,
                 flats,
@@ -1787,6 +1823,10 @@ def build_part_model(
             recognition.paired_ramp_steps if paired_ramp_steps is None else paired_ramp_steps
         )
         through_steps = recognition.through_steps if through_steps is None else through_steps
+        gusset_ribs = recognition.gusset_ribs if gusset_ribs is None else gusset_ribs
+        gusset_rib_patterns = (
+            recognition.gusset_rib_patterns if gusset_rib_patterns is None else gusset_rib_patterns
+        )
         plates = recognition.plates if plates is None else plates
         grooves = recognition.grooves if grooves is None else grooves
         flats = recognition.flats if flats is None else flats
@@ -2599,6 +2639,31 @@ def build_part_model(
         paired_ramp_steps = recognise_paired_ramp_steps(part) if orientation is None else ()
     for ramp in paired_ramp_steps:
         append_direct(ramp)
+
+    # Reinforcing gussets (#1705).  A provider pattern is a correlation over the exact
+    # physical member objects, so lower it once and bind every occurrence to the shared IR
+    # owner.  Unrelated ribs remain independent features.
+    assert gusset_ribs is not None and gusset_rib_patterns is not None
+    gusset_ribs = tuple(gusset_ribs)
+    patterned_ids: set[int] = set()
+    for pattern in gusset_rib_patterns:
+        members = tuple(pattern.ribs)
+        if not members or any(not any(member is rib for rib in gusset_ribs) for member in members):
+            raise ValueError("gusset-rib pattern members must preserve aggregate identity")
+        if any(id(member) in patterned_ids for member in members):
+            raise ValueError("a gusset-rib occurrence cannot belong to two patterns")
+        patterned_ids.update(id(member) for member in members)
+        feature = _gusset_feature(members, pattern, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.absorb(members, feature, reason_code="gusset_rib_pattern_member")
+    for rib in gusset_ribs:
+        if id(rib) in patterned_ids:
+            continue
+        feature = _gusset_feature((rib,), None, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.bind(rib, feature, reason_code="gusset_rib_adapter")
 
     # Rectangular open-profile through steps (#1382).  The aggregate record owns the exact
     # run/anchor/section correspondence; Draftwright lowers its two transverse section legs

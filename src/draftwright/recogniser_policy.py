@@ -32,18 +32,6 @@ EVIDENCE_ONLY_FAMILIES: Mapping[str, str] = MappingProxyType(
 # ensures a new provider family cannot hide by being absent from this table and the supported map.
 UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingProxyType(
     {
-        "gusset-ribs": (
-            ("GussetRib",),
-            "https://github.com/pzfreo/draftwright/issues/1705",
-            "Quiddity proves the rib thickness, two support legs, and body occurrence. "
-            "Draftwright is adding the correlated IR and dimension grammar before emitting it.",
-        ),
-        "gusset-rib-patterns": (
-            ("GussetRibArray", "GussetRibMirrorPair"),
-            "https://github.com/pzfreo/draftwright/issues/1705",
-            "The provider relation groups accepted gusset ribs, but Draftwright must preserve "
-            "member identity and exact array or mirror semantics before grouping dimensions.",
-        ),
         "oriented-slot-patterns": (
             ("OrientedSlotArray", "OrientedSlotGrid"),
             "https://github.com/pzfreo/draftwright/issues/1430",
@@ -65,7 +53,7 @@ UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingPr
 )
 
 DEFERRED_FAMILIES: frozenset[str] = frozenset(
-    {"gusset-ribs", "gusset-rib-patterns", "oriented-slot-patterns"}
+    {"oriented-slot-patterns"}
 )
 
 

@@ -497,6 +497,13 @@ DimensionParameterId = Literal[
     "grid_pitch.length.row",
     "groove.diameter",
     "groove.length",
+    "gusset_leg.length.x",
+    "gusset_leg.length.y",
+    "gusset_leg.length.z",
+    "gusset_location.length",
+    "gusset_pitch.length",
+    "gusset_spacing.length",
+    "gusset_thickness.length",
     "height.length",
     "included.angle",
     "od.diameter",
@@ -2806,6 +2813,170 @@ class PairedRampStepFeature:
             DimParameter("angle", "ramp_angle", self.angle),
             DimParameter("length", "ramp_run", self.length, span=self.span),
         ]
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class GussetRibFeature:
+    """A triangular reinforcing rib or one provider-proven rib pattern."""
+
+    frame: Frame
+    axis: str
+    supports: tuple[tuple[str, float], tuple[str, float]]
+    legs: tuple[float, float]
+    directions: tuple[int, int]
+    member_bounds: tuple[tuple[float, float], ...]
+    datum: float
+    pattern: Literal["single", "linear", "mirror"] = "single"
+    pitch: float | None = None
+    mirror_plane: tuple[str, float] | None = None
+    kind: ClassVar[str] = "gusset_rib"
+
+    def __post_init__(self) -> None:
+        if self.axis not in "xyz" or self.frame.axis != self.axis:
+            raise ValueError("gusset-rib axis must be x, y, or z and agree with its frame")
+        transverse = tuple(axis for axis in "xyz" if axis != self.axis)
+        if tuple(axis for axis, _ in self.supports) != transverse:
+            raise ValueError("gusset-rib supports must name the two transverse axes in order")
+        if any(not isfinite(value) or isinstance(value, bool) for _axis, value in self.supports):
+            raise ValueError("gusset-rib supports must be finite")
+        if any(
+            not isfinite(value) or isinstance(value, bool) or value <= 0 for value in self.legs
+        ):
+            raise ValueError("gusset-rib legs must be finite and positive")
+        if any(direction not in (-1, 1) for direction in self.directions):
+            raise ValueError("gusset-rib directions must be signed unit directions")
+        if not self.member_bounds or any(
+            not isfinite(lo) or not isfinite(hi) or hi <= lo for lo, hi in self.member_bounds
+        ):
+            raise ValueError("gusset-rib member bounds must be finite positive intervals")
+        if not isfinite(self.datum) or isinstance(self.datum, bool):
+            raise ValueError("gusset-rib location datum must be finite")
+        widths = tuple(hi - lo for lo, hi in self.member_bounds)
+        if any(not isclose(width, widths[0], abs_tol=1e-6) for width in widths[1:]):
+            raise ValueError("a gusset-rib pattern must have one common thickness")
+        centres = self.member_centres
+        if any(right <= left for left, right in zip(centres, centres[1:], strict=False)):
+            raise ValueError("gusset-rib members must be ordered along the thickness axis")
+        if self.pattern == "single":
+            valid = (
+                len(self.member_bounds) == 1 and self.pitch is None and self.mirror_plane is None
+            )
+        elif self.pattern == "linear":
+            valid = (
+                len(self.member_bounds) >= 2
+                and self.pitch is not None
+                and self.pitch > 0
+                and self.mirror_plane is None
+                and all(
+                    isclose(right - left, self.pitch, abs_tol=1e-6)
+                    for left, right in zip(centres, centres[1:], strict=False)
+                )
+            )
+        elif self.pattern == "mirror":
+            valid = (
+                len(self.member_bounds) == 2
+                and self.pitch is None
+                and self.mirror_plane is not None
+                and self.mirror_plane[0] == self.axis
+                and isfinite(self.mirror_plane[1])
+                and isclose(
+                    (centres[0] + centres[1]) / 2,
+                    self.mirror_plane[1],
+                    abs_tol=1e-6,
+                )
+            )
+        else:
+            valid = False
+        if not valid:
+            raise ValueError("gusset-rib pattern facts are inconsistent")
+
+    @property
+    def thickness(self) -> float:
+        lo, hi = self.member_bounds[0]
+        return hi - lo
+
+    @property
+    def member_centres(self) -> tuple[float, ...]:
+        return tuple((lo + hi) / 2 for lo, hi in self.member_bounds)
+
+    @property
+    def member_count(self) -> int:
+        return len(self.member_bounds)
+
+    @property
+    def leader_anchor(self) -> Point:
+        """A point inside the first triangular member, derived only from public facts."""
+        point = list(self.frame.origin)
+        point["xyz".index(self.axis)] = self.member_centres[0]
+        for (support_axis, _), length, direction in zip(
+            self.supports, self.legs, self.directions, strict=True
+        ):
+            point["xyz".index(support_axis)] += direction * length / 3
+        return tuple(point)  # type: ignore[return-value]
+
+    def parameters(self) -> list[DimParameter]:
+        run = "xyz".index(self.axis)
+        first = list(self.frame.origin)
+        second = list(first)
+        first[run], second[run] = self.member_bounds[0]
+        params = [
+            DimParameter(
+                "length",
+                "gusset_thickness",
+                self.thickness,
+                span=(tuple(first), tuple(second)),
+            )
+        ]
+
+        def leg_parameter(support_axis, length, span):
+            if support_axis == "x":
+                return DimParameter("length", "gusset_leg", length, span=span, discriminator="x")
+            if support_axis == "y":
+                return DimParameter("length", "gusset_leg", length, span=span, discriminator="y")
+            return DimParameter("length", "gusset_leg", length, span=span, discriminator="z")
+
+        for (support_axis, _), length, direction in zip(
+            self.supports, self.legs, self.directions, strict=True
+        ):
+            start = list(self.frame.origin)
+            end = list(start)
+            end["xyz".index(support_axis)] += direction * length
+            params.append(leg_parameter(support_axis, length, (tuple(start), tuple(end))))
+        if self.pattern in {"linear", "mirror"}:
+            centres = self.member_centres
+            start = list(self.frame.origin)
+            end = list(start)
+            start[run], end[run] = centres[0], centres[1]
+            span = (tuple(start), tuple(end))
+            if self.pattern == "linear":
+                assert self.pitch is not None
+                params.append(DimParameter("length", "gusset_pitch", self.pitch, span=span))
+            else:
+                params.append(
+                    DimParameter(
+                        "length", "gusset_spacing", abs(centres[1] - centres[0]), span=span
+                    )
+                )
+        target = (
+            self.mirror_plane[1]
+            if self.pattern == "mirror" and self.mirror_plane is not None
+            else self.member_centres[0]
+        )
+        start = list(self.frame.origin)
+        end = list(start)
+        start[run], end[run] = self.datum, target
+        params.append(
+            DimParameter(
+                "length",
+                "gusset_location",
+                abs(target - self.datum),
+                span=(tuple(start), tuple(end)),
+            )
+        )
+        return params
 
     def references(self) -> list[Datum]:
         return []

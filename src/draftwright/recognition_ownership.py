@@ -240,7 +240,7 @@ DIRECT_FAMILIES = frozenset(
 # lower one member to one feature or absorb several members into one grouped/pattern feature.
 # The derived pattern records are deliberately not FeatureRefs and must not be promoted into
 # invented persistent occurrences.
-GROUPABLE_FAMILIES = frozenset({"holes", "section_recesses", "slots"})
+GROUPABLE_FAMILIES = frozenset({"gusset_ribs", "holes", "section_recesses", "slots"})
 
 # These accepted occurrences are nested records carried by a supported parent occurrence. They
 # must retain their own outcome while sharing the parent's final IR owner rather than creating a
@@ -270,6 +270,7 @@ _REPRESENTED_REASON_CODES = frozenset(
         "direct_adapter",
         "channel_adapter",
         "hole_adapter",
+        "gusset_rib_adapter",
         "pmi_split_member",
         "section_recess_adapter",
         "plate_adapter",
@@ -283,6 +284,7 @@ _ABSORBED_REASON_CODES = frozenset(
     {
         "boss_diameter_group_member",
         "grouped_hole_member",
+        "gusset_rib_pattern_member",
         "hole_pattern_member",
         "pocket_pattern_member",
         "slot_pattern_member",
@@ -309,6 +311,8 @@ _REASON_FAMILY = {
     "channel_step_level_owner": "section_recesses",
     "countersink_hole_owner": "countersinks",
     "grouped_hole_member": "holes",
+    "gusset_rib_adapter": "gusset_ribs",
+    "gusset_rib_pattern_member": "gusset_ribs",
     "hole_adapter": "holes",
     "hole_pattern_member": "holes",
     "pmi_split_member": "holes",

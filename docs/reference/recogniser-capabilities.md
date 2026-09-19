@@ -102,12 +102,12 @@ and untested. Its public `quiddity`, `quiddity.evidence` and
 reads. There is one recognition aggregate per build; consumers project that result rather than
 calling the document builder to obtain another run.
 
-The manifest has 29 families. The new `gusset-ribs` family proves rib thickness, support legs and
+The manifest has 29 families. The `gusset-ribs` family proves rib thickness, support legs and
 body occurrence, while `gusset-rib-patterns` relates accepted ribs as arrays or mirror pairs.
-Their Draftwright drafting semantics are tracked in
-[#1705](https://github.com/pzfreo/draftwright/issues/1705); until that adapter lands, every
-accepted occurrence remains an explicit deferred outcome rather than disappearing from the
-recognition boundary.
+Draftwright preserves those exact member relations in dedicated `GussetRibFeature` IR, exposes
+the same facts through `Sheet.gusset_rib(...)` and generated scripts, and places one correlated
+solver-owned callout carrying thickness, both legs and the proven pitch or mirror spacing. The
+completeness ledger follows each physical member and the group relation independently (#1705).
 
 One `section-recesses` family replaces the former pockets, pocket
 patterns, channels, rectangular and round-bottom blind slots, passages and prismatic pockets.

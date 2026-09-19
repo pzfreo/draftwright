@@ -421,6 +421,9 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # Structural placement facts only.  The printed angle and run remain addressable
     # parameters, so authored omission/tolerance policy cannot be bypassed (#1382).
     "paired_ramp_step": ("frame", "axis"),
+    # Pattern kind/count and the physical arrow anchor are structure. Every printed size,
+    # including member spacing, remains available only through approved parameters.
+    "gusset_rib": ("frame", "axis", "leader_anchor", "member_count", "pattern"),
     # Topology-only direction signs select each outside placement corridor. Absolute section
     # points would let one approved leg reconstruct the suppressed other leg (ADR 4 (was 0016)), so
     # both leg values and witnesses travel only as approved spans.

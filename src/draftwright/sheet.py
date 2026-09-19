@@ -82,6 +82,7 @@ from draftwright.model import fillet as _fillet
 from draftwright.model import finish as _declare_finish
 from draftwright.model import flat as _flat
 from draftwright.model import groove as _groove
+from draftwright.model import gusset_rib as _gusset_rib
 from draftwright.model import hex_pocket as _hex_pocket
 from draftwright.model import hole as _hole
 from draftwright.model import measured_dimension as _measured_dimension
@@ -1922,6 +1923,11 @@ class Sheet:
         open-to-terminal run length and shared-ridge midpoint.  The form is explicit-only:
         a detached face or cutter cannot prove the paired material-removal topology."""
         self._features.append(_paired_ramp_step(**kw))
+        return _Params(self, len(self._features) - 1)
+
+    def gusset_rib(self, **kw) -> _Params:
+        """Declare a triangular reinforcing rib or a proven linear/mirror pattern."""
+        self._features.append(_gusset_rib(**kw))
         return _Params(self, len(self._features) - 1)
 
     def angle(self, **kw) -> _Params:
