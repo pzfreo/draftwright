@@ -2927,11 +2927,13 @@ class GussetRibFeature:
                 "length",
                 "gusset_thickness",
                 self.thickness,
-                span=(tuple(first), tuple(second)),
+                span=(cast(Point, tuple(first)), cast(Point, tuple(second))),
             )
         ]
 
-        def leg_parameter(support_axis, length, span):
+        def leg_parameter(
+            support_axis: str, length: float, span: tuple[Point, Point]
+        ) -> DimParameter:
             if support_axis == "x":
                 return DimParameter("length", "gusset_leg", length, span=span, discriminator="x")
             if support_axis == "y":
@@ -2944,13 +2946,19 @@ class GussetRibFeature:
             start = list(self.frame.origin)
             end = list(start)
             end["xyz".index(support_axis)] += direction * length
-            params.append(leg_parameter(support_axis, length, (tuple(start), tuple(end))))
+            params.append(
+                leg_parameter(
+                    support_axis,
+                    length,
+                    (cast(Point, tuple(start)), cast(Point, tuple(end))),
+                )
+            )
         if self.pattern in {"linear", "mirror"}:
             centres = self.member_centres
             start = list(self.frame.origin)
             end = list(start)
             start[run], end[run] = centres[0], centres[1]
-            span = (tuple(start), tuple(end))
+            span = (cast(Point, tuple(start)), cast(Point, tuple(end)))
             if self.pattern == "linear":
                 assert self.pitch is not None
                 params.append(DimParameter("length", "gusset_pitch", self.pitch, span=span))
@@ -2973,7 +2981,7 @@ class GussetRibFeature:
                 "length",
                 "gusset_location",
                 abs(target - self.datum),
-                span=(tuple(start), tuple(end)),
+                span=(cast(Point, tuple(start)), cast(Point, tuple(end))),
             )
         )
         return params

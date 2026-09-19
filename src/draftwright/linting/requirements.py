@@ -162,7 +162,9 @@ def recognized_requirement_outcomes(
             omissions,
             evidence=evidence,
             ownership=ownership,
-        ) if evidence is not None and ownership is not None else [],
+        )
+        if evidence is not None and ownership is not None
+        else [],
         "holes": [],
         "hole_patterns": [],
         "oriented_slots": oriented_slot_requirement_outcomes(

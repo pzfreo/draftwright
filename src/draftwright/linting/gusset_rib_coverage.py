@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from draftwright.linting._registry import satisfaction_ids, with_measurement_carriers
 from draftwright.linting.issues import LintIssue, is_placement_drop
@@ -31,7 +31,7 @@ def gusset_rib_requirement_outcomes(
     if recognition is None:
         return []
     refs = tuple(ref for ref in evidence.features if evidence.family(ref) == "gusset_ribs")
-    grouped: dict[int, tuple[object, list[object]]] = {}
+    grouped: dict[int, tuple[Any, list[object]]] = {}
     unresolved = []
     for ref in refs:
         record = evidence.record(ref)

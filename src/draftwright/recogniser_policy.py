@@ -52,9 +52,7 @@ UNSUPPORTED_FAMILIES: Mapping[str, tuple[tuple[str, ...], str, str]] = MappingPr
     }
 )
 
-DEFERRED_FAMILIES: frozenset[str] = frozenset(
-    {"oriented-slot-patterns"}
-)
+DEFERRED_FAMILIES: frozenset[str] = frozenset({"oriented-slot-patterns"})
 
 
 @dataclass(frozen=True)

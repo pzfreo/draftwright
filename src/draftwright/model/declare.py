@@ -29,6 +29,7 @@ from __future__ import annotations
 import math
 import re
 import warnings
+from typing import cast
 
 from draftwright._geometry import (
     _EDGE_ON,
@@ -863,12 +864,12 @@ def gusset_rib(
     coordinates[axis] = sum(centres) / len(centres)
     plane = None if mirror_plane is None else (str(mirror_plane[0]), float(mirror_plane[1]))
     return GussetRibFeature(
-        frame=Frame(tuple(coordinates[name] for name in "xyz"), axis),
+        frame=Frame(cast(Point, tuple(coordinates[name] for name in "xyz")), axis),
         axis=axis,
-        supports=support_facts,
-        legs=leg_values,
-        directions=direction_values,
-        member_bounds=bounds,
+        supports=cast(tuple[tuple[str, float], tuple[str, float]], support_facts),
+        legs=cast(tuple[float, float], leg_values),
+        directions=cast(tuple[int, int], direction_values),
+        member_bounds=cast(tuple[tuple[float, float], ...], bounds),
         datum=float(datum),
         pattern=pattern,
         pitch=None if pitch is None else float(pitch),

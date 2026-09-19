@@ -19,7 +19,7 @@ from collections.abc import Callable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from math import atan2, degrees, isfinite, ulp
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from quiddity import (
     AngledStep,
@@ -1044,13 +1044,17 @@ def _gusset_feature(
     coordinates = {axis: value for axis, value in first.supports}
     coordinates[first.thickness_axis] = sum(centres) / len(centres)
     if isinstance(pattern, GussetRibArray):
-        pattern_kind, pitch, mirror_plane = "linear", pattern.pitch, None
+        pattern_kind: Literal["single", "linear", "mirror"] = "linear"
+        pitch, mirror_plane = pattern.pitch, None
     elif isinstance(pattern, GussetRibMirrorPair):
         pattern_kind, pitch, mirror_plane = "mirror", None, pattern.mirror_plane
     else:
         pattern_kind, pitch, mirror_plane = "single", None, None
     return GussetRibFeature(
-        frame=Frame(tuple(coordinates[axis] for axis in "xyz"), first.thickness_axis),
+        frame=Frame(
+            cast(tuple[float, float, float], tuple(coordinates[axis] for axis in "xyz")),
+            first.thickness_axis,
+        ),
         axis=first.thickness_axis,
         supports=first.supports,
         legs=first.legs,
@@ -2644,20 +2648,22 @@ def build_part_model(
     # physical member objects, so lower it once and bind every occurrence to the shared IR
     # owner.  Unrelated ribs remain independent features.
     assert gusset_ribs is not None and gusset_rib_patterns is not None
-    gusset_ribs = tuple(gusset_ribs)
+    gusset_records = tuple(gusset_ribs)
     patterned_ids: set[int] = set()
     for pattern in gusset_rib_patterns:
-        members = tuple(pattern.ribs)
-        if not members or any(not any(member is rib for rib in gusset_ribs) for member in members):
+        gusset_members = cast(tuple[GussetRib, ...], tuple(pattern.ribs))
+        if not gusset_members or any(
+            not any(member is rib for rib in gusset_records) for member in gusset_members
+        ):
             raise ValueError("gusset-rib pattern members must preserve aggregate identity")
-        if any(id(member) in patterned_ids for member in members):
+        if any(id(member) in patterned_ids for member in gusset_members):
             raise ValueError("a gusset-rib occurrence cannot belong to two patterns")
-        patterned_ids.update(id(member) for member in members)
-        feature = _gusset_feature(members, pattern, ctx)
+        patterned_ids.update(id(member) for member in gusset_members)
+        feature = _gusset_feature(gusset_members, pattern, ctx)
         features.append(feature)
         if ownership is not None:
-            ownership.absorb(members, feature, reason_code="gusset_rib_pattern_member")
-    for rib in gusset_ribs:
+            ownership.absorb(gusset_members, feature, reason_code="gusset_rib_pattern_member")
+    for rib in gusset_records:
         if id(rib) in patterned_ids:
             continue
         feature = _gusset_feature((rib,), None, ctx)
