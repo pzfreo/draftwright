@@ -17,6 +17,19 @@ with its `RecognitionEvidence`, owned by the build's `RecognitionCache`; every c
 construction, lint, reports, inspection — reads that one result or a pure projection of it. A
 declared model recognises nothing until physical critique explicitly asks, and then once.
 
+Consumers choose one of three paths according to the geometry they receive:
+
+- main-part analysis receives the build's cached aggregate or evidence;
+- a public standalone API with no drawing lifecycle, or an operation inspecting an explicitly
+  separate shape, may use a standalone expert recogniser;
+- a bounded face or surface question uses `quiddity.inspection`.
+
+The supported imports follow the same boundary. Aggregate builders, immutable record schemas and
+expert recognisers come from `quiddity`; lifecycle evidence and references come from
+`quiddity.evidence`; local geometry inspection comes from `quiddity.inspection`. Public record
+types are the provider schema and may be imported directly. Compatibility re-exports remain only
+for their published deprecation period; Draftwright does not add another provider facade.
+
 Every provider record type has exactly one home in Draftwright, decided fail-closed: a typed
 adapter into the IR, an explicit consumer disposition (`unsupported`, `deferred`,
 `evidence_only`), or a refusal. A new provider family cannot appear silently. Which occurrence
@@ -32,10 +45,12 @@ typed and visible, never a silent fallback inside the adapter.
 
 Each names the test that fails when it is broken. "Unguarded" lists the ones that do not yet.
 
-1. **Recognition executes in the provider, never in Draftwright.** No engine module calls a
-   public `recognise_*` function outside the aggregate; `src/draftwright/recognition/` is a
-   re-export facade with no implementation.
-   `test_external_recognition_boundary.py`, `test_counting_calls.py`.
+1. **Recognition executes in the provider, never in Draftwright.** Main-part consumers use the
+   aggregate. The exact standalone call-site roster is limited to public fallback entry points
+   and deliberately different input shapes, with one reviewed reason per site;
+   `src/draftwright/recognition/` is a re-export facade with no implementation.
+   `test_external_recognition_boundary.py`, `test_quiddity_lifecycle_boundary.py`,
+   `test_counting_calls.py`.
 2. **One aggregate per build; zero for a declared render.** An automatic build calls
    `build_recognition_evidence` exactly once. A declared build/render calls nothing; its first
    physical critique or export obtains at most one cached aggregate, and repeated lint adds no

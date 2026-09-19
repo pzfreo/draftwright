@@ -10,6 +10,7 @@ import quiddity as external
 import quiddity.evidence as external_evidence
 from _recogniser_public_contract import public_recogniser_member, public_recogniser_names
 from build123d import Box
+from build123d_drafting.helpers import draft_preset
 
 try:
     import tomllib
@@ -17,7 +18,7 @@ except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
 import draftwright.recognition as compatibility
-from draftwright.drawing import BuildState
+from draftwright.drawing import BuildState, Drawing
 from draftwright.recognition_cache import RecognitionCache
 from draftwright.score import feature_census
 
@@ -124,3 +125,58 @@ def test_build_state_attaches_one_recognition_source_atomically() -> None:
             evidence=evidence,
             cache=RecognitionCache(evidence=evidence),
         )
+
+
+def test_build_state_forwards_existing_cylinders_to_lazy_recognition(monkeypatch) -> None:
+    part = Box(10, 10, 10)
+    cylinders = external.analyse_cylinders(part)
+    observed = None
+    original = external_evidence.build_recognition_evidence
+
+    def recording_build(source, *, cylinders=None, rotational=False):
+        nonlocal observed
+        observed = cylinders
+        return original(source, cylinders=cylinders, rotational=rotational)
+
+    monkeypatch.setattr(
+        "draftwright.recognition_cache.build_recognition_evidence", recording_build
+    )
+
+    state = BuildState()
+    state.ensure_recognition(part, cylinders=cylinders)
+
+    assert observed is cylinders
+
+
+def test_manual_drawing_reuses_its_lazy_cylinder_inventory(monkeypatch) -> None:
+    part = Box(10, 10, 10)
+    cylinders = external.analyse_cylinders(part)
+    observed = None
+    original = external_evidence.build_recognition_evidence
+
+    monkeypatch.setattr("draftwright.drawing.analyse_cylinders", lambda source: cylinders)
+
+    def recording_build(source, *, cylinders=None, rotational=False):
+        nonlocal observed
+        observed = cylinders
+        return original(source, cylinders=cylinders, rotational=rotational)
+
+    monkeypatch.setattr(
+        "draftwright.recognition_cache.build_recognition_evidence", recording_build
+    )
+    drawing = Drawing(
+        scale=1.0,
+        page_w=297.0,
+        page_h=210.0,
+        tb_w=100.0,
+        draft=draft_preset(),
+        look_at=(0.0, 0.0, 0.0),
+        dist=100.0,
+        centroid=(0.0, 0.0, 0.0),
+        out="",
+        part=part,
+    )
+
+    drawing.lint()
+
+    assert observed is cylinders

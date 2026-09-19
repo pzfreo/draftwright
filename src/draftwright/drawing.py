@@ -603,7 +603,7 @@ class BuildState:
         self.material_fields.clear()
         self.material_mesh = _MATERIAL_MESH_UNSET
 
-    def ensure_recognition(self, part) -> RecognitionResult:
+    def ensure_recognition(self, part, *, cylinders=None) -> RecognitionResult:
         """The run's recognition aggregate, recognising *part* once if nothing has yet.
 
         A declared build performs no recognition (ADR 4 (was 0011) / #1022), so critique on that path
@@ -615,7 +615,7 @@ class BuildState:
         On a detected build ``recognition`` is already filled by the builder, so this returns
         it and recognises nothing.
         """
-        return self.recognition_cache.ensure(part)
+        return self.recognition_cache.ensure(part, cylinders=cylinders)
 
 
 class ViewNotPlanned(KeyError):
@@ -4239,7 +4239,7 @@ class Drawing:
                 # empty because nothing looked — not because the part has none. Feeding that
                 # emptiness to coverage would report every real hole as uncovered, so critique
                 # recognises here instead: once per drawing, owned by BuildState.
-                rec = self._build.ensure_recognition(working_part)
+                rec = self._build.ensure_recognition(working_part, cylinders=a.cyls)
                 cyls = rec.cylinders
                 holes = list(rec.holes)
                 patterns = list(rec.hole_patterns)
@@ -4263,7 +4263,7 @@ class Drawing:
                 pads = recognition = None
                 prof_kw = {}
             if recognition is None:
-                recognition = self._build.ensure_recognition(working_part)
+                recognition = self._build.ensure_recognition(working_part, cylinders=cyls)
             if dimension_plan is not None:
                 issues += lint_claimed_representations(self._registry, dimension_plan)
             from draftwright.linting.schedule_evidence import verified_schedule_registry
