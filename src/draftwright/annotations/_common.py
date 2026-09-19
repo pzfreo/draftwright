@@ -1879,15 +1879,18 @@ def prevent_dimension_label_ink(
         for label in (_box(dim),)
     ]
 
+    dependent_positions = {
+        "view": (1,),
+        "arrow": (1, 3),
+        "line": (1, 2),
+        "label": (1, 2),
+        "fixed": (2,),
+    }
+
     def _conflict_involves(conflict, index):
-        dependent_positions = {
-            "view": (1,),
-            "arrow": (1, 3),
-            "line": (1, 2),
-            "label": (1, 2),
-            "fixed": (2,),
-        }
-        return any(conflict[position] == index for position in dependent_positions[conflict[0]])
+        positions = dependent_positions.get(conflict[0])
+        assert positions is not None, f"unknown dimension-ink conflict kind: {conflict[0]!r}"
+        return any(conflict[position] == index for position in positions)
 
     def _conflicts(batch, *, changed_index=None, previous=()):
         """Stable conflict tokens; their count is the local solve's primary objective."""
