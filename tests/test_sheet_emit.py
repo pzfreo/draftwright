@@ -146,6 +146,14 @@ def _paired_ramp_step():
     return Box(40, 40, 30) - Pos(20, 20, 0) * extrude(Plane.XZ * profile, 25)
 
 
+def _gusset_rib_bracket():
+    aligned = (Align.CENTER, Align.CENTER, Align.MIN)
+    plate = Box(80, 50, 8, align=aligned)
+    flange = Pos(0, 21, 0) * Box(80, 8, 48, align=aligned)
+    rib = extrude(Plane.YZ * Polygon((17, 8), (-5, 8), (17, 34), align=None), amount=6)
+    return plate + flange + Pos(-26, 0, 0) * rib + Pos(32, 0, 0) * rib
+
+
 def _hex_pocket():
     return Box(40, 30, 10) - Pos(0, 0, 2) * extrude(RegularPolygon(5, 6), 5)
 
@@ -2710,6 +2718,7 @@ class TestTheDimensionMirror:
             "hex pocket": _hex_pocket(),
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
+            "gusset ribs": _gusset_rib_bracket(),
             "through step": _through_step(),
             "rectangular blind slot": _rectangular_blind_slot(),
             "round-bottom blind slot": _round_bottom_blind_slot(),
@@ -2775,6 +2784,7 @@ class TestTheDimensionMirror:
         "hex pocket": {"hex_pocket"},
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
+        "gusset ribs": {"gusset_rib"},
         "through step": {"through_step"},
         "rectangular blind slot": {"rectangular_blind_slot"},
         "round-bottom blind slot": {"round_bottom_blind_slot"},
@@ -3152,6 +3162,7 @@ _KIND_MIRROR_COVERAGE = {
     "hex_pocket": "corpus",
     "circular_blind_step": "corpus",
     "paired_ramp_step": "corpus",
+    "gusset_rib": "corpus",
     "through_step": "corpus",
     "flat": "corpus",
     "groove": "corpus",
@@ -3660,6 +3671,7 @@ _FIDELITY_ROUTE = {
     "hex_pocket": ("detected", "hex pocket"),
     "circular_blind_step": ("detected", "circular blind step"),
     "paired_ramp_step": ("detected", "paired ramp"),
+    "gusset_rib": ("detected", "gusset-rib mirror pair"),
     "through_step": ("detected", "through step"),
     "rectangular_blind_slot": ("detected", "rectangular blind slot"),
     "round_bottom_blind_slot": ("detected", "round-bottom blind slot"),
@@ -3924,6 +3936,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "hex pocket": _hex_pocket(),
             "circular blind step": _circular_blind_step(),
             "paired ramp": _paired_ramp_step(),
+            "gusset ribs": _gusset_rib_bracket(),
             "through step": _through_step(),
             "rectangular blind slot": _rectangular_blind_slot(),
             "round-bottom blind slot": _round_bottom_blind_slot(),
@@ -4021,6 +4034,7 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
         "hex pocket": {"hex_pocket"},
         "circular blind step": {"circular_blind_step"},
         "paired ramp": {"paired_ramp_step"},
+        "gusset ribs": {"gusset_rib"},
         "through step": {"through_step"},
         "rectangular blind slot": {"rectangular_blind_slot"},
         "round-bottom blind slot": {"round_bottom_blind_slot"},

@@ -123,7 +123,7 @@ def test_preink_catalog_keeps_complete_source_groups_and_conditional_obligations
     catalog = catalog_for(model, analysis)
     assert catalog.evidence is analysis.recognition_evidence
     assert catalog.ownership is analysis.recognition_ownership
-    assert len(catalog.families) == 25
+    assert len(catalog.families) == 26
     assert catalog.requirements
     issued = tuple(catalog.evidence.record(ref) for ref in catalog.evidence.features)
     for row in catalog.requirements:

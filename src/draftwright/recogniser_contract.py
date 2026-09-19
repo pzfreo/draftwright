@@ -325,7 +325,7 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
     elif family_id in {"gusset-ribs", "gusset-rib-patterns"}:
         completeness = _supported(
             "draftwright.linting.gusset_rib_coverage.lint_gusset_rib_coverage",
-            "tests/test_issue_1705_gusset_recognition.py",
+            "tests/test_gusset_rib_semantics.py",
         )
     elif family_id == "circular-blind-steps":
         completeness = _supported(
