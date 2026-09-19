@@ -115,6 +115,20 @@ def test_cylinder_scan_runs_once_per_build(cyls_counter):
     )
 
 
+def test_declared_critique_reuses_the_analysis_cylinder_scan(cyls_counter):
+    from draftwright.model import declare
+
+    part = _filleted()
+    drawing = build_drawing(part, model=[declare.envelope(part)])
+    drawing.lint()
+
+    scans = cyls_counter.get("n", 0)
+    assert scans == 1, (
+        f"analyse_cylinders ran {scans}× in one declared build+lint — lazy recognition "
+        "must receive the substrate already computed by Analysis"
+    )
+
+
 def test_declared_model_runs_no_detection(aggregate_counter):
     # ADR 4 (was 0011): a caller-declared model skips detection entirely — build_part_model is
     # never invoked (the sizing path uses the declared model; the builder coerces it),
