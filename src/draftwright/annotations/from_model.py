@@ -3233,6 +3233,69 @@ def render_paired_ramp_steps(dwg, plan, a, *, ctx, only=None) -> int:
     )
 
 
+def render_gusset_ribs(dwg, plan, a, *, ctx, only=None) -> int:
+    """Place one correlated callout for each rib or provider-proven rib pattern."""
+    from types import SimpleNamespace
+
+    draft = dwg.draft
+    reach = _leader_callout_reach(draft)
+    jobs = []
+    for index, group in enumerate(plan.of_kind("gusset_rib")):
+        if only is not None and group.ref not in only:
+            continue
+        approved = {dimension.role: dimension for dimension in group.dims}
+        thickness = approved.get("gusset_thickness")
+        legs = [dimension for dimension in group.dims if dimension.role == "gusset_leg"]
+        relation = approved.get("gusset_pitch") or approved.get("gusset_spacing")
+        location = approved.get("gusset_location")
+        if thickness is None or len(legs) != 2:
+            continue
+        feature = group.facts
+        count = feature.member_count
+        prefix = f"{count}× " if count > 1 else ""
+        legs.sort(key=lambda dimension: dimension.discriminator or "")
+        label = (
+            f"{prefix}GUSSET {thickness.value_text}{_tol_suffix(thickness.tolerance, draft)} THK"
+            f" · LEGS {legs[0].value_text}{_tol_suffix(legs[0].tolerance, draft)} × "
+            f"{legs[1].value_text}{_tol_suffix(legs[1].tolerance, draft)}"
+        )
+        if relation is not None:
+            qualifier = "PITCH" if relation.role == "gusset_pitch" else "C/C MIRROR"
+            label += (
+                f" · {relation.value_text}{_tol_suffix(relation.tolerance, draft)} {qualifier}"
+            )
+        if location is not None:
+            subject = "MIRROR PLANE" if feature.pattern == "mirror" else "FIRST CL"
+            label += (
+                f" · {subject} {location.value_text}"
+                f"{_tol_suffix(location.tolerance, draft)} FROM {feature.axis.upper()} MIN"
+            )
+        view = group.view
+        bounds = None if view is None else dwg.view_bounds(view)
+        if view is None or bounds is None:
+            continue
+        anchor = SimpleNamespace(frame=SimpleNamespace(origin=feature.leader_anchor))
+        jobs.append(
+            (
+                f"m_gusset_rib_{feature.axis}{index}",
+                view,
+                bounds,
+                label,
+                _radial_candidates(dwg, view, bounds, anchor, reach, provenance=group.ref),
+                tuple(dimension.id for dimension in group.dims),
+            )
+        )
+    return place_machined_leader_jobs(
+        dwg,
+        a,
+        jobs,
+        noun="gusset rib",
+        drop_code="gusset_rib_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+
 def _flat_label(across_text, sfx="") -> str:
     """The machined-flat callout string: ``{across} A/F`` (across flats) — the standard
     abbreviation for a spanner-flat / D / hex size (#148b). *across* is the PLANNED value

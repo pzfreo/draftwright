@@ -29,6 +29,7 @@ from __future__ import annotations
 import math
 import re
 import warnings
+from typing import cast
 
 from draftwright._geometry import (
     _EDGE_ON,
@@ -63,6 +64,7 @@ from draftwright.model.ir import (
     FlatFeature,
     Frame,
     GrooveFeature,
+    GussetRibFeature,
     HexPocketFeature,
     HoleFeature,
     LevelSupport,
@@ -836,6 +838,42 @@ def paired_ramp_step(*, axis, angle, length, at) -> PairedRampStepFeature:
         axis=axis,
         angle=round(float(angle), 2),
         length=round(float(length), 3),
+    )
+
+
+def gusset_rib(
+    *,
+    axis,
+    supports,
+    legs,
+    directions,
+    member_bounds,
+    pattern="single",
+    pitch=None,
+    mirror_plane=None,
+    datum,
+) -> GussetRibFeature:
+    """Declare a triangular reinforcing rib or an explicitly correlated pattern."""
+    axis = _norm_axis(axis)
+    bounds = tuple(tuple(float(value) for value in pair) for pair in member_bounds)
+    support_facts = tuple((str(name), float(value)) for name, value in supports)
+    leg_values = tuple(float(value) for value in legs)
+    direction_values = tuple(int(value) for value in directions)
+    centres = tuple((lo + hi) / 2 for lo, hi in bounds)
+    coordinates = {name: value for name, value in support_facts}
+    coordinates[axis] = sum(centres) / len(centres)
+    plane = None if mirror_plane is None else (str(mirror_plane[0]), float(mirror_plane[1]))
+    return GussetRibFeature(
+        frame=Frame(cast(Point, tuple(coordinates[name] for name in "xyz")), axis),
+        axis=axis,
+        supports=cast(tuple[tuple[str, float], tuple[str, float]], support_facts),
+        legs=cast(tuple[float, float], leg_values),
+        directions=cast(tuple[int, int], direction_values),
+        member_bounds=cast(tuple[tuple[float, float], ...], bounds),
+        datum=float(datum),
+        pattern=pattern,
+        pitch=None if pitch is None else float(pitch),
+        mirror_plane=plane,
     )
 
 

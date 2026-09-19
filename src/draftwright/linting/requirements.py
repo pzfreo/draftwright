@@ -16,6 +16,7 @@ from draftwright.linting.circular_blind_step_coverage import (
 from draftwright.linting.fillet_coverage import fillet_requirement_outcomes
 from draftwright.linting.flat_coverage import flat_requirement_outcomes
 from draftwright.linting.groove_coverage import groove_requirement_outcomes
+from draftwright.linting.gusset_rib_coverage import gusset_rib_requirement_outcomes
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
 from draftwright.linting.oriented_slot_coverage import oriented_slot_requirement_outcomes
 from draftwright.linting.pad_coverage import pad_requirement_outcomes
@@ -56,6 +57,7 @@ REQUIREMENT_SOURCE_FAMILIES = frozenset(
         "turned_steps",
         "flats",
         "grooves",
+        "gusset_ribs",
         "holes",
         "hole_patterns",
         "oriented_slots",
@@ -153,6 +155,16 @@ def recognized_requirement_outcomes(
         ),
         "flats": flat_requirement_outcomes(recognition, features, registry, omissions),
         "grooves": groove_requirement_outcomes(recognition, features, registry, omissions),
+        "gusset_ribs": gusset_rib_requirement_outcomes(
+            recognition,
+            features,
+            registry,
+            omissions,
+            evidence=evidence,
+            ownership=ownership,
+        )
+        if evidence is not None and ownership is not None
+        else [],
         "holes": [],
         "hole_patterns": [],
         "oriented_slots": oriented_slot_requirement_outcomes(

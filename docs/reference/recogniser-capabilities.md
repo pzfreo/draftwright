@@ -70,9 +70,9 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.2.9 runtime contract
+### Quiddity 0.3.0 runtime contract
 
-The runtime pins the published `quiddity==0.2.9` package, following the 0.2.4 adoption in
+The runtime pins the published `quiddity==0.3.0` package, following the 0.2.4 adoption in
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) and the migration in
 [#1471](https://github.com/pzfreo/draftwright/issues/1471). 0.2.7 is a patch adoption: it requires
 circumferential cylinder support to establish a turned-profile axis line, so rounded plate corners
@@ -102,7 +102,14 @@ and untested. Its public `quiddity`, `quiddity.evidence` and
 reads. There is one recognition aggregate per build; consumers project that result rather than
 calling the document builder to obtain another run.
 
-The manifest has 27 families. One `section-recesses` family replaces the former pockets, pocket
+The manifest has 29 families. The `gusset-ribs` family proves rib thickness, support legs and
+body occurrence, while `gusset-rib-patterns` relates accepted ribs as arrays or mirror pairs.
+Draftwright preserves those exact member relations in dedicated `GussetRibFeature` IR, exposes
+the same facts through `Sheet.gusset_rib(...)` and generated scripts, and places one correlated
+solver-owned callout carrying thickness, both legs and the proven pitch or mirror spacing. The
+completeness ledger follows each physical member and the group relation independently (#1705).
+
+One `section-recesses` family replaces the former pockets, pocket
 patterns, channels, rectangular and round-bottom blind slots, passages and prismatic pockets.
 `RecognitionResult.section_recesses` contains the immutable occurrences;
 `section_recess_patterns` relates them by run-local occurrence indices; `section_recess_refusals`

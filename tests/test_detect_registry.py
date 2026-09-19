@@ -237,6 +237,9 @@ def test_every_derived_converter_lowers_representative_public_records_to_ir():
     """Every grouped converter is called with real provider records and member evidence."""
 
     from quiddity import (
+        GussetRib,
+        GussetRibArray,
+        GussetRibMirrorPair,
         HoleRecord,
         build_raw_recognition_result,
         recognise_hole_patterns,
@@ -286,6 +289,20 @@ def test_every_derived_converter_lowers_representative_public_records_to_ir():
         ctx = ConvContext(bbox=None, orientation=None)
         member_features = tuple(convert(member, ctx) for member in source_members)
         converted.append(_DERIVED_CONVERTERS[type(pattern)](pattern, member_features))
+
+    ctx = ConvContext(bbox=Box(80, 50, 48).bounding_box(), orientation=None)
+    first = GussetRib("x", (-32.0, -26.0), (("y", 17.0), ("z", 8.0)), (22.0, 26.0), (-1, 1))
+    second = GussetRib("x", (26.0, 32.0), (("y", 17.0), ("z", 8.0)), (22.0, 26.0), (-1, 1))
+    mirror = GussetRibMirrorPair((first, second), ("x", 0.0))
+    array = GussetRibArray((first, second), "x", 58.0)
+    converted.extend(
+        (
+            _DERIVED_CONVERTERS[GussetRib]((first,), None, ctx),
+            _DERIVED_CONVERTERS[GussetRibArray](array.ribs, array, ctx),
+            _DERIVED_CONVERTERS[GussetRibMirrorPair](mirror.ribs, mirror, ctx),
+        )
+    )
+    exercised.update({GussetRib, GussetRibArray, GussetRibMirrorPair})
 
     assert exercised == set(_DERIVED_CONVERTERS), (
         "derived converter corpus mismatch: "

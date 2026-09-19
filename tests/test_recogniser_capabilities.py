@@ -141,7 +141,7 @@ def test_installed_package_contract_validates_without_a_sibling_checkout() -> No
     declaration = consumer_capability_declaration()
     # Quiddity unifies seven former families into section-recesses: 33 - 7 + 1.
     # Keep a literal count so a coupled omission on both sides still fails.
-    assert len(package["families"]) == len(declaration["families"]) == 27
+    assert len(package["families"]) == len(declaration["families"]) == 29
 
 
 def test_section_recess_family_covers_the_published_geometry_and_occurrence_contract() -> None:
@@ -159,7 +159,7 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.2.9"
+    assert INSTALLED_PACKAGE_VERSION == "0.3.0"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {
@@ -737,6 +737,30 @@ def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
     assert "paired-ramp-steps" not in pending_family_declarations()
 
 
+def test_quiddity_030_gusset_families_have_explicit_consumer_paths() -> None:
+    families = _families(consumer_capability_declaration())
+    expected = {
+        "gusset-ribs": {"GussetRib": [1]},
+        "gusset-rib-patterns": {"GussetRibArray": [1], "GussetRibMirrorPair": [1]},
+    }
+
+    for family_id, schemas in expected.items():
+        family = families[family_id]
+        assert family["record_schemas"] == schemas
+        assert family["disposition"] == "supported"
+        assert {
+            family[boundary]["state"]
+            for boundary in (
+                "ir_adapter",
+                "dsl_declaration",
+                "generated_code",
+                "drawing_consumer",
+                "completeness",
+            )
+        } == {"supported"}
+        assert family_id not in pending_family_declarations()
+
+
 def test_through_steps_are_supported_at_every_consumer_boundary() -> None:
     family = _families(consumer_capability_declaration())["through-steps"]
 
@@ -1084,6 +1108,8 @@ def test_dsl_and_generated_code_inventories_are_derived_from_live_code() -> None
         "fillets": "fillet",
         "flats": "flat",
         "grooves": "groove",
+        "gusset-rib-patterns": "gusset_rib",
+        "gusset-ribs": "gusset_rib",
         "hole-patterns": "pattern",
         "holes": "hole",
         "plates": "plate",

@@ -82,6 +82,15 @@ _FAMILIES: dict[str, _FamilySpec] = {
     "fillets": _FamilySpec(("Fillet",), "_convert_fillet", "fillet", "render_fillets"),
     "flats": _FamilySpec(("Flat",), "_convert_flat", "flat", "render_flats"),
     "grooves": _FamilySpec(("Groove",), "_convert_groove", "groove", "render_grooves"),
+    "gusset-ribs": _FamilySpec(
+        ("GussetRib",), "_gusset_feature", "gusset_rib", "render_gusset_ribs"
+    ),
+    "gusset-rib-patterns": _FamilySpec(
+        ("GussetRibArray", "GussetRibMirrorPair"),
+        "_gusset_feature",
+        "gusset_rib",
+        "render_gusset_ribs",
+    ),
     "hole-patterns": _FamilySpec(
         ("BoltCircle", "LinearArray", "RectGrid"),
         "_pattern_feature",
@@ -185,6 +194,8 @@ _COMPLETENESS_TRACKING = {
     "fillets": 1374,
     "flats": 1371,
     "grooves": 1372,
+    "gusset-rib-patterns": 1705,
+    "gusset-ribs": 1705,
     "hole-patterns": 1370,
     "holes": 1369,
     "plates": 1373,
@@ -310,6 +321,11 @@ def _family_declaration(family_id: str, spec: _FamilySpec) -> dict[str, Any]:
         completeness = _supported(
             "draftwright.linting.paired_ramp_step_coverage.lint_paired_ramp_step_coverage",
             "tests/test_paired_ramp_semantics.py",
+        )
+    elif family_id in {"gusset-ribs", "gusset-rib-patterns"}:
+        completeness = _supported(
+            "draftwright.linting.gusset_rib_coverage.lint_gusset_rib_coverage",
+            "tests/test_gusset_rib_semantics.py",
         )
     elif family_id == "circular-blind-steps":
         completeness = _supported(

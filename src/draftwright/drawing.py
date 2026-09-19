@@ -117,6 +117,7 @@ from draftwright.linting import (
     lint_fillet_coverage,
     lint_flat_coverage,
     lint_groove_coverage,
+    lint_gusset_rib_coverage,
     lint_hole_coverage,
     lint_location_coverage,
     lint_oriented_slot_coverage,
@@ -4462,6 +4463,16 @@ class Drawing:
                 features=getattr(model, "features", ()) if model is not None else (),
                 registry=physical_registry,
                 omissions=self._build.omissions,
+                assembly=self.assembly,
+            )
+            issues += lint_gusset_rib_coverage(
+                working_part,
+                recognition=recognition,
+                features=getattr(model, "features", ()) if model is not None else (),
+                registry=physical_registry,
+                omissions=self._build.omissions,
+                evidence=self._build.recognition_evidence,
+                ownership=self._build.recognition_ownership,
                 assembly=self.assembly,
             )
             issues += lint_circular_blind_step_coverage(

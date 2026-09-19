@@ -71,6 +71,7 @@ from draftwright.annotations.from_model import (
     render_flats,
     render_gdt,
     render_grooves,
+    render_gusset_ribs,
     render_height_ladder,
     render_hex_pockets,
     render_local_turned_centerlines,
@@ -311,6 +312,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "circular_channels",
     "hex_pockets",
     "paired_ramp_steps",
+    "gusset_ribs",
     "flats",
     "pockets",
     "rectangular_blind_slots",
@@ -715,6 +717,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Two equal ramp angles + their run share one solver-owned leader (#1382).
         render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
 
+    def _s_gusset_ribs():
+        render_gusset_ribs(dwg, _compiled, a, ctx=ctx)
+
     def _s_circular_blind_steps():
         # Quarter-cylinder radius + stopped depth share one solver-owned end-view leader.
         render_circular_blind_steps(dwg, _compiled, a, ctx=ctx)
@@ -968,6 +973,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "circular_channels": _s_circular_channels,
             "hex_pockets": _s_hex_pockets,
             "paired_ramp_steps": _s_paired_ramp_steps,
+            "gusset_ribs": _s_gusset_ribs,
             "flats": _s_flats,
             "pockets": _s_pockets,
             "rectangular_blind_slots": _s_rectangular_blind_slots,

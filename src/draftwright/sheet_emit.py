@@ -1076,6 +1076,22 @@ def _feature_line(
             f'sheet.paired_ramp_step(axis="{f.axis}", angle={_n(f.angle)}, '
             f"length={_n(f.length)}, at={_pt(f.frame.origin)})"
         )
+    if k == "gusset_rib":
+        parts = [
+            f'axis="{f.axis}"',
+            f"supports={f.supports!r}",
+            f"legs={f.legs!r}",
+            f"directions={f.directions!r}",
+            f"member_bounds={f.member_bounds!r}",
+            f"datum={_n(f.datum)}",
+        ]
+        if f.pattern != "single":
+            parts.append(f"pattern={f.pattern!r}")
+        if f.pitch is not None:
+            parts.append(f"pitch={_n(f.pitch)}")
+        if f.mirror_plane is not None:
+            parts.append(f"mirror_plane={f.mirror_plane!r}")
+        return "sheet.gusset_rib(" + ", ".join(parts) + ")"
     if k == "hex_pocket":
         section = "(" + ", ".join(_authored_pt(point) for point in f.section) + ")"
         return (
