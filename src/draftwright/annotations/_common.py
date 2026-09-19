@@ -1879,7 +1879,19 @@ def prevent_dimension_label_ink(
         for label in (_box(dim),)
     ]
 
-    def _conflicts(batch):
+    def _conflict_involves(conflict, index):
+        kind = conflict[0]
+        if kind == "view":
+            return conflict[1] == index
+        if kind == "arrow":
+            return conflict[1] == index or conflict[3] == index
+        if kind in {"line", "label"}:
+            return conflict[1] == index or conflict[2] == index
+        if kind == "fixed":
+            return conflict[2] == index
+        raise AssertionError(f"unknown dimension-ink conflict kind: {kind!r}")
+
+    def _conflicts(batch, *, changed_index=None, previous=()):
         """Stable conflict tokens; their count is the local solve's primary objective."""
         labels = [_box(dim) for _name, dim in batch]
         segs = [_segments(dim) for _name, dim in batch]
@@ -1888,17 +1900,28 @@ def prevent_dimension_label_ink(
             for (_name, dim), label, segments in zip(batch, labels, segs, strict=True)
         ]
         tips = [_arrow_tips(dim, info) for (_name, dim), info in zip(batch, infos, strict=True)]
-        found: set[tuple] = set()
+        found: set[tuple] = (
+            set()
+            if changed_index is None
+            else {
+                conflict
+                for conflict in previous
+                if not _conflict_involves(conflict, changed_index)
+            }
+        )
         for target, (label, region) in enumerate(zip(labels, regions, strict=True)):
             if label is None or region is None:
                 continue
-            if label_clear is not None and not label_clear(label):
+            target_changed = changed_index is None or target == changed_index
+            if target_changed and label_clear is not None and not label_clear(label):
                 found.add(("view", target))
             # Helpers expose no arrow polygons.  The foreign dimension's exact
             # attachment tips still participate, closing the line-metadata gap without
             # guessing the orientation of this dimension's own inside/outside arrows.
             for source, source_tips in enumerate(tips):
                 if source == target:
+                    continue
+                if not target_changed and source != changed_index:
                     continue
                 info = infos[target]
                 if info is None:
@@ -1915,20 +1938,30 @@ def prevent_dimension_label_ink(
             for source, source_segments in enumerate(segs):
                 if source == target:
                     continue  # the helper deliberately cuts its own line around its label
+                if not target_changed and source != changed_index:
+                    continue
                 if crossing_length(source_segments, region) >= MIN_CROSSING_MM:
                     found.add(("line", source, target))
-            for obstacle_index, obstacle in enumerate(obstacles):
-                if obstacle_index not in natural_obstacle_hits[target] and _boxes_overlap(
-                    label, obstacle
-                ):
-                    found.add(("fixed", obstacle_index, target))
-        for left, left_box in enumerate(labels):
+            if target_changed:
+                for obstacle_index, obstacle in enumerate(obstacles):
+                    if obstacle_index not in natural_obstacle_hits[target] and _boxes_overlap(
+                        label, obstacle
+                    ):
+                        found.add(("fixed", obstacle_index, target))
+        left_indices = range(len(labels)) if changed_index is None else (changed_index,)
+        for left in left_indices:
+            left_box = labels[left]
             if left_box is None:
                 continue
-            for right in range(left + 1, len(labels)):
+            right_indices = (
+                range(left + 1, len(labels))
+                if changed_index is None
+                else (index for index in range(len(labels)) if index != changed_index)
+            )
+            for right in right_indices:
                 right_box = labels[right]
                 if right_box is not None and _boxes_overlap(left_box, right_box):
-                    found.add(("label", left, right))
+                    found.add(("label", min(left, right), max(left, right)))
         return frozenset(found)
 
     natural_centres = []
@@ -1938,8 +1971,8 @@ def prevent_dimension_label_ink(
             None if info is None or label is None else (label[info[0]] + label[info[0] + 2]) / 2.0
         )
 
-    def _objective(batch):
-        conflicts = _conflicts(batch)
+    def _objective(batch, *, changed_index=None, previous=()):
+        conflicts = _conflicts(batch, changed_index=changed_index, previous=previous)
         fixed_conflicts = sum(conflict[0] == "fixed" for conflict in conflicts)
         offsets = []
         tier_offsets = []
@@ -2096,7 +2129,9 @@ def prevent_dimension_label_ink(
                             continue
                     trial = list(current)
                     trial[index] = (name, rebuilt)
-                    objective, trial_conflicts = _objective(trial)
+                    objective, trial_conflicts = _objective(
+                        trial, changed_index=index, previous=conflicts
+                    )
                     key = (
                         objective,
                         index,
