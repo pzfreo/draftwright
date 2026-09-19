@@ -186,6 +186,15 @@ _CTC_AP203_OK = ["01", "02", "03", "04", "05"]
 _CTC_AP242_OK = ["01", "02", "03", "04", "05"]
 _MIN_BALLOON_RING_EXTENT_MM = 20.0
 _MAX_BALLOON_RING_EXTENT_MM = 60.0
+_AP203_DRAWINGS = {}
+
+
+def _ap203_drawing(n):
+    """Return one shared automatic AP203 build per specimen for this module."""
+
+    if n not in _AP203_DRAWINGS:
+        _AP203_DRAWINGS[n] = build_drawing(str(FIXTURES / f"nist_ctc_{n}_asme1_ap203.stp"))
+    return _AP203_DRAWINGS[n]
 
 
 @pytest.mark.slow
@@ -194,9 +203,8 @@ _MAX_BALLOON_RING_EXTENT_MM = 60.0
 def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
     from draftwright.export import _MIN_ARC_RADIUS, _SVG_ARC_RE
 
-    step = FIXTURES / f"nist_ctc_{n}_asme1_ap203.stp"
     stem = str(tmp_path / f"ctc{n}")
-    dwg = build_drawing(str(step), out=stem)
+    dwg = _ap203_drawing(n)
     _p = dwg.export(stem, formats=("svg", "dxf"))
     svg = _p["svg"]
     dxf = _p["dxf"]
@@ -271,7 +279,7 @@ def test_ctc_ap242_exports_honest_result(tmp_path, n, expect_incomplete):
 @pytest.mark.timeout(600)
 def test_ctc02_infeasible_hole_table_restores_feature_callouts():
     """#1144: a real dense model fails its all-row balloon transaction honestly."""
-    dwg = build_drawing(str(FIXTURES / "nist_ctc_02_asme1_ap203.stp"))
+    dwg = _ap203_drawing("02")
     annotations = dwg.annotations()
     issue_codes = {issue.code for issue in dwg.registry.issues}
 
@@ -285,7 +293,7 @@ def test_ctc02_infeasible_hole_table_restores_feature_callouts():
 @pytest.mark.timeout(600)
 def test_ctc04_infeasible_hole_table_restores_complete_fallback():
     """#1144: real fallback remains complete when every row cannot be keyed."""
-    dwg = build_drawing(str(FIXTURES / "nist_ctc_04_asme1_ap203.stp"))
+    dwg = _ap203_drawing("04")
     annotations = dwg.annotations()
     issue_codes = {issue.code for issue in dwg.registry.issues}
 
