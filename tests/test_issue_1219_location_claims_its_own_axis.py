@@ -51,6 +51,7 @@ from draftwright.model.ir import SlotFeature
 
 _C = (Align.CENTER, Align.CENTER, Align.CENTER)
 _CTC02 = "tests/fixtures/nist_ctc_02_asme1_ap203.stp"
+_CTC04 = "tests/fixtures/nist_ctc_04_asme1_ap203.stp"
 _SLOT_POSITION = f"{SlotFeature.LOCATION_STEM}.length"
 
 
@@ -203,6 +204,26 @@ class TestTheSlotPositionIsClaimedOnlyByWhatDrawsIt:
         assert not [n for n in _ladder(drawing) if not drawing.registry.measurement_of(n)]
 
 
+@pytest.fixture(scope="module")
+def ctc04_slot_drop_issues():
+    """Build the immutable regression specimen once for both lint assertions.
+
+    These tests cover slot-drop provenance, not automatic page recovery.  Use
+    the known dense layout directly so the scheduled tier does not spend
+    several candidates rediscovering it.
+    """
+
+    return build_drawing(
+        _CTC04,
+        title="T",
+        number="N-1",
+        page="A0",
+        scale=0.2,
+        scale_policy="permissive",
+        detail_view=False,
+    ).lint()
+
+
 class TestADroppedSlotPositionSaysWhichMeasurementItLost:
     """`render_slots` has TWO drop paths, and only one of them named its measurement.
 
@@ -221,19 +242,17 @@ class TestADroppedSlotPositionSaysWhichMeasurementItLost:
     builds are slow-tier by policy (#153).
     """
 
-    FIXTURE = "tests/fixtures/nist_ctc_04_asme1_ap203.stp"
-
     @pytest.mark.slow
-    def test_the_uncovered_drop_path_really_runs(self):
+    def test_the_uncovered_drop_path_really_runs(self, ctc04_slot_drop_issues):
         # Precondition, and specifically that position drops HAPPEN here — the earlier version
         # of this test asserted only "some drop occurred", which the corridor path satisfies.
-        issues = build_drawing(self.FIXTURE, title="T", number="N-1").lint()
+        issues = ctc04_slot_drop_issues
         drops = [i for i in issues if i.code == "slot_dim_dropped" and "position" in i.message]
         assert len(drops) >= 5, f"only {len(drops)} position drops; too few to mean anything"
 
     @pytest.mark.slow
-    def test_every_dropped_position_names_the_measurement_it_lost(self):
-        issues = build_drawing(self.FIXTURE, title="T", number="N-1").lint()
+    def test_every_dropped_position_names_the_measurement_it_lost(self, ctc04_slot_drop_issues):
+        issues = ctc04_slot_drop_issues
         nameless = [
             i.message
             for i in issues
