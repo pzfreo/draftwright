@@ -326,7 +326,16 @@ class TestNoMeasuredAnnotationEscapesUnclaimed:
         return _sweep(self._corpus(self.FIXTURES, parts=True))
 
     @pytest.mark.slow
-    @pytest.mark.parametrize("fixture", SLOW_FIXTURES)
+    @pytest.mark.parametrize(
+        "fixture",
+        [
+            pytest.param(
+                fixture,
+                marks=pytest.mark.ctc04 if "ctc_04" in fixture else (),
+            )
+            for fixture in SLOW_FIXTURES
+        ],
+    )
     def test_the_property_holds_on_the_ctc_corpus_too(self, fixture):
         # SLOW-tier: the fast sweep above is the PR gate; this is the same property over the
         # richest parts in the repo. CTC builds are slow-tier by policy (#153), and putting one

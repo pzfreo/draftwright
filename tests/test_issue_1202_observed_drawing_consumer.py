@@ -135,7 +135,7 @@ class TestTheOutcomeIsReadOffTheDrawing:
                 "tests/fixtures/nist_ctc_04_asme1_ap203.stp",
                 8,
                 id="ctc04",
-                marks=pytest.mark.slow,
+                marks=(pytest.mark.slow, pytest.mark.ctc04),
             ),
             # CTC-03 carries a 45-degree bore and is the only fixture whose raw record axis
             # and spec-rounded axis LETTER differ — the components tie after rounding and

@@ -200,6 +200,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
             )
 
     @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
+    @pytest.mark.ctc04
     def test_a_real_multi_group_part_keeps_its_leader_findings(self):
         # `leader_crosses_silhouette` is annotation-dependent, and the synthetic fixture
         # produces none, so a real part covers it. CTC-04 retains a real crossing

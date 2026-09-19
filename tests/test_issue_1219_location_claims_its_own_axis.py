@@ -243,6 +243,7 @@ class TestADroppedSlotPositionSaysWhichMeasurementItLost:
     """
 
     @pytest.mark.slow
+    @pytest.mark.ctc04
     def test_the_uncovered_drop_path_really_runs(self, ctc04_slot_drop_issues):
         # Precondition, and specifically that position drops HAPPEN here — the earlier version
         # of this test asserted only "some drop occurred", which the corridor path satisfies.
@@ -251,6 +252,7 @@ class TestADroppedSlotPositionSaysWhichMeasurementItLost:
         assert len(drops) >= 5, f"only {len(drops)} position drops; too few to mean anything"
 
     @pytest.mark.slow
+    @pytest.mark.ctc04
     def test_every_dropped_position_names_the_measurement_it_lost(self, ctc04_slot_drop_issues):
         issues = ctc04_slot_drop_issues
         nameless = [

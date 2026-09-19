@@ -46,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("tier", choices=("pr", "full", "scheduled"))
     parser.add_argument("--base", default="origin/main", help="merge base for PR selection")
     parser.add_argument("--workers", default="auto", help="pytest-xdist worker count")
+    parser.add_argument("--selection", help="additional marker expression within the tier")
     options, pytest_args = parser.parse_known_args(argv)
 
     common = ["-n", options.workers, "--dist", "loadscope"]
@@ -60,7 +61,10 @@ def main(argv: list[str] | None = None) -> int:
     elif options.tier == "full":
         args = [str(TESTS), "-m", FULL_EXPRESSION]
     else:
-        args = [str(TESTS), "-m", SCHEDULED_EXPRESSION]
+        expression = SCHEDULED_EXPRESSION
+        if options.selection:
+            expression = f"({expression}) and ({options.selection})"
+        args = [str(TESTS), "-m", expression]
         # Dense STEP builds take about 320 s alone and can take longer when the
         # scheduled workers contend for CPU. Keep this tier bounded without making
         # the fast and full feedback loops tolerate a ten-minute hang.
