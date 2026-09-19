@@ -144,6 +144,8 @@ def test_linear_gusset_array_keeps_provider_pitch_and_member_ownership() -> None
     )
     completeness = drawing.lint_summary()["quality"]["completeness"]
     assert completeness["by_family"]["gusset_ribs"] == 11
+    script = emit_sheet_script(drawing.model(), "part", "drawing", title="T", number="N")
+    assert "pitch=25" in script
 
 
 def test_declared_gusset_patterns_reject_false_relationships() -> None:
@@ -175,6 +177,32 @@ def test_declared_gusset_patterns_reject_false_relationships() -> None:
             pattern="mirror",
             mirror_plane=("x", 5),
         )
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"supports": (("z", 8), ("y", 17))},
+        {"supports": (("y", float("inf")), ("z", 8))},
+        {"legs": (0, 26)},
+        {"directions": (0, 1)},
+        {"member_bounds": ((3, 3),)},
+        {"datum": float("nan")},
+        {"member_bounds": ((-3, 3), (8, 16)), "pattern": "linear", "pitch": 12},
+    ],
+)
+def test_declared_gusset_rejects_invalid_public_facts(override) -> None:
+    facts = dict(
+        axis="x",
+        supports=(("y", 17), ("z", 8)),
+        legs=(22, 26),
+        directions=(-1, 1),
+        member_bounds=((-3, 3),),
+        datum=-40,
+    )
+    facts.update(override)
+    with pytest.raises(ValueError):
+        gusset_rib(**facts)
 
 
 def test_declared_completeness_does_not_reuse_one_member_for_two_occurrences() -> None:
