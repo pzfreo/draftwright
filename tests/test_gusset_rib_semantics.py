@@ -1,10 +1,15 @@
 """Quiddity 0.3.0 gussets cross Draftwright's recognition boundary honestly."""
 
+from types import SimpleNamespace
+
 import pytest
 from build123d import Align, Box, Location, Plane, Polygon, extrude
+from quiddity import GussetRib
 
 from draftwright import Sheet, build_drawing
+from draftwright.linting.gusset_rib_coverage import gusset_rib_requirement_outcomes
 from draftwright.model import gusset_rib
+from draftwright.registry import AnnotationRegistry
 from draftwright.sheet_emit import emit_sheet_script
 
 
@@ -170,3 +175,36 @@ def test_declared_gusset_patterns_reject_false_relationships() -> None:
             pattern="mirror",
             mirror_plane=("x", 5),
         )
+
+
+def test_declared_completeness_does_not_reuse_one_member_for_two_occurrences() -> None:
+    first = GussetRib("x", (-3.0, 3.0), (("y", 17.0), ("z", 8.0)), (22.0, 26.0), (-1, 1), (1.0,))
+    second = GussetRib("x", (-3.0, 3.0), (("y", 17.0), ("z", 8.0)), (22.0, 26.0), (-1, 1), (2.0,))
+    records = {"first": first, "second": second}
+    evidence = SimpleNamespace(
+        features=("first", "second"),
+        family=lambda _ref: "gusset_ribs",
+        record=records.__getitem__,
+    )
+    feature = gusset_rib(
+        axis="x",
+        supports=first.supports,
+        legs=first.legs,
+        directions=first.directions,
+        member_bounds=(first.thickness_bounds,),
+        datum=-40,
+    )
+
+    outcomes = gusset_rib_requirement_outcomes(
+        SimpleNamespace(),
+        (feature,),
+        AnnotationRegistry(),
+        (),
+        evidence=evidence,
+        ownership=None,
+    )
+
+    assert [(outcome.parameter_id, outcome.state) for outcome in outcomes] == [
+        ("gusset_thickness.length", "unverifiable"),
+        ("gusset_thickness.length", "unverifiable"),
+    ]

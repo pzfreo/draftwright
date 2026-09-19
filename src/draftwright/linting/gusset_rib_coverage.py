@@ -31,15 +31,63 @@ def gusset_rib_requirement_outcomes(
     if recognition is None:
         return []
     refs = tuple(ref for ref in evidence.features if evidence.family(ref) == "gusset_ribs")
+    evidence_records = tuple((ref, evidence.record(ref)) for ref in refs)
     grouped: dict[int, tuple[Any, list[object]]] = {}
     unresolved = []
-    for ref in refs:
-        record = evidence.record(ref)
-        binding = ownership.binding_for(ref)
-        if binding is None or getattr(binding.feature, "kind", None) != "gusset_rib":
+    gusset_features = tuple(
+        feature for feature in features if getattr(feature, "kind", None) == "gusset_rib"
+    )
+    claimed_member_slots: set[tuple[int, int]] = set()
+    occurrence_counts: dict[tuple, int] = {}
+    for _, record in evidence_records:
+        key = (
+            record.thickness_axis,
+            record.thickness_bounds,
+            record.supports,
+            record.legs,
+            record.directions,
+        )
+        occurrence_counts[key] = occurrence_counts.get(key, 0) + 1
+
+    def owner_for(ref, record):
+        if ownership is not None:
+            binding = ownership.binding_for(ref)
+            return None if binding is None else binding.feature
+        # A generated/declared model deliberately has no recognition ownership ledger.
+        # Reconcile only a unique feature retaining every exact public occurrence fact;
+        # ambiguity stays unverifiable rather than choosing by proximity or coordinates.
+        key = (
+            record.thickness_axis,
+            record.thickness_bounds,
+            record.supports,
+            record.legs,
+            record.directions,
+        )
+        if occurrence_counts[key] != 1:
+            return None
+        matches = tuple(
+            (feature, member_index)
+            for feature in gusset_features
+            if record.thickness_axis == feature.axis
+            and record.supports == feature.supports
+            and record.legs == feature.legs
+            and record.directions == feature.directions
+            for member_index, bounds in enumerate(feature.member_bounds)
+            if record.thickness_bounds == bounds
+            and (id(feature), member_index) not in claimed_member_slots
+        )
+        if len(matches) != 1:
+            return None
+        feature, member_index = matches[0]
+        claimed_member_slots.add((id(feature), member_index))
+        return feature
+
+    for ref, record in evidence_records:
+        feature = owner_for(ref, record)
+        if feature is None or getattr(feature, "kind", None) != "gusset_rib":
             unresolved.append(record)
             continue
-        entry = grouped.setdefault(id(binding.feature), (binding.feature, []))
+        entry = grouped.setdefault(id(feature), (feature, []))
         entry[1].append(record)
 
     placed = {
