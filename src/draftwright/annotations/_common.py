@@ -1880,16 +1880,14 @@ def prevent_dimension_label_ink(
     ]
 
     def _conflict_involves(conflict, index):
-        kind = conflict[0]
-        if kind == "view":
-            return conflict[1] == index
-        if kind == "arrow":
-            return conflict[1] == index or conflict[3] == index
-        if kind in {"line", "label"}:
-            return conflict[1] == index or conflict[2] == index
-        if kind == "fixed":
-            return conflict[2] == index
-        raise AssertionError(f"unknown dimension-ink conflict kind: {kind!r}")
+        dependent_positions = {
+            "view": (1,),
+            "arrow": (1, 3),
+            "line": (1, 2),
+            "label": (1, 2),
+            "fixed": (2,),
+        }
+        return any(conflict[position] == index for position in dependent_positions[conflict[0]])
 
     def _conflicts(batch, *, changed_index=None, previous=()):
         """Stable conflict tokens; their count is the local solve's primary objective."""
@@ -1943,11 +1941,12 @@ def prevent_dimension_label_ink(
                 if crossing_length(source_segments, region) >= MIN_CROSSING_MM:
                     found.add(("line", source, target))
             if target_changed:
-                for obstacle_index, obstacle in enumerate(obstacles):
-                    if obstacle_index not in natural_obstacle_hits[target] and _boxes_overlap(
-                        label, obstacle
-                    ):
-                        found.add(("fixed", obstacle_index, target))
+                found.update(
+                    ("fixed", obstacle_index, target)
+                    for obstacle_index, obstacle in enumerate(obstacles)
+                    if obstacle_index not in natural_obstacle_hits[target]
+                    and _boxes_overlap(label, obstacle)
+                )
         left_indices = range(len(labels)) if changed_index is None else (changed_index,)
         for left in left_indices:
             left_box = labels[left]
