@@ -66,6 +66,8 @@ from quiddity import (
     recognise_fillets,
     recognise_flats,
     recognise_grooves,
+    recognise_gusset_rib_patterns,
+    recognise_gusset_ribs,
     recognise_hole_patterns,
     recognise_holes,
     recognise_oriented_slot_patterns,
@@ -257,6 +259,15 @@ def _through_step_part():
     return Box(40, 30, 20) - Pos(15, 10, 0) * Box(20, 20, 30)
 
 
+def _gusset_part(*positions):
+    part = Box(100, 50, 8, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    part += Pos(0, 21, 0) * Box(100, 8, 48, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    rib = extrude(Plane.YZ * Polygon((17, 8), (-5, 8), (17, 34), align=None), amount=6)
+    for position in positions:
+        part += Pos(position, 0, 0) * rib
+    return part
+
+
 def _hexagonal_passage_plate():
     plate = Box(120, 80, 20)
     with BuildPart() as tool:
@@ -302,6 +313,8 @@ def _records_from_recognisers():
     oriented_grid = recognise_oriented_slots(
         _oriented_slot_pattern(((-30, -20), (0, -20), (30, -20), (-30, 20), (0, 20), (30, 20)))
     )
+    mirrored_gussets = recognise_gusset_ribs(_gusset_part(-26, 32))
+    array_gussets = recognise_gusset_ribs(_gusset_part(-30, -5, 20))
 
     out: list[tuple[str, object]] = []
     for name, recs in [
@@ -354,6 +367,15 @@ def _records_from_recognisers():
         ),
         ("recognise_flats", recognise_flats(dshaft)),
         ("recognise_grooves", recognise_grooves(grooved)),
+        ("recognise_gusset_ribs", mirrored_gussets),
+        (
+            "gusset_rib_patterns:mirror",
+            recognise_gusset_rib_patterns(mirrored_gussets),
+        ),
+        (
+            "gusset_rib_patterns:linear",
+            recognise_gusset_rib_patterns(array_gussets),
+        ),
         ("recognise_plates", recognise_plates(_l_bracket())),
         ("recognise_face_levels", recognise_face_levels(stepped)),
         ("recognise_risers", recognise_risers(stepped)),
