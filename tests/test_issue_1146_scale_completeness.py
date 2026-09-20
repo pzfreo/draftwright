@@ -22,6 +22,26 @@ from draftwright.builder import _complete_automatic_plan, _is_required_scale_dro
 from draftwright.linting import LintIssue
 
 
+@pytest.fixture
+def exterior_only_dimension_failures(monkeypatch):
+    """Keep this module's historic scale-recovery precondition explicit.
+
+    The fixture below was deliberately constructed so its exterior strip loses a
+    required location at 1:1 and succeeds at 1:2.  #1738 can now recover that mark in
+    interior whitespace, which is desirable production behaviour but would stop these
+    tests from exercising the scale-policy ladder they own.
+    """
+    import draftwright.annotations._common as common
+
+    def preserve_exterior_drop(ctx, _drawing):
+        jobs = tuple(ctx.interior_dimensions or ())
+        ctx.interior_dimensions = []
+        for job in jobs:
+            job.on_drop(job.name)
+
+    monkeypatch.setattr(common, "_drain_interior_dimensions", preserve_exterior_drop)
+
+
 def _scale_sensitive_plate():
     """A4 at 1:1 drops one X location; the same required set fits at 1:2."""
     part = Box(100, 100, 8)
@@ -133,7 +153,9 @@ def test_automatic_final_audit_records_unrecoverable_hard_layout():
 
 
 @pytest.mark.timeout(120)
-def test_fixture_proves_requested_scale_loses_an_outcome_but_half_scale_is_complete():
+def test_fixture_proves_requested_scale_loses_an_outcome_but_half_scale_is_complete(
+    exterior_only_dimension_failures,
+):
     with pytest.warns(ScaleCompletenessWarning, match="scale_policy='permissive'"):
         requested = build_drawing(
             _scale_sensitive_plate(),
@@ -157,7 +179,9 @@ def test_fixture_proves_requested_scale_loses_an_outcome_but_half_scale_is_compl
 
 
 @pytest.mark.timeout(120)
-def test_default_fallback_returns_largest_complete_standard_scale_and_reports_decision():
+def test_default_fallback_returns_largest_complete_standard_scale_and_reports_decision(
+    exterior_only_dimension_failures,
+):
     events = []
     with (
         observe_build(events.append),
@@ -195,7 +219,9 @@ def test_default_fallback_returns_largest_complete_standard_scale_and_reports_de
 
 
 @pytest.mark.timeout(120)
-def test_strict_policy_fails_with_machine_readable_required_outcomes():
+def test_strict_policy_fails_with_machine_readable_required_outcomes(
+    exterior_only_dimension_failures,
+):
     with pytest.raises(ScaleIncompatibilityError) as caught:
         build_drawing(
             _scale_sensitive_plate(),
@@ -214,7 +240,9 @@ def test_strict_policy_fails_with_machine_readable_required_outcomes():
 
 
 @pytest.mark.timeout(120)
-def test_permissive_policy_is_explicit_warns_and_preserves_degraded_request():
+def test_permissive_policy_is_explicit_warns_and_preserves_degraded_request(
+    exterior_only_dimension_failures,
+):
     with pytest.warns(ScaleCompletenessWarning, match="returning the incomplete drawing"):
         drawing = build_drawing(
             _scale_sensitive_plate(),
@@ -506,7 +534,9 @@ def test_sheet_table_sources_are_stable_and_unique_when_display_names_are_reused
 
 
 @pytest.mark.timeout(120)
-def test_sheet_fallback_reuses_lazy_physical_recognition(monkeypatch):
+def test_sheet_fallback_reuses_lazy_physical_recognition(
+    monkeypatch, exterior_only_dimension_failures
+):
     import draftwright.recognition_cache as recognition_cache_module
 
     sheet = Sheet.from_part(_scale_sensitive_plate(), page="A4", scale=1.0)
@@ -552,7 +582,9 @@ def test_priority_ranked_solver_drop_cannot_pass_strict_scale_policy():
 
 
 @pytest.mark.timeout(120)
-def test_fallback_reuses_geometry_classification_and_recognition(monkeypatch):
+def test_fallback_reuses_geometry_classification_and_recognition(
+    monkeypatch, exterior_only_dimension_failures
+):
     import draftwright.analysis as analysis
 
     calls = {"classify": 0, "recognise": 0}

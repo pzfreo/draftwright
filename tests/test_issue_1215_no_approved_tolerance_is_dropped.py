@@ -554,7 +554,24 @@ def _starved_extent_plate():
     return plate + boss.part
 
 
-def test_a_starved_overall_extent_recovers_to_the_above_strip():
+def _refuse_primary_width_corridor(monkeypatch):
+    """Make the exterior below-strip failure under test independent of leader routing."""
+    from draftwright.annotations import _common as common_mod
+
+    real = common_mod.place_strip_candidates
+
+    def refuse_width(*args, **kwargs):
+        pairs = args[4]
+        if any(name == "m_env_width" for name, _build in pairs):
+            return pairs
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(common_mod, "place_strip_candidates", refuse_width)
+
+
+def test_a_starved_overall_extent_recovers_to_the_above_strip(
+    monkeypatch, preserve_exterior_dimension_failures
+):
     """#1236: a feature leader spanning the below corridor must not cost the part its width.
 
     The hex boss's A/F leader fills the plan-below corridor, so `m_env_width` — force-kept,
@@ -564,6 +581,7 @@ def test_a_starved_overall_extent_recovers_to_the_above_strip():
     corridor-side fix reaches a leader (it is not a corridor candidate, so ordering cannot
     arbitrate against it) and an overall dimension above the view is ordinary drafting.
     """
+    _refuse_primary_width_corridor(monkeypatch)
     drawing = build_drawing(_starved_extent_plate(), title="T", number="N")
     assert "m_env_width" in drawing.registry.names(), (
         "the width no longer recovers: the fallthrough regressed, or the fixture stopped "
@@ -581,7 +599,9 @@ def test_a_starved_overall_extent_recovers_to_the_above_strip():
     assert not [i for i in drawing.lint() if i.severity == "error"]
 
 
-def test_a_doubly_starved_extent_is_still_reported(monkeypatch):
+def test_a_doubly_starved_extent_is_still_reported(
+    monkeypatch, preserve_exterior_dimension_failures
+):
     """Both strips full: the fallthrough fails and the drop must be reported, not vanish.
 
     Constructed by refusing the fallthrough's own placement call (matched on its trace label,
@@ -609,6 +629,7 @@ def test_a_doubly_starved_extent_is_still_reported(monkeypatch):
         return real(*args, **kwargs)
 
     monkeypatch.setattr(fm, "place_strip_candidates", refuse_fallthrough)
+    _refuse_primary_width_corridor(monkeypatch)
     # `_include_iso=False` so the automatic recovery ladder cannot act. #1590 made a withheld
     # required dimension a replan trigger, and the ladder's first move — drop the optional
     # ISO — frees this fixture's below strip. That is the engine doing the right thing, and it
@@ -626,7 +647,7 @@ def test_a_doubly_starved_extent_is_still_reported(monkeypatch):
         f"both strips full and nothing said so: {[(i.severity, i.code) for i in drawing.lint()]}"
     )
     assert all(i.severity == "error" for i in reported)
-    assert any("occupied by" in str(i.message) for i in reported)
+    assert all("not placed" in str(i.message) for i in reported)
     assert any(getattr(i, "measurement_ids", ()) for i in reported)
     assert not [i for i in drawing.lint() if i.code == "placement_unsatisfiable"]
     assert drawing.lint_summary()["passed"] is False

@@ -4628,7 +4628,9 @@ def test_the_object_reference_doc_quotes_real_generated_output(tmp_path):
     )
 
 
-def test_a_settled_view_set_is_not_pinned_beside_auto_dimensions(monkeypatch):
+def test_a_settled_view_set_is_not_pinned_beside_auto_dimensions(
+    monkeypatch, preserve_exterior_dimension_failures, preserve_exterior_feature_leaders
+):
     """#1590 widened who reaches the view pin; this is the combination it must not write.
 
     A model the emitter cannot mirror keeps `sheet.auto_dimensions()`, and `Sheet` refuses

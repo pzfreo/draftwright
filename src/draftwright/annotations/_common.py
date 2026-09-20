@@ -13,6 +13,7 @@ import logging
 import math
 import os
 from dataclasses import dataclass, field
+from enum import Enum
 from itertools import chain
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from build123d import FontStyle
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
+    _STRIP_SPACING,
     _analysis_margins,
     _anno_box,
     _decode_hole_location_fact,
@@ -38,7 +40,7 @@ from draftwright._geometry import (  # noqa: F401
     _segments_cross_or_overlap,
 )
 from draftwright.annotations.angular import AngularDimension
-from draftwright.layout import StripCandidate, plan_strip
+from draftwright.layout import StripCandidate, _assign_leader_candidates, plan_strip
 from draftwright.linting.ink_overlap import (
     MIN_CROSSING_MM,
     crossable_region,
@@ -915,6 +917,123 @@ def dim_footprint(p1, p2, side, distance, draft, label, *, label_offset_x=0.0):
     return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
 
 
+@dataclass(frozen=True)
+class AnalyticalDimensionInk:
+    """Cheap collision metadata for one axis-aligned dimension candidate."""
+
+    label_bbox: tuple[float, float, float, float]
+    segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
+    box: tuple[float, float, float, float]
+    _dw_dimension_candidate: bool = True
+
+
+def dimension_candidate_geometry(
+    p1,
+    p2,
+    side,
+    distance,
+    draft,
+    label,
+    *,
+    label_offset_x=0.0,
+):
+    """Analytical label/line ink for an axis-aligned ``Dimension``.
+
+    Interior retries use this during candidate exploration and construct OCC
+    geometry only for the selected survivor.  The inputs mirror :func:`_dim`;
+    diagonal dimensions fail closed because no current interior producer emits
+    one and their rotated label polygon needs a stronger representation.
+    """
+
+    if isinstance(side, str):
+        side = {
+            "above": (0.0, 1.0, 0.0),
+            "below": (0.0, -1.0, 0.0),
+            "left": (-1.0, 0.0, 0.0),
+            "right": (1.0, 0.0, 0.0),
+        }[side]
+    sx, sy = float(side[0]), float(side[1])
+    dx, dy = float(p2[0] - p1[0]), float(p2[1] - p1[1])
+    length = math.hypot(dx, dy)
+    if length <= 1e-9 or (abs(dx) > 1e-9 and abs(dy) > 1e-9):
+        return None
+    ux, uy = dx / length, dy / length
+    off = abs(float(distance))
+    width, height = _text_size(
+        label,
+        draft.font_size,
+        getattr(draft, "font_path", DEFAULT_FONT_PATH),
+        getattr(draft, "font", "Arial"),
+        getattr(draft, "font_style", FontStyle.REGULAR),
+    )
+    inline_aligned = (
+        getattr(draft, "text_position", "inline"),
+        getattr(draft, "text_orientation", "aligned"),
+    ) == ("inline", "aligned")
+    if inline_aligned:
+        wx, wy = sx, sy
+        cx = (p1[0] + p2[0]) / 2.0 + wx * off + ux * label_offset_x
+        cy = (p1[1] + p2[1]) / 2.0 + wy * off + uy * label_offset_x
+        hx, hy = (height / 2.0, width / 2.0) if abs(dy) > abs(dx) else (width / 2.0, height / 2.0)
+        along = width / 2.0
+    else:
+        sign = 1 if uy * sx - ux * sy >= 0 else -1
+        wx, wy = sign * uy, -sign * ux
+        angle = math.atan2(uy, ux)
+        aligned = (
+            angle if -math.pi / 2 < angle <= math.pi / 2 else angle - math.copysign(math.pi, angle)
+        )
+        reading = aligned if draft.text_orientation == "aligned" else 0.0
+        relative = reading - angle
+        along = abs(math.cos(relative)) * width / 2 + abs(math.sin(relative)) * height / 2
+        normal = abs(math.sin(relative)) * width / 2 + abs(math.cos(relative)) * height / 2
+        cx = (p1[0] + p2[0]) / 2.0 + wx * off
+        cy = (p1[1] + p2[1]) / 2.0 + wy * off
+        if draft.text_position == "above":
+            head_box = _dimension_head_bounds(draft.arrow_length, draft.head_type)
+            head_height = max(abs(head_box[1]), abs(head_box[3]))
+            text_offset = normal + draft.pad_around_text + max(head_height, draft.line_width / 2)
+            cx -= math.sin(aligned) * text_offset
+            cy += math.cos(aligned) * text_offset
+        hx = abs(math.cos(reading)) * width / 2 + abs(math.sin(reading)) * height / 2
+        hy = abs(math.sin(reading)) * width / 2 + abs(math.cos(reading)) * height / 2
+    label_box = (cx - hx, cy - hy, cx + hx, cy + hy)
+
+    first = (float(p1[0]) + wx * off, float(p1[1]) + wy * off)
+    second = (float(p2[0]) + wx * off, float(p2[1]) + wy * off)
+    arrow = draft.arrow_length
+    fits = (
+        2 * along + 2 * arrow < length and length / 2 - along - draft.pad_around_text > arrow / 2
+    )
+    if fits:
+        line_start, line_end = first, second
+    else:
+        line_start = (first[0] - ux * 2 * arrow, first[1] - uy * 2 * arrow)
+        line_end = (second[0] + ux * 2 * arrow, second[1] + uy * 2 * arrow)
+    gap = draft.extension_gap
+    segments = (
+        (line_start, line_end),
+        (
+            (float(p1[0]) + wx * gap, float(p1[1]) + wy * gap),
+            (float(p1[0]) + wx * (off + gap), float(p1[1]) + wy * (off + gap)),
+        ),
+        (
+            (float(p2[0]) + wx * gap, float(p2[1]) + wy * gap),
+            (float(p2[0]) + wx * (off + gap), float(p2[1]) + wy * (off + gap)),
+        ),
+    )
+    box = dim_footprint(
+        p1,
+        p2,
+        side,
+        off,
+        draft,
+        label,
+        label_offset_x=label_offset_x,
+    )
+    return AnalyticalDimensionInk(label_box, segments, box)
+
+
 def _styled_dimension_footprint(p1, p2, side, distance, draft, text_size):
     """Conservative full-ink hull with the helper's resolved orientation and offset.
 
@@ -1717,9 +1836,11 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
             item=annotation,
             segments=annotation_segments,
         )
-        crossable_strokes = isinstance(
-            annotation, (Dimension, SafeDimension, AngularDimension)
-        ) or (type(annotation).__name__ in CROSSABLE_TYPES)
+        crossable_strokes = (
+            isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
+            or bool(getattr(annotation, "_dw_dimension_candidate", False))
+            or (type(annotation).__name__ in CROSSABLE_TYPES)
+        )
         if annotation_label is not None and annotation_region is None:
             try:
                 conservative_label_hit = _boxes_overlap(candidate_label, annotation_label) or any(
@@ -2297,6 +2418,46 @@ class CorridorCandidate:
     # Bounded curved-ink alternatives, checked against actual ink after the
     # conservative strip solve. They preserve the approved content and sector.
     compact_candidates: object | None = None
+    # Optional whole-annotation fallback inside the owning view.  The normal
+    # corridor solve remains first and unchanged; only a genuine strip failure
+    # contributes this candidate to the shared interior-dimension solve.
+    interior_view: str | None = None
+    interior_side: str | None = None
+    interior_build: object | None = None
+    interior_geometry: object | None = None
+
+
+@dataclass(frozen=True)
+class InteriorDimensionJob:
+    """One failed corridor dimension eligible for a shared interior retry."""
+
+    name: str
+    view: str
+    side: str
+    build: object
+    on_place: object
+    on_drop: object
+    lane_step: float
+    priority: float = 0.0
+    feature: object | None = None
+    measurement: object | None = None
+    interior_build: object | None = None
+    analytical_geometry: object | None = None
+
+
+class DimensionCandidateRegion(str, Enum):
+    """Explicit provenance for a measured whole-dimension alternative."""
+
+    INTERIOR = "interior"
+
+
+@dataclass(frozen=True)
+class InteriorDimensionCandidate:
+    """One complete rendered dimension at a view-relative interior lane."""
+
+    annotation: Any
+    position: float
+    region: DimensionCandidateRegion = DimensionCandidateRegion.INTERIOR
 
 
 def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
@@ -2410,8 +2571,50 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 trace.record_outcome(loser.name, "promoted")
             break
 
+    def _defer_interior(candidate, lane_step) -> bool:
+        interior_jobs = getattr(ctx, "interior_dimensions", None)
+        displaced = losers.get(candidate.dedup, ()) if candidate.dedup is not None else ()
+        if (
+            interior_jobs is None
+            or candidate.interior_view is None
+            or candidate.interior_side is None
+            or displaced
+        ):
+            return False
+        owners = _group_owners(candidate)
+        measurements = _group_measurements(candidate)
+
+        def _interior_placed(_name, _candidate=candidate):
+            _candidate.on_place(_name)
+
+        def _interior_dropped(_name, _candidate=candidate):
+            _candidate.on_drop(_name)
+            _restore_shared_identity(_candidate)
+
+        interior_jobs.append(
+            InteriorDimensionJob(
+                name=candidate.name,
+                view=candidate.interior_view,
+                side=candidate.interior_side,
+                build=candidate.build,
+                on_place=_interior_placed,
+                on_drop=_interior_dropped,
+                lane_step=lane_step,
+                priority=candidate.priority,
+                feature=owners[0] if len(owners) == 1 else None,
+                measurement=measurements or candidate.measurement,
+                interior_build=candidate.interior_build,
+                analytical_geometry=candidate.interior_geometry,
+            )
+        )
+        if trace is not None:
+            trace.record_outcome(candidate.name, "deferred", reason="interior_retry")
+        return True
+
     if strip is None:  # no such strip on this drawing — every candidate drops
         for c in kept:
+            if _defer_interior(c, tier + _STRIP_SPACING):
+                continue
             c.on_drop(c.name)
             _restore_shared_identity(c)
             if trace is not None:
@@ -2521,6 +2724,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             if trace is not None:
                 trace.record_outcome(c.name, "placed")
         else:
+            if _defer_interior(c, tier + getattr(strip, "spacing", _STRIP_SPACING)):
+                continue
             pending = ctx.post_drain if ctx is not None else None
             n_deferred = len(pending) if pending is not None else 0
             c.on_drop(c.name)  # dropped / not force-kept — the pass's drop handler runs
@@ -2574,6 +2779,10 @@ class PlacementContext:
     # drained (#684 review): a mid-drain carve could occupy space a later sibling
     # corridor's force candidate needs; deferral makes "post-drain" literally true.
     post_drain: list = field(default_factory=list)
+    # Whole dimensions whose ordinary exterior corridor was genuinely full.
+    # The automatic/finalize entry points opt in with ``[]`` and drain them as
+    # one bounded interior assignment after every exterior fallthrough settles.
+    interior_dimensions: list | None = None
     # Compatible automatic/deferred feature-callout jobs collected across the
     # hole + post-drain machined passes (#1166). ``None`` is intentional: direct
     # renderer calls and finished-sheet live verbs keep their immediate behavior;
@@ -2729,6 +2938,173 @@ def register_corridor(ctx, key, strip, view, axis, tier, cand):
     b["cands"].append(cand)
 
 
+def _drain_interior_dimensions(ctx, dwg) -> None:
+    """Place failed corridor dimensions as one bounded whole-annotation batch.
+
+    The original exterior solve remains authoritative.  This stage sees only its
+    genuine failures, moves each complete rendered dimension, and admits a lane only
+    when the label is inside projected whitespace and the complete annotation clears
+    fixed ink.  The generic exact assignment then arbitrates pairwise conflicts; a job
+    with no survivor calls its original drop handler unchanged.
+    """
+
+    jobs = getattr(ctx, "interior_dimensions", None)
+    if not jobs:
+        return
+    ctx.interior_dimensions = []
+    page = _drawing_bounds(dwg)
+    candidates_by_job: list[tuple[InteriorDimensionCandidate, ...]] = []
+    costs_by_job: list[tuple[float, ...]] = []
+    for job in jobs:
+        bounds = dwg.view_bounds(job.view)
+        label_clear = view_label_clearance(dwg, job.view)
+        if bounds is None or label_clear is None:
+            candidates_by_job.append(())
+            costs_by_job.append(())
+            continue
+        axis = 1 if job.side in {"above", "below"} else 0
+        boundary = {
+            "above": bounds[3],
+            "below": bounds[1],
+            "right": bounds[2],
+            "left": bounds[0],
+        }[job.side]
+        inward = -1.0 if job.side in {"above", "right"} else 1.0
+        candidates: list[InteriorDimensionCandidate] = []
+        costs: list[float] = []
+        # Eight view-relative lanes bound both OCC construction and the shared exact
+        # assignment.  This is inventory policy, not part-specific geometry: a shorter
+        # view naturally terminates sooner at its opposite boundary.
+        for lane in range(1, 9):
+            position = boundary + inward * lane * job.lane_step
+            if not bounds[axis] < position < bounds[axis + 2]:
+                break
+            try:
+                if job.analytical_geometry is not None and job.interior_build is not None:
+                    dimension = job.analytical_geometry(position)
+                    label = None if dimension is None else dimension.label_bbox
+                    box = None if dimension is None else dimension.box
+                else:
+                    # Compatibility path for direct/internal callers that have not
+                    # supplied the analytical intent. Production candidates carry it,
+                    # so rejected lanes never construct OCC geometry.
+                    specimen = job.build(position)
+                    spec = getattr(specimen, "_dw_spec", None)
+                    if spec is None:
+                        continue
+                    opposite = {
+                        "above": "below",
+                        "below": "above",
+                        "right": "left",
+                        "left": "right",
+                    }[job.side]
+                    base = (float(spec.p1[axis]) + float(spec.p2[axis])) / 2.0
+                    dimension = _dim(
+                        spec.p1,
+                        spec.p2,
+                        opposite,
+                        abs(position - base),
+                        spec.draft,
+                        **spec.kwargs,
+                    )
+                    for attr, value in vars(specimen).items():
+                        if attr.startswith("covers_") or (
+                            attr.startswith("_dw_") and attr != "_dw_spec"
+                        ):
+                            setattr(dimension, attr, value)
+                    label = getattr(dimension, "label_bbox", None)
+                    box = _geom_box(dimension)
+            except Exception:  # noqa: BLE001 — an optional lane must fail closed
+                continue
+            if label is None or box is None:
+                continue
+            label = tuple(float(value) for value in label)
+            if not (
+                label[0] >= bounds[0]
+                and label[1] >= bounds[1]
+                and label[2] <= bounds[2]
+                and label[3] <= bounds[3]
+                and box[0] >= page[0]
+                and box[1] >= page[1]
+                and box[2] <= page[2]
+                and box[3] <= page[3]
+                and label_clear(label)
+                # View ownership is provenance, not a clipping boundary: ink owned
+                # by an adjacent projection may still cross this view in page space.
+                # Interior candidates therefore prove clearance against the complete
+                # settled sheet inventory.
+                and annotation_ink_clear(dwg, dimension)
+            ):
+                continue
+            candidates.append(InteriorDimensionCandidate(dimension, position))
+            costs.append(float(lane))
+        candidates_by_job.append(tuple(candidates))
+        costs_by_job.append(tuple(costs))
+
+    conflicts: list[tuple[int, int, int, int]] = []
+    for right_job, right_candidates in enumerate(candidates_by_job):
+        for left_job in range(right_job):
+            if jobs[left_job].view != jobs[right_job].view:
+                continue
+            for left_index, left_candidate in enumerate(candidates_by_job[left_job]):
+                for right_index, right_candidate in enumerate(right_candidates):
+                    if not annotation_ink_clear(
+                        dwg,
+                        left_candidate.annotation,
+                        additional=(right_candidate.annotation,),
+                    ):
+                        conflicts.append((left_job, left_index, right_job, right_index))
+    assignment = _assign_leader_candidates(
+        costs_by_job,
+        conflicts,
+        priorities=[job.priority for job in jobs],
+    )
+    for job, job_candidates, choice in zip(
+        jobs, candidates_by_job, assignment.choices, strict=True
+    ):
+        if choice is None:
+            job.on_drop(job.name)
+            continue
+        dimension = job_candidates[choice].annotation
+        if job.interior_build is not None:
+            try:
+                dimension = job.interior_build(job_candidates[choice].position)
+                label = getattr(dimension, "label_bbox", None)
+                box = _geom_box(dimension)
+                selected_bounds = dwg.view_bounds(job.view)
+                selected_label_clear = view_label_clearance(dwg, job.view)
+            except Exception:  # noqa: BLE001 — optional fallback must fail closed
+                job.on_drop(job.name)
+                continue
+            if (
+                label is None
+                or box is None
+                or selected_bounds is None
+                or selected_label_clear is None
+                or label[0] < selected_bounds[0]
+                or label[1] < selected_bounds[1]
+                or label[2] > selected_bounds[2]
+                or label[3] > selected_bounds[3]
+                or box[0] < page[0]
+                or box[1] < page[1]
+                or box[2] > page[2]
+                or box[3] > page[3]
+                or not selected_label_clear(label)
+                or not annotation_ink_clear(dwg, dimension)
+            ):
+                job.on_drop(job.name)
+                continue
+        dimension._dw_candidate_region = DimensionCandidateRegion.INTERIOR.value
+        ctx.place(
+            dimension,
+            job.name,
+            view=job.view,
+            feature=job.feature,
+            measurement=job.measurement,
+        )
+        job.on_place(job.name)
+
+
 def drain_corridors(ctx, dwg):
     """Solve every registered corridor (one :func:`solve_corridor` per strip), then clear
     the batch. Called once, after all corridor-feeding passes have registered. Takes both the
@@ -2782,6 +3158,7 @@ def drain_corridors(ctx, dwg):
         pending, ctx.post_drain = ctx.post_drain, []
         for cb in pending:
             cb()
+    _drain_interior_dimensions(ctx, dwg)
 
 
 def place_strip_candidates(

@@ -2992,6 +2992,7 @@ class Drawing:
             model_declared=self.model_declared,
             trace=self._build.trace,  # the finalize drain traces too (#736)
             feature_leaders=[],
+            interior_dimensions=[],
         )
         # The solve trace joins the transaction (#736 review): the recorder appends during
         # the drain, so a rolled-back finalize must also truncate those records — else the

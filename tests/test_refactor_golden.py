@@ -75,6 +75,13 @@ the ratchet, both named because the ratchet exists to make somebody name them:
     fields rather than tuned around, because the alternative — a shorter block —
     means choosing which ISO 7200 mandatory field to drop.
 
+#1738 deliberately advances three cases after the shared interior solve makes a better
+semantic result reachable. ``flange_dense`` removes a redundant side view (and therefore its
+view-owned centreline). ``grid_plate`` and ``scattered_plate`` were already recorded as
+incomplete; the established recovery ladder can now produce complete drawings on the next
+standard sheet after yielding the optional ISO. The larger page is accepted here because it
+recovers required manufacturing outcomes, not because annotation coordinates moved.
+
 Re-bless the recorded baseline (advances the footprint ratchet — do it deliberately):
     DRAFTWRIGHT_UPDATE_GOLDEN=1 uv run pytest tests/test_refactor_golden.py
 """

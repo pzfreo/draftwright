@@ -94,6 +94,10 @@ dependency runs one way: requirements determine views.
     bounded inventory to the joint solve while retaining the exact exterior producer floor under
     resource pressure; grouped physical anchors share the cap fairly. Feature families opt in at
     their semantic producer and never implement placement rays themselves.
+    A corridor dimension may opt into an interior fallback only after its exterior corridors are
+    exhausted. Its complete rendered annotation (extension lines, dimension line, arrows, and
+    text) moves as one typed candidate in a bounded shared assignment; only its label must occupy
+    proven projected whitespace, and an infeasible retry reports the original drop unchanged.
     `test_feature_leader_candidate_regions.py`, `test_interior_label_placement.py`.
 
 **Unguarded.** That the optimiser never shrinks text to fit is a stated rule of 0018 with no

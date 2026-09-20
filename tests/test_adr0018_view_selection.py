@@ -22,12 +22,25 @@ import math
 import pytest
 from build123d import Box, Cylinder, Pos, Rot
 
+import draftwright.annotations._common as _common
 from draftwright import ViewPlanIncomplete, build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.compose import _layout_geometry
 from draftwright.view_plan import VIEW_AXES, VIEWS_SHOWING, views_showing
 
 ALL_THREE = ("front", "plan", "side")
+
+
+def _preserve_exterior_failure(monkeypatch):
+    """Keep the intentional withheld-dimension trigger isolated from #1738."""
+
+    def drop_interior_jobs(ctx, _drawing):
+        jobs = tuple(ctx.interior_dimensions or ())
+        ctx.interior_dimensions = []
+        for job in jobs:
+            job.on_drop(job.name)
+
+    monkeypatch.setattr(_common, "_drain_interior_dimensions", drop_interior_jobs)
 
 
 def _plain_box():
@@ -666,13 +679,14 @@ class TestWhatMakesTheIsometricYield:
                 f"{trigger!r} does not name a completeness failure"
             )
 
-    def test_a_withheld_required_dimension_makes_it_yield(self):
+    def test_a_withheld_required_dimension_makes_it_yield(self, monkeypatch):
         """The third trigger, end to end (#1590).
 
         Its precondition is that this part HAS an isometric to give up and cannot place its
         overall depth while it keeps it — otherwise the test passes without the trigger
         ever firing.
         """
+        _preserve_exterior_failure(monkeypatch)
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
         pinned = build_drawing(part, number="X", page="A4", scale=1.0, scale_policy="permissive")
         assert "iso" in pinned.views
@@ -683,12 +697,13 @@ class TestWhatMakesTheIsometricYield:
         assert automatic.get_annotation("m_env_depth") is not None
         assert not [i for i in automatic.lint() if i.severity == "error"]
 
-    def test_no_principal_view_is_removed_to_recover(self):
+    def test_no_principal_view_is_removed_to_recover(self, monkeypatch):
         """The half of invariant 13 that did NOT move: only the OPTIONAL view yields.
 
         A recovery that reached for a principal view would buy the same room and lose a
         face of the part, so the ladder must never do it however starved the sheet.
         """
+        _preserve_exterior_failure(monkeypatch)
         part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
         automatic = build_drawing(part, number="X")
         assert automatic.scale_decision["status"] == "automatic_replanned"

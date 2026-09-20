@@ -43,6 +43,7 @@ from draftwright._core import (
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    _STRIP_SPACING,
     _WITNESS_LIFT_MM,
     DetailRequest,
     _analysis_margins,
@@ -77,6 +78,7 @@ from draftwright.annotations._common import (
     PRIORITY,
     CorridorCandidate,
     Escalation,
+    InteriorDimensionJob,
     _anno_box,
     _box_hits,
     _geom_box,
@@ -87,6 +89,7 @@ from draftwright.annotations._common import (
     analytical_leader_lands_clear,
     carve_free_position,
     dim_footprint,
+    dimension_candidate_geometry,
     full_strip_message,
     leader_callout_geometry,
     place_strip_candidates,
@@ -802,6 +805,8 @@ def _location_candidate(
     measurement=None,
     pinned=False,
     footprint=None,
+    interior_build=None,
+    interior_geometry=None,
     location_coverage=(),
     hole_requirements=(),
     placement_side="above",
@@ -848,6 +853,14 @@ def _location_candidate(
         feature=feature,  # provenance (ADR 5 (was 0010)): the located hole/pattern
         measurement=measurement,  # which of its measurements this is (#1002)
         footprint=footprint,  # analytical measure — no probe build (#602)
+        interior_view=None if pinned else view,
+        interior_side=None if pinned else placement_side,
+        interior_build=(
+            None
+            if pinned or interior_build is None
+            else lambda pos: _with_hole_location_coverage(interior_build(pos), location_coverage)
+        ),
+        interior_geometry=None if pinned else interior_geometry,
     )
 
 
@@ -1217,6 +1230,28 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                         label_offset_x=_offset,
                     )
                 ),
+                interior_build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                    _dim(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        "below",
+                        abs(pos - PY(_ry)),
+                        draft,
+                        label=_label,
+                        label_offset_x=_offset,
+                    )
+                ),
+                interior_geometry=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                    dimension_candidate_geometry(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        "below",
+                        abs(pos - PY(_ry)),
+                        draft,
+                        _label,
+                        label_offset_x=_offset,
+                    )
+                ),
             ),
         )
 
@@ -1320,6 +1355,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         label_offset = (
             short_dimension_label_offset(pa, pb, draft, label) if view == "side" else 0.0
         )
+        interior_direction = {
+            "above": "below",
+            "below": "above",
+            "right": "left",
+            "left": "right",
+        }[direction]
         register_corridor(
             ctx,
             (view, direction),
@@ -1356,6 +1397,28 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 pinned=pin_ref,
                 footprint=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label, _offset=label_offset: (
                     dim_footprint(
+                        _pa,
+                        _pb,
+                        _direction,
+                        abs(pos - _edge),
+                        draft,
+                        _label,
+                        label_offset_x=_offset,
+                    )
+                ),
+                interior_build=lambda pos, _pa=pa, _pb=pb, _direction=interior_direction, _edge=edge, _label=label, _offset=label_offset: (
+                    _dim(
+                        _pa,
+                        _pb,
+                        _direction,
+                        abs(pos - _edge),
+                        draft,
+                        label=_label,
+                        label_offset_x=_offset,
+                    )
+                ),
+                interior_geometry=lambda pos, _pa=pa, _pb=pb, _direction=interior_direction, _edge=edge, _label=label, _offset=label_offset: (
+                    dimension_candidate_geometry(
                         _pa,
                         _pb,
                         _direction,
@@ -5112,7 +5175,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             # final and `place_strip_candidates` spaces into what is genuinely free.
             def _retry():
                 bounds = dwg.view_bounds(_view)
-                if _above is not None and bounds is not None:
+                if bounds is not None:
                     lift = bounds[3] + _WITNESS_LIFT_MM
 
                     def _fallback_build(pos, _l=lift):
@@ -5127,25 +5190,70 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         dim._dw_measurement_span = _span
                         return dim
 
-                    if not place_strip_candidates(
-                        dwg,
-                        _above,
-                        _view,
-                        "y",
-                        [
-                            (
-                                nm,
-                                _fallback_build,
+                    if _above is not None:
+                        if not place_strip_candidates(
+                            dwg,
+                            _above,
+                            _view,
+                            "y",
+                            [
+                                (
+                                    nm,
+                                    _fallback_build,
+                                )
+                            ],
+                            tier,
+                            ctx=ctx,
+                            measurements={nm: _mid},
+                            features={nm: env.ref},
+                            trace=ctx.trace,
+                            trace_label=f"{nm}_above_fallthrough",
+                        ):
+                            return  # placed above — the measurement is on the sheet
+                    interior_jobs = getattr(ctx, "interior_dimensions", None)
+                    if interior_jobs is not None:
+
+                        def _interior_build(pos, _l=lift):
+                            dim = _dim(
+                                (_xs[0], _l, 0),
+                                (_xs[1], _l, 0),
+                                "below",
+                                abs(pos - _l),
+                                dwg.draft,
+                                label=_label,
                             )
-                        ],
-                        tier,
-                        ctx=ctx,
-                        measurements={nm: _mid},
-                        features={nm: env.ref},
-                        trace=ctx.trace,
-                        trace_label=f"{nm}_above_fallthrough",
-                    ):
-                        return  # placed above — the measurement is on the sheet
+                            dim._dw_measurement_span = _span
+                            return dim
+
+                        interior_jobs.append(
+                            InteriorDimensionJob(
+                                name=nm,
+                                view=_view,
+                                side="above",
+                                build=_fallback_build,
+                                on_place=lambda _name: None,
+                                on_drop=_report,
+                                lane_step=(
+                                    tier
+                                    + (_above.spacing if _above is not None else _STRIP_SPACING)
+                                ),
+                                priority=_MANDATORY_OVERALL_PRIORITY,
+                                feature=env.ref,
+                                measurement=_mid,
+                                interior_build=_interior_build,
+                                analytical_geometry=lambda pos, _l=lift: (
+                                    dimension_candidate_geometry(
+                                        (_xs[0], _l, 0),
+                                        (_xs[1], _l, 0),
+                                        "below",
+                                        abs(pos - _l),
+                                        dwg.draft,
+                                        _label,
+                                    )
+                                ),
+                            )
+                        )
+                        return
                 _report(nm)
 
             ctx.post_drain.append(_retry)

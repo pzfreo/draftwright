@@ -493,6 +493,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # by the builder; getattr because dwg is duck-typed in tests. None = off.
         trace=getattr(dwg, "solve_trace", None),
         feature_leaders=[],
+        interior_dimensions=[],
     )
     if ctx.trace is not None:
         ctx.trace.begin_phase("auto")  # one phase per annotate run (repack re-runs this)
