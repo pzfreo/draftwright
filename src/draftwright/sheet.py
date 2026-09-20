@@ -116,6 +116,7 @@ from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import (
     ControlFrame,
     DatumRef,
+    DeclarationIdentity,
     FeatureSchedule,
     NominalRequirement,
     Note,
@@ -412,6 +413,7 @@ class _Nameable:
     # TYPE_CHECKING because a bare `_i: int` is a WRITEABLE attribute, which a read-only
     # property may not override.
     _sheet: Sheet
+    _token: int
 
     if TYPE_CHECKING:
 
@@ -424,6 +426,27 @@ class _Nameable:
         if _location_role(feature) is not None:
             names.add(_LOCATION_ROLE)
         return tuple(sorted(names))
+
+    def identify(
+        self,
+        declaration_id: str,
+        *,
+        provenance: Literal[
+            "authored", "detected-geometry", "pmi", "structured-note", "derived"
+        ] = "authored",
+        occurrence_ids: tuple[str, ...] = (),
+    ):
+        """Give this declaration a build-scoped editable identity.
+
+        The identity follows the handle through fluent feature replacement and reordering. It
+        does not promise that geometry or provider occurrences retain identity across runs.
+        """
+
+        self._sheet._identify(
+            self._token,
+            DeclarationIdentity(declaration_id, provenance, occurrence_ids),
+        )
+        return self
 
 
 class _Hole(_Nameable):
@@ -1176,6 +1199,7 @@ class Sheet:
         # list moves each token with its feature instead of stranding references.
         self._entries: list[tuple[int, object]] = []
         self._features = _FeatureView(self._entries)
+        self._declaration_identities: dict[int, DeclarationIdentity] = {}
         self._document_input: DocumentInput | None = None
         self._replayed_recognition = bool(_replayed_recognition)
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
@@ -1717,6 +1741,36 @@ class Sheet:
         if kind in ("boss", "step"):
             return _Dim(self, i, "diameter" if kind == "boss" else "length")
         raise ValueError(f"of(): no aspect handle for a {kind!r} feature (holes / bosses / steps)")
+
+    def _identify(self, token: int, identity: DeclarationIdentity) -> None:
+        """Bind one validated identity to a live declaration token."""
+
+        self._index_of_token(token)
+        live_tokens = {live_token for live_token, _feature in self._entries}
+        for other_token, existing in self._declaration_identities.items():
+            if (
+                other_token != token
+                and existing.declaration_id == identity.declaration_id
+                and other_token in live_tokens
+            ):
+                raise ValueError(f"duplicate declaration_id {identity.declaration_id!r}")
+        self._declaration_identities[token] = identity
+
+    def by_declaration(self, declaration_id: str) -> _Params:
+        """Return the live handle carrying *declaration_id*, or fail if it was withdrawn."""
+
+        live_tokens = {token for token, _feature in self._entries}
+        matches = [
+            token
+            for token, identity in self._declaration_identities.items()
+            if identity.declaration_id == declaration_id and token in live_tokens
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"by_declaration({declaration_id!r}) requires one live declaration; "
+                f"found {len(matches)}"
+            )
+        return _Params(self, self._index_of_token(matches[0]))
 
     def _declared_token(self, ref, *, verb: str) -> int | None:
         """The token of the declared feature *ref* names, or ``None`` if it names none.
@@ -3184,6 +3238,12 @@ class Sheet:
             (self._features[self._index_of_token(tok)], *rest): tol
             for (tok, *rest), tol in self._tolerances.items()
         }
+        for token, identity in self._declaration_identities.items():
+            try:
+                feature = self._features[self._index_of_token(token)]
+            except ValueError:
+                continue
+            deco[(feature, "declaration_identity")] = identity
         if self._section is not None:
             deco["section"] = self._section_cut_y()  # the #841 cut-plane Y (scalar key)
         if section_request is not _UNSET and section_request is not None:

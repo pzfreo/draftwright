@@ -192,6 +192,24 @@ The token associates features; it does not specify an annotation position or add
 Generated scripts preserve this association using Draftwright-owned tokens instead of provider
 keys. A groove can still be declared when the authored set omits all of that body's steps.
 
+## Build-scoped declaration selectors
+
+An editable script can give a feature a declaration identity and later address that intent
+without a list position:
+
+```python
+hole = sheet.hole(diameter=6, at=(0, 0, 0), axis="z").identify("declaration:1")
+sheet.dimension(sheet.by_declaration("declaration:1"), "bore.diameter")
+```
+
+The identity follows fluent replacements such as `.depth()` and identity-preserving list
+reorders. Assigning another feature into its public `sheet.features` slot or deleting it
+withdraws the identity; it never transfers to the new occupant. Live IDs must be unique.
+Generated scripts use this build-scoped selector to join assessment evidence back to editable
+intent. It is not a persistent feature, face or topology ID and makes no correspondence promise
+across recognition runs. Recognition occurrence IDs, when present, remain local to the exact
+generation run recorded by the declaration.
+
 ## Checking dimension placement rules
 
 Call `handle.dimension_ids()` to find the measurements a declared feature exposes, then
