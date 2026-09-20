@@ -43,6 +43,7 @@ from draftwright.annotations._common import (
     CorridorCandidate,
     Escalation,
     _box_hits,
+    _discard_attempt_annotations,
     _geom_box,
     _hole_location_coverage_fact,
     _same_location_ordinate,
@@ -62,6 +63,7 @@ from draftwright.annotations._common import (
     register_corridor,
     strip_free_span,
     strip_obstacles,
+    view_label_clearance,
 )
 from draftwright.annotations.from_model import (
     _diameter_column_left,
@@ -77,8 +79,10 @@ from draftwright.annotations.from_model import (
 )
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
+    LeaderRegionPolicy,
     _FeatureLeaderInvariantError,
     collect_feature_leader,
+    feature_leader_candidates,
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
@@ -2670,6 +2674,8 @@ def _place_queue(
     # to the elbow), so probing everyone at one far-away Y badly
     # misjudges it.
     cache = getattr(dwg, "box_cache", None)  # measure each callout once (#1138)
+    vb = dwg.view_bounds(view)
+    assert vb is not None
     probe_boxes = []
     probe_by_candidate = {}
     for s in queue:
@@ -2677,21 +2683,47 @@ def _place_queue(
         if box is not None:
             probe_boxes.append(box)
             probe_by_candidate[id(s)] = box
-    occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        # The shared inventory may route an unconstrained callout to the opposite
+        # exterior side.  Include that physical column when deciding which existing
+        # annotations can contribute useful Y lanes; otherwise an adjacent view's
+        # witness line is invisible during candidate generation and every opposite-side
+        # alternative can repeat the same crossing.
+        if side_of_callout.get(id(s[2])) is None:
+            other_side = "left" if side == "right" else "right"
+            other_edge = vb[0] if other_side == "left" else vb[2]
+            other_box = _probe_box(
+                s,
+                other_edge,
+                other_side,
+                to_page,
+                elbow_dx,
+                draft,
+                a.SCALE,
+                cache,
+            )
+            if other_box is not None:
+                probe_boxes.append(other_box)
+    # View ownership is provenance, not a page-space clipping boundary.  A witness
+    # from an adjacent projection can extend through this leader column, so seed the
+    # producer's Y alternatives from the complete sheet inventory.  The X-band filter
+    # below keeps physically disjoint annotations from carving this column.
+    occupied = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
     provisional_section_boxes = [
         box
         for name, box in strip_obstacles(
             dwg,
-            view=view,
             crossable=CROSSABLE_TYPES,
             named=True,
         )
         if getattr(dwg.get_annotation(name), "is_provisional_layout_reservation", False)
     ]
     if probe_boxes:
-        band_lo = min(b[0] for b in probe_boxes)
-        band_hi = max(b[2] for b in probe_boxes)
-        occupied = [o for o in occupied if o[0] < band_hi and o[2] > band_lo]
+        occupied = [
+            obstacle
+            for obstacle in occupied
+            if any(obstacle[0] < probe[2] and obstacle[2] > probe[0] for probe in probe_boxes)
+        ]
+    leader_column_bands = tuple((box[0], box[2]) for box in probe_boxes)
     # Obstacles get their own min_gap clearance, pre-inflated here (same
     # amount the old dedicated carve applied); bands already carry their
     # clearance in `band_intervals`'s half-width. Combining both into one
@@ -2750,18 +2782,16 @@ def _place_queue(
     # then expose bounded alternatives from its baseline/carved solutions and
     # strip/obstacle boundaries.  The shared solve rechecks every alternative
     # against the fully drained dimension/witness inventory before committing.
-    # Pattern callout winners have downstream furniture/table semantics: the
-    # chosen callout controls whether pitch/BCD furniture is covered and which
-    # pattern escalation remains available to the later hole-table transaction.
-    # Keep any queue containing a pattern, any profiled-bore callout, and any
-    # dense loose-hole inventory eligible for the later transactional table
-    # replacement in its established immediate whole-queue solve.  Pattern and
-    # dense winners have downstream table/furniture semantics; profiled bores
-    # retain their established cross-view compatibility until robust
+    # Pattern callout winners retain their transaction while joining this late
+    # inventory: furniture is staged before the corridor solve, coverage waits
+    # for on_place, and on_drop removes only that pattern's staged furniture.
+    # Dense loose-hole inventories eligible for table replacement remain in the
+    # established immediate whole-queue solve. Profiled bores retain their
+    # established cross-view compatibility until robust
     # silhouette-aware routing lands (#1187 — this deferred to #798, which closed
     # WITHOUT delivering it; ADR 2 (was 0018)'s "Why now" records that ten leaders still cut
     # the part after #798 and #1188, and #1187 is the live successor).  The shared late inventory is therefore for
-    # compatible sparse ordinary-hole callouts only.
+    # compatible sparse ordinary-hole and pattern callouts only.
     model_features = getattr(getattr(ctx, "part_model", None), "features", ())
     scattered_plan_holes = sum(
         len(feature.members or (feature.frame.origin,))
@@ -2771,7 +2801,6 @@ def _place_queue(
     shared_inventory = (
         getattr(ctx, "feature_leaders", None) is not None
         and scattered_plan_holes < _TABULATE_MIN_HOLES
-        and not any(isinstance(item[3], PatternFeature) for item in queue)
         and not any(
             isinstance(owner := feat_of_callout.get(id(item[2])), HoleFeature)
             and owner.profile is not None
@@ -2784,13 +2813,19 @@ def _place_queue(
             for target in targets
             if id(target) in final_y and id(target) not in final_dropped
         }
-        vb = dwg.view_bounds(view)
-        assert vb is not None
+        projected_clear = view_label_clearance(dwg, view)
         i = start_i
         for s in queue:
-            _locs, dia, callout, feat, natural_y, _rep = s
+            locations, dia, callout, feat, natural_y, _rep = s
             owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
             requested_side = side_of_callout.get(id(callout))
+            # Pattern callouts are the interior-capable family introduced by this
+            # stage. An authored side remains an exterior placement constraint.
+            region_policy = (
+                LeaderRegionPolicy.AUTO
+                if isinstance(feat, PatternFeature) and requested_side is None
+                else LeaderRegionPolicy.EXTERIOR
+            )
             ys: list[float] = []
             for y in (
                 source_final_y.get(id(s)),
@@ -2807,13 +2842,58 @@ def _place_queue(
                 if not any(abs(y - prior) <= 1e-6 for prior in ys):
                     ys.append(y)
 
-            def _raw_candidates(
+            callout_box = _geom_box(callout, cache)
+
+            def _analytical_geometry(
+                tip,
+                elbow,
+                _owner,
+                *,
+                _callout_box=callout_box,
+            ):
+                candidate_side = "right" if elbow[0] >= tip[0] else "left"
+                return leader_callout_geometry(
+                    tip,
+                    elbow,
+                    draft,
+                    text_side=candidate_side,
+                    callout_box=_callout_box,
+                )
+
+            def _exterior_candidates(
                 _s=s,
                 _ys=tuple(ys),
                 _owner=owner,
                 _requested_side=requested_side,
+                _column_bands=leader_column_bands,
             ):
-                for y in _ys:
+                # This generator is consumed by the canonical late leader drain,
+                # after the corridor dimensions have landed.  Derive extra lanes from
+                # that live sheet ink here rather than freezing the pre-drain obstacle
+                # inventory above.  The producer still owns only physical attachment
+                # sites; the shared solver proves every resulting route exactly.
+                late_ys = list(_ys)
+                late_obstacles = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
+                late_boundaries: list[float] = []
+                for obstacle in late_obstacles:
+                    if _column_bands and not any(
+                        obstacle[0] < band_hi and obstacle[2] > band_lo
+                        for band_lo, band_hi in _column_bands
+                    ):
+                        continue
+                    late_boundaries.extend((obstacle[1] - min_gap, obstacle[3] + min_gap))
+                for y in sorted(
+                    {
+                        min(max(float(value), y_min), y_max)
+                        for value in late_boundaries
+                        if y_min <= value <= y_max
+                    },
+                    key=lambda value: (abs(value - float(_s[4])), value),
+                ):
+                    if not any(abs(y - prior) <= 1e-6 for prior in late_ys):
+                        late_ys.append(y)
+
+                for y in late_ys:
                     tip, elbow = _leader_anchors(
                         _s,
                         edge,
@@ -2847,12 +2927,101 @@ def _place_queue(
                         )
                         yield (tip, elbow, _owner)
 
+            def _interior_anchors(
+                _s=s,
+                _locations=tuple(locations or ()),
+                _owner=owner,
+                _ys=tuple(ys),
+            ):
+                anchor_y = _ys[0] if _ys else min(max(float(_s[4]), y_min), y_max)
+                for location in _locations or (_s[5],):
+                    member = (*_s[:5], location)
+                    tip, elbow = _leader_anchors(
+                        member,
+                        edge,
+                        side,
+                        anchor_y,
+                        to_page,
+                        elbow_dx,
+                        draft,
+                        a.SCALE,
+                    )
+                    yield (tip, elbow, _owner)
+
+            def _raw_candidates(
+                _anchors=_interior_anchors,
+                _exterior=_exterior_candidates,
+                _region_policy=region_policy,
+                _callout_box=callout_box,
+                _analytical=_analytical_geometry,
+            ):
+                yield from feature_leader_candidates(
+                    _anchors(),
+                    region_policy=_region_policy,
+                    silhouette=vb,
+                    analytical_geometry=(
+                        _analytical
+                        if projected_clear is not None and _callout_box is not None
+                        else None
+                    ),
+                    draft=draft,
+                    exterior_candidates=_exterior(),
+                )
+
             legacy_y = source_final_y.get(id(s))
 
-            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner, _raw=_raw_candidates):
-                # Start with the established strip winner. Under a joint-solve
-                # resource cap on a dense section, a bounded lookahead can try
-                # its other semantic lanes before retaining a fixed-ink crossing.
+            def _fallback_candidates(
+                _s=s,
+                _y=legacy_y,
+                _owner=owner,
+                _requested_side=requested_side,
+                _region_policy=region_policy,
+                _raw=_raw_candidates,
+            ):
+                if _region_policy is LeaderRegionPolicy.INTERIOR:
+                    yield from _raw()
+                    return
+                # Candidate zero remains the established strip winner.  Put its
+                # same-lane opposite-side alternative immediately after it so the
+                # bounded lookahead can test both sides before spending work on all
+                # other Y lanes.  Authored sides remain constraints and never gain
+                # this automatic alternative.
+                if _y is not None:
+                    tip, elbow = _leader_anchors(
+                        _s, edge, side, _y, to_page, elbow_dx, draft, a.SCALE
+                    )
+                    yield (tip, elbow, _owner)
+                    if _requested_side is None:
+                        other_side = "left" if side == "right" else "right"
+                        other_edge = vb[0] if other_side == "left" else vb[2]
+                        tip, elbow = _leader_anchors(
+                            _s,
+                            other_edge,
+                            other_side,
+                            _y,
+                            to_page,
+                            elbow_dx,
+                            draft,
+                            a.SCALE,
+                        )
+                        yield (tip, elbow, _owner)
+                # Keep the rest of the producer's lazy semantic inventory available:
+                # a nearby clear lane should beat a verified Policy-B crossing.
+                yield from _raw()
+
+            def _candidate_budget_fallback_candidates(
+                _s=s,
+                _y=legacy_y,
+                _owner=owner,
+                _region_policy=region_policy,
+                _raw=_raw_candidates,
+            ):
+                # Candidate-measurement exhaustion is different: candidates beyond
+                # the admitted prefix were never proved cheap enough to inspect.  Its
+                # semantic floor is therefore the exact pre-joint producer result.
+                if _region_policy is LeaderRegionPolicy.INTERIOR:
+                    yield from _raw()
+                    return
                 if _y is None:
                     return
                 if not getattr(ctx, "dense_internal_section", False):
@@ -2874,24 +3043,6 @@ def _place_queue(
                     callout=_callout,
                 )
 
-            callout_box = _geom_box(callout, cache)
-
-            def _analytical_geometry(
-                tip,
-                elbow,
-                _owner,
-                *,
-                _callout_box=callout_box,
-            ):
-                candidate_side = "right" if elbow[0] >= tip[0] else "left"
-                return leader_callout_geometry(
-                    tip,
-                    elbow,
-                    draft,
-                    text_side=candidate_side,
-                    callout_box=_callout_box,
-                )
-
             name = _hc_name(only, view, i, hc_used)
 
             # Pitch/BCD furniture is a separate non-leader requirement. Keep it
@@ -2899,7 +3050,13 @@ def _place_queue(
             # the late shared leader inventory routes around it. Coverage still
             # waits for the callout winner below: visible furniture alone must
             # not claim that the bore callout was placed.
+            staged_furniture = ()
+            staged_issues = ()
+            staged_furnished = False
             if place_furniture and feat is not None:
+                before_names = set(dwg.annotations())
+                before_issue_ids = {id(issue) for issue in ctx.registry.issues}
+                staged_furnished = furnished is not None and id(feat) not in furnished
                 _add_furniture(
                     dwg,
                     a,
@@ -2911,6 +3068,10 @@ def _place_queue(
                     plan=plan,
                     furnished=furnished,
                     cover=False,
+                )
+                staged_furniture = tuple(sorted(set(dwg.annotations()) - before_names))
+                staged_issues = tuple(
+                    issue for issue in ctx.registry.issues if id(issue) not in before_issue_ids
                 )
 
             def _on_place(
@@ -2928,7 +3089,28 @@ def _place_queue(
                         [HoleRef.of(member) for member in members],
                     )
 
-            def _on_drop(reason, *, _dia=dia, _feat=feat, _callout=callout):
+            def _on_drop(
+                reason,
+                *,
+                _dia=dia,
+                _feat=feat,
+                _callout=callout,
+                _staged_furniture=staged_furniture,
+                _staged_issues=staged_issues,
+                _staged_furnished=staged_furnished,
+            ):
+                _discard_attempt_annotations(dwg, _staged_furniture)
+                if _staged_furnished and furnished is not None and _feat is not None:
+                    furnished.discard(id(_feat))
+                if _staged_issues:
+                    staged_issue_ids = {id(issue) for issue in _staged_issues}
+                    ctx.registry.restore_issues(
+                        tuple(
+                            issue
+                            for issue in ctx.registry.issues
+                            if id(issue) not in staged_issue_ids
+                        )
+                    )
                 detail = (
                     "rendered geometry validation failed"
                     if reason == "geometry_validation"
@@ -2963,11 +3145,15 @@ def _place_queue(
                         _analytical_geometry if callout_box is not None else None
                     ),
                     fallback_candidates=_fallback_candidates(),
+                    candidate_budget_fallback_candidates=(_candidate_budget_fallback_candidates()),
                     # Candidate zero is the established whole-queue placement.
                     # The former Policy-B path kept it when avoiding a thin fixed
                     # obstacle would require a large relocation; resource fallback
                     # must not silently strengthen that into a semantic drop.
                     fallback_accept=lambda _candidate, _obstacles, _page: True,
+                    interior_label_clear=(
+                        projected_clear if region_policy is LeaderRegionPolicy.AUTO else None
+                    ),
                     allow_policy_b_fixed=True,
                     priority=float(dia),
                     on_place=_on_place,

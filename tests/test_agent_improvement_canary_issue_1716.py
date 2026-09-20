@@ -1,9 +1,11 @@
-"""One real-part proof that an assessed DSL edit improves layout without semantic loss.
+"""One real-part proof that assessed DSL edits cannot claim unsupported improvement.
 
 The NIST CTC-01 STEP is recognised once while generating the editable script, then that
-script is built twice: as generated and after one sanctioned ``Sheet`` layout edit. All
-negative policy checks below mutate the two resulting JSON documents in memory; they do
-not pay for additional CAD builds.
+script is built twice: as generated and after one sanctioned ``Sheet`` layout edit.  The
+automatic planner now resolves the historical overlap itself, so the larger-sheet edit
+must remain a no-op rather than receiving stale improvement credit. All negative policy
+checks below mutate the two resulting JSON documents in memory; they do not pay for
+additional CAD builds.
 """
 
 from __future__ import annotations
@@ -115,7 +117,7 @@ def _declaration(document: dict[str, Any], declaration_id: str) -> dict[str, Any
     )
 
 
-def test_ctc01_agent_edit_resolves_crossing_without_hiding_semantic_loss(tmp_path) -> None:
+def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> None:
     baseline_prefix = tmp_path / "baseline"
     candidate_prefix = tmp_path / "candidate"
     baseline_script = Path(
@@ -135,8 +137,10 @@ def test_ctc01_agent_edit_resolves_crossing_without_hiding_semantic_loss(tmp_pat
     baseline = _load(baseline_path)
 
     # This is the autonomous-loop edit under test: use only a sanctioned Sheet layout
-    # declaration, never raw annotation coordinates. Path changes merely keep the two
-    # replay artifacts separate and are not drawing semantics.
+    # declaration, never raw annotation coordinates. The automatic planner has already
+    # selected a clean A2, so a larger A1 must not receive stale credit for resolving the
+    # old A4 overlap. Path changes merely keep the two replay artifacts separate and are
+    # not drawing semantics.
     source = baseline_script.read_text(encoding="utf-8")
     assert source.count(str(baseline_prefix)) == 2
     source = source.replace(str(baseline_prefix), str(candidate_prefix))
@@ -196,8 +200,9 @@ def test_ctc01_agent_edit_resolves_crossing_without_hiding_semantic_loss(tmp_pat
         expected_requirements=_EXPECTED,
         selected_layout_finding=_TARGET,
     )
-    assert comparison["decision"] == "preferred", comparison
-    assert comparison["layout"]["selected_transition"] == "resolved"
+    assert comparison["decision"] == "no-preference", comparison
+    assert comparison["reasons"] == ["no_evidence-backed_improvement"]
+    assert comparison["layout"]["selected_transition"] == "absent"
     assert not comparison["policy"]["blockers"]
     assert not comparison["unavailable"]["reasons"]
     assert all(not row["changes"] for row in comparison["requirements"]["transitions"])
