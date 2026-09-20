@@ -2320,7 +2320,10 @@ class TestDeclaredModelPmi:
 
         lowered_identities = drawing.model().declaration_identities
         assert len(lowered_identities) == len(drawing.model().features)
-        assert tuple(identity for identity in lowered_identities if identity is not None) == identities
+        assert (
+            tuple(identity for identity in lowered_identities if identity is not None)
+            == identities
+        )
 
 
 def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
