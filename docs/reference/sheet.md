@@ -643,6 +643,23 @@ callout. More general ordered operation stacks remain tracked by issue #1360. Un
 requirement has a structured parameter, use a feature-linked `note(..., satisfies=(...))` only
 for parameter ids the handle actually exposes; free prose does not satisfy coverage.
 
+Generated scripts and editing agents use `structured_note(...)` when the note declaration
+itself needs a stable selector:
+
+```python
+note = sheet.structured_note(
+    "BORE DIAMETER VERIFIED",
+    stack,
+    satisfies=("bore.diameter",),
+).identify("declaration:note", provenance="structured-note")
+same_note = sheet.by_declaration("declaration:note")
+```
+
+It declares the same solver-placed manufacturing note as `note(...)`, but returns the note's
+own feature handle rather than returning the `Sheet` for chaining. The handle controls intent,
+not page coordinates. Final reports can therefore link the declaration to its exact placed ink
+while separately crediting the physical feature and parameter named by `satisfies`.
+
 ### Straight and circular Blend chains
 
 When recognition accepts a complete schema-v3 straight or circular rolling-ball Blend path that is

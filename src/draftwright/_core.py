@@ -114,6 +114,7 @@ def place_annotation(
     measurement=None,
     satisfaction=None,
     cells=(),
+    declaration=None,
 ):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one
@@ -130,7 +131,16 @@ def place_annotation(
         items.remove(displaced)
     annotate(obj, name)
     items.append(obj)
-    registry.add(obj, name, view, feature, measurement, satisfaction, cells=cells)
+    registry.add(
+        obj,
+        name,
+        view,
+        feature,
+        measurement,
+        satisfaction,
+        cells=cells,
+        declaration=declaration,
+    )
     return obj
 
 

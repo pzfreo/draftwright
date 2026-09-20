@@ -84,6 +84,30 @@ def test_equal_valued_features_keep_distinct_report_owners() -> None:
         )
 
 
+def test_structured_note_has_its_own_selector_and_exact_ink() -> None:
+    part = Box(60, 40, 5) - Cylinder(3, 10)
+    sheet = Sheet(part)
+    hole = sheet.hole(diameter=6, at=(0, 0, 2.5), axis="z", depth=5).identify("declaration:hole")
+    sheet.structured_note(
+        "BORE DIAMETER VERIFIED",
+        hole,
+        satisfies=("bore.diameter",),
+    ).identify("declaration:note", provenance="structured-note")
+    sheet.authored_dimensions()
+    sheet.dimension(sheet.envelope(), "width.length")
+
+    entries = {entry["id"]: entry for entry in sheet.build().report()["declarations"]["entries"]}
+
+    note = entries["declaration:note"]
+    assert note["feature_kind"] == "note"
+    assert note["selector"]["argument"] == "declaration:note"
+    assert note["representations"]
+    assert any(
+        "bore.diameter" in representation["satisfactions"]
+        for representation in entries["declaration:hole"]["representations"]
+    )
+
+
 def test_generated_occurrence_references_are_corroborated_by_the_exact_sidecar(tmp_path) -> None:
     step = tmp_path / "source.step"
     export_step(Box(40, 30, 5) - Cylinder(2, 10), step)

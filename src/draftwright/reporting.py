@@ -1149,8 +1149,19 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     satisfaction_of = getattr(registry, "satisfaction_of", None)
     view_of = getattr(registry, "view_of", None)
     named = getattr(registry, "named", None)
+    feature_of = getattr(registry, "feature_of", None)
+    declaration_of = getattr(registry, "declaration_of", None)
     if not all(
-        callable(value) for value in (names, measurement_of, satisfaction_of, view_of, named)
+        callable(value)
+        for value in (
+            names,
+            measurement_of,
+            satisfaction_of,
+            view_of,
+            named,
+            feature_of,
+            declaration_of,
+        )
     ):
         raise ReportUnavailableError("annotation provenance registry is unavailable")
     names = cast(Any, names)
@@ -1158,11 +1169,17 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     satisfaction_of = cast(Any, satisfaction_of)
     view_of = cast(Any, view_of)
     named = cast(Any, named)
+    feature_of = cast(Any, feature_of)
+    declaration_of = cast(Any, declaration_of)
     features = {id(feature): feature for feature in model.features}
     rows: list[dict] = []
     for name in sorted(names()):
         measured: dict[int, set[str]] = {}
         satisfied: dict[int, set[str]] = {}
+        represented: set[int] = set()
+        for primary in (feature_of(name), declaration_of(name)):
+            if primary is not None and features.get(id(primary)) is primary:
+                represented.add(id(primary))
         for channel, target in (
             (measurement_of(name), measured),
             (satisfaction_of(name), satisfied),
@@ -1170,11 +1187,16 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
             for identity in channel:
                 feature = getattr(identity, "feature", None)
                 parameter = getattr(identity, "parameter", None)
-                if features.get(id(feature)) is not feature or type(parameter) is not str:
+                if (
+                    feature is None
+                    or features.get(id(feature)) is not feature
+                    or type(parameter) is not str
+                ):
                     continue
                 target.setdefault(id(feature), set()).add(parameter)
+                represented.add(id(feature))
         for feature_id in sorted(
-            measured.keys() | satisfied.keys(),
+            represented,
             key=lambda candidate: next(
                 index
                 for index, feature in enumerate(model.features)

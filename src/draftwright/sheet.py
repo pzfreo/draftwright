@@ -2148,6 +2148,31 @@ class Sheet:
         items, clear of the views/title block; ``view``/``side`` override the derived strip.
         ``satisfies`` may name canonical parameter ids only when *ref* is a feature; it grants
         coverage only when this structured note is placed, never by parsing its prose (#1351)."""
+        self.structured_note(
+            text,
+            ref,
+            satisfies=satisfies,
+            view=view,
+            side=side,
+        )
+        return self
+
+    def structured_note(
+        self,
+        text,
+        ref,
+        *,
+        satisfies: tuple[DimensionParameterId, ...] = (),
+        view: str | None = None,
+        side: str | None = None,
+    ) -> _Params:
+        """Declare a manufacturing note and return its own addressable feature handle.
+
+        This bindable spelling is for editors and generated scripts that must identify the
+        note declaration itself. Placement remains solver-owned; the handle carries no page
+        coordinates. :meth:`note` retains its Sheet-returning fluent behavior.
+        """
+
         target, src = self._gdt_ref(ref)
         if satisfies and src is None:
             raise ValueError(
@@ -2169,7 +2194,7 @@ class Sheet:
             ),
             src,
         )
-        return self
+        return _Params(self, len(self._features) - 1)
 
     # -- view declaration (ADR 2 (was 0018)) ---------------------------------------
 

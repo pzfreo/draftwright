@@ -2237,6 +2237,10 @@ class CorridorCandidate:
     # Structured-note authority carried by this placed annotation (#1351), kept distinct
     # from dimensional ink in the registry.
     satisfaction: object | None = None
+    # The exact declared IR item that produced this ink. Distinct from ``feature`` for a
+    # structured note: its physical owner is the origin, while its editable declaration is
+    # the Note itself (#1710).
+    declaration: object | None = None
     # Real stacking-axis + perpendicular footprint ``(w, h)`` in page-mm, or ``None`` to
     # use the dimension default ``(tier, tier)``. Wide/tall occupants (a GD&T feature
     # control frame is ~24×6 mm) set this so the strip solve reserves their true extent
@@ -2416,6 +2420,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         if measurements
     }
     satisfactions = {c.name: c.satisfaction for c in kept if c.satisfaction is not None}
+    declarations = {c.name: c.declaration for c in kept if c.declaration is not None}
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
     prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
@@ -2437,6 +2442,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             features=feats,
             measurements=meas,
             satisfactions=satisfactions,
+            declarations=declarations,
             sizes=sizes,
             forbid=forbid,
             priorities=prio,
@@ -2572,7 +2578,16 @@ class PlacementContext:
     # per-ctx (per-run) index is correct (mirrors the old ``Drawing._hole_feature_index``).
     _hole_feature_index: Any = field(default=None, repr=False)
 
-    def place(self, obj, name=None, view=None, feature=None, measurement=None, satisfaction=None):
+    def place(
+        self,
+        obj,
+        name=None,
+        view=None,
+        feature=None,
+        measurement=None,
+        satisfaction=None,
+        declaration=None,
+    ):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
         door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 1 (was 0005)
         §2). Registers *obj* under *name* (owning *view* + source *feature*) and appends it to the
@@ -2594,6 +2609,7 @@ class PlacementContext:
             resolve_feature(feature),
             measurement,
             satisfaction,
+            declaration=declaration,
         )
 
     def feature_of_hole_at(self, location):
@@ -2753,6 +2769,7 @@ def place_strip_candidates(
     features=None,
     measurements=None,
     satisfactions=None,
+    declarations=None,
     sizes=None,
     forbid=None,
     priorities=None,
@@ -3165,6 +3182,7 @@ def place_strip_candidates(
         # not participate in structured-note authority. Only a candidate carrying the new
         # provenance axis receives the keyword (#1351).
         satisfaction = (satisfactions or {}).get(name)
+        declaration = (declarations or {}).get(name)
         if satisfaction is not None:
             ctx.place(
                 dim,
@@ -3173,9 +3191,17 @@ def place_strip_candidates(
                 feature=feature,
                 measurement=measurement,
                 satisfaction=satisfaction,
+                declaration=declaration,
             )
         else:
-            ctx.place(dim, name, view=view, feature=feature, measurement=measurement)
+            ctx.place(
+                dim,
+                name,
+                view=view,
+                feature=feature,
+                measurement=measurement,
+                declaration=declaration,
+            )
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]
         trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested

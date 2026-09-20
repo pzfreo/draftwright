@@ -716,7 +716,7 @@ def _note_line(f, origin_ref: str | None = None) -> str:
         kwargs = [f"view={f.view!r}", f"side={f.side!r}"]
         if f.satisfies:
             kwargs.append(f"satisfies={f.satisfies!r}")
-        return f"{origin_ref}.note({f.text!r}, {', '.join(kwargs)})"
+        return f"sheet.structured_note({f.text!r}, {origin_ref}, {', '.join(kwargs)})"
     if raw_origin or origin_ref is not None:
         origin = _raw_pmi_expr(f.origin) if raw_origin else origin_ref
         kw = [
@@ -1380,9 +1380,12 @@ def _binding(f, line: str, counts: dict[str, int]) -> str | None:
     ``None`` for a kind with no declarative verb: its "line" is a comment, and
     ``rotational1 = # …`` does not parse.
     """
-    # Fluent ``handle.note(...)`` returns the origin handle, not the appended Note. Binding
-    # that expression as ``note1`` would therefore lie about which feature the name denotes.
-    if f.kind == "note" or line.lstrip().startswith("#"):
+    # Fluent ``handle.note(...)`` returns the origin handle, not the appended Note. The
+    # generated ``sheet.structured_note(...)`` spelling returns the note's own handle and is
+    # therefore safe to bind.
+    if (
+        f.kind == "note" and not line.startswith("sheet.structured_note(")
+    ) or line.lstrip().startswith("#"):
         return None
     counts[f.kind] = counts.get(f.kind, 0) + 1
     return f"{f.kind}{counts[f.kind]}"
