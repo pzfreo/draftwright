@@ -70,11 +70,17 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.3.0 runtime contract
+### Quiddity 0.3.1 runtime contract
 
-The runtime pins the published `quiddity==0.3.0` package, following the 0.2.4 adoption in
+The runtime pins the published `quiddity==0.3.1` package, following the 0.2.4 adoption in
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) and the migration in
-[#1471](https://github.com/pzfreo/draftwright/issues/1471). 0.2.7 is a patch adoption: it requires
+[#1471](https://github.com/pzfreo/draftwright/issues/1471). Version 0.3.1 retains the same 29
+families and record schemas while tightening material-empty gating for rectangular recesses,
+restoring passage discovery during rotational reconciliation, and adding the public opaque
+`CandidateRef` evidence surface delivered by
+[quiddity#688](https://github.com/pzfreo/quiddity/issues/688). Draftwright requires that symbol
+in the released evidence manifest before consuming candidate-level evidence. 0.2.7 was a patch
+adoption that required
 circumferential cylinder support to establish a turned-profile axis line, so rounded plate corners
 and parallel offset cylinders no longer form a false stepped shaft
 ([quiddity#586](https://github.com/pzfreo/quiddity/issues/586), [#1555](https://github.com/pzfreo/draftwright/issues/1555)).

@@ -13,6 +13,12 @@
 
 ### Fixed
 
+- Adopt Quiddity 0.3.1 and require its public rejected-candidate reference in the
+  evidence contract (#1726). The provider now suppresses rectangular recess candidates
+  that are not material-empty and restores passage discovery used during rotational
+  reconciliation; Draftwright's recognition and real-part regression corpora retain
+  their reviewed expectations.
+
 - Direct and generated builds use the same final IR step ladder for page layout (#1592).
   Raw face levels owned by another feature no longer reserve a phantom step corridor at
   the title-block clearance threshold.
