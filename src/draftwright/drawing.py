@@ -1079,13 +1079,24 @@ class Drawing:
         feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
         can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
 
-        A declared, framed, injected, or bare drawing whose exact occurrence ownership is
-        unavailable, or a raw drawing with an unclassified accepted occurrence, raises
+        A declared drawing uses schema version 6: its final IR is the authority, and the report
+        preserves lint/quality observations while stating that recognition correspondence is
+        unavailable. It never reconstructs occurrences from declared values. A framed or bare
+        drawing whose exact occurrence ownership is unavailable, or a raw drawing with an
+        unclassified accepted occurrence, raises
         :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
         shrinking the denominator. Calling this method never changes rendered drawing content.
         """
 
-        from draftwright.reporting import drawing_report
+        from draftwright.reporting import declared_drawing_report, drawing_report
+
+        if self._model_declared:
+            source = (
+                getattr(self._analysis, "step_file", None) if self._analysis is not None else None
+            )
+            return declared_drawing_report(
+                model=self.model(), lint=self.lint_summary(), source=source
+            )
 
         snapshot = self.requirement_snapshot()
         with _reuse_report_requirements(self, snapshot.outcomes, snapshot.dimension_plan):

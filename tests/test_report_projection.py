@@ -890,17 +890,21 @@ def test_report_refuses_an_unclassified_accepted_occurrence(fresh_drawing) -> No
         )
 
 
-@pytest.mark.parametrize("boundary", ("declared", "framed"))
-def test_report_refuses_to_invent_ownership_across_an_unavailable_boundary(boundary) -> None:
-    drawing = build_drawing(
-        _through_step_part(),
-        model=[] if boundary == "declared" else None,
-        framed_recognition=boundary == "framed",
-    )
+def test_report_refuses_to_invent_ownership_across_a_framed_boundary() -> None:
+    drawing = build_drawing(_through_step_part(), framed_recognition=True)
     with pytest.raises(ReportUnavailableError, match="occurrence ownership is unavailable"):
         drawing.report()
-    if boundary == "declared":
-        assert drawing.recognition_evidence() is None
+
+
+def test_injected_declared_model_uses_the_declared_report_contract() -> None:
+    drawing = build_drawing(_through_step_part(), model=[])
+    assert drawing.recognition_evidence() is None
+
+    report = drawing.report()
+
+    assert report["schema_version"] == 6
+    assert report["scope"] == "declared-sheet"
+    assert report["declarations"]["feature_count"] == 0
 
 
 def test_report_projection_does_not_change_visual_output(fresh_drawing, tmp_path) -> None:
