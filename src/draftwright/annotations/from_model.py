@@ -2731,6 +2731,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         drop_code="chamfer_dropped",
         ctx=ctx,
         joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
 
 
@@ -2955,6 +2956,7 @@ def _render_radius_callouts(
         drop_code=drop_code,
         ctx=ctx,
         joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
 
 
@@ -4541,6 +4543,8 @@ def _render_polygonal_prisms(
         drop_code=drop_code,
         ctx=ctx,
         geom_clear=True,
+        joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
 
 

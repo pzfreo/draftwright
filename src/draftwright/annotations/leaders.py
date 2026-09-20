@@ -1785,6 +1785,10 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
 
     def place(job_index, candidate, annotation):
         job = jobs[job_index]
+        # Preserve typed candidate provenance on the rendered object.  Besides trace
+        # diagnostics, structural lint uses this to distinguish a solver-proven interior
+        # label from an arbitrary annotation that merely happens to lie inside a view.
+        annotation._dw_candidate_region = candidate.region.value
         ctx.place(
             annotation,
             job.name,

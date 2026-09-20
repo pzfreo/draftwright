@@ -59,7 +59,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("from_model.py", "render_paired_ramp_steps", True),
         ("from_model.py", "render_gusset_ribs", True),
         ("from_model.py", "render_boss_diameters", False),
-        ("from_model.py", "_render_polygonal_prisms", False),
+        ("from_model.py", "_render_polygonal_prisms", True),
         ("from_model.py", "render_hex_pockets", True),
         ("holes.py", "render_pocket_patterns", False),
         ("holes.py", "render_slot_patterns", False),
@@ -524,7 +524,7 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
         created += 1
         return Leader(*args, **kwargs)
 
-    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 54)
+    monkeypatch.setattr("draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK", 66)
     monkeypatch.setattr("draftwright.annotations.from_model.Leader", counted_leader)
     trace_path = tmp_path / "candidate-budget-boundary.json"
     drawing = build_drawing(
@@ -537,14 +537,15 @@ def test_grouped_job_at_candidate_budget_still_uses_joint_assignment(monkeypatch
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "fillet_callouts")
 
-    # All 54 analytical alternatives are measured, but OCC is materialised only for
+    # All 66 analytical alternatives (the bounded interior inventory plus the
+    # semantic exterior anchors) are measured, but OCC is materialised only for
     # the selected survivor.
     assert created == 1
     assert drawing.get_annotation("m_fillet_z0").label == "2× R1"
     assert event["assignment"] == "joint"
     assert event["optimal"] is True
-    assert event["joint_measurement_work"] == 54
-    assert event["joint_measurement_work_limit_per_view"] == 54
+    assert event["joint_measurement_work"] == 66
+    assert event["joint_measurement_work_limit_per_view"] == 66
 
 
 def test_candidate_budget_is_global_across_jobs(monkeypatch, tmp_path):

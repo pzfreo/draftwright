@@ -88,6 +88,13 @@ dependency runs one way: requirements determine views.
     vetoes remain later tiers. A dirty result left after the bounded ladder is exhausted records
     `status="invalid"` plus stable violation evidence rather than reporting an ordinary automatic
     choice. `test_issue_1299_page_escalation.py`, `test_issue_1146_scale_completeness.py`.
+17. **Interior feature labels are typed solver candidates, not coordinates.** An interior
+    candidate carries explicit region provenance, keeps its complete label inside its owning
+    view, and clears projected and committed annotation ink without Policy B. `AUTO` adds that
+    bounded inventory to the joint solve while retaining the exact exterior producer floor under
+    resource pressure; grouped physical anchors share the cap fairly. Feature families opt in at
+    their semantic producer and never implement placement rays themselves.
+    `test_feature_leader_candidate_regions.py`, `test_interior_label_placement.py`.
 
 **Unguarded.** That the optimiser never shrinks text to fit is a stated rule of 0018 with no
 dedicated mutation guard. Automatic principal-view selection has no guard because it is not built.

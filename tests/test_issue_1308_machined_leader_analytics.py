@@ -34,8 +34,8 @@ EXPECTED = {
             "m_steplen3": ("Dimension", (64.34, 97.0, 154.44, 108.0)),
             "dim_height": ("Dimension", (158.39, 44.95, 166.39, 95.05)),
             "hc_side0": ("Leader", (210.28, 68.665, 253.305, 71.335)),
-            "m_chamfer_x0": ("Leader", (12.236, 94.25, 40.14, 101.339)),
-            "m_chamfer_x1": ("Leader", (153.14, 69.829, 177.598, 76.25)),
+            "m_chamfer_x0": ("Leader", (48.604, 86.499, 64.928, 94.25)),
+            "m_chamfer_x1": ("Leader", (143.595, 76.25, 153.743, 84.292)),
             "title_block": ("TitleBlock", (165.925, 10.925, 286.075, 43.075)),
             "scale_note": ("Note", (254.67, 46.0, 267.0, 48.166)),
             # #1338: the automatic replan keeps the optional ISO on the same sheet.
@@ -79,9 +79,9 @@ EXPECTED = {
             "m_cm8": ("CenterMark", (120.775, 152.0, 126.775, 158.0)),
             "m_cm9": ("CenterMark", (108.775, 152.0, 114.775, 158.0)),
             "hc_front0": ("Leader", (122.875, 128.665, 146.85, 153.0)),
-            "m_polygonal_boss_z0": ("Leader", (62.943, 175.663, 112.775, 226.34)),
-            "m_slot0_width": ("Dimension", (25.775, 225.6, 46.775, 244.4)),
-            "m_slot1_width": ("Dimension", (184.775, 229.95, 209.775, 240.05)),
+            "m_polygonal_boss_z0": ("Leader", (87.925, 218.931, 112.775, 226.34)),
+            "m_slot0_width": ("Dimension", (74.775, 225.6, 209.775, 244.4)),
+            "m_slot1_width": ("Dimension", (184.775, 229.95, 222.625, 240.05)),
             "m_slot0_length": ("Dimension", (48.725, 241.0, 72.825, 292.0)),
             "m_slot1_length": ("Dimension", (166.725, 242.0, 182.825, 301.5)),
             "m_slot0_pos": ("Dimension", (37.725, 241.0, 48.825, 311.0)),
@@ -101,15 +101,15 @@ EXPECTED = {
             "m_env_depth": ("Dimension", (250.725, 128.0, 340.825, 136.0)),
             "dim_loc_front_x37000": ("Dimension", (37.725, 117.15, 111.825, 136.0)),
             "dim_loc_front_x43000": ("Dimension", (37.725, 104.3, 123.825, 136.0)),
-            "m_env_width": ("Dimension", (37.725, 284.0, 197.825, 372.35)),
-            "hc_plan0": ("Leader", (152.275, 242.665, 220.148, 245.335)),
+            "m_env_width": ("Dimension", (37.725, 178.0, 197.825, 186.0)),
+            "hc_plan0": ("Leader", (88.275, 244.0, 115.598, 250.285)),
             "hc_plan1": ("Leader", (186.275, 268.665, 220.199, 271.335)),
-            "m_chamfer_y0": ("Leader", (89.433, 169.491, 108.266, 183.115)),
+            "m_chamfer_y0": ("Leader", (91.81, 164.568, 108.266, 169.491)),
             "m_chamfer_z1": ("Leader", (192.775, 275.0, 213.032, 283.142)),
-            "m_fillet_z0": ("Leader", (15.101, 184.659, 40.704, 192.929)),
-            "m_blend_x0": ("Leader", (225.168, 159.203, 289.818, 161.333)),
-            "m_blend_z1": ("Leader", (94.789, 255.586, 109.962, 296.083)),
-            "m_blend_z2": ("Leader", (10.278, 207.453, 69.239, 209.619)),
+            "m_fillet_z0": ("Leader", (45.454, 192.341, 64.846, 194.807)),
+            "m_blend_x0": ("Leader", (273.967, 160.268, 289.818, 165.97)),
+            "m_blend_z1": ("Leader", (164.927, 231.235, 184.528, 236.858)),
+            "m_blend_z2": ("Leader", (48.913, 260.134, 68.156, 263.233)),
             "title_block": ("TitleBlock", (432.925, 10.925, 583.075, 43.075)),
             "scale_note": ("Note", (551.709, 46.0, 564.0, 48.166)),
             "note_iso_nts": ("Note", (460.221, 105.557, 484.554, 108.251)),
@@ -118,7 +118,6 @@ EXPECTED = {
             "plate_requirement_unverifiable": 1,
             "pmi_present_but_ignored": 1,
             "step_dim_withheld": 1,
-            "feature_leader_crossing": 1,
         },
     ),
 }
@@ -205,15 +204,15 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
     # dedicated compose/repack coverage; suppress that independent outer-layout migration here
     # so a leader-lowering regression remains the only way these coordinates can change.
     monkeypatch.setattr(builder_module, "_annotation_clearance", lambda _drawing: 0.0)
-    immediate_jobs = []
+    captured_jobs = []
     constructed_polygonal = []
     place_feature_leader_jobs = from_model.place_feature_leader_jobs
+    collect_feature_leader = from_model.collect_feature_leader
     real_leader = from_model.Leader
 
     def capture_immediate(drawing, analysis, ctx, jobs, *, producer_floor=False):
         jobs = list(jobs)
-        if producer_floor:
-            immediate_jobs.extend(jobs)
+        captured_jobs.extend(jobs)
         return place_feature_leader_jobs(
             drawing,
             analysis,
@@ -223,6 +222,12 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
         )
 
     monkeypatch.setattr(from_model, "place_feature_leader_jobs", capture_immediate)
+
+    def capture_late(context, job):
+        captured_jobs.append(job)
+        return collect_feature_leader(context, job)
+
+    monkeypatch.setattr(from_model, "collect_feature_leader", capture_late)
 
     def counted_leader(*args, **kwargs):
         leader = real_leader(*args, **kwargs)
@@ -236,7 +241,10 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
     # geometry change (and so the recorded page coordinates remain meaningful).
     # Keep the original furniture policy explicit in this leader-geometry comparison.
     drawing = build_drawing(
-        FIXTURES / fixture, _views=("front", "plan", "side"), projection_symbol=False
+        FIXTURES / fixture,
+        page="A2" if fixture == "nist_ctc_01_asme1_ap242.stp" else None,
+        _views=("front", "plan", "side"),
+        projection_symbol=False,
     )
     actual = {}
     for name, annotation in drawing.iter_annotations():
@@ -279,7 +287,7 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
         bounds = drawing.working_part.bounding_box()
         ray = Edge.make_line((bounds.min.X - 1, y, z), (bounds.max.X + 1, y, z))
         assert min(edge.distance_to(ray) for edge in curves) < 1e-6
-        polygonal_jobs = [job for job in immediate_jobs if job.name == "m_polygonal_boss_z0"]
+        polygonal_jobs = [job for job in captured_jobs if job.name == "m_polygonal_boss_z0"]
         assert polygonal_jobs
         assert all(job.analytical_geometry is not None for job in polygonal_jobs)
         assert len(constructed_polygonal) == len(polygonal_jobs), (

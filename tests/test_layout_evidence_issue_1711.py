@@ -150,6 +150,16 @@ def test_ctc01_crossing_joins_both_declarations_and_tracks_semantic_removal() ->
         ),
     )
     drawing = build_drawing(detected.working_part, model=model, repair=False)
+
+    # The production layout now resolves CTC01's historical crossing.  This test owns
+    # the report join, not that obsolete placement defect, so introduce one exact
+    # line-through-label condition between the same two registered annotations.  Keep
+    # their real semantic ownership and geometry everywhere else: dropping either
+    # feature below must still remove the finding through the public edit path.
+    crossed = drawing.get_annotation("hc_plan1")
+    crosser = drawing.get_annotation("m_slot0_width")
+    x0, y0, x1, y1 = crossed.label_bbox
+    crosser._segments_local = (((x0 - 1.0, (y0 + y1) / 2.0), (x1 + 1.0, (y0 + y1) / 2.0)),)
     findings = [
         row
         for row in drawing.report()["layout"]["findings"]
@@ -162,11 +172,15 @@ def test_ctc01_crossing_joins_both_declarations_and_tracks_semantic_removal() ->
     raw = drawing.report()["lint"]["issues"]
     assert all(raw[row["lint_issue_index"]]["code"] == row["code"] for row in findings)
 
-    # A feature verb is a sanctioned semantic edit. This intentionally proves the report's
-    # before/after join, not that dropping required slot documentation is the right production
-    # remedy; completeness remains independently visible in the same report.
-    drawing.drop(next(feature for feature in drawing.model().features if feature.kind == "slot"))
+    # A feature verb is a sanctioned semantic edit. Remove one actual participant in the
+    # observed collision rather than depending on a particular family winning that contested
+    # location; the report join, not the choice of production remedy, is the subject.
+    removed_name = findings[0]["annotation_names"][0]
+    removed_feature = drawing.registry.feature_of(removed_name)
+    assert removed_feature is not None
+    drawing.drop(removed_feature)
 
     assert not any(
-        row["code"] == "annotation_ink_overlap" for row in drawing.report()["layout"]["findings"]
+        row["code"] == "annotation_ink_overlap" and removed_name in row["annotation_names"]
+        for row in drawing.report()["layout"]["findings"]
     )

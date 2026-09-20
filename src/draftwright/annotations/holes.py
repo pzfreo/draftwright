@@ -2819,12 +2819,18 @@ def _place_queue(
             locations, dia, callout, feat, natural_y, _rep = s
             owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
             requested_side = side_of_callout.get(id(callout))
-            # Pattern callouts are the interior-capable family introduced by this
-            # stage. An authored side remains an exterior placement constraint.
+            # Hole callouts are one explicitly interior-capable semantic family.
+            # The shared adapter still proves each candidate clear and retains the
+            # established exterior inventory, so this is eligibility rather than a
+            # family-specific placement rule.  In particular, recognised repeated
+            # holes commonly remain a HoleFeature with several members rather than a
+            # PatternFeature; class-testing here would silently exclude those patterns.
+            #
+            # An authored side is different from automatic family eligibility: it is
+            # a placement constraint. Keep that job in the exterior inventory so an
+            # interior candidate cannot silently defeat ``side="left"``/``"right"``.
             region_policy = (
-                LeaderRegionPolicy.AUTO
-                if isinstance(feat, PatternFeature) and requested_side is None
-                else LeaderRegionPolicy.EXTERIOR
+                LeaderRegionPolicy.AUTO if requested_side is None else LeaderRegionPolicy.EXTERIOR
             )
             ys: list[float] = []
             for y in (
@@ -2954,6 +2960,7 @@ def _place_queue(
                 _region_policy=region_policy,
                 _callout_box=callout_box,
                 _analytical=_analytical_geometry,
+                _projected_clear=projected_clear,
             ):
                 yield from feature_leader_candidates(
                     _anchors(),
@@ -2961,11 +2968,12 @@ def _place_queue(
                     silhouette=vb,
                     analytical_geometry=(
                         _analytical
-                        if projected_clear is not None and _callout_box is not None
+                        if _projected_clear is not None and _callout_box is not None
                         else None
                     ),
                     draft=draft,
                     exterior_candidates=_exterior(),
+                    interior_label_clear=_projected_clear,
                 )
 
             legacy_y = source_final_y.get(id(s))
