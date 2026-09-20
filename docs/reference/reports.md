@@ -199,3 +199,11 @@ accepted finding with the outcome Draftwright gave it. The one thing that docume
 carry, which the embedded snapshot did, is each finding's tracking issue: it states a stable
 `reason` code, and where a decision is tracked is repository detail rather than evidence about
 the part.
+
+Running that generated Python writes
+`<stem>.draftwright-assessment.json`, whose separate
+[`draftwright-replay-assessment` schema](replay-assessment.md) binds the exact script, STEP,
+exported files, and this strict declared-sheet report. The inspection says what generation-time
+recognition saw; the replay assessment says what the current editable declaration built and
+drew. Read both without merging their scopes or treating build-local declaration IDs as durable
+topology identity.

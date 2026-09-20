@@ -60,8 +60,10 @@ draftwright my_part.step --out-dir drawings   # create/use a separate output dir
 ```
 
 CLI outputs default to the directory containing the STEP input, including an absolute or
-nested input path. `--script` writes its Python file and inspection sidecar there too; the
-script retains that output destination when run from another directory. Use `--out-dir DIR`
+nested input path. `--script` writes its Python file and recognition-inspection sidecar there;
+replaying the script writes the requested drawings and a distinct current-build assessment,
+then prints that assessment path. The script retains that output destination when run from
+another directory. Use `--out-dir DIR`
 to choose a directory, or `--out PREFIX` to choose a basename as well (these options are
 mutually exclusive). Relative overrides use the current working directory. Live object
 scripts (`module:part`) default to `drawing.py` in the working directory.

@@ -122,7 +122,14 @@ aggregate. The script itself contains none of this: it is a drawing declaration 
 and evidence about the run belongs in a file that can be diffed and re-read without parsing
 Python.
 
-Pass `inspect=False` (the CLI's `--no-report`) to skip it. Skipping also **removes** any
+When that Python is replayed, it writes a separate
+[`<stem>.draftwright-assessment.json`](replay-assessment.md). The inspection remains the
+generation-time recognition baseline; the assessment identifies the exact edited script and
+records what its current declared drawing delivered. Editing or replaying the script never
+rewrites this inspection document.
+
+Pass `inspect=False` (the CLI's `--no-report`) to skip it and, by default, the replay
+assessment. Skipping also **removes** any
 document already at that path, because an earlier run's evidence beside a new script describes a
 different part and nothing in it would say so.
 

@@ -65,7 +65,8 @@ def bundle_review(root):
     # Retain available evidence as separate documents, without joining their IDs.
     evidence_names = (
         "frame-general.draftwright.json", "frame-features.draftwright.json",
-        "frame.draftwright-inspection.json", "drawing-checks.json",
+        "frame.draftwright-inspection.json", "frame.draftwright-assessment.json",
+        "drawing-checks.json",
     )
     roles["review_evidence"] = [name for name in evidence_names if (root / name).is_file()]
     payload = {
@@ -112,10 +113,11 @@ snapshot of a concurrently edited directory. Archive timestamps are not a reprod
 The environment record must come from **generation**, including the Draftwright, Quiddity,
 build123d and drafting-helpers versions or exact source revisions used. Do not substitute the
 versions installed on a machine that merely packages old drawings. Preserve the existing
-[`Drawing.report()`](reports.md) and [inspection sidecar](inspection.md) when available: their
-producer, source and run information retain their original meaning. A report and an inspection
-document answer different questions. Legacy `drawing-checks.json` is included as review evidence,
-not relabelled as a current Draftwright report.
+[`Drawing.report()`](reports.md), [inspection sidecar](inspection.md), and generated-script
+[replay assessment](replay-assessment.md) when available: their producer, source, run, and timing
+retain their original meaning. The inspection says what generation-time recognition saw; the
+assessment says what the exact current script built and exported. Legacy `drawing-checks.json`
+is included as review evidence, not relabelled as a current Draftwright report.
 
 The example explicitly lists absent evidence. In particular, a declared drawing may refuse a
 strict report; record that limitation in the review record rather than manufacturing an empty

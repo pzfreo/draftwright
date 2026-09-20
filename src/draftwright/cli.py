@@ -266,8 +266,8 @@ def main(
     no_report: bool = typer.Option(
         False,
         "--no-report",
-        help="Skip the default JSON sidecar: the report beside rendered output, or the "
-        "recognition evidence beside a generated --script",
+        help="Skip the default JSON sidecar: the report beside rendered output, or both "
+        "recognition evidence and replay assessment for a generated --script",
     ),
     no_progress: bool = typer.Option(
         False,
@@ -360,8 +360,9 @@ def main(
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
-                # No `inspect=`: a live object has no STEP bytes, so this branch never writes a
-                # document and the flag would read as if it might.
+                # A live object has no STEP bytes and therefore no recognition inspection, but
+                # its exact script/build can still produce a replay assessment.
+                assessment=not no_report,
             )
         else:
             py_path = generate_sheet_script(

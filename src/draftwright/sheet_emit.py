@@ -65,6 +65,10 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ToleranceDecoration,
 )
+from draftwright.replay_assessment import (
+    assessment_sidecar_path,
+    invalidate_replay_assessment,
+)
 from draftwright.reporting import (
     ReportUnavailableError,
     project_feature_occurrence_ids,
@@ -2290,6 +2294,8 @@ def emit_sheet_script(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     declaration_occurrences: Mapping[int, tuple[str, ...]] | None = None,
+    assessment: bool = False,
+    assessment_source_name: str | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -2468,7 +2474,9 @@ def emit_sheet_script(
     # `part = import_step(...)` line opens, so the two cannot disagree about which file this is.
     if pmi_source is not None:
         ctor.append(f"source={pmi_source!r}")
-    if pmi != "off":
+    if assessment:
+        ctor.append('pmi=_replay_options["pmi_mode"]')
+    elif pmi != "off":
         ctor.append(f"pmi={pmi!r}")
     if material:
         ctor.append(f"material={material!r}")
@@ -2517,6 +2525,37 @@ def emit_sheet_script(
     # so a substring test keeps the import for every script that uses the fluent verb and needs
     # no constructor — which is four of the nineteen corpus fixtures.
     model_imports = {n for n in model_imports if re.search(rf"(?<![.\w]){n}\s*\(", _body)}
+    fmts = tuple(formats)
+    assessment_imports = []
+    assessment_lines = []
+    if assessment:
+        assessment_path = assessment_sidecar_path(f"{stem}.py")
+        assessment_imports = [
+            "from draftwright.replay_assessment import prepare_replay_assessment"
+        ]
+        assessment_lines = [
+            "_replay_options = {",
+            f'    "pmi_mode": {pmi!r},',
+            f'    "formats": {fmts!r},',
+            '    "reproducible": True,',
+            "}",
+            "_replay_assessment = (",
+            "    prepare_replay_assessment(",
+            f"        {assessment_path!r},",
+            "        script_path=__file__,",
+            f"        source_path={pmi_source!r},",
+            f"        source_name={assessment_source_name!r},",
+            '        pmi_mode=_replay_options["pmi_mode"],',
+            '        formats=_replay_options["formats"],',
+            '        reproducible=_replay_options["reproducible"],',
+            "    )",
+            "    # In-memory exec has no exact script file to identify, so it builds without",
+            "    # pretending to persist a replay assessment.",
+            '    if "__file__" in globals()',
+            "    else None",
+            ")",
+            "",
+        ]
     lines = [
         _HEADER,
         "from draftwright import Sheet",
@@ -2525,7 +2564,9 @@ def emit_sheet_script(
             if model_imports
             else []
         ),
+        *assessment_imports,
         "",
+        *assessment_lines,
         part_expr,
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
@@ -2616,14 +2657,25 @@ def emit_sheet_script(
     # DXF, where `Sheet.export` defaults to PDF — so the bare call is not the default, it is a
     # different one, and suppressing the argument here would quietly turn every generated
     # script's PDF into a pair of vector files.
-    fmts = tuple(formats)
     lines += [
         "",
         "# ── Build ─────────────────────────────────────────────────────────────────────",
         "# `build()` returns the finalized Drawing: critique it with `drawing.lint()` or read",
         "# `drawing.model()` here, then export the same object — no second build.",
         "drawing = sheet.build()",
-        f"drawing.export({stem!r}, formats={fmts!r})",
+        *(
+            [
+                "outputs = drawing.export(",
+                f"    {stem!r},",
+                '    formats=_replay_options["formats"],',
+                '    reproducible=_replay_options["reproducible"],',
+                ")",
+                "if _replay_assessment is not None:",
+                "    print(_replay_assessment.write(drawing, outputs))",
+            ]
+            if assessment
+            else [f"drawing.export({stem!r}, formats={fmts!r})"]
+        ),
     ]
     return "\n".join(lines) + "\n"
 
@@ -2788,6 +2840,7 @@ def generate_sheet_script(
     object_candidates: Mapping[str, Shape] | None = None,
     formats: Sequence[str] = ("pdf",),
     inspect: bool = True,
+    assessment: bool | None = None,
     margin_left: float | None = None,
     margin_right: float | None = None,
     margin_top: float | None = None,
@@ -2810,6 +2863,7 @@ def generate_sheet_script(
     _validate_scale_policy(scale, scale_policy)
     _dimension_draft(text_position, text_orientation)
     is_shape = isinstance(step_file, Shape)
+    assessment = inspect if assessment is None else assessment
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
     for _ext in (".py", ".svg", ".dxf"):
         if stem.endswith(_ext):
@@ -2965,6 +3019,8 @@ def generate_sheet_script(
             pmi=pmi,
             pmi_source=None if source_resolved is None else str(source_resolved),
             declaration_occurrences=declaration_occurrences,
+            assessment=assessment,
+            assessment_source_name=None if source_display is None else source_display.name,
         )
     if source_resolved is not None:
         try:
@@ -2978,6 +3034,10 @@ def generate_sheet_script(
                 "STEP replay source changed while generating its recognition snapshot"
             )
     py_path = f"{stem}.py"
+    # Any previous assessment describes the script we are about to replace.  Clear only a
+    # document carrying Draftwright's assessment schema; unrelated data at the derived path is
+    # preserved and a real replay will refuse to overwrite it.
+    invalidate_replay_assessment(assessment_sidecar_path(py_path))
     Path(py_path).write_text(script, encoding="utf-8")  # the script has box-drawing / × / ← glyphs
     sidecar = inspection_sidecar_path(py_path)
     if inspection is not None:

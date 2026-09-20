@@ -152,6 +152,7 @@ _LAYERS: dict[str, int] = {
     "sheet": 7,
     "document": 7,
     "sheet_emit": 7,
+    "replay_assessment": 7,
     # Developer-only pytest/runner support. It patches the user-facing builder bindings at
     # runtime and is therefore a top-layer consumer, never an engine dependency.
     "_build_profile": 7,
@@ -723,7 +724,9 @@ def test_report_consumers_use_only_the_published_projector(tmp_path):
         for node in ast.walk(_tree(path))
         if isinstance(node, ast.ImportFrom) and node.module == "draftwright.reporting"
     }
-    assert {"inspection.py", "sheet_emit.py", "drawing.py"} <= consumers, consumers
+    assert {"inspection.py", "sheet_emit.py", "replay_assessment.py", "drawing.py"} <= consumers, (
+        consumers
+    )
 
 
 def test_the_disposition_vocabulary_matches_both_published_schemas():
@@ -739,8 +742,11 @@ def test_the_disposition_vocabulary_matches_both_published_schemas():
     import json
 
     reference = _SRC.parent.parent / "docs" / "reference"
-    schemas = sorted(reference.glob("draftwright-*-v1.schema.json"))
-    assert len(schemas) == 2, [p.name for p in schemas]
+    schemas = [
+        reference / "draftwright-report-v1.schema.json",
+        reference / "draftwright-step-inspection-v1.schema.json",
+    ]
+    assert all(path.is_file() for path in schemas), [p.name for p in schemas]
 
     def _disposition_enums(node):
         if isinstance(node, dict):

@@ -90,6 +90,7 @@ CONTRACT_GROUPS = {
             "src/draftwright/document*.py",
             "src/draftwright/inspection*.py",
             "src/draftwright/linting/*",
+            "src/draftwright/replay_assessment.py",
             "src/draftwright/reporting.py",
         ),
         (
@@ -103,6 +104,7 @@ CONTRACT_GROUPS = {
             "test_requirement_catalog.py",
             "test_report_projection.py",
             "test_report_writer.py",
+            "test_replay_assessment_issue_1715.py",
         ),
     ),
     "export": ContractGroup(

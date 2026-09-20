@@ -999,10 +999,17 @@ def test_the_cli_prints_the_document_path_and_no_report_suppresses_it(tmp_path, 
     assert str(tmp_path / "with.py") in result.output.split()
     assert str(tmp_path / "with.draftwright-inspection.json") in result.output.split()
 
+    stale_assessment = tmp_path / "without.draftwright-assessment.json"
+    stale_assessment.write_text(
+        '{"schema":"draftwright-replay-assessment","schema_version":1}\n',
+        encoding="utf-8",
+    )
     result = runner.invoke(app, ["part.step", "--script", "--out", "without", "--no-report"])
     assert result.exit_code == 0, result.output
     assert "without.draftwright-inspection.json" not in result.output
     assert not (tmp_path / "without.draftwright-inspection.json").exists()
+    assert "prepare_replay_assessment" not in (tmp_path / "without.py").read_text(encoding="utf-8")
+    assert not stale_assessment.exists()
 
 
 def test_an_undrawable_source_still_generates_a_script(tmp_path, monkeypatch, caplog):

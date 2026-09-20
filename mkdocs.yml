@@ -23,6 +23,7 @@ nav:
       - Shared drawing documents: reference/document.md
       - Two-sheet frame example: reference/frame-document.md
       - Machine-readable reports: reference/reports.md
+      - Generated-script replay assessment: reference/replay-assessment.md
       - Generated artifacts: reference/generated-artifacts.md
       - Read-only STEP inspection: reference/inspection.md
       - Feature declarations: reference/declarations.md

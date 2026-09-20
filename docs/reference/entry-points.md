@@ -62,8 +62,11 @@ this display.
 
 The CLI defaults to writing beside the supplied STEP input. For example,
 `draftwright /parts/frame.step --format all` writes `/parts/frame.svg`, `.dxf`, `.pdf`,
-`.png`, and `.draftwright.json`. `--script` writes `/parts/frame.py` and its inspection
-sidecar; replay uses the destination selected when the script was generated.
+`.png`, and `.draftwright.json`. `--script` writes `/parts/frame.py` and its recognition
+inspection sidecar; replay uses the destination selected when the script was generated and
+writes `/parts/frame.draftwright-assessment.json` after a successful build/export. See
+[generated-script replay assessment](replay-assessment.md) for why the two JSON files have
+separate schemas and authority.
 
 Use `--out-dir .` to write into the current working directory, `--out-dir drawings` to
 create/use a destination directory, or `--out drawings/revised-frame` to choose a prefix.

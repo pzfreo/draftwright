@@ -4,6 +4,10 @@
 
 ### Added
 
+- Generated scripts now atomically write a versioned post-build replay assessment beside their
+  outputs (#1715). It binds the exact STEP and edited Python bytes, producer/run options, output
+  hashes, declaration/representation map, layout evidence, and lint from the same finalized
+  drawing. Failed replays clear only stale Draftwright-owned assessments; `--no-report` opts out.
 - Declared drawing report schema v8 publishes page/view geometry, named annotation ink and
   public line segments, raw-lint joins, semantic remedy choices, and explicit opt-in solver
   evidence (#1711). Coordinates are review evidence only; editable links remain final-IR
