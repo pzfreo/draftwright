@@ -18,15 +18,17 @@ for entry in document["found"]:
         print(entry["family"], entry["draftwright"]["reason"])
 ```
 
-Version 3 adds Quiddity's bounded same-run detector candidate lifecycle and residual diagnostics.
-Version 2 names the actual recognition provider in `producer.quiddity` but records candidate
-explanation as unavailable. [Version 2](draftwright-step-inspection-v2.schema.json) and
+Version 4 adds report-local source-face identities and Quiddity 0.3.1's rejected-candidate
+evidence graph. Version 3 added the bounded same-run aggregate detector lifecycle and residual
+diagnostics. Version 2 names the actual recognition provider in `producer.quiddity` but records
+candidate explanation as unavailable. [Version 3](draftwright-step-inspection-v3.schema.json),
+[Version 2](draftwright-step-inspection-v2.schema.json), and
 [Version 1](draftwright-step-inspection-v1.schema.json), which used
 `producer.b123d-recognisers`, remain available for existing documents. Readers must select the
 schema using `schema_version`; a Quiddity version is not a b123d-recognisers version.
 
-The closed schema is published as
-[`draftwright-step-inspection-v3.schema.json`](draftwright-step-inspection-v3.schema.json).
+The current closed schema is published as
+[`draftwright-step-inspection-v4.schema.json`](draftwright-step-inspection-v4.schema.json).
 `schema` is always `"draftwright-step-inspection"`; check `schema_version` before interpreting
 the document. Every object is closed except `found[].feature`, which is the recogniser's own
 record.
@@ -37,6 +39,10 @@ One entry per record in the recogniser's evidence roster, in its order. This inc
 geometry and `SectionRecessRefusal` evidence where Quiddity could not establish supported
 recess geometry. Each carries two halves that must not be confused:
 
+- `defining_face_ids` and `constituent_face_ids` link the accepted occurrence to the source-face
+  roster. Defining faces prove the classification; constituent faces are the wider set proved to
+  belong physically to it. Equality means no wider membership was proved, not that membership is
+  unavailable.
 - `feature` is the recogniser's record, forwarded exactly as it stated it, with `feature_type`
   and `feature_schema_version` naming its format. Draftwright never edits it. If it is wrong,
   the finding belongs upstream.
@@ -49,8 +55,9 @@ recess geometry. Each carries two halves that must not be confused:
 For accepted geometry this identifies a consumer limitation; for `SectionRecessRefusal`,
 `reason: recognition_refused` identifies a provider limitation, not a drawable feature.
 
-IDs are deterministic **within one document**, allocated from the recogniser's order and
-Draftwright's IR order. They are not persistent identities and must not be stored across runs.
+IDs are deterministic **within one document**, allocated from source geometry and its complete
+reported association signature, the recogniser's order, and Draftwright's IR order. They are not
+persistent identities and must not be stored across runs.
 Document-owned IDs are never derived from provider references or topology. The open `feature`
 payload preserves the provider's public JSON, including any run-local body or face indices;
 those are not persistent references. Runtime reference objects, object addresses and absolute
@@ -58,10 +65,11 @@ paths are never serialized.
 
 ## missed — what nothing claimed
 
-`unclaimed_faces` are faces no accepted feature claimed, described by surface kind, area, a
-representative `position` on the face and a bounding box, with `face_count` giving the totals. This is the recogniser's own
-accounting, and it is a place to start looking — **not** a defect list. Stock, background and
-deliberately plain faces are unclaimed too, and they are in the denominator.
+The top-level `faces` roster describes every source face by report-local `id`, surface kind, area,
+a representative `position` on the face and a bounding box. `unclaimed_faces` repeats the rows
+for faces no accepted occurrence claimed, with `face_count` giving the totals. This is the
+recogniser's own accounting, and it is a place to start looking — **not** a defect list. Stock,
+background and deliberately plain faces are unclaimed too, and they are in the denominator.
 
 `rejected_candidates` is the other half of the story. Version 3 projects Quiddity's
 `RecognitionEvidence.report` from this exact run: `coverage`, every detector family's
@@ -71,11 +79,22 @@ bounded residual `diagnostics`. `evaluated` with zero proposals is distinct from
 
 These numbers count detector candidates before public projection and deduplication. Several
 detectors can contribute to one accepted public occurrence, and one rejected candidate can refer
-to another candidate. They are not feature counts or recognition recall. Candidate-to-face
-association is not available in Quiddity 0.3.0, so `unclaimed_faces` and aggregate lifecycle
-rows must not be joined by position or assumed to explain one another. Quiddity's
-section-recess refusals remain accepted evidence records in `found`; they are not a substitute
-for the complete family lifecycle.
+to another candidate. They are not feature counts or recognition recall.
+
+Version 4's `rejected_candidates.candidates` is the closed public graph rooted at Quiddity's
+rejected-candidate roster. Each row has a report-local `candidate:*` ID, family, final outcome and
+reason, defining and constituent face IDs, and direct related-candidate IDs. `source` distinguishes
+the rejected roots from candidates reached through reconciliation links; a related candidate may
+be accepted or rejected and does not necessarily map one-to-one to a public `found` occurrence.
+The rejected roots and relationship counts are checked against the aggregate family lifecycle;
+a disagreement refuses the document.
+
+This extra evidence permits a bounded distinction between unclaimed faces retained on rejected
+candidates and unclaimed faces not named by accepted or rejected evidence. The second state does
+**not** prove a detector never examined the face or that a failed predicate did not consult it.
+Candidate evidence is not a trace of every face read during discovery, a missed-feature label, or
+an independent recall oracle. Quiddity's section-recess refusals remain accepted evidence records
+in `found`; they are not a substitute for the complete family lifecycle.
 
 ## source, producer and run
 

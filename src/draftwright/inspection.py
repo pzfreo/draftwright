@@ -10,14 +10,16 @@ The document therefore says three things, and keeps them apart:
 
 * ``found`` — every feature the recogniser accepted, exactly as it stated it, and beside each
   one what Draftwright did with it;
-* ``missed`` — geometry no accepted feature claimed; and
+* ``faces`` / ``missed`` — report-local source-face evidence and geometry no accepted feature
+  claimed; and
 * ``source`` / ``producer`` — which bytes were read and which versions read them, so a finding
   can be reproduced or filed upstream.
 
 ``missed`` reports both geometry that no accepted occurrence claimed and the provider's bounded
-candidate-lifecycle explanation from the same recognition run. These are evidence for review,
-not recognition recall: ordinary stock faces are unclaimed, detector candidates can overlap,
-and accepted candidate counts precede public projection and deduplication.
+candidate-lifecycle explanation from the same recognition run. The closed candidate graph links
+rejected evidence to report-local source-face IDs. These are evidence for review, not recognition
+recall: ordinary stock faces are unclaimed, detector candidates can overlap, and accepted
+candidate counts precede public projection and deduplication.
 
 Nothing here is a completeness or readiness claim. An unclaimed face is not proof of a missed
 feature: stock and plain faces are unclaimed too.
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import deque
 from os import PathLike
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -45,7 +48,7 @@ if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel a
     from draftwright.model import PartModel
 
 INSPECTION_SCHEMA = "draftwright-step-inspection"
-INSPECTION_SCHEMA_VERSION = 3
+INSPECTION_SCHEMA_VERSION = 4
 
 # Version 1 reports raw caller coordinates only. Framed recognition moves geometry into a
 # provider working frame, and b123d-recognisers#493 cannot yet tell a consumer whether a refused
@@ -190,7 +193,183 @@ def _faces(evidence, references) -> list[dict[str, Any]]:
     return sorted(described, key=lambda item: json.dumps(_json_value_or_refuse(item)))
 
 
-def _found(evidence, ownership, model, occurrences=None) -> list[dict[str, Any]]:
+def _face_set(evidence, references, all_faces: frozenset, *, field: str) -> frozenset:
+    """Validate one same-authority face-reference set and return it unchanged."""
+
+    if type(references) is not frozenset:
+        raise InspectionUnavailableError(f"provider {field} is not a frozen face set")
+    if not references <= all_faces:
+        raise InspectionUnavailableError(f"provider {field} contains a foreign face reference")
+    try:
+        for reference in references:
+            evidence.face(reference)
+    except (TypeError, ValueError) as error:
+        raise InspectionUnavailableError(
+            f"provider {field} contains a foreign face reference"
+        ) from error
+    return references
+
+
+def _candidate_nodes(evidence) -> list[dict[str, Any]]:
+    """Close the public rejected-candidate graph in its documented source order."""
+
+    roots = getattr(evidence, "rejected_candidates", None)
+    if type(roots) is not tuple:
+        raise InspectionUnavailableError("provider rejected-candidate roster is unavailable")
+    queue = deque(roots)
+    root_set = set(roots)
+    if len(root_set) != len(roots):
+        raise InspectionUnavailableError("provider rejected-candidate roster contains duplicates")
+    seen: set = set()
+    nodes: list[dict[str, Any]] = []
+    while queue:
+        reference = queue.popleft()
+        if reference in seen:
+            continue
+        try:
+            family = evidence.candidate_family(reference)
+            outcome = _enum_value(
+                evidence.candidate_outcome(reference),
+                field="candidate outcome",
+                allowed=_RECOGNITION_OUTCOMES,
+            )
+            reason = _enum_value(
+                evidence.candidate_reason(reference),
+                field="candidate reason",
+                allowed=_RECONCILIATION_REASONS,
+            )
+            defining = evidence.candidate_defining_faces(reference)
+            constituent = evidence.candidate_constituent_faces(reference)
+            related = evidence.related_candidates(reference)
+        except (AttributeError, TypeError, ValueError) as error:
+            raise InspectionUnavailableError(
+                "provider candidate evidence contains a foreign or stale reference"
+            ) from error
+        if type(family) is not str or family not in _DETECTOR_FAMILIES:
+            raise InspectionUnavailableError("provider candidate evidence has an invalid family")
+        if type(defining) is not frozenset or type(constituent) is not frozenset:
+            raise InspectionUnavailableError("provider candidate evidence has invalid face sets")
+        if not defining <= constituent:
+            raise InspectionUnavailableError(
+                "provider candidate defining faces are not a subset of constituent faces"
+            )
+        if type(related) is not tuple or len(set(related)) != len(related):
+            raise InspectionUnavailableError(
+                "provider candidate evidence has an invalid related-candidate roster"
+            )
+        seen.add(reference)
+        nodes.append(
+            {
+                "reference": reference,
+                "rejected_root": reference in root_set,
+                "family": family,
+                "outcome": outcome,
+                "reason": reason,
+                "defining": defining,
+                "constituent": constituent,
+                "related": related,
+            }
+        )
+        queue.extend(candidate for candidate in related if candidate not in seen)
+    if any(node["outcome"] != "rejected" for node in nodes if node["rejected_root"]):
+        raise InspectionUnavailableError(
+            "provider rejected-candidate roster contains an accepted candidate"
+        )
+    return nodes
+
+
+def _source_faces(evidence, candidates: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict]:
+    """Build deterministic report-local face IDs without serializing provider references.
+
+    Provider face references are unordered. Geometry alone cannot distinguish symmetric faces,
+    so the stable sort key also contains every reported accepted/candidate/unclaimed membership.
+    Faces tied on that complete key are observationally interchangeable: every emitted link
+    contains either all of them or none of them.
+    """
+
+    source = getattr(evidence, "faces", None)
+    if type(source) is not frozenset or not source:
+        raise InspectionUnavailableError("provider source-face roster is unavailable")
+    all_faces = source
+    accepted: list[tuple[frozenset, frozenset]] = []
+    for occurrence in evidence.features:
+        accepted.append(
+            (
+                _face_set(
+                    evidence,
+                    evidence.defining_faces(occurrence),
+                    all_faces,
+                    field="accepted defining faces",
+                ),
+                _face_set(
+                    evidence,
+                    evidence.constituent_faces(occurrence),
+                    all_faces,
+                    field="accepted constituent faces",
+                ),
+            )
+        )
+    for node in candidates:
+        node["defining"] = _face_set(
+            evidence, node["defining"], all_faces, field="candidate defining faces"
+        )
+        node["constituent"] = _face_set(
+            evidence, node["constituent"], all_faces, field="candidate constituent faces"
+        )
+    unassociated = _face_set(
+        evidence,
+        evidence.association.unassociated_faces,
+        all_faces,
+        field="unassociated faces",
+    )
+
+    sortable = []
+    for reference in all_faces:
+        description = _face(evidence.face(reference))
+        membership = (
+            tuple(
+                (index, reference in defining, reference in constituent)
+                for index, (defining, constituent) in enumerate(accepted)
+                if reference in defining or reference in constituent
+            ),
+            tuple(
+                (index, reference in node["defining"], reference in node["constituent"])
+                for index, node in enumerate(candidates)
+                if reference in node["defining"] or reference in node["constituent"]
+            ),
+            reference in unassociated,
+        )
+        sortable.append(
+            (
+                json.dumps(_json_value_or_refuse(description), sort_keys=True),
+                membership,
+                reference,
+                description,
+            )
+        )
+    sortable.sort(key=lambda item: (item[0], item[1]))
+    face_ids: dict = {}
+    rows = []
+    for index, (_description_key, _membership, reference, description) in enumerate(
+        sortable, start=1
+    ):
+        face_id = f"face:{index}"
+        face_ids[reference] = face_id
+        rows.append({"id": face_id, **description})
+    return rows, face_ids
+
+
+def _face_ids(references: frozenset, face_ids: dict) -> list[str]:
+    try:
+        values = [face_ids[reference] for reference in references]
+    except (KeyError, ValueError) as error:
+        raise InspectionUnavailableError(
+            "provider face reference is absent from the source roster"
+        ) from error
+    return sorted(values, key=lambda value: int(value.split(":", 1)[1]))
+
+
+def _found(evidence, ownership, model, face_ids: dict, occurrences=None) -> list[dict[str, Any]]:
     """Every accepted feature, as the recogniser stated it, beside what Draftwright did with it.
 
     The occurrence ledger comes from the shared report projector, which refuses an unclassified
@@ -204,24 +383,36 @@ def _found(evidence, ownership, model, occurrences=None) -> list[dict[str, Any]]
         except ReportUnavailableError as error:
             raise InspectionUnavailableError(str(error)) from error
 
-    return [
-        {
-            "id": occurrence["id"],
-            "family": occurrence["family"],
-            # The recogniser's own record, forwarded exactly as it stated it.
-            "feature": occurrence["record"],
-            "feature_type": occurrence["record_type"],
-            "feature_schema_version": occurrence["record_schema_version"],
-            "draftwright": {
-                # The plain answer first, so a reader need not learn the vocabulary below it.
-                "acted_on": occurrence["disposition"] in _ACTED_ON,
-                "disposition": occurrence["disposition"],
-                "reason": occurrence["reason_code"],
-                "owners": [owner["id"] for owner in occurrence["owners"]],
-            },
-        }
-        for occurrence in occurrences
-    ]
+    found = []
+    for reference, occurrence in zip(evidence.features, occurrences, strict=True):
+        defining = evidence.defining_faces(reference)
+        constituent = evidence.constituent_faces(reference)
+        if type(defining) is not frozenset or type(constituent) is not frozenset:
+            raise InspectionUnavailableError("provider accepted occurrence has invalid face sets")
+        if not defining <= constituent:
+            raise InspectionUnavailableError(
+                "provider accepted defining faces are not a subset of constituent faces"
+            )
+        found.append(
+            {
+                "id": occurrence["id"],
+                "family": occurrence["family"],
+                "defining_face_ids": _face_ids(defining, face_ids),
+                "constituent_face_ids": _face_ids(constituent, face_ids),
+                # The recogniser's own record, forwarded exactly as it stated it.
+                "feature": occurrence["record"],
+                "feature_type": occurrence["record_type"],
+                "feature_schema_version": occurrence["record_schema_version"],
+                "draftwright": {
+                    # The plain answer first, so a reader need not learn the vocabulary below it.
+                    "acted_on": occurrence["disposition"] in _ACTED_ON,
+                    "disposition": occurrence["disposition"],
+                    "reason": occurrence["reason_code"],
+                    "owners": [owner["id"] for owner in occurrence["owners"]],
+                },
+            }
+        )
+    return found
 
 
 def _enum_value(value, *, field: str, allowed: frozenset[str]) -> str:
@@ -394,7 +585,72 @@ def _candidate_lifecycle(evidence) -> dict[str, Any]:
     }
 
 
-def _missed(evidence) -> dict[str, Any]:
+def _candidate_evidence(
+    lifecycle: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    face_ids: dict,
+) -> list[dict[str, Any]]:
+    """Project and reconcile the closed public candidate graph from this run."""
+
+    candidate_ids = {
+        node["reference"]: f"candidate:{index}" for index, node in enumerate(candidates, start=1)
+    }
+    family_rows = {row["family"]: row for row in lifecycle["families"]}
+    root_counts: dict[str, int] = {family: 0 for family in family_rows}
+    disposition_counts: dict[tuple[str, str, str], tuple[int, int]] = {}
+    for node in candidates:
+        if not node["rejected_root"]:
+            continue
+        family = node["family"]
+        root_counts[family] += 1
+        key = (family, node["reason"], node["outcome"])
+        occurrences, related = disposition_counts.get(key, (0, 0))
+        disposition_counts[key] = (occurrences + 1, related + len(node["related"]))
+
+    for family, row in family_rows.items():
+        if root_counts[family] != row["rejected"]:
+            raise InspectionUnavailableError(
+                f"provider rejected-candidate roster disagrees for detector family {family!r}"
+            )
+        for disposition in row["dispositions"]:
+            if disposition["outcome"] != "rejected":
+                continue
+            key = (family, disposition["reason"], disposition["outcome"])
+            actual = disposition_counts.get(key, (0, 0))
+            expected = (
+                disposition["occurrences"],
+                disposition["related_occurrences"],
+            )
+            if actual != expected:
+                raise InspectionUnavailableError(
+                    "provider rejected-candidate relationships disagree for detector family "
+                    f"{family!r}"
+                )
+
+    projected = []
+    for node in candidates:
+        try:
+            related_ids = [candidate_ids[reference] for reference in node["related"]]
+        except KeyError as error:
+            raise InspectionUnavailableError(
+                "provider related candidate is absent from the candidate graph"
+            ) from error
+        projected.append(
+            {
+                "id": candidate_ids[node["reference"]],
+                "source": "rejected-roster" if node["rejected_root"] else "related",
+                "family": node["family"],
+                "outcome": node["outcome"],
+                "reason": node["reason"],
+                "defining_face_ids": _face_ids(node["defining"], face_ids),
+                "constituent_face_ids": _face_ids(node["constituent"], face_ids),
+                "related_candidate_ids": related_ids,
+            }
+        )
+    return projected
+
+
+def _missed(evidence, candidates: list[dict[str, Any]], face_ids: dict) -> dict[str, Any]:
     """Geometry no accepted feature claimed, as the provider accounts for it.
 
     Unclaimed does not mean missed. Stock, background and deliberately plain faces are unclaimed
@@ -405,14 +661,22 @@ def _missed(evidence) -> dict[str, Any]:
     """
 
     association = evidence.association
+    lifecycle = _candidate_lifecycle(evidence)
+    lifecycle["candidates"] = _candidate_evidence(lifecycle, candidates, face_ids)
     return {
-        "unclaimed_faces": _faces(evidence, association.unassociated_faces),
+        "unclaimed_faces": [
+            {"id": face_ids[reference], **_face(evidence.face(reference))}
+            for reference in sorted(
+                association.unassociated_faces,
+                key=lambda reference: int(face_ids[reference].split(":", 1)[1]),
+            )
+        ],
         "face_count": {
             "total": association.face_count.total,
             "claimed": association.face_count.associated,
             "unclaimed": association.face_count.unassociated,
         },
-        "rejected_candidates": _candidate_lifecycle(evidence),
+        "rejected_candidates": lifecycle,
     }
 
 
@@ -487,6 +751,9 @@ def _document(
             f"status {frame_status!r}"
         )
 
+    evidence = analysis.recognition_evidence
+    candidates = _candidate_nodes(evidence)
+    faces, face_ids = _source_faces(evidence, candidates)
     document = {
         "schema": INSPECTION_SCHEMA,
         "schema_version": INSPECTION_SCHEMA_VERSION,
@@ -499,13 +766,15 @@ def _document(
         # The run options that determined the content below. Without this, two documents over
         # identical bytes can disagree and neither says why.
         "run": {"pmi_mode": pmi_mode},
+        "faces": faces,
         "found": _found(
-            analysis.recognition_evidence,
+            evidence,
             analysis.recognition_ownership,
             model,
+            face_ids,
             _occurrences,
         ),
-        "missed": _missed(analysis.recognition_evidence),
+        "missed": _missed(evidence, candidates, face_ids),
     }
     # Isolates the document from live objects, renders tuples as arrays, and rejects
     # NaN/Infinity rather than emitting a value JSON cannot state.

@@ -17,7 +17,7 @@ from quiddity.inspection import inspection_api_manifest
 CONSUMER_INSPECTION_FORMAT = "draftwright-inspection-api"
 CONSUMER_INSPECTION_FORMAT_VERSION = 1
 SUPPORTED_INSPECTION_API_MAJOR = 1
-SUPPORTED_RECOGNISER_VERSION = "0.3.0"
+SUPPORTED_RECOGNISER_VERSION = "0.3.1"
 _DISTRIBUTION = "quiddity"
 _PROVIDER_FORMAT = "quiddity-inspection-api"
 _NAMESPACE = "quiddity.inspection"
@@ -207,6 +207,7 @@ def validate_profile_evidence_contract(package_manifest: dict[str, Any] | None =
     _require_equal("evidence API major", api.get("major"), 1)
     _require_equal("evidence namespace", api.get("namespace"), "quiddity.evidence")
     required = {
+        "CandidateRef",
         "RecognitionEvidence",
         "PlanarOuterProfile",
         "PlanarOuterProfileEvidence",

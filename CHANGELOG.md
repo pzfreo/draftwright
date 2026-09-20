@@ -4,6 +4,11 @@
 
 ### Added
 
+- STEP inspection schema v4 projects a deterministic report-local source-face roster and
+  Quiddity 0.3.1's closed graph rooted at rejected candidates (#1726). Accepted occurrences and
+  candidates carry exact defining/constituent face links; rejected roots and direct relationships
+  reconcile with aggregate lifecycle counts. The report still states that this is diagnostic
+  evidence, not precision, recall, missed-feature truth, or persistent topology identity.
 - Circular-seat recognition, declared features, and generated-script replay (#1613).
   Diameter, open run, arc sweep, and three datum-to-axis coordinates retain each physical
   seat's measurement identities, including counted coaxial callouts and shared axis marks.
@@ -12,6 +17,12 @@
   25/10/10/10 mm margins and 175 mm block are explicit options; existing defaults remain.
 
 ### Fixed
+
+- Adopt Quiddity 0.3.1 and require its public rejected-candidate reference in the
+  evidence contract (#1726). The provider now suppresses rectangular recess candidates
+  that are not material-empty and restores passage discovery used during rotational
+  reconciliation; Draftwright's recognition and real-part regression corpora retain
+  their reviewed expectations.
 
 - Direct and generated builds use the same final IR step ladder for page layout (#1592).
   Raw face levels owned by another feature no longer reserve a phantom step corridor at
