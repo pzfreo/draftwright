@@ -99,21 +99,18 @@ def test_auto_drawing_defines_pad_footprints_and_pocket_locations(tmp_path):
     assert "pad_footprint_not_defined" not in summary["by_code"]
     assert "pocket_not_located" not in summary["by_code"]
     assert summary["score"] == 1.0
-    # Every producer can place a leader here. An unproven alternate assignment
-    # offers no cardinality gain and loses the section; retain the known floor.
+    # Every producer can place a leader here. The interior-capable polygonal family now
+    # participates in the bounded joint assignment rather than forcing its old greedy floor.
     assert drawing.section_decision["status"] == "placed"
     event = next(
         item
         for item in json.loads(trace_path.read_text())["pass_events"]
         if item["label"] == "feature_leader_inventory"
     )
-    assert event["assignment"] == "greedy_state_budget"
+    assert event["assignment"] == "joint"
+    assert event["optimal"] is True
     assert event["objective"]["placed"] == event["inventory_jobs"] == 7
-    assert all(
-        item["producer_fallback"]["candidates_tried"] > 0
-        and item["producer_fallback"]["selected"] is not None
-        for item in event["items"]
-    )
+    assert all(item["outcome"] == "placed" for item in event["items"])
 
 
 def test_removing_one_pad_size_is_not_credited_from_an_aligned_sibling():

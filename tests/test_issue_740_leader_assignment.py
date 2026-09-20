@@ -57,6 +57,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("from_model.py", "render_grooves", True),
         ("from_model.py", "render_gusset_ribs", True),
         ("from_model.py", "render_paired_ramp_steps", True),
+        ("from_model.py", "render_gusset_ribs", True),
         ("from_model.py", "render_boss_diameters", False),
         ("from_model.py", "_render_polygonal_prisms", False),
         ("from_model.py", "render_hex_pockets", True),
@@ -133,11 +134,11 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
         scale=1.0,
         scale_policy="permissive",
         trace=trace_path,
+        _include_iso=False,
     )
 
     diameter = drawing.get_annotation("m_dia_y0")
     assert diameter.label == "ø25"
-    assert constructed == [diameter], "only the selected analytical survivor builds OCC"
     assert diameter.covers_diameters == (25.0,)
     assert drawing.measurement_keys("m_dia_y0")
     # The added boss heights must not displace existing callouts at this fixed page/scale.
@@ -160,9 +161,18 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
     assert {"4", "6"} <= set(heights)
     assert all(drawing.measurement_keys(heights[label]) for label in ("4", "6"))
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
-    event = next(
-        item for item in trace["pass_events"] if item["label"] == "Y-axis step diameter_callouts"
-    )
+    events = [
+        item
+        for item in trace["pass_events"]
+        if item["label"] == "Y-axis step diameter_callouts"
+        and any(candidate["name"] == "m_dia_y0" for candidate in item["items"])
+    ]
+    # Automatic topology planning may compile more than one complete drawing.  The
+    # analytical producer contract is per compile: only its selected survivor builds
+    # OCC, and the survivor from the settled phase is the object the drawing returns.
+    assert len(constructed) == len(events)
+    assert constructed[-1] is diameter
+    event = events[-1]
     assert event["assignment"] == "greedy_stage_boundary"
     assert any(
         item["name"] == "m_dia_y0" and item["outcome"] == "placed" for item in event["items"]
@@ -311,6 +321,18 @@ def test_state_budget_retains_the_legacy_greedy_incumbent():
     assert result.choices == (0, None)
     assert not result.optimal
     assert result.states == 1
+
+
+def test_dominated_candidates_do_not_consume_the_exact_search_budget():
+    result = _assign_leader_candidates(
+        (tuple([1.0] + [2.0] * 99), (1.0,)),
+        tuple((0, candidate, 1, 0) for candidate in range(100)),
+        max_states=10,
+    )
+
+    assert result.choices == (0, None)
+    assert result.optimal
+    assert result.states < 10
 
 
 def test_production_state_budget_is_a_load_bearing_work_bound():

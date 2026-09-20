@@ -483,6 +483,48 @@ def test_late_machined_interior_only_policy_filters_exterior_and_unmeasurable_la
     assert tuple(context.feature_leaders[0].candidates) == ()
 
 
+def test_grouped_machined_job_shares_one_interior_cap_and_keeps_exterior_floor(
+    monkeypatch,
+):
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    drawing = SimpleNamespace(draft=draft)
+    context = SimpleNamespace(feature_leaders=[], record_issue=lambda *_args, **_kw: None)
+    monkeypatch.setattr(
+        from_model, "view_label_clearance", lambda _drawing, _view: lambda _box: True
+    )
+    anchors = tuple(
+        ((x, 0.0), (x + 1.0, 0.0), f"feature-{index}")
+        for index, x in enumerate((-100.0, 0.0, 100.0))
+    )
+
+    from_model.place_machined_leader_jobs(
+        drawing,
+        SimpleNamespace(),
+        (("radius", "plan", (-500.0, -500.0, 500.0, 500.0), "3× R10", anchors, ()),),
+        noun="blend",
+        drop_code="blend_dropped",
+        ctx=context,
+        joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
+    )
+
+    (job,) = context.feature_leaders
+    candidates = tuple(job.candidates)
+    interior = [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, FeatureLeaderCandidate)
+        and candidate.region is LeaderCandidateRegion.INTERIOR
+    ]
+    assert len(interior) == 64
+    assert {candidate.feature for candidate in interior} == {
+        "feature-0",
+        "feature-1",
+        "feature-2",
+    }
+    assert tuple(job.fallback_candidates) == anchors
+
+
 def _pattern_sheet(*, kind, members, solid, bcd=None):
     sheet = Sheet(solid, page="A4", scale=0.7).authored_dimensions()
     member = hole(diameter=6, through=True, at=members[0], axis="z")

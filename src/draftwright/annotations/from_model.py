@@ -2444,7 +2444,12 @@ def place_machined_leader_jobs(
     feature_jobs = []
     interior_clearance_by_view = {}
     for name, view, silhouette, label, raw_candidates, measurement in jobs:
-        joint_candidates, fallback_candidates = tee(iter(raw_candidates))
+        (
+            joint_interior_anchors,
+            joint_exterior_anchors,
+            fallback_interior_anchors,
+            fallback_exterior_anchors,
+        ) = tee(iter(raw_candidates), 4)
         label_width, label_height = _text_size(
             str(label),
             float(dwg.draft.font_size),
@@ -2471,22 +2476,40 @@ def place_machined_leader_jobs(
         interior_label_clear = interior_clearance_by_view.get(view)
 
         def _lane_candidates(
-            _raw=joint_candidates,
+            _interior_anchors=joint_interior_anchors,
+            _exterior_anchors=joint_exterior_anchors,
             _silhouette=silhouette,
             _analytical_geometry=_analytical_geometry,
+            _interior_label_clear=interior_label_clear,
         ):
             spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
-            for tip, elbow, feature in _raw:
-                if late_inventory and region_policy is not LeaderRegionPolicy.EXTERIOR:
-                    yield from feature_leader_candidates(
-                        ((tip, elbow, feature),),
-                        region_policy=LeaderRegionPolicy.INTERIOR,
-                        silhouette=_silhouette,
-                        analytical_geometry=_analytical_geometry,
-                        draft=dwg.draft,
-                    )
-                    if region_policy is LeaderRegionPolicy.INTERIOR:
-                        continue
+            interior_count = 0
+            if late_inventory and region_policy is not LeaderRegionPolicy.EXTERIOR:
+                # Expand the complete semantic job in one call.  Calling the adapter
+                # once per physical anchor would turn its per-feature cap into
+                # ``anchors × cap`` for grouped fillets and polygonal bosses.
+                for candidate in feature_leader_candidates(
+                    _interior_anchors,
+                    region_policy=LeaderRegionPolicy.INTERIOR,
+                    silhouette=_silhouette,
+                    analytical_geometry=_analytical_geometry,
+                    draft=dwg.draft,
+                    interior_label_clear=_interior_label_clear,
+                ):
+                    yield candidate
+                    interior_count += 1
+                if region_policy is LeaderRegionPolicy.INTERIOR:
+                    return
+            for tip, elbow, feature in _exterior_anchors:
+                if interior_count:
+                    # Once this job has proven projected-clear interior options,
+                    # retain one exterior alternative per semantic anchor instead
+                    # of multiplying every anchor by nine compatibility lanes.  A
+                    # job with no interior option keeps the complete historical
+                    # lane inventory below, and AUTO's resource fallback keeps the
+                    # exact pre-interior exterior floor in either case.
+                    yield (tip, elbow, feature)
+                    continue
                 dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
                 length = math.hypot(dx, dy)
                 if length <= 1e-12:
@@ -2565,7 +2588,9 @@ def place_machined_leader_jobs(
                 silhouette=silhouette,
                 label=label,
                 candidates=(
-                    _lane_candidates() if late_inventory and expand_lanes else joint_candidates
+                    _lane_candidates()
+                    if late_inventory and expand_lanes
+                    else joint_exterior_anchors
                 ),
                 build=_build,
                 analytical_geometry=_analytical_geometry,
@@ -2574,11 +2599,19 @@ def place_machined_leader_jobs(
                 drop_code=drop_code,
                 priority=priority,
                 fallback_candidates=(
-                    _lane_candidates(_raw=fallback_candidates)
-                    if region_policy is not LeaderRegionPolicy.EXTERIOR
+                    _lane_candidates(
+                        _interior_anchors=fallback_interior_anchors,
+                        _exterior_anchors=fallback_exterior_anchors,
+                    )
+                    if region_policy is LeaderRegionPolicy.INTERIOR
                     and late_inventory
                     and expand_lanes
-                    else fallback_candidates
+                    # AUTO is an optional expansion of the joint solve.  Its
+                    # bounded-resource fallback remains the exact established
+                    # exterior producer floor; otherwise extra interior anchors
+                    # can make an incomplete legacy floor look complete and
+                    # displace a complete joint incumbent.
+                    else fallback_exterior_anchors
                 ),
                 fallback_accept=_fallback_accept,
                 interior_label_clear=interior_label_clear,
