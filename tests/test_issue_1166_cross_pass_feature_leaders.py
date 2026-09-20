@@ -2128,12 +2128,13 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch, 
         for item in json.loads(trace_path.read_text())["pass_events"]
         if item["label"] == "feature_leader_inventory"
     )
-    # Exact dominance pruning removes routes that cannot improve any complete
-    # assignment, so the solver now proves the same twelve-job incumbent optimal
-    # without weakening the bounded-resource producer floor exercised below.
-    assert event["assignment"] == "joint"
-    assert event["optimal"] is True
+    # Correct section indicators expose more routes and exhaust the optimality
+    # proof budget. All twelve jobs already fit: discarding that feasible
+    # incumbent for the six-job producer floor would lose real measurements.
+    assert event["assignment"] == "joint_state_budget"
+    assert event["optimal"] is False
     assert event["objective"]["placed"] == event["inventory_jobs"] == 12
+    assert event["provisional_refinement"] == "primary_state_budget"
 
     monkeypatch.setattr(
         "draftwright.annotations.leaders._FEATURE_LEADER_MAX_MEASURE_WORK",

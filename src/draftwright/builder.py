@@ -2029,7 +2029,11 @@ def _blocks_all_smaller_scales(blockers) -> bool:
 
 
 _AUTOMATIC_UPSCALE_TRIAL_LIMIT = 2
-_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT = 2
+# A validity probe is a complete drawing compile, not a cheap scalar fit.  Sample the
+# nearest ISO 5455 scale in each direction, then spend the existing standard-page tail;
+# probing a second scale on both sides made complex AP242 script generation perform four
+# extra full compiles before reaching the same page verdict.
+_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT = 1
 
 
 def _has_detail_view(views) -> bool:

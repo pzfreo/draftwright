@@ -989,13 +989,13 @@ def _assign_by_view(
             root = min(unseen)
             discovered = []
             frontier = [root]
-            unseen.remove(root)
+            unseen.discard(root)
             while frontier:
                 position = frontier.pop()
                 discovered.append(position)
                 for neighbour in sorted(connected[position], reverse=True):
                     if neighbour in unseen:
-                        unseen.remove(neighbour)
+                        unseen.discard(neighbour)
                         frontier.append(neighbour)
             components.append(tuple(sorted(discovered)))
 

@@ -400,6 +400,75 @@ def test_hard_layout_precedes_completeness_in_automatic_page_scale_verdict(monke
     assert "violations" not in attempts[1]
 
 
+def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(monkeypatch):
+    """Validity recovery stays bounded by complete drawing compiles, not ladder length."""
+
+    overlap = LintIssue(
+        severity="warning",
+        code="annotation_overlap",
+        message="synthetic labels overlap",
+    )
+    calls = []
+
+    class FakeDrawing:
+        def __init__(self, *, page, scale, issues):
+            self.page_w, self.page_h = page
+            self.scale = scale
+            self.views = {"front": object()}
+            self.solve_trace = None
+            self._issues = tuple(issues)
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        scale,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        assert not _include_iso
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        calls.append((scale, page))
+        candidate_scale = 2.0 if scale is None else scale
+        if page == "A3":
+            return FakeDrawing(page=(420.0, 297.0), scale=candidate_scale, issues=())
+        return FakeDrawing(page=(297.0, 210.0), scale=candidate_scale, issues=(overlap,))
+
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+
+    drawing = builder.build_drawing(object(), auto_dims=False, _include_iso=False)
+
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert calls == [
+        (None, None),
+        (1.0, (297.0, 210.0)),
+        (5.0, (297.0, 210.0)),
+        (None, "A3"),
+    ]
+    assert [
+        (attempt["scale"], attempt["reason"], attempt.get("rejection"))
+        for attempt in drawing.scale_decision["attempts"]
+    ] == [
+        (2.0, "layout_validity_recovery", None),
+        (1.0, "scale_retry_after_hard_layout", "structural_error"),
+        (5.0, "scale_retry_after_hard_layout", "structural_error"),
+        (2.0, "page_escalation_after_hard_layout", None),
+    ]
+
+
 def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch):
     """A complete recovery detail may replace the optional ISO on a larger page."""
 
