@@ -56,6 +56,12 @@ beyond each centreline. Without an explicit width, the existing widths remain 12
 A4 and 150 mm on larger ISO sheets, with the existing extra 1 mm right/bottom clearance.
 Revision defaults also remain unchanged.
 
+The standard title block derives two read-only fields from the settled drawing: `UNITS` is
+`mm`, matching Draftwright's drawing and export coordinate convention, and `FORMAT` is the
+effective A-series designation (for example `A2`). A non-standard page states its physical
+`WIDTHxHEIGHT` instead. These are derived after automatic page selection, so they cannot drift
+from the sheet that was actually rendered.
+
 CLI parameters carry the same options into rendered drawings and generated scripts:
 
 ```sh

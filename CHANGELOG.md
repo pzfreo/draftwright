@@ -4,6 +4,10 @@
 
 ### Added
 
+- The standard title block now states drawing `UNITS` (`mm`) and the effective sheet `FORMAT`
+  (for example `A2`). Dimension-specified A-series pages receive the standard designation;
+  non-standard pages state their actual `WIDTHxHEIGHT`. Its rows share a four-line column grid,
+  avoiding visually offset dividers between adjacent fields.
 - A bounded real-part canary now proves the complete agent improvement loop on NIST CTC-01
   (#1716): inspection-to-declaration joins, traced baseline, one sanctioned `Sheet` layout edit,
   replay assessment, fixed-denominator comparison, and fail-closed deletion/owner/provenance

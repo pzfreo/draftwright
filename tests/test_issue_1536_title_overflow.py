@@ -20,13 +20,12 @@ def _box_sheet(**options):
 
 
 #: A value that exceeds its cell without pushing the block past the page margin.
-#: Not `material`: under the ISO 7200 layout that is a flexible cell (111 mm on
-#: A2), so overflowing it would need a 75-character material, which nobody meets.
-#: `drawn_by` is sized from ISO 7200's 20-character creator capacity, and it sits
-#: at the left of its row, so the excess runs INTO the block rather than out past
-#: its right edge — which is what keeps this a cell-overflow case and not an
-#: out-of-bounds one.
-_OVERFLOWING_AUTHOR = "ENGINEERING REVIEW TEAM"
+#: Not `material`: its 44%-wide cell is still 66 mm on this A2 fixture, so
+#: overflowing it would need an implausibly long material. `drawn_by` preserves
+#: approximately ISO 7200's 20-character creator capacity, and it sits at the left
+#: of its row, so the excess runs INTO the block rather than out past its right edge
+#: — which is what keeps this a cell-overflow case and not an out-of-bounds one.
+_OVERFLOWING_AUTHOR = "ENGINEERING REVIEW GROUP"
 _OVERFLOWING = f"{_OVERFLOWING_AUTHOR} / draftwright"
 
 
@@ -45,7 +44,8 @@ def test_a_field_crossing_cells_inside_page_is_reported(crowded_material):
         align=(Align.CENTER, Align.CENTER),
         mode=Mode.PRIVATE,
     ).bounding_box()
-    assert ink.size.X > block.cell_bbox("designed_by")["width"]
+    cell_width = block.cell_bbox("designed_by")["width"]
+    assert ink.size.X > cell_width
     assert block.bounding_box().max.X < drawing.page_w - 10
     issues = drawing.lint()
     assert not any(issue.code == "annotation_out_of_bounds" for issue in issues)
@@ -53,7 +53,8 @@ def test_a_field_crossing_cells_inside_page_is_reported(crowded_material):
     assert len(overflow) == 1
     assert overflow[0].severity == "warning"
     assert "'designed_by'" in overflow[0].message
-    assert "52.01" in overflow[0].message and "51.73" in overflow[0].message
+    assert f"{ink.size.X:.2f}" in overflow[0].message
+    assert f"{cell_width:.2f}" in overflow[0].message
     summary = drawing.lint_summary()
     assert summary["passed"]  # The existing flag checks errors, not legibility warnings.
     assert summary["quality"]["legibility"]["by_code"]["title_field_overflow"] == 1
@@ -69,8 +70,8 @@ def test_a_field_crossing_cells_inside_page_is_reported(crowded_material):
         # Its own cell under the ISO 7200 layout, sized from the standard's
         # 10-character date-of-issue capacity — enough for "2026-09-12" and
         # every other ordinary format. A spelled-out month is the realistic
-        # case that does not fit: 25.9 mm against a 21.6 mm cell on A4. This
-        # fixture is A2, where the cell is 27.0 mm and it fits, so the value is
+        # case that does not fit: 25.9 mm against a 22.8 mm cell on A4. This
+        # fixture is A2, where the cell is 28.5 mm and it fits, so the value is
         # padded to reach the same outcome without inventing a date nobody
         # would write.
         ({"date": "12 SEPTEMBER 2026 (ISSUE)"}, "date"),
