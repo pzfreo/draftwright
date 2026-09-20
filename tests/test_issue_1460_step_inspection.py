@@ -319,6 +319,104 @@ def test_missing_or_incoherent_provider_explanation_fails_closed() -> None:
         inspection_module._candidate_lifecycle(evidence)
 
 
+def test_malformed_provider_lifecycle_fields_fail_closed() -> None:
+    """Every closed-provider invariant rejects malformed evidence instead of being omitted."""
+
+    from quiddity import (
+        DispositionExplanation,
+        FamilyEvaluation,
+        RecognitionDiagnostic,
+        RecognitionDiagnosticCode,
+        RecognitionDiagnosticStatus,
+        RecognitionOutcome,
+        ReconciliationReason,
+    )
+
+    from draftwright.builder import _detect_part_model_analysis
+
+    _model, analysis = _detect_part_model_analysis(_PLAIN_FIXTURE, pmi="off")
+    source = analysis.recognition_evidence
+    report = source.report
+    first, *rest = report.detector_families
+
+    def refuses(candidate, match: str) -> None:
+        evidence = SimpleNamespace(result=source.result, report=candidate)
+        with pytest.raises(InspectionUnavailableError, match=match):
+            inspection_module._candidate_lifecycle(evidence)
+
+    refuses(replace(report, coverage="bounded"), "invalid coverage")
+    refuses(
+        replace(report, families=(replace(first, proposed=-1), *rest)),
+        "invalid proposed count",
+    )
+    refuses(replace(report, families=()), "no closed detector-family roster")
+    refuses(
+        replace(report, families=(replace(first, family=""), *rest)),
+        "invalid or duplicate detector family",
+    )
+    refuses(
+        replace(report, families=(replace(first, dispositions=[]), *rest)),
+        "invalid disposition roster",
+    )
+
+    accepted = DispositionExplanation(
+        reason=ReconciliationReason.DEFAULT_ACCEPTED,
+        outcome=RecognitionOutcome.ACCEPTED,
+        occurrences=1,
+        related_occurrences=0,
+    )
+    refuses(
+        replace(
+            report,
+            families=(
+                replace(
+                    first,
+                    proposed=2,
+                    accepted=2,
+                    dispositions=(accepted, accepted),
+                ),
+                *rest,
+            ),
+        ),
+        "repeats a disposition",
+    )
+    refuses(
+        replace(
+            report,
+            families=(
+                replace(
+                    first,
+                    evaluation=FamilyEvaluation.NOT_APPLICABLE,
+                    proposed=1,
+                    accepted=1,
+                    dispositions=(accepted,),
+                ),
+                *rest,
+            ),
+        ),
+        "not-applicable.*candidate activity",
+    )
+    refuses(
+        replace(report, families=tuple(report.detector_families[:-1])),
+        "detector-family roster changed",
+    )
+    refuses(replace(report, diagnostics=[]), "invalid diagnostics")
+
+    invalid_context = RecognitionDiagnostic(
+        code=RecognitionDiagnosticCode.UNSUPPORTED_SUBDIVIDED_ANGLED_STEP_TERMINAL,
+        status=RecognitionDiagnosticStatus.UNSUPPORTED,
+        family=first.family,
+        axis="invalid",
+        at=(1.0, 2.0, 3.0),
+        raw_outer_edges=6,
+        effective_outer_sides=4,
+    )
+    refuses(
+        replace(report, diagnostics=(invalid_context,)),
+        "invalid diagnostic context",
+    )
+
+
 def test_unclaimed_face_evidence_matches_independently_measured_geometry() -> None:
     """Every field checked against build123d directly, not against itself.
 
