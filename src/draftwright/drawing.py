@@ -1079,9 +1079,10 @@ class Drawing:
         feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
         can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
 
-        A declared drawing uses schema version 7: its final IR is the authority, and the report
-        preserves lint/quality observations while stating that recognition correspondence is
-        unavailable. It never reconstructs occurrences from declared values. A framed or bare
+        A declared drawing uses schema version 8: its final IR is the authority, and the report
+        preserves lint/quality observations plus page/view/annotation layout evidence while
+        stating when detailed opt-in placement evidence is unavailable. It never reconstructs
+        occurrences from declared values. A framed or bare
         drawing whose exact occurrence ownership is unavailable, or a raw drawing with an
         unclassified accepted occurrence, raises
         :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
@@ -1099,6 +1100,7 @@ class Drawing:
                 lint=self.lint_summary(),
                 source=source,
                 registry=self._registry,
+                drawing=self,
             )
 
         snapshot = self.requirement_snapshot()
@@ -4224,6 +4226,7 @@ class Drawing:
             view_material_fields=self.material_fields(),
             _aggregation=aggregation,
             display_decimals=display_decimals,
+            annotation_names={id(obj): name for name, obj in self._registry.iter_named()},
         )
         working_part = self._working_part
         if physical and working_part is None:
@@ -4783,6 +4786,11 @@ class Drawing:
                     ),
                     **({"source_ids": i.source_ids} if i.source_ids else {}),
                     **({"annotation_name": i.annotation_name} if i.annotation_name else {}),
+                    **(
+                        {"related_annotation_names": i.related_annotation_names}
+                        if i.related_annotation_names
+                        else {}
+                    ),
                     **({"view": i.view} if i.view is not None else {}),
                     **({"evidence_reason": i.evidence_reason} if i.evidence_reason else {}),
                     **(

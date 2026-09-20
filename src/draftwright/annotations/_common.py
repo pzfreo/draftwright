@@ -519,6 +519,10 @@ class SolveTrace:
         self.solves: list[dict] = []
         self.pass_events: list[dict] = []
         self.escalations: list[dict] = []
+        # Opaque semantic provenance for report projection. These object references never enter
+        # the standalone trace JSON (which remains version 2 and strict JSON); they let the
+        # drawing report join even a dropped candidate back to final IR/declaration authority.
+        self._candidate_bindings: list[tuple[int, str, object, object, object]] = []
         self._phase = ""
         self._phase_n = 0
         self._seq = 0
@@ -540,6 +544,7 @@ class SolveTrace:
             len(self.solves),
             len(self.pass_events),
             len(self.escalations),
+            len(self._candidate_bindings),
             self._seq,
             self._phase,
             self._phase_n,
@@ -551,10 +556,11 @@ class SolveTrace:
         ``None`` sentinel a disarmed/failed :meth:`snapshot` returns (no-op)."""
         if snap is None:
             return
-        n_solves, n_events, n_esc, seq, phase, phase_n = snap
+        n_solves, n_events, n_esc, n_bindings, seq, phase, phase_n = snap
         del self.solves[n_solves:]
         del self.pass_events[n_events:]
         del self.escalations[n_esc:]
+        del self._candidate_bindings[n_bindings:]
         self._seq = seq
         self._phase = phase
         self._phase_n = phase_n
@@ -583,8 +589,10 @@ class SolveTrace:
     @_never_aborts
     def begin_solve(self, key, view, axis, tier, strip, cands) -> None:
         """Open a corridor-solve record (called by :func:`solve_corridor`)."""
+        cands = tuple(cands)
+        seq = self._next_seq()
         self._current = {
-            "seq": self._next_seq(),
+            "seq": seq,
             "phase": self._phase,
             "corridor": list(key) if key is not None else None,
             "view": view,
@@ -608,6 +616,26 @@ class SolveTrace:
             "outcomes": [],
         }
         self.solves.append(self._current)
+        self._candidate_bindings.extend(
+            (seq, candidate.name, candidate.feature, candidate.measurement, candidate.declaration)
+            for candidate in cands
+        )
+
+    def candidate_bindings(self) -> tuple[tuple[int, str, object, object, object], ...]:
+        """Opaque solve candidate provenance for the drawing-report projector.
+
+        The returned feature/measurement/declaration objects are build-local authority. They are
+        deliberately excluded from :meth:`write`; only the report projector may translate them
+        into report-local semantic IDs.
+        """
+
+        return tuple(self._candidate_bindings)
+
+    @property
+    def recording_complete(self) -> bool:
+        """Whether recording remained armed through the latest build/finalize pass."""
+
+        return not self._broken
 
     @_never_aborts
     def end_solve(self) -> None:

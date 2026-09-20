@@ -4,6 +4,10 @@
 
 ### Added
 
+- Declared drawing report schema v8 publishes page/view geometry, named annotation ink and
+  public line segments, raw-lint joins, semantic remedy choices, and explicit opt-in solver
+  evidence (#1711). Coordinates are review evidence only; editable links remain final-IR
+  declarations, and an untraced or partially traced build says so instead of appearing clear.
 - STEP inspection schema v4 projects a deterministic report-local source-face roster and
   Quiddity 0.3.1's closed graph rooted at rejected candidates (#1726). Accepted occurrences and
   candidates carry exact defining/constituent face links; rejected roots and direct relationships
