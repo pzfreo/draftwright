@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from enum import Enum
 from itertools import chain, islice, tee
 from typing import Any
 
@@ -83,21 +84,44 @@ class _FeatureLeaderInvariantError(ValueError):
     """A compiler invariant violation that must remain loud at the public boundary."""
 
 
+class LeaderCandidateRegion(str, Enum):
+    """Region a measured feature-leader candidate deliberately occupies."""
+
+    EXTERIOR = "exterior"
+    INTERIOR = "interior"
+
+
+@dataclass(frozen=True)
+class FeatureLeaderCandidate:
+    """One typed producer alternative before analytical measurement.
+
+    Existing producers may continue yielding ``(tip, elbow, feature)`` triples;
+    those triples retain their historical exterior semantics.  Producers must
+    opt into interior placement explicitly so the solver can apply its stricter
+    proof and fallback rules.
+    """
+
+    tip: Any
+    elbow: Any
+    feature: Any
+    region: LeaderCandidateRegion = LeaderCandidateRegion.EXTERIOR
+
+
 @dataclass(frozen=True)
 class FeatureLeaderJob:
     """One semantic feature-callout job collected for the shared late solve.
 
-    ``candidates`` yields cheap ``(tip, elbow, feature)`` triples. ``build`` is
-    called only inside the bounded tier (or lazily by its greedy floor), so an
-    oversized inventory cannot trigger collect-all OCC construction merely to
-    discover that it is over budget.
+    ``candidates`` yields typed alternatives or legacy ``(tip, elbow, feature)``
+    triples. ``build`` is called only inside the bounded tier (or lazily by its
+    greedy floor), so an oversized inventory cannot trigger collect-all OCC
+    construction merely to discover that it is over budget.
     """
 
     name: str
     view: str
     silhouette: tuple[float, float, float, float]
     label: str
-    candidates: Iterable[tuple[Any, Any, Any]]
+    candidates: Iterable[FeatureLeaderCandidate | tuple[Any, Any, Any]]
     build: Callable[[Any, Any, Any], Any]
     measurement: tuple[Any, ...]
     noun: str
@@ -113,10 +137,11 @@ class FeatureLeaderJob:
         ]
         | None
     ) = None
-    fallback_candidates: Iterable[tuple[Any, Any, Any]] | None = None
+    fallback_candidates: Iterable[FeatureLeaderCandidate | tuple[Any, Any, Any]] | None = None
     fallback_accept: (
         Callable[[Any, tuple[Any, ...], tuple[float, float, float, float]], bool] | None
     ) = None
+    interior_label_clear: Callable[[tuple[float, float, float, float]], bool] | None = None
     allow_policy_b_fixed: bool = False
     priority: float = 0.0
     on_place: Callable[[Any], None] | None = None
@@ -136,6 +161,7 @@ class _MeasuredLeaderCandidate:
     ink_polygons: tuple[tuple[tuple[float, float], ...], ...]
     axis_residual_polygons: tuple[tuple[tuple[float, float], ...], ...] = ()
     failure_reason: str | None = None
+    region: LeaderCandidateRegion = LeaderCandidateRegion.EXTERIOR
 
 
 @dataclass(frozen=True)
@@ -307,6 +333,15 @@ def _axis_residual_ink(tip, elbow, draft):
     return (shaft,) if shaft is not None else ()
 
 
+def _raw_candidate_parts(raw):
+    """Return candidate fields while preserving legacy triples as exterior."""
+
+    if isinstance(raw, FeatureLeaderCandidate):
+        return raw.tip, raw.elbow, raw.feature, raw.region
+    tip, elbow, feature = raw
+    return tip, elbow, feature, LeaderCandidateRegion.EXTERIOR
+
+
 def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCandidate:
     def safe_point(value):
         point = []
@@ -318,12 +353,18 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
             point.append(coordinate if math.isfinite(coordinate) else 0.0)
         return tuple(point)
 
-    feature = raw[2] if isinstance(raw, (tuple, list)) and len(raw) > 2 else None
-    tip2 = safe_point(raw[0] if isinstance(raw, (tuple, list)) and raw else ())
-    elbow2 = safe_point(raw[1] if isinstance(raw, (tuple, list)) and len(raw) > 1 else ())
+    if isinstance(raw, FeatureLeaderCandidate):
+        raw_tip, raw_elbow, feature, region = raw.tip, raw.elbow, raw.feature, raw.region
+    else:
+        raw_tip = raw[0] if isinstance(raw, (tuple, list)) and raw else ()
+        raw_elbow = raw[1] if isinstance(raw, (tuple, list)) and len(raw) > 1 else ()
+        feature = raw[2] if isinstance(raw, (tuple, list)) and len(raw) > 2 else None
+        region = LeaderCandidateRegion.EXTERIOR
+    tip2 = safe_point(raw_tip)
+    elbow2 = safe_point(raw_elbow)
     failure_reason: str | None
     try:
-        tip, elbow, feature = raw
+        tip, elbow, feature, region = _raw_candidate_parts(raw)
         tip2 = (float(tip[0]), float(tip[1]))
         elbow2 = (float(elbow[0]), float(elbow[1]))
         if not all(math.isfinite(value) for value in (*tip2, *elbow2)):
@@ -393,8 +434,8 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         # must not abort unrelated jobs in the shared stage.
         annotation = None
         label_box, segments = None, ()
-        tip2 = safe_point(raw[0] if isinstance(raw, (tuple, list)) and raw else ())
-        elbow2 = safe_point(raw[1] if isinstance(raw, (tuple, list)) and len(raw) > 1 else ())
+        tip2 = safe_point(raw_tip)
+        elbow2 = safe_point(raw_elbow)
         fallback_cost = math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
         cost = fallback_cost if math.isfinite(fallback_cost * _FLOW_COST_SCALE) else 0.0
         primary = shelves = axis_residual = ()
@@ -412,7 +453,8 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         segments,
         (*primary, *shelves),
         (*axis_residual, *shelves),
-        failure_reason,
+        failure_reason=failure_reason,
+        region=region,
     )
 
 
@@ -760,6 +802,31 @@ def _material_units(candidate: _MeasuredLeaderCandidate, field) -> int:
     return material_penalty_units(candidate.tip, candidate.elbow, field)
 
 
+def _box_inside(inner, outer) -> bool:
+    return bool(
+        outer[0] <= inner[0]
+        and outer[1] <= inner[1]
+        and inner[2] <= outer[2]
+        and inner[3] <= outer[3]
+    )
+
+
+def _view_region_blocker(candidate, job) -> str | None:
+    """Return the hard view blocker for a measured candidate, if any."""
+
+    label = candidate.label_box
+    if label is None:
+        return None
+    if candidate.region is LeaderCandidateRegion.EXTERIOR:
+        return f"view:{job.view}:silhouette" if _boxes_overlap(label, job.silhouette) else None
+    if not _box_inside(label, job.silhouette):
+        return f"view:{job.view}:interior_bounds"
+    clear = job.interior_label_clear
+    if clear is None or not clear(label):
+        return f"view:{job.view}:interior_projection_ink"
+    return None
+
+
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     checkpoint()
     blockers = []
@@ -771,13 +838,16 @@ def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
     else:
         if label[0] < page[0] or label[1] < page[1] or label[2] > page[2] or label[3] > page[3]:
             blockers.append("page")
-        if _boxes_overlap(label, job.silhouette):
-            blockers.append(f"view:{job.view}:silhouette")
-    blockers.extend(
+        if view_blocker := _view_region_blocker(candidate, job):
+            blockers.append(view_blocker)
+    fixed_blockers = tuple(
         component.name
         for component in fixed_components
         if _candidate_hits_component(candidate, component)
     )
+    blockers.extend(fixed_blockers)
+    if fixed_blockers and candidate.region is LeaderCandidateRegion.INTERIOR:
+        blockers.append(f"view:{job.view}:interior_annotation_ink")
     return tuple(dict.fromkeys(blockers))
 
 
@@ -1495,6 +1565,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     def candidate_entry(candidate, status, blockers=(), assignment_blockers=()):
         entry = {
             "candidate": candidate.raw_index,
+            "region": candidate.region.value,
             "tip": list(candidate.tip),
             "elbow": list(candidate.elbow),
             "cost": candidate.cost,
@@ -1617,8 +1688,8 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     or label[3] > page[3]
                 ):
                     blockers.append("page")
-                if _boxes_overlap(label, job.silhouette):
-                    blockers.append(f"view:{job.view}:silhouette")
+                if view_blocker := _view_region_blocker(candidate, job):
+                    blockers.append(view_blocker)
             if _ink_hits_box(candidate, title_block):
                 blockers.append("title_block:reserved")
             return tuple(blockers)
@@ -1677,6 +1748,11 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     # classification exceeds its work budget. Boundary/title
                     # constraints remain hard and the uncertainty is explicit.
                     blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
+                    if candidate.region is LeaderCandidateRegion.INTERIOR:
+                        blockers = (
+                            *blockers,
+                            f"view:{job.view}:interior_annotation_ink_unverified",
+                        )
                 hard_blockers = _hard_fixed_blockers(blockers)
                 accepted = not hard_blockers and (
                     job.fallback_accept(candidate, legacy_boxes[job.view], page)
