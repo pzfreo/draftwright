@@ -130,7 +130,8 @@ def test_the_drawn_by_cell_is_no_longer_squeezed_by_a_date():
     narrow = with_date.get_annotation("title_block").cell_bbox("designed_by")["width"]
     assert narrow == pytest.approx(wide), "a date must not shrink the drawn-by cell"
 
-    # The cell is sized from ISO 7200's creator capacity (20 characters).
+    # The shared title-block grid preserves approximately ISO 7200's 20-character
+    # creator capacity on the narrowest block.
     # "ACME Engineering Ltd / draftwright" is 34, so it still overflows — but it
     # overflows identically with and without the date, which is the point. The
     # capacity is nominal and the lint reports the excess either way.

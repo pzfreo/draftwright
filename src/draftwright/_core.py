@@ -45,7 +45,6 @@ from build123d import (
     Vector,
 )
 from build123d_drafting.helpers import (
-    ISO7200_FIELD_CHARS,
     Dimension,
     TitleBlock,
     TitleBlockCell,
@@ -1478,19 +1477,36 @@ def _attribution_author(drawn_by: str | None) -> str:
     return f"{author} / draftwright" if author else "draftwright"
 
 
+def _sheet_format(page_w: float, page_h: float) -> str:
+    """The title-block format for an effective page, independent of orientation.
+
+    Named and dimension-specified pages converge on the same physical sheet in
+    :class:`Analysis`, so derive this from its settled dimensions rather than retaining
+    the caller's spelling. Non-standard pages state their actual size; the neighbouring
+    UNITS cell supplies the unit.
+    """
+    for name, (width, height) in _PAGE_SIZES.items():
+        if (page_w, page_h) in ((width, height), (height, width)):
+            return name
+    return f"{_fmt(page_w)}x{_fmt(page_h)}"
+
+
 def draftwright_title_block_layout() -> TitleBlockLayout:
     """The sheet's title-block arrangement: ISO 7200 complete, plus what practice needs.
 
     Every ISO 7200:2004 **mandatory** data field has a cell — legal owner (5.1.2),
     identification number (5.1.3), date of issue (5.1.5), segment/sheet number
     (5.1.6), title (5.2.2), approval person (5.3.4), creator (5.3.5) and document
-    type (5.3.6) — at the capacities the standard recommends, so the widths follow
-    from ISO 7200 and the font rather than from a chosen proportion.
+    type (5.3.6). All rows use one proportional grid, tuned around the standard's
+    recommended capacities on the narrowest block. Its four internal lines sit at
+    35%, 70%, 88% and 94%: each row spans those columns as needed, so adjacent
+    dividers align instead of ending in near-miss seams.
 
-    Two cells are not ISO 7200 title-block fields and are here anyway: ``material``
-    and ``general_tolerance`` are on every real engineering drawing, and dropping
-    them to reach conformance would make the sheet worse. ``revision`` (5.1.4) is
-    optional in the standard and kept because it is near-universal.
+    Four cells are not ISO 7200 title-block fields and are here anyway: ``material``,
+    ``general_tolerance``, drawing ``units`` and sheet ``format`` are ordinary
+    manufacturing/drawing-control information, and dropping them to reach conformance
+    would make the sheet worse. ``revision`` (5.1.4) is optional in the standard and
+    kept because it is near-universal.
 
     ``scale`` is deliberately absent. ISO 7200 §4 keeps the block to a minimum and
     presents scale and the projection symbol "outside the title block only when
@@ -1498,27 +1514,28 @@ def draftwright_title_block_layout() -> TitleBlockLayout:
     ``scale_not_stated`` lint makes its presence a checked guarantee rather than an
     assumption.
     """
-    iso = ISO7200_FIELD_CHARS
     return TitleBlockLayout(
         (
             (
-                TitleBlockCell("legal_owner", flex=True, label="LEGAL OWNER"),
-                TitleBlockCell("document_type", chars=iso["document_type"], label="DOC. TYPE"),
+                TitleBlockCell("legal_owner", width=0.70, label="LEGAL OWNER"),
+                TitleBlockCell("document_type", width=0.30, label="DOC. TYPE"),
             ),
             (
-                TitleBlockCell("title", flex=True, label="TITLE"),
-                TitleBlockCell("drawing_number", chars=iso["drawing_number"], label="DWG NO."),
+                TitleBlockCell("title", width=0.70, label="TITLE"),
+                TitleBlockCell("drawing_number", width=0.30, label="DWG NO."),
             ),
             (
-                TitleBlockCell("material", flex=True, label="MATERIAL"),
-                TitleBlockCell("general_tolerance", chars=22, label="GEN. TOL."),
+                TitleBlockCell("material", width=0.35, label="MATERIAL"),
+                TitleBlockCell("general_tolerance", width=0.35, label="GEN. TOL."),
+                TitleBlockCell("units", width=0.18, label="UNITS"),
+                TitleBlockCell("format", width=0.12, label="FORMAT"),
             ),
             (
-                TitleBlockCell("designed_by", chars=iso["creator"], label="DRAWN BY"),
-                TitleBlockCell("approved_by", chars=iso["approved_by"], label="APPROVED BY"),
-                TitleBlockCell("date", chars=iso["date"], label="DATE"),
-                TitleBlockCell("revision", chars=iso["revision"], label="REV"),
-                TitleBlockCell("sheet", chars=iso["sheet"], label="SHEET"),
+                TitleBlockCell("designed_by", width=0.35, label="DRAWN BY"),
+                TitleBlockCell("approved_by", width=0.35, label="APPROVED BY"),
+                TitleBlockCell("date", width=0.18, label="DATE"),
+                TitleBlockCell("revision", width=0.06, label="REV"),
+                TitleBlockCell("sheet", width=0.06, label="SHEET"),
             ),
         )
     )
@@ -1551,6 +1568,8 @@ def _make_title_block(dwg, a: Analysis):
     approved_by = _font_safe_text(a.approved_by).strip()
     document_type = _font_safe_text(a.document_type).strip()
     sheet = _font_safe_text(a.sheet).strip()
+    units = "mm"
+    sheet_format = _font_safe_text(_sheet_format(a.PAGE_W, a.PAGE_H))
     layout = draftwright_title_block_layout()
     tb = TitleBlock(
         title,
@@ -1568,6 +1587,8 @@ def _make_title_block(dwg, a: Analysis):
             "approved_by": approved_by,
             "document_type": document_type,
             "sheet": sheet,
+            "units": units,
+            "format": sheet_format,
         },
         width=a.TB_W,
         # Title block renders in condensed sans (the tight ISO 7200 cells), a
@@ -1601,6 +1622,8 @@ def _make_title_block(dwg, a: Analysis):
         # the block, where `_add_scale_note` draws it and the
         # `scale_not_stated` lint guarantees it.
         ("material", material),
+        ("units", units),
+        ("format", sheet_format),
         ("approved_by", approved_by),
         ("document_type", document_type),
         ("sheet", sheet),
