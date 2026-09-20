@@ -103,9 +103,10 @@ def test_a_part_with_nothing_unused_claims_nothing_more(tmp_path: Path) -> None:
 
     assert _unused(document) == []
     assert "complete" not in json.dumps(document)
-    assert document["missed"]["rejected_candidates"]["available"] is False, (
-        "an empty unused list is not a completeness claim: what recognition rejected is unknown"
-    )
+    lifecycle = document["missed"]["rejected_candidates"]
+    assert lifecycle["available"] is True
+    assert lifecycle["scope"] == "detector-candidate-lifecycle"
+    assert lifecycle["recognition_recall"] == "not-assessed"
 
 
 def test_absorbed_findings_are_acted_on_while_an_unsupported_one_is_not(tmp_path: Path) -> None:

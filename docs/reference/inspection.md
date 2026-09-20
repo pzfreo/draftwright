@@ -18,13 +18,15 @@ for entry in document["found"]:
         print(entry["family"], entry["draftwright"]["reason"])
 ```
 
-Version 2 names the actual recognition provider in `producer.quiddity`.
-[Version 1](draftwright-step-inspection-v1.schema.json) used `producer.b123d-recognisers`
-and remains available for existing documents. Readers must select the schema using
-`schema_version`; a Quiddity version is not a b123d-recognisers version.
+Version 3 adds Quiddity's bounded same-run detector candidate lifecycle and residual diagnostics.
+Version 2 names the actual recognition provider in `producer.quiddity` but records candidate
+explanation as unavailable. [Version 2](draftwright-step-inspection-v2.schema.json) and
+[Version 1](draftwright-step-inspection-v1.schema.json), which used
+`producer.b123d-recognisers`, remain available for existing documents. Readers must select the
+schema using `schema_version`; a Quiddity version is not a b123d-recognisers version.
 
 The closed schema is published as
-[`draftwright-step-inspection-v2.schema.json`](draftwright-step-inspection-v2.schema.json).
+[`draftwright-step-inspection-v3.schema.json`](draftwright-step-inspection-v3.schema.json).
 `schema` is always `"draftwright-step-inspection"`; check `schema_version` before interpreting
 the document. Every object is closed except `found[].feature`, which is the recogniser's own
 record.
@@ -61,13 +63,19 @@ representative `position` on the face and a bounding box, with `face_count` givi
 accounting, and it is a place to start looking — **not** a defect list. Stock, background and
 deliberately plain faces are unclaimed too, and they are in the denominator.
 
-`rejected_candidates` is the other half of the story and is currently `available: false`. The
-recogniser can explain what it proposed and then rejected, and which families it did not
-evaluate — but only from a second recognition run, which would break the one-run rule of
-ADR 3 (was 0017). b123d-recognisers#494 asks for an API that explains an already-completed result. The
-field states its own absence rather than letting it read as "nothing was rejected".
-Quiddity's section-recess refusals are already in the single-run evidence roster and appear in
-`found` as `SectionRecessRefusal`; they do not provide the complete explanation for every family.
+`rejected_candidates` is the other half of the story. Version 3 projects Quiddity's
+`RecognitionEvidence.report` from this exact run: `coverage`, every detector family's
+`evaluation`, `proposed`/`accepted`/`rejected` counts, closed reconciliation dispositions, and
+bounded residual `diagnostics`. `evaluated` with zero proposals is distinct from
+`not-applicable`; neither means a feature was proved absent.
+
+These numbers count detector candidates before public projection and deduplication. Several
+detectors can contribute to one accepted public occurrence, and one rejected candidate can refer
+to another candidate. They are not feature counts or recognition recall. Candidate-to-face
+association is not available in Quiddity 0.3.0, so `unclaimed_faces` and aggregate lifecycle
+rows must not be joined by position or assumed to explain one another. Quiddity's
+section-recess refusals remain accepted evidence records in `found`; they are not a substitute
+for the complete family lifecycle.
 
 ## source, producer and run
 
@@ -118,10 +126,11 @@ inspects in a couple of seconds, a dense AP242 part such as NIST CTC-02 in tens 
 ## What it never claims
 
 Nothing here is completeness or manufacturing readiness. An empty `found` list means recognition
-accepted nothing, not that the part has no features. An empty unused list means nothing found
-was ignored, not that nothing was missed — `rejected_candidates` is exactly the evidence that
-would speak to that, and it is not available yet. Material, process, finish, thread, fit and
-tolerance intent are separately authored and never inferred here.
+accepted nothing, not that the part has no features. An empty unused list means nothing found was
+ignored, not that nothing was missed. Likewise, an evaluated family with zero rejected
+candidates only describes the detector's bounded supported domain; `recognition_recall` remains
+`not-assessed`. Material, process, finish, thread, fit and tolerance intent are separately
+authored and never inferred here.
 
 ## Failures
 

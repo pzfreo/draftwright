@@ -14,11 +14,10 @@ The document therefore says three things, and keeps them apart:
 * ``source`` / ``producer`` — which bytes were read and which versions read them, so a finding
   can be reproduced or filed upstream.
 
-``missed`` is currently one half of the story. It reports geometry that went unclaimed, which is
-the provider's own accounting. It does **not** yet report what the recogniser considered and
-rejected — the provider can explain that, but only from a second recognition run, which would
-break the one-run rule of ADR 3 (was 0017). b123d-recognisers#494 asks for an API that
-explains an already-completed result.
+``missed`` reports both geometry that no accepted occurrence claimed and the provider's bounded
+candidate-lifecycle explanation from the same recognition run. These are evidence for review,
+not recognition recall: ordinary stock faces are unclaimed, detector candidates can overlap,
+and accepted candidate counts precede public projection and deduplication.
 
 Nothing here is a completeness or readiness claim. An unclaimed face is not proof of a missed
 feature: stock and plain faces are unclaimed too.
@@ -46,7 +45,7 @@ if TYPE_CHECKING:  # typing only — naming these must not cost the CAD kernel a
     from draftwright.model import PartModel
 
 INSPECTION_SCHEMA = "draftwright-step-inspection"
-INSPECTION_SCHEMA_VERSION = 2
+INSPECTION_SCHEMA_VERSION = 3
 
 # Version 1 reports raw caller coordinates only. Framed recognition moves geometry into a
 # provider working frame, and b123d-recognisers#493 cannot yet tell a consumer whether a refused
@@ -64,6 +63,70 @@ _PMI_MODES = frozenset({"off", "report", "annotate"})
 # into one. Every other disposition means the recogniser found something the drawing does not
 # use, which is the conversion failing this document exists to surface.
 _ACTED_ON = frozenset({"represented", "absorbed"})
+
+_FAMILY_EVALUATIONS = frozenset({"evaluated", "not-applicable"})
+_RECOGNITION_OUTCOMES = frozenset({"accepted", "rejected"})
+_EXPLANATION_COVERAGE = frozenset({"bounded"})
+_DETECTOR_FAMILIES = frozenset(
+    {
+        "countersinks",
+        "holes",
+        "double_d_bores",
+        "bosses",
+        "polygonal_bosses",
+        "polygonal_stock",
+        "channels",
+        "slots",
+        "rectangular_blind_slots",
+        "round_bottom_blind_slots",
+        "grooves",
+        "flats",
+        "pockets",
+        "prismatic_pockets",
+        "edge_open_circular_pockets",
+        "edge_open_prismatic_recesses",
+        "section_recesses",
+        "pads",
+        "repeating_radial_profiles",
+        "turned_steps",
+        "step_levels",
+        "risers",
+        "chamfers",
+        "angled_steps",
+        "paired_ramp_steps",
+        "gusset_ribs",
+        "through_steps",
+        "circular_blind_steps",
+        "passages",
+        "oriented_slots",
+        "blends",
+        "fillets",
+        "plates",
+    }
+)
+_RECONCILIATION_REASONS = frozenset(
+    {
+        "default.accepted",
+        "recess.prismatic_superseded_by_pocket",
+        "recess.pocket_superseded_by_rectangular_blind_slot",
+        "recess.pocket_superseded_by_edge_open_circular_pocket",
+        "recess.pocket_superseded_by_passage",
+        "recess.pocket_superseded_by_prismatic",
+        "recess.slot_superseded_by_pocket",
+        "recess.slot_superseded_by_prismatic",
+        "recess.slot_superseded_by_passage",
+        "recess.passage_superseded_by_slot",
+        "recess.passage_superseded_by_oriented_slot",
+        "bevel.chamfer_superseded_by_angled_step",
+        "blend.fillet_superseded_by_circular_blind_step",
+        "blend.chain_superseded_by_fillet",
+        "bore.hole_superseded_by_double_d_bore",
+        "turned.step_groove_compatible",
+        "turned.groove_step_compatible",
+    }
+)
+_DIAGNOSTIC_CODES = frozenset({"unsupported.subdivided_angled_step_terminal"})
+_DIAGNOSTIC_STATUSES = frozenset({"unsupported"})
 
 
 class InspectionUnavailableError(RuntimeError):
@@ -160,16 +223,184 @@ def _found(evidence, ownership, model) -> list[dict[str, Any]]:
     ]
 
 
+def _enum_value(value, *, field: str, allowed: frozenset[str]) -> str:
+    projected = getattr(value, "value", None)
+    if type(projected) is not str or projected not in allowed:
+        raise InspectionUnavailableError(f"provider explanation has invalid {field}")
+    return projected
+
+
+def _count(value, *, field: str) -> int:
+    if type(value) is not int or value < 0:
+        raise InspectionUnavailableError(f"provider explanation has invalid {field}")
+    return value
+
+
+def _candidate_lifecycle(evidence) -> dict[str, Any]:
+    """Project the admitted bounded explanation from this exact evidence run."""
+
+    report = getattr(evidence, "report", None)
+    if report is None:
+        raise InspectionUnavailableError(
+            "same-run provider candidate-lifecycle explanation is unavailable"
+        )
+    if getattr(report, "result", None) is not evidence.result:
+        raise InspectionUnavailableError(
+            "provider explanation does not belong to this recognition result"
+        )
+    coverage = _enum_value(
+        getattr(report, "coverage", None),
+        field="coverage",
+        allowed=_EXPLANATION_COVERAGE,
+    )
+    source_families = getattr(report, "detector_families", None)
+    if type(source_families) is not tuple or not source_families:
+        raise InspectionUnavailableError(
+            "provider explanation has no closed detector-family roster"
+        )
+
+    families = []
+    names: set[str] = set()
+    for source in source_families:
+        family = getattr(source, "family", None)
+        if type(family) is not str or not family or family in names:
+            raise InspectionUnavailableError(
+                "provider explanation has an invalid or duplicate detector family"
+            )
+        names.add(family)
+        evaluation = _enum_value(
+            getattr(source, "evaluation", None),
+            field="family evaluation",
+            allowed=_FAMILY_EVALUATIONS,
+        )
+        proposed = _count(getattr(source, "proposed", None), field="proposed count")
+        accepted = _count(getattr(source, "accepted", None), field="accepted count")
+        rejected = _count(getattr(source, "rejected", None), field="rejected count")
+        source_dispositions = getattr(source, "dispositions", None)
+        if type(source_dispositions) is not tuple:
+            raise InspectionUnavailableError(
+                "provider explanation has an invalid disposition roster"
+            )
+        dispositions = []
+        disposition_keys: set[tuple[str, str]] = set()
+        outcome_counts = {outcome: 0 for outcome in _RECOGNITION_OUTCOMES}
+        for source_disposition in source_dispositions:
+            reason = _enum_value(
+                getattr(source_disposition, "reason", None),
+                field="reconciliation reason",
+                allowed=_RECONCILIATION_REASONS,
+            )
+            outcome = _enum_value(
+                getattr(source_disposition, "outcome", None),
+                field="recognition outcome",
+                allowed=_RECOGNITION_OUTCOMES,
+            )
+            occurrences = _count(
+                getattr(source_disposition, "occurrences", None),
+                field="disposition occurrence count",
+            )
+            related = _count(
+                getattr(source_disposition, "related_occurrences", None),
+                field="related occurrence count",
+            )
+            disposition_key = (reason, outcome)
+            if disposition_key in disposition_keys:
+                raise InspectionUnavailableError(
+                    f"provider explanation repeats a disposition for detector family {family!r}"
+                )
+            disposition_keys.add(disposition_key)
+            outcome_counts[outcome] += occurrences
+            dispositions.append(
+                {
+                    "reason": reason,
+                    "outcome": outcome,
+                    "occurrences": occurrences,
+                    "related_occurrences": related,
+                }
+            )
+        if proposed != accepted + rejected or outcome_counts != {
+            "accepted": accepted,
+            "rejected": rejected,
+        }:
+            raise InspectionUnavailableError(
+                f"provider explanation counts disagree for detector family {family!r}"
+            )
+        if evaluation == "not-applicable" and (proposed or dispositions):
+            raise InspectionUnavailableError(
+                f"not-applicable detector family {family!r} reports candidate activity"
+            )
+        families.append(
+            {
+                "family": family,
+                "evaluation": evaluation,
+                "proposed": proposed,
+                "accepted": accepted,
+                "rejected": rejected,
+                "dispositions": dispositions,
+            }
+        )
+    if names != _DETECTOR_FAMILIES:
+        raise InspectionUnavailableError("provider explanation detector-family roster changed")
+
+    source_diagnostics = getattr(report, "diagnostics", None)
+    if type(source_diagnostics) is not tuple:
+        raise InspectionUnavailableError("provider explanation has invalid diagnostics")
+    diagnostics = []
+    for source in source_diagnostics:
+        family = getattr(source, "family", None)
+        axis = getattr(source, "axis", None)
+        at = getattr(source, "at", None)
+        if (
+            type(family) is not str
+            or family not in names
+            or axis not in {"x", "y", "z"}
+            or type(at) is not tuple
+            or len(at) != 3
+        ):
+            raise InspectionUnavailableError("provider explanation has invalid diagnostic context")
+        diagnostics.append(
+            {
+                "code": _enum_value(
+                    getattr(source, "code", None),
+                    field="diagnostic code",
+                    allowed=_DIAGNOSTIC_CODES,
+                ),
+                "status": _enum_value(
+                    getattr(source, "status", None),
+                    field="diagnostic status",
+                    allowed=_DIAGNOSTIC_STATUSES,
+                ),
+                "family": family,
+                "axis": axis,
+                "at": list(at),
+                "raw_outer_edges": _count(
+                    getattr(source, "raw_outer_edges", None),
+                    field="diagnostic raw-edge count",
+                ),
+                "effective_outer_sides": _count(
+                    getattr(source, "effective_outer_sides", None),
+                    field="diagnostic effective-side count",
+                ),
+            }
+        )
+    return {
+        "available": True,
+        "coverage": coverage,
+        "scope": "detector-candidate-lifecycle",
+        "recognition_recall": "not-assessed",
+        "families": families,
+        "diagnostics": diagnostics,
+    }
+
+
 def _missed(evidence) -> dict[str, Any]:
     """Geometry no accepted feature claimed, as the provider accounts for it.
 
     Unclaimed does not mean missed. Stock, background and deliberately plain faces are unclaimed
     too, and they are in the denominator. This is a place to start looking, not a defect list.
 
-    The other half — what the recogniser proposed and then rejected, and which families it did
-    not evaluate — is the provider's to state and needs a second recognition run to obtain.
-    Joining it needs a provider API that explains an already-completed result
-    (b123d-recognisers#494).
+    Candidate lifecycle counts are detector decisions before public projection and
+    deduplication. They explain this run's bounded decisions but do not measure recall.
     """
 
     association = evidence.association
@@ -180,10 +411,7 @@ def _missed(evidence) -> dict[str, Any]:
             "claimed": association.face_count.associated,
             "unclaimed": association.face_count.unassociated,
         },
-        "rejected_candidates": {
-            "available": False,
-            "reason": "provider explanation is only available from a second recognition run",
-        },
+        "rejected_candidates": _candidate_lifecycle(evidence),
     }
 
 

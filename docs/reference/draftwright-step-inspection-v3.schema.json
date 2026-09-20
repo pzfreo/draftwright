@@ -1,0 +1,275 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-step-inspection-v3.schema.json",
+  "title": "Draftwright STEP inspection v3",
+  "description": "Bounded same-run evidence. Unclaimed faces and detector-candidate lifecycle counts are not recognition recall, and aggregate rejected candidates are not associated with individual faces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "source", "producer", "run", "found", "missed"],
+  "properties": {
+    "schema": { "const": "draftwright-step-inspection" },
+    "schema_version": { "const": 3 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "quiddity"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "quiddity": { "type": "string", "minLength": 1 }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pmi_mode"],
+      "properties": {
+        "pmi_mode": { "enum": ["off", "report", "annotate"] }
+      }
+    },
+    "found": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/found_feature" }
+    },
+    "missed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unclaimed_faces", "face_count", "rejected_candidates"],
+      "properties": {
+        "unclaimed_faces": {
+          "description": "Faces unassociated with accepted occurrences; not a missed-feature or recall count.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/face" }
+        },
+        "face_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "claimed", "unclaimed"],
+          "properties": {
+            "total": { "type": "integer", "minimum": 0 },
+            "claimed": { "type": "integer", "minimum": 0 },
+            "unclaimed": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "rejected_candidates": { "$ref": "#/$defs/candidate_lifecycle" }
+      }
+    }
+  },
+  "$defs": {
+    "point": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": { "type": "number" }
+    },
+    "face": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["surface", "area", "position", "bbox"],
+      "properties": {
+        "surface": { "type": "string", "minLength": 1 },
+        "area": { "type": "number", "minimum": 0 },
+        "position": { "$ref": "#/$defs/point" },
+        "bbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max"],
+          "properties": {
+            "min": { "$ref": "#/$defs/point" },
+            "max": { "$ref": "#/$defs/point" }
+          }
+        }
+      }
+    },
+    "candidate_lifecycle": {
+      "description": "Aggregate detector decisions before public projection and deduplication. This has no candidate-to-face association and is not a recognition-recall measurement.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "available",
+        "coverage",
+        "scope",
+        "recognition_recall",
+        "families",
+        "diagnostics"
+      ],
+      "properties": {
+        "available": { "const": true },
+        "coverage": { "const": "bounded" },
+        "scope": { "const": "detector-candidate-lifecycle" },
+        "recognition_recall": { "const": "not-assessed" },
+        "families": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/family_lifecycle" }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/diagnostic" }
+        }
+      }
+    },
+    "family_lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "evaluation",
+        "proposed",
+        "accepted",
+        "rejected",
+        "dispositions"
+      ],
+      "properties": {
+        "family": {
+          "enum": [
+            "countersinks",
+            "holes",
+            "double_d_bores",
+            "bosses",
+            "polygonal_bosses",
+            "polygonal_stock",
+            "channels",
+            "slots",
+            "rectangular_blind_slots",
+            "round_bottom_blind_slots",
+            "grooves",
+            "flats",
+            "pockets",
+            "prismatic_pockets",
+            "edge_open_circular_pockets",
+            "edge_open_prismatic_recesses",
+            "section_recesses",
+            "pads",
+            "repeating_radial_profiles",
+            "turned_steps",
+            "step_levels",
+            "risers",
+            "chamfers",
+            "angled_steps",
+            "paired_ramp_steps",
+            "gusset_ribs",
+            "through_steps",
+            "circular_blind_steps",
+            "passages",
+            "oriented_slots",
+            "blends",
+            "fillets",
+            "plates"
+          ]
+        },
+        "evaluation": { "enum": ["evaluated", "not-applicable"] },
+        "proposed": { "type": "integer", "minimum": 0 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 },
+        "dispositions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/disposition" }
+        }
+      }
+    },
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "outcome", "occurrences", "related_occurrences"],
+      "properties": {
+        "reason": {
+          "enum": [
+            "default.accepted",
+            "recess.prismatic_superseded_by_pocket",
+            "recess.pocket_superseded_by_rectangular_blind_slot",
+            "recess.pocket_superseded_by_edge_open_circular_pocket",
+            "recess.pocket_superseded_by_passage",
+            "recess.pocket_superseded_by_prismatic",
+            "recess.slot_superseded_by_pocket",
+            "recess.slot_superseded_by_prismatic",
+            "recess.slot_superseded_by_passage",
+            "recess.passage_superseded_by_slot",
+            "recess.passage_superseded_by_oriented_slot",
+            "bevel.chamfer_superseded_by_angled_step",
+            "blend.fillet_superseded_by_circular_blind_step",
+            "blend.chain_superseded_by_fillet",
+            "bore.hole_superseded_by_double_d_bore",
+            "turned.step_groove_compatible",
+            "turned.groove_step_compatible"
+          ]
+        },
+        "outcome": { "enum": ["accepted", "rejected"] },
+        "occurrences": { "type": "integer", "minimum": 0 },
+        "related_occurrences": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "status",
+        "family",
+        "axis",
+        "at",
+        "raw_outer_edges",
+        "effective_outer_sides"
+      ],
+      "properties": {
+        "code": { "enum": ["unsupported.subdivided_angled_step_terminal"] },
+        "status": { "enum": ["unsupported"] },
+        "family": { "type": "string", "minLength": 1 },
+        "axis": { "enum": ["x", "y", "z"] },
+        "at": { "$ref": "#/$defs/point" },
+        "raw_outer_edges": { "type": "integer", "minimum": 0 },
+        "effective_outer_sides": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "found_feature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "feature",
+        "feature_type",
+        "feature_schema_version",
+        "draftwright"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "feature": { "type": "object" },
+        "feature_type": { "type": "string", "minLength": 1 },
+        "feature_schema_version": { "type": "integer", "minimum": 1 },
+        "draftwright": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["acted_on", "disposition", "reason", "owners"],
+          "properties": {
+            "acted_on": { "type": "boolean" },
+            "disposition": {
+              "enum": [
+                "represented",
+                "absorbed",
+                "unsupported",
+                "deferred",
+                "evidence_only",
+                "unexpectedly_missing"
+              ]
+            },
+            "reason": { "type": "string", "minLength": 1 },
+            "owners": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

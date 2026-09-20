@@ -15,6 +15,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Line, Pos, Rot, export_step
@@ -36,8 +37,10 @@ _UNLOWERED_PMI_FIXTURE = _FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 # Unclaimed faces spanning bspline and cylinder: a part whose face evidence a
 # hardcoded surface kind or a repeated vector component cannot satisfy.
 _CURVED_FIXTURE = _FIXTURES / "issue_1058_wheel_rh.step"
+_CTC_01_AP203 = _FIXTURES / "nist_ctc_01_asme1_ap203.stp"
+_TURNED_FIXTURE = _FIXTURES / "evaluation" / "turned-step-axis-z.step"
 _SCHEMA_PATH = (
-    Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v2.schema.json"
+    Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v3.schema.json"
 )
 
 # The stages an inspection must never reach. `compose`, `model.planner`, `model.callout` and
@@ -118,7 +121,7 @@ def test_a_real_fixture_returns_the_documented_document() -> None:
 
     _validate(document)
     assert document["schema"] == "draftwright-step-inspection"
-    assert document["schema_version"] == 2
+    assert document["schema_version"] == 3
     assert document["source"] == {
         "name": "grm03_thumbwheel_drive_screw_ap242_pmi.step",
         "sha256": __import__("hashlib").sha256(_PMI_FIXTURE.read_bytes()).hexdigest(),
@@ -198,14 +201,122 @@ def test_unclaimed_geometry_is_reported_with_the_providers_own_accounting() -> N
         assert face["surface"]
 
 
-def test_the_missing_half_of_missed_says_so_rather_than_reading_as_none() -> None:
-    """The recogniser can explain what it proposed and rejected, but only from a second run.
-    Absence must be stated, not left to look like 'nothing was rejected'."""
+def test_evaluated_empty_families_are_not_reported_as_unavailable_or_not_applicable() -> None:
+    lifecycle = inspect_step(_PLAIN_FIXTURE)["missed"]["rejected_candidates"]
 
-    rejected = inspect_step(_PLAIN_FIXTURE)["missed"]["rejected_candidates"]
+    assert lifecycle["available"] is True
+    assert lifecycle["coverage"] == "bounded"
+    assert lifecycle["scope"] == "detector-candidate-lifecycle"
+    assert lifecycle["recognition_recall"] == "not-assessed"
+    assert len(lifecycle["families"]) == 33
+    assert len({row["family"] for row in lifecycle["families"]}) == 33
+    assert all(row["evaluation"] == "evaluated" for row in lifecycle["families"])
+    assert all(
+        (row["proposed"], row["accepted"], row["rejected"], row["dispositions"]) == (0, 0, 0, [])
+        for row in lifecycle["families"]
+    )
 
-    assert rejected["available"] is False
-    assert "second recognition run" in rejected["reason"]
+
+def test_ctc_01_preserves_the_provider_blend_candidate_lifecycle() -> None:
+    lifecycle = inspect_step(_CTC_01_AP203)["missed"]["rejected_candidates"]
+    blends = next(row for row in lifecycle["families"] if row["family"] == "blends")
+
+    assert (blends["proposed"], blends["accepted"], blends["rejected"]) == (39, 31, 8)
+    assert blends["dispositions"] == [
+        {
+            "reason": "blend.chain_superseded_by_fillet",
+            "outcome": "rejected",
+            "occurrences": 8,
+            "related_occurrences": 8,
+        },
+        {
+            "reason": "default.accepted",
+            "outcome": "accepted",
+            "occurrences": 31,
+            "related_occurrences": 0,
+        },
+    ]
+
+
+def test_not_applicable_families_remain_distinct_from_evaluated_empty() -> None:
+    families = inspect_step(_TURNED_FIXTURE)["missed"]["rejected_candidates"]["families"]
+    by_name = {row["family"]: row for row in families}
+
+    assert by_name["holes"]["evaluation"] == "evaluated"
+    assert by_name["holes"]["proposed"] == 0
+    assert by_name["angled_steps"] == {
+        "family": "angled_steps",
+        "evaluation": "not-applicable",
+        "proposed": 0,
+        "accepted": 0,
+        "rejected": 0,
+        "dispositions": [],
+    }
+
+
+def test_same_run_identity_and_residual_diagnostics_are_preserved() -> None:
+    from quiddity import (
+        RecognitionDiagnostic,
+        RecognitionDiagnosticCode,
+        RecognitionDiagnosticStatus,
+    )
+
+    from draftwright.builder import _detect_part_model_analysis
+
+    _model, analysis = _detect_part_model_analysis(_PLAIN_FIXTURE, pmi="off")
+    source = analysis.recognition_evidence
+    result = source.result
+    report = replace(
+        source.report,
+        diagnostics=(
+            RecognitionDiagnostic(
+                code=RecognitionDiagnosticCode.UNSUPPORTED_SUBDIVIDED_ANGLED_STEP_TERMINAL,
+                status=RecognitionDiagnosticStatus.UNSUPPORTED,
+                family="angled_steps",
+                axis="z",
+                at=(1.0, 2.0, 3.0),
+                raw_outer_edges=6,
+                effective_outer_sides=4,
+            ),
+        ),
+    )
+    evidence = SimpleNamespace(result=result, report=report)
+
+    lifecycle = inspection_module._candidate_lifecycle(evidence)
+
+    assert lifecycle["diagnostics"] == [
+        {
+            "code": "unsupported.subdivided_angled_step_terminal",
+            "status": "unsupported",
+            "family": "angled_steps",
+            "axis": "z",
+            "at": [1.0, 2.0, 3.0],
+            "raw_outer_edges": 6,
+            "effective_outer_sides": 4,
+        }
+    ]
+
+    evidence.report = replace(report, result=object())
+    with pytest.raises(InspectionUnavailableError, match="does not belong"):
+        inspection_module._candidate_lifecycle(evidence)
+
+
+def test_missing_or_incoherent_provider_explanation_fails_closed() -> None:
+    with pytest.raises(InspectionUnavailableError, match="unavailable"):
+        inspection_module._candidate_lifecycle(SimpleNamespace(result=object(), report=None))
+
+    from draftwright.builder import _detect_part_model_analysis
+
+    _model, analysis = _detect_part_model_analysis(_PLAIN_FIXTURE, pmi="off")
+    source = analysis.recognition_evidence
+    first, *rest = source.report.detector_families
+    incoherent = replace(first, proposed=1, accepted=1, rejected=1)
+    evidence = SimpleNamespace(
+        result=source.result,
+        report=replace(source.report, families=(incoherent, *rest)),
+    )
+    with pytest.raises(InspectionUnavailableError, match="counts disagree"):
+        inspection_module._candidate_lifecycle(evidence)
 
 
 def test_unclaimed_face_evidence_matches_independently_measured_geometry() -> None:
