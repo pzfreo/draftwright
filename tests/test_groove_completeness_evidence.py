@@ -256,8 +256,17 @@ def test_noniterable_root_groove_inventory_retains_an_aggregate_contract_outcome
         has_asserted_content=True,
         part=part,
     )["completeness"]
-    assert completeness["by_family"]["grooves"] == 1
-    assert completeness["unverifiable"] >= 1
+    assert completeness["available"] is False
+    assert completeness["coverage"] == "indeterminate"
+    assert completeness["requirements"] is None
+    assert completeness["known_requirement_count"] > 0
+    assert completeness["by_family"]["grooves"] == 0
+    assert completeness["unknown_cardinality_rows"] == 1
+    assert completeness["unknown_cardinality"] == [
+        {"family": "grooves", "parameter_id": "?", "state": "unverifiable"}
+    ]
+    assert completeness["audited_score"] is None
+    assert "denominator cannot be stated" in completeness["reason"]
 
 
 def test_owner_without_measurement_or_note_provenance_is_unverifiable() -> None:

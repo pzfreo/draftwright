@@ -682,6 +682,9 @@ def _empty_completeness(reason: str, unrecognised: int) -> dict:
         "audited_families": list(_AUDITED_FAMILIES),
         "unscored_recognized_families": [],
         "requirements": 0,
+        "known_requirement_count": 0,
+        "unknown_cardinality_rows": 0,
+        "unknown_cardinality": [],
         **{state: 0 for state in _OUTCOME_STATES},
         "by_family": {},
     }
@@ -723,10 +726,24 @@ def _completeness_component(
 
     counts: Counter = Counter()
     by_family: dict[str, int] = {}
+    unknown_cardinality: list[dict[str, str | None]] = []
     for family, family_outcomes in outcomes.items():
         family_count = 0
         for outcome in family_outcomes:
             requirement_count = int(getattr(outcome, "requirement_count", 1))
+            if not getattr(outcome, "requirement_count_known", True):
+                # The count belongs to one aggregate outcome row, not to a known number of
+                # physical requirements. Keep the sentinel queryable without allowing its
+                # placeholder count into the denominator or per-state physical counts.
+                if outcome.state != "inapplicable":
+                    unknown_cardinality.append(
+                        {
+                            "family": family,
+                            "parameter_id": getattr(outcome, "parameter_id", None),
+                            "state": outcome.state,
+                        }
+                    )
+                continue
             counts[outcome.state] += requirement_count
             if outcome.state != "inapplicable":
                 family_count += requirement_count
@@ -740,7 +757,7 @@ def _completeness_component(
         if unsupported_count:
             counts["unsupported"] += unsupported_count
             by_family[family] = unsupported_count
-    requirements = sum(count for state, count in counts.items() if state != "inapplicable")
+    known_requirements = sum(count for state, count in counts.items() if state != "inapplicable")
     recognised = {
         family
         for attribute, family in _RECOGNISED_REQUIREMENT_FAMILIES.items()
@@ -756,8 +773,15 @@ def _completeness_component(
     unaudited_requirements = recognised - set(_AUDITED_FAMILIES)
     unaudited = sorted(unaudited_requirements | undecided)
     covered = counts["placed"] + counts["satisfied_by_structured_note"]
-    audited_score = covered / requirements if requirements else None
-    if requirements:
+    audited_score = (
+        covered / known_requirements if known_requirements and not unknown_cardinality else None
+    )
+    if unknown_cardinality:
+        reason = (
+            "the recognized requirement denominator cannot be stated because "
+            f"{len(unknown_cardinality)} aggregate outcome row(s) have unknown cardinality"
+        )
+    elif known_requirements:
         reason = (
             "audited_score covers recognized requirements in audited families only; it is "
             "not evidence that the drawing is complete"
@@ -780,17 +804,20 @@ def _completeness_component(
         # Conditional completeness, not physical recall: score the requirements this run
         # recognised AND for which Draftwright has a semantic outcome ledger. Missing
         # recognisers are outside the scope; recognised-but-unscored families remain explicit.
-        "available": requirements > 0,
+        "available": known_requirements > 0 and not unknown_cardinality,
         "audited_score": audited_score,
         "scope": "audited_recognized_requirements",
-        "coverage": "partial",
+        "coverage": "indeterminate" if unknown_cardinality else "partial",
         "reason": reason,
         "excludes": list(_EXCLUDES),
         "unrecognised_geometry_reports": unrecognised,
         "denominator": "recognition",
         "audited_families": list(_AUDITED_FAMILIES),
         "unscored_recognized_families": unaudited,
-        "requirements": requirements,
+        "requirements": None if unknown_cardinality else known_requirements,
+        "known_requirement_count": known_requirements,
+        "unknown_cardinality_rows": len(unknown_cardinality),
+        "unknown_cardinality": unknown_cardinality,
         **{state: counts[state] for state in _OUTCOME_STATES},
         "by_family": by_family,
     }
@@ -882,7 +909,9 @@ def quality_components(
 def review_explanation(*, quality: dict, errors: int, warnings: int, score: float) -> dict:
     """Explain existing observations without creating a score or requirement inventory."""
     completeness = quality["completeness"]
-    if completeness["available"]:
+    if completeness["coverage"] == "indeterminate":
+        coverage = f"Coverage indeterminate: {completeness['reason']}."
+    elif completeness["available"]:
         coverage = (
             f"Of {completeness['requirements']} audited recognized requirements: "
             + ", ".join(

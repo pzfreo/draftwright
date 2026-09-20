@@ -797,6 +797,11 @@ def _requirements(
                 raise ReportUnavailableError(
                     f"recognized requirement family {family!r} has invalid cardinality"
                 )
+            count_known = getattr(outcome, "requirement_count_known", True)
+            if type(count_known) is not bool:
+                raise ReportUnavailableError(
+                    f"recognized requirement family {family!r} has invalid cardinality status"
+                )
             parameter = getattr(outcome, "parameter_id", None)
             if type(parameter) is not str or not parameter:
                 raise ReportUnavailableError(
@@ -837,7 +842,10 @@ def _requirements(
                 raise ReportUnavailableError(
                     f"recognized requirement family {family!r} has invalid representation reason"
                 )
-            for _index in range(count):
+            # Unknown cardinality is represented by one aggregate sentinel row. Expanding the
+            # producer's placeholder count would manufacture a physical denominator.
+            projected_count = count if count_known else 1
+            for _index in range(projected_count):
                 requirement_id = f"requirement:{len(requirements) + 1}"
                 requirements.append(
                     {
@@ -847,7 +855,11 @@ def _requirements(
                         "owner_ids": owner_ids,
                         "parameter_id": parameter_id,
                         "state": state,
-                        "reason_code": _REQUIREMENT_REASON[state],
+                        "reason_code": (
+                            _REQUIREMENT_REASON[state]
+                            if count_known
+                            else "requirement_cardinality_unknown"
+                        ),
                         "annotations": annotations,
                         "representation": representation,
                         "representation_reason": representation_reason,
@@ -1059,6 +1071,10 @@ def drawing_report(
     )
     needs_attention = needs_attention or any(
         requirement["state"] not in {"placed", "satisfied_by_structured_note"}
+        for requirement in requirements
+    )
+    needs_attention = needs_attention or any(
+        requirement["reason_code"] == "requirement_cardinality_unknown"
         for requirement in requirements
     )
     needs_attention = needs_attention or any(
@@ -1467,8 +1483,8 @@ def document_report(
     }
     if conflicts or unknown:
         fidelity["status"] = "needs-attention"
-    unknown_counts = sum(not row["requirement_count_known"] for row in requirements)
     applicable = [row for row in requirements if row["state"] != "inapplicable"]
+    unknown_counts = sum(not row["requirement_count_known"] for row in applicable)
     denominator = sum(
         row["requirement_count"] for row in applicable if row["requirement_count_known"]
     )

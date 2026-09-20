@@ -271,6 +271,10 @@ completeness = crit["quality"]["completeness"]
 # became a requirement. (Recognized nothing auditable at all? available is False, not 1.0.)
 audited = completeness["audited_score"]
 assert completeness["scope"] == "audited_recognized_requirements"
+# An aggregate outcome whose physical count is unknown makes the denominator and score
+# indeterminate rather than treating its placeholder row as one requirement.
+completeness["known_requirement_count"]
+completeness["unknown_cardinality_rows"], completeness["unknown_cardinality"]
 completeness["excludes"]                     # what the denominator cannot see
 completeness["unrecognised_geometry_reports"]  # a floor on that gap, never a measure
 legibility = crit["quality"]["legibility"]
@@ -299,6 +303,9 @@ engineering-correct; plain deletion is not an accepted-waiver mechanism.
 can audit, how many were placed?" — so a part can score 1.0 with whole features missing from the
 drawing, if recognition never identified them. Gate on issue codes and severities, and read
 `excludes` and `unrecognised_geometry_reports` for what the denominator cannot account for.
+If any producer reports unknown physical cardinality, `requirements` and `audited_score` are
+`None`, `coverage` is `"indeterminate"`, and `unknown_cardinality` identifies the aggregate
+family/parameter outcomes requiring review.
 
 Each `LintIssue` carries a domain-meaningful `code` and, when computable, a
 ready-to-apply `suggestion`. See `docs/adr/` for the design (deterministic
