@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 REPORT_SCHEMA = "draftwright-report"
 REPORT_SCHEMA_VERSION = 3
-_DECLARED_REPORT_SCHEMA_VERSION = 6
+_DECLARED_REPORT_SCHEMA_VERSION = 7
 
 
 @dataclass(frozen=True)
@@ -1036,6 +1036,44 @@ def project_occurrences(
     return projected, requirements, summary
 
 
+def project_feature_occurrence_ids(
+    model: PartModel, occurrences: list[dict[str, Any]]
+) -> tuple[tuple[str, ...], ...]:
+    """Join projected occurrences to final IR positions through exact projected owners.
+
+    The returned tuple is live, generation-run data aligned with ``model.features``. It is
+    deliberately not a persistent feature map and never matches on kind, value, position, or
+    ordinal resemblance.
+    """
+
+    feature_ids = _feature_ids(model)
+    owner_positions = {
+        owner["id"]: index
+        for index, feature in enumerate(model.features)
+        for candidate, owner in (feature_ids[id(feature)],)
+        if candidate is feature
+    }
+    joined: list[list[str]] = [[] for _feature in model.features]
+    seen_occurrences: set[str] = set()
+    for occurrence in occurrences:
+        occurrence_id = occurrence.get("id")
+        owners = occurrence.get("owners")
+        if type(occurrence_id) is not str or not occurrence_id or not isinstance(owners, list):
+            raise ReportUnavailableError("projected occurrence has invalid owner identity")
+        if occurrence_id in seen_occurrences:
+            raise ReportUnavailableError("projected occurrence identity is repeated")
+        seen_occurrences.add(occurrence_id)
+        for owner in owners:
+            owner_id = owner.get("id") if isinstance(owner, dict) else None
+            if type(owner_id) is not str:
+                raise ReportUnavailableError("projected occurrence has invalid final owner")
+            position = owner_positions.get(owner_id)
+            if position is None:
+                raise ReportUnavailableError("projected occurrence names an unknown final owner")
+            joined[position].append(occurrence_id)
+    return tuple(tuple(ids) for ids in joined)
+
+
 def drawing_report(
     *,
     evidence: RecognitionEvidence | None,
@@ -1101,10 +1139,69 @@ def drawing_report(
     }
 
 
+def _declared_representations(model: PartModel, registry: object | None) -> tuple[dict, ...]:
+    """Project exact final annotation provenance without feature equality or name guessing."""
+
+    if registry is None:
+        return ()
+    names = getattr(registry, "names", None)
+    measurement_of = getattr(registry, "measurement_of", None)
+    satisfaction_of = getattr(registry, "satisfaction_of", None)
+    view_of = getattr(registry, "view_of", None)
+    named = getattr(registry, "named", None)
+    if not all(
+        callable(value) for value in (names, measurement_of, satisfaction_of, view_of, named)
+    ):
+        raise ReportUnavailableError("annotation provenance registry is unavailable")
+    names = cast(Any, names)
+    measurement_of = cast(Any, measurement_of)
+    satisfaction_of = cast(Any, satisfaction_of)
+    view_of = cast(Any, view_of)
+    named = cast(Any, named)
+    features = {id(feature): feature for feature in model.features}
+    rows: list[dict] = []
+    for name in sorted(names()):
+        measured: dict[int, set[str]] = {}
+        satisfied: dict[int, set[str]] = {}
+        for channel, target in (
+            (measurement_of(name), measured),
+            (satisfaction_of(name), satisfied),
+        ):
+            for identity in channel:
+                feature = getattr(identity, "feature", None)
+                parameter = getattr(identity, "parameter", None)
+                if features.get(id(feature)) is not feature or type(parameter) is not str:
+                    continue
+                target.setdefault(id(feature), set()).add(parameter)
+        for feature_id in sorted(
+            measured.keys() | satisfied.keys(),
+            key=lambda candidate: next(
+                index
+                for index, feature in enumerate(model.features)
+                if id(feature) == candidate and feature is features[candidate]
+            ),
+        ):
+            rows.append(
+                {
+                    "name": name,
+                    "type": type(named(name)).__name__,
+                    "view": view_of(name),
+                    "feature_object_id": feature_id,
+                    "measurements": sorted(measured.get(feature_id, ())),
+                    "satisfactions": sorted(satisfied.get(feature_id, ())),
+                }
+            )
+    return tuple(rows)
+
+
 def declared_drawing_report(
-    *, model: PartModel | None, lint: dict[str, object], source: str | PathLike[str] | None
+    *,
+    model: PartModel | None,
+    lint: dict[str, object],
+    source: str | PathLike[str] | None,
+    registry: object | None = None,
 ) -> dict[str, object]:
-    """Build the schema-v6 report for one declared sheet without inventing recognition."""
+    """Build the declared-sheet report from final IR and exact annotation provenance."""
 
     if model is None:
         raise ReportUnavailableError("the declared drawing has no final IR model")
@@ -1114,6 +1211,51 @@ def declared_drawing_report(
         if not isinstance(kind, str) or not kind:
             raise ReportUnavailableError("declared drawing contains an IR feature without a kind")
         by_kind[kind] += 1
+    feature_ids = _feature_ids(model)
+    identities = tuple(getattr(model, "declaration_identities", ()))
+    if identities and len(identities) != len(model.features):
+        raise ReportUnavailableError("declaration identity inventory is not aligned with final IR")
+    representations = _declared_representations(model, registry)
+    by_feature: dict[int, list[dict]] = {}
+    for row in representations:
+        feature_object_id = row.pop("feature_object_id")
+        by_feature.setdefault(feature_object_id, []).append(row)
+    entries = []
+    unidentified_owner_ids = []
+    for index, feature in enumerate(model.features):
+        owner = feature_ids[id(feature)][1]
+        identity = identities[index] if identities else None
+        if identity is None:
+            unidentified_owner_ids.append(owner["id"])
+            continue
+        occurrence_ids = list(identity.occurrence_ids)
+        entries.append(
+            {
+                "id": identity.declaration_id,
+                "selector": {
+                    "verb": "sheet.by_declaration",
+                    "argument": identity.declaration_id,
+                },
+                "owner": dict(owner),
+                "feature_kind": owner["kind"],
+                "parameters": [parameter.parameter_id for parameter in feature.parameters()],
+                "provenance": identity.provenance,
+                "recognition": {
+                    "correspondence": (
+                        "generation-run-reference" if occurrence_ids else "unavailable"
+                    ),
+                    "identity_scope": "generation-run-local" if occurrence_ids else None,
+                    "occurrence_ids": occurrence_ids,
+                    "reason": (
+                        "corroborate against the exact generation sidecar before relying on "
+                        "these run-local references"
+                        if occurrence_ids
+                        else "no recognition occurrence correspondence was declared"
+                    ),
+                },
+                "representations": by_feature.get(id(feature), []),
+            }
+        )
     lint = cast(dict[str, object], json_value(lint))
     quality = cast(dict[str, Any], lint.get("quality", {}))
     completeness = cast(dict[str, Any], quality.get("completeness", {}))
@@ -1135,9 +1277,19 @@ def declared_drawing_report(
             "authority": "final-ir",
             "feature_count": sum(by_kind.values()),
             "by_kind": dict(sorted(by_kind.items())),
-            "recognition_correspondence": "unavailable",
+            "identity_scope": "build-local",
+            "entries": entries,
+            "unidentified_owner_ids": unidentified_owner_ids,
+            "recognition_correspondence": (
+                "generation-run-references"
+                if any(entry["recognition"]["occurrence_ids"] for entry in entries)
+                else "unavailable"
+            ),
             "reason": (
-                "declared intent has no same-run accepted-occurrence ownership; "
+                "declared occurrence references are generation-run-local claims and require "
+                "the exact sidecar for corroboration; no correspondence was inferred on replay"
+                if any(entry["recognition"]["occurrence_ids"] for entry in entries)
+                else "declared intent has no same-run accepted-occurrence ownership; "
                 "no correspondence was inferred"
             ),
         },
@@ -1689,6 +1841,7 @@ __all__ = [
     "json_value",
     "producer",
     "project_occurrences",
+    "project_feature_occurrence_ids",
     "validate_report_inputs",
     "write_json_document",
 ]

@@ -100,12 +100,12 @@ features = _obj()
 part = features.body
 
 sheet = Sheet(part, title='DRAWING', number='DWG-001', scale=5.0, page=(297.0, 210.0))
-hole1 = sheet.hole(diameter=1.6, at=(0.8, 0, 0), axis="x").depth(8)   # ⌀1.6 blind 8
-step1 = sheet.step(diameter=3, length=5.3, at=(-5.85, 0, 0), axis="x", profile_group='detected-profile-1')   # ⌀3 × 5.3 step
-step2 = sheet.step(diameter=4, length=3.2, at=(-1.6, 0, 0), axis="x", profile_group='detected-profile-1')   # ⌀4 × 3.2 step
-step3 = sheet.step(diameter=6, length=0.5, at=(0.25, 0, 0), axis="x", profile_group='detected-profile-1')   # ⌀6 × 0.5 step
+hole1 = sheet.hole(diameter=1.6, at=(0.8, 0, 0), axis="x").depth(8).identify('declaration:1', provenance='detected-geometry', occurrence_ids=())   # ⌀1.6 blind 8
+step1 = sheet.step(diameter=3, length=5.3, at=(-5.85, 0, 0), axis="x", profile_group='detected-profile-1').identify('declaration:2', provenance='detected-geometry', occurrence_ids=())   # ⌀3 × 5.3 step
+step2 = sheet.step(diameter=4, length=3.2, at=(-1.6, 0, 0), axis="x", profile_group='detected-profile-1').identify('declaration:3', provenance='detected-geometry', occurrence_ids=())   # ⌀4 × 3.2 step
+step3 = sheet.step(diameter=6, length=0.5, at=(0.25, 0, 0), axis="x", profile_group='detected-profile-1').identify('declaration:4', provenance='detected-geometry', occurrence_ids=())   # ⌀6 × 0.5 step
 # ... step4, step5, boss1 ...
-envelope1 = sheet.envelope()   # envelope 20 × 10 × 10
+envelope1 = sheet.envelope().identify('declaration:7', provenance='derived', occurrence_ids=())   # envelope 20 × 10 × 10
 
 sheet.authored_dimensions()
 sheet.dimension(hole1, "bore.diameter")

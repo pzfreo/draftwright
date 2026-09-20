@@ -190,7 +190,7 @@ def _faces(evidence, references) -> list[dict[str, Any]]:
     return sorted(described, key=lambda item: json.dumps(_json_value_or_refuse(item)))
 
 
-def _found(evidence, ownership, model) -> list[dict[str, Any]]:
+def _found(evidence, ownership, model, occurrences=None) -> list[dict[str, Any]]:
     """Every accepted feature, as the recogniser stated it, beside what Draftwright did with it.
 
     The occurrence ledger comes from the shared report projector, which refuses an unclassified
@@ -198,10 +198,11 @@ def _found(evidence, ownership, model) -> list[dict[str, Any]]:
     account for.
     """
 
-    try:
-        occurrences, _requirements, _summary = project_occurrences(evidence, ownership, model)
-    except ReportUnavailableError as error:
-        raise InspectionUnavailableError(str(error)) from error
+    if occurrences is None:
+        try:
+            occurrences, _requirements, _summary = project_occurrences(evidence, ownership, model)
+        except ReportUnavailableError as error:
+            raise InspectionUnavailableError(str(error)) from error
 
     return [
         {
@@ -462,7 +463,12 @@ def inspect_step(path: str | PathLike[str]) -> dict[str, JsonValue]:
 
 
 def _document(
-    model: PartModel, analysis: Analysis, source_name: str, source_bytes: bytes
+    model: PartModel,
+    analysis: Analysis,
+    source_name: str,
+    source_bytes: bytes,
+    *,
+    _occurrences=None,
 ) -> dict[str, JsonValue]:
     if not analysis.part.solids():
         raise InspectionUnavailableError(f"{source_name!r} carries no solid body to inspect")
@@ -493,7 +499,12 @@ def _document(
         # The run options that determined the content below. Without this, two documents over
         # identical bytes can disagree and neither says why.
         "run": {"pmi_mode": pmi_mode},
-        "found": _found(analysis.recognition_evidence, analysis.recognition_ownership, model),
+        "found": _found(
+            analysis.recognition_evidence,
+            analysis.recognition_ownership,
+            model,
+            _occurrences,
+        ),
         "missed": _missed(analysis.recognition_evidence),
     }
     # Isolates the document from live objects, renders tuples as arrays, and rejects

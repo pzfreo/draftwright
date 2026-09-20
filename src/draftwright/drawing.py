@@ -1079,7 +1079,7 @@ class Drawing:
         feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
         can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
 
-        A declared drawing uses schema version 6: its final IR is the authority, and the report
+        A declared drawing uses schema version 7: its final IR is the authority, and the report
         preserves lint/quality observations while stating that recognition correspondence is
         unavailable. It never reconstructs occurrences from declared values. A framed or bare
         drawing whose exact occurrence ownership is unavailable, or a raw drawing with an
@@ -1095,7 +1095,10 @@ class Drawing:
                 getattr(self._analysis, "step_file", None) if self._analysis is not None else None
             )
             return declared_drawing_report(
-                model=self.model(), lint=self.lint_summary(), source=source
+                model=self.model(),
+                lint=self.lint_summary(),
+                source=source,
+                registry=self._registry,
             )
 
         snapshot = self.requirement_snapshot()

@@ -768,6 +768,8 @@ class TestEmit:
         line = _feature_line_for(_script_for(_plate()), "sheet.hole(diameter=8")
         # `mode="eval"` cannot parse an assignment, and the line binds a name since #922.
         call = ast.parse(_call_expr(line), mode="eval").body  # the sheet.hole(...) Call node
+        while isinstance(call, ast.Call) and getattr(call.func, "attr", None) != "hole":
+            call = call.func.value
         kw = {k.arg: k.value for k in call.keywords}
         assert ast.literal_eval(kw["count"]) == 2
         assert len(kw["members"].elts) == 2  # both hole positions spelled out

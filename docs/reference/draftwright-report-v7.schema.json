@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-report-v7.schema.json",
+  "title": "Draftwright declared-sheet report v7",
+  "description": "A final-IR report with build-scoped declaration selectors and exact annotation provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "scope", "status", "producer", "source", "outputs", "declarations", "lint"],
+  "properties": {
+    "schema": { "const": "draftwright-report" },
+    "schema_version": { "const": 7 },
+    "scope": { "const": "declared-sheet" },
+    "status": { "enum": ["bounded-clear", "needs-attention"] },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "quiddity"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "quiddity": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["step", "build123d"] },
+        "name": { "type": ["string", "null"] }
+      }
+    },
+    "outputs": { "type": "object" },
+    "declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "feature_count", "by_kind", "identity_scope", "entries", "unidentified_owner_ids", "recognition_correspondence", "reason"],
+      "properties": {
+        "authority": { "const": "final-ir" },
+        "feature_count": { "type": "integer", "minimum": 0 },
+        "by_kind": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 } },
+        "identity_scope": { "const": "build-local" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "selector", "owner", "feature_kind", "parameters", "provenance", "recognition", "representations"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "selector": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["verb", "argument"],
+                "properties": {
+                  "verb": { "const": "sheet.by_declaration" },
+                  "argument": { "type": "string", "minLength": 1 }
+                }
+              },
+              "owner": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "kind"],
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "kind": { "type": "string", "minLength": 1 }
+                }
+              },
+              "feature_kind": { "type": "string", "minLength": 1 },
+              "parameters": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+              "provenance": { "enum": ["authored", "detected-geometry", "pmi", "structured-note", "derived"] },
+              "recognition": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["correspondence", "identity_scope", "occurrence_ids", "reason"],
+                "properties": {
+                  "correspondence": { "enum": ["generation-run-reference", "unavailable"] },
+                  "identity_scope": { "type": ["string", "null"], "enum": ["generation-run-local", null] },
+                  "occurrence_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                  "reason": { "type": "string", "minLength": 1 }
+                }
+              },
+              "representations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "type", "view", "measurements", "satisfactions"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "type": { "type": "string", "minLength": 1 },
+                    "view": { "type": ["string", "null"] },
+                    "measurements": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+                    "satisfactions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "unidentified_owner_ids": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "recognition_correspondence": { "enum": ["generation-run-references", "unavailable"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lint": { "type": "object" }
+  }
+}

@@ -4052,6 +4052,13 @@ class PartModel:
             raise ValueError(
                 "PartModel.declaration_identities entries must be DeclarationIdentity or None"
             )
+        declaration_ids = [
+            identity.declaration_id
+            for identity in self.declaration_identities
+            if identity is not None
+        ]
+        if len(set(declaration_ids)) != len(declaration_ids):
+            raise ValueError("PartModel.declaration_identities requires unique declaration IDs")
         self._validate_structured_note_origins()
         self._validate_schedule_origins()
 

@@ -2,7 +2,7 @@
 
 For common-source multi-sheet reports, see [Shared drawing documents](document.md).
 `DocumentResult.report()` uses document scope/version 4 or 5. A raw automatic
-`Drawing.report()` uses version 3; a declared `Sheet` drawing uses version 6.
+`Drawing.report()` uses version 3; a declared `Sheet` drawing uses version 7.
 
 `Drawing.report()` returns a JSON-compatible Draftwright report. Version 3 is a
 bounded contract: it projects the accepted occurrences from one raw automatic recognition
@@ -24,21 +24,24 @@ report or filesystem failure leaves an existing destination unchanged. Temporary
 best-effort when the filesystem itself refuses it, and a cleanup error never masks the primary
 failure. Parent directories are not created implicitly.
 
-## Declared Sheet reports (version 6)
+## Declared Sheet reports (version 7)
 
-A drawing built from `Sheet` or an injected `PartModel` has declared intent but no authoritative
-accepted-occurrence ownership. Version 6 therefore uses `scope: "declared-sheet"` and
-`declarations.authority: "final-ir"`. It retains the complete `lint_summary()` payload and a
-count by final IR feature kind, while stating `recognition_correspondence: "unavailable"`.
-It does not reconstruct occurrence links from values, declaration order, generated Python names,
-annotation names, or coordinates.
+A drawing built from `Sheet` or an injected `PartModel` uses `scope: "declared-sheet"` and
+`declarations.authority: "final-ir"`. Version 7 retains the complete `lint_summary()` payload,
+the final IR inventory, build-scoped declaration selectors, and exact annotation names, views,
+measurement identities, and structured-note satisfactions from the drawing registry. A generated
+script can also carry occurrence references from its exact generation sidecar. Those references
+remain generation-run-local claims: a consumer must corroborate them against that sidecar's source
+hash before relying on them. A hand-authored or replayed declaration without that evidence states
+the correspondence is unavailable. The report never reconstructs links from values, list order,
+Python variable spelling, annotation names, or coordinates.
 
 The closed contract is
-[`draftwright-report-v6.schema.json`](draftwright-report-v6.schema.json). A
+[`draftwright-report-v7.schema.json`](draftwright-report-v7.schema.json). A
 `bounded-clear` declared report means only that the available declared-drawing critique requires
 no attention. It is not recognition recall, physical completeness, or manufacturing readiness.
-The generated script does not embed the earlier recognition run; its adjacent inspection sidecar
-remains the record of what that generation run recognised.
+The generated script embeds only build-scoped selectors and run-local occurrence references; its
+adjacent inspection sidecar remains the authority for what that generation run recognised.
 
 Version 3 adds exact outer-profile support sources for angular requirements.
 [Version 2](draftwright-report-v2.schema.json) named the actual recognition provider in `producer.quiddity`.
