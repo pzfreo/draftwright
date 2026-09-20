@@ -1076,13 +1076,13 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
 
-    assert (drawing.page_w, drawing.page_h, drawing.scale) == (841.0, 594.0, 10.0)
-    assert set(drawing.views) == {"front", "side", "iso"}
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (594.0, 420.0, 2.0)
+    assert set(drawing.views) == {"front", "side", "iso", "detail_a"}
     assert drawing.view_decision["status"] == "reduced"
     assert drawing.view_decision["chosen"] == ("front", "side")
-    assert drawing.scale_decision["status"] == "automatic_replanned"
+    assert drawing.scale_decision["status"] == "automatic"
     attempts = drawing.scale_decision["attempts"]
-    assert attempts[-1]["status"] == "complete"
+    assert attempts[0]["status"] == "detail_reservation_conservative"
     assert {
         source_id
         for attempt in attempts[:-1]

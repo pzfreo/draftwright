@@ -248,10 +248,10 @@ def test_unplaceable_short_step_records_left_strip_failure(monkeypatch):
 def test_crowded_step_warning_guides_to_detail_and_clears_after_recovery(
     slanted_blind_step,
 ):
-    plain = build_drawing(slanted_blind_step, detail_view=False)
-    dropped = [i for i in plain.lint() if i.code == "step_dim_dropped"]
-    assert len(dropped) == 1
-    assert "detail_view=True" in dropped[0].suggestion
+    from draftwright import ScaleIncompatibilityError
 
-    detailed = build_drawing(slanted_blind_step, detail_view=True)
+    with pytest.raises(ScaleIncompatibilityError, match="step_dim_dropped"):
+        build_drawing(slanted_blind_step, page="A4", scale=1, detail_view=False)
+
+    detailed = build_drawing(slanted_blind_step, page="A4", scale=1, detail_view=True)
     assert not [i for i in detailed.lint() if i.code == "step_dim_dropped"]

@@ -11,10 +11,11 @@ def test_grm04_measured_replan_keeps_diameter_and_location_on_a4():
     drawing = build_drawing(_FIXTURE, title="GRM-04")
 
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
-    assert drawing.scale == 5.0
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0)
+    assert drawing.scale == 2.0
+    assert drawing.scale_decision["status"] == "automatic"
+    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0, 10.0)
     assert [item["reason"] for item in drawing.scale_decision["attempts"]] == [
+        "measured_upscale",
         "measured_upscale",
         "measured_upscale",
     ]

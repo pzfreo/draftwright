@@ -1102,7 +1102,7 @@ def test_detail_redraw_drops_are_not_counted_again_as_a_request_failure(monkeypa
 
     monkeypatch.setattr(PlacementContext, "place", reject_detail_dimension)
     with pytest.warns(UserWarning, match="drops required annotation outcomes"):
-        drawing = build_drawing(_crowded_step_part())
+        drawing = build_drawing(_crowded_step_part(), page="A4")
 
     drops = [
         issue
