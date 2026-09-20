@@ -77,7 +77,7 @@ from draftwright.compose import (
 from draftwright.drawing import Drawing, feature_key
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
-from draftwright.linting.quality import is_unreadable_layout_issue
+from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
 from draftwright.model import (
     Datum,
     DeclarationIdentity,
@@ -1727,6 +1727,47 @@ def _scale_blockers(drawing: Drawing, *, physical: bool = True) -> tuple[dict, .
     return _scale_blockers_from_issues(drawing.lint(physical=physical))
 
 
+def _hard_layout_issues(issues) -> tuple:
+    """Settled-drawing defects that no page/scale proposal may outrank.
+
+    Required placement drops are deliberately separate: they are the next
+    verdict tier.  This first tier covers off-sheet, overlapping, or otherwise
+    structurally unreadable ink using the same classification already applied
+    to corrective candidates.
+    """
+    return tuple(issue for issue in issues if is_hard_layout_issue(issue))
+
+
+def _structural_layout_issues(issues) -> tuple:
+    """All established structural vetoes, including lower-tier crossings."""
+    return tuple(
+        issue for issue in issues if issue.severity == "error" or is_unreadable_layout_issue(issue)
+    )
+
+
+def _automatic_candidate_rejection(issues, blockers) -> str | None:
+    """Apply the settled page/scale veto tiers in their authoritative order."""
+    if _hard_layout_issues(issues):
+        return "structural_error"
+    if blockers:
+        return "required_outcome_dropped"
+    if _structural_layout_issues(issues):
+        return "structural_error"
+    return None
+
+
+def _layout_issue_records(issues) -> tuple[dict, ...]:
+    """Stable plain-data hard-layout evidence for ``scale_decision``."""
+    return tuple(
+        {
+            "severity": issue.severity,
+            "code": issue.code,
+            "message": issue.message,
+        }
+        for issue in issues
+    )
+
+
 def _blocker_identity(blocker) -> str:
     """A stable identity for one required placement failure, for comparing two builds.
 
@@ -1747,63 +1788,70 @@ def _blocker_identity(blocker) -> str:
 
 
 def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
-    """Give the automatic path the completeness the explicit path already has (#1250).
+    """Fail closed when the settled automatic plan is incomplete or unreadable.
 
     `_scale_blockers` ran on the explicit-scale policy loop and on nothing else, so the two
     paths disagreed about the same part: asked for the sheet and scale it had just chosen
     itself, the engine would refuse or quietly reduce the scale, while the automatic path
     returned the incomplete drawing reporting `passed: True`.
 
-    Severity is NOT the discriminator: the explicit path never accepts a drawing with blockers
-    at all. The automatic path cannot safely search scales here, because annotations whose
-    semantic identity has not yet reached the registry make candidate coverage unverifiable.
-    Accepting a candidate from the known subset would violate ADR 3 (was 0017) / ADR 2 (was 0018) by allowing
-    source-only or physical requirements to disappear. It therefore fails closed on the
-    settled drawing and records `plan_incomplete` at error severity. This makes `passed` false
-    without introducing a second sheet/scale-selection policy ahead of #1262.
+    Corrective candidates have already exhausted the bounded recovery ladder. This final
+    audit must not let a hard overlap/bounds defect disappear merely because every required
+    annotation survived, nor let an incomplete drawing report itself as an ordinary automatic
+    result. Required losses still receive the established ``plan_incomplete`` summary; hard
+    layout evidence is already first-class lint and is copied into ``scale_decision``.
     """
     # One materialised recognition-free lint feeds blockers, provenance, and the
     # final decision. Corrective candidates pass their acceptance lint through so
     # the selected winner is not immediately re-linted from scratch.
     issues = tuple(drawing.lint(physical=False)) if issues is None else tuple(issues)
     blockers = _scale_blockers_from_issues(issues)
-    if not blockers:
+    hard_layout = _hard_layout_issues(issues)
+    if not blockers and not hard_layout:
         return drawing
 
-    codes = ", ".join(sorted({item["code"] for item in blockers}))
-    dropped = [i for i in issues if _is_required_scale_drop(i)]
-    measurements = tuple(
-        dict.fromkeys(mid for issue in dropped for mid in getattr(issue, "measurement_ids", ()))
-    )
-    hole_requirements = tuple(
-        dict.fromkeys(
-            req for issue in dropped for req in getattr(issue, "hole_requirement_ids", ())
+    if blockers:
+        codes = ", ".join(sorted({item["code"] for item in blockers}))
+        dropped = [i for i in issues if _is_required_scale_drop(i)]
+        measurements = tuple(
+            dict.fromkeys(
+                mid for issue in dropped for mid in getattr(issue, "measurement_ids", ())
+            )
         )
-    )
-    source_ids = tuple(
-        dict.fromkeys(sid for issue in dropped for sid in getattr(issue, "source_ids", ()))
-    )
-    drawing.registry.record_issue(
-        LintIssue(
-            severity="error",
-            code="plan_incomplete",
-            message=(
-                f"the automatically planned sheet drops {len(blockers)} required "
-                f"annotation outcome(s) ({codes})"
-            ),
-            measurement_ids=measurements,
-            source_ids=source_ids,
-            hole_requirement_ids=hole_requirements,
+        hole_requirements = tuple(
+            dict.fromkeys(
+                req for issue in dropped for req in getattr(issue, "hole_requirement_ids", ())
+            )
         )
-    )
+        source_ids = tuple(
+            dict.fromkeys(sid for issue in dropped for sid in getattr(issue, "source_ids", ()))
+        )
+        drawing.registry.record_issue(
+            LintIssue(
+                severity="error",
+                code="plan_incomplete",
+                message=(
+                    f"the automatically planned sheet drops {len(blockers)} required "
+                    f"annotation outcome(s) ({codes})"
+                ),
+                measurement_ids=measurements,
+                source_ids=source_ids,
+                hole_requirement_ids=hole_requirements,
+            )
+        )
+
+    violations = _layout_issue_records(hard_layout)
+    final_status = "invalid" if violations else "incomplete"
+    final_reason = "hard_layout_invalid" if violations else "required_outcome_dropped"
     previous = getattr(drawing, "scale_decision", {})
     previous_attempts = tuple(previous.get("attempts", ()))
     previous_scales = tuple(previous.get("attempted_scales", ()))
     incomplete_attempt = _scale_attempt(
         drawing.scale,
-        "incomplete",
+        final_status,
         blockers,
-        reason="required_outcome_dropped",
+        reason=final_reason,
+        violations=violations,
         views=drawing.views,
         page=(drawing.page_w, drawing.page_h),
     )
@@ -1811,17 +1859,24 @@ def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
         policy="automatic",
         requested=None,
         effective=drawing.scale,
-        status="incomplete",
+        status=final_status,
         blockers=blockers,
+        violations=violations,
         attempted=previous_scales + (drawing.scale,),
         attempts=previous_attempts + (incomplete_attempt,),
     )
-    warnings.warn(
-        f"the automatically planned sheet drops required annotation outcomes ({codes}); "
-        f"returning the incomplete drawing — see Drawing.scale_decision",
-        ScaleCompletenessWarning,
-        stacklevel=2,
-    )
+    if violations:
+        violation_codes = ", ".join(sorted({item["code"] for item in violations}))
+        message = (
+            f"the automatically planned sheet remains structurally unreadable "
+            f"({violation_codes}); returning the invalid drawing — see Drawing.scale_decision"
+        )
+    else:
+        message = (
+            f"the automatically planned sheet drops required annotation outcomes ({codes}); "
+            f"returning the incomplete drawing — see Drawing.scale_decision"
+        )
+    warnings.warn(message, ScaleCompletenessWarning, stacklevel=2)
     return drawing
 
 
@@ -1906,10 +1961,11 @@ def _scale_decision(
     effective: float,
     status: str,
     blockers=(),
+    violations=(),
     attempted=(),
     attempts=(),
 ) -> dict:
-    return {
+    decision = {
         "policy": policy,
         "requested_scale": requested,
         "effective_scale": effective,
@@ -1918,6 +1974,9 @@ def _scale_decision(
         "attempted_scales": tuple(attempted),
         "attempts": tuple(attempts),
     }
+    if violations:
+        decision["violations"] = tuple(violations)
+    return decision
 
 
 def _scale_attempt(
@@ -1928,6 +1987,7 @@ def _scale_attempt(
     error: str | None = None,
     reason: str | None = None,
     rejection: str | None = None,
+    violations=(),
     views: Iterable[str] | None = None,
     page: tuple[float, float] | None = None,
 ) -> dict:
@@ -1939,6 +1999,8 @@ def _scale_attempt(
         attempt["reason"] = reason
     if rejection is not None:
         attempt["rejection"] = rejection
+    if violations:
+        attempt["violations"] = tuple(violations)
     if views is not None:
         attempt["views"] = tuple(views)
     if page is not None:
@@ -1960,6 +2022,7 @@ def _blocks_all_smaller_scales(blockers) -> bool:
 
 
 _AUTOMATIC_UPSCALE_TRIAL_LIMIT = 2
+_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT = 2
 
 
 def _has_detail_view(views) -> bool:
@@ -2259,20 +2322,11 @@ def build_drawing(
             unrecoverable_blockers = tuple(
                 blocker for blocker in candidate_blockers if not blocker["source_ids"]
             )
-            candidate_errors = tuple(
-                issue for issue in candidate_issues if issue.severity == "error"
-            )
-            if unrecoverable_blockers or candidate_errors or absent_owners:
+            rejection = _automatic_candidate_rejection(candidate_issues, unrecoverable_blockers)
+            if rejection is not None or absent_owners:
                 proposed = settled_principal_views
-                reason = (
-                    "annotation_owned_by_absent_view"
-                    if absent_owners
-                    else (
-                        "required_outcome_dropped"
-                        if unrecoverable_blockers
-                        else "structural_error"
-                    )
-                )
+                reason = "annotation_owned_by_absent_view" if absent_owners else rejection
+                assert reason is not None
                 view_attempts[-1] = {
                     "views": proposed,
                     "status": "rejected",
@@ -2339,6 +2393,7 @@ def build_drawing(
             page=None,
             error=None,
             rejection=None,
+            violations=(),
         ):
             if candidate is not None:
                 views = candidate.views
@@ -2350,6 +2405,7 @@ def build_drawing(
                     blockers,
                     reason=reason,
                     rejection=rejection,
+                    violations=violations,
                     views=views,
                     page=page,
                     error=error,
@@ -2359,9 +2415,12 @@ def build_drawing(
         def _qualify_candidate(
             candidate, *, require_axial_coverage=False, allow_recovery_detail=False
         ):
-            """Run cheap semantic gates before the one full acceptance lint."""
+            """Apply the settled-drawing verdict before semantic recovery constraints."""
+            issues, blockers = _automatic_assessment(candidate)
+            if _hard_layout_issues(issues):
+                return issues, blockers, "structural_error"
             if _has_detail_view(candidate.views) and not allow_recovery_detail:
-                return (), (), "recovery_detail_retained"
+                return issues, blockers, "recovery_detail_retained"
             if require_axial_coverage:
                 assert latest_analysis is not None
                 profile_kw = (
@@ -2370,14 +2429,11 @@ def build_drawing(
                     else {"prof": latest_analysis.prof}
                 )
                 if lint_axial_coverage(latest_analysis.part, candidate, **profile_kw):
-                    return (), (), "axial_coverage_incomplete"
-            issues, blockers = _automatic_assessment(candidate)
-            if any(
-                issue.severity == "error" or is_unreadable_layout_issue(issue) for issue in issues
-            ):
-                return issues, blockers, "structural_error"
+                    return issues, blockers, "axial_coverage_incomplete"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"
+            if _structural_layout_issues(issues):
+                return issues, blockers, "structural_error"
             return issues, blockers, None
 
         # Every later scale/page/ISO correction is a rebuild. Carry the selected topology
@@ -2461,23 +2517,13 @@ def build_drawing(
                     blockers,
                     reason=reason,
                     rejection=rejection,
+                    violations=_layout_issue_records(_hard_layout_issues(issues)),
                     candidate=larger,
                 )
             return None, None
 
-        def _try_larger_scales_on_selected_page(starting_scale, *, reason, require_axial_coverage):
-            """Try the bounded larger-scale tail on the ALREADY SELECTED sheet.
-
-            The sheet is not the first lever.  Raising the scale spreads the features apart
-            on the page the automatic selection already chose, so a placement shortage that
-            a larger sheet would clear can often be cleared without changing the sheet the
-            shop receives, and without spending an optional view for it (#1338).  Each
-            candidate passes the same structural, required-outcome and (when the failure
-            was an axial one) axial-coverage gates as any other attempt.
-            """
-            candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
-                :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
-            ]
+        def _try_scales_on_selected_page(candidate_scales, *, reason, require_axial_coverage):
+            """Try a bounded scale sequence on the already selected sheet."""
             for candidate_scale in candidate_scales:
                 candidate_drawing = selected_page_scale_candidates.get(candidate_scale)
                 failure = selected_page_scale_failures.get(candidate_scale)
@@ -2534,9 +2580,41 @@ def build_drawing(
                     blockers,
                     reason=reason,
                     rejection=rejection,
+                    violations=_layout_issue_records(_hard_layout_issues(issues)),
                     candidate=candidate_drawing,
                 )
             return None, None
+
+        def _try_larger_scales_on_selected_page(starting_scale, *, reason, require_axial_coverage):
+            """Try the bounded larger-scale tail on the already selected sheet.
+
+            Raising the scale spreads features apart before a placement shortage spends a
+            sheet or optional view (#1338).
+            """
+            candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
+                :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
+            ]
+            return _try_scales_on_selected_page(
+                candidate_scales,
+                reason=reason,
+                require_axial_coverage=require_axial_coverage,
+            )
+
+        def _try_validity_scales_on_selected_page(
+            starting_scale, *, reason, require_axial_coverage
+        ):
+            """Try nearby smaller, then larger scales for a hard sheet-validity defect."""
+            smaller = [item for item in _SCALES if item < starting_scale][
+                :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
+            ]
+            larger = sorted(item for item in _SCALES if item > starting_scale)[
+                :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
+            ]
+            return _try_scales_on_selected_page(
+                (*smaller, *larger),
+                reason=reason,
+                require_axial_coverage=require_axial_coverage,
+            )
 
         # #1155: the compose-time estimate conservatively reserves an enlarged
         # detail for a crowded run.  Some larger preferred scales make that run
@@ -2589,6 +2667,41 @@ def build_drawing(
                         settled_issues = larger_issues
                         replanned = True
 
+        # Hard validity is the first page/scale verdict tier. It opens the bounded recovery
+        # ladder independently of completeness, and it never spends the optional isometric:
+        # ADR 2 reserves view removal for manufacturing completeness. A clean candidate must
+        # pass the same settled-drawing gate as every later correction.
+        original_issues, _original_blockers = _automatic_assessment(drawing)
+        hard_layout = _hard_layout_issues(original_issues)
+        if hard_layout:
+            settled_issues = original_issues
+            _record_attempt(
+                drawing.scale,
+                "hard_layout_invalid",
+                _original_blockers,
+                reason="layout_validity_recovery",
+                violations=_layout_issue_records(hard_layout),
+                candidate=drawing,
+            )
+            recovered, recovered_issues = _try_validity_scales_on_selected_page(
+                drawing.scale,
+                reason="scale_retry_after_hard_layout",
+                require_axial_coverage=False,
+            )
+            if recovered is None and page is None:
+                recovered, recovered_issues = _try_larger_standard_pages(
+                    original_page,
+                    include_iso="iso" in drawing.views,
+                    reason="page_escalation_after_hard_layout",
+                    fallback_views=tuple(drawing.views),
+                    require_axial_coverage=False,
+                    allow_recovery_detail=True,
+                )
+            if recovered is not None:
+                drawing = recovered
+                settled_issues = recovered_issues
+                replanned = True
+
         # #1678: a required placement loss must spend the bounded scale/page recovery
         # budget even when there is no optional ISO to yield.  The older recovery block
         # below was entered only when an ISO was present, so an explicitly disabled ISO
@@ -2602,7 +2715,7 @@ def build_drawing(
         ):
             original_issues, required_blockers = _automatic_assessment(drawing)
             settled_issues = original_issues
-            if required_blockers:
+            if required_blockers and not _hard_layout_issues(original_issues):
                 _record_attempt(
                     drawing.scale,
                     "required_outcome_dropped",
@@ -2792,6 +2905,7 @@ def build_drawing(
                                 blockers,
                                 reason="remove_optional_iso",
                                 rejection=rejection,
+                                violations=_layout_issue_records(_hard_layout_issues(issues)),
                                 candidate=without_iso,
                             )
                             # #1299: page preference is subordinate to manufacturing
@@ -2872,14 +2986,11 @@ def build_drawing(
         unrecoverable_blockers = tuple(
             blocker for blocker in candidate_blockers if not blocker["source_ids"]
         )
-        candidate_errors = tuple(issue for issue in candidate_issues if issue.severity == "error")
-        if unrecoverable_blockers or candidate_errors or absent_owners:
+        rejection = _automatic_candidate_rejection(candidate_issues, unrecoverable_blockers)
+        if rejection is not None or absent_owners:
             proposed = settled_principal_views
-            reason = (
-                "annotation_owned_by_absent_view"
-                if absent_owners
-                else ("required_outcome_dropped" if unrecoverable_blockers else "structural_error")
-            )
+            reason = "annotation_owned_by_absent_view" if absent_owners else rejection
+            assert reason is not None
             view_attempts[-1] = {
                 "views": proposed,
                 "status": "rejected",

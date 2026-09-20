@@ -94,6 +94,44 @@ def test_automatic_incomplete_summary_preserves_every_provenance_channel():
     assert summary.source_ids == dropped.source_ids
 
 
+def test_automatic_final_audit_records_unrecoverable_hard_layout():
+    overlap = LintIssue(
+        severity="warning",
+        code="annotation_overlap",
+        message="synthetic labels overlap",
+    )
+
+    class Registry:
+        def __init__(self):
+            self.issues = [overlap]
+
+        def record_issue(self, issue):
+            self.issues.append(issue)
+
+    registry = Registry()
+    drawing = SimpleNamespace(
+        scale=1.0,
+        page_w=297.0,
+        page_h=210.0,
+        views={"front": object()},
+        registry=registry,
+        lint=lambda physical=False: tuple(registry.issues),
+        scale_decision={"attempted_scales": (), "attempts": ()},
+    )
+
+    with pytest.warns(ScaleCompletenessWarning, match="structurally unreadable"):
+        returned = _complete_automatic_plan(drawing)
+
+    assert returned is drawing
+    assert drawing.scale_decision["status"] == "invalid"
+    assert drawing.scale_decision["blockers"] == ()
+    assert [item["code"] for item in drawing.scale_decision["violations"]] == [
+        "annotation_overlap"
+    ]
+    assert drawing.scale_decision["attempts"][-1]["reason"] == "hard_layout_invalid"
+    assert [issue.code for issue in registry.issues] == ["annotation_overlap"]
+
+
 @pytest.mark.timeout(120)
 def test_fixture_proves_requested_scale_loses_an_outcome_but_half_scale_is_complete():
     with pytest.warns(ScaleCompletenessWarning, match="scale_policy='permissive'"):
