@@ -1088,13 +1088,13 @@ class Drawing:
         shrinking the denominator. Calling this method never changes rendered drawing content.
         """
 
-        from draftwright.reporting import _declared_drawing_report, drawing_report
+        from draftwright.reporting import declared_drawing_report, drawing_report
 
         if self._model_declared:
             source = (
                 getattr(self._analysis, "step_file", None) if self._analysis is not None else None
             )
-            return _declared_drawing_report(
+            return declared_drawing_report(
                 model=self.model(), lint=self.lint_summary(), source=source
             )
 

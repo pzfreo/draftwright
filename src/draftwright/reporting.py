@@ -1101,7 +1101,7 @@ def drawing_report(
     }
 
 
-def _declared_drawing_report(
+def declared_drawing_report(
     *, model: PartModel | None, lint: dict[str, object], source: str | PathLike[str] | None
 ) -> dict[str, object]:
     """Build the schema-v6 report for one declared sheet without inventing recognition."""
@@ -1678,6 +1678,7 @@ __all__ = [
     "build_requirement_catalog",
     "match_requirement_catalog",
     "drawing_report",
+    "declared_drawing_report",
     "document_report",
     # The shared occurrence projector (#1461). Three schema'd public documents are built
     # from these — the drawing report, the STEP inspection document, and the sidecar the

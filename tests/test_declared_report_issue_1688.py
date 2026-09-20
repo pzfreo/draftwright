@@ -9,7 +9,7 @@ from build123d import Box, Cylinder, Pos, export_step
 from jsonschema.validators import validator_for
 
 from draftwright import ReportUnavailableError, Sheet
-from draftwright.reporting import _declared_drawing_report
+from draftwright.reporting import declared_drawing_report
 from draftwright.sheet_emit import generate_sheet_script
 
 _SCHEMA = Path(__file__).parents[1] / "docs/reference/draftwright-report-v6.schema.json"
@@ -94,7 +94,7 @@ def test_declared_report_status_is_fail_closed(
         "quality": {"completeness": {"coverage": coverage, "audited_score": audited_score}},
     }
 
-    report = _declared_drawing_report(model=SimpleNamespace(features=[]), lint=lint, source=None)
+    report = declared_drawing_report(model=SimpleNamespace(features=[]), lint=lint, source=None)
 
     assert report["status"] == expected
 
@@ -108,4 +108,4 @@ def test_declared_report_status_is_fail_closed(
 )
 def test_declared_report_refuses_an_invalid_final_ir(model, match) -> None:
     with pytest.raises(ReportUnavailableError, match=match):
-        _declared_drawing_report(model=model, lint={}, source=None)
+        declared_drawing_report(model=model, lint={}, source=None)
