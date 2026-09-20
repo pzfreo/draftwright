@@ -91,6 +91,14 @@ class LeaderCandidateRegion(str, Enum):
     INTERIOR = "interior"
 
 
+class LeaderRegionPolicy(str, Enum):
+    """Internal candidate-family policy; not yet part of the public DSL."""
+
+    AUTO = "auto"
+    INTERIOR = "interior"
+    EXTERIOR = "exterior"
+
+
 @dataclass(frozen=True)
 class FeatureLeaderCandidate:
     """One typed producer alternative before analytical measurement.
@@ -105,6 +113,139 @@ class FeatureLeaderCandidate:
     elbow: Any
     feature: Any
     region: LeaderCandidateRegion = LeaderCandidateRegion.EXTERIOR
+
+
+_INTERIOR_RAY_ANGLES = (
+    0.0,
+    math.pi / 4.0,
+    -math.pi / 4.0,
+    math.pi / 2.0,
+    -math.pi / 2.0,
+    3.0 * math.pi / 4.0,
+    -3.0 * math.pi / 4.0,
+    math.pi,
+)
+# Eight one-text-lane stations on each ray keep the producer's contribution
+# bounded at 64 alternatives per physical anchor.  That covers a useful local
+# neighbourhood without making candidate count depend on part or sheet size.
+_INTERIOR_LANES_PER_RAY = 8
+
+
+def _ray_exit_distance(point, direction, bounds) -> float:
+    """Distance from an in-bounds point to the first rectangle edge on a ray."""
+
+    x, y = point
+    dx, dy = direction
+    if not (bounds[0] <= x <= bounds[2] and bounds[1] <= y <= bounds[3]):
+        return 0.0
+    distances = []
+    if dx > 1e-12:
+        distances.append((bounds[2] - x) / dx)
+    elif dx < -1e-12:
+        distances.append((bounds[0] - x) / dx)
+    if dy > 1e-12:
+        distances.append((bounds[3] - y) / dy)
+    elif dy < -1e-12:
+        distances.append((bounds[1] - y) / dy)
+    positive = [distance for distance in distances if distance >= 0.0]
+    return min(positive, default=0.0)
+
+
+def interior_leader_candidates(
+    tip,
+    preferred_elbow,
+    feature,
+    *,
+    silhouette,
+    analytical_geometry,
+    draft,
+):
+    """Yield deterministic feature-relative label candidates inside a view.
+
+    The producer's established tip-to-elbow ray supplies orientation rather than
+    page coordinates.  Eight rotations cover the natural ray, its perpendiculars,
+    diagonals, and reverse.  Candidate spacing is one text lane, so the inventory
+    scales with drafting style and available view space instead of part-specific
+    distances.  Exact projected-edge and annotation clearance remains the shared
+    solver's responsibility.
+    """
+
+    tip2 = (float(tip[0]), float(tip[1]))
+    dx = float(preferred_elbow[0]) - tip2[0]
+    dy = float(preferred_elbow[1]) - tip2[1]
+    length = math.hypot(dx, dy)
+    if length <= 1e-12:
+        return
+    ux, uy = dx / length, dy / length
+    spacing = max(
+        float(draft.font_size + 2.0 * draft.pad_around_text),
+        float(draft.arrow_length + draft.pad_around_text),
+    )
+    for angle in _INTERIOR_RAY_ANGLES:
+        cosine, sine = math.cos(angle), math.sin(angle)
+        direction = (ux * cosine - uy * sine, ux * sine + uy * cosine)
+        limit = _ray_exit_distance(tip2, direction, silhouette)
+        for lane in range(1, _INTERIOR_LANES_PER_RAY + 1):
+            distance = lane * spacing
+            if distance >= limit - 1e-9:
+                break
+            elbow = (
+                tip2[0] + direction[0] * distance,
+                tip2[1] + direction[1] * distance,
+                0.0,
+            )
+            try:
+                geometry = analytical_geometry(tip, elbow, feature)
+                label = _coerce_box(geometry[0]) if geometry is not None else None
+            except Exception:  # noqa: BLE001 — one optional ray must fail closed
+                label = None
+            if label is not None and _box_inside(label, silhouette):
+                yield FeatureLeaderCandidate(
+                    tip=tip,
+                    elbow=elbow,
+                    feature=feature,
+                    region=LeaderCandidateRegion.INTERIOR,
+                )
+
+
+def feature_leader_candidates(
+    raw_candidates,
+    *,
+    region_policy,
+    silhouette,
+    analytical_geometry,
+    draft,
+):
+    """Apply one region policy to a producer's existing physical anchors.
+
+    Families continue to own only their semantic tip/preferred-elbow pairs and
+    annotation builder.  This adapter owns region expansion and filtering, so
+    no family reimplements interior rays, distances, containment, or typed
+    provenance.  Legacy tuples remain exterior anchors.
+    """
+
+    policy = LeaderRegionPolicy(region_policy)
+    for raw in raw_candidates:
+        candidate = (
+            raw
+            if isinstance(raw, FeatureLeaderCandidate)
+            else FeatureLeaderCandidate(tip=raw[0], elbow=raw[1], feature=raw[2])
+        )
+        if candidate.region is LeaderCandidateRegion.INTERIOR:
+            if policy is not LeaderRegionPolicy.EXTERIOR:
+                yield candidate
+            continue
+        if policy is not LeaderRegionPolicy.EXTERIOR and analytical_geometry is not None:
+            yield from interior_leader_candidates(
+                candidate.tip,
+                candidate.elbow,
+                candidate.feature,
+                silhouette=silhouette,
+                analytical_geometry=analytical_geometry,
+                draft=draft,
+            )
+        if policy is not LeaderRegionPolicy.INTERIOR:
+            yield candidate
 
 
 @dataclass(frozen=True)
