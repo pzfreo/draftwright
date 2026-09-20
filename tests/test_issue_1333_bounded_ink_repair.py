@@ -170,14 +170,16 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
     assert drawing.lint(physical=False) == before
 
 
-def test_automatic_and_declared_builds_use_the_same_recognition_free_repair():
+def test_automatic_and_declared_builds_use_the_same_recognition_free_repair(monkeypatch):
     from conftest import recognition_consumer_calls
 
+    from draftwright import builder
+
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
-    # Unpinned on both sides, unlike the tests above: this one compares the
-    # automatic and declared paths to each other, so they must land on the same
-    # sheet. Passing `scale=` to the declared build would force a recognition
-    # call that `recognition_consumer_calls` exists to prove does not happen.
+    # Keep the historically dirty proposal for this repair test. Automatic hard-validity
+    # recovery now selects a clean half-scale candidate before repair runs, which would make
+    # the comparison vacuous; the validity ladder has its own dedicated contracts.
+    monkeypatch.setattr(builder, "_hard_layout_issues", lambda _issues: ())
     raw = build_drawing(part, repair=False)
     assert len(raw.lint(physical=False)) == 2
     automatic = build_drawing(part)
@@ -196,18 +198,18 @@ def test_automatic_and_declared_builds_use_the_same_recognition_free_repair():
     assert dict(counts) == {}
 
 
-def test_partial_repair_keeps_infeasibility_visible_and_is_idempotent():
+def test_repair_clears_feasible_ink_and_is_idempotent():
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
     drawing = build_drawing(part, scale=2, repair=False)
-    assert [issue.code for issue in drawing.lint(physical=False)] == ["annotation_ink_overlap"] * 3
+    assert [issue.code for issue in drawing.lint(physical=False)] == ["annotation_ink_overlap"] * 2
     before = drawing.measurement_snapshot()
     drawing.repair()
-    assert [issue.code for issue in drawing.lint(physical=False)] == ["annotation_ink_overlap"]
+    assert drawing.lint(physical=False) == []
     assert compare_measurements(before, drawing)["status"] == "preserved"
     repaired = list(drawing.items)
     drawing.repair()
     assert all(a is b for a, b in zip(drawing.items, repaired, strict=True))
-    assert [issue.code for issue in drawing.lint(physical=False)] == ["annotation_ink_overlap"]
+    assert drawing.lint(physical=False) == []
 
 
 def test_zero_repair_budget_keeps_the_actual_collision_untouched(monkeypatch):

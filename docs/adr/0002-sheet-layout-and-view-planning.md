@@ -82,6 +82,12 @@ dependency runs one way: requirements determine views.
 14. **Exact detail/iso factors; unequal principal scales refused.** `test_issue_1204_multiscale_view_issues.py`.
 15. **The solve is recordable.** `build_drawing(trace=…)` dumps every corridor solve and pass event;
     a strip-full drop names its occupants. `test_solve_trace.py`.
+16. **Settled page validity precedes completeness.** Every automatic page/scale correction is
+    judged from its finished lint: page/title-block bounds and annotation-ink overlaps veto a
+    proposal before required-outcome completeness is compared. Crossings and other structural
+    vetoes remain later tiers. A dirty result left after the bounded ladder is exhausted records
+    `status="invalid"` plus stable violation evidence rather than reporting an ordinary automatic
+    choice. `test_issue_1299_page_escalation.py`, `test_issue_1146_scale_completeness.py`.
 
 **Unguarded.** That the optimiser never shrinks text to fit is a stated rule of 0018 with no
 dedicated mutation guard. Automatic principal-view selection has no guard because it is not built.

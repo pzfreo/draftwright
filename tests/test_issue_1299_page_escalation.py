@@ -40,8 +40,9 @@ def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
     # #1338: larger scales on the selected sheet are still the first recovery lever. With
     # external text clearance included in view blocks (#1262), this synthetic detected model's
     # overall-height dimension no longer fits beside the end view on A4. At 10:1 the
-    # native shoulder chain is incomplete, so its earlier coverage gate rejects the
-    # proposal. Both scales fail before the workflow spends the ISO and advances to A3.
+    # drawing is also outside the page, so hard validity rejects it before its incomplete
+    # shoulder chain is considered. Both scales fail before the workflow spends the ISO
+    # and advances to A3.
     drawing = build_drawing(_five_step_grm_profile(), pmi="off")
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
@@ -62,13 +63,13 @@ def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
             (297.0, 210.0),
             "rejected",
             "scale_escalation_on_selected_page",
-            "structural_error",
+            "required_outcome_dropped",
         ),
         (
             (297.0, 210.0),
             "rejected",
             "scale_escalation_on_selected_page",
-            "axial_coverage_incomplete",
+            "structural_error",
         ),
         ((297.0, 210.0), "rejected", "remove_optional_iso", "axial_coverage_incomplete"),
         ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
@@ -325,6 +326,78 @@ def test_required_drop_without_iso_still_uses_bounded_scale_and_page_recovery(mo
         ),
         ("complete", "page_escalation_after_required_drop", None),
     ]
+
+
+def test_hard_layout_precedes_completeness_in_automatic_page_scale_verdict(monkeypatch):
+    """A dirty 1:10 proposal cannot beat a clean 1:5 proposal on the same sheet."""
+
+    overlap = LintIssue(
+        severity="warning",
+        code="annotation_overlap",
+        message="synthetic labels overlap",
+    )
+    dropped = LintIssue(
+        severity="warning",
+        code="callout_dropped",
+        message="required callout has no route",
+        outcome_stage="placement",
+    )
+
+    class FakeDrawing:
+        def __init__(self, *, page, scale, issues):
+            self.page_w, self.page_h = page
+            self.scale = scale
+            self.views = {"front": object()}
+            self.solve_trace = None
+            self._issues = tuple(issues)
+
+        def model(self):
+            return SimpleNamespace(authored_dimensions=None)
+
+        def lint(self, *, physical=False):
+            return self._issues
+
+    def fake_one_pass(
+        _step_file,
+        *,
+        scale,
+        page,
+        _include_iso,
+        _analysis_sink,
+        **_kwargs,
+    ):
+        assert not _include_iso
+        _analysis_sink(
+            SimpleNamespace(
+                arrangement=builder.ARRANGEMENTS[0],
+                part=object(),
+                prof=object(),
+            )
+        )
+        assert page in {None, (420.0, 297.0)}
+        candidate_scale = 10.0 if scale is None else scale
+        issues = {
+            10.0: (overlap, dropped),
+            5.0: (),
+        }[candidate_scale]
+        return FakeDrawing(page=(420.0, 297.0), scale=candidate_scale, issues=issues)
+
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
+
+    drawing = builder.build_drawing(object(), auto_dims=False, _include_iso=False)
+
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert drawing.scale == 5.0
+    assert drawing.scale_decision["status"] == "automatic_replanned"
+    attempts = drawing.scale_decision["attempts"]
+    assert [
+        (attempt["status"], attempt["reason"], attempt.get("rejection")) for attempt in attempts
+    ] == [
+        ("hard_layout_invalid", "layout_validity_recovery", None),
+        ("complete", "scale_retry_after_hard_layout", None),
+    ]
+    assert [item["code"] for item in attempts[0]["violations"]] == ["annotation_overlap"]
+    assert "violations" not in attempts[1]
 
 
 def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch):

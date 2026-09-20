@@ -33,10 +33,25 @@ CASES = {
     "bored_plate": (Box(90, 60, 10) - Cylinder(5, 10), False),
 }
 
+_DEFECT_SCALES = {
+    "plain_box": 2.0,
+    "tall_box": 1.0,
+    "stepped": 1.0,
+    "bored_plate": 1.0,
+}
 
-def _build(name, *, keep_out, monkeypatch):
+
+def _build(name, *, keep_out, monkeypatch, freeze_defect=False):
     if not keep_out:
         monkeypatch.setattr(_common, "pending_title_block_box", lambda _dwg: None)
+    if freeze_defect:
+        return build_drawing(
+            CASES[name][0],
+            number="X",
+            page="A4",
+            scale=_DEFECT_SCALES[name],
+            scale_policy="permissive",
+        )
     return build_drawing(CASES[name][0], number="X")
 
 
@@ -65,7 +80,9 @@ def test_precondition_the_defect_is_present_without_the_keep_out(name, monkeypat
     Without this, three of the four cases below would pass against completely unfixed
     code: their geometry simply never reaches the block.
     """
-    drawing = _build(name, keep_out=False, monkeypatch=monkeypatch)
+    # Pin the historical failing proposal: automatic page/scale validity now rejects and
+    # repairs this dirty candidate, which would hide the keep-out mutation under test.
+    drawing = _build(name, keep_out=False, monkeypatch=monkeypatch, freeze_defect=True)
     assert bool(_inside_the_block(drawing)) is CASES[name][1]
 
 

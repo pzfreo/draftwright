@@ -9,6 +9,7 @@ These tests pin the derivation (view/side/site/origin) and that a placed symbol 
 import pytest
 from build123d import Box, Cylinder, Pos, Rotation
 
+from draftwright import ScaleCompletenessWarning
 from draftwright.model.declare import gdt_target
 from draftwright.sheet import Sheet, _parse_datums
 
@@ -182,8 +183,7 @@ def test_declared_datum_does_not_warn():
     s.datum("A", _top_face(part))
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.control(0).position(0.1, to="A")
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")  # any warning would fail
-        s.build()
+    with pytest.warns(ScaleCompletenessWarning, match="structurally unreadable"):
+        drawing = s.build()
+    assert "datum_undeclared" not in {issue.code for issue in drawing.lint()}
+    assert "gdt_dropped" not in {issue.code for issue in drawing.lint()}

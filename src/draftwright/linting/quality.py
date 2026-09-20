@@ -540,6 +540,24 @@ _PHYSICAL_COLLISION_CODES = frozenset(
     }
 )
 
+# First-tier page/scale validity failures. These are concrete sheet-bounds or ink-overlap
+# defects, not every legibility observation: required drops belong to completeness and
+# material/leader crossings are a later verdict tier.
+_HARD_LAYOUT_CODES = frozenset(
+    {
+        "annotation_ink_overlap",
+        "annotation_out_of_bounds",
+        "annotation_overlap",
+        "feature_leader_fixed_ink_unverified",
+        "label_centerline_overlap",
+        "leader_line_through_text",
+        "title_field_overflow",
+        "view_annotation_overlap",
+        "view_out_of_bounds",
+        "view_overlap",
+    }
+)
+
 
 def is_unreadable_layout_issue(issue) -> bool:
     """Whether *issue* proves ink is structurally unreadable or off sheet.
@@ -553,6 +571,11 @@ def is_unreadable_layout_issue(issue) -> bool:
     return issue.code in _LEGIBILITY_CODES and (
         issue.severity in {"warning", "error"} or issue.code in _PHYSICAL_COLLISION_CODES
     )
+
+
+def is_hard_layout_issue(issue) -> bool:
+    """Whether *issue* invalidates a settled page/scale before completeness is compared."""
+    return issue.code in _HARD_LAYOUT_CODES and is_unreadable_layout_issue(issue)
 
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2}

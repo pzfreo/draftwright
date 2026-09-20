@@ -1,4 +1,4 @@
-"""#1155 — GRM-04 must use A4 and retain both Ø2.4 requirements."""
+"""#1155 — GRM-04 must retain both Ø2.4 requirements on a clean sheet."""
 
 from pathlib import Path
 
@@ -7,19 +7,26 @@ from draftwright import build_drawing
 _FIXTURE = Path(__file__).parent / "fixtures" / "grm04_drive_plate.step"
 
 
-def test_grm04_measured_replan_keeps_diameter_and_location_on_a4():
+def test_grm04_measured_replan_keeps_diameter_and_location_on_a_clean_sheet():
     drawing = build_drawing(_FIXTURE, title="GRM-04")
 
-    assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
-    assert drawing.scale == 2.0
-    assert drawing.scale_decision["status"] == "automatic"
-    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0, 10.0)
-    assert [item["reason"] for item in drawing.scale_decision["attempts"]] == [
-        "measured_upscale",
-        "measured_upscale",
-        "measured_upscale",
-    ]
-    assert all(item["page"] == (297.0, 210.0) for item in drawing.scale_decision["attempts"])
+    # The ISO-7200 title added by #1739 intersects side-view line-work on the former A4/5:1
+    # result. Hard settled-layout validity therefore outranks paper economy and selects the
+    # first complete, clean proposal instead of preserving that stale page expectation.
+    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
+    assert drawing.scale == 5.0
+    assert drawing.scale_decision["status"] == "automatic_replanned"
+    assert any(
+        item["status"] == "hard_layout_invalid" for item in drawing.scale_decision["attempts"]
+    )
+    assert drawing.scale_decision["attempts"][-1] == {
+        "scale": 5.0,
+        "status": "complete",
+        "blockers": (),
+        "reason": "page_escalation_after_hard_layout",
+        "views": ("front", "plan", "side", "iso"),
+        "page": (420.0, 297.0),
+    }
 
     hole = next(
         feature
@@ -45,5 +52,6 @@ def test_grm04_measured_replan_keeps_diameter_and_location_on_a4():
         issue
         for issue in drawing.lint()
         if issue.code.endswith("_dropped")
-        or issue.code in {"annotation_overlap", "annotation_out_of_bounds", "view_overlap"}
+        or "overlap" in issue.code
+        or issue.code in {"annotation_out_of_bounds", "view_out_of_bounds"}
     ]
