@@ -72,7 +72,7 @@ from draftwright.linting.round_bottom_blind_slot_coverage import (
     lint_round_bottom_blind_slot_coverage,
 )
 from draftwright.linting.slot_coverage import lint_slot_coverage
-from draftwright.linting.structural import is_dimension_like, lint_drawing
+from draftwright.linting.structural import annotation_bounds, is_dimension_like, lint_drawing
 from draftwright.linting.suggest import _suggest_fix
 from draftwright.linting.through_step_coverage import lint_through_step_coverage
 
@@ -81,6 +81,7 @@ __all__ = [
     "CoverageState",
     "EXAMINABLE_DECLARED_KINDS",
     "LintIssue",
+    "annotation_bounds",
     "is_dimension_like",
     "lint_angled_step_coverage",
     "lint_claimed_representations",

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-replay-assessment-v1.schema.json",
+  "title": "Draftwright generated-script replay assessment v1",
+  "description": "The strict declared drawing and exact file identities produced by one successful generated-script replay.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "scope", "status", "producer", "source", "script", "run", "outputs", "semantic_links", "drawing"],
+  "properties": {
+    "schema": { "const": "draftwright-replay-assessment" },
+    "schema_version": { "const": 1 },
+    "scope": { "const": "generated-script-replay" },
+    "status": { "enum": ["bounded-clear", "needs-attention"] },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "quiddity"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "quiddity": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name", "sha256", "reason"],
+          "properties": {
+            "kind": { "const": "step" },
+            "name": { "type": "string", "minLength": 1 },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "reason": { "type": "null" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name", "sha256", "reason"],
+          "properties": {
+            "kind": { "const": "build123d" },
+            "name": { "type": "null" },
+            "sha256": { "type": "null" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "script": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pmi_mode", "formats", "reproducible"],
+      "properties": {
+        "pmi_mode": { "enum": ["off", "report", "annotate"] },
+        "formats": {
+          "type": "array",
+          "items": { "enum": ["svg", "dxf", "pdf", "png"] },
+          "uniqueItems": true
+        },
+        "reproducible": { "type": "boolean" }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["format", "path", "sha256", "bytes"],
+        "properties": {
+          "format": { "enum": ["svg", "dxf", "pdf", "png"] },
+          "path": { "type": "string", "minLength": 1 },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "semantic_links": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "declarations", "representations", "identity_scope"],
+      "properties": {
+        "authority": { "const": "drawing.declarations" },
+        "declarations": { "const": "drawing.declarations.entries[].id" },
+        "representations": { "const": "drawing.declarations.entries[].representations[].name" },
+        "identity_scope": { "const": "build-local" }
+      }
+    },
+    "drawing": {
+      "$ref": "https://draftwright.dev/schema/draftwright-report-v8.schema.json"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

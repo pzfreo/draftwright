@@ -902,7 +902,7 @@ def test_injected_declared_model_uses_the_declared_report_contract() -> None:
 
     report = drawing.report()
 
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["scope"] == "declared-sheet"
     assert report["declarations"]["feature_count"] == 0
 

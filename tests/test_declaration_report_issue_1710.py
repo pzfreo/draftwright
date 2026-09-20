@@ -14,7 +14,7 @@ from draftwright.model import DeclarationIdentity
 from draftwright.reporting import declared_drawing_report
 from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
 
-_SCHEMA = Path(__file__).parents[1] / "docs/reference/draftwright-report-v7.schema.json"
+_SCHEMA = Path(__file__).parents[1] / "docs/reference/draftwright-report-v8.schema.json"
 
 
 def test_report_maps_selector_owner_parameter_and_exact_live_ink() -> None:

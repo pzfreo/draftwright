@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-report-v8.schema.json",
+  "title": "Draftwright declared-sheet report v8",
+  "description": "A final-IR report with exact declaration, final ink, lint, and bounded placement provenance.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "scope", "status", "producer", "source", "outputs", "declarations", "layout", "lint"],
+  "$defs": {
+    "stringArray": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "remedies": {
+      "type": "array",
+      "items": { "enum": ["page", "scale", "view", "section", "schedule", "side", "priority", "pin"] },
+      "uniqueItems": true
+    },
+    "box": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "number" }, { "type": "number" }, { "type": "number" }, { "type": "number" }
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "bounds": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "value"],
+          "properties": {
+            "availability": { "const": "available" },
+            "value": { "$ref": "#/$defs/box" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "reason"],
+          "properties": {
+            "availability": { "const": "unavailable" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "semantic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "owner_ids", "declaration_ids", "parameters"],
+      "properties": {
+        "availability": { "enum": ["available", "unavailable"] },
+        "owner_ids": { "$ref": "#/$defs/stringArray" },
+        "declaration_ids": { "$ref": "#/$defs/stringArray" },
+        "parameters": { "$ref": "#/$defs/stringArray" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "properties": {
+    "schema": { "const": "draftwright-report" },
+    "schema_version": { "const": 8 },
+    "scope": { "const": "declared-sheet" },
+    "status": { "enum": ["bounded-clear", "needs-attention"] },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "quiddity"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "quiddity": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["step", "build123d"] },
+        "name": { "type": ["string", "null"] }
+      }
+    },
+    "outputs": { "type": "object" },
+    "declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "feature_count", "by_kind", "identity_scope", "entries", "unidentified_owner_ids", "recognition_correspondence", "reason"],
+      "properties": {
+        "authority": { "const": "final-ir" },
+        "feature_count": { "type": "integer", "minimum": 0 },
+        "by_kind": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 } },
+        "identity_scope": { "const": "build-local" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "selector", "owner", "feature_kind", "parameters", "provenance", "recognition", "representations"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "selector": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["verb", "argument"],
+                "properties": {
+                  "verb": { "const": "sheet.by_declaration" },
+                  "argument": { "type": "string", "minLength": 1 }
+                }
+              },
+              "owner": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "kind"],
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "kind": { "type": "string", "minLength": 1 }
+                }
+              },
+              "feature_kind": { "type": "string", "minLength": 1 },
+              "parameters": { "$ref": "#/$defs/stringArray" },
+              "provenance": { "enum": ["authored", "detected-geometry", "pmi", "structured-note", "derived"] },
+              "recognition": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["correspondence", "identity_scope", "occurrence_ids", "reason"],
+                "properties": {
+                  "correspondence": { "enum": ["generation-run-reference", "unavailable"] },
+                  "identity_scope": { "type": ["string", "null"], "enum": ["generation-run-local", null] },
+                  "occurrence_ids": { "$ref": "#/$defs/stringArray" },
+                  "reason": { "type": "string", "minLength": 1 }
+                }
+              },
+              "representations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name", "type", "view", "pinned", "measurements", "satisfactions"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "type": { "type": "string", "minLength": 1 },
+                    "view": { "type": ["string", "null"] },
+                    "pinned": { "type": "boolean" },
+                    "measurements": { "$ref": "#/$defs/stringArray" },
+                    "satisfactions": { "$ref": "#/$defs/stringArray" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "unidentified_owner_ids": { "$ref": "#/$defs/stringArray" },
+        "recognition_correspondence": { "enum": ["generation-run-references", "unavailable"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "layout": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "reason"],
+          "properties": {
+            "availability": { "const": "unavailable" },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["availability", "coordinate_space", "edit_surface", "remedy_vocabulary", "page", "views", "decisions", "annotations", "findings", "placement"],
+          "properties": {
+            "availability": { "const": "available" },
+            "coordinate_space": { "const": "page-mm-from-sheet-origin" },
+            "edit_surface": { "const": "semantic-dsl-only" },
+            "remedy_vocabulary": { "$ref": "#/$defs/remedies" },
+            "page": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["width", "height", "scale", "drawable_bounds", "margins"],
+              "properties": {
+                "width": { "type": "number", "exclusiveMinimum": 0 },
+                "height": { "type": "number", "exclusiveMinimum": 0 },
+                "scale": { "type": "number", "exclusiveMinimum": 0 },
+                "drawable_bounds": { "$ref": "#/$defs/box" },
+                "margins": { "$ref": "#/$defs/box" }
+              }
+            },
+            "views": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "bounds"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "bounds": { "$ref": "#/$defs/box" }
+                }
+              }
+            },
+            "decisions": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["scale", "views", "arrangement", "section", "detail", "tables"],
+              "properties": {
+                "scale": { "type": "object" },
+                "views": { "type": "object" },
+                "arrangement": { "type": "object" },
+                "section": { "type": "object" },
+                "detail": { "type": "object" },
+                "tables": { "type": "object" }
+              }
+            },
+            "annotations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "type", "view", "semantic", "ink_bounds", "label_bounds", "segments", "segments_scope"],
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "type": { "type": "string", "minLength": 1 },
+                  "view": { "type": ["string", "null"] },
+                  "semantic": { "$ref": "#/$defs/semantic" },
+                  "ink_bounds": { "$ref": "#/$defs/bounds" },
+                  "label_bounds": { "$ref": "#/$defs/bounds" },
+                  "segments": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "prefixItems": [{ "type": "number" }, { "type": "number" }],
+                        "minItems": 2,
+                        "maxItems": 2
+                      },
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  },
+                  "segments_scope": { "const": "public-2d-linework-only" }
+                }
+              }
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["lint_issue_index", "code", "annotation_names", "declaration_ids", "owner_ids", "remedies"],
+                "properties": {
+                  "lint_issue_index": { "type": "integer", "minimum": 0 },
+                  "code": { "type": "string" },
+                  "annotation_names": { "$ref": "#/$defs/stringArray" },
+                  "declaration_ids": { "$ref": "#/$defs/stringArray" },
+                  "owner_ids": { "$ref": "#/$defs/stringArray" },
+                  "remedies": { "$ref": "#/$defs/remedies" }
+                }
+              }
+            },
+            "placement": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["availability"],
+              "properties": {
+                "availability": { "enum": ["available", "partial", "unavailable"] },
+                "reason": { "type": "string", "minLength": 1 },
+                "version": { "const": 2 },
+                "solves": { "type": "array", "items": { "type": "object" } },
+                "pass_events": { "type": "array", "items": { "type": "object" } },
+                "escalations": { "type": "array", "items": { "type": "object" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "lint": { "type": "object" }
+  }
+}

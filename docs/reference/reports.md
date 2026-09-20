@@ -2,7 +2,7 @@
 
 For common-source multi-sheet reports, see [Shared drawing documents](document.md).
 `DocumentResult.report()` uses document scope/version 4 or 5. A raw automatic
-`Drawing.report()` uses version 3; a declared `Sheet` drawing uses version 7.
+`Drawing.report()` uses version 3; a declared `Sheet` drawing uses version 8.
 
 `Drawing.report()` returns a JSON-compatible Draftwright report. Version 3 is a
 bounded contract: it projects the accepted occurrences from one raw automatic recognition
@@ -24,10 +24,10 @@ report or filesystem failure leaves an existing destination unchanged. Temporary
 best-effort when the filesystem itself refuses it, and a cleanup error never masks the primary
 failure. Parent directories are not created implicitly.
 
-## Declared Sheet reports (version 7)
+## Declared Sheet reports (version 8)
 
 A drawing built from `Sheet` or an injected `PartModel` uses `scope: "declared-sheet"` and
-`declarations.authority: "final-ir"`. Version 7 retains the complete `lint_summary()` payload,
+`declarations.authority: "final-ir"`. Version 8 retains the complete `lint_summary()` payload,
 the final IR inventory, build-scoped declaration selectors, and exact annotation names, views,
 measurement identities, and structured-note satisfactions from the drawing registry. A generated
 script can also carry occurrence references from its exact generation sidecar. Those references
@@ -36,8 +36,23 @@ hash before relying on them. A hand-authored or replayed declaration without tha
 the correspondence is unavailable. The report never reconstructs links from values, list order,
 Python variable spelling, annotation names, or coordinates.
 
+`layout` adds page/scale/margin facts, resolved view bounds, and each registered annotation's
+full-ink bounds, label bounds, public 2D line segments, view, and exact semantic links. Its
+`findings` point back to the raw `lint.issues` rows by index; pair findings retain both named
+annotations. Remedies are limited to supported semantic controls (`page`, `scale`, `view`,
+`section`, `schedule`, `side`, `priority`, and `pin`). Page coordinates are evidence for review,
+not an editing API.
+
+Detailed solver outcomes are opt-in. Without `build_drawing(trace=...)`,
+`layout.placement.availability` is `unavailable` with a reason rather than an empty successful
+solve. With tracing enabled, corridor outcomes retain placed/dropped/deduplicated/promoted/deferred
+states, blockers and rejection reasons; dropped corridor candidates are joined to final IR and
+declaration authority when the route retained it. Routes that do not retain that provenance say
+so explicitly. A recorder failure produces `partial`, never a complete-looking trace.
+
 The closed contract is
-[`draftwright-report-v7.schema.json`](draftwright-report-v7.schema.json). A
+[`draftwright-report-v8.schema.json`](draftwright-report-v8.schema.json). Version 7 remains
+published for existing documents. A
 `bounded-clear` declared report means only that the available declared-drawing critique requires
 no attention. It is not recognition recall, physical completeness, or manufacturing readiness.
 The generated script embeds only build-scoped selectors and run-local occurrence references; its
@@ -111,7 +126,7 @@ the report never invents them.
 The version-3 recognised projection refuses provider-framed, foreign-result, and bare drawings
 when they do not carry exact run-local occurrence ownership. It also refuses a raw automatic
 drawing when any accepted occurrence remains unclassified; the report never silently removes
-that occurrence from its denominator. Declared drawings route to version 6 instead. Neither
+that occurrence from its denominator. Declared drawings route to version 8 instead. Neither
 contract reconstructs ownership from values, labels, rendered coordinates, topology traversal,
 or a second recognition scan.
 
@@ -184,3 +199,11 @@ accepted finding with the outcome Draftwright gave it. The one thing that docume
 carry, which the embedded snapshot did, is each finding's tracking issue: it states a stable
 `reason` code, and where a decision is tracked is repository detail rather than evidence about
 the part.
+
+Running that generated Python writes
+`<stem>.draftwright-assessment.json`, whose separate
+[`draftwright-replay-assessment` schema](replay-assessment.md) binds the exact script, STEP,
+exported files, and this strict declared-sheet report. The inspection says what generation-time
+recognition saw; the replay assessment says what the current editable declaration built and
+drew. Read both without merging their scopes or treating build-local declaration IDs as durable
+topology identity.

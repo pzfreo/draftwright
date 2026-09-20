@@ -4,6 +4,23 @@
 
 ### Added
 
+- A bounded real-part canary now proves the complete agent improvement loop on NIST CTC-01
+  (#1716): inspection-to-declaration joins, traced baseline, one sanctioned `Sheet` layout edit,
+  replay assessment, fixed-denominator comparison, and fail-closed deletion/owner/provenance
+  checks. It performs exactly two CAD builds in the existing single PR canary lane.
+- Replay assessments v2 now retain exact confirmed compiled measurement meanings, and
+  `compare_assessments()` evaluates two same-source replays as separate semantic, lint,
+  completeness, fidelity, layout, and availability deltas (#1712). Caller-fixed requirements
+  expose shared omissions; authorised design changes remain separate; no composite score is
+  produced.
+- Generated scripts now atomically write a versioned post-build replay assessment beside their
+  outputs (#1715). It binds the exact STEP and edited Python bytes, producer/run options, output
+  hashes, declaration/representation map, layout evidence, and lint from the same finalized
+  drawing. Failed replays clear only stale Draftwright-owned assessments; `--no-report` opts out.
+- Declared drawing report schema v8 publishes page/view geometry, named annotation ink and
+  public line segments, raw-lint joins, semantic remedy choices, and explicit opt-in solver
+  evidence (#1711). Coordinates are review evidence only; editable links remain final-IR
+  declarations, and an untraced or partially traced build says so instead of appearing clear.
 - STEP inspection schema v4 projects a deterministic report-local source-face roster and
   Quiddity 0.3.1's closed graph rooted at rejected candidates (#1726). Accepted occurrences and
   candidates carry exact defining/constituent face links; rejected roots and direct relationships

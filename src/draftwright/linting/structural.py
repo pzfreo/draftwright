@@ -103,6 +103,16 @@ def _ann_box(item, cache):
     return box
 
 
+def annotation_bounds(item, cache):
+    """Return one annotation's cached full-ink bounds, or ``None`` if unmeasurable.
+
+    This is the public read used by report projection. It shares lint's identity/location-aware
+    memo instead of importing placement's private wrapper or measuring the same ink again.
+    """
+
+    return _ann_box(item, cache)
+
+
 def _centerline_extent(cl_item, box_cache=None):
     """Return (min_x, min_y, max_x, max_y) for a centreline.
 
@@ -306,6 +316,7 @@ def lint_drawing(
     view_names: list | None = None,
     _aggregation: _IssueAggregation | None = None,
     display_decimals: dict[int, int] | None = None,
+    annotation_names: dict[int, str] | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -385,6 +396,8 @@ def lint_drawing(
             that order would silently bind a cache dict here — degrading the name, then
             raising ``KeyError`` once the cache was warm and its ``id()`` keys were
             indexed as a name list.
+        annotation_names: optional ``id(annotation) -> registry name`` mapping. It is used only
+            to attach exact build-local provenance to findings; it never changes a predicate.
 
     Returns:
         list[LintIssue].
@@ -397,6 +410,7 @@ def lint_drawing(
         raise ValueError(f"drawing_scale must be positive, got {drawing_scale}")
 
     issues: list[LintIssue] = []
+    names = {} if annotation_names is None else annotation_names
     box_cache = {} if ann_box_cache is None else ann_box_cache
     # Per-run label_bbox warning memo (#711 review / Codex sweep): threaded to every
     # check so one bad item warns once per lint run, with no cross-run global state.
@@ -415,7 +429,13 @@ def lint_drawing(
     for item in items:
         _lint_title_fields(item, issues)
         if getattr(item, "elbow", None) is not None:
-            _lint_leader(item, issues, box_cache, warned=warned_label_bbox)
+            _lint_leader(
+                item,
+                issues,
+                box_cache,
+                warned=warned_label_bbox,
+                annotation_name=names.get(id(item)),
+            )
         elif is_dimension_like(item):
             _lint_dim(
                 item,
@@ -566,12 +586,21 @@ def lint_drawing(
                         f"line-work through the label '{crossed_label}', so separating "
                         "the text is not enough — move what is drawn (#1321)"
                     )
+                named_pair = tuple(
+                    dict.fromkeys(
+                        name
+                        for name in (names.get(id(item_a)), names.get(id(item_b)))
+                        if name is not None
+                    )
+                )
                 overlap_issue = LintIssue(
                     severity="warning",
                     message=(
                         f"labels '{la}' and '{lb}' overlap by {ox:.1f}×{oy:.1f} mm — {remedy}"
                     ),
                     code="annotation_overlap",
+                    annotation_name=named_pair[0] if named_pair else None,
+                    related_annotation_names=named_pair[1:],
                 )
                 issues.append(overlap_issue)
                 # `annotation_overlap` deliberately does NOT enter #1147's ledger,
@@ -646,6 +675,12 @@ def lint_drawing(
                     ),
                     code="annotation_ink_overlap",
                     location=location,
+                    annotation_name=names.get(id(crossed)),
+                    related_annotation_names=(
+                        (crosser_name,)
+                        if (crosser_name := names.get(id(crosser))) is not None
+                        else ()
+                    ),
                 )
                 issues.append(issue)
                 # #1147: the defect belongs to the label being obscured, not to
@@ -693,6 +728,7 @@ def lint_drawing(
                             f"({detail}) — increase margin or reduce offset"
                         ),
                         code="annotation_out_of_bounds",
+                        annotation_name=names.get(id(item)),
                     )
                 )
 
@@ -1434,7 +1470,9 @@ def _lint_dim(
             )
 
 
-def _lint_leader(item, issues, box_cache=None, warned=None) -> None:
+def _lint_leader(
+    item, issues, box_cache=None, warned=None, *, annotation_name: str | None = None
+) -> None:
     # #701: was a whole-body `except Exception: pass` — an internal bug silently
     # disabled the check forever. Only the duck-typed reads are guarded now.
     box = _label_bbox(item, warned)
@@ -1463,5 +1501,6 @@ def _lint_leader(item, issues, box_cache=None, warned=None) -> None:
                 ),
                 location=(ex, ey),
                 code="leader_line_through_text",
+                annotation_name=annotation_name,
             )
         )

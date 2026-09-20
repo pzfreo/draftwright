@@ -12,7 +12,7 @@ from draftwright import ReportUnavailableError, Sheet
 from draftwright.reporting import declared_drawing_report
 from draftwright.sheet_emit import generate_sheet_script
 
-_SCHEMA = Path(__file__).parents[1] / "docs/reference/draftwright-report-v7.schema.json"
+_SCHEMA = Path(__file__).parents[1] / "docs/reference/draftwright-report-v8.schema.json"
 
 
 def _drawing():
@@ -30,7 +30,7 @@ def test_declared_sheet_report_uses_final_ir_authority_and_retains_lint() -> Non
     report = drawing.report()
 
     assert report["schema"] == "draftwright-report"
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["scope"] == "declared-sheet"
     assert report["source"] == {"kind": "build123d", "name": None}
     assert report["declarations"]["authority"] == "final-ir"
@@ -70,7 +70,7 @@ def test_generated_script_can_write_its_own_declared_report(tmp_path) -> None:
     exec(compile(prefix, str(script), "exec"), namespace)  # noqa: S102 — emitted public DSL
     report = namespace["drawing"].report()
 
-    assert report["schema_version"] == 7
+    assert report["schema_version"] == 8
     assert report["scope"] == "declared-sheet"
     assert report["declarations"]["recognition_correspondence"] == "generation-run-references"
     assert report["declarations"]["entries"]

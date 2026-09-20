@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-assessment-comparison-v1.schema.json",
+  "title": "Draftwright replay assessment comparison v1",
+  "description": "A deterministic, non-composite evidence vector comparing two compatible generated-script replay assessments.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "scope", "decision", "reasons", "compatibility", "policy", "lint", "requirements", "completeness", "fidelity", "layout", "unscored", "unavailable", "intentional_changes", "restraint", "manufacturing_readiness"],
+  "properties": {
+    "schema": { "const": "draftwright-assessment-comparison" },
+    "schema_version": { "const": 1 },
+    "scope": { "const": "same-source-replay-delta" },
+    "decision": { "enum": ["preferred", "rejected", "incomparable", "no-preference"] },
+    "reasons": { "$ref": "#/$defs/stringArray" },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comparable", "reasons"],
+      "properties": {
+        "comparable": { "type": "boolean" },
+        "reasons": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "policy": { "$ref": "#/$defs/nullableObject" },
+    "lint": { "$ref": "#/$defs/nullableObject" },
+    "requirements": { "$ref": "#/$defs/nullableObject" },
+    "completeness": { "$ref": "#/$defs/nullableObject" },
+    "fidelity": { "$ref": "#/$defs/nullableObject" },
+    "layout": { "$ref": "#/$defs/nullableObject" },
+    "unscored": { "$ref": "#/$defs/nullableObject" },
+    "unavailable": { "type": "object" },
+    "intentional_changes": { "type": "array", "items": { "type": "object" } },
+    "restraint": { "$ref": "#/$defs/unavailable" },
+    "manufacturing_readiness": { "$ref": "#/$defs/unavailable" }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nullableObject": {
+      "oneOf": [{ "type": "null" }, { "type": "object" }]
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "reason"],
+      "properties": {
+        "availability": { "const": "unavailable" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

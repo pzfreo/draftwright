@@ -20,7 +20,8 @@ the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpac
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
-(`sheet_emit.py`), the read-only STEP inspection surface (`inspection.py`), the
+(`sheet_emit.py`), its post-build evidence writer (`replay_assessment.py`), the read-only STEP
+inspection surface (`inspection.py`), the
 recognition-evaluation package (`evaluation/`), and the
 `cli.py` entry point. Developer-only `_build_profile.py` sits at the same top layer: it
 patches the public builder and Sheet bindings lazily for pytest measurement, and no engine
@@ -341,12 +342,20 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
   model — one named binding per feature, an explicit dimension source, and a bounded
-  generation-time recognition-gap snapshot. Facade tier; imports `builder` and the pure
-  `reporting` projector downward at module level. The old builder→cli→sheet_emit
+  generation-time recognition-gap snapshot. Facade tier; imports `builder`, the pure
+  `reporting` projector, and `replay_assessment` downward at module level. The latter prepares
+  exact source/script identity before replay and atomically wraps the same Drawing's strict
+  report plus export-result hashes afterward; it never builds or recognizes (#1715). The old
+  builder→cli→sheet_emit
   lazy cycle is **gone** (#523): the `_cli` compat shim moved from `builder` to
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
-  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting}`, `builder → ∅`.
+  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting, replay_assessment}`,
+  `replay_assessment → reporting`, `builder → ∅`. The rank-0 `audit` module compares serialized
+  v2 replay assessments without importing the engine: exact declaration/occurrence ownership,
+  compiled meanings, representation carriers, lint, layout and independent quality components
+  stay as a vector. A fixed expected-requirement list is caller authority, never inferred from
+  geometry, and no composite quality score is formed.
 - **`score.py` / `recognition/`** — temporary public compatibility re-exports of
   `quiddity`, identity-preserving and scheduled for removal in 0.6.0. There are no
   embedded recogniser modules. Engine code imports the external package directly; private

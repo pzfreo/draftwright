@@ -26,7 +26,29 @@ if TYPE_CHECKING:
 
 REPORT_SCHEMA = "draftwright-report"
 REPORT_SCHEMA_VERSION = 3
-_DECLARED_REPORT_SCHEMA_VERSION = 7
+_DECLARED_REPORT_SCHEMA_VERSION = 8
+
+_LAYOUT_REMEDIES = (
+    "page",
+    "scale",
+    "view",
+    "section",
+    "schedule",
+    "side",
+    "priority",
+    "pin",
+)
+_LAYOUT_REMEDIES_BY_CODE = {
+    "annotation_overlap": ("page", "scale", "view", "side", "priority", "pin"),
+    "annotation_ink_overlap": ("page", "scale", "view", "side", "priority", "pin"),
+    "label_centerline_overlap": ("view", "side", "priority", "pin"),
+    "leader_line_through_text": ("view", "side", "priority", "pin"),
+    "annotation_out_of_bounds": ("page", "scale", "view", "side"),
+    "view_annotation_overlap": ("page", "scale", "view", "side"),
+    "view_overlap": ("page", "scale", "view"),
+    "view_out_of_bounds": ("page", "scale", "view"),
+    "leader_crosses_silhouette": ("view", "section", "side"),
+}
 
 
 @dataclass(frozen=True)
@@ -1151,6 +1173,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     named = getattr(registry, "named", None)
     feature_of = getattr(registry, "feature_of", None)
     declaration_of = getattr(registry, "declaration_of", None)
+    is_pinned = getattr(registry, "is_pinned", None)
     if not all(
         callable(value)
         for value in (
@@ -1161,6 +1184,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
             named,
             feature_of,
             declaration_of,
+            is_pinned,
         )
     ):
         raise ReportUnavailableError("annotation provenance registry is unavailable")
@@ -1171,6 +1195,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     named = cast(Any, named)
     feature_of = cast(Any, feature_of)
     declaration_of = cast(Any, declaration_of)
+    is_pinned = cast(Any, is_pinned)
     features = {id(feature): feature for feature in model.features}
     rows: list[dict] = []
     for name in sorted(names()):
@@ -1208,6 +1233,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
                     "name": name,
                     "type": type(named(name)).__name__,
                     "view": view_of(name),
+                    "pinned": bool(is_pinned(name)),
                     "feature_object_id": feature_id,
                     "measurements": sorted(measured.get(feature_id, ())),
                     "satisfactions": sorted(satisfied.get(feature_id, ())),
@@ -1216,12 +1242,295 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     return tuple(rows)
 
 
+def _layout_semantics(
+    representations: tuple[dict, ...],
+    authority: dict[int, tuple[str, str | None]],
+) -> dict[str, dict[str, Any]]:
+    """Join each live annotation name to report-local final-IR/declaration authority."""
+
+    joined: dict[str, dict[str, set[str]]] = {}
+    for representation in representations:
+        owner_id, declaration_id = authority[representation["feature_object_id"]]
+        row = joined.setdefault(
+            representation["name"],
+            {
+                "owner_ids": set(),
+                "declaration_ids": set(),
+                "parameters": set(),
+            },
+        )
+        row["owner_ids"].add(owner_id)
+        if declaration_id is not None:
+            row["declaration_ids"].add(declaration_id)
+        row["parameters"].update(representation["measurements"])
+        row["parameters"].update(representation["satisfactions"])
+    return {
+        name: {
+            "availability": "available",
+            "owner_ids": sorted(row["owner_ids"]),
+            "declaration_ids": sorted(row["declaration_ids"]),
+            "parameters": sorted(row["parameters"]),
+        }
+        for name, row in joined.items()
+    }
+
+
+def _unavailable_semantics(reason: str) -> dict[str, Any]:
+    return {
+        "availability": "unavailable",
+        "owner_ids": [],
+        "declaration_ids": [],
+        "parameters": [],
+        "reason": reason,
+    }
+
+
+def _trace_binding_semantics(
+    feature,
+    measurement,
+    declaration,
+    authority: dict[int, tuple[str, str | None]],
+) -> dict[str, object]:
+    """Translate opaque trace objects to report-local semantic IDs, never object reprs."""
+
+    from draftwright.model.compiled import resolve_feature
+
+    owners: set[str] = set()
+    declarations: set[str] = set()
+    parameters: set[str] = set()
+    candidates = [resolve_feature(feature), resolve_feature(declaration)]
+    measurements = measurement if isinstance(measurement, (tuple, list)) else (measurement,)
+    for item in measurements:
+        if item is None:
+            continue
+        candidates.append(resolve_feature(getattr(item, "feature", None)))
+        parameter = getattr(item, "parameter", None)
+        if type(parameter) is str:
+            parameters.add(parameter)
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        linked = authority.get(id(candidate))
+        if linked is None:
+            continue
+        owner_id, declaration_id = linked
+        owners.add(owner_id)
+        if declaration_id is not None:
+            declarations.add(declaration_id)
+    if not owners and not declarations and not parameters:
+        return _unavailable_semantics(
+            "this placement route did not retain final-IR or declaration provenance"
+        )
+    return {
+        "availability": "available",
+        "owner_ids": sorted(owners),
+        "declaration_ids": sorted(declarations),
+        "parameters": sorted(parameters),
+    }
+
+
+def _placement_evidence(trace, authority, annotations) -> dict[str, object]:
+    """Project the opt-in solve trace, enriched without changing its standalone v2 schema."""
+
+    if trace is None:
+        return {
+            "availability": "unavailable",
+            "reason": "solve tracing was not enabled for this build",
+        }
+    status = "available" if getattr(trace, "recording_complete", False) else "partial"
+    binding_reader = getattr(trace, "candidate_bindings", None)
+    if not callable(binding_reader):
+        bindings = {}
+        status = "partial"
+    else:
+        bindings = {
+            (seq, name): _trace_binding_semantics(feature, measurement, declaration, authority)
+            for seq, name, feature, measurement, declaration in binding_reader()
+        }
+    document = cast(
+        dict[str, Any],
+        json_value(
+            {
+                "version": 2,
+                "solves": trace.solves,
+                "pass_events": trace.pass_events,
+                "escalations": trace.escalations,
+            }
+        ),
+    )
+    for solve in document["solves"]:
+        seq = solve["seq"]
+        for collection in (solve["candidates"], solve["outcomes"]):
+            for item in collection:
+                item["semantic"] = bindings.get(
+                    (seq, item["name"]),
+                    _unavailable_semantics(
+                        "this candidate has no retained final-IR/declaration binding"
+                    ),
+                )
+                if item.get("outcome") == "dropped":
+                    item["remedies"] = list(_LAYOUT_REMEDIES)
+    for event in document["pass_events"]:
+        for item in event.get("items", []):
+            item["semantic"] = annotations.get(
+                item.get("name"),
+                _unavailable_semantics(
+                    "this non-corridor route did not retain semantic provenance"
+                ),
+            )
+            if item.get("outcome") == "dropped":
+                item["remedies"] = list(_LAYOUT_REMEDIES)
+    return {
+        "availability": status,
+        **(
+            {"reason": "trace recording stopped after an internal recorder failure"}
+            if status == "partial"
+            else {}
+        ),
+        **document,
+    }
+
+
+def _declared_layout(
+    drawing,
+    model: PartModel,
+    lint: dict[str, object],
+    registry: Any,
+    feature_ids: dict[int, tuple[object, dict]],
+    identities: tuple,
+    representations: tuple[dict, ...],
+) -> dict[str, object]:
+    """Project final page ink and placement evidence without creating an edit surface."""
+
+    from draftwright.linting.ink_overlap import segments_of
+    from draftwright.linting.structural import annotation_bounds
+
+    authority: dict[int, tuple[str, str | None]] = {}
+    for index, feature in enumerate(model.features):
+        identity = identities[index] if identities else None
+        authority[id(feature)] = (
+            feature_ids[id(feature)][1]["id"],
+            None if identity is None else identity.declaration_id,
+        )
+    annotations = _layout_semantics(representations, authority)
+    rows = []
+    for name in sorted(registry.names()):
+        annotation = registry.named(name)
+        ink = annotation_bounds(annotation, getattr(drawing, "box_cache", {}))
+        try:
+            label = getattr(annotation, "label_bbox", None)
+        except Exception:  # noqa: BLE001 - a duck-typed annotation may reject the read
+            label = None
+        semantic = annotations.get(
+            name,
+            _unavailable_semantics(
+                "the named ink has no exact final-IR/declaration correspondence"
+            ),
+        )
+        rows.append(
+            {
+                "name": name,
+                "type": type(annotation).__name__,
+                "view": registry.view_of(name),
+                "semantic": semantic,
+                "ink_bounds": (
+                    {"availability": "available", "value": list(ink)}
+                    if ink is not None
+                    else {
+                        "availability": "unavailable",
+                        "reason": "the annotation did not expose measurable full-ink bounds",
+                    }
+                ),
+                "label_bounds": (
+                    {"availability": "available", "value": list(label)}
+                    if isinstance(label, (tuple, list)) and len(label) == 4
+                    else {
+                        "availability": "unavailable",
+                        "reason": "the annotation did not expose a measurable label box",
+                    }
+                ),
+                "segments": [[list(start), list(end)] for start, end in segments_of(annotation)],
+                "segments_scope": "public-2d-linework-only",
+            }
+        )
+    findings = []
+    for index, issue in enumerate(cast(list[dict], lint.get("issues", []))):
+        names = tuple(
+            dict.fromkeys(
+                name
+                for name in (
+                    issue.get("annotation_name"),
+                    *issue.get("related_annotation_names", ()),
+                )
+                if isinstance(name, str)
+            )
+        )
+        linked = [annotations[name] for name in names if name in annotations]
+        findings.append(
+            {
+                "lint_issue_index": index,
+                "code": issue.get("code", ""),
+                "annotation_names": list(names),
+                "declaration_ids": sorted(
+                    {item for row in linked for item in row["declaration_ids"]}
+                ),
+                "owner_ids": sorted({item for row in linked for item in row["owner_ids"]}),
+                "remedies": list(
+                    _LAYOUT_REMEDIES
+                    if str(issue.get("code", "")).endswith("_dropped")
+                    else _LAYOUT_REMEDIES_BY_CODE.get(str(issue.get("code", "")), ())
+                ),
+            }
+        )
+    page_w, page_h = float(drawing.page_w), float(drawing.page_h)
+    left, bottom, right, top = drawing.drawable_bounds
+    result = {
+        "availability": "available",
+        "coordinate_space": "page-mm-from-sheet-origin",
+        "edit_surface": "semantic-dsl-only",
+        "remedy_vocabulary": list(_LAYOUT_REMEDIES),
+        "page": {
+            "width": page_w,
+            "height": page_h,
+            "scale": float(drawing.scale),
+            "drawable_bounds": [left, bottom, right, top],
+            "margins": [left, bottom, page_w - right, page_h - top],
+        },
+        "views": [
+            {
+                "name": name,
+                "bounds": list(drawing.view_bounds(name)),
+            }
+            for name in sorted(drawing.views)
+        ],
+        "decisions": {
+            "scale": drawing.scale_decision,
+            "views": drawing.view_decision,
+            "arrangement": drawing.arrangement_decision,
+            "section": drawing.section_decision,
+            "detail": {
+                "availability": "unavailable",
+                "reason": "detail-request outcomes are not retained after placement",
+            },
+            "tables": {
+                "availability": "unavailable",
+                "reason": "table-placement decisions are not retained as a decision ledger",
+            },
+        },
+        "annotations": rows,
+        "findings": findings,
+        "placement": _placement_evidence(drawing.solve_trace, authority, annotations),
+    }
+    return cast(dict[str, object], json_value(result))
+
+
 def declared_drawing_report(
     *,
     model: PartModel | None,
     lint: dict[str, object],
     source: str | PathLike[str] | None,
     registry: object | None = None,
+    drawing: object | None = None,
 ) -> dict[str, object]:
     """Build the declared-sheet report from final IR and exact annotation provenance."""
 
@@ -1240,8 +1549,10 @@ def declared_drawing_report(
     representations = _declared_representations(model, registry)
     by_feature: dict[int, list[dict]] = {}
     for row in representations:
-        feature_object_id = row.pop("feature_object_id")
-        by_feature.setdefault(feature_object_id, []).append(row)
+        feature_object_id = row["feature_object_id"]
+        by_feature.setdefault(feature_object_id, []).append(
+            {key: value for key, value in row.items() if key != "feature_object_id"}
+        )
     entries = []
     unidentified_owner_ids = []
     for index, feature in enumerate(model.features):
@@ -1315,11 +1626,33 @@ def declared_drawing_report(
                 "no correspondence was inferred"
             ),
         },
+        "layout": (
+            _declared_layout(
+                drawing,
+                model,
+                lint,
+                registry,
+                feature_ids,
+                identities,
+                representations,
+            )
+            if drawing is not None and registry is not None
+            else {
+                "availability": "unavailable",
+                "reason": "the live Drawing and annotation registry were not supplied",
+            }
+        ),
         "lint": lint,
     }
 
 
-def _engineering_meaning(meaning):
+def engineering_meaning(meaning):
+    """Project one compiled measurement meaning into deterministic JSON data.
+
+    The measurement verifier and generated-replay assessment share this projection.  Keeping
+    it here prevents those two evidence surfaces from assigning different meanings to the
+    same confirmed compiled claim.
+    """
     from draftwright.fits import FitClass
 
     value, tolerance, span, axis, discriminator, member, angular = meaning
@@ -1502,7 +1835,7 @@ def document_report(
                     "owner_id": owner_id(claim.owner),
                     "parameter_id": claim.parameter,
                     "address": claim.address,
-                    "meaning": _engineering_meaning(claim.meaning),
+                    "meaning": engineering_meaning(claim.meaning),
                     "rendered": claim.rendered,
                     "verification": "confirmed-within-measurement-verifier-scope",
                     **({"cell": claim_cell(claim)} if cell_schema else {}),
@@ -1852,6 +2185,7 @@ __all__ = [
     "build_requirement_catalog",
     "match_requirement_catalog",
     "drawing_report",
+    "engineering_meaning",
     "declared_drawing_report",
     "document_report",
     # The shared occurrence projector (#1461). Three schema'd public documents are built

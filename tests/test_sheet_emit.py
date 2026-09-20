@@ -1851,7 +1851,9 @@ class TestCli:
         )
         assert r.exit_code == 0, r.output
         src = (tmp_path / "g.py").read_text(encoding="utf-8")
-        assert f"drawing.export({str(tmp_path / 'g')!r}, formats=('svg',))" in src
+        assert "\"formats\": ('svg',)," in src
+        assert f"    {str(tmp_path / 'g')!r}," in src
+        assert src.count('formats=_replay_options["formats"]') == 2
 
     def test_default_format_is_spelled_out_on_the_export_call(self, tmp_path):
         # No --format → PDF, and said so explicitly: `Drawing.export` with no `formats` is the
@@ -1866,7 +1868,9 @@ class TestCli:
         r = CliRunner().invoke(app, [str(step), "--script", "--out", str(tmp_path / "g")])
         assert r.exit_code == 0, r.output
         src = (tmp_path / "g.py").read_text(encoding="utf-8")
-        assert f"drawing.export({str(tmp_path / 'g')!r}, formats=('pdf',))" in src
+        assert "\"formats\": ('pdf',)," in src
+        assert f"    {str(tmp_path / 'g')!r}," in src
+        assert src.count('formats=_replay_options["formats"]') == 2
 
     def test_bad_style_is_rejected(self, tmp_path):
         from typer.testing import CliRunner

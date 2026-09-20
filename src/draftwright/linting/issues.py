@@ -50,6 +50,11 @@ class LintIssue:
     annotation_name: str | None = None
     view: str | None = None
     evidence_reason: str | None = None
+    # Other named annotations participating in the same finding. Appended to preserve every
+    # positional constructor above it. Pairwise layout checks use ``annotation_name`` for the
+    # primary/crossed item and retain the crosser/peer here so an assessment can join both pieces
+    # of ink to exact declaration provenance (#1711).
+    related_annotation_names: tuple[str, ...] = ()
 
 
 def is_placement_drop(issue: LintIssue) -> bool:

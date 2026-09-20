@@ -11,6 +11,12 @@ produce unknown results. A caller-supplied pair asserts correspondence; the comp
 checks the measurement meaning under that assertion and does not verify physical identity.
 Capture ``Drawing.measurement_snapshot()`` before mutating a live drawing.
 
+``compare_assessments`` is the persisted cross-replay counterpart. It accepts only compatible
+v2 replay assessments for the same STEP bytes, producer, and run options, then reports separate
+requirement, lint, completeness, fidelity, layout, and availability deltas. A caller-supplied
+fixed denominator exposes omissions shared by both inputs. It returns a policy decision and
+reasons, never a composite score or inferred topology correspondence.
+
 The comparison scope is named compiled measurements. It checks their recorded owner,
 parameter, nominal value, tolerance, directional span and rendered claim text. A linear
 dimension also retains its scale-normalised measured path length, keeping its text tied
@@ -28,7 +34,9 @@ reads; no cross-run provider identity is reconstructed or serialized.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -62,6 +70,32 @@ class MeasurementSnapshot:
     claims: tuple[MeasurementClaim, ...]
     unknown: tuple[tuple[str, str], ...] = ()
     cell_unknown: tuple[MeasurementCellUncertainty, ...] = field(default=(), kw_only=True)
+
+
+@dataclass(frozen=True, order=True)
+class ExpectedRequirement:
+    """One fixed-denominator requirement expected in both replay assessments."""
+
+    declaration_id: str
+    parameter_id: str
+
+
+@dataclass(frozen=True, order=True)
+class IntentionalChange:
+    """A caller-authorised semantic change, kept separate from incidental regressions."""
+
+    declaration_id: str
+    parameter_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class LayoutFindingIdentity:
+    """Stable-enough selection of one reported layout defect across two replays."""
+
+    code: str
+    declaration_ids: tuple[str, ...] = ()
+    annotation_names: tuple[str, ...] = ()
 
 
 def compare_measurements(before, after, *, feature_pairs=()) -> dict:
@@ -170,6 +204,596 @@ def compare_measurements(before, after, *, feature_pairs=()) -> dict:
         "gained": gained,
         "changed": changed,
         "unknown": unknown,
+    }
+
+
+_GOOD_REQUIREMENT_STATES = frozenset({"confirmed", "satisfied"})
+_ADVERSE_COMPLETENESS_STATES = (
+    "dropped",
+    "missing",
+    "unsupported",
+    "unverifiable",
+)
+
+
+def _frozen(value: Any) -> Any:
+    """A deterministic, hashable form of JSON-like evidence."""
+
+    if isinstance(value, Mapping):
+        return tuple(sorted((str(key), _frozen(item)) for key, item in value.items()))
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return tuple(_frozen(item) for item in value)
+    return value
+
+
+def _requirement_key(item) -> tuple[str, str]:
+    declaration_id: object
+    parameter_id: object
+    if isinstance(item, (ExpectedRequirement, IntentionalChange)):
+        declaration_id, parameter_id = item.declaration_id, item.parameter_id
+    elif isinstance(item, Mapping):
+        declaration_id, parameter_id = item.get("declaration_id"), item.get("parameter_id")
+    elif isinstance(item, Sequence) and not isinstance(item, (str, bytes)) and len(item) == 2:
+        declaration_id, parameter_id = item
+    else:
+        raise TypeError("requirements must provide declaration_id and parameter_id")
+    if not isinstance(declaration_id, str) or not declaration_id:
+        raise ValueError("requirement declaration_id must be a non-empty string")
+    if not isinstance(parameter_id, str) or not parameter_id:
+        raise ValueError("requirement parameter_id must be a non-empty string")
+    return declaration_id, parameter_id
+
+
+def _compatibility_reasons(before: Mapping, after: Mapping) -> list[str]:
+    reasons = []
+    for side, document in (("baseline", before), ("candidate", after)):
+        if document.get("schema") != "draftwright-replay-assessment":
+            reasons.append(f"{side}_assessment_schema_unsupported")
+        if document.get("schema_version") != 2:
+            reasons.append(f"{side}_assessment_version_unsupported")
+        drawing = document.get("drawing")
+        if not isinstance(drawing, Mapping) or (
+            drawing.get("schema") != "draftwright-report"
+            or drawing.get("schema_version") != 8
+            or drawing.get("scope") != "declared-sheet"
+        ):
+            reasons.append(f"{side}_drawing_report_incompatible")
+        measurements = document.get("measurements")
+        if not isinstance(measurements, Mapping) or (
+            measurements.get("authority") != "confirmed-compiled-claims"
+            or measurements.get("identity_scope") != "build-local-declarations"
+        ):
+            reasons.append(f"{side}_measurement_authority_incompatible")
+    before_source, after_source = before.get("source"), after.get("source")
+    if not isinstance(before_source, Mapping) or not isinstance(after_source, Mapping):
+        reasons.append("source_identity_missing")
+    elif before_source.get("kind") != "step" or after_source.get("kind") != "step":
+        reasons.append("immutable_step_source_required")
+    elif not before_source.get("sha256") or not after_source.get("sha256"):
+        reasons.append("source_hash_missing")
+    elif before_source.get("sha256") != after_source.get("sha256"):
+        reasons.append("source_hash_mismatch")
+    if before.get("producer") != after.get("producer"):
+        reasons.append("producer_versions_mismatch")
+    if before.get("run") != after.get("run"):
+        reasons.append("run_options_mismatch")
+    return sorted(set(reasons))
+
+
+def _declarations(document: Mapping) -> dict[str, Mapping]:
+    drawing = document["drawing"]
+    rows = drawing["declarations"]["entries"]
+    result = {}
+    for row in rows:
+        key = row["id"]
+        if key in result:
+            raise ValueError(f"duplicate declaration identity {key!r}")
+        result[key] = row
+    return result
+
+
+def _measurement_rows(document: Mapping) -> dict[tuple[str, str], list[Mapping]]:
+    result: dict[tuple[str, str], list[Mapping]] = {}
+    for row in document["measurements"]["entries"]:
+        key = (row["declaration_id"], row["parameter_id"])
+        result.setdefault(key, []).append(row)
+    for rows in result.values():
+        rows.sort(key=_frozen)
+    return result
+
+
+def _carrier_rows(declarations: Mapping[str, Mapping]) -> dict[tuple[str, str], list[dict]]:
+    result: dict[tuple[str, str], list[dict]] = {}
+    for declaration_id, declaration in declarations.items():
+        for representation in declaration["representations"]:
+            for parameter in representation["measurements"]:
+                result.setdefault((declaration_id, parameter), []).append(
+                    {
+                        "name": representation["name"],
+                        "type": representation["type"],
+                        "view": representation["view"],
+                        "pinned": representation["pinned"],
+                        "role": "measurement",
+                    }
+                )
+            for parameter in representation["satisfactions"]:
+                result.setdefault((declaration_id, parameter), []).append(
+                    {
+                        "name": representation["name"],
+                        "type": representation["type"],
+                        "view": representation["view"],
+                        "pinned": representation["pinned"],
+                        "role": "satisfaction",
+                    }
+                )
+    for rows in result.values():
+        rows.sort(key=_frozen)
+    return result
+
+
+def _requirement_side(
+    key: tuple[str, str],
+    declarations: Mapping[str, Mapping],
+    measurements: Mapping[tuple[str, str], list[Mapping]],
+    carriers: Mapping[tuple[str, str], list[dict]],
+) -> dict:
+    declaration = declarations.get(key[0])
+    claims = measurements.get(key, [])
+    representations = carriers.get(key, [])
+    if claims:
+        state = "confirmed"
+    elif any(row["role"] == "satisfaction" for row in representations):
+        state = "satisfied"
+    elif representations:
+        state = "unverifiable"
+    elif declaration is not None and key[1] in declaration["parameters"]:
+        state = "unrepresented"
+    else:
+        state = "absent"
+    occurrence_ids = (
+        [] if declaration is None else list(declaration["recognition"]["occurrence_ids"])
+    )
+    return {
+        "state": state,
+        "feature_kind": None if declaration is None else declaration["feature_kind"],
+        "owner_id": None if declaration is None else declaration["owner"]["id"],
+        "occurrence_ids": occurrence_ids,
+        "identity": "physical-occurrences" if occurrence_ids else "declaration-only",
+        "meanings": [row["meaning"] for row in claims],
+        "rendered": [row["rendered"] for row in claims],
+        "carriers": representations,
+    }
+
+
+def _finding_key(row: Mapping) -> tuple:
+    return (
+        row.get("code"),
+        tuple(sorted(row.get("declaration_ids", ()))),
+        tuple(sorted(row.get("annotation_names", ()))),
+    )
+
+
+def _layout_selection_key(selected: LayoutFindingIdentity | Mapping | None) -> tuple | None:
+    if selected is None:
+        return None
+    code: object
+    declarations: object
+    annotations: object
+    if isinstance(selected, LayoutFindingIdentity):
+        code = selected.code
+        declarations = selected.declaration_ids
+        annotations = selected.annotation_names
+    elif isinstance(selected, Mapping):
+        code = selected.get("code")
+        declarations = selected.get("declaration_ids", ())
+        annotations = selected.get("annotation_names", ())
+    else:
+        raise TypeError("selected layout finding must be a LayoutFindingIdentity or mapping")
+    if not isinstance(code, str) or not code:
+        raise ValueError("selected layout finding code must be a non-empty string")
+    if (
+        not isinstance(declarations, Sequence)
+        or isinstance(declarations, (str, bytes))
+        or any(not isinstance(item, str) or not item for item in declarations)
+    ):
+        raise ValueError("selected layout declaration_ids must be non-empty strings")
+    if (
+        not isinstance(annotations, Sequence)
+        or isinstance(annotations, (str, bytes))
+        or any(not isinstance(item, str) or not item for item in annotations)
+    ):
+        raise ValueError("selected layout annotation_names must be non-empty strings")
+    return code, tuple(sorted(declarations)), tuple(sorted(annotations))
+
+
+def _lint_delta(before: Mapping, after: Mapping) -> dict:
+    old_rows = before["drawing"]["lint"]["issues"]
+    new_rows = after["drawing"]["lint"]["issues"]
+    old, new = Counter(map(_frozen, old_rows)), Counter(map(_frozen, new_rows))
+    examples: dict[Any, Mapping] = {}
+    for row in (*old_rows, *new_rows):
+        examples.setdefault(_frozen(row), row)
+
+    def expanded(counts: Counter) -> list[Mapping]:
+        return [examples[key] for key in sorted(counts, key=repr) for _index in range(counts[key])]
+
+    return {
+        "resolved": expanded(old - new),
+        "introduced": expanded(new - old),
+        "unchanged": expanded(old & new),
+    }
+
+
+def _component_delta(before: Mapping, after: Mapping, name: str) -> dict:
+    old = before["drawing"]["lint"]["quality"][name]
+    new = after["drawing"]["lint"]["quality"][name]
+    return {"baseline": old, "candidate": new, "changed": old != new}
+
+
+def _code_count_delta(before: Mapping, after: Mapping) -> dict:
+    old = before.get("by_code", {})
+    new = after.get("by_code", {})
+    rows = [
+        {"code": code, "baseline": int(old.get(code, 0)), "candidate": int(new.get(code, 0))}
+        for code in sorted(set(old) | set(new))
+    ]
+    return {
+        "resolved": [row for row in rows if row["candidate"] < row["baseline"]],
+        "introduced": [row for row in rows if row["candidate"] > row["baseline"]],
+        "unchanged": [row for row in rows if row["candidate"] == row["baseline"]],
+    }
+
+
+def compare_assessments(
+    baseline: Mapping,
+    candidate: Mapping,
+    *,
+    expected_requirements: Sequence[ExpectedRequirement | Mapping | tuple] = (),
+    intentional_changes: Sequence[IntentionalChange | Mapping] = (),
+    selected_layout_finding: LayoutFindingIdentity | Mapping | None = None,
+) -> dict:
+    """Compare two exact replay assessments without collapsing evidence into one score.
+
+    Compatibility is fail-closed: both documents must be v2 assessments for the same immutable
+    STEP bytes, producer versions, and run options. ``expected_requirements`` is the caller's
+    fixed denominator and is the only way to expose a requirement omitted from both drawings.
+    Authorised changes are reported separately; they do not excuse unrelated regressions.
+    """
+
+    if not isinstance(baseline, Mapping) or not isinstance(candidate, Mapping):
+        raise TypeError("assessment comparison requires two mappings")
+    compatibility = _compatibility_reasons(baseline, candidate)
+    base = {
+        "schema": "draftwright-assessment-comparison",
+        "schema_version": 1,
+        "scope": "same-source-replay-delta",
+        "decision": "incomparable" if compatibility else "no-preference",
+        "reasons": compatibility,
+        "compatibility": {
+            "comparable": not compatibility,
+            "reasons": compatibility,
+        },
+        "restraint": {
+            "availability": "unavailable",
+            "reason": "physical requirement equivalence is not established by this comparison",
+        },
+        "manufacturing_readiness": {
+            "availability": "unavailable",
+            "reason": "material, process, finish, fit, and tolerance intent are not certified",
+        },
+    }
+    if compatibility:
+        return {
+            **base,
+            "lint": None,
+            "requirements": None,
+            "completeness": None,
+            "fidelity": None,
+            "layout": None,
+            "unscored": None,
+            "unavailable": {"reasons": compatibility, "measurement_claims": []},
+            "intentional_changes": [],
+            "policy": None,
+        }
+
+    before_declarations, after_declarations = (
+        _declarations(baseline),
+        _declarations(candidate),
+    )
+    before_measurements, after_measurements = (
+        _measurement_rows(baseline),
+        _measurement_rows(candidate),
+    )
+    before_carriers, after_carriers = (
+        _carrier_rows(before_declarations),
+        _carrier_rows(after_declarations),
+    )
+    expected = {_requirement_key(item) for item in expected_requirements}
+    authorised = {}
+    for item in intentional_changes:
+        key = _requirement_key(item)
+        reason = item.reason if isinstance(item, IntentionalChange) else item.get("reason")
+        if not isinstance(reason, str) or not reason:
+            raise ValueError("intentional change reason must be a non-empty string")
+        if key in authorised:
+            raise ValueError(f"duplicate intentional change for {key!r}")
+        authorised[key] = reason
+    keys = sorted(
+        expected
+        | before_measurements.keys()
+        | after_measurements.keys()
+        | before_carriers.keys()
+        | after_carriers.keys()
+    )
+
+    transitions: list[dict[str, Any]] = []
+    blockers: list[dict[str, Any]] = []
+    improvements: list[dict[str, Any]] = []
+    unavailable: list[str] = []
+    applied_changes: list[dict[str, Any]] = []
+    for key in keys:
+        old = _requirement_side(key, before_declarations, before_measurements, before_carriers)
+        new = _requirement_side(key, after_declarations, after_measurements, after_carriers)
+        changes = []
+        if old["state"] != new["state"]:
+            changes.append("state")
+        if old["feature_kind"] != new["feature_kind"]:
+            changes.append("feature_kind")
+        if old["occurrence_ids"] != new["occurrence_ids"]:
+            changes.append("physical_owner")
+        if old["meanings"] != new["meanings"]:
+            changes.append("engineering_meaning")
+        if old["rendered"] != new["rendered"]:
+            changes.append("rendered_claim")
+        old_pins = {row["name"]: row["pinned"] for row in old["carriers"]}
+        new_pins = {row["name"]: row["pinned"] for row in new["carriers"]}
+        if any(old_pins[name] != new_pins[name] for name in old_pins.keys() & new_pins.keys()):
+            changes.append("pin_state")
+        old_representations = [
+            {key: value for key, value in row.items() if key != "pinned"}
+            for row in old["carriers"]
+        ]
+        new_representations = [
+            {key: value for key, value in row.items() if key != "pinned"}
+            for row in new["carriers"]
+        ]
+        if old_representations != new_representations:
+            changes.append("representation")
+        authorised_reason = authorised.get(key)
+        row: dict[str, Any] = {
+            "declaration_id": key[0],
+            "parameter_id": key[1],
+            "expected": key in expected,
+            "baseline": old,
+            "candidate": new,
+            "changes": changes,
+            "intentional_change": authorised_reason,
+        }
+        transitions.append(row)
+        retained_claim = bool(old["meanings"] and new["meanings"])
+        retained_requirement = (
+            old["state"] in _GOOD_REQUIREMENT_STATES and new["state"] in _GOOD_REQUIREMENT_STATES
+        )
+        semantic_regression = (
+            (
+                old["state"] in _GOOD_REQUIREMENT_STATES
+                and new["state"] not in _GOOD_REQUIREMENT_STATES
+            )
+            or (key in expected and new["state"] not in _GOOD_REQUIREMENT_STATES)
+            or (retained_requirement and "physical_owner" in changes)
+            or (retained_requirement and "feature_kind" in changes)
+            or (retained_claim and "engineering_meaning" in changes)
+            or "pin_state" in changes
+        )
+        if authorised_reason is not None and changes:
+            applied_changes.append(
+                {
+                    "declaration_id": key[0],
+                    "parameter_id": key[1],
+                    "reason": authorised_reason,
+                    "changes": changes,
+                }
+            )
+        elif semantic_regression:
+            blockers.append(
+                {
+                    "code": "requirement_regression",
+                    "declaration_id": key[0],
+                    "parameter_id": key[1],
+                    "changes": changes or ["fixed_denominator_omission"],
+                }
+            )
+        elif (
+            old["state"] not in _GOOD_REQUIREMENT_STATES
+            and new["state"] in _GOOD_REQUIREMENT_STATES
+        ):
+            improvements.append(
+                {
+                    "code": "requirement_resolved",
+                    "declaration_id": key[0],
+                    "parameter_id": key[1],
+                }
+            )
+    lint = _lint_delta(baseline, candidate)
+    for issue in lint["introduced"]:
+        if issue.get("severity") == "error":
+            blockers.append({"code": "error_lint_introduced", "finding": issue})
+
+    before_quality = baseline["drawing"]["lint"]["quality"]
+    after_quality = candidate["drawing"]["lint"]["quality"]
+    before_completeness = before_quality["completeness"]
+    after_completeness = after_quality["completeness"]
+    completeness_changes: dict[str, dict[str, int]] = {}
+    for state in _ADVERSE_COMPLETENESS_STATES:
+        old_count = int(before_completeness.get(state, 0))
+        new_count = int(after_completeness.get(state, 0))
+        completeness_changes[state] = {"baseline": old_count, "candidate": new_count}
+        if new_count > old_count:
+            blockers.append(
+                {
+                    "code": "adverse_completeness_outcome_introduced",
+                    "state": state,
+                    "count": new_count - old_count,
+                }
+            )
+    old_known = int(before_completeness.get("known_requirement_count", 0))
+    new_known = int(after_completeness.get("known_requirement_count", 0))
+    if new_known < old_known:
+        blockers.append(
+            {
+                "code": "recognized_requirement_denominator_shrank",
+                "baseline": old_known,
+                "candidate": new_known,
+            }
+        )
+    old_unscored_families = set(before_completeness.get("unscored_recognized_families", ()))
+    new_unscored_families = set(after_completeness.get("unscored_recognized_families", ()))
+    if new_unscored_families - old_unscored_families:
+        blockers.append(
+            {
+                "code": "recognized_family_became_unscored",
+                "families": sorted(new_unscored_families - old_unscored_families),
+            }
+        )
+    old_unrecognised = int(before_completeness.get("unrecognised_geometry_reports", 0))
+    new_unrecognised = int(after_completeness.get("unrecognised_geometry_reports", 0))
+    if new_unrecognised > old_unrecognised:
+        blockers.append(
+            {
+                "code": "unrecognised_geometry_reports_increased",
+                "baseline": old_unrecognised,
+                "candidate": new_unrecognised,
+            }
+        )
+    if not after_completeness.get("available"):
+        unavailable.append("candidate completeness is unavailable")
+    if after_completeness.get("unknown_cardinality_rows", 0):
+        unavailable.append("candidate requirement cardinality is unknown")
+
+    fidelity = _component_delta(baseline, candidate, "fidelity")
+    old_fidelity, new_fidelity = fidelity["baseline"], fidelity["candidate"]
+    fidelity["target_validation"] = _code_count_delta(old_fidelity, new_fidelity)
+    if not new_fidelity.get("available"):
+        unavailable.append("candidate fidelity is unavailable")
+    elif fidelity["target_validation"]["introduced"] or (
+        old_fidelity.get("available")
+        and new_fidelity.get("score") is not None
+        and old_fidelity.get("score") is not None
+        and new_fidelity["score"] < old_fidelity["score"]
+    ):
+        blockers.append({"code": "fidelity_regression"})
+
+    unscored = _component_delta(baseline, candidate, "unscored")
+    old_unclassified = set(unscored["baseline"].get("unclassified", ()))
+    new_unclassified = set(unscored["candidate"].get("unclassified", ()))
+    if new_unclassified - old_unclassified:
+        blockers.append(
+            {
+                "code": "unclassified_lint_introduced",
+                "codes": sorted(new_unclassified - old_unclassified),
+            }
+        )
+
+    old_layout = {_finding_key(row): row for row in baseline["drawing"]["layout"]["findings"]}
+    new_layout = {_finding_key(row): row for row in candidate["drawing"]["layout"]["findings"]}
+    selected = _layout_selection_key(selected_layout_finding)
+    layout: dict[str, Any] = {
+        "selected": None
+        if selected is None
+        else {
+            "code": selected[0],
+            "declaration_ids": list(selected[1]),
+            "annotation_names": list(selected[2]),
+        },
+        "resolved": [old_layout[key] for key in sorted(old_layout.keys() - new_layout.keys())],
+        "introduced": [new_layout[key] for key in sorted(new_layout.keys() - old_layout.keys())],
+        "unchanged": [old_layout[key] for key in sorted(old_layout.keys() & new_layout.keys())],
+        "selected_transition": "not-selected",
+    }
+    for finding in layout["introduced"]:
+        blockers.append({"code": "layout_finding_introduced", "finding": finding})
+    if selected is not None:
+        was, now = selected in old_layout, selected in new_layout
+        layout["selected_transition"] = (
+            "resolved"
+            if was and not now
+            else "introduced"
+            if now and not was
+            else "unchanged"
+            if was and now
+            else "absent"
+        )
+        if was and not now:
+            improvements.append({"code": "selected_layout_finding_resolved"})
+
+    unknown: list[dict[str, Any]] = []
+    for side, document in (("baseline", baseline), ("candidate", candidate)):
+        for row in document["measurements"]["unknown"]:
+            unknown.append({"side": side, **row})
+        for row in document["measurements"]["unavailable_owner_claims"]:
+            unknown.append({"side": side, **row})
+    if unknown:
+        unavailable.append("one or more compiled measurement claims are unresolved")
+        candidate_unknown = [row for row in unknown if row["side"] == "candidate"]
+        if candidate_unknown:
+            blockers.append(
+                {"code": "unverifiable_measurement_claim", "claims": candidate_unknown}
+            )
+
+    blockers.sort(key=_frozen)
+    improvements.sort(key=_frozen)
+    unavailable = sorted(set(unavailable))
+    applied_keys = {(row["declaration_id"], row["parameter_id"]) for row in applied_changes}
+    applied_changes.extend(
+        {
+            "declaration_id": key[0],
+            "parameter_id": key[1],
+            "reason": reason,
+            "changes": [],
+            "status": "no-observed-change",
+        }
+        for key, reason in authorised.items()
+        if key not in applied_keys
+    )
+    for row in applied_changes:
+        row.setdefault("status", "applied")
+    applied_changes.sort(key=_frozen)
+    if blockers:
+        decision = "rejected"
+        reasons: list[str] = [row["code"] for row in blockers]
+    elif improvements and not unavailable:
+        decision = "preferred"
+        reasons = [row["code"] for row in improvements]
+    else:
+        decision = "no-preference"
+        reasons = unavailable or ["no_evidence-backed_improvement"]
+    return {
+        **base,
+        "decision": decision,
+        "reasons": reasons,
+        "lint": lint,
+        "policy": {"blockers": blockers, "improvements": improvements},
+        "requirements": {
+            "denominator": "caller-fixed-plus-observed",
+            "expected": [
+                {"declaration_id": declaration, "parameter_id": parameter}
+                for declaration, parameter in sorted(expected)
+            ],
+            "transitions": transitions,
+            "blockers": [row for row in blockers if row["code"] == "requirement_regression"],
+            "improvements": [row for row in improvements if row["code"] == "requirement_resolved"],
+        },
+        "completeness": {
+            "baseline": before_completeness,
+            "candidate": after_completeness,
+            "adverse_outcome_changes": completeness_changes,
+            "known_requirement_count": {"baseline": old_known, "candidate": new_known},
+        },
+        "fidelity": fidelity,
+        "layout": layout,
+        "unscored": unscored,
+        "unavailable": {"reasons": unavailable, "measurement_claims": unknown},
+        "intentional_changes": applied_changes,
     }
 
 
