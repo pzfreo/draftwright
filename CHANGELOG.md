@@ -4,6 +4,11 @@
 
 ### Added
 
+- Replay assessments v2 now retain exact confirmed compiled measurement meanings, and
+  `compare_assessments()` evaluates two same-source replays as separate semantic, lint,
+  completeness, fidelity, layout, and availability deltas (#1712). Caller-fixed requirements
+  expose shared omissions; authorised design changes remain separate; no composite score is
+  produced.
 - Generated scripts now atomically write a versioned post-build replay assessment beside their
   outputs (#1715). It binds the exact STEP and edited Python bytes, producer/run options, output
   hashes, declaration/representation map, layout evidence, and lint from the same finalized

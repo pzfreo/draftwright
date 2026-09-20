@@ -134,11 +134,12 @@
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["name", "type", "view", "measurements", "satisfactions"],
+                  "required": ["name", "type", "view", "pinned", "measurements", "satisfactions"],
                   "properties": {
                     "name": { "type": "string", "minLength": 1 },
                     "type": { "type": "string", "minLength": 1 },
                     "view": { "type": ["string", "null"] },
+                    "pinned": { "type": "boolean" },
                     "measurements": { "$ref": "#/$defs/stringArray" },
                     "satisfactions": { "$ref": "#/$defs/stringArray" }
                   }

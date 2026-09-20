@@ -14,16 +14,20 @@ from build123d import Box, Cylinder, export_step
 from jsonschema.validators import validator_for
 from referencing import Registry, Resource
 
+from draftwright.audit import MeasurementClaim, MeasurementSnapshot
+from draftwright.model import DeclarationIdentity
 from draftwright.replay_assessment import (
     ASSESSMENT_SCHEMA,
+    _measurement_evidence,
     assessment_sidecar_path,
     invalidate_replay_assessment,
     prepare_replay_assessment,
 )
+from draftwright.reporting import ReportUnavailableError
 from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
 
 _ROOT = Path(__file__).parents[1]
-_SCHEMA_PATH = _ROOT / "docs/reference/draftwright-replay-assessment-v1.schema.json"
+_SCHEMA_PATH = _ROOT / "docs/reference/draftwright-replay-assessment-v2.schema.json"
 _REPORT_SCHEMA_PATH = _ROOT / "docs/reference/draftwright-report-v8.schema.json"
 
 
@@ -119,6 +123,24 @@ def test_real_replay_is_deterministic_and_tracks_an_edited_declaration(tmp_path)
         }
     ]
     assert first["semantic_links"]["authority"] == "drawing.declarations"
+    assert first["schema_version"] == 2
+    assert first["measurements"]["authority"] == "confirmed-compiled-claims"
+    assert first["measurements"]["unknown"] == []
+    assert first["measurements"]["unavailable_owner_claims"] == []
+    diameter = next(
+        row for row in first["measurements"]["entries"] if row["parameter_id"] == "bore.diameter"
+    )
+    assert diameter["declaration_id"]
+    assert diameter["meaning"][0]["value"] == 4.0
+    assert set(diameter["meaning"][0]) == {
+        "value",
+        "tolerance",
+        "span",
+        "axis",
+        "discriminator",
+        "location_member",
+        "angular_reference",
+    }
     assert first["drawing"]["schema_version"] == 8
 
     unchanged = _run(script)
@@ -196,6 +218,109 @@ def test_missing_strict_report_authority_writes_nothing(tmp_path) -> None:
     with pytest.raises(RuntimeError, match="strict report unavailable"):
         prepared.write(RefusingDrawing(), {"svg": str(output)})  # type: ignore[arg-type]
     assert not assessment.exists()
+
+
+def test_an_empty_final_ir_still_has_honest_empty_measurement_evidence(tmp_path) -> None:
+    script = tmp_path / "empty.py"
+    assessment = tmp_path / "empty.draftwright-assessment.json"
+    script.write_text("# exact empty drawing script\n", encoding="utf-8")
+    prepared = prepare_replay_assessment(
+        assessment,
+        script_path=script,
+        source_path=None,
+        source_name=None,
+        pmi_mode="off",
+        formats=(),
+        reproducible=True,
+    )
+
+    class EmptyDrawing:
+        def model(self):
+            return SimpleNamespace(features=(), declaration_identities=())
+
+        def measurement_snapshot(self):
+            return MeasurementSnapshot((), ())
+
+        def report(self):
+            return {
+                "schema": "draftwright-report",
+                "schema_version": 8,
+                "scope": "declared-sheet",
+                "status": "needs-attention",
+                "producer": {"draftwright": "test", "quiddity": "test"},
+                "declarations": {"entries": []},
+            }
+
+    prepared.write(EmptyDrawing(), {})  # type: ignore[arg-type]
+    document = json.loads(assessment.read_text(encoding="utf-8"))
+    assert document["measurements"] == {
+        "authority": "confirmed-compiled-claims",
+        "identity_scope": "build-local-declarations",
+        "entries": [],
+        "unknown": [],
+        "unavailable_owner_claims": [],
+    }
+
+
+def test_measurement_projection_refuses_misaligned_authority_and_retains_unknown_owner() -> None:
+    empty_report = {"declarations": {"entries": []}}
+
+    with pytest.raises(ReportUnavailableError, match="no final IR"):
+        _measurement_evidence(
+            SimpleNamespace(model=lambda: None),  # type: ignore[arg-type]
+            empty_report,
+        )
+
+    owner = object()
+    mismatched = SimpleNamespace(features=(owner,), declaration_identities=())
+    with pytest.raises(ReportUnavailableError, match="aligned declaration"):
+        _measurement_evidence(
+            SimpleNamespace(model=lambda: mismatched),  # type: ignore[arg-type]
+            empty_report,
+        )
+
+    identified = SimpleNamespace(
+        features=(owner,), declaration_identities=(DeclarationIdentity("declaration:one"),)
+    )
+    with pytest.raises(ReportUnavailableError, match="lost an identified"):
+        _measurement_evidence(
+            SimpleNamespace(model=lambda: identified),  # type: ignore[arg-type]
+            empty_report,
+        )
+
+    report = {
+        "declarations": {
+            "entries": [
+                {"id": "declaration:one", "owner": {"id": "feature:1"}},
+            ]
+        }
+    }
+    with pytest.raises(ReportUnavailableError, match="snapshot does not match"):
+        _measurement_evidence(
+            SimpleNamespace(
+                model=lambda: identified,
+                measurement_snapshot=lambda: MeasurementSnapshot((object(),), ()),
+            ),  # type: ignore[arg-type]
+            report,
+        )
+
+    unidentified = SimpleNamespace(features=(owner,), declaration_identities=(None,))
+    claim = MeasurementClaim(owner, "width.length", "dim_width", (), ())
+    evidence = _measurement_evidence(
+        SimpleNamespace(
+            model=lambda: unidentified,
+            measurement_snapshot=lambda: MeasurementSnapshot((owner,), (claim,)),
+        ),  # type: ignore[arg-type]
+        empty_report,
+    )
+    assert evidence["entries"] == []
+    assert evidence["unavailable_owner_claims"] == [
+        {
+            "annotation": "dim_width",
+            "parameter_id": "width.length",
+            "reason": "claim owner has no declaration identity",
+        }
+    ]
 
 
 def test_owned_stale_assessment_is_removed_but_malformed_json_is_not(tmp_path) -> None:

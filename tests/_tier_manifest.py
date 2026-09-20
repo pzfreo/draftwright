@@ -94,6 +94,7 @@ CONTRACT_GROUPS = {
             "src/draftwright/reporting.py",
         ),
         (
+            "test_assessment_comparison_issue_1712.py",
             "test_audit_differential.py",
             "test_document_claims.py",
             "test_document_coverage.py",

@@ -14,15 +14,20 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
-from draftwright.reporting import write_json_document
+from draftwright.reporting import (
+    ReportUnavailableError,
+    engineering_meaning,
+    json_value,
+    write_json_document,
+)
 
 if TYPE_CHECKING:
     from draftwright.drawing import Drawing
 
 ASSESSMENT_SCHEMA = "draftwright-replay-assessment"
-ASSESSMENT_SCHEMA_VERSION = 1
+ASSESSMENT_SCHEMA_VERSION = 2
 _ASSESSMENT_SUFFIX = ".draftwright-assessment.json"
 
 
@@ -98,6 +103,114 @@ def _validated_formats(
     if type(reproducible) is not bool:
         raise TypeError("reproducible must be a bool")
     return normalized
+
+
+def _measurement_evidence(drawing: Drawing, report: Mapping) -> dict:
+    """Serialize exact confirmed claims against declared build-local owner identities."""
+
+    model = drawing.model()
+    if model is None:
+        raise ReportUnavailableError("generated replay has no final IR for measurement evidence")
+    identities = tuple(getattr(model, "declaration_identities", ()))
+    if len(identities) != len(model.features):
+        raise ReportUnavailableError(
+            "generated replay measurement evidence requires aligned declaration identities"
+        )
+    declarations = {row["id"]: row for row in report["declarations"]["entries"]}
+    owners: dict[int, tuple[str, str] | None] = {}
+    for feature, identity in zip(model.features, identities, strict=True):
+        if identity is None:
+            owners[id(feature)] = None
+            continue
+        declaration = declarations.get(identity.declaration_id)
+        if declaration is None:
+            raise ReportUnavailableError(
+                "generated replay report lost an identified measurement owner"
+            )
+        owners[id(feature)] = (
+            identity.declaration_id,
+            declaration["owner"]["id"],
+        )
+
+    snapshot = drawing.measurement_snapshot()
+    if len(snapshot.owners) != len(model.features) or any(
+        actual is not expected
+        for actual, expected in zip(snapshot.owners, model.features, strict=True)
+    ):
+        raise ReportUnavailableError(
+            "generated replay measurement snapshot does not match the final IR"
+        )
+
+    entries: list[dict[str, Any]] = []
+    unavailable_owner_claims: list[dict[str, str]] = []
+    for claim in snapshot.claims:
+        owner = owners.get(id(claim.owner))
+        if owner is None:
+            unavailable_owner_claims.append(
+                {
+                    "annotation": claim.annotation,
+                    "parameter_id": claim.parameter,
+                    "reason": "claim owner has no declaration identity",
+                }
+            )
+            continue
+        declaration_id, owner_id = owner
+        entries.append(
+            {
+                "declaration_id": declaration_id,
+                "owner_id": owner_id,
+                "parameter_id": claim.parameter,
+                "annotation": claim.annotation,
+                "cell": (
+                    None if claim.cell is None else {"row": claim.cell[0], "column": claim.cell[1]}
+                ),
+                "meaning": [engineering_meaning(item) for item in claim.meaning],
+                "rendered": claim.rendered,
+                "witnesses": claim.witnesses,
+                "verification": "confirmed-within-measurement-verifier-scope",
+            }
+        )
+    entries.sort(
+        key=lambda row: (
+            row["declaration_id"],
+            row["parameter_id"],
+            row["annotation"],
+            -1 if row["cell"] is None else row["cell"]["row"],
+            -1 if row["cell"] is None else row["cell"]["column"],
+        )
+    )
+    unknown: list[dict[str, Any]] = [
+        {"annotation": annotation, "reason": reason} for annotation, reason in snapshot.unknown
+    ]
+    unknown.extend(
+        {
+            "annotation": item.annotation,
+            "reason": item.reason,
+            "cell": {"row": item.cell[0], "column": item.cell[1]},
+        }
+        for item in snapshot.cell_unknown
+    )
+    unknown.sort(
+        key=lambda row: (
+            row["annotation"],
+            row["reason"],
+            row.get("cell", {}).get("row", -1),
+            row.get("cell", {}).get("column", -1),
+        )
+    )
+    unavailable_owner_claims.sort(key=lambda row: (row["annotation"], row["parameter_id"]))
+    return cast(
+        dict,
+        json_value(
+            {
+                "authority": "confirmed-compiled-claims",
+                "identity_scope": "build-local-declarations",
+                "entries": entries,
+                "unknown": unknown,
+                "unavailable_owner_claims": unavailable_owner_claims,
+            },
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -182,6 +295,7 @@ class _PreparedReplayAssessment:
                 "representations": "drawing.declarations.entries[].representations[].name",
                 "identity_scope": "build-local",
             },
+            "measurements": _measurement_evidence(drawing, report),
             "drawing": report,
         }
         return write_json_document(document, self.destination)

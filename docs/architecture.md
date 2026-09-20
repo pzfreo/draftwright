@@ -351,7 +351,11 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
   `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting, replay_assessment}`,
-  `replay_assessment → reporting`, `builder → ∅`.
+  `replay_assessment → reporting`, `builder → ∅`. The rank-0 `audit` module compares serialized
+  v2 replay assessments without importing the engine: exact declaration/occurrence ownership,
+  compiled meanings, representation carriers, lint, layout and independent quality components
+  stay as a vector. A fixed expected-requirement list is caller authority, never inferred from
+  geometry, and no composite quality score is formed.
 - **`score.py` / `recognition/`** — temporary public compatibility re-exports of
   `quiddity`, identity-preserving and scheduled for removal in 0.6.0. There are no
   embedded recogniser modules. Engine code imports the external package directly; private

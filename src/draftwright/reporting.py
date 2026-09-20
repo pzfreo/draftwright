@@ -1173,6 +1173,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     named = getattr(registry, "named", None)
     feature_of = getattr(registry, "feature_of", None)
     declaration_of = getattr(registry, "declaration_of", None)
+    is_pinned = getattr(registry, "is_pinned", None)
     if not all(
         callable(value)
         for value in (
@@ -1183,6 +1184,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
             named,
             feature_of,
             declaration_of,
+            is_pinned,
         )
     ):
         raise ReportUnavailableError("annotation provenance registry is unavailable")
@@ -1193,6 +1195,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
     named = cast(Any, named)
     feature_of = cast(Any, feature_of)
     declaration_of = cast(Any, declaration_of)
+    is_pinned = cast(Any, is_pinned)
     features = {id(feature): feature for feature in model.features}
     rows: list[dict] = []
     for name in sorted(names()):
@@ -1230,6 +1233,7 @@ def _declared_representations(model: PartModel, registry: object | None) -> tupl
                     "name": name,
                     "type": type(named(name)).__name__,
                     "view": view_of(name),
+                    "pinned": bool(is_pinned(name)),
                     "feature_object_id": feature_id,
                     "measurements": sorted(measured.get(feature_id, ())),
                     "satisfactions": sorted(satisfied.get(feature_id, ())),
@@ -1642,7 +1646,13 @@ def declared_drawing_report(
     }
 
 
-def _engineering_meaning(meaning):
+def engineering_meaning(meaning):
+    """Project one compiled measurement meaning into deterministic JSON data.
+
+    The measurement verifier and generated-replay assessment share this projection.  Keeping
+    it here prevents those two evidence surfaces from assigning different meanings to the
+    same confirmed compiled claim.
+    """
     from draftwright.fits import FitClass
 
     value, tolerance, span, axis, discriminator, member, angular = meaning
@@ -1825,7 +1835,7 @@ def document_report(
                     "owner_id": owner_id(claim.owner),
                     "parameter_id": claim.parameter,
                     "address": claim.address,
-                    "meaning": _engineering_meaning(claim.meaning),
+                    "meaning": engineering_meaning(claim.meaning),
                     "rendered": claim.rendered,
                     "verification": "confirmed-within-measurement-verifier-scope",
                     **({"cell": claim_cell(claim)} if cell_schema else {}),
@@ -2175,6 +2185,7 @@ __all__ = [
     "build_requirement_catalog",
     "match_requirement_catalog",
     "drawing_report",
+    "engineering_meaning",
     "declared_drawing_report",
     "document_report",
     # The shared occurrence projector (#1461). Three schema'd public documents are built
