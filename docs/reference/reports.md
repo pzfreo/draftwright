@@ -1,8 +1,8 @@
 # Machine-readable reports
 
 For common-source multi-sheet reports, see [Shared drawing documents](document.md).
-`DocumentResult.report()` uses document scope/version 4; the single-sheet version-3
-contract described below remains unchanged.
+`DocumentResult.report()` uses document scope/version 4 or 5. A raw automatic
+`Drawing.report()` uses version 3; a declared `Sheet` drawing uses version 6.
 
 `Drawing.report()` returns a JSON-compatible Draftwright report. Version 3 is a
 bounded contract: it projects the accepted occurrences from one raw automatic recognition
@@ -23,6 +23,22 @@ directory: Draftwright first flushes a sibling temporary file, then replaces the
 report or filesystem failure leaves an existing destination unchanged. Temporary-file cleanup is
 best-effort when the filesystem itself refuses it, and a cleanup error never masks the primary
 failure. Parent directories are not created implicitly.
+
+## Declared Sheet reports (version 6)
+
+A drawing built from `Sheet` or an injected `PartModel` has declared intent but no authoritative
+accepted-occurrence ownership. Version 6 therefore uses `scope: "declared-sheet"` and
+`declarations.authority: "final-ir"`. It retains the complete `lint_summary()` payload and a
+count by final IR feature kind, while stating `recognition_correspondence: "unavailable"`.
+It does not reconstruct occurrence links from values, declaration order, generated Python names,
+annotation names, or coordinates.
+
+The closed contract is
+[`draftwright-report-v6.schema.json`](draftwright-report-v6.schema.json). A
+`bounded-clear` declared report means only that the available declared-drawing critique requires
+no attention. It is not recognition recall, physical completeness, or manufacturing readiness.
+The generated script does not embed the earlier recognition run; its adjacent inspection sidecar
+remains the record of what that generation run recognised.
 
 Version 3 adds exact outer-profile support sources for angular requirements.
 [Version 2](draftwright-report-v2.schema.json) named the actual recognition provider in `producer.quiddity`.
@@ -89,13 +105,12 @@ recogniser output rather than every physical feature a recogniser might fail to 
 thread, fit, tolerance, finish, and process intent also remain separately authored readiness facts;
 the report never invents them.
 
-Version 2 refuses declared, provider-framed, foreign-result, and bare drawings with
-`ReportUnavailableError` because those paths do not carry exact run-local occurrence ownership.
-It also refuses a raw automatic drawing when any accepted occurrence remains unclassified; the
-report never silently removes that occurrence from its denominator. It does not reconstruct
-ownership from values, labels, rendered coordinates, topology traversal, or a second recognition
-scan. Declared reconciliation and framed evidence remain explicit later contracts rather than
-holes disguised as an empty report.
+The version-3 recognised projection refuses provider-framed, foreign-result, and bare drawings
+when they do not carry exact run-local occurrence ownership. It also refuses a raw automatic
+drawing when any accepted occurrence remains unclassified; the report never silently removes
+that occurrence from its denominator. Declared drawings route to version 6 instead. Neither
+contract reconstructs ownership from values, labels, rendered coordinates, topology traversal,
+or a second recognition scan.
 
 
 
@@ -124,10 +139,10 @@ manufacturing readiness. The report does not assess whether all material, proces
 thread, fit or tolerance decisions have been authored. Ordinary notes receive no inferred
 coverage, and layout repair cannot supply missing physical ownership.
 
-For declared drawings, use this summary and `drawing.lint()`; `drawing.report()` retains its
-stricter raw automatic ownership requirement. On supported automatic drawings,
-`report["recognition"]["requirements"]` supplies the existing occurrence/owner/annotation
-links for individual outcomes. This is single-sheet review, not cross-sheet reconciliation.
+For declared drawings, version 6 preserves this summary without claiming recognised occurrence
+ownership. On supported automatic drawings, version 3
+`report["recognition"]["requirements"]` supplies the existing occurrence/owner/annotation links
+for individual outcomes. This is single-sheet review, not cross-sheet reconciliation.
 
 ### Inspecting a leader target
 

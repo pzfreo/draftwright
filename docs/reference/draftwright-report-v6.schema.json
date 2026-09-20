@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-report-v6.schema.json",
+  "title": "Draftwright declared-sheet report v6",
+  "description": "A bounded report whose semantic authority is declared final IR, not recognised occurrence ownership.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "scope",
+    "status",
+    "producer",
+    "source",
+    "outputs",
+    "declarations",
+    "lint"
+  ],
+  "properties": {
+    "schema": { "const": "draftwright-report" },
+    "schema_version": { "const": 6 },
+    "scope": { "const": "declared-sheet" },
+    "status": { "enum": ["bounded-clear", "needs-attention"] },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["draftwright", "quiddity"],
+      "properties": {
+        "draftwright": { "type": "string", "minLength": 1 },
+        "quiddity": { "type": "string", "minLength": 1 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": { "enum": ["step", "build123d"] },
+        "name": { "type": ["string", "null"] }
+      }
+    },
+    "outputs": { "type": "object" },
+    "declarations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "feature_count",
+        "by_kind",
+        "recognition_correspondence",
+        "reason"
+      ],
+      "properties": {
+        "authority": { "const": "final-ir" },
+        "feature_count": { "type": "integer", "minimum": 0 },
+        "by_kind": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "recognition_correspondence": { "const": "unavailable" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "lint": { "type": "object" }
+  }
+}

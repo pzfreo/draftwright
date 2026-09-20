@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 REPORT_SCHEMA = "draftwright-report"
 REPORT_SCHEMA_VERSION = 3
+_DECLARED_REPORT_SCHEMA_VERSION = 6
 
 
 @dataclass(frozen=True)
@@ -1095,6 +1096,50 @@ def drawing_report(
             "owners": [owner for _feature, owner in _feature_ids(model).values()],
             "requirements": requirements,
             "summary": summary,
+        },
+        "lint": lint,
+    }
+
+
+def _declared_drawing_report(
+    *, model: PartModel | None, lint: dict[str, object], source: str | PathLike[str] | None
+) -> dict[str, object]:
+    """Build the schema-v6 report for one declared sheet without inventing recognition."""
+
+    if model is None:
+        raise ReportUnavailableError("the declared drawing has no final IR model")
+    by_kind: Counter[str] = Counter()
+    for feature in model.features:
+        kind = getattr(feature, "kind", None)
+        if not isinstance(kind, str) or not kind:
+            raise ReportUnavailableError("declared drawing contains an IR feature without a kind")
+        by_kind[kind] += 1
+    lint = cast(dict[str, object], json_value(lint))
+    quality = cast(dict[str, Any], lint.get("quality", {}))
+    completeness = cast(dict[str, Any], quality.get("completeness", {}))
+    attention = (
+        not bool(lint.get("passed"))
+        or bool(lint.get("warnings"))
+        or completeness.get("coverage") in {"unavailable", "indeterminate"}
+        or completeness.get("audited_score") is None
+    )
+    return {
+        "schema": REPORT_SCHEMA,
+        "schema_version": _DECLARED_REPORT_SCHEMA_VERSION,
+        "scope": "declared-sheet",
+        "status": "needs-attention" if attention else "bounded-clear",
+        "producer": producer(),
+        "source": _source(source),
+        "outputs": {},
+        "declarations": {
+            "authority": "final-ir",
+            "feature_count": sum(by_kind.values()),
+            "by_kind": dict(sorted(by_kind.items())),
+            "recognition_correspondence": "unavailable",
+            "reason": (
+                "declared intent has no same-run accepted-occurrence ownership; "
+                "no correspondence was inferred"
+            ),
         },
         "lint": lint,
     }
