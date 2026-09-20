@@ -87,8 +87,8 @@ _LEGIBILITY_CODES = frozenset(
 # against legibility on the day it is introduced instead of scoring as perfectly legible
 # until somebody notices (#1127 review). Codes that cannot be read off their suffix carry an
 # explicit ``outcome_stage`` from their producers instead (see ``is_placement_drop``); there
-# were two when this was written and there are fifteen now, enumerated in
-# :data:`_STAGE_ROUTED_CODES` and :data:`_UNSCORED_CODES` — and the suffix shortcut turned
+# the inventory is enumerated in :data:`_STAGE_ROUTED_CODES` and
+# :data:`_UNSCORED_CODES` — and the suffix shortcut turned
 # out to be exactly as forgettable as the list it replaced, because nothing checked that the
 # suffix still meant what it says.
 
@@ -397,16 +397,15 @@ _UNSCORED_CODES = frozenset(
 #: can check rather than assume. It found `section_dropped` scoring nowhere while a comment
 #: beside its emission asserted the opposite.
 #:
-#: Fifteen of these — every entry except `gdt_dropped` and `pmi_dropped` — are codes handed
-#: to a leader job as ``drop_code`` data: `leaders.py`'s one drop recorder stages them
-#: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so all
-#: fifteen have the `section_dropped` shape. Ten of the original thirteen were invisible
-#: to the first audit,
+#: Every entry here except `gdt_dropped` and `pmi_dropped` is handed to a leader job as
+#: ``drop_code`` data: `leaders.py`'s one drop recorder stages them
+#: ``"validation"`` on a rendered-geometry failure and ``"placement"`` otherwise, so they
+#: have the `section_dropped` shape. Several were invisible to the first audit,
 #: which read only codes written as literals AT a producer call, and were new to these
-#: registers; `callout_dropped` is the eleventh and was neither — it is also written as a
+#: registers; `callout_dropped` was neither — it is also written as a
 #: literal at three producer calls, so the audit always saw it (#1176 review r5, corrected
-#: twice: the first note said "the eleven below `pmi_dropped`", which is ten, and the second
-#: still said all eleven had been invisible).
+#: twice after numeric inventories drifted). Keep this explanation structural rather than
+#: restating a count that changes whenever a machined leader family is added.
 _STAGE_ROUTED_CODES = frozenset(
     {
         "callout_dropped",
@@ -423,6 +422,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "paired_ramp_step_dropped",
         "flat_dropped",
         "groove_dropped",
+        "gusset_rib_dropped",
         "pad_height_dropped",
         "pocket_dropped",
         "polygonal_boss_dropped",
@@ -456,6 +456,7 @@ _UNSCORED_CODE_PREFIXES = (
     "flat_requirement_",
     "gear_requirement_",
     "groove_requirement_",
+    "gusset_rib_requirement_",
     "hole_requirement_",
     "pad_requirement_",
     "plate_requirement_",
@@ -483,9 +484,9 @@ def _unscored_component(issues) -> dict:
 
     Reported for the same reason completeness reports ``excludes``: a caller reading four
     components all saying "fine" would otherwise have no way to see that a third of this
-    drawing's findings reached none of them. Twenty-two of the engine's codes score nowhere
-    unconditionally, and another thirteen do whenever their producer stages them, and
-    before this the only record of that was a comment.
+    drawing's findings reached none of them. Some codes score nowhere unconditionally,
+    while stage-routed codes do so whenever their producer records a validation outcome.
+    Before this, the only record of that distinction was a comment.
 
     ``unclassified`` is the fail-open signal made visible. A code here that is not in
     :data:`_UNSCORED_CODES` reached no component AND nobody decided it should — which is

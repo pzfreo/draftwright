@@ -830,6 +830,38 @@ class TestEveryLintCodeIsClassified:
             "a registered stage-routed code was reported as nobody's decision"
         )
 
+    def test_gusset_rib_diagnostics_follow_the_runtime_classification_contract(self):
+        """#1714: the new family must join both dynamic classification routes."""
+        from draftwright.linting.issues import LintIssue
+        from draftwright.linting.quality import _is_legibility_issue, _unscored_component
+
+        placed = LintIssue(
+            severity="warning",
+            code="gusset_rib_dropped",
+            message="m",
+            outcome_stage="placement",
+        )
+        validation_drop = LintIssue(
+            severity="warning",
+            code="gusset_rib_dropped",
+            message="m",
+            outcome_stage="validation",
+        )
+        requirement = LintIssue(
+            severity="warning",
+            code="gusset_rib_requirement_missing",
+            message="m",
+        )
+
+        assert _is_legibility_issue(placed)
+        assert not _is_legibility_issue(validation_drop)
+        report = _unscored_component([validation_drop, requirement])
+        assert report["by_code"] == {
+            "gusset_rib_dropped": 1,
+            "gusset_rib_requirement_missing": 1,
+        }
+        assert report["unclassified"] == []
+
     def test_the_unscored_inventory_reads_like_the_components_beside_it(self):
         # It sits under `quality` next to four components, so `for c in quality.values():
         # c["available"]` must not raise on it — the same ergonomic contract this file
