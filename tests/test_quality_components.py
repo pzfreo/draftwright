@@ -10,6 +10,8 @@ is still a literal map.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from quiddity import (
     Blend,
     BossRecord,
@@ -90,6 +92,41 @@ def test_the_denominator_states_what_it_cannot_see():
         "physical geometry that recognition did not identify",
         "recognized families without a semantic outcome ledger",
     ]
+
+
+def test_unknown_cardinality_only_blocks_an_applicable_denominator():
+    completeness = quality_components(
+        recognition=SimpleNamespace(),
+        features=(),
+        registry=AnnotationRegistry(),
+        omissions=(),
+        issues=(),
+        error_penalty=0.15,
+        warning_penalty=0.05,
+        has_asserted_content=True,
+        requirement_outcomes={
+            "synthetic": (
+                SimpleNamespace(
+                    state="placed",
+                    parameter_id="known",
+                    requirement_count=1,
+                    requirement_count_known=True,
+                ),
+                SimpleNamespace(
+                    state="inapplicable",
+                    parameter_id="irrelevant",
+                    requirement_count=1,
+                    requirement_count_known=False,
+                ),
+            )
+        },
+    )["completeness"]
+
+    assert completeness["available"] is True
+    assert completeness["coverage"] == "partial"
+    assert completeness["requirements"] == 1
+    assert completeness["unknown_cardinality_rows"] == 0
+    assert completeness["audited_score"] == 1.0
 
 
 def test_a_recognition_gap_the_linter_did_notice_is_reported_beside_the_score():

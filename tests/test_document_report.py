@@ -346,9 +346,9 @@ def test_actual_through_step_conjunctions_span_members_and_reject_wrong_support(
     ) == ["dependency-derived", "uncovered"]
 
 
-@pytest.mark.parametrize("source_less", (False, True))
+@pytest.mark.parametrize(("source_less", "schema_version"), ((False, 4), (False, 5), (True, None)))
 def test_producer_unknown_cardinality_never_becomes_a_known_clean_denominator(
-    monkeypatch, source_less
+    monkeypatch, source_less, schema_version
 ):
     from draftwright.linting import requirements
 
@@ -362,6 +362,7 @@ def test_producer_unknown_cardinality_never_becomes_a_known_clean_denominator(
             replace(
                 first,
                 parameter_id="?",
+                state="unverifiable",
                 requirement_count=1,
                 requirement_count_known=False,
                 source_records=() if source_less else first.source_records,
@@ -377,8 +378,14 @@ def test_producer_unknown_cardinality_never_becomes_a_known_clean_denominator(
             Document.from_part(source)
         return
     document = Document.from_part(source)
-    document.sheet("drawing", detail_view=False).auto_dimensions().auto_views()
+    if schema_version == 5:
+        sheet = document.sheet("drawing", detail_view=False).authored_dimensions().auto_views()
+        groove = next(feature for feature in document.features if feature.kind == "groove")
+        sheet.schedule([(groove, ("groove.length",))], name="grooves")
+    else:
+        document.sheet("drawing", detail_view=False).auto_dimensions().auto_views()
     report = document.build().report()
+    assert report["schema_version"] == schema_version
     unknown = [
         row for row in report["recognition"]["requirements"] if not row["requirement_count_known"]
     ]

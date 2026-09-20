@@ -72,6 +72,11 @@ consumer requirement grammar is undecided, `unavailable` when an expected owner 
 `not-projected` for a supported family that does not yet have a typed semantic outcome ledger.
 The report reuses the same family-specific outcomes as `lint_summary().quality.completeness`; it
 never reconstructs the physical denominator from final IR parameters or the compiled plan.
+When a producer cannot state an outcome's physical cardinality, version 3 retains one aggregate
+requirement row with `reason_code: "requirement_cardinality_unknown"`; it does not expand the
+producer's placeholder count. The open `lint.quality.completeness` payload reports the affected
+family/parameter outcomes, sets `coverage` to `"indeterminate"`, and returns no numeric
+`requirements` denominator or `audited_score`.
 
 The six dispositions are `represented`, `absorbed`, `unsupported`, `deferred`, `evidence_only`,
 and `unexpectedly_missing`. A known unsupported, deferred, evidence-only, or missing occurrence,

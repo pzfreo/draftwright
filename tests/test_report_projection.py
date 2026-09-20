@@ -309,6 +309,52 @@ def test_severed_annotation_provenance_loses_requirement_credit(
     assert report["status"] == "needs-attention"
 
 
+def test_unknown_cardinality_is_indeterminate_in_quality_and_v3_report(monkeypatch) -> None:
+    original = requirement_module.recognized_requirement_outcomes
+
+    def unknown_count(*args, **kwargs):
+        outcomes = dict(original(*args, **kwargs))
+        first, *rest = outcomes["grooves"]
+        assert first.source_records and first.requirement_count_known
+        outcomes["grooves"] = (
+            replace(
+                first,
+                parameter_id="?",
+                state="unverifiable",
+                requirement_count=1,
+                requirement_count_known=False,
+            ),
+            *rest,
+        )
+        return outcomes
+
+    monkeypatch.setattr(requirement_module, "recognized_requirement_outcomes", unknown_count)
+    drawing = build_drawing(_EVALUATION_FIXTURES / "groove-lone-z.step")
+
+    report = drawing.report()
+
+    completeness = report["lint"]["quality"]["completeness"]
+    assert completeness["coverage"] == "indeterminate"
+    assert completeness["requirements"] is None
+    assert completeness["known_requirement_count"] > 0
+    assert completeness["unknown_cardinality_rows"] == 1
+    assert completeness["unknown_cardinality"] == [
+        {"family": "grooves", "parameter_id": "?", "state": "unverifiable"}
+    ]
+    assert completeness["audited_score"] is None
+    assert "denominator cannot be stated" in report["lint"]["review"]["coverage"]
+    sentinel = [
+        row
+        for row in report["recognition"]["requirements"]
+        if row["reason_code"] == "requirement_cardinality_unknown"
+    ]
+    assert len(sentinel) == 1
+    assert sentinel[0]["family"] == "grooves"
+    assert sentinel[0]["state"] == "unverifiable"
+    assert report["status"] == "needs-attention"
+    validator_for(_schema())(_schema()).validate(report)
+
+
 def test_requirement_without_exact_source_record_fails_closed(fresh_drawing, monkeypatch) -> None:
     drawing = fresh_drawing("through_step_report")
 
