@@ -1,7 +1,7 @@
 """Build-scoped declaration identity follows intent, never a list position (#1710)."""
 
 import pytest
-from build123d import Box
+from build123d import Box, Cylinder
 
 from draftwright import Sheet
 from draftwright.model import DeclarationIdentity
@@ -136,3 +136,16 @@ def test_identity_reaches_the_built_drawing_model() -> None:
     drawing = sheet.build()
 
     assert drawing.model().declaration_identities == (DeclarationIdentity("declaration:1"),)
+
+
+def test_synthetic_rotational_feature_preserves_declared_identity_alignment() -> None:
+    part = Cylinder(12, 30)
+    sheet = Sheet(part)
+    sheet.authored_dimensions()
+    sheet.boss(part).identify("declaration:1")
+
+    drawing = sheet.build()
+
+    assert drawing.model().declaration_identities[0] == DeclarationIdentity("declaration:1")
+    assert drawing.model().declaration_identities[-1] is None
+    assert len(drawing.model().declaration_identities) == len(drawing.model().features)

@@ -80,6 +80,7 @@ from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.linting.quality import is_unreadable_layout_issue
 from draftwright.model import (
     Datum,
+    DeclarationIdentity,
     Feature,
     PartModel,
     StepFeature,
@@ -560,7 +561,12 @@ def _assemble(
         if not any(f.kind == "rotational" for f in pm.features):
             rot = build_rotational_feature(a)
             if rot is not None:
-                pm = replace(pm, features=[*pm.features, rot])
+                identities = pm.declaration_identities
+                pm = replace(
+                    pm,
+                    features=[*pm.features, rot],
+                    declaration_identities=(*identities, None) if identities else (),
+                )
         # A z step declares a segment of a z-turned profile. `.step()` on a BOSS — an external
         # cylinder on a prismatic part — is a misuse of the verb, and the symptom is that the
         # declared steps leave the bulk of the part unspanned (#631). This is a verb-misuse
@@ -596,7 +602,40 @@ def _assemble(
             if pmi_feats:
                 from draftwright.model.pmi_lowering import lower_ap242_dimensions
 
-                pm = lower_ap242_dimensions(replace(pm, features=[*pm.features, *pmi_feats]))
+                identities = pm.declaration_identities
+                identity_by_feature = {
+                    id(feature): identity
+                    for feature, identity in zip(pm.features, identities, strict=True)
+                    if identity is not None
+                }
+                remapped_identities: dict[int, DeclarationIdentity] = {}
+
+                def preserve_declaration_identity(source, replacements, _member_groups) -> None:
+                    identity = identity_by_feature.get(id(source))
+                    if identity is not None and replacements:
+                        remapped_identities[id(replacements[0])] = identity
+
+                lowered = lower_ap242_dimensions(
+                    replace(
+                        pm,
+                        features=[*pm.features, *pmi_feats],
+                        declaration_identities=(),
+                    ),
+                    feature_remap=preserve_declaration_identity if identities else None,
+                )
+                pm = replace(
+                    lowered,
+                    declaration_identities=(
+                        tuple(
+                            identity_by_feature.get(
+                                id(feature), remapped_identities.get(id(feature))
+                            )
+                            for feature in lowered.features
+                        )
+                        if identities
+                        else ()
+                    ),
+                )
     # ADR 1 (was 0005 §2) (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a

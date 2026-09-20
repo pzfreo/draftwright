@@ -64,7 +64,7 @@ def test_report_conflict_keeps_both_confirmed_values_and_one_coverage_credit(tmp
     )
     assert all(sheet["dimension_intents"]["source"] == "authored" for sheet in report["sheets"])
     json.dumps(report, allow_nan=False)
-    assert all(drawing.report()["schema_version"] == 6 for drawing in result.sheets.values())
+    assert all(drawing.report()["schema_version"] == 7 for drawing in result.sheets.values())
 
 
 def test_returned_document_is_detached_and_fresh_reads_lose_removed_credit(tmp_path):
