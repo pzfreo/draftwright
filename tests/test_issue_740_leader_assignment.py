@@ -56,6 +56,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("from_model.py", "render_pad_heights", True),
         ("from_model.py", "render_grooves", True),
         ("from_model.py", "render_paired_ramp_steps", True),
+        ("from_model.py", "render_gusset_ribs", True),
         ("from_model.py", "render_boss_diameters", False),
         ("from_model.py", "_render_polygonal_prisms", False),
         ("from_model.py", "render_hex_pockets", True),
@@ -310,6 +311,18 @@ def test_state_budget_retains_the_legacy_greedy_incumbent():
     assert result.choices == (0, None)
     assert not result.optimal
     assert result.states == 1
+
+
+def test_dominated_candidates_do_not_consume_the_exact_search_budget():
+    result = _assign_leader_candidates(
+        (tuple([1.0] + [2.0] * 99), (1.0,)),
+        tuple((0, candidate, 1, 0) for candidate in range(100)),
+        max_states=10,
+    )
+
+    assert result.choices == (0, None)
+    assert result.optimal
+    assert result.states < 10
 
 
 def test_production_state_budget_is_a_load_bearing_work_bound():

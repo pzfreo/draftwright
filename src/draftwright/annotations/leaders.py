@@ -162,6 +162,7 @@ def interior_leader_candidates(
     silhouette,
     analytical_geometry,
     draft,
+    interior_label_clear=None,
 ):
     """Yield deterministic feature-relative label candidates inside a view.
 
@@ -202,7 +203,11 @@ def interior_leader_candidates(
                 label = _coerce_box(geometry[0]) if geometry is not None else None
             except Exception:  # noqa: BLE001 — one optional ray must fail closed
                 label = None
-            if label is not None and _box_inside(label, silhouette):
+            if (
+                label is not None
+                and _box_inside(label, silhouette)
+                and (interior_label_clear is None or interior_label_clear(label))
+            ):
                 yield FeatureLeaderCandidate(
                     tip=tip,
                     elbow=elbow,
@@ -219,6 +224,7 @@ def feature_leader_candidates(
     analytical_geometry,
     draft,
     exterior_candidates=None,
+    interior_label_clear=None,
 ):
     """Apply one region policy to a producer's existing physical anchors.
 
@@ -244,34 +250,49 @@ def feature_leader_candidates(
                 yield candidate
         return
 
-    interior_count = 0
-    for raw in anchors:
+    # A grouped callout may have many equally valid physical attachment sites.
+    # Share the bounded inventory round-robin across those sites; exhausting all
+    # 64 lanes from the first member would make later members semantically
+    # ineligible merely because they appeared later in deterministic model order.
+    interior_sources = []
+    for raw in islice(anchors, _INTERIOR_CANDIDATES_PER_FEATURE):
         candidate = (
             raw
             if isinstance(raw, FeatureLeaderCandidate)
             else FeatureLeaderCandidate(tip=raw[0], elbow=raw[1], feature=raw[2])
         )
         if candidate.region is LeaderCandidateRegion.INTERIOR:
-            yield candidate
-            interior_count += 1
-            if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
-                break
+            interior_sources.append(iter((candidate,)))
             continue
         if analytical_geometry is not None:
-            for interior in interior_leader_candidates(
-                candidate.tip,
-                candidate.elbow,
-                candidate.feature,
-                silhouette=silhouette,
-                analytical_geometry=analytical_geometry,
-                draft=draft,
-            ):
-                yield interior
-                interior_count += 1
-                if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
-                    break
-        if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
-            break
+            interior_sources.append(
+                iter(
+                    interior_leader_candidates(
+                        candidate.tip,
+                        candidate.elbow,
+                        candidate.feature,
+                        silhouette=silhouette,
+                        analytical_geometry=analytical_geometry,
+                        draft=draft,
+                        interior_label_clear=interior_label_clear,
+                    )
+                )
+            )
+
+    interior_count = 0
+    while interior_sources and interior_count < _INTERIOR_CANDIDATES_PER_FEATURE:
+        remaining = []
+        for source in interior_sources:
+            try:
+                interior = next(source)
+            except StopIteration:
+                continue
+            yield interior
+            interior_count += 1
+            remaining.append(source)
+            if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
+                break
+        interior_sources = remaining
 
     if policy is LeaderRegionPolicy.INTERIOR:
         return
@@ -934,6 +955,7 @@ def _assign_by_view(
     for view, members in order.items():
         local = {job_index: position for position, job_index in enumerate(members)}
         local_conflicts = []
+        connected: dict[int, set[int]] = {position: set() for position in range(len(members))}
         for left_job, left_candidate, right_job, right_candidate in conflicts:
             left_in, right_in = left_job in local, right_job in local
             if not left_in and not right_in:
@@ -950,16 +972,52 @@ def _assign_by_view(
             local_conflicts.append(
                 (local[left_job], left_candidate, local[right_job], right_candidate)
             )
-        result = _assign_leader_candidates(
-            [costs_by_job[job_index] for job_index in members],
-            local_conflicts,
-            priorities=[priorities[job_index] for job_index in members],
-            penalties_by_job=[penalties_by_job[job_index] for job_index in members],
-        )
-        for position, job_index in enumerate(members):
-            choices[job_index] = result.choices[position]
-        optimal = optimal and result.optimal
-        states += result.states
+            connected[local[left_job]].add(local[right_job])
+            connected[local[right_job]].add(local[left_job])
+
+        # Conflict-connected components are independent for the same additive
+        # reason views are.  Solving a sparse view as one Cartesian product can
+        # exhaust the state budget even when each local collision cluster is
+        # tiny; splitting the job graph is exact and gives every independent
+        # search the documented bound.
+        unseen = set(connected)
+        components = []
+        while unseen:
+            root = min(unseen)
+            discovered = []
+            frontier = [root]
+            unseen.remove(root)
+            while frontier:
+                position = frontier.pop()
+                discovered.append(position)
+                for neighbour in sorted(connected[position], reverse=True):
+                    if neighbour in unseen:
+                        unseen.remove(neighbour)
+                        frontier.append(neighbour)
+            components.append(tuple(sorted(discovered)))
+
+        for component in components:
+            component_local = {position: index for index, position in enumerate(component)}
+            component_conflicts = [
+                (
+                    component_local[left],
+                    left_candidate,
+                    component_local[right],
+                    right_candidate,
+                )
+                for left, left_candidate, right, right_candidate in local_conflicts
+                if left in component_local and right in component_local
+            ]
+            result = _assign_leader_candidates(
+                [costs_by_job[members[position]] for position in component],
+                component_conflicts,
+                priorities=[priorities[members[position]] for position in component],
+                penalties_by_job=[penalties_by_job[members[position]] for position in component],
+            )
+            for component_index, position in enumerate(component):
+                choices[members[position]] = result.choices[component_index]
+            optimal = optimal and result.optimal
+            states += result.states
     return _LeaderAssignment(tuple(choices), optimal, states)
 
 
@@ -1026,6 +1084,38 @@ def _view_region_blocker(candidate, job) -> str | None:
     if clear is None or not clear(label):
         return f"view:{job.view}:interior_projection_ink"
     return None
+
+
+def _fixed_component_bounds(component: _FixedInkComponent):
+    """Conservative box for the broad phase before exact ink intersection."""
+
+    if component.box is not None:
+        return component.box
+    points = [point for polygon in component.polygons for point in polygon]
+    if component.segment is not None:
+        points.extend(component.segment)
+    if not points:
+        return None
+    return (
+        min(point[0] for point in points),
+        min(point[1] for point in points),
+        max(point[0] for point in points),
+        max(point[1] for point in points),
+    )
+
+
+def _possible_fixed_components(candidate, components):
+    """Components whose conservative boxes can intersect candidate ink."""
+
+    candidate_bounds = _candidate_bounds(candidate)
+    if candidate_bounds is None:
+        return tuple(components)
+    possible = []
+    for component in components:
+        component_bounds = _fixed_component_bounds(component)
+        if component_bounds is None or _boxes_overlap(candidate_bounds, component_bounds):
+            possible.append(component)
+    return tuple(possible)
 
 
 def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
@@ -2191,7 +2281,6 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     # global allowance made a three-view part exhaust the budget at a third of the
     # inventory each view could actually handle, and every dense fixture fell back to the
     # greedy floor before the exact solve began.
-    candidate_counts_by_job = []
     for job_index, iterator in enumerate(raw_jobs):
         view = jobs[job_index].view
         unit_work = _candidate_measure_work(jobs[job_index])
@@ -2204,7 +2293,12 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             raw_jobs[job_index] = chain(prefix, iterator)
             return greedy("greedy_candidate_budget")
         raw_jobs[job_index] = iter(prefix)
-        candidate_counts_by_job.append(len(prefix))
+
+    measured_by_job = [
+        [_measure(raw_index, raw, job, dwg.draft) for raw_index, raw in enumerate(iterator)]
+        for job, iterator in zip(jobs, raw_jobs, strict=True)
+    ]
+    raw_count_by_job = [len(candidates) for candidates in measured_by_job]
 
     fixed = bounded_fixed_obstacles()
     if fixed is _FIXED_INVENTORY_EXHAUSTED:
@@ -2212,9 +2306,15 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             "greedy_fixed_inventory_budget",
             fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_WORK + 1,
         )
+    possible_fixed_by_job = [
+        [_possible_fixed_components(candidate, fixed[job.view]) for candidate in candidates]
+        for job, candidates in zip(jobs, measured_by_job, strict=True)
+    ]
     probes_by_view: dict[str, int] = {}
-    for count, job in zip(candidate_counts_by_job, jobs, strict=True):
-        probes_by_view[job.view] = probes_by_view.get(job.view, 0) + count * len(fixed[job.view])
+    for job, possible_by_candidate in zip(jobs, possible_fixed_by_job, strict=True):
+        probes_by_view[job.view] = probes_by_view.get(job.view, 0) + sum(
+            len(components) for components in possible_by_candidate
+        )
     fixed_probe_bound = sum(probes_by_view.values())
     if any(bound > _FEATURE_LEADER_MAX_FIXED_WORK for bound in probes_by_view.values()):
         return greedy(
@@ -2225,24 +2325,19 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     policy_blockers_by_job = []
     material_by_job = []
     rejected_by_job = []
-    measured_by_job = []
-    raw_count_by_job = []
-    for job, iterator in zip(jobs, raw_jobs, strict=True):
+    for job, measured, possible_by_candidate in zip(
+        jobs, measured_by_job, possible_fixed_by_job, strict=True
+    ):
         viable = []
         policy_blockers = []
         material_units = []
         rejected = []
-        measured = []
-        raw_count = 0
         field = material_by_view.get(job.view)
-        for raw_index, raw in enumerate(iterator):
-            raw_count = raw_index + 1
-            candidate = _measure(raw_index, raw, job, dwg.draft)
-            measured.append(candidate)
-            blockers = _fixed_blockers(candidate, job, page, fixed[job.view])
+        for candidate, possible_components in zip(measured, possible_by_candidate, strict=True):
+            blockers = _fixed_blockers(candidate, job, page, possible_components)
             hard_blocked = bool(_hard_fixed_blockers(blockers))
             if blockers and (hard_blocked or not job.allow_policy_b_fixed):
-                rejected.append((raw_index, blockers))
+                rejected.append((candidate.raw_index, blockers))
                 continue
             viable.append(candidate)
             policy_blockers.append(blockers)
@@ -2254,21 +2349,6 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         policy_blockers_by_job.append(policy_blockers)
         material_by_job.append(material_units)
         rejected_by_job.append(rejected)
-        measured_by_job.append(measured)
-        raw_count_by_job.append(raw_count)
-
-    pair_probes = 0
-    prior_by_view: dict[str, int] = {}
-    for job, candidates in zip(jobs, viable_by_job, strict=True):
-        pair_probes += prior_by_view.get(job.view, 0) * len(candidates)
-        prior_by_view[job.view] = prior_by_view.get(job.view, 0) + len(candidates)
-        if pair_probes > _FEATURE_LEADER_MAX_PAIR_PROBES:
-            return greedy(
-                "greedy_pair_budget",
-                fixed_probes=fixed_probe_bound,
-                fixed_probe_bound=fixed_probe_bound,
-                pair_probes=pair_probes,
-            )
 
     component_bounds_by_job = [
         [
@@ -2281,6 +2361,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         [_candidate_bounds(candidate) for candidate in candidates] for candidates in viable_by_job
     ]
     conflicts = []
+    pair_probes = 0
     for later_job, later_candidates in enumerate(viable_by_job):
         for earlier_job in range(later_job):
             if jobs[earlier_job].view != jobs[later_job].view:
@@ -2295,6 +2376,14 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                         or not _boxes_overlap(earlier_bounds, later_bounds)
                     ):
                         continue
+                    pair_probes += 1
+                    if pair_probes > _FEATURE_LEADER_MAX_PAIR_PROBES:
+                        return greedy(
+                            "greedy_pair_budget",
+                            fixed_probes=fixed_probe_bound,
+                            fixed_probe_bound=fixed_probe_bound,
+                            pair_probes=pair_probes,
+                        )
                     if _candidate_conflict(
                         earlier,
                         later,
