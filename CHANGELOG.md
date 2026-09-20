@@ -4,6 +4,10 @@
 
 ### Added
 
+- A bounded real-part canary now proves the complete agent improvement loop on NIST CTC-01
+  (#1716): inspection-to-declaration joins, traced baseline, one sanctioned `Sheet` layout edit,
+  replay assessment, fixed-denominator comparison, and fail-closed deletion/owner/provenance
+  checks. It performs exactly two CAD builds in the existing single PR canary lane.
 - Replay assessments v2 now retain exact confirmed compiled measurement meanings, and
   `compare_assessments()` evaluates two same-source replays as separate semantic, lint,
   completeness, fidelity, layout, and availability deltas (#1712). Caller-fixed requirements

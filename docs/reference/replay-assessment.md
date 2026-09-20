@@ -44,6 +44,13 @@ completeness/fidelity evidence, unclassified lint, or deletion used to clear lay
 incompatible authority makes it incomparable. Restraint and manufacturing readiness remain
 explicitly unavailable.
 
+The bounded CTC-01 real-part canary exercises that loop before merge: generate an inspected
+script, replay a traced baseline, make one sanctioned `Sheet` layout edit, replay once, and
+compare against a reviewed 78-claim denominator. It deliberately proves that deleting the
+crossed measurement or substituting another recognised owner is rejected. The counterfactuals
+operate on the two captured documents, so the CI lane pays for exactly two CAD builds rather
+than rebuilding the part for every policy failure.
+
 The generated script removes an older Draftwright-owned assessment before importing or building
 the part. Build, export, strict-report, identity, and write failures therefore leave no old
 success document. A foreign or malformed file at the derived assessment path is preserved and

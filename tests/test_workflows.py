@@ -380,11 +380,14 @@ def test_real_part_canary_runs_once_with_an_execution_budget():
     assert "runs-on: ubuntu-latest" in job and 'python-version: "3.12"' in job
     assert "matrix:" not in job and "continue-on-error:" not in job
     assert "timeout-minutes: 10" in job
-    assert (
-        "run: uv run pytest tests/test_issue_827_real_part_canary.py "
-        "tests/test_issue_1544_frame_document_canary.py "
-        "-m real_part_canary -v -s --durations=1"
-    ) in job
+    assert "run: >-" in job
+    for module in (
+        "tests/test_issue_827_real_part_canary.py",
+        "tests/test_issue_1544_frame_document_canary.py",
+        "tests/test_agent_improvement_canary_issue_1716.py",
+    ):
+        assert job.count(module) == 1
+    assert "-m real_part_canary -v -s --durations=3" in job
 
 
 def test_coverage_artefacts_are_rendered_before_the_fail_under_gate():
