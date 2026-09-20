@@ -4016,9 +4016,7 @@ class PartModel:
     # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. Imported
     # requirements wrap that value in :class:`ToleranceDecoration` so source identities
     # survive without widening renderer tolerance types (#1116). The planner consults those
-    # tolerance entries. A declared Sheet may also carry
-    # ``(feature, "declaration_identity") -> DeclarationIdentity``; the planner ignores that
-    # build-scoped agent/editing provenance. Otherwise empty on a detected model.
+    # tolerance entries. Otherwise empty on a detected model.
     decorations: dict = field(default_factory=dict)
     # Caller-requested augmenting measurements (ADR 4 (was 0016) / #872) — the planner's
     # *intent input*. Kept distinct from `decorations` on purpose: a decoration enriches
@@ -4036,8 +4034,24 @@ class PartModel:
     authored_dimensions: tuple[RequestedDimension, ...] | None = None
     # Table representations belong to authored intent, not the physical inventory.
     schedules: tuple[FeatureSchedule, ...] = ()
+    # Build-scoped agent/editing provenance aligned exactly with ``features``. Alignment rather
+    # than feature-keyed decorations is essential: two independent frozen feature values may
+    # compare equal and must not collapse into one declaration (#1710). Empty means the caller
+    # supplied no declaration identity inventory; otherwise there is one slot per feature.
+    declaration_identities: tuple[DeclarationIdentity | None, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.declaration_identities and len(self.declaration_identities) != len(self.features):
+            raise ValueError(
+                "PartModel.declaration_identities must be empty or align one-for-one with features"
+            )
+        if any(
+            identity is not None and not isinstance(identity, DeclarationIdentity)
+            for identity in self.declaration_identities
+        ):
+            raise ValueError(
+                "PartModel.declaration_identities entries must be DeclarationIdentity or None"
+            )
         self._validate_structured_note_origins()
         self._validate_schedule_origins()
 

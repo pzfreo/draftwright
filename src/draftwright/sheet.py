@@ -3238,12 +3238,6 @@ class Sheet:
             (self._features[self._index_of_token(tok)], *rest): tol
             for (tok, *rest), tol in self._tolerances.items()
         }
-        for token, identity in self._declaration_identities.items():
-            try:
-                feature = self._features[self._index_of_token(token)]
-            except ValueError:
-                continue
-            deco[(feature, "declaration_identity")] = identity
         if self._section is not None:
             deco["section"] = self._section_cut_y()  # the #841 cut-plane Y (scalar key)
         if section_request is not _UNSET and section_request is not None:
@@ -3290,9 +3284,14 @@ class Sheet:
             model = self._document_input.model(self._features)
         else:
             model = self._features
-        if not self._schedules and not self._replayed_recognition:
+        identities = tuple(
+            self._declaration_identities.get(token) for token, _feature in self._entries
+        )
+        if not self._schedules and not self._replayed_recognition and not any(identities):
             return model
         model = _coerce_model(model, _solids_body(self._part), authored=self._authored_set())
+        if any(identities):
+            model = replace(model, declaration_identities=identities)
         if self._replayed_recognition:
             model = replace(model, detected=True, replayed_recognition=True)
         return replace(model, schedules=self._resolved_schedules()) if self._schedules else model

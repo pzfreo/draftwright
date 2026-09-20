@@ -22,11 +22,9 @@ def test_identity_survives_fluent_replacement_and_feature_reordering() -> None:
     sheet.features.reverse()
     model = sheet.model()
 
-    assert model.decorations[(sheet.features[1], "declaration_identity")] == DeclarationIdentity(
-        "declaration:1"
-    )
-    assert model.decorations[(sheet.features[0], "declaration_identity")] == DeclarationIdentity(
-        "declaration:2"
+    assert model.declaration_identities == (
+        DeclarationIdentity("declaration:2"),
+        DeclarationIdentity("declaration:1"),
     )
     assert sheet.by_declaration("declaration:1")._token == first._token
     assert sheet.by_declaration("declaration:2")._token == second._token
@@ -41,7 +39,7 @@ def test_public_replacement_withdraws_identity_instead_of_retargeting_it() -> No
 
     model = sheet.model()
 
-    assert not any(key[1:] == ("declaration_identity",) for key in model.decorations)
+    assert model.declaration_identities == ()
     with pytest.raises(ValueError, match="found 0"):
         sheet.by_declaration("declaration:1")
     assert sheet.features[0].diameter == 6
@@ -58,6 +56,34 @@ def test_live_declaration_ids_are_unique_but_withdrawn_ids_can_be_reused() -> No
     del sheet.features[first._i]
     second.identify("declaration:1")
     assert sheet.by_declaration("declaration:1")._token == second._token
+
+
+def test_equal_valued_independent_features_retain_distinct_identities() -> None:
+    sheet = _sheet()
+    sheet.hole(diameter=4, at=(0, 0, 0), axis="z").identify("declaration:1")
+    sheet.hole(diameter=4, at=(0, 0, 0), axis="z").identify("declaration:2")
+
+    model = sheet.model()
+
+    assert model.features[0] == model.features[1]
+    assert model.declaration_identities == (
+        DeclarationIdentity("declaration:1"),
+        DeclarationIdentity("declaration:2"),
+    )
+
+
+def test_part_model_rejects_a_misaligned_identity_inventory() -> None:
+    sheet = _sheet()
+    sheet.hole(diameter=4, at=(0, 0, 0), axis="z").identify("declaration:1")
+    model = sheet.model()
+
+    with pytest.raises(ValueError, match="align one-for-one"):
+        type(model)(
+            bbox=model.bbox,
+            orientation=model.orientation,
+            features=model.features,
+            declaration_identities=(DeclarationIdentity("declaration:1"), None),
+        )
 
 
 def test_identity_validates_bounded_provenance_and_run_local_occurrences() -> None:
@@ -100,3 +126,13 @@ def test_declaration_selector_can_author_a_dimension_without_private_objects() -
     (intent,) = sheet.model().authored_dimensions
     assert intent.feature is sheet.features[0]
     assert intent.role == "bore.diameter"
+
+
+def test_identity_reaches_the_built_drawing_model() -> None:
+    sheet = _sheet()
+    hole = sheet.hole(diameter=4, at=(0, 0, 0), axis="z").identify("declaration:1")
+    sheet.dimension(hole, "bore.diameter")
+
+    drawing = sheet.build()
+
+    assert drawing.model().declaration_identities == (DeclarationIdentity("declaration:1"),)
