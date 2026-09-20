@@ -40,7 +40,7 @@ _CURVED_FIXTURE = _FIXTURES / "issue_1058_wheel_rh.step"
 _CTC_01_AP203 = _FIXTURES / "nist_ctc_01_asme1_ap203.stp"
 _TURNED_FIXTURE = _FIXTURES / "evaluation" / "turned-step-axis-z.step"
 _SCHEMA_PATH = (
-    Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v3.schema.json"
+    Path(__file__).parents[1] / "docs/reference/draftwright-step-inspection-v4.schema.json"
 )
 
 # The stages an inspection must never reach. `compose`, `model.planner`, `model.callout` and
@@ -121,7 +121,7 @@ def test_a_real_fixture_returns_the_documented_document() -> None:
 
     _validate(document)
     assert document["schema"] == "draftwright-step-inspection"
-    assert document["schema_version"] == 3
+    assert document["schema_version"] == 4
     assert document["source"] == {
         "name": "grm03_thumbwheel_drive_screw_ap242_pmi.step",
         "sha256": __import__("hashlib").sha256(_PMI_FIXTURE.read_bytes()).hexdigest(),
@@ -196,7 +196,7 @@ def test_unclaimed_geometry_is_reported_with_the_providers_own_accounting() -> N
     )
     assert len(missed["unclaimed_faces"]) == missed["face_count"]["unclaimed"]
     for face in missed["unclaimed_faces"]:
-        assert set(face) == {"surface", "area", "position", "bbox"}
+        assert set(face) == {"id", "surface", "area", "position", "bbox"}
         assert face["area"] > 0
         assert face["surface"]
 
@@ -701,8 +701,8 @@ def test_the_document_is_isolated_strict_json_not_live_objects() -> None:
 def test_a_value_that_cannot_be_stated_as_json_fails_as_an_inspection_failure(monkeypatch):
     real = inspection_module._missed
 
-    def infinite(evidence):
-        outcome = real(evidence)
+    def infinite(evidence, candidates, face_ids):
+        outcome = real(evidence, candidates, face_ids)
         outcome["face_count"]["total"] = float("inf")
         return outcome
 
