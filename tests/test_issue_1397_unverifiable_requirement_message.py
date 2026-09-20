@@ -246,7 +246,7 @@ def test_no_module_can_both_record_the_sentinel_and_print_it_raw():
     # corrupt-source outcomes; they never mint the unjoined-parameter sentinel.
     assert "oriented_slot_coverage.py" in prints_raw
     assert "oriented_slot_coverage.py" not in mints
-    assert len(prints_raw) == 7, prints_raw
+    assert len(prints_raw) == 8, prints_raw
     assert "turned_step_coverage.py" in mints, "the one minting module that builds no message"
     assert "hole_coverage.py" in mints and "hole_coverage.py" not in prints_raw
 

@@ -28,7 +28,11 @@ def gusset_rib_requirement_outcomes(
     recognition, features, registry, omissions, *, evidence, ownership
 ):
     """Follow physical rib sizes and provider-proven group placement to final ink."""
-    if recognition is None:
+    # Declared and framed builds can carry a recognition aggregate without the raw
+    # provider evidence ledger.  There are no provider-owned gusset occurrences to
+    # reconcile in that case; treating the missing optional ledger as iterable made
+    # every unrelated completeness check crash after gussets joined the registry.
+    if recognition is None or evidence is None:
         return []
     refs = tuple(ref for ref in evidence.features if evidence.family(ref) == "gusset_ribs")
     evidence_records = tuple((ref, evidence.record(ref)) for ref in refs)
@@ -131,15 +135,24 @@ def gusset_rib_requirement_outcomes(
                 state = "dropped"
             else:
                 state = "missing"
-            count = len(records) if parameter.startswith(("gusset_thickness", "gusset_leg")) else 1
-            outcomes.append(
+            # Thickness and both leg lengths are physical requirements of every rib
+            # occurrence.  Keep one exact row per provider record: a named parameter
+            # with cardinality > 1 cannot be joined unambiguously in the document
+            # catalog.  Spacing/location are properties of the grouped relation and
+            # therefore remain one row sourced by the whole member set.
+            sources = (
+                tuple((record,) for record in records)
+                if parameter.startswith(("gusset_thickness", "gusset_leg"))
+                else (tuple(records),)
+            )
+            outcomes.extend(
                 GussetRibRequirementOutcome(
                     parameter,
                     state,
-                    requirement_count=count,
                     features=(feature,),
-                    source_records=tuple(records),
+                    source_records=source_records,
                 )
+                for source_records in sources
             )
     return with_measurement_carriers(outcomes, registry)
 

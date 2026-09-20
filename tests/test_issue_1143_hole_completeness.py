@@ -279,6 +279,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "paired_ramp_steps": 0,
         "flats": 0,
         "grooves": 0,
+        "gusset_ribs": 0,
         "holes": 4,
         "hole_patterns": 6,
         "pads": 0,

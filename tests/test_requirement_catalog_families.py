@@ -44,6 +44,7 @@ _CASES = (
     ("slots", "test_slot_completeness", "_off_centre_slot"),
     ("slot_patterns", "test_slot_completeness", "_slot_row"),
     ("section_recesses", "test_report_projection", "_passage_part"),
+    ("gusset_ribs", "test_gusset_rib_semantics", "_mirrored_gusset_bracket"),
     ("outer_profile_angles", None, None),
 )
 
