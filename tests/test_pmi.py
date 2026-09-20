@@ -2294,6 +2294,34 @@ class TestDeclaredModelPmi:
         dwg = build_drawing(str(CTC01), out=str(tmp_path / "off"), title="P", model=[])
         assert [n for n in dwg.annotations() if n.startswith("pmi_")] == []
 
+    def test_synthetic_pmi_lowering_preserves_existing_declaration_identity(self, tmp_path):
+        from dataclasses import replace
+
+        from draftwright.builder import detect_part_model
+        from draftwright.model import DeclarationIdentity
+
+        model = detect_part_model(str(CTC01), pmi="off")
+        identities = tuple(
+            DeclarationIdentity(f"declaration:existing:{index}")
+            for index, _feature in enumerate(model.features)
+        )
+        declared = replace(
+            model,
+            declaration_identities=identities,
+        )
+
+        drawing = build_drawing(
+            str(CTC01),
+            out=str(tmp_path / "identified"),
+            title="P",
+            model=declared,
+            pmi="annotate",
+        )
+
+        lowered_identities = drawing.model().declaration_identities
+        assert len(lowered_identities) == len(drawing.model().features)
+        assert tuple(identity for identity in lowered_identities if identity is not None) == identities
+
 
 def test_build_pmi_features_mirrors_detection(ctc01_extraction_report):
     """build_pmi_features (shared by build_part_model and the declared-model synthesis) builds one
