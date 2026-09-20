@@ -129,6 +129,9 @@ _INTERIOR_RAY_ANGLES = (
 # bounded at 64 alternatives per physical anchor.  That covers a useful local
 # neighbourhood without making candidate count depend on part or sheet size.
 _INTERIOR_LANES_PER_RAY = 8
+# Multi-anchor features share one bounded interior inventory; pattern size must
+# not multiply shared-solver work.
+_INTERIOR_CANDIDATES_PER_FEATURE = 64
 
 
 def _ray_exit_distance(point, direction, bounds) -> float:
@@ -215,36 +218,71 @@ def feature_leader_candidates(
     silhouette,
     analytical_geometry,
     draft,
+    exterior_candidates=None,
 ):
     """Apply one region policy to a producer's existing physical anchors.
 
     Families continue to own only their semantic tip/preferred-elbow pairs and
     annotation builder.  This adapter owns region expansion and filtering, so
     no family reimplements interior rays, distances, containment, or typed
-    provenance.  Legacy tuples remain exterior anchors.
+    provenance.  ``exterior_candidates`` preserves an established exterior
+    inventory when a feature supplies additional physical interior anchors.
+    Legacy tuples remain exterior anchors.
     """
 
     policy = LeaderRegionPolicy(region_policy)
-    for raw in raw_candidates:
+    anchors, default_exterior = tee(iter(raw_candidates))
+    if policy is LeaderRegionPolicy.EXTERIOR:
+        source = default_exterior if exterior_candidates is None else exterior_candidates
+        for raw in source:
+            candidate = (
+                raw
+                if isinstance(raw, FeatureLeaderCandidate)
+                else FeatureLeaderCandidate(tip=raw[0], elbow=raw[1], feature=raw[2])
+            )
+            if candidate.region is LeaderCandidateRegion.EXTERIOR:
+                yield candidate
+        return
+
+    interior_count = 0
+    for raw in anchors:
         candidate = (
             raw
             if isinstance(raw, FeatureLeaderCandidate)
             else FeatureLeaderCandidate(tip=raw[0], elbow=raw[1], feature=raw[2])
         )
         if candidate.region is LeaderCandidateRegion.INTERIOR:
-            if policy is not LeaderRegionPolicy.EXTERIOR:
-                yield candidate
+            yield candidate
+            interior_count += 1
+            if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
+                break
             continue
-        if policy is not LeaderRegionPolicy.EXTERIOR and analytical_geometry is not None:
-            yield from interior_leader_candidates(
+        if analytical_geometry is not None:
+            for interior in interior_leader_candidates(
                 candidate.tip,
                 candidate.elbow,
                 candidate.feature,
                 silhouette=silhouette,
                 analytical_geometry=analytical_geometry,
                 draft=draft,
-            )
-        if policy is not LeaderRegionPolicy.INTERIOR:
+            ):
+                yield interior
+                interior_count += 1
+                if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
+                    break
+        if interior_count >= _INTERIOR_CANDIDATES_PER_FEATURE:
+            break
+
+    if policy is LeaderRegionPolicy.INTERIOR:
+        return
+    source = default_exterior if exterior_candidates is None else exterior_candidates
+    for raw in source:
+        candidate = (
+            raw
+            if isinstance(raw, FeatureLeaderCandidate)
+            else FeatureLeaderCandidate(tip=raw[0], elbow=raw[1], feature=raw[2])
+        )
+        if candidate.region is LeaderCandidateRegion.EXTERIOR:
             yield candidate
 
 
@@ -782,8 +820,30 @@ def _candidate_hits_component(
         and component.owner is resolve_feature(candidate.feature)
     ):
         # A feature leader intentionally originates inside its own centre
-        # furniture; unrelated centre furniture remains fixed ink (#305).
-        return False
+        # furniture; unrelated centre furniture remains fixed ink (#305). An
+        # interior label still has to clear the same feature's furniture: exempt
+        # only the arrow-sized attachment neighbourhood, not the shelf or text.
+        if candidate.region is LeaderCandidateRegion.EXTERIOR:
+            return False
+        if component.box is not None:
+            if candidate.label_box is not None and _boxes_overlap(
+                candidate.label_box, component.box
+            ):
+                return True
+            return any(
+                _convex_polygon_overlaps_box(polygon, component.box)
+                for polygon in candidate.axis_residual_polygons
+            )
+        if candidate.label_box is not None and any(
+            _convex_polygon_overlaps_box(polygon, candidate.label_box)
+            for polygon in component.polygons
+        ):
+            return True
+        return any(
+            _convex_polygons_overlap(candidate_polygon, fixed_polygon)
+            for candidate_polygon in candidate.axis_residual_polygons
+            for fixed_polygon in component.polygons
+        )
     if component.kind == "Centerline" and component.global_axis and component.segment is not None:
         first, second = component.segment
         sx, sy = second[0] - first[0], second[1] - first[1]

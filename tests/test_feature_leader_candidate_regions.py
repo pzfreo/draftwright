@@ -1,7 +1,10 @@
+import math
 from types import SimpleNamespace
 
+from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader, draft_preset
 
+from draftwright import Sheet
 from draftwright.annotations import from_model, leaders
 from draftwright.annotations._common import PlacementContext, leader_callout_geometry
 from draftwright.annotations.leaders import (
@@ -19,6 +22,7 @@ from draftwright.annotations.leaders import (
     interior_leader_candidates,
     place_feature_leader_jobs,
 )
+from draftwright.model import hole
 
 
 def _job(*, clearance=None):
@@ -371,6 +375,38 @@ def test_region_policy_is_applied_by_one_shared_candidate_adapter():
     )
 
 
+def test_multi_anchor_feature_shares_one_bounded_interior_inventory():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+
+    def geometry(_tip, elbow, _feature):
+        x, y = elbow[:2]
+        return ((x - 1.0, y - 1.0, x + 1.0, y + 1.0), ())
+
+    anchors = (
+        ((0.0, 0.0), (1.0, 0.0), "first"),
+        ((50.0, 50.0), (51.0, 50.0), "second"),
+    )
+    candidates = tuple(
+        feature_leader_candidates(
+            anchors,
+            region_policy=LeaderRegionPolicy.AUTO,
+            silhouette=(-1_000.0, -1_000.0, 1_000.0, 1_000.0),
+            analytical_geometry=geometry,
+            draft=draft,
+            exterior_candidates=(anchors[-1],),
+        )
+    )
+
+    assert (
+        sum(candidate.region is LeaderCandidateRegion.INTERIOR for candidate in candidates) == 64
+    )
+    assert [
+        candidate.feature
+        for candidate in candidates
+        if candidate.region is LeaderCandidateRegion.EXTERIOR
+    ] == ["second"]
+
+
 def test_late_machined_jobs_offer_interior_then_exterior_candidates(monkeypatch):
     draft = draft_preset(font_size=3.0, decimal_precision=1)
     drawing = SimpleNamespace(draft=draft)
@@ -445,3 +481,98 @@ def test_late_machined_interior_only_policy_filters_exterior_and_unmeasurable_la
         == 0
     )
     assert tuple(context.feature_leaders[0].candidates) == ()
+
+
+def _pattern_sheet(*, kind, members, solid, bcd=None):
+    sheet = Sheet(solid, page="A4", scale=0.7).authored_dimensions()
+    member = hole(diameter=6, through=True, at=members[0], axis="z")
+    pattern = sheet.pattern(
+        member,
+        kind=kind,
+        count=len(members),
+        members=members,
+        bcd=bcd,
+    )
+    sheet.envelope()
+    sheet.dimension(pattern, "bore.diameter")
+    if bcd is not None:
+        sheet.dimension(pattern, "bolt_circle.diameter")
+    return sheet.build()
+
+
+def test_pattern_transaction_can_select_interior_whitespace():
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    members = ((-30, -20, 0), (-30, 20, 0), (30, -20, 0), (30, 20, 0))
+    solid = Box(100, 80, 8, align=align)
+    for x, y, z in members:
+        solid -= Pos(x, y, z) * Cylinder(3, 8, align=align)
+
+    drawing = _pattern_sheet(kind="other", members=members, solid=solid)
+
+    leader = drawing.get_annotation("hc_plan0")
+    bounds = drawing.view_bounds("plan")
+    assert leader is not None and leader.label_bbox is not None and bounds is not None
+    assert bounds[0] <= leader.label_bbox[0] < leader.label_bbox[2] <= bounds[2]
+    assert bounds[1] <= leader.label_bbox[1] < leader.label_bbox[3] <= bounds[3]
+    assert sum(name.startswith("m_cm") for name in drawing.annotations()) == 4
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if "overlap" in issue.code or issue.code.endswith("_dropped")
+    ]
+
+
+def test_pattern_transaction_solves_against_its_bolt_circle_furniture():
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    members = tuple(
+        (25 * math.cos(index * math.pi / 3), 25 * math.sin(index * math.pi / 3), 0)
+        for index in range(6)
+    )
+    solid = Cylinder(50, 8, align=align)
+    for x, y, z in members:
+        solid -= Pos(x, y, z) * Cylinder(3, 8, align=align)
+
+    drawing = _pattern_sheet(
+        kind="bolt_circle",
+        members=members,
+        solid=solid,
+        bcd=50,
+    )
+
+    assert {"hc_plan0", "bc_plan0"} <= set(drawing.annotations())
+    assert not [
+        issue
+        for issue in drawing.lint()
+        if issue.code
+        in {
+            "annotation_overlap",
+            "label_centerline_overlap",
+            "hole_requirement_missing",
+        }
+        or issue.code.endswith("_dropped")
+    ]
+
+
+def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render(
+    monkeypatch,
+):
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    members = tuple(
+        (25 * math.cos(index * math.pi / 3), 25 * math.sin(index * math.pi / 3), 0)
+        for index in range(6)
+    )
+    solid = Cylinder(50, 8, align=align)
+    for x, y, z in members:
+        solid -= Pos(x, y, z) * Cylinder(3, 8, align=align)
+    monkeypatch.setattr(leaders, "_materialize", lambda _dwg, _job, _candidate: None)
+
+    drawing = _pattern_sheet(
+        kind="bolt_circle",
+        members=members,
+        solid=solid,
+        bcd=50,
+    )
+
+    assert "hc_plan0" not in drawing.annotations()
+    assert "bc_plan0" not in drawing.annotations()
+    assert any(issue.code == "callout_dropped" for issue in drawing.lint())

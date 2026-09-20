@@ -43,6 +43,7 @@ from draftwright.annotations._common import (
     CorridorCandidate,
     Escalation,
     _box_hits,
+    _discard_attempt_annotations,
     _geom_box,
     _hole_location_coverage_fact,
     _same_location_ordinate,
@@ -62,6 +63,7 @@ from draftwright.annotations._common import (
     register_corridor,
     strip_free_span,
     strip_obstacles,
+    view_label_clearance,
 )
 from draftwright.annotations.from_model import (
     _diameter_column_left,
@@ -77,8 +79,10 @@ from draftwright.annotations.from_model import (
 )
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
+    LeaderRegionPolicy,
     _FeatureLeaderInvariantError,
     collect_feature_leader,
+    feature_leader_candidates,
 )
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.model import plan_dimensions
@@ -2750,18 +2754,16 @@ def _place_queue(
     # then expose bounded alternatives from its baseline/carved solutions and
     # strip/obstacle boundaries.  The shared solve rechecks every alternative
     # against the fully drained dimension/witness inventory before committing.
-    # Pattern callout winners have downstream furniture/table semantics: the
-    # chosen callout controls whether pitch/BCD furniture is covered and which
-    # pattern escalation remains available to the later hole-table transaction.
-    # Keep any queue containing a pattern, any profiled-bore callout, and any
-    # dense loose-hole inventory eligible for the later transactional table
-    # replacement in its established immediate whole-queue solve.  Pattern and
-    # dense winners have downstream table/furniture semantics; profiled bores
-    # retain their established cross-view compatibility until robust
+    # Pattern callout winners retain their transaction while joining this late
+    # inventory: furniture is staged before the corridor solve, coverage waits
+    # for on_place, and on_drop removes only that pattern's staged furniture.
+    # Dense loose-hole inventories eligible for table replacement remain in the
+    # established immediate whole-queue solve. Profiled bores retain their
+    # established cross-view compatibility until robust
     # silhouette-aware routing lands (#1187 — this deferred to #798, which closed
     # WITHOUT delivering it; ADR 2 (was 0018)'s "Why now" records that ten leaders still cut
     # the part after #798 and #1188, and #1187 is the live successor).  The shared late inventory is therefore for
-    # compatible sparse ordinary-hole callouts only.
+    # compatible sparse ordinary-hole and pattern callouts only.
     model_features = getattr(getattr(ctx, "part_model", None), "features", ())
     scattered_plan_holes = sum(
         len(feature.members or (feature.frame.origin,))
@@ -2771,7 +2773,6 @@ def _place_queue(
     shared_inventory = (
         getattr(ctx, "feature_leaders", None) is not None
         and scattered_plan_holes < _TABULATE_MIN_HOLES
-        and not any(isinstance(item[3], PatternFeature) for item in queue)
         and not any(
             isinstance(owner := feat_of_callout.get(id(item[2])), HoleFeature)
             and owner.profile is not None
@@ -2786,11 +2787,17 @@ def _place_queue(
         }
         vb = dwg.view_bounds(view)
         assert vb is not None
+        projected_clear = view_label_clearance(dwg, view)
         i = start_i
         for s in queue:
-            _locs, dia, callout, feat, natural_y, _rep = s
+            locations, dia, callout, feat, natural_y, _rep = s
             owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
             requested_side = side_of_callout.get(id(callout))
+            region_policy = (
+                LeaderRegionPolicy.AUTO
+                if isinstance(feat, PatternFeature)
+                else LeaderRegionPolicy.EXTERIOR
+            )
             ys: list[float] = []
             for y in (
                 source_final_y.get(id(s)),
@@ -2807,7 +2814,25 @@ def _place_queue(
                 if not any(abs(y - prior) <= 1e-6 for prior in ys):
                     ys.append(y)
 
-            def _raw_candidates(
+            callout_box = _geom_box(callout, cache)
+
+            def _analytical_geometry(
+                tip,
+                elbow,
+                _owner,
+                *,
+                _callout_box=callout_box,
+            ):
+                candidate_side = "right" if elbow[0] >= tip[0] else "left"
+                return leader_callout_geometry(
+                    tip,
+                    elbow,
+                    draft,
+                    text_side=candidate_side,
+                    callout_box=_callout_box,
+                )
+
+            def _exterior_candidates(
                 _s=s,
                 _ys=tuple(ys),
                 _owner=owner,
@@ -2847,12 +2872,62 @@ def _place_queue(
                         )
                         yield (tip, elbow, _owner)
 
+            def _interior_anchors(
+                _s=s,
+                _locations=tuple(locations or ()),
+                _owner=owner,
+                _ys=tuple(ys),
+            ):
+                anchor_y = _ys[0] if _ys else min(max(float(_s[4]), y_min), y_max)
+                for location in _locations or (_s[5],):
+                    member = (*_s[:5], location)
+                    tip, elbow = _leader_anchors(
+                        member,
+                        edge,
+                        side,
+                        anchor_y,
+                        to_page,
+                        elbow_dx,
+                        draft,
+                        a.SCALE,
+                    )
+                    yield (tip, elbow, _owner)
+
+            def _raw_candidates(
+                _anchors=_interior_anchors,
+                _exterior=_exterior_candidates,
+                _region_policy=region_policy,
+                _callout_box=callout_box,
+                _analytical=_analytical_geometry,
+            ):
+                yield from feature_leader_candidates(
+                    _anchors(),
+                    region_policy=_region_policy,
+                    silhouette=vb,
+                    analytical_geometry=(
+                        _analytical
+                        if projected_clear is not None and _callout_box is not None
+                        else None
+                    ),
+                    draft=draft,
+                    exterior_candidates=_exterior(),
+                )
+
             legacy_y = source_final_y.get(id(s))
 
-            def _fallback_candidates(_s=s, _y=legacy_y, _owner=owner, _raw=_raw_candidates):
+            def _fallback_candidates(
+                _s=s,
+                _y=legacy_y,
+                _owner=owner,
+                _raw=_raw_candidates,
+                _region_policy=region_policy,
+            ):
                 # Start with the established strip winner. Under a joint-solve
                 # resource cap on a dense section, a bounded lookahead can try
                 # its other semantic lanes before retaining a fixed-ink crossing.
+                if _region_policy is LeaderRegionPolicy.AUTO:
+                    yield from _raw()
+                    return
                 if _y is None:
                     return
                 if not getattr(ctx, "dense_internal_section", False):
@@ -2874,24 +2949,6 @@ def _place_queue(
                     callout=_callout,
                 )
 
-            callout_box = _geom_box(callout, cache)
-
-            def _analytical_geometry(
-                tip,
-                elbow,
-                _owner,
-                *,
-                _callout_box=callout_box,
-            ):
-                candidate_side = "right" if elbow[0] >= tip[0] else "left"
-                return leader_callout_geometry(
-                    tip,
-                    elbow,
-                    draft,
-                    text_side=candidate_side,
-                    callout_box=_callout_box,
-                )
-
             name = _hc_name(only, view, i, hc_used)
 
             # Pitch/BCD furniture is a separate non-leader requirement. Keep it
@@ -2899,7 +2956,13 @@ def _place_queue(
             # the late shared leader inventory routes around it. Coverage still
             # waits for the callout winner below: visible furniture alone must
             # not claim that the bore callout was placed.
+            staged_furniture = ()
+            staged_issues = ()
+            staged_furnished = False
             if place_furniture and feat is not None:
+                before_names = set(dwg.annotations())
+                before_issue_ids = {id(issue) for issue in ctx.registry.issues}
+                staged_furnished = furnished is not None and id(feat) not in furnished
                 _add_furniture(
                     dwg,
                     a,
@@ -2911,6 +2974,10 @@ def _place_queue(
                     plan=plan,
                     furnished=furnished,
                     cover=False,
+                )
+                staged_furniture = tuple(sorted(set(dwg.annotations()) - before_names))
+                staged_issues = tuple(
+                    issue for issue in ctx.registry.issues if id(issue) not in before_issue_ids
                 )
 
             def _on_place(
@@ -2928,7 +2995,28 @@ def _place_queue(
                         [HoleRef.of(member) for member in members],
                     )
 
-            def _on_drop(reason, *, _dia=dia, _feat=feat, _callout=callout):
+            def _on_drop(
+                reason,
+                *,
+                _dia=dia,
+                _feat=feat,
+                _callout=callout,
+                _staged_furniture=staged_furniture,
+                _staged_issues=staged_issues,
+                _staged_furnished=staged_furnished,
+            ):
+                _discard_attempt_annotations(dwg, _staged_furniture)
+                if _staged_furnished and furnished is not None and _feat is not None:
+                    furnished.discard(id(_feat))
+                if _staged_issues:
+                    staged_issue_ids = {id(issue) for issue in _staged_issues}
+                    ctx.registry.restore_issues(
+                        tuple(
+                            issue
+                            for issue in ctx.registry.issues
+                            if id(issue) not in staged_issue_ids
+                        )
+                    )
                 detail = (
                     "rendered geometry validation failed"
                     if reason == "geometry_validation"
@@ -2968,6 +3056,9 @@ def _place_queue(
                     # obstacle would require a large relocation; resource fallback
                     # must not silently strengthen that into a semantic drop.
                     fallback_accept=lambda _candidate, _obstacles, _page: True,
+                    interior_label_clear=(
+                        projected_clear if region_policy is LeaderRegionPolicy.AUTO else None
+                    ),
                     allow_policy_b_fixed=True,
                     priority=float(dia),
                     on_place=_on_place,
