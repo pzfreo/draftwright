@@ -3952,6 +3952,52 @@ class FeatureSchedule:
             raise ValueError("schedule prefer must be tr, tl, br or bl")
 
 
+@dataclass(frozen=True)
+class DeclarationIdentity:
+    """Build-scoped identity for one editable declaration.
+
+    The identifier names declared intent inside one script/build.  It is deliberately not a
+    geometry, topology, or cross-run feature identifier.  ``occurrence_ids`` may only contain
+    report-local IDs from the recognition run that generated the declaration.
+    """
+
+    declaration_id: str
+    provenance: Literal["authored", "detected-geometry", "pmi", "structured-note", "derived"] = (
+        "authored"
+    )
+    occurrence_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.declaration_id, str)
+            or not self.declaration_id.strip()
+            or self.declaration_id != self.declaration_id.strip()
+        ):
+            raise ValueError(
+                "declaration identity requires a non-empty declaration_id without "
+                "surrounding whitespace"
+            )
+        if self.provenance not in {
+            "authored",
+            "detected-geometry",
+            "pmi",
+            "structured-note",
+            "derived",
+        }:
+            raise ValueError(f"unsupported declaration provenance {self.provenance!r}")
+        if not isinstance(self.occurrence_ids, tuple) or any(
+            not isinstance(value, str) or not value.strip() or value != value.strip()
+            for value in self.occurrence_ids
+        ):
+            raise ValueError("declaration occurrence_ids must be a tuple of non-empty strings")
+        if len(set(self.occurrence_ids)) != len(self.occurrence_ids):
+            raise ValueError("declaration occurrence_ids must be unique")
+        if self.occurrence_ids and self.provenance not in {"detected-geometry", "pmi"}:
+            raise ValueError(
+                "only detected-geometry or pmi declarations may name recognition occurrences"
+            )
+
+
 @dataclass
 class PartModel:
     """The whole-part IR: the oriented part plus its features and datums."""
@@ -3969,8 +4015,8 @@ class PartModel:
     # Authored aspects the frozen features can't carry (ADR 4 (was 0011 §4)). P2a uses it for
     # per-dimension tolerances: ``{(feature, ParamKind) -> float | (lo, hi)}``. Imported
     # requirements wrap that value in :class:`ToleranceDecoration` so source identities
-    # survive without widening renderer tolerance types (#1116). The planner consults this
-    # map to set ``DimParameter.tolerance``; otherwise empty on a detected model.
+    # survive without widening renderer tolerance types (#1116). The planner consults those
+    # tolerance entries. Otherwise empty on a detected model.
     decorations: dict = field(default_factory=dict)
     # Caller-requested augmenting measurements (ADR 4 (was 0016) / #872) — the planner's
     # *intent input*. Kept distinct from `decorations` on purpose: a decoration enriches
@@ -3988,8 +4034,31 @@ class PartModel:
     authored_dimensions: tuple[RequestedDimension, ...] | None = None
     # Table representations belong to authored intent, not the physical inventory.
     schedules: tuple[FeatureSchedule, ...] = ()
+    # Build-scoped agent/editing provenance aligned exactly with ``features``. Alignment rather
+    # than feature-keyed decorations is essential: two independent frozen feature values may
+    # compare equal and must not collapse into one declaration (#1710). Empty means the caller
+    # supplied no declaration identity inventory; otherwise there is one slot per feature.
+    declaration_identities: tuple[DeclarationIdentity | None, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.declaration_identities and len(self.declaration_identities) != len(self.features):
+            raise ValueError(
+                "PartModel.declaration_identities must be empty or align one-for-one with features"
+            )
+        if any(
+            identity is not None and not isinstance(identity, DeclarationIdentity)
+            for identity in self.declaration_identities
+        ):
+            raise ValueError(
+                "PartModel.declaration_identities entries must be DeclarationIdentity or None"
+            )
+        declaration_ids = [
+            identity.declaration_id
+            for identity in self.declaration_identities
+            if identity is not None
+        ]
+        if len(set(declaration_ids)) != len(declaration_ids):
+            raise ValueError("PartModel.declaration_identities requires unique declaration IDs")
         self._validate_structured_note_origins()
         self._validate_schedule_origins()
 

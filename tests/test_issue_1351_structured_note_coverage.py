@@ -163,7 +163,7 @@ def test_structured_note_round_trips_through_generated_sheet_source():
         number="N",
         page="A3",
     )
-    assert ".note(" in source
+    assert "sheet.structured_note(" in source
     assert f"satisfies={_SATISFIES!r}" in source
 
     namespace = {"part": _part()}
@@ -199,7 +199,7 @@ def test_structured_note_round_trip_survives_identity_preserving_feature_reorder
     note = next(feature for feature in regenerated.features if feature.kind == "note")
     assert note.satisfies == _SATISFIES
     assert note.origin in regenerated.features
-    assert not any(name.startswith("note") for name in namespace)
+    assert namespace["note1"]._token == regenerated.by_declaration("declaration:1")._token
 
 
 def test_structured_authority_requires_a_feature_owned_by_the_sheet():

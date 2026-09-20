@@ -65,7 +65,12 @@ from draftwright.model.ir import (
     ThreadRequirement,
     ToleranceDecoration,
 )
-from draftwright.reporting import write_json_document
+from draftwright.reporting import (
+    ReportUnavailableError,
+    project_feature_occurrence_ids,
+    project_occurrences,
+    write_json_document,
+)
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, ViewConstraints, validate_projection
 
 _log = logging.getLogger(__name__)
@@ -711,7 +716,7 @@ def _note_line(f, origin_ref: str | None = None) -> str:
         kwargs = [f"view={f.view!r}", f"side={f.side!r}"]
         if f.satisfies:
             kwargs.append(f"satisfies={f.satisfies!r}")
-        return f"{origin_ref}.note({f.text!r}, {', '.join(kwargs)})"
+        return f"sheet.structured_note({f.text!r}, {origin_ref}, {', '.join(kwargs)})"
     if raw_origin or origin_ref is not None:
         origin = _raw_pmi_expr(f.origin) if raw_origin else origin_ref
         kw = [
@@ -1375,9 +1380,12 @@ def _binding(f, line: str, counts: dict[str, int]) -> str | None:
     ``None`` for a kind with no declarative verb: its "line" is a comment, and
     ``rotational1 = # …`` does not parse.
     """
-    # Fluent ``handle.note(...)`` returns the origin handle, not the appended Note. Binding
-    # that expression as ``note1`` would therefore lie about which feature the name denotes.
-    if f.kind == "note" or line.lstrip().startswith("#"):
+    # Fluent ``handle.note(...)`` returns the origin handle, not the appended Note. The
+    # generated ``sheet.structured_note(...)`` spelling returns the note's own handle and is
+    # therefore safe to bind.
+    if (
+        f.kind == "note" and not line.startswith("sheet.structured_note(")
+    ) or line.lstrip().startswith("#"):
         return None
     counts[f.kind] = counts.get(f.kind, 0) + 1
     return f"{f.kind}{counts[f.kind]}"
@@ -1743,6 +1751,7 @@ def _feature_block(
     part_envelope=None,
     object_refs: Mapping[int, str] | None = None,
     decorations: Mapping | None = None,
+    declaration_metadata: Mapping[int, tuple[str, str, tuple[str, ...]]] | None = None,
 ) -> tuple[list[str], dict[int, str]]:
     """The emitted feature lines plus ``{id(feature): binding}`` for the names they bind.
 
@@ -2002,6 +2011,15 @@ def _feature_block(
                 line += f".requirement({_authored_n(nominal.value)}{on}, {provenance})"
             name = _binding(f, line, counts)
             if name is not None:
+                metadata = (declaration_metadata or {}).get(id(f))
+                if metadata is not None:
+                    declaration_id, provenance, occurrence_ids = metadata
+                    identity_call = (
+                        f".identify({declaration_id!r}, provenance={provenance!r}, "
+                        f"occurrence_ids={occurrence_ids!r})"
+                    )
+                    code, separator, comment = line.partition("   #")
+                    line = code + identity_call + (separator + comment if separator else "")
                 names[id(f)] = name
                 line = f"{name} = {line}"
             if f.kind in _DESCRIBED:
@@ -2271,6 +2289,7 @@ def emit_sheet_script(
     margin_top: float | None = None,
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
+    declaration_occurrences: Mapping[int, tuple[str, ...]] | None = None,
 ) -> str:
     """The generated declarative ``Sheet`` script text for a detected *model*.
 
@@ -2316,6 +2335,8 @@ def emit_sheet_script(
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
     from draftwright.model.compiled import compile_dimensions
 
+    source_feature_ids = {id(feature) for feature in model.features}
+    source_detected = bool(model.detected)
     replayed_recognition = (
         model.detected
         and not any(feature.kind == "envelope" for feature in model.features)
@@ -2325,6 +2346,23 @@ def emit_sheet_script(
         )
     )
     model, _synth_env = mirror_model(model)
+    declaration_metadata = {}
+    for index, feature in enumerate(model.features, start=1):
+        if id(feature) not in source_feature_ids:
+            provenance = "derived"
+        elif feature.kind in {"pmi", "control_frame", "datum_ref"}:
+            provenance = "pmi"
+        elif feature.kind == "note":
+            provenance = "structured-note"
+        elif source_detected:
+            provenance = "detected-geometry"
+        else:
+            provenance = "authored"
+        declaration_metadata[id(feature)] = (
+            f"declaration:{index}",
+            provenance,
+            tuple((declaration_occurrences or {}).get(id(feature), ())),
+        )
     # Every constructor a member template can name has to be listed here. The pattern verbs
     # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
     # rejects `members=` and recomputes the layout — so the member constructor is a name the
@@ -2462,7 +2500,11 @@ def emit_sheet_script(
 
     object_refs = _object_references(model.features, source_part, object_candidates)
     feature_lines, _names = _feature_block(
-        model.features, _envelope_from_bbox(model.bbox), object_refs, model.decorations
+        model.features,
+        _envelope_from_bbox(model.bbox),
+        object_refs,
+        model.decorations,
+        declaration_metadata,
     )
     # Narrowed to what the BODY actually names. The set above is derived from feature kinds,
     # which over-imports the moment a kind stops emitting a constructor: since #976 a
@@ -2809,13 +2851,30 @@ def generate_sheet_script(
         # from THIS run — no second aggregate (#1460). A build123d object source has no STEP
         # bytes and therefore no document.
         inspection = None
+        declaration_occurrences: dict[int, tuple[str, ...]] = {}
         if inspect and source_bytes is not None:
             assert source_display is not None
             try:
-                inspection = _inspection_document(
-                    model, analysis, source_display.name, source_bytes
+                occurrences, _requirements, _summary = project_occurrences(
+                    analysis.recognition_evidence,
+                    analysis.recognition_ownership,
+                    model,
                 )
-            except InspectionUnavailableError as error:
+                inspection = _inspection_document(
+                    model,
+                    analysis,
+                    source_display.name,
+                    source_bytes,
+                    _occurrences=occurrences,
+                )
+                aligned_occurrences = project_feature_occurrence_ids(model, occurrences)
+                declaration_occurrences = {
+                    id(feature): occurrence_ids
+                    for feature, occurrence_ids in zip(
+                        model.features, aligned_occurrences, strict=True
+                    )
+                }
+            except (InspectionUnavailableError, ReportUnavailableError) as error:
                 # Never fail script generation over its sidecar, and never drop it in silence.
                 _log.warning(
                     "No inspection sidecar written for %s: %s", source_display.name, error
@@ -2905,6 +2964,7 @@ def generate_sheet_script(
             settled_layout=settled_layout,
             pmi=pmi,
             pmi_source=None if source_resolved is None else str(source_resolved),
+            declaration_occurrences=declaration_occurrences,
         )
     if source_resolved is not None:
         try:

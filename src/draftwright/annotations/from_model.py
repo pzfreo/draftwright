@@ -8760,6 +8760,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 # external source provenance but no separately-owned geometric IR feature.
                 feature=item.origin or item,
                 satisfaction=satisfaction or None,
+                declaration=item,
                 size=size,
                 # Even a force-kept frame must not stack into the title block (#481 review) —
                 # place_strip_candidates rejects a placement hitting this box, then on_drop's

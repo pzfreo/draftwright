@@ -112,6 +112,12 @@ def _scn_of(s):
     return s.of(0), lambda h: h.fit("H7")
 
 
+def _scn_by_declaration(s):
+    s.hole(diameter=10, at=(-25, 0, 20), axis="z").identify("declaration:1")
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").identify("declaration:2")
+    return s.by_declaration("declaration:1"), lambda handle: handle.tolerance(0.025)
+
+
 def _scn_diameter(s):
     d = s.diameter(diameter=30.0, height=8.0, at=(0, 0, 20), axis="z")
     s.diameter(diameter=18.0, height=8.0, at=(20, 0, 20), axis="z")  # same-kind neighbour
@@ -229,6 +235,7 @@ def _scn_add_section_view(s):
 _SCENARIOS = {
     "hole": _scn_hole,
     "of": _scn_of,
+    "by_declaration": _scn_by_declaration,
     "diameter": _scn_diameter,
     "step": _scn_step,
     "envelope": _scn_envelope,
@@ -289,6 +296,7 @@ _SAME_PATH_AS_ENVELOPE = {
     "polygonal_boss",  # #676 — same explicit-only `_Params` route
     "polygonal_stock",  # #1082 — same explicit-only `_Params` route
     "external_spur_gear",  # #1086 — same explicit-only `_Params` route
+    "gusset_rib",
 }
 
 
@@ -683,6 +691,7 @@ _STATE_CARRYING_FEATURE_REFS = frozenset(
         "_added_dimensions",
         "_authored",
         "_schedules",
+        "_declaration_identities",
         "_derived_views",
         "_added_derived_views",
     }

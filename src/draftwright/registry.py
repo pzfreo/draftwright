@@ -93,6 +93,10 @@ class AnnotationRegistry:
         # so a repack/repair preserves provenance. Absent for part-level marks (title
         # block, section arrows) that belong to no single feature.
         self._anno_feature: dict = {}
+        # name -> the declared IR item whose placement produced this ink. Usually absent;
+        # structured notes need it because their physical feature owner is the note's origin,
+        # while an editor must be able to address the note declaration itself (#1710).
+        self._anno_declaration: dict = {}
         # name -> the `DimensionId`s this annotation draws, as a TUPLE (#1002). One axis
         # finer than _anno_feature, and the distinction is the point: a hole has a
         # diameter, a depth and a feature-level location, so knowing the FEATURE still does
@@ -144,6 +148,11 @@ class AnnotationRegistry:
     def feature_of(self, name):
         """The source IR feature *name* was rendered for, or ``None`` (#398)."""
         return self._anno_feature.get(name)
+
+    def declaration_of(self, name):
+        """The exact declared IR item whose placement produced *name*, or ``None``."""
+
+        return self._anno_declaration.get(name)
 
     def measurement_of(self, name) -> tuple:
         """The `DimensionId`s *name* draws, as a tuple — possibly empty (#1002).
@@ -230,6 +239,7 @@ class AnnotationRegistry:
             "named": dict(self._named),
             "anno_view": dict(self._anno_view),
             "anno_feature": dict(self._anno_feature),
+            "anno_declaration": dict(self._anno_declaration),
             "anno_measurement": dict(self._anno_measurement),
             "anno_cells": dict(self._anno_cells),
             "anno_satisfaction": dict(self._anno_satisfaction),
@@ -244,6 +254,8 @@ class AnnotationRegistry:
         self._anno_view.update(snap["anno_view"])
         self._anno_feature.clear()
         self._anno_feature.update(snap.get("anno_feature", {}))
+        self._anno_declaration.clear()
+        self._anno_declaration.update(snap.get("anno_declaration", {}))
         self._anno_measurement.clear()
         self._anno_measurement.update(snap.get("anno_measurement", {}))
         self._anno_cells.clear()
@@ -271,6 +283,7 @@ class AnnotationRegistry:
         return {
             "view": self._anno_view.get(name),
             "feature": self._anno_feature.get(name),
+            "declaration": self._anno_declaration.get(name),
             "measurement": self._anno_measurement.get(name, ()),
             "cells": self._anno_cells.get(name, ()),
             "satisfaction": self._anno_satisfaction.get(name, ()),
@@ -290,6 +303,7 @@ class AnnotationRegistry:
         the other two agree.
         """
         view, feature = identity.get("view"), identity.get("feature")
+        declaration = identity.get("declaration")
         if view is not None:
             self._anno_view[name] = view
         else:
@@ -298,6 +312,10 @@ class AnnotationRegistry:
             self._anno_feature[name] = feature
         else:
             self._anno_feature.pop(name, None)
+        if declaration is not None:
+            self._anno_declaration[name] = declaration
+        else:
+            self._anno_declaration.pop(name, None)
         ids = _as_ids(identity.get("measurement"))
         if ids:
             self._anno_measurement[name] = ids
@@ -318,7 +336,17 @@ class AnnotationRegistry:
         else:
             self._pinned.discard(name)
 
-    def add(self, obj, name, view, feature=None, measurement=None, satisfaction=None, cells=()):
+    def add(
+        self,
+        obj,
+        name,
+        view,
+        feature=None,
+        measurement=None,
+        satisfaction=None,
+        cells=(),
+        declaration=None,
+    ):
         """Register *obj* under *name* and record its owning *view* (and source *feature*).
 
         Returns the object previously registered under *name* (so the caller can
@@ -343,6 +371,10 @@ class AnnotationRegistry:
                 self._anno_feature[name] = feature
             else:
                 self._anno_feature.pop(name, None)
+            if declaration is not None:
+                self._anno_declaration[name] = declaration
+            else:
+                self._anno_declaration.pop(name, None)
             # Same rule again, and it matters MORE here (#1002): a stale measurement id is
             # worse than none, because the audit trusts it as exact. A replacement under
             # this name draws whatever the new caller says it draws — including nothing
@@ -370,6 +402,7 @@ class AnnotationRegistry:
             self._pinned.discard(name)  # a removed name carries no pin (#89)
             self._anno_view.pop(name, None)
             self._anno_feature.pop(name, None)
+            self._anno_declaration.pop(name, None)
             self._anno_measurement.pop(name, None)
             self._anno_cells.pop(name, None)
             self._anno_satisfaction.pop(name, None)
@@ -384,6 +417,9 @@ class AnnotationRegistry:
         self._pinned &= keep_set  # drop pins for cleared names (#89)
         self._anno_view = {n: v for n, v in self._anno_view.items() if n in keep_set}
         self._anno_feature = {n: f for n, f in self._anno_feature.items() if n in keep_set}
+        self._anno_declaration = {
+            n: declaration for n, declaration in self._anno_declaration.items() if n in keep_set
+        }
         self._anno_measurement = {n: m for n, m in self._anno_measurement.items() if n in keep_set}
         self._anno_cells = {n: c for n, c in self._anno_cells.items() if n in keep_set}
         self._anno_satisfaction = {

@@ -169,7 +169,7 @@ def test_identity_of_reapply_round_trips_every_axis():
     # dim that has lost it reads as "nothing claims it" to the audit — a false negative in
     # exactly the tool this identity exists to feed (#1002, Codex r2).
     r = AnnotationRegistry()
-    obj, feat = object(), object()
+    obj, feat, declaration = object(), object(), object()
     r.add(
         obj,
         "d1",
@@ -177,6 +177,7 @@ def test_identity_of_reapply_round_trips_every_axis():
         feature=feat,
         measurement=("bore.depth",),
         satisfaction=("counterbore.depth",),
+        declaration=declaration,
     )
     r.pin("d1")
     ident = r.identity_of("d1")
@@ -185,6 +186,7 @@ def test_identity_of_reapply_round_trips_every_axis():
     assert r.identity_of("d1") == {  # gone in every axis, not just the object
         "view": None,
         "feature": None,
+        "declaration": None,
         "measurement": (),
         "cells": (),
         "satisfaction": (),
@@ -195,6 +197,7 @@ def test_identity_of_reapply_round_trips_every_axis():
     r.reapply("d1", ident)  # … then the identity, as a unit
     assert r.view_of("d1") == "front"
     assert r.feature_of("d1") is feat
+    assert r.declaration_of("d1") is declaration
     assert r.measurement_of("d1") == ("bore.depth",)
     assert r.satisfaction_of("d1") == ("counterbore.depth",)
     assert r.is_pinned("d1")
@@ -211,11 +214,22 @@ def test_reapply_clears_axes_the_identity_does_not_carry():
         feature=object(),
         measurement=("width.length",),
         satisfaction=("height.length",),
+        declaration=object(),
     )
     r.pin("d1")
-    r.reapply("d1", {"view": "front", "feature": None, "measurement": (), "pinned": False})
+    r.reapply(
+        "d1",
+        {
+            "view": "front",
+            "feature": None,
+            "declaration": None,
+            "measurement": (),
+            "pinned": False,
+        },
+    )
     assert r.view_of("d1") == "front"
     assert r.feature_of("d1") is None
+    assert r.declaration_of("d1") is None
     assert r.measurement_of("d1") == ()
     assert r.satisfaction_of("d1") == ()
     assert not r.is_pinned("d1")

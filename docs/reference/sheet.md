@@ -192,6 +192,24 @@ The token associates features; it does not specify an annotation position or add
 Generated scripts preserve this association using Draftwright-owned tokens instead of provider
 keys. A groove can still be declared when the authored set omits all of that body's steps.
 
+## Build-scoped declaration selectors
+
+An editable script can give a feature a declaration identity and later address that intent
+without a list position:
+
+```python
+hole = sheet.hole(diameter=6, at=(0, 0, 0), axis="z").identify("declaration:1")
+sheet.dimension(sheet.by_declaration("declaration:1"), "bore.diameter")
+```
+
+The identity follows fluent replacements such as `.depth()` and identity-preserving list
+reorders. Assigning another feature into its public `sheet.features` slot or deleting it
+withdraws the identity; it never transfers to the new occupant. Live IDs must be unique.
+Generated scripts use this build-scoped selector to join assessment evidence back to editable
+intent. It is not a persistent feature, face or topology ID and makes no correspondence promise
+across recognition runs. Recognition occurrence IDs, when present, remain local to the exact
+generation run recorded by the declaration.
+
 ## Checking dimension placement rules
 
 Call `handle.dimension_ids()` to find the measurements a declared feature exposes, then
@@ -624,6 +642,23 @@ This surface models the common bore + recess + tap-depth stack in one solver-par
 callout. More general ordered operation stacks remain tracked by issue #1360. Until a physical
 requirement has a structured parameter, use a feature-linked `note(..., satisfies=(...))` only
 for parameter ids the handle actually exposes; free prose does not satisfy coverage.
+
+Generated scripts and editing agents use `structured_note(...)` when the note declaration
+itself needs a stable selector:
+
+```python
+note = sheet.structured_note(
+    "BORE DIAMETER VERIFIED",
+    stack,
+    satisfies=("bore.diameter",),
+).identify("declaration:note", provenance="structured-note")
+same_note = sheet.by_declaration("declaration:note")
+```
+
+It declares the same solver-placed manufacturing note as `note(...)`, but returns the note's
+own feature handle rather than returning the `Sheet` for chaining. The handle controls intent,
+not page coordinates. Final reports can therefore link the declaration to its exact placed ink
+while separately crediting the physical feature and parameter named by `satisfies`.
 
 ### Straight and circular Blend chains
 

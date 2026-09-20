@@ -116,6 +116,7 @@ from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import (
     ControlFrame,
     DatumRef,
+    DeclarationIdentity,
     FeatureSchedule,
     NominalRequirement,
     Note,
@@ -412,6 +413,7 @@ class _Nameable:
     # TYPE_CHECKING because a bare `_i: int` is a WRITEABLE attribute, which a read-only
     # property may not override.
     _sheet: Sheet
+    _token: int
 
     if TYPE_CHECKING:
 
@@ -424,6 +426,27 @@ class _Nameable:
         if _location_role(feature) is not None:
             names.add(_LOCATION_ROLE)
         return tuple(sorted(names))
+
+    def identify(
+        self,
+        declaration_id: str,
+        *,
+        provenance: Literal[
+            "authored", "detected-geometry", "pmi", "structured-note", "derived"
+        ] = "authored",
+        occurrence_ids: tuple[str, ...] = (),
+    ):
+        """Give this declaration a build-scoped editable identity.
+
+        The identity follows the handle through fluent feature replacement and reordering. It
+        does not promise that geometry or provider occurrences retain identity across runs.
+        """
+
+        self._sheet._identify(
+            self._token,
+            DeclarationIdentity(declaration_id, provenance, occurrence_ids),
+        )
+        return self
 
 
 class _Hole(_Nameable):
@@ -1176,6 +1199,7 @@ class Sheet:
         # list moves each token with its feature instead of stranding references.
         self._entries: list[tuple[int, object]] = []
         self._features = _FeatureView(self._entries)
+        self._declaration_identities: dict[int, DeclarationIdentity] = {}
         self._document_input: DocumentInput | None = None
         self._replayed_recognition = bool(_replayed_recognition)
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
@@ -1718,6 +1742,36 @@ class Sheet:
             return _Dim(self, i, "diameter" if kind == "boss" else "length")
         raise ValueError(f"of(): no aspect handle for a {kind!r} feature (holes / bosses / steps)")
 
+    def _identify(self, token: int, identity: DeclarationIdentity) -> None:
+        """Bind one validated identity to a live declaration token."""
+
+        self._index_of_token(token)
+        live_tokens = {live_token for live_token, _feature in self._entries}
+        for other_token, existing in self._declaration_identities.items():
+            if (
+                other_token != token
+                and existing.declaration_id == identity.declaration_id
+                and other_token in live_tokens
+            ):
+                raise ValueError(f"duplicate declaration_id {identity.declaration_id!r}")
+        self._declaration_identities[token] = identity
+
+    def by_declaration(self, declaration_id: str) -> _Params:
+        """Return the live handle carrying *declaration_id*, or fail if it was withdrawn."""
+
+        live_tokens = {token for token, _feature in self._entries}
+        matches = [
+            token
+            for token, identity in self._declaration_identities.items()
+            if identity.declaration_id == declaration_id and token in live_tokens
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"by_declaration({declaration_id!r}) requires one live declaration; "
+                f"found {len(matches)}"
+            )
+        return _Params(self, self._index_of_token(matches[0]))
+
     def _declared_token(self, ref, *, verb: str) -> int | None:
         """The token of the declared feature *ref* names, or ``None`` if it names none.
 
@@ -2094,6 +2148,31 @@ class Sheet:
         items, clear of the views/title block; ``view``/``side`` override the derived strip.
         ``satisfies`` may name canonical parameter ids only when *ref* is a feature; it grants
         coverage only when this structured note is placed, never by parsing its prose (#1351)."""
+        self.structured_note(
+            text,
+            ref,
+            satisfies=satisfies,
+            view=view,
+            side=side,
+        )
+        return self
+
+    def structured_note(
+        self,
+        text,
+        ref,
+        *,
+        satisfies: tuple[DimensionParameterId, ...] = (),
+        view: str | None = None,
+        side: str | None = None,
+    ) -> _Params:
+        """Declare a manufacturing note and return its own addressable feature handle.
+
+        This bindable spelling is for editors and generated scripts that must identify the
+        note declaration itself. Placement remains solver-owned; the handle carries no page
+        coordinates. :meth:`note` retains its Sheet-returning fluent behavior.
+        """
+
         target, src = self._gdt_ref(ref)
         if satisfies and src is None:
             raise ValueError(
@@ -2115,7 +2194,7 @@ class Sheet:
             ),
             src,
         )
-        return self
+        return _Params(self, len(self._features) - 1)
 
     # -- view declaration (ADR 2 (was 0018)) ---------------------------------------
 
@@ -3230,9 +3309,14 @@ class Sheet:
             model = self._document_input.model(self._features)
         else:
             model = self._features
-        if not self._schedules and not self._replayed_recognition:
+        identities = tuple(
+            self._declaration_identities.get(token) for token, _feature in self._entries
+        )
+        if not self._schedules and not self._replayed_recognition and not any(identities):
             return model
         model = _coerce_model(model, _solids_body(self._part), authored=self._authored_set())
+        if any(identities):
+            model = replace(model, declaration_identities=identities)
         if self._replayed_recognition:
             model = replace(model, detected=True, replayed_recognition=True)
         return replace(model, schedules=self._resolved_schedules()) if self._schedules else model
