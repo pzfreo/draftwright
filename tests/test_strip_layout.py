@@ -639,6 +639,44 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
 
+def test_place_strip_candidates_forwards_present_declaration_only():
+    """The optional declaration axis reaches placement without widening legacy calls."""
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    declaration = object()
+
+    class _Dwg:
+        def __init__(s):
+            s.received = []
+
+        def iter_annotations(s):
+            return []
+
+        def view_of(s, n):
+            return "plan"
+
+        def place(s, obj, name, view=None, feature=None, measurement=None, *, declaration=None):
+            s.received.append((name, declaration))
+
+    dwg = _Dwg()
+    strip = Strip(anchor=0.0, outer_limit=20.0, direction=1.0, gap=8.0, spacing=4.0)
+    left = place_strip_candidates(
+        dwg,
+        strip,
+        "plan",
+        "y",
+        [("a", lambda pos: ("dim", pos))],
+        tier=5.0,
+        force=True,
+        declarations={"a": declaration},
+        ctx=dwg,
+    )
+
+    assert left == []
+    assert dwg.received == [("a", declaration)]
+
+
 def test_place_strip_candidates_priority_survives_key_order():
     # #357: over-capacity, plan_strip drops the lowest (priority, key). place_strip_candidates
     # must PLUMB a per-name priority into StripCandidate — otherwise every candidate is priority 0

@@ -3183,7 +3183,7 @@ def place_strip_candidates(
         # provenance axis receives the keyword (#1351).
         satisfaction = (satisfactions or {}).get(name)
         declaration = (declarations or {}).get(name)
-        if satisfaction is not None:
+        if satisfaction is not None and declaration is not None:
             ctx.place(
                 dim,
                 name,
@@ -3193,7 +3193,16 @@ def place_strip_candidates(
                 satisfaction=satisfaction,
                 declaration=declaration,
             )
-        else:
+        elif satisfaction is not None:
+            ctx.place(
+                dim,
+                name,
+                view=view,
+                feature=feature,
+                measurement=measurement,
+                satisfaction=satisfaction,
+            )
+        elif declaration is not None:
             ctx.place(
                 dim,
                 name,
@@ -3201,6 +3210,14 @@ def place_strip_candidates(
                 feature=feature,
                 measurement=measurement,
                 declaration=declaration,
+            )
+        else:
+            ctx.place(
+                dim,
+                name,
+                view=view,
+                feature=feature,
+                measurement=measurement,
             )
     if tp is not None:
         tp["unplaced"] = [n for n, _ in todo]
