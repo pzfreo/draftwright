@@ -168,6 +168,14 @@ def _scn_note(s):
     return a, lambda a: s.note("M10x1.5 TAP", a)
 
 
+def _scn_structured_note(s):
+    """A bindable note is itself retained while also referring to its exact origin."""
+    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
+    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
+    note = s.structured_note("M10x1.5 TAP", a)
+    return note, lambda note: note.identify("note:tap", provenance="structured-note")
+
+
 def _scn_dimension(s):
     """The #874 authored set. Like `section`/`datum`/`note` it returns `Sheet`, so only the
     state-field ratchet makes it mandatory here."""
@@ -247,6 +255,7 @@ _SCENARIOS = {
     "section": _scn_section,
     "datum": _scn_datum,
     "note": _scn_note,
+    "structured_note": _scn_structured_note,
     "dimension": _scn_dimension,
     "schedule": _scn_schedule,
     "section_view": _scn_section_view,

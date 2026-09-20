@@ -79,7 +79,7 @@ def test_the_fixture_really_carries_ap242_records(part):
     from draftwright.pmi import extract_pmi_report
 
     report = extract_pmi_report(SOURCE)
-    assert len(report.sources) == 26
+    assert len(report.sources) == 28
     assert RAW_SOURCE_ID in {entity.source_id for entity in report.sources}
     assert REAL_SOURCE_ID in {
         source_id for record in report.records for source_id in record.source_ids or ()
@@ -90,7 +90,7 @@ def test_a_sheet_can_name_the_document_its_solid_came_from(reconciled):
     summary = reconciled.lint_summary()["pmi"]
     assert summary is not None, "a Sheet given its source must reconcile, not stay silent"
     assert summary["mode"] == "annotate"
-    assert summary["sources"] == 26
+    assert summary["sources"] == 28
     # The link is the caller's claim, so the report states which document it checked.
     assert summary["source"]["name"] == "grm03_thumbwheel_drive_screw_ap242_pmi.step"
     assert len(summary["source"]["sha256"]) == 64
