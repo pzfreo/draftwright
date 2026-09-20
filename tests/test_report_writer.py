@@ -58,7 +58,9 @@ def test_valid_near_name_limit_destination_does_not_overflow_temporary_name(
 
 
 def test_report_refusal_cannot_touch_an_existing_destination(tmp_path: Path) -> None:
-    drawing = build_drawing(_through_step_part(), model=[])
+    # Declared models now have their own honest schema-v6 report. A provider-framed automatic
+    # build still lacks exact occurrence ownership and therefore exercises atomic refusal.
+    drawing = build_drawing(_through_step_part(), framed_recognition=True)
     destination = tmp_path / "part.draftwright.json"
     destination.write_text("keep me\n", encoding="utf-8")
 
