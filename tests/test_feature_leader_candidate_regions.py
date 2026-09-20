@@ -1,18 +1,22 @@
 from types import SimpleNamespace
 
-from build123d_drafting.helpers import Leader
+from build123d_drafting.helpers import Leader, draft_preset
 
-from draftwright.annotations import leaders
-from draftwright.annotations._common import PlacementContext
+from draftwright.annotations import from_model, leaders
+from draftwright.annotations._common import PlacementContext, leader_callout_geometry
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     FeatureLeaderJob,
     LeaderCandidateRegion,
+    LeaderRegionPolicy,
     _fixed_blockers,
     _FixedInkComponent,
     _measure,
     _MeasuredLeaderCandidate,
+    _ray_exit_distance,
     _view_region_blocker,
+    feature_leader_candidates,
+    interior_leader_candidates,
     place_feature_leader_jobs,
 )
 
@@ -222,3 +226,222 @@ def test_resource_floor_rejects_unverified_interior_and_view_blocked_exterior(
         == 1
     )
     assert drawing.get_annotation("m_fillet0").segments[0][1] == outside[:2]
+
+
+def test_interior_candidates_are_feature_relative_and_fully_inside_view():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    silhouette = (0.0, 0.0, 100.0, 60.0)
+
+    def geometry(tip, elbow, _feature):
+        return leader_callout_geometry(
+            tip,
+            elbow,
+            draft,
+            callout_box=(0.0, 0.0, 12.0, 3.0),
+        )
+
+    candidates = tuple(
+        interior_leader_candidates(
+            (0.0, 30.0),
+            (-20.0, 30.0),
+            "feature",
+            silhouette=silhouette,
+            analytical_geometry=geometry,
+            draft=draft,
+        )
+    )
+
+    assert candidates
+    assert all(candidate.region is LeaderCandidateRegion.INTERIOR for candidate in candidates)
+    for candidate in candidates:
+        label, _segments = geometry(candidate.tip, candidate.elbow, candidate.feature)
+        assert label is not None
+        assert silhouette[0] <= label[0] < label[2] <= silhouette[2]
+        assert silhouette[1] <= label[1] < label[3] <= silhouette[3]
+
+
+def test_interior_candidate_inventory_is_bounded_independent_of_view_size():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+
+    def geometry(_tip, elbow, _feature):
+        x, y = elbow[:2]
+        return ((x - 1.0, y - 1.0, x + 1.0, y + 1.0), ())
+
+    candidates = tuple(
+        interior_leader_candidates(
+            (0.0, 0.0),
+            (1.0, 0.0),
+            "feature",
+            silhouette=(-1_000_000.0, -1_000_000.0, 1_000_000.0, 1_000_000.0),
+            analytical_geometry=geometry,
+            draft=draft,
+        )
+    )
+
+    assert len(candidates) == 64
+
+
+def test_interior_producer_fails_closed_for_unusable_anchors_and_geometry():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    bounds = (0.0, 0.0, 100.0, 60.0)
+
+    assert _ray_exit_distance((-1.0, 30.0), (1.0, 0.0), bounds) == 0.0
+    assert (
+        tuple(
+            interior_leader_candidates(
+                (10.0, 10.0),
+                (10.0, 10.0),
+                "feature",
+                silhouette=bounds,
+                analytical_geometry=lambda *_args: None,
+                draft=draft,
+            )
+        )
+        == ()
+    )
+
+    def broken_geometry(*_args):
+        raise ValueError("unreadable optional candidate")
+
+    assert (
+        tuple(
+            interior_leader_candidates(
+                (10.0, 10.0),
+                (20.0, 10.0),
+                "feature",
+                silhouette=bounds,
+                analytical_geometry=broken_geometry,
+                draft=draft,
+            )
+        )
+        == ()
+    )
+
+
+def test_region_policy_is_applied_by_one_shared_candidate_adapter():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+
+    def geometry(_tip, elbow, _feature):
+        x, y = elbow[:2]
+        return ((x - 1.0, y - 1.0, x + 1.0, y + 1.0), ())
+
+    kwargs = {
+        "silhouette": (-100.0, -100.0, 100.0, 100.0),
+        "analytical_geometry": geometry,
+        "draft": draft,
+    }
+    raw = (((0.0, 0.0), (10.0, 0.0, 0.0), "feature"),)
+
+    automatic = tuple(
+        feature_leader_candidates(raw, region_policy=LeaderRegionPolicy.AUTO, **kwargs)
+    )
+    interior = tuple(
+        feature_leader_candidates(raw, region_policy=LeaderRegionPolicy.INTERIOR, **kwargs)
+    )
+    exterior = tuple(
+        feature_leader_candidates(raw, region_policy=LeaderRegionPolicy.EXTERIOR, **kwargs)
+    )
+
+    assert {candidate.region for candidate in automatic} == {
+        LeaderCandidateRegion.INTERIOR,
+        LeaderCandidateRegion.EXTERIOR,
+    }
+    assert interior and all(
+        candidate.region is LeaderCandidateRegion.INTERIOR for candidate in interior
+    )
+    assert len(exterior) == 1
+    assert exterior[0].region is LeaderCandidateRegion.EXTERIOR
+
+    pretyped = FeatureLeaderCandidate(
+        tip=(0.0, 0.0),
+        elbow=(10.0, 0.0, 0.0),
+        feature="feature",
+        region=LeaderCandidateRegion.INTERIOR,
+    )
+    assert tuple(
+        feature_leader_candidates((pretyped,), region_policy=LeaderRegionPolicy.AUTO, **kwargs)
+    ) == (pretyped,)
+    assert (
+        tuple(
+            feature_leader_candidates(
+                (pretyped,), region_policy=LeaderRegionPolicy.EXTERIOR, **kwargs
+            )
+        )
+        == ()
+    )
+
+
+def test_late_machined_jobs_offer_interior_then_exterior_candidates(monkeypatch):
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    drawing = SimpleNamespace(draft=draft)
+    context = SimpleNamespace(feature_leaders=[], record_issue=lambda *_args, **_kw: None)
+    monkeypatch.setattr(
+        from_model, "view_label_clearance", lambda _drawing, _view: lambda _box: True
+    )
+
+    assert (
+        from_model.place_machined_leader_jobs(
+            drawing,
+            SimpleNamespace(),
+            (
+                (
+                    "radius",
+                    "plan",
+                    (0.0, 0.0, 100.0, 60.0),
+                    "R10",
+                    (((0.0, 30.0), (-20.0, 30.0, 0.0), "feature"),),
+                    (),
+                ),
+            ),
+            noun="blend",
+            drop_code="blend_dropped",
+            ctx=context,
+            joint=True,
+            region_policy=LeaderRegionPolicy.AUTO,
+        )
+        == 0
+    )
+    assert len(context.feature_leaders) == 1
+
+    candidates = tuple(context.feature_leaders[0].candidates)
+    assert candidates
+    assert isinstance(candidates[0], FeatureLeaderCandidate)
+    assert candidates[0].region is LeaderCandidateRegion.INTERIOR
+    assert any(isinstance(candidate, tuple) for candidate in candidates)
+    assert context.feature_leaders[0].fallback_accept(candidates[0], (), None) is True
+
+
+def test_late_machined_interior_only_policy_filters_exterior_and_unmeasurable_labels(
+    monkeypatch,
+):
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    drawing = SimpleNamespace(draft=draft)
+    context = SimpleNamespace(feature_leaders=[], record_issue=lambda *_args, **_kw: None)
+    monkeypatch.setattr(from_model, "_text_size", lambda *_args, **_kwargs: (0.0, 0.0))
+    monkeypatch.setattr(
+        from_model, "view_label_clearance", lambda _drawing, _view: lambda _box: True
+    )
+
+    assert (
+        from_model.place_machined_leader_jobs(
+            drawing,
+            SimpleNamespace(),
+            (
+                (
+                    "radius",
+                    "plan",
+                    (0.0, 0.0, 100.0, 60.0),
+                    "R10",
+                    (((0.0, 30.0), (20.0, 30.0, 0.0), "feature"),),
+                    (),
+                ),
+            ),
+            noun="blend",
+            drop_code="blend_dropped",
+            ctx=context,
+            joint=True,
+            region_policy=LeaderRegionPolicy.INTERIOR,
+        )
+        == 0
+    )
+    assert tuple(context.feature_leaders[0].candidates) == ()

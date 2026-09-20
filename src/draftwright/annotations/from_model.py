@@ -101,7 +101,10 @@ from draftwright.annotations._common import (
 from draftwright.annotations.angular import AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
+    LeaderCandidateRegion,
+    LeaderRegionPolicy,
     collect_feature_leader,
+    feature_leader_candidates,
     material_penalty_units,
     place_feature_leader_jobs,
     view_material,
@@ -2423,6 +2426,7 @@ def place_machined_leader_jobs(
     geom_clear=False,
     joint=False,
     expand_lanes=True,
+    region_policy=LeaderRegionPolicy.EXTERIOR,
     source_ids_by_name=None,
     priority=0.0,
 ) -> int:
@@ -2431,17 +2435,58 @@ def place_machined_leader_jobs(
     Post-drain families join the canonical late inventory.  Pre-drain families
     are solved immediately through that same analytical machinery with its lazy
     producer floor, preserving both their semantic stage and first-clear order.
+    ``region_policy`` lets a later compiler stage opt a complete feature family
+    into the shared region adapter without changing other producers.
     """
 
     source_ids_by_name = source_ids_by_name or {}
     late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
     feature_jobs = []
+    interior_clearance_by_view = {}
     for name, view, silhouette, label, raw_candidates, measurement in jobs:
         joint_candidates, fallback_candidates = tee(iter(raw_candidates))
+        label_width, label_height = _text_size(
+            str(label),
+            float(dwg.draft.font_size),
+            getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(dwg.draft, "font", "Arial"),
+        )
+        label_box = (
+            (0.0, 0.0, label_width, label_height)
+            if label_width > 0.0 and label_height > 0.0
+            else None
+        )
 
-        def _lane_candidates(_raw=joint_candidates):
+        def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
+            if _label_box is None:
+                return None
+            return leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
+
+        region_policy = LeaderRegionPolicy(region_policy)
+        if (
+            region_policy is not LeaderRegionPolicy.EXTERIOR
+            and view not in interior_clearance_by_view
+        ):
+            interior_clearance_by_view[view] = view_label_clearance(dwg, view)
+        interior_label_clear = interior_clearance_by_view.get(view)
+
+        def _lane_candidates(
+            _raw=joint_candidates,
+            _silhouette=silhouette,
+            _analytical_geometry=_analytical_geometry,
+        ):
             spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
             for tip, elbow, feature in _raw:
+                if late_inventory and region_policy is not LeaderRegionPolicy.EXTERIOR:
+                    yield from feature_leader_candidates(
+                        ((tip, elbow, feature),),
+                        region_policy=LeaderRegionPolicy.INTERIOR,
+                        silhouette=_silhouette,
+                        analytical_geometry=_analytical_geometry,
+                        draft=dwg.draft,
+                    )
+                    if region_policy is LeaderRegionPolicy.INTERIOR:
+                        continue
                 dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
                 length = math.hypot(dx, dy)
                 if length <= 1e-12:
@@ -2473,23 +2518,6 @@ def place_machined_leader_jobs(
         def _build(tip, elbow, _feature, *, _label=label):
             return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
 
-        label_width, label_height = _text_size(
-            str(label),
-            float(dwg.draft.font_size),
-            getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
-            getattr(dwg.draft, "font", "Arial"),
-        )
-        label_box = (
-            (0.0, 0.0, label_width, label_height)
-            if label_width > 0.0 and label_height > 0.0
-            else None
-        )
-
-        def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
-            if _label_box is None:
-                return None
-            return leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
-
         def _fallback_accept(
             candidate,
             obstacles,
@@ -2499,6 +2527,8 @@ def place_machined_leader_jobs(
             _geom_clear=geom_clear,
             _label=label,
         ):
+            if candidate.region is LeaderCandidateRegion.INTERIOR:
+                return True
             return analytical_leader_lands_clear(
                 candidate,
                 obstacles,
@@ -2543,8 +2573,15 @@ def place_machined_leader_jobs(
                 noun=noun,
                 drop_code=drop_code,
                 priority=priority,
-                fallback_candidates=fallback_candidates,
+                fallback_candidates=(
+                    _lane_candidates(_raw=fallback_candidates)
+                    if region_policy is not LeaderRegionPolicy.EXTERIOR
+                    and late_inventory
+                    and expand_lanes
+                    else fallback_candidates
+                ),
                 fallback_accept=_fallback_accept,
+                interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
                 on_drop=_on_drop if source_ids else None,
             )
