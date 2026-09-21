@@ -178,11 +178,30 @@
                 "type": "object",
                 "additionalProperties": false,
                 "required": ["declaration_id", "control", "authored_value", "resolved_value", "intent_class", "status"],
+                "oneOf": [
+                  {
+                    "properties": {
+                      "control": { "const": "side" },
+                      "authored_value": { "enum": ["above", "below", "left", "right"] },
+                      "resolved_value": { "enum": ["above", "below", "left", "right"] }
+                    },
+                    "not": { "required": ["parameter_id"] }
+                  },
+                  {
+                    "required": ["parameter_id"],
+                    "properties": {
+                      "control": { "const": "lane" },
+                      "authored_value": { "type": "integer", "minimum": 1, "maximum": 8 },
+                      "resolved_value": { "type": "integer", "minimum": 1, "maximum": 8 }
+                    }
+                  }
+                ],
                 "properties": {
                   "declaration_id": { "type": "string", "minLength": 1 },
-                  "control": { "const": "side" },
-                  "authored_value": { "enum": ["above", "below", "left", "right"] },
-                  "resolved_value": { "enum": ["above", "below", "left", "right"] },
+                  "parameter_id": { "type": "string", "minLength": 1 },
+                  "control": { "enum": ["side", "lane"] },
+                  "authored_value": {},
+                  "resolved_value": {},
                   "intent_class": { "const": "layout-only" },
                   "status": { "const": "applied" }
                 }

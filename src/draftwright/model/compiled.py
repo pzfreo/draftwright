@@ -280,6 +280,9 @@ class ApprovedDimension:
     #: Other approved identities for the same physical measurement. This is
     #: compiler-owned equivalence, never inferred from already printed numbers.
     equivalent_ids: tuple[DimensionId, ...] = ()
+    #: One-based semantic corridor lane retained from declared layout intent. Appended
+    #: after the established positional fields to preserve their constructor ABI.
+    lane: int | None = None
 
     @property
     def is_location_measurement(self) -> bool:
@@ -1900,6 +1903,7 @@ def _compile_groups(
                 display_decimals=pd.display_decimals,
                 view=pd.view,
                 side=pd.side,
+                lane=pd.lane,
             )
             for pd in dims
             if not pd.suppressed

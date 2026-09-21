@@ -1600,7 +1600,7 @@ def _requested_display_decimals(model, feature, role, discriminator) -> int | No
 
 def _requested_intent_policy(
     model, feature, role, discriminator, member=None
-) -> tuple[int | None, str | None, str | None]:
+) -> tuple[int | None, str | None, str | None, int | None]:
     """Display and placement policy attached to an augmenting referential intent."""
     for request in model.requested_dimensions:
         if request.feature is not feature or request.member != member:
@@ -1618,8 +1618,9 @@ def _requested_intent_policy(
             cast(int | None, request.display_decimals),
             cast(str | None, request.view),
             cast(str | None, request.side),
+            cast(int | None, request.lane),
         )
-    return None, None, None
+    return None, None, None, None
 
 
 def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) -> list[str]:
@@ -1667,7 +1668,16 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         ]
     requests = (
         [
-            (a.feature, a.role, a.discriminator, a.display_decimals, a.view, a.side, a.member)
+            (
+                a.feature,
+                a.role,
+                a.discriminator,
+                a.display_decimals,
+                a.view,
+                a.side,
+                a.lane,
+                a.member,
+            )
             for a in model.authored_dimensions
         ]
         if model.authored_dimensions is not None
@@ -1704,7 +1714,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
     ]
-    for feature, role, discriminator, display_decimals, view, side, member in requests:
+    for feature, role, discriminator, display_decimals, view, side, lane, member in requests:
         name = names.get(id(feature))
         if name is None:
             # Reachable for a kind with no declarative verb (its line is a comment, so it
@@ -1735,6 +1745,8 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         line = f'sheet.dimension({name}, "{role}"{axis}{placement})'
         if display_decimals is not None:
             line += f".format(decimals={display_decimals})"
+        if lane is not None:
+            line += f".place(lane={lane})"
         out.append(line)
     return out
 
@@ -1764,14 +1776,23 @@ def _layout_override_block(model) -> list[str]:
 
     if not model.layout_overrides:
         return []
+    lines = []
+    for override in model.layout_overrides:
+        if override.side is not None:
+            lines.append(
+                "sheet.layout_override("
+                f"{json.dumps(override.declaration_id)}, side={json.dumps(override.side)})"
+            )
+        else:
+            lines.append(
+                "sheet.layout_override("
+                f"{json.dumps(override.declaration_id)}, "
+                f"parameter={json.dumps(override.parameter_id)}, lane={override.lane})"
+            )
     return [
         "# ── Layout-only declaration overrides ──────────────────────────────────────────",
-        "# Corridor choice only; the placement solve still owns coordinates and feasibility.",
-        *(
-            "sheet.layout_override("
-            f"{json.dumps(override.declaration_id)}, side={json.dumps(override.side)})"
-            for override in model.layout_overrides
-        ),
+        "# Relative corridor/lane policy only; the solve owns coordinates and feasibility.",
+        *lines,
     ]
 
 

@@ -2429,7 +2429,13 @@ class CorridorCandidate:
 
 @dataclass(frozen=True)
 class InteriorDimensionJob:
-    """One failed corridor dimension eligible for a shared interior retry."""
+    """One whole dimension eligible for shared interior/exterior candidate assignment.
+
+    Automatic jobs arrive after an exterior-corridor failure and try bounded view-relative
+    interior lanes. Declared jobs carry one compiler-derived, feature-relative position;
+    that candidate may prove wholly interior or wholly exterior, but never straddle the
+    view boundary.
+    """
 
     name: str
     view: str
@@ -2443,17 +2449,32 @@ class InteriorDimensionJob:
     measurement: object | None = None
     interior_build: object | None = None
     analytical_geometry: object | None = None
+    # A declared feature-relative lane can resolve to one exact candidate position.
+    # The position is compiler-derived from the witness and drafting spacing; it is
+    # never accepted from the public API.
+    explicit_position: float | None = None
+    requested_lane: int | None = None
+    # Mutable, caller-owned sink for bounded rejection categories. Declared lane
+    # producers use it to return actionable failure evidence without widening the
+    # public API to coordinates or retaining CAD objects in lint/report state.
+    rejection_reasons: list[str] | None = field(
+        default=None,
+        compare=False,
+        hash=False,
+        repr=False,
+    )
 
 
 class DimensionCandidateRegion(str, Enum):
     """Explicit provenance for a measured whole-dimension alternative."""
 
     INTERIOR = "interior"
+    EXTERIOR = "exterior"
 
 
 @dataclass(frozen=True)
 class InteriorDimensionCandidate:
-    """One complete rendered dimension at a view-relative interior lane."""
+    """One complete rendered dimension at a proven-clear candidate lane."""
 
     annotation: Any
     position: float
@@ -2878,6 +2899,7 @@ class PlacementContext:
         hole_requirements=(),
         source=None,
         outcome_stage=None,
+        evidence_reason=None,
     ) -> None:
         """Record a build-time lint issue on the run's registry (#639). Replaces the passes'
         old `dwg._record_build_issue`."""
@@ -2907,6 +2929,7 @@ class PlacementContext:
                 source_ids=source_ids,
                 outcome_stage=outcome_stage,
                 measurement_spans=spans,
+                evidence_reason=evidence_reason,
             )
         )
 
@@ -2939,13 +2962,14 @@ def register_corridor(ctx, key, strip, view, axis, tier, cand):
 
 
 def _drain_interior_dimensions(ctx, dwg) -> None:
-    """Place failed corridor dimensions as one bounded whole-annotation batch.
+    """Place automatic fallbacks and declared lanes as one whole-annotation batch.
 
-    The original exterior solve remains authoritative.  This stage sees only its
-    genuine failures, moves each complete rendered dimension, and admits a lane only
-    when the label is inside projected whitespace and the complete annotation clears
-    fixed ink.  The generic exact assignment then arbitrates pairwise conflicts; a job
-    with no survivor calls its original drop handler unchanged.
+    Automatic jobs enter only after a genuine exterior failure. Declared jobs contribute
+    one compiler-derived feature-relative position. The stage moves complete dimensions,
+    admits candidates only when their label is wholly interior or wholly exterior, and
+    requires the complete annotation to clear fixed ink. The generic exact assignment
+    then arbitrates pairwise conflicts; a job with no survivor calls its original drop
+    handler unchanged.
     """
 
     jobs = getattr(ctx, "interior_dimensions", None)
@@ -2955,10 +2979,16 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
     page = _drawing_bounds(dwg)
     candidates_by_job: list[tuple[InteriorDimensionCandidate, ...]] = []
     costs_by_job: list[tuple[float, ...]] = []
+
+    def reject(job, reason: str) -> None:
+        if job.rejection_reasons is not None and reason not in job.rejection_reasons:
+            job.rejection_reasons.append(reason)
+
     for job in jobs:
         bounds = dwg.view_bounds(job.view)
         label_clear = view_label_clearance(dwg, job.view)
         if bounds is None or label_clear is None:
+            reject(job, "view_geometry_unavailable")
             candidates_by_job.append(())
             costs_by_job.append(())
             continue
@@ -2972,18 +3002,29 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
         inward = -1.0 if job.side in {"above", "right"} else 1.0
         candidates: list[InteriorDimensionCandidate] = []
         costs: list[float] = []
-        # Eight view-relative lanes bound both OCC construction and the shared exact
-        # assignment.  This is inventory policy, not part-specific geometry: a shorter
-        # view naturally terminates sooner at its opposite boundary.
-        for lane in range(1, 9):
-            position = boundary + inward * lane * job.lane_step
-            if not bounds[axis] < position < bounds[axis + 2]:
+        # Eight view-relative automatic lanes bound both OCC construction and the shared
+        # exact assignment. A declared lane contributes one compiler-derived position
+        # relative to its physical witness instead; no public coordinate crosses this seam.
+        lane_positions = (
+            ((job.requested_lane, job.explicit_position),)
+            if job.explicit_position is not None and job.requested_lane is not None
+            else tuple((lane, boundary + inward * lane * job.lane_step) for lane in range(1, 9))
+        )
+        for lane, position in lane_positions:
+            if position is None:
+                reject(job, "candidate_position_unavailable")
+                continue
+            if job.explicit_position is None and not bounds[axis] < position < bounds[axis + 2]:
                 break
             try:
                 if job.analytical_geometry is not None and job.interior_build is not None:
                     dimension = job.analytical_geometry(position)
                     label = None if dimension is None else dimension.label_bbox
                     box = None if dimension is None else dimension.box
+                elif job.explicit_position is not None and job.interior_build is not None:
+                    dimension = job.interior_build(position)
+                    label = getattr(dimension, "label_bbox", None)
+                    box = _geom_box(dimension)
                 else:
                     # Compatibility path for direct/internal callers that have not
                     # supplied the analytical intent. Production candidates carry it,
@@ -3015,28 +3056,43 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                     label = getattr(dimension, "label_bbox", None)
                     box = _geom_box(dimension)
             except Exception:  # noqa: BLE001 — an optional lane must fail closed
+                reject(job, "candidate_construction_failed")
                 continue
             if label is None or box is None:
+                reject(job, "candidate_geometry_unavailable")
                 continue
             label = tuple(float(value) for value in label)
-            if not (
+            if (
                 label[0] >= bounds[0]
                 and label[1] >= bounds[1]
                 and label[2] <= bounds[2]
                 and label[3] <= bounds[3]
-                and box[0] >= page[0]
-                and box[1] >= page[1]
-                and box[2] <= page[2]
-                and box[3] <= page[3]
-                and label_clear(label)
-                # View ownership is provenance, not a clipping boundary: ink owned
-                # by an adjacent projection may still cross this view in page space.
-                # Interior candidates therefore prove clearance against the complete
-                # settled sheet inventory.
-                and annotation_ink_clear(dwg, dimension)
             ):
+                region = DimensionCandidateRegion.INTERIOR
+            elif {
+                "above": label[1] >= bounds[3],
+                "below": label[3] <= bounds[1],
+                "right": label[0] >= bounds[2],
+                "left": label[2] <= bounds[0],
+            }[job.side]:
+                region = DimensionCandidateRegion.EXTERIOR
+            else:
+                reject(job, "view_boundary_straddle")
                 continue
-            candidates.append(InteriorDimensionCandidate(dimension, position))
+            if box[0] < page[0] or box[1] < page[1] or box[2] > page[2] or box[3] > page[3]:
+                reject(job, "page_bounds")
+                continue
+            if region is DimensionCandidateRegion.INTERIOR and not label_clear(label):
+                reject(job, "projected_view_ink")
+                continue
+            # View ownership is provenance, not a clipping boundary: ink owned
+            # by an adjacent projection may still cross this view in page space.
+            # Interior candidates therefore prove clearance against the complete
+            # settled sheet inventory.
+            if not annotation_ink_clear(dwg, dimension):
+                reject(job, "settled_annotation_ink")
+                continue
+            candidates.append(InteriorDimensionCandidate(dimension, position, region))
             costs.append(float(lane))
         candidates_by_job.append(tuple(candidates))
         costs_by_job.append(tuple(costs))
@@ -3063,6 +3119,8 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
         jobs, candidates_by_job, assignment.choices, strict=True
     ):
         if choice is None:
+            if job.explicit_position is not None and job_candidates:
+                reject(job, "candidate_assignment_conflict")
             job.on_drop(job.name)
             continue
         dimension = job_candidates[choice].annotation
@@ -3074,27 +3132,44 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                 selected_bounds = dwg.view_bounds(job.view)
                 selected_label_clear = view_label_clearance(dwg, job.view)
             except Exception:  # noqa: BLE001 — optional fallback must fail closed
+                reject(job, "candidate_rebuild_failed")
                 job.on_drop(job.name)
                 continue
+            selected_region = job_candidates[choice].region
             if (
                 label is None
                 or box is None
                 or selected_bounds is None
                 or selected_label_clear is None
-                or label[0] < selected_bounds[0]
-                or label[1] < selected_bounds[1]
-                or label[2] > selected_bounds[2]
-                or label[3] > selected_bounds[3]
                 or box[0] < page[0]
                 or box[1] < page[1]
                 or box[2] > page[2]
                 or box[3] > page[3]
-                or not selected_label_clear(label)
+                or (
+                    selected_region is DimensionCandidateRegion.INTERIOR
+                    and (
+                        label[0] < selected_bounds[0]
+                        or label[1] < selected_bounds[1]
+                        or label[2] > selected_bounds[2]
+                        or label[3] > selected_bounds[3]
+                        or not selected_label_clear(label)
+                    )
+                )
+                or (
+                    selected_region is DimensionCandidateRegion.EXTERIOR
+                    and not {
+                        "above": label[1] >= selected_bounds[3],
+                        "below": label[3] <= selected_bounds[1],
+                        "right": label[0] >= selected_bounds[2],
+                        "left": label[2] <= selected_bounds[0],
+                    }[job.side]
+                )
                 or not annotation_ink_clear(dwg, dimension)
             ):
+                reject(job, "candidate_changed_during_commit")
                 job.on_drop(job.name)
                 continue
-        dimension._dw_candidate_region = DimensionCandidateRegion.INTERIOR.value
+        dimension._dw_candidate_region = job_candidates[choice].region.value
         ctx.place(
             dimension,
             job.name,

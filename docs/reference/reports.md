@@ -40,15 +40,17 @@ Python variable spelling, annotation names, or coordinates.
 full-ink bounds, label bounds, public 2D line segments, view, and exact semantic links. Its
 `findings` point back to the raw `lint.issues` rows by index; pair findings retain both named
 annotations. Remedies are limited to supported semantic controls (`page`, `scale`, `view`,
-`section`, `schedule`, `side`, `priority`, and `pin`). Page coordinates are evidence for review,
+`section`, `schedule`, `side`, `lane`, `priority`, and `pin`). Page coordinates are evidence for review,
 not an editing API.
 
-When a generated or hand-authored sheet uses
-`sheet.layout_override(declaration_id, side=...)`, `layout.overrides` records the declaration,
-the authored and resolved corridor side, `status: "applied"`, and
+When a generated or hand-authored sheet uses `sheet.layout_override(...)`,
+`layout.overrides` records the declaration, control, authored and resolved value,
+`status: "applied"`, and
 `intent_class: "layout-only"`. The corresponding feature still carries its complete semantic
 content and the ordinary shared placement solve still owns coordinates and feasibility. The
-field is emitted as an empty array when no override exists; it is optional in the version-8
+side form records a corridor; the dimension form additionally records the exact `parameter_id`
+and one-based feature-relative `lane`. The field is emitted as an empty array when no override
+exists; it is optional in the version-8
 schema so previously written version-8 documents remain valid.
 
 Detailed solver outcomes are opt-in. Without `build_drawing(trace=...)`,
