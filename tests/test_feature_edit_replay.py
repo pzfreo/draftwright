@@ -35,7 +35,21 @@ class TestFeatureEditReplay:
             dwg.furniture(f)
         dwg.finalize()
 
-        assert self._hc_ys(dwg) and self._hc_ys(dwg) == self._hc_ys(auto)  # batch == auto-pass
+        # The same semantic callouts survive replay.  Their exact lanes may differ because
+        # automatic placement solves against the dimensions already on that drawing while
+        # this authored callout-only replay has a different fixed-ink inventory (#1738).
+        def callouts(drawing):
+            return sorted(
+                (
+                    drawing.get_annotation(name).label,
+                    drawing.get_annotation(name).covers_diameters,
+                )
+                for name in drawing.annotations()
+                if name.startswith("hc_")
+            )
+
+        assert callouts(dwg) == callouts(auto)
+        assert not [issue for issue in dwg.lint() if issue.code.endswith("_dropped")]
 
     def test_finalize_does_not_double_place_pattern_furniture(self):
         # #426 Phase 3a: _annotate_holes places a pattern's callout but NOT its furniture

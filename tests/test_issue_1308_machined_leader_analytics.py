@@ -102,7 +102,8 @@ EXPECTED = {
             "dim_loc_front_x37000": ("Dimension", (37.725, 117.15, 111.825, 136.0)),
             "dim_loc_front_x43000": ("Dimension", (37.725, 104.3, 123.825, 136.0)),
             "m_env_width": ("Dimension", (37.725, 178.0, 197.825, 186.0)),
-            "hc_plan0": ("Leader", (88.275, 244.0, 115.598, 250.285)),
+            # Circular interior alternatives remain normal to their physical rims.
+            "hc_plan0": ("Leader", (87.543, 245.768, 114.866, 252.053)),
             "hc_plan1": ("Leader", (186.275, 268.665, 220.199, 271.335)),
             "m_chamfer_y0": ("Leader", (91.81, 164.568, 108.266, 169.491)),
             "m_chamfer_z1": ("Leader", (192.775, 275.0, 213.032, 283.142)),

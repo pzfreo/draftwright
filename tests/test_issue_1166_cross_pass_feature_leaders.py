@@ -2128,11 +2128,12 @@ def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch, 
         for item in json.loads(trace_path.read_text())["pass_events"]
         if item["label"] == "feature_leader_inventory"
     )
-    # With interior-capable hole jobs, exact dominance pruning removes routes
-    # that cannot improve any complete assignment and proves the same twelve-job
-    # incumbent optimal without weakening the bounded producer floor below.
-    assert event["assignment"] == "joint"
-    assert event["optimal"] is True
+    # Circular alternatives now carry distinct physical rim sites so every arrow
+    # remains normal to its circumference.  Those sites cannot be dominance-collapsed
+    # as one fixed tip; this dense connected graph honestly reaches the state budget
+    # and retains the complete greedy incumbent without weakening the producer floor.
+    assert event["assignment"] == "greedy_state_budget"
+    assert event["optimal"] is False
     assert event["objective"]["placed"] == event["inventory_jobs"] == 12
 
     monkeypatch.setattr(

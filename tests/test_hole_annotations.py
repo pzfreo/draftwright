@@ -62,18 +62,24 @@ class TestAutoHoleAnnotations:
         assert [i.code for i in issues] == []
 
     @pytest.mark.timeout(60)
-    def test_bore_callout_elbow_at_boundary_without_section_line(self):
+    def test_bore_callout_stays_clear_of_the_outline_without_section_line(self):
         # When no section line is placed (no cbore/spotface/blind holes) the
-        # plan-view elbow must sit at the view boundary, not past it — the shaft
-        # must not cross the view outline (#127).
+        # leader must not cut back through the view outline (#127).  A proven
+        # interior label may supersede the historical boundary elbow (#1738).
         part = Box(80, 60, 10) - Pos(25, 15, 0) * Cylinder(4, 10)
         dwg = build_drawing(part)
         assert "section_line" not in dwg.annotations()
         hc = dwg.get_annotation("hc_plan0")
         assert hc is not None
-        plan_right = dwg.view_bounds("plan")[2]  # plan view's right page boundary
-        elbow_x = hc.elbow[0]
-        assert abs(elbow_x - plan_right) < 0.5  # elbow at boundary, not past it
+        bounds = dwg.view_bounds("plan")
+        region = getattr(hc, "_dw_candidate_region", None)
+        if region == "exterior":
+            assert abs(hc.elbow[0] - bounds[2]) < 0.5
+        else:
+            assert region == "interior"
+            assert bounds[0] <= hc.label_bbox[0] < hc.label_bbox[2] <= bounds[2]
+            assert bounds[1] <= hc.label_bbox[1] < hc.label_bbox[3] <= bounds[3]
+        assert not [issue for issue in dwg.lint() if issue.code == "leader_crosses_silhouette"]
 
     @pytest.mark.timeout(60)
     def test_through_holes_group_across_wall_thicknesses(self):
