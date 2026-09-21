@@ -1431,7 +1431,10 @@ def slot(
     _require_positive(width=width, length=length)
     if end_radius is not None:
         _require_positive(end_radius=end_radius)
-        if not math.isclose(2 * end_radius, width, rel_tol=1e-6, abs_tol=1e-6):
+        # Quiddity publishes the radius and doubled width independently at 0.01 mm.
+        # Admit one resulting last-place discrepancy so generated declarations such as
+        # width=6.35/end_radius=3.17 round-trip, while rejecting a different end shape.
+        if not math.isclose(2 * end_radius, width, rel_tol=1e-6, abs_tol=0.011):
             raise ValueError(
                 f"slot() end_radius={end_radius!r} must equal half the width ({width / 2!r})"
             )

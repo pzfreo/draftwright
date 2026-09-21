@@ -1388,6 +1388,18 @@ class TestConstructorInvariants:
                 end_radius=3,
             )
 
+    def test_slot_end_radius_accepts_provider_publication_rounding(self):
+        f = slot(
+            width=6.35,
+            length=20,
+            long_axis="x",
+            width_axis="y",
+            lo=-10,
+            hi=10,
+            end_radius=3.17,
+        )
+        assert f.end_radius == 3.17
+
     def test_pattern_negative_bcd_raises(self):
         member = hole(diameter=3, at=(0, 0, 0), axis="z")
         with pytest.raises(ValueError):
