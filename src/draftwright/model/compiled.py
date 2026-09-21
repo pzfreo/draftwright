@@ -248,6 +248,10 @@ class ApprovedDimension:
     role: str = ""
     discriminator: str | None = None
     tolerance: object | None = None
+    #: Absolute lower/upper values when an imported requirement selected limit-dimension
+    #: presentation. This is compiler-owned evidence; consumers must not reconstruct it from
+    #: a nominal and two numbers that merely happen to surround it.
+    limit_bounds: tuple[float, float] | None = None
     #: ``None`` preserves automatic formatting; an integer records an explicit referential
     #: display policy so compound renderers can retain their default grouping behavior.
     display_decimals: int | None = None
@@ -1886,6 +1890,7 @@ def _compile_groups(
                 role=pd.param.role,
                 discriminator=pd.param.discriminator,
                 tolerance=pd.param.tolerance,
+                limit_bounds=pd.param.limit_bounds,
                 angular_reference=pd.param.angular_reference,
                 rendered_label=(
                     _fmt_angle(pd.param.value, pd.display_decimals, pd.param.tolerance)

@@ -131,6 +131,13 @@ compatibility aliases. Neither is a drawing-quality result, and the assessment p
 not read them. Consumers should start with `lint.assessment`, then inspect the linked occurrence,
 requirement, quality-component, and lint evidence.
 
+Claim fidelity compares compiler-owned presentation evidence rather than requiring the nominal
+token literally. In particular, an imported upper/lower limit dimension retains its typed
+absolute bounds through compilation; both bounds together can bear out the nominal measurement.
+One changed or missing bound fails, and two untyped numbers surrounding a nominal are never
+promoted to a limit dimension by midpoint inference. Count and through state remain separately
+owned structured requirements rather than numbers borrowed by this equivalence rule.
+
 `bounded-clear` does **not** mean manufacturing-ready or physically complete. A non-credit semantic
 requirement state makes the report require attention, but the report still covers accepted
 recogniser output rather than every physical feature a recogniser might fail to find. Material,

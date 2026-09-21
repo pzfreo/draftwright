@@ -37,6 +37,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass
+from math import isfinite
 from typing import Literal
 
 from draftwright._geometry import _fmt
@@ -115,6 +116,53 @@ def _expected_numbers(approved, *, location_component=None) -> frozenset[float]:
         indices = [i for i in indices if "xyz"[i] == location_component]
     return frozenset(
         float(_fmt(abs(float(end[index]) - float(start[index])))) for index in indices
+    )
+
+
+def _expected_presentations(approved, *, location_component=None) -> tuple[frozenset[float], ...]:
+    """Typed numeric alternatives that can bear out one compiled measurement claim.
+
+    A limit dimension is one two-bound presentation, not two independent alternatives and not
+    evidence for the nominal merely because their midpoint happens to equal it. All other
+    measurements retain the existing scalar-alternative behavior of :func:`_expected_numbers`.
+    """
+
+    limits = getattr(approved, "limit_bounds", None)
+    if limits is not None:
+        if not isinstance(limits, tuple) or len(limits) != 2:
+            return ()
+        tolerance = getattr(approved, "tolerance", None)
+        deviations = (
+            tolerance
+            if isinstance(tolerance, tuple) and len(tolerance) == 2
+            else (tolerance, tolerance)
+        )
+        numeric = (*limits, *deviations, getattr(approved, "value", None))
+        if not all(
+            isinstance(value, int | float) and not isinstance(value, bool) for value in numeric
+        ):
+            return ()
+        lower, upper, lower_deviation, upper_deviation, nominal = (
+            float(value)
+            for value in numeric
+            if isinstance(value, int | float) and not isinstance(value, bool)
+        )
+        if not (
+            all(
+                isfinite(value)
+                for value in (lower, upper, lower_deviation, upper_deviation, nominal)
+            )
+            and lower <= upper
+            and abs(lower + lower_deviation - nominal) <= _VALUE_TOL
+            and abs(upper - upper_deviation - nominal) <= _VALUE_TOL
+        ):
+            # A typed-but-incoherent interval cannot fall back to the nominal and look
+            # confirmed. Its producer must repair the evidence first.
+            return ()
+        return (frozenset((lower, upper)),)
+    return tuple(
+        frozenset((value,))
+        for value in _expected_numbers(approved, location_component=location_component)
     )
 
 
@@ -466,23 +514,25 @@ def verify_measurement_claims(registry, plan, *, location_components=None) -> li
                     )
                 )
                 continue
-            expected = tuple(entry.value_text for entry in entries)
-            wanted = (
-                frozenset().union(
-                    *(
-                        _expected_numbers(
-                            entry,
-                            location_component=(location_components or {}).get(name),
-                        )
-                        for entry in entries
-                    )
+            expected = tuple(
+                (
+                    " - ".join(_fmt(value) for value in entry.limit_bounds)
+                    if getattr(entry, "limit_bounds", None) is not None
+                    else entry.value_text
                 )
-                if entries
-                else frozenset()
+                for entry in entries
+            )
+            presentations = tuple(
+                presentation
+                for entry in entries
+                for presentation in _expected_presentations(
+                    entry,
+                    location_component=(location_components or {}).get(name),
+                )
             )
             if not entries:
                 outcomes.append(ClaimOutcome(name, parameter, "unresolved", measurement=claim))
-            elif not wanted:
+            elif not presentations:
                 outcomes.append(
                     ClaimOutcome(name, parameter, "no_expected_value", expected, measurement=claim)
                 )
@@ -491,7 +541,11 @@ def verify_measurement_claims(registry, plan, *, location_components=None) -> li
                     ClaimOutcome(name, parameter, "unreadable", expected, measurement=claim)
                 )
             elif any(
-                any(abs(want - number) <= _VALUE_TOL for number in numbers) for want in wanted
+                all(
+                    any(abs(want - number) <= _VALUE_TOL for number in numbers)
+                    for want in presentation
+                )
+                for presentation in presentations
             ):
                 outcomes.append(
                     ClaimOutcome(name, parameter, "confirmed", expected, measurement=claim)
