@@ -39,6 +39,7 @@ from draftwright.layout import (
     _assign_leader_candidates,
     _LeaderAssignment,
 )
+from draftwright.leader_policy import LeaderRegionPolicy
 from draftwright.model.compiled import resolve_feature
 from draftwright.progress import activity, checkpoint
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
@@ -89,14 +90,6 @@ class LeaderCandidateRegion(str, Enum):
 
     EXTERIOR = "exterior"
     INTERIOR = "interior"
-
-
-class LeaderRegionPolicy(str, Enum):
-    """Internal candidate-family policy; not yet part of the public DSL."""
-
-    AUTO = "auto"
-    INTERIOR = "interior"
-    EXTERIOR = "exterior"
 
 
 @dataclass(frozen=True)

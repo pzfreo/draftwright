@@ -4,6 +4,11 @@
 
 ### Added
 
+- Feature-leader placement now has one coordinate-free drawing policy across
+  `build_drawing`, `make_drawing`, `Sheet`, generated scripts, and the CLI. The default
+  `auto` policy keeps the shared interior/exterior solve, `interior` requires proved
+  interior candidates for eligible unconstrained families, and `exterior` restores the
+  historical exterior-only layout for existing diagrams.
 - The standard title block now states drawing `UNITS` (`mm`) and the effective sheet `FORMAT`
   (for example `A2`). Dimension-specified A-series pages receive the standard designation;
   non-standard pages state their actual `WIDTHxHEIGHT`. Its rows share a four-line column grid,

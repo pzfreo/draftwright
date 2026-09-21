@@ -88,6 +88,7 @@ from draftwright.annotations.leaders import (
     feature_leader_candidates,
 )
 from draftwright.layout import StripCandidate, plan_strip
+from draftwright.leader_policy import effective_leader_region_policy
 from draftwright.model import plan_dimensions
 from draftwright.model.compiled import (
     FeatureRef,
@@ -2832,8 +2833,12 @@ def _place_queue(
             # An authored side is different from automatic family eligibility: it is
             # a placement constraint. Keep that job in the exterior inventory so an
             # interior candidate cannot silently defeat ``side="left"``/``"right"``.
-            region_policy = (
+            family_region_policy = (
                 LeaderRegionPolicy.AUTO if requested_side is None else LeaderRegionPolicy.EXTERIOR
+            )
+            region_policy = effective_leader_region_policy(
+                family_region_policy,
+                getattr(a, "leader_region", "auto"),
             )
             ys: list[float] = []
             for y in (
@@ -3180,7 +3185,9 @@ def _place_queue(
                     # must not silently strengthen that into a semantic drop.
                     fallback_accept=lambda _candidate, _obstacles, _page: True,
                     interior_label_clear=(
-                        projected_clear if region_policy is LeaderRegionPolicy.AUTO else None
+                        projected_clear
+                        if region_policy is not LeaderRegionPolicy.EXTERIOR
+                        else None
                     ),
                     allow_policy_b_fixed=True,
                     priority=float(dia),

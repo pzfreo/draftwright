@@ -819,6 +819,11 @@ class Drawing:
         return getattr(self._build.analysis, "recognition_frame", None)
 
     @property
+    def leader_region(self) -> str:
+        """The resolved feature-leader region policy for this drawing."""
+        return getattr(self._build.analysis, "leader_region", "auto")
+
+    @property
     def recognition_frame_decision(self) -> dict[str, object]:
         """A copy of the explicit framed/raw/refusal selection outcome."""
         decision = getattr(self._build.analysis, "recognition_frame_decision", None)

@@ -37,6 +37,7 @@ _LAZY = {
     "InspectionUnavailableError": "draftwright.inspection",
     "inspect_step": "draftwright.inspection",
     "Sheet": "draftwright.sheet",
+    "LeaderRegionPolicy": "draftwright.leader_policy",
     "Document": "draftwright.document",
     "DocumentResult": "draftwright.document",
     "DocumentBuildError": "draftwright.document",
@@ -103,6 +104,7 @@ if TYPE_CHECKING:  # static analysers / IDEs — no runtime import, no kernel co
         InspectionUnavailableError,
         inspect_step,
     )
+    from draftwright.leader_policy import LeaderRegionPolicy
     from draftwright.linting import lint_feature_coverage
     from draftwright.pmi import (
         PmiExtractionReport,
@@ -137,6 +139,7 @@ __all__ = [
     "SoftDeprecationWarning",
     "FeatureInfo",
     "InspectionUnavailableError",
+    "LeaderRegionPolicy",
     "PmiExtractionReport",
     "PmiRecord",
     "PmiSourceEntity",

@@ -2280,6 +2280,7 @@ def emit_sheet_script(
     projection_symbol: bool = True,
     text_position: str = "inline",
     text_orientation: str = "aligned",
+    leader_region: str = "auto",
     object_ref: bool = False,
     object_candidates: Mapping[str, Shape] | None = None,
     source_part: Shape | None = None,
@@ -2336,6 +2337,9 @@ def emit_sheet_script(
     _validate_scale_policy(scale, scale_policy)
     validate_projection(projection, projection_symbol=projection_symbol)
     _dimension_draft(text_position, text_orientation)
+    from draftwright.leader_policy import leader_region_policy
+
+    leader_region = leader_region_policy(leader_region).value
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -2504,6 +2508,8 @@ def emit_sheet_script(
         ctor.append(f"text_position={text_position!r}")
     if text_orientation != "aligned":
         ctor.append(f"text_orientation={text_orientation!r}")
+    if leader_region != "auto":
+        ctor.append(f"leader_region={leader_region!r}")
     from draftwright.model.declare import _envelope_from_bbox
 
     object_refs = _object_references(model.features, source_part, object_candidates)
@@ -2835,6 +2841,7 @@ def generate_sheet_script(
     projection_symbol: bool = True,
     text_position: str = "inline",
     text_orientation: str = "aligned",
+    leader_region: str = "auto",
     pmi: Literal["off", "report", "annotate"] = "off",
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,
@@ -2862,6 +2869,9 @@ def generate_sheet_script(
     validate_projection(projection, projection_symbol=projection_symbol)
     _validate_scale_policy(scale, scale_policy)
     _dimension_draft(text_position, text_orientation)
+    from draftwright.leader_policy import leader_region_policy
+
+    leader_region = leader_region_policy(leader_region).value
     is_shape = isinstance(step_file, Shape)
     assessment = inspect if assessment is None else assessment
     stem = out or ("drawing" if is_shape else Path(step_file).stem)
@@ -2978,6 +2988,7 @@ def generate_sheet_script(
                 projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
+                leader_region=leader_region,
                 pmi=pmi,
                 model=model,
             )
@@ -3011,6 +3022,7 @@ def generate_sheet_script(
             projection_symbol=projection_symbol,
             text_position=text_position,
             text_orientation=text_orientation,
+            leader_region=leader_region,
             object_ref=is_shape,
             object_candidates=object_candidates,
             source_part=step_file if isinstance(step_file, Shape) else None,

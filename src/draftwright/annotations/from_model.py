@@ -113,6 +113,7 @@ from draftwright.annotations.leaders import (
     view_material,
 )
 from draftwright.layout import StripCandidate, plan_strip
+from draftwright.leader_policy import effective_leader_region_policy
 
 # Re-exported: `annotations/holes.py` and the tests import the spec from here, and the
 # renderer is its natural home from a caller's point of view even though the reading
@@ -2503,6 +2504,7 @@ def place_machined_leader_jobs(
     """
 
     source_ids_by_name = source_ids_by_name or {}
+    family_region_policy = LeaderRegionPolicy(region_policy)
     late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
     feature_jobs = []
     interior_clearance_by_view = {}
@@ -2530,9 +2532,12 @@ def place_machined_leader_jobs(
                 return None
             return leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
 
-        region_policy = LeaderRegionPolicy(region_policy)
+        effective_region_policy = effective_leader_region_policy(
+            family_region_policy,
+            getattr(a, "leader_region", "auto"),
+        )
         if (
-            region_policy is not LeaderRegionPolicy.EXTERIOR
+            effective_region_policy is not LeaderRegionPolicy.EXTERIOR
             and view not in interior_clearance_by_view
         ):
             interior_clearance_by_view[view] = view_label_clearance(dwg, view)
@@ -2544,10 +2549,11 @@ def place_machined_leader_jobs(
             _silhouette=silhouette,
             _analytical_geometry=_analytical_geometry,
             _interior_label_clear=interior_label_clear,
+            _region_policy=effective_region_policy,
         ):
             spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
             interior_count = 0
-            if late_inventory and region_policy is not LeaderRegionPolicy.EXTERIOR:
+            if late_inventory and _region_policy is not LeaderRegionPolicy.EXTERIOR:
                 # Expand the complete semantic job in one call.  Calling the adapter
                 # once per physical anchor would turn its per-feature cap into
                 # ``anchors × cap`` for grouped fillets and polygonal bosses.
@@ -2561,7 +2567,7 @@ def place_machined_leader_jobs(
                 ):
                     yield candidate
                     interior_count += 1
-                if region_policy is LeaderRegionPolicy.INTERIOR:
+                if _region_policy is LeaderRegionPolicy.INTERIOR:
                     return
             for tip, elbow, feature in _exterior_anchors:
                 if interior_count:
@@ -2666,7 +2672,7 @@ def place_machined_leader_jobs(
                         _interior_anchors=fallback_interior_anchors,
                         _exterior_anchors=fallback_exterior_anchors,
                     )
-                    if region_policy is LeaderRegionPolicy.INTERIOR
+                    if effective_region_policy is LeaderRegionPolicy.INTERIOR
                     and late_inventory
                     and expand_lanes
                     # AUTO is an optional expansion of the joint solve.  Its

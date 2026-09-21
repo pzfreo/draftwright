@@ -1394,6 +1394,10 @@ class Analysis:
     projection_symbol: bool = True
     text_position: str = "inline"
     text_orientation: str = "aligned"
+    # Document-level feature-leader region policy. ``auto`` is the ordinary shared
+    # solve; ``exterior`` restores the historical exterior-only candidate inventory;
+    # ``interior`` restricts only families that proved interior eligibility.
+    leader_region: str = "auto"
     # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
     zones: bool = False
     # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so

@@ -1241,6 +1241,7 @@ def _build_drawing_once(
     margin_top: float | None = None,
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
+    leader_region: Literal["auto", "interior", "exterior"] = "auto",
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1382,6 +1383,7 @@ def _build_drawing_once(
             projection_symbol=projection_symbol,
             text_position=text_position,
             text_orientation=text_orientation,
+            leader_region=leader_region,
             zones=zones,
             _reuse=reuse,
             _required_tables=_required_tables,
@@ -2118,6 +2120,7 @@ def build_drawing(
     margin_top: float | None = None,
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
+    leader_region: Literal["auto", "interior", "exterior"] = "auto",
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -2138,9 +2141,18 @@ def build_drawing(
 
     ``text_position="inline"|"above"`` and ``text_orientation="aligned"|"horizontal"``
     independently select dimension typography. Defaults preserve existing appearance.
+
+    ``leader_region="auto"|"interior"|"exterior"`` controls the candidate regions for
+    feature-leader labels without specifying page coordinates. ``"auto"`` preserves the
+    normal shared solve, ``"exterior"`` restores the historical exterior-only inventory,
+    and ``"interior"`` requires interior candidates where the feature family has proved
+    them. Explicit per-feature ``side=`` constraints remain exterior.
     """
+    from draftwright.leader_policy import leader_region_policy
+
     validate_projection(projection, projection_symbol=projection_symbol)
     _dimension_draft(text_position, text_orientation)
+    leader_region = leader_region_policy(leader_region).value
     if scale_policy not in {"strict", "fallback", "permissive"}:
         raise ValueError(
             f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
@@ -2177,6 +2189,7 @@ def build_drawing(
         margin_top=margin_top,
         margin_bottom=margin_bottom,
         title_block_width=title_block_width,
+        leader_region=leader_region,
         frame=frame,
         projection=projection,
         projection_symbol=projection_symbol,
@@ -3217,6 +3230,7 @@ def make_drawing(
     margin_top: float | None = None,
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
+    leader_region: Literal["auto", "interior", "exterior"] = "auto",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -3250,6 +3264,9 @@ def make_drawing(
             ordering has a measurable export-time cost.
         framed_recognition: opt an automatic build into the provider-owned local recognition
             frame. Raw remains the default rollout path.
+        leader_region: feature-leader label region policy. ``"auto"`` keeps the normal
+            solver, ``"exterior"`` restores exterior-only compatibility, and
+            ``"interior"`` requires interior placement where that feature family supports it.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
@@ -3300,6 +3317,7 @@ def make_drawing(
         reproducible=reproducible,
         framed_recognition=framed_recognition,
         scale_policy=scale_policy,
+        leader_region=leader_region,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
     return _paths["svg"], _paths["dxf"]
