@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://draftwright.dev/schema/draftwright-assessment-comparison-v2.schema.json",
+  "title": "Draftwright replay assessment comparison v2",
+  "description": "A deterministic evidence vector with an explicit Pareto relation over independently assessed quality axes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "schema_version", "scope", "decision", "reasons", "compatibility", "axes", "pareto", "policy", "lint", "requirements", "completeness", "fidelity", "layout", "unscored", "unavailable", "intentional_changes", "restraint", "manufacturing_readiness"],
+  "properties": {
+    "schema": { "const": "draftwright-assessment-comparison" },
+    "schema_version": { "const": 2 },
+    "scope": { "const": "same-source-replay-delta" },
+    "decision": {
+      "description": "Deprecated v1 compatibility policy result. Consumers should use pareto.relation.",
+      "enum": ["preferred", "rejected", "incomparable", "no-preference"]
+    },
+    "reasons": { "$ref": "#/$defs/stringArray" },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["comparable", "reasons"],
+      "properties": {
+        "comparable": { "type": "boolean" },
+        "reasons": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "axes": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requirements", "completeness", "fidelity", "legibility", "restraint"],
+          "properties": {
+            "requirements": { "$ref": "#/$defs/axis" },
+            "completeness": { "$ref": "#/$defs/axis" },
+            "fidelity": { "$ref": "#/$defs/axis" },
+            "legibility": { "$ref": "#/$defs/axis" },
+            "restraint": { "$ref": "#/$defs/axis" }
+          }
+        }
+      ]
+    },
+    "pareto": { "$ref": "#/$defs/pareto" },
+    "policy": { "$ref": "#/$defs/nullableObject" },
+    "lint": { "$ref": "#/$defs/nullableObject" },
+    "requirements": { "$ref": "#/$defs/nullableObject" },
+    "completeness": { "$ref": "#/$defs/nullableObject" },
+    "fidelity": { "$ref": "#/$defs/nullableObject" },
+    "layout": { "$ref": "#/$defs/nullableObject" },
+    "unscored": { "$ref": "#/$defs/nullableObject" },
+    "unavailable": { "type": "object" },
+    "intentional_changes": { "type": "array", "items": { "type": "object" } },
+    "restraint": { "$ref": "#/$defs/unavailable" },
+    "manufacturing_readiness": { "$ref": "#/$defs/unavailable" }
+  },
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "objectArray": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation", "improvements", "regressions", "unavailable_reasons"],
+      "properties": {
+        "relation": {
+          "enum": ["improved", "unchanged", "regressed", "incomparable", "unavailable"]
+        },
+        "improvements": { "$ref": "#/$defs/objectArray" },
+        "regressions": { "$ref": "#/$defs/objectArray" },
+        "unavailable_reasons": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "pareto": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation", "basis", "orientation", "improved_axes", "regressed_axes", "incomparable_axes", "unchanged_axes", "unavailable_axes", "limitations"],
+      "properties": {
+        "relation": {
+          "enum": ["dominates", "equivalent", "dominated", "incomparable", "unavailable"]
+        },
+        "basis": { "const": "evidence-vector-no-scalar" },
+        "orientation": { "const": "candidate-versus-baseline" },
+        "improved_axes": { "$ref": "#/$defs/stringArray" },
+        "regressed_axes": { "$ref": "#/$defs/stringArray" },
+        "incomparable_axes": { "$ref": "#/$defs/stringArray" },
+        "unchanged_axes": { "$ref": "#/$defs/stringArray" },
+        "unavailable_axes": { "$ref": "#/$defs/stringArray" },
+        "limitations": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "nullableObject": {
+      "oneOf": [{ "type": "null" }, { "type": "object" }]
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["availability", "reason"],
+      "properties": {
+        "availability": { "const": "unavailable" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}
