@@ -21,6 +21,13 @@ _SCHEMA = (
 )
 
 
+def _validate_comparison(result) -> None:
+    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    validator = validator_for(schema)
+    validator.check_schema(schema)
+    validator(schema).validate(result)
+
+
 def _quality():
     completeness = {
         "available": True,
@@ -401,7 +408,7 @@ def test_other_fail_closed_evidence_is_reported_by_its_own_policy_reason() -> No
         "recognized_family_became_unscored",
         "unrecognised_geometry_reports_increased",
         "layout_finding_introduced",
-        "unverifiable_measurement_claim",
+        "measurement_uncertainty_introduced",
     } <= codes
     assert "candidate completeness is unavailable" in result["unavailable"]["reasons"]
     assert "candidate fidelity is unavailable" in result["unavailable"]["reasons"]
@@ -558,10 +565,7 @@ def test_output_is_deterministic_for_identical_inputs() -> None:
     )
     assert first == second
 
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    validator = validator_for(schema)
-    validator.check_schema(schema)
-    validator(schema).validate(first)
+    _validate_comparison(first)
 
 
 def test_legacy_numeric_scores_cannot_change_the_pareto_relation() -> None:
@@ -673,3 +677,163 @@ def test_trading_one_completeness_failure_for_another_is_incomparable() -> None:
 
     assert result["axes"]["completeness"]["relation"] == "incomparable"
     assert result["pareto"]["relation"] == "incomparable"
+
+
+def test_carried_measurement_uncertainty_does_not_erase_layout_dominance() -> None:
+    baseline, candidate = _assessment(), _assessment(crossing=False)
+    unknown = {"annotation": "mystery", "reason": "compiled_claim_unconfirmed"}
+    baseline["measurements"]["unknown"] = [unknown]
+    candidate["measurements"]["unknown"] = [deepcopy(unknown)]
+
+    result = compare_assessments(
+        baseline,
+        candidate,
+        expected_requirements=_EXPECTED,
+        selected_layout_finding=_CROSSING,
+    )
+
+    assert result["pareto"]["relation"] == "dominates"
+    assert result["uncertainty"]["carried"] == [
+        {
+            "identity": {"annotation": "mystery", "kind": "measurement"},
+            "claim": unknown,
+        }
+    ]
+    assert not result["uncertainty"]["introduced"]
+    assert not result["policy"]["blockers"]
+    assert (
+        "one or more compiled measurement claims are unresolved"
+        in result["unavailable"]["reasons"]
+    )
+    _validate_comparison(result)
+
+
+def test_measurement_uncertainty_transitions_are_classified_without_order_pairing() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["measurements"]["unknown"] = [
+        {"annotation": "resolved", "reason": "compiled_claim_unconfirmed"},
+        {"annotation": "changed", "reason": "compiled_claim_unconfirmed"},
+    ]
+    candidate["measurements"]["unknown"] = [
+        {"annotation": "introduced", "reason": "measurement_identity_unavailable"},
+        {"annotation": "changed", "reason": "measurement_identity_unavailable"},
+    ]
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert [row["identity"]["annotation"] for row in result["uncertainty"]["resolved"]] == [
+        "resolved"
+    ]
+    assert [row["identity"]["annotation"] for row in result["uncertainty"]["introduced"]] == [
+        "introduced"
+    ]
+    assert [row["identity"]["annotation"] for row in result["uncertainty"]["changed"]] == [
+        "changed"
+    ]
+    assert result["pareto"]["relation"] == "unavailable"
+    assert {row["code"] for row in result["policy"]["blockers"]} == {
+        "measurement_uncertainty_changed",
+        "measurement_uncertainty_introduced",
+    }
+    _validate_comparison(result)
+
+
+def test_resolved_uncertainty_no_longer_limits_the_candidate() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["measurements"]["unknown"] = [
+        {"annotation": "resolved", "reason": "compiled_claim_unconfirmed"}
+    ]
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert len(result["uncertainty"]["resolved"]) == 1
+    assert result["pareto"]["relation"] == "equivalent"
+    assert not result["unavailable"]["measurement_claims"]
+    assert (
+        "one or more compiled measurement claims are unresolved"
+        not in result["unavailable"]["reasons"]
+    )
+
+
+def test_ownerless_claim_identity_includes_parameter() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["measurements"]["unavailable_owner_claims"] = [
+        {
+            "annotation": "table",
+            "parameter_id": "width.length",
+            "reason": "claim owner has no declaration identity",
+        },
+        {
+            "annotation": "table",
+            "parameter_id": "height.length",
+            "reason": "claim owner has no declaration identity",
+        },
+    ]
+    candidate["measurements"]["unavailable_owner_claims"] = deepcopy(
+        baseline["measurements"]["unavailable_owner_claims"]
+    )
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert [row["identity"]["parameter_id"] for row in result["uncertainty"]["carried"]] == [
+        "height.length",
+        "width.length",
+    ]
+    _validate_comparison(result)
+
+
+def test_duplicate_uncertainty_identity_refuses_pairing() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    duplicate = {"annotation": "table", "reason": "compiled_claim_unconfirmed"}
+    baseline["measurements"]["unknown"] = [duplicate, deepcopy(duplicate)]
+    candidate["measurements"]["unknown"] = [deepcopy(duplicate)]
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["pareto"]["relation"] == "unavailable"
+    assert result["uncertainty"]["ambiguous"] == [
+        {
+            "identity": {"annotation": "table", "kind": "measurement"},
+            "baseline_count": 2,
+            "candidate_count": 1,
+        }
+    ]
+    assert {row["code"] for row in result["policy"]["blockers"]} == {
+        "measurement_uncertainty_identity_ambiguous"
+    }
+    _validate_comparison(result)
+
+
+def test_table_cell_is_part_of_measurement_uncertainty_identity() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    rows = [
+        {
+            "annotation": "schedule",
+            "reason": "compiled_claim_unconfirmed",
+            "cell": {"row": row, "column": 2},
+        }
+        for row in (1, 2)
+    ]
+    baseline["measurements"]["unknown"] = rows
+    candidate["measurements"]["unknown"] = deepcopy(rows)
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert [row["identity"]["cell"]["row"] for row in result["uncertainty"]["carried"]] == [
+        1,
+        2,
+    ]
+    _validate_comparison(result)
+
+
+def test_uncertainty_output_does_not_depend_on_input_array_order() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    candidate["measurements"]["unknown"] = [
+        {"annotation": "zeta", "reason": "compiled_claim_unconfirmed"},
+        {"annotation": "alpha", "reason": "measurement_identity_unavailable"},
+    ]
+    first = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+    candidate["measurements"]["unknown"].reverse()
+    second = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert second == first

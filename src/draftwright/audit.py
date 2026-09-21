@@ -445,6 +445,85 @@ def _code_count_delta(before: Mapping, after: Mapping) -> dict:
     }
 
 
+def _uncertainty_index(document: Mapping) -> dict[Any, dict[str, Any]]:
+    """Index unresolved claims by the identity actually serialized in an assessment."""
+
+    result: dict[Any, dict[str, Any]] = {}
+
+    def add(identity: dict[str, Any], claim: Mapping) -> None:
+        key = _frozen(identity)
+        entry = result.setdefault(key, {"identity": identity, "claims": []})
+        entry["claims"].append(dict(claim))
+
+    measurements = document["measurements"]
+    for row in measurements["unknown"]:
+        identity: dict[str, Any] = {
+            "kind": "measurement",
+            "annotation": row["annotation"],
+        }
+        if row.get("cell") is not None:
+            identity["cell"] = dict(row["cell"])
+        add(identity, row)
+    for row in measurements["unavailable_owner_claims"]:
+        add(
+            {
+                "kind": "ownerless-claim",
+                "annotation": row["annotation"],
+                "parameter_id": row["parameter_id"],
+            },
+            row,
+        )
+    for entry in result.values():
+        entry["claims"].sort(key=_frozen)
+    return result
+
+
+def _uncertainty_delta(before: Mapping, after: Mapping) -> dict:
+    """Match uncertainty without treating array order or scalar equality as identity."""
+
+    old, new = _uncertainty_index(before), _uncertainty_index(after)
+    result: dict[str, list[dict[str, Any]]] = {
+        "carried": [],
+        "resolved": [],
+        "introduced": [],
+        "changed": [],
+        "ambiguous": [],
+    }
+    for key in sorted(old.keys() | new.keys(), key=repr):
+        old_entry, new_entry = old.get(key), new.get(key)
+        entry = old_entry if old_entry is not None else new_entry
+        assert entry is not None  # key came from the union of the two indexes
+        identity = dict(entry["identity"])
+        old_claims = [] if old_entry is None else old_entry["claims"]
+        new_claims = [] if new_entry is None else new_entry["claims"]
+        if len(old_claims) > 1 or len(new_claims) > 1:
+            result["ambiguous"].append(
+                {
+                    "identity": identity,
+                    "baseline_count": len(old_claims),
+                    "candidate_count": len(new_claims),
+                }
+            )
+        elif old_claims and new_claims:
+            if _frozen(old_claims[0]) == _frozen(new_claims[0]):
+                result["carried"].append({"identity": identity, "claim": old_claims[0]})
+            else:
+                result["changed"].append(
+                    {
+                        "identity": identity,
+                        "baseline": old_claims[0],
+                        "candidate": new_claims[0],
+                    }
+                )
+        elif old_claims:
+            result["resolved"].append({"identity": identity, "claim": old_claims[0]})
+        else:
+            result["introduced"].append({"identity": identity, "claim": new_claims[0]})
+    for rows in result.values():
+        rows.sort(key=_frozen)
+    return result
+
+
 def _axis_result(
     *,
     improvements: Sequence[Mapping] = (),
@@ -531,6 +610,8 @@ def compare_assessments(
     STEP bytes, producer versions, and run options. ``expected_requirements`` is the caller's
     fixed denominator and is the only way to expose a requirement omitted from both drawings.
     Authorised changes are reported separately; they do not excuse unrelated regressions.
+    Unresolved claims match only by their serialized annotation/cell or annotation/parameter
+    identity; duplicates refuse comparison instead of pairing by order.
     """
 
     if not isinstance(baseline, Mapping) or not isinstance(candidate, Mapping):
@@ -560,6 +641,7 @@ def compare_assessments(
             **base,
             "axes": None,
             "pareto": _pareto_result(None, compatibility),
+            "uncertainty": None,
             "lint": None,
             "requirements": None,
             "completeness": None,
@@ -848,19 +930,37 @@ def compare_assessments(
         if was and not now:
             improvements.append({"code": "selected_layout_finding_resolved"})
 
-    unknown: list[dict[str, Any]] = []
-    for side, document in (("baseline", baseline), ("candidate", candidate)):
-        for row in document["measurements"]["unknown"]:
-            unknown.append({"side": side, **row})
-        for row in document["measurements"]["unavailable_owner_claims"]:
-            unknown.append({"side": side, **row})
-    if unknown:
+    uncertainty = _uncertainty_delta(baseline, candidate)
+    candidate_unknown = [
+        {"side": "candidate", **row}
+        for field in ("unknown", "unavailable_owner_claims")
+        for row in candidate["measurements"][field]
+    ]
+    candidate_unknown.sort(key=_frozen)
+    if candidate_unknown:
         unavailable.append("one or more compiled measurement claims are unresolved")
-        candidate_unknown = [row for row in unknown if row["side"] == "candidate"]
-        if candidate_unknown:
-            blockers.append(
-                {"code": "unverifiable_measurement_claim", "claims": candidate_unknown}
-            )
+    if uncertainty["introduced"]:
+        blockers.append(
+            {
+                "code": "measurement_uncertainty_introduced",
+                "claims": uncertainty["introduced"],
+            }
+        )
+    if uncertainty["changed"]:
+        blockers.append(
+            {
+                "code": "measurement_uncertainty_changed",
+                "claims": uncertainty["changed"],
+            }
+        )
+    if uncertainty["ambiguous"]:
+        unavailable.append("measurement uncertainty identity is ambiguous")
+        blockers.append(
+            {
+                "code": "measurement_uncertainty_identity_ambiguous",
+                "claims": uncertainty["ambiguous"],
+            }
+        )
 
     blockers.sort(key=_frozen)
     improvements.sort(key=_frozen)
@@ -922,7 +1022,13 @@ def compare_assessments(
     pareto_limitations = [
         row["code"]
         for row in blockers
-        if row["code"] in {"unclassified_lint_introduced", "unverifiable_measurement_claim"}
+        if row["code"]
+        in {
+            "measurement_uncertainty_changed",
+            "measurement_uncertainty_identity_ambiguous",
+            "measurement_uncertainty_introduced",
+            "unclassified_lint_introduced",
+        }
         or (
             row["code"] == "error_lint_introduced"
             and row["finding"].get("code")
@@ -945,6 +1051,7 @@ def compare_assessments(
         "reasons": reasons,
         "axes": axes,
         "pareto": pareto,
+        "uncertainty": uncertainty,
         "lint": lint,
         "policy": {"blockers": blockers, "improvements": improvements},
         "requirements": {
@@ -966,7 +1073,7 @@ def compare_assessments(
         "fidelity": fidelity,
         "layout": layout,
         "unscored": unscored,
-        "unavailable": {"reasons": unavailable, "measurement_claims": unknown},
+        "unavailable": {"reasons": unavailable, "measurement_claims": candidate_unknown},
         "intentional_changes": applied_changes,
     }
 

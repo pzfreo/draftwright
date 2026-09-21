@@ -50,6 +50,18 @@ the caller-fixed denominator. The `completeness` axis separately describes the
 recognition-owned outcome ledger and its bounded denominator. Keeping both prevents a change in
 what recognition counted from masquerading as an improvement to what the drawing represents.
 
+The `uncertainty` block matches only identities the replay assessment actually serialized:
+ordinary unresolved measurements use annotation plus optional table cell; claims without a
+declaration owner use annotation plus parameter. It classifies them as `carried`, `resolved`,
+`introduced`, `changed`, or `ambiguous`. It never pairs duplicate identities by array order.
+Carried uncertainty remains a certification limitation but does not erase a Pareto relationship
+proved on the comparable axes. Introduced or changed uncertainty, and any ambiguous duplicate,
+makes that relationship unavailable. A baseline uncertainty absent from the candidate is
+reported as resolved and no longer appears among the candidate's unavailable measurement claims.
+These keys are comparison-local evidence, not persistent or physical owner identity; source/run
+compatibility and the separate declaration, requirement, owner, meaning, and carrier transitions
+remain mandatory guards.
+
 Pass `ExpectedRequirement(declaration_id, parameter_id)` values as a fixed denominator. This is
 how a caller detects a requirement omitted from both drawings: neither drawing can rediscover an
 expectation that both scripts deleted. Pass `IntentionalChange(...)` to separate an authorised

@@ -5,7 +5,7 @@
   "description": "A deterministic evidence vector with an explicit Pareto relation over independently assessed quality axes.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "schema_version", "scope", "decision", "reasons", "compatibility", "axes", "pareto", "policy", "lint", "requirements", "completeness", "fidelity", "layout", "unscored", "unavailable", "intentional_changes", "restraint", "manufacturing_readiness"],
+  "required": ["schema", "schema_version", "scope", "decision", "reasons", "compatibility", "axes", "pareto", "uncertainty", "policy", "lint", "requirements", "completeness", "fidelity", "layout", "unscored", "unavailable", "intentional_changes", "restraint", "manufacturing_readiness"],
   "properties": {
     "schema": { "const": "draftwright-assessment-comparison" },
     "schema_version": { "const": 2 },
@@ -42,6 +42,12 @@
       ]
     },
     "pareto": { "$ref": "#/$defs/pareto" },
+    "uncertainty": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/uncertainty" }
+      ]
+    },
     "policy": { "$ref": "#/$defs/nullableObject" },
     "lint": { "$ref": "#/$defs/nullableObject" },
     "requirements": { "$ref": "#/$defs/nullableObject" },
@@ -92,6 +98,119 @@
         "unchanged_axes": { "$ref": "#/$defs/stringArray" },
         "unavailable_axes": { "$ref": "#/$defs/stringArray" },
         "limitations": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "uncertainty": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["carried", "resolved", "introduced", "changed", "ambiguous"],
+      "properties": {
+        "carried": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uncertaintyClaimTransition" }
+        },
+        "resolved": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uncertaintyClaimTransition" }
+        },
+        "introduced": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uncertaintyClaimTransition" }
+        },
+        "changed": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uncertaintyChangedTransition" }
+        },
+        "ambiguous": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/uncertaintyAmbiguousTransition" }
+        }
+      }
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row", "column"],
+      "properties": {
+        "row": { "type": "integer", "minimum": 1 },
+        "column": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "uncertaintyIdentity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "annotation"],
+          "properties": {
+            "kind": { "const": "measurement" },
+            "annotation": { "type": "string", "minLength": 1 },
+            "cell": { "$ref": "#/$defs/cell" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "annotation", "parameter_id"],
+          "properties": {
+            "kind": { "const": "ownerless-claim" },
+            "annotation": { "type": "string", "minLength": 1 },
+            "parameter_id": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "uncertaintyClaim": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["annotation", "reason"],
+          "properties": {
+            "annotation": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 },
+            "cell": { "$ref": "#/$defs/cell" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["annotation", "parameter_id", "reason"],
+          "properties": {
+            "annotation": { "type": "string", "minLength": 1 },
+            "parameter_id": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "uncertaintyClaimTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "claim"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/uncertaintyIdentity" },
+        "claim": { "$ref": "#/$defs/uncertaintyClaim" }
+      }
+    },
+    "uncertaintyChangedTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "baseline", "candidate"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/uncertaintyIdentity" },
+        "baseline": { "$ref": "#/$defs/uncertaintyClaim" },
+        "candidate": { "$ref": "#/$defs/uncertaintyClaim" }
+      }
+    },
+    "uncertaintyAmbiguousTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "baseline_count", "candidate_count"],
+      "properties": {
+        "identity": { "$ref": "#/$defs/uncertaintyIdentity" },
+        "baseline_count": { "type": "integer", "minimum": 0 },
+        "candidate_count": { "type": "integer", "minimum": 0 }
       }
     },
     "nullableObject": {
