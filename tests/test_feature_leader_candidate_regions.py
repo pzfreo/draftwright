@@ -1,6 +1,7 @@
 import math
 from types import SimpleNamespace
 
+import pytest
 from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader, draft_preset
 
@@ -12,6 +13,7 @@ from draftwright.annotations.leaders import (
     FeatureLeaderJob,
     LeaderCandidateRegion,
     LeaderRegionPolicy,
+    RadialLeaderTarget,
     _fixed_blockers,
     _FixedInkComponent,
     _measure,
@@ -285,6 +287,61 @@ def test_interior_candidate_inventory_is_bounded_independent_of_view_size():
     assert len(candidates) == 64
 
 
+def test_radial_target_moves_each_rotated_tip_to_meet_the_circle_head_on():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    target = RadialLeaderTarget(center=(0.0, 0.0), radius=10.0)
+
+    def geometry(_tip, elbow, _feature):
+        x, y = elbow[:2]
+        return ((x - 1.0, y - 1.0, x + 1.0, y + 1.0), ())
+
+    candidates = tuple(
+        interior_leader_candidates(
+            (10.0, 0.0),
+            (20.0, 0.0),
+            "circular feature",
+            silhouette=(-100.0, -100.0, 100.0, 100.0),
+            analytical_geometry=geometry,
+            draft=draft,
+            radial_target=target,
+        )
+    )
+
+    assert len(candidates) == 64
+    assert (
+        len({tuple(round(value, 6) for value in candidate.tip) for candidate in candidates}) == 8
+    )
+    for candidate in candidates:
+        radial = (candidate.tip[0] - target.center[0], candidate.tip[1] - target.center[1])
+        shaft = (
+            candidate.elbow[0] - candidate.tip[0],
+            candidate.elbow[1] - candidate.tip[1],
+        )
+        assert math.hypot(*radial) == pytest.approx(target.radius)
+        assert radial[0] * shaft[1] - radial[1] * shaft[0] == pytest.approx(0.0, abs=1e-9)
+        assert radial[0] * shaft[0] + radial[1] * shaft[1] > 0.0
+
+
+def test_radial_target_rejects_an_unproved_oblique_source_anchor():
+    draft = draft_preset(font_size=3.0, decimal_precision=1)
+    target = RadialLeaderTarget(center=(0.0, 0.0), radius=10.0)
+
+    assert (
+        tuple(
+            interior_leader_candidates(
+                (10.0, 0.0),
+                (20.0, 5.0),
+                "circular feature",
+                silhouette=(-100.0, -100.0, 100.0, 100.0),
+                analytical_geometry=lambda *_args: ((0.0, 0.0, 1.0, 1.0), ()),
+                draft=draft,
+                radial_target=target,
+            )
+        )
+        == ()
+    )
+
+
 def test_interior_producer_fails_closed_for_unusable_anchors_and_geometry():
     draft = draft_preset(font_size=3.0, decimal_precision=1)
     bounds = (0.0, 0.0, 100.0, 60.0)
@@ -556,6 +613,16 @@ def test_pattern_transaction_can_select_interior_whitespace():
     assert leader is not None and leader.label_bbox is not None and bounds is not None
     assert bounds[0] <= leader.label_bbox[0] < leader.label_bbox[2] <= bounds[2]
     assert bounds[1] <= leader.label_bbox[1] < leader.label_bbox[3] <= bounds[3]
+    centres = [drawing.at("plan", *member) for member in members]
+    centre = min(
+        centres,
+        key=lambda point: math.hypot(leader.tip[0] - point[0], leader.tip[1] - point[1]),
+    )
+    radial = (leader.tip[0] - centre[0], leader.tip[1] - centre[1])
+    shaft = (leader.elbow[0] - leader.tip[0], leader.elbow[1] - leader.tip[1])
+    assert math.hypot(*radial) == pytest.approx(3.0 * drawing.scale)
+    assert radial[0] * shaft[1] - radial[1] * shaft[0] == pytest.approx(0.0, abs=1e-9)
+    assert radial[0] * shaft[0] + radial[1] * shaft[1] > 0.0
     assert sum(name.startswith("m_cm") for name in drawing.annotations()) == 4
     assert not [
         issue

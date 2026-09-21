@@ -9,8 +9,9 @@ shared placement helpers come from annotations._common. Below annotate, no cycle
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from functools import partial
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 from build123d_drafting.helpers import (
     CenterlineCircle,
@@ -78,8 +79,10 @@ from draftwright.annotations.from_model import (
     place_machined_leader_jobs,
 )
 from draftwright.annotations.leaders import (
+    FeatureLeaderCandidate,
     FeatureLeaderJob,
     LeaderRegionPolicy,
+    RadialLeaderTarget,
     _FeatureLeaderInvariantError,
     collect_feature_leader,
     feature_leader_candidates,
@@ -2296,7 +2299,7 @@ class _StripCtx(NamedTuple):
     y_min: float
     y_max: float
     a: Analysis
-    to_page: object
+    to_page: Callable[[Any], Any]
     view_cx: float
     view_cy: float
     draft: object
@@ -2938,6 +2941,9 @@ def _place_queue(
                 _locations=tuple(locations or ()),
                 _owner=owner,
                 _ys=tuple(ys),
+                _callout=callout,
+                _dia=dia,
+                _scale=a.SCALE,
             ):
                 anchor_y = _ys[0] if _ys else min(max(float(_s[4]), y_min), y_max)
                 for location in _locations or (_s[5],):
@@ -2950,9 +2956,23 @@ def _place_queue(
                         to_page,
                         elbow_dx,
                         draft,
-                        a.SCALE,
+                        _scale,
                     )
-                    yield (tip, elbow, _owner)
+                    centre = to_page(location)
+                    member_owner = _callout_member_owner(_callout, location, _owner)
+                    yield FeatureLeaderCandidate(
+                        tip=tip,
+                        elbow=elbow,
+                        feature=member_owner,
+                        radial_target=(
+                            RadialLeaderTarget(
+                                center=(float(centre[0]), float(centre[1])),
+                                radius=float(_dia) * float(_scale) / 2.0,
+                            )
+                            if getattr(_callout, "profile_boundary", None) is None
+                            else None
+                        ),
+                    )
 
             def _raw_candidates(
                 _anchors=_interior_anchors,
