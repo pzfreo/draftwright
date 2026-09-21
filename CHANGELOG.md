@@ -4,6 +4,11 @@
 
 ### Added
 
+- Raw automatic reports now lead agents with a vector-first `lint.assessment`: per-axis status,
+  affected counts, available denominators, unavailable reasons, and stable structured reasons
+  for every `needs-attention` verdict. Its human summary is rendered from the same reason rows,
+  while legacy lint scores remain compatibility-only diagnostics and cannot select status
+  (#1609, #1618).
 - Replay comparison now matches unresolved measurement evidence by its serialized annotation,
   table cell, or ownerless parameter identity and classifies it as carried, resolved,
   introduced, changed, or ambiguous. Carried uncertainty keeps certification unavailable but

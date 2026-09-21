@@ -1096,6 +1096,266 @@ def project_feature_occurrence_ids(
     return tuple(tuple(ids) for ids in joined)
 
 
+_SATISFIED_REQUIREMENT_STATES = frozenset({"placed", "satisfied_by_structured_note"})
+_UNRESOLVED_COVERAGE = frozenset({"not-projected", "deferred", "unavailable"})
+
+
+def _status_reason(
+    *,
+    code: str,
+    axis: str,
+    evidence_refs: list[str],
+    affected_count: int,
+    denominator: int,
+) -> dict[str, object]:
+    """Return one deterministic report-status reason without manufacturing a score."""
+
+    return {
+        "code": code,
+        "axis": axis,
+        "affected_count": affected_count,
+        "denominator": denominator,
+        "evidence_refs": sorted(evidence_refs)[:5],
+    }
+
+
+def _axis_summary(
+    *,
+    affected_count: int,
+    denominator: int | None,
+    available: bool = True,
+    unavailable_reason: str | None = None,
+    denominator_reason: str | None = None,
+) -> dict[str, object]:
+    """Project one independently interpretable axis for an agent-facing summary."""
+
+    return {
+        "status": (
+            "unavailable"
+            if not available
+            else "affected"
+            if affected_count
+            else "clear-within-assessed-scope"
+        ),
+        "affected_count": affected_count,
+        "denominator": denominator,
+        "denominator_reason": denominator_reason,
+        "unavailable_reasons": [unavailable_reason] if unavailable_reason else [],
+    }
+
+
+def _raw_report_assessment(
+    *,
+    lint: Mapping[str, object],
+    occurrences: list[dict[str, Any]],
+    requirements: list[dict[str, Any]],
+) -> dict[str, object]:
+    """Explain the raw-report verdict using a vector and the evidence that selected it.
+
+    Numeric lint scores are deliberately not read. The legacy aliases remain in the surrounding
+    lint payload for compatibility, but cannot affect this status, its reasons, or its prose.
+    """
+
+    reasons: list[dict[str, object]] = []
+    issues = lint.get("issues", [])
+    issue_rows = issues if isinstance(issues, list) else []
+    error_ids = sorted(
+        {
+            str(row.get("code"))
+            for row in issue_rows
+            if isinstance(row, Mapping)
+            and row.get("severity") == "error"
+            and isinstance(row.get("code"), str)
+        }
+    )
+    raw_error_count = lint.get("errors", 0)
+    error_count = raw_error_count if type(raw_error_count) is int else 0
+    lint_affected_count = 0
+    if not bool(lint.get("passed")):
+        lint_affected_count = max(1, error_count)
+        reasons.append(
+            _status_reason(
+                code="lint_failed",
+                axis="lint",
+                evidence_refs=[f"lint-code:{code}" for code in error_ids],
+                affected_count=lint_affected_count,
+                denominator=max(len(issue_rows), lint_affected_count),
+            )
+        )
+
+    disposition_rows = [
+        row for row in occurrences if row["disposition"] in _ATTENTION_DISPOSITIONS
+    ]
+    if disposition_rows:
+        reasons.append(
+            _status_reason(
+                code="attention_disposition",
+                axis="recognition",
+                evidence_refs=[str(row["id"]) for row in disposition_rows],
+                affected_count=len(disposition_rows),
+                denominator=len(occurrences),
+            )
+        )
+
+    adverse_requirements = [
+        row for row in requirements if row["state"] not in _SATISFIED_REQUIREMENT_STATES
+    ]
+    if adverse_requirements:
+        reasons.append(
+            _status_reason(
+                code="requirement_not_satisfied",
+                axis="requirements",
+                evidence_refs=[str(row["id"]) for row in adverse_requirements],
+                affected_count=len(adverse_requirements),
+                denominator=len(requirements),
+            )
+        )
+
+    unknown_cardinality = [
+        row for row in requirements if row["reason_code"] == "requirement_cardinality_unknown"
+    ]
+    if unknown_cardinality:
+        reasons.append(
+            _status_reason(
+                code="requirement_cardinality_unknown",
+                axis="completeness",
+                evidence_refs=[str(row["id"]) for row in unknown_cardinality],
+                affected_count=len(unknown_cardinality),
+                denominator=len(requirements),
+            )
+        )
+
+    unresolved_coverage = [
+        row for row in occurrences if row["requirements"]["coverage"] in _UNRESOLVED_COVERAGE
+    ]
+    if unresolved_coverage:
+        reasons.append(
+            _status_reason(
+                code="occurrence_coverage_unresolved",
+                axis="recognition",
+                evidence_refs=[str(row["id"]) for row in unresolved_coverage],
+                affected_count=len(unresolved_coverage),
+                denominator=len(occurrences),
+            )
+        )
+
+    quality = lint.get("quality", {})
+    quality_rows = quality if isinstance(quality, Mapping) else {}
+
+    def observed_axis(name: str) -> dict[str, object]:
+        candidate = quality_rows.get(name, {})
+        component = candidate if isinstance(candidate, Mapping) else {}
+        available = bool(component.get("available"))
+        reason = component.get("reason")
+        return _axis_summary(
+            affected_count=int(component.get("raw_issues", 0) or 0),
+            denominator=None,
+            available=available,
+            unavailable_reason=(
+                str(reason)
+                if not available and reason
+                else "this axis has no available evidence"
+                if not available
+                else None
+            ),
+            denominator_reason="no fixed opportunity denominator is reported for finding-based axes",
+        )
+
+    requirement_ids = {
+        str(row["id"]) for row in adverse_requirements if isinstance(row.get("id"), str)
+    }
+    recognition_ids = {
+        str(row["id"])
+        for row in (*disposition_rows, *unresolved_coverage)
+        if isinstance(row.get("id"), str)
+    }
+    completeness = quality_rows.get("completeness", {})
+    completeness_row = completeness if isinstance(completeness, Mapping) else {}
+    completeness_available = bool(completeness_row.get("available"))
+    adverse_completeness = sum(
+        int(completeness_row.get(state, 0) or 0)
+        for state in ("suppressed", "dropped", "missing", "unverifiable", "unsupported")
+    )
+    known_requirement_count = completeness_row.get("known_requirement_count")
+    completeness_denominator = (
+        int(known_requirement_count)
+        if completeness_available and isinstance(known_requirement_count, int)
+        else None
+    )
+    restraint = quality_rows.get("restraint", {})
+    restraint_row = restraint if isinstance(restraint, Mapping) else {}
+    axes = {
+        "recognition": _axis_summary(
+            affected_count=len(recognition_ids), denominator=len(occurrences)
+        ),
+        "requirements": _axis_summary(
+            affected_count=len(requirement_ids),
+            denominator=len(requirements) if requirements else None,
+            available=bool(requirements),
+            unavailable_reason=(
+                None if requirements else "no auditable physical requirements were projected"
+            ),
+            denominator_reason=(
+                None if requirements else "no physical requirement denominator is available"
+            ),
+        ),
+        "completeness": _axis_summary(
+            affected_count=adverse_completeness,
+            denominator=completeness_denominator,
+            available=completeness_available,
+            unavailable_reason=(
+                None
+                if completeness_available
+                else str(
+                    completeness_row.get(
+                        "reason", "audited requirement completeness is unavailable"
+                    )
+                )
+            ),
+            denominator_reason=(
+                None
+                if completeness_denominator is not None
+                else "a complete audited requirement denominator is unavailable"
+            ),
+        ),
+        "fidelity": observed_axis("fidelity"),
+        "legibility": observed_axis("legibility"),
+        "restraint": _axis_summary(
+            affected_count=0,
+            denominator=None,
+            available=bool(restraint_row.get("available")),
+            unavailable_reason=(
+                str(restraint_row.get("reason"))
+                if not restraint_row.get("available") and restraint_row.get("reason")
+                else "this axis has no available evidence"
+                if not restraint_row.get("available")
+                else None
+            ),
+            denominator_reason="no evidence-backed redundancy denominator is available",
+        ),
+        "lint": _axis_summary(
+            affected_count=lint_affected_count,
+            denominator=max(len(issue_rows), lint_affected_count),
+        ),
+    }
+    status = "needs-attention" if reasons else "bounded-clear"
+    if reasons:
+        text = f"{status}: " + "; ".join(
+            f"{reason['axis']} {reason['code']} "
+            f"({reason['affected_count']}/{reason['denominator']})"
+            for reason in reasons
+        )
+    else:
+        text = "bounded-clear: no assessed status predicate requires attention"
+    return {
+        "basis": "evidence-vector-no-scalar",
+        "status": status,
+        "axes": axes,
+        "status_reasons": reasons,
+        "summary": text,
+    }
+
+
 def drawing_report(
     *,
     evidence: RecognitionEvidence | None,
@@ -1127,25 +1387,19 @@ def drawing_report(
         requirement_outcomes=requirement_outcomes,
     )
     lint = cast(dict[str, object], json_value(lint))
-    needs_attention = not bool(lint.get("passed")) or any(
-        summary[disposition] for disposition in _ATTENTION_DISPOSITIONS
+    assessment = _raw_report_assessment(
+        lint=lint,
+        occurrences=occurrences,
+        requirements=requirements,
     )
-    needs_attention = needs_attention or any(
-        requirement["state"] not in {"placed", "satisfied_by_structured_note"}
-        for requirement in requirements
-    )
-    needs_attention = needs_attention or any(
-        requirement["reason_code"] == "requirement_cardinality_unknown"
-        for requirement in requirements
-    )
-    needs_attention = needs_attention or any(
-        occurrence["requirements"]["coverage"] in {"not-projected", "deferred", "unavailable"}
-        for occurrence in occurrences
-    )
+    # ``lint`` is the intentionally open producer payload in report v3. Keep the closed
+    # occurrence/requirement identity contract unchanged while making the first machine-facing
+    # summary a vector rather than the legacy severity scalar (#1609, #1618).
+    lint = {"assessment": assessment, **lint}
     return {
         "schema": REPORT_SCHEMA,
         "schema_version": REPORT_SCHEMA_VERSION,
-        "status": "needs-attention" if needs_attention else "bounded-clear",
+        "status": assessment["status"],
         "producer": producer(),
         "source": _source(source),
         "outputs": {},

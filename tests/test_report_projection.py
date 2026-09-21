@@ -150,6 +150,13 @@ def test_raw_report_has_the_closed_v3_shape_and_exact_owner(fresh_drawing) -> No
         "unexpectedly_missing": 0,
     }
     assert isinstance(report["lint"], dict)
+    assert next(iter(report["lint"])) == "assessment"
+    assessment = report["lint"]["assessment"]
+    assert assessment["basis"] == "evidence-vector-no-scalar"
+    assert assessment["status"] == report["status"]
+    assert assessment["status_reasons"] == []
+    assert assessment["axes"]["requirements"]["denominator"] == 2
+    assert "score" not in assessment
     json.dumps(report, allow_nan=False)
     schema = _schema()
     validator_for(schema).check_schema(schema)
