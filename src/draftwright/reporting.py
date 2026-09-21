@@ -2049,12 +2049,40 @@ def _declared_layout(
                 ),
             }
         )
+    identity_index = {
+        identity.declaration_id: index
+        for index, identity in enumerate(identities)
+        if identity is not None
+    }
+    overrides = []
+    for override in model.layout_overrides:
+        feature_index = identity_index.get(override.declaration_id)
+        if feature_index is None:
+            raise ReportUnavailableError(
+                f"layout override {override.declaration_id!r} has no final declaration"
+            )
+        resolved = getattr(model.features[feature_index], "side", None)
+        if resolved != override.side:
+            raise ReportUnavailableError(
+                f"layout override {override.declaration_id!r} did not resolve to its recorded side"
+            )
+        overrides.append(
+            {
+                "declaration_id": override.declaration_id,
+                "control": "side",
+                "authored_value": override.side,
+                "resolved_value": resolved,
+                "intent_class": "layout-only",
+                "status": "applied",
+            }
+        )
     page_w, page_h = float(drawing.page_w), float(drawing.page_h)
     left, bottom, right, top = drawing.drawable_bounds
     result = {
         "availability": "available",
         "coordinate_space": "page-mm-from-sheet-origin",
         "edit_surface": "semantic-dsl-only",
+        "overrides": overrides,
         "remedy_vocabulary": list(_LAYOUT_REMEDIES),
         "page": {
             "width": page_w,
