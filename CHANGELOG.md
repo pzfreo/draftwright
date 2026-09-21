@@ -67,6 +67,10 @@
 
 ### Fixed
 
+- Imported upper/lower limit dimensions now retain their typed absolute interval through the
+  compiled evidence boundary. Both bounds together satisfy the owned nominal claim, while a
+  changed/missing bound or two coincidental numbers around the nominal still produces
+  `claimed_value_absent`; count and through requirements remain separate (#1759).
 - Adopt Quiddity 0.3.1 and require its public rejected-candidate reference in the
   evidence contract (#1726). The provider now suppresses rectangular recess candidates
   that are not material-empty and restores passage discovery used during rotational
