@@ -70,7 +70,7 @@ def _occurrences(ownership, family):
 
 
 def test_groupable_family_roster_is_explicit() -> None:
-    assert GROUPABLE_FAMILIES == {"holes", "section_recesses", "slots"}
+    assert GROUPABLE_FAMILIES == {"gusset_ribs", "holes", "section_recesses", "slots"}
 
 
 def test_each_unpatterned_groupable_family_has_a_direct_final_owner() -> None:

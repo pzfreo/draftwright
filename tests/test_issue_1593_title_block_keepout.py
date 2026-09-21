@@ -33,10 +33,25 @@ CASES = {
     "bored_plate": (Box(90, 60, 10) - Cylinder(5, 10), False),
 }
 
+_DEFECT_SCALES = {
+    "plain_box": 2.0,
+    "tall_box": 1.0,
+    "stepped": 1.0,
+    "bored_plate": 1.0,
+}
 
-def _build(name, *, keep_out, monkeypatch):
+
+def _build(name, *, keep_out, monkeypatch, freeze_defect=False):
     if not keep_out:
         monkeypatch.setattr(_common, "pending_title_block_box", lambda _dwg: None)
+    if freeze_defect:
+        return build_drawing(
+            CASES[name][0],
+            number="X",
+            page="A4",
+            scale=_DEFECT_SCALES[name],
+            scale_policy="permissive",
+        )
     return build_drawing(CASES[name][0], number="X")
 
 
@@ -58,6 +73,18 @@ def _inside_the_block(drawing):
     return hits
 
 
+def _preserve_exterior_failure(monkeypatch):
+    """Leave #1593's synthetic no-strip case for the page-replan tests to observe."""
+
+    def drop_interior_jobs(ctx, _drawing):
+        jobs = tuple(ctx.interior_dimensions or ())
+        ctx.interior_dimensions = []
+        for job in jobs:
+            job.on_drop(job.name)
+
+    monkeypatch.setattr(_common, "_drain_interior_dimensions", drop_interior_jobs)
+
+
 @pytest.mark.parametrize("name", list(CASES))
 def test_precondition_the_defect_is_present_without_the_keep_out(name, monkeypatch):
     """Neutralising the keep-out reproduces #1593 — or, for the control, does not.
@@ -65,7 +92,9 @@ def test_precondition_the_defect_is_present_without_the_keep_out(name, monkeypat
     Without this, three of the four cases below would pass against completely unfixed
     code: their geometry simply never reaches the block.
     """
-    drawing = _build(name, keep_out=False, monkeypatch=monkeypatch)
+    # Pin the historical failing proposal: automatic page/scale validity now rejects and
+    # repairs this dirty candidate, which would hide the keep-out mutation under test.
+    drawing = _build(name, keep_out=False, monkeypatch=monkeypatch, freeze_defect=True)
     assert bool(_inside_the_block(drawing)) is CASES[name][1]
 
 
@@ -94,7 +123,7 @@ def test_a_displaced_dimension_stays_on_the_sheet(name, monkeypatch):
     assert not [issue for issue in after.lint() if issue.severity == "error"]
 
 
-def test_a_dimension_with_nowhere_to_go_is_replanned_onto_a_sheet_that_fits():
+def test_a_dimension_with_nowhere_to_go_is_replanned_onto_a_sheet_that_fits(monkeypatch):
     """The cost, and what #1590 then does about it.
 
     Pinned to this sheet, the part's side view has the title block below and a shoulder
@@ -104,6 +133,9 @@ def test_a_dimension_with_nowhere_to_go_is_replanned_onto_a_sheet_that_fits():
     dimension — here by dropping the optional pictorial, which #443/#1299 already rank
     below a dimension needed to manufacture the part.
     """
+    # #1738 can recover this historical fixture in interior whitespace.  Disable only
+    # that new final fallback: this test owns the older title-block/page-replan path.
+    _preserve_exterior_failure(monkeypatch)
     # Page and scale pinned, so the recovery ladder does not run and this sheet is the one
     # under test. No `scale_policy` is needed and that is the point worth pinning: an
     # explicitly requested scale is still HONOURED, under every policy, because
@@ -128,7 +160,7 @@ def test_a_dimension_with_nowhere_to_go_is_replanned_onto_a_sheet_that_fits():
     assert not [issue for issue in automatic.lint() if issue.severity == "error"]
 
 
-def test_the_recorded_attempt_names_the_symptom_that_opened_the_ladder():
+def test_the_recorded_attempt_names_the_symptom_that_opened_the_ladder(monkeypatch):
     """The decision reads back honestly (#1590).
 
     `required_outcome_dropped` would be wrong here: nothing was dropped as a blocker — the
@@ -136,6 +168,7 @@ def test_the_recorded_attempt_names_the_symptom_that_opened_the_ladder():
     it before. The sibling statuses are pinned the same way in
     `test_issue_1299_page_escalation`; this one had no test at all.
     """
+    _preserve_exterior_failure(monkeypatch)
     drawing = build_drawing(CASES["stepped"][0], number="X")
     attempts = drawing.scale_decision["attempts"]
     assert [a["status"] for a in attempts][0] == "required_dimension_withheld"

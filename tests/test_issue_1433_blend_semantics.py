@@ -206,6 +206,8 @@ def test_fully_supplied_competing_inventory_requires_internal_provenance() -> No
         "grooves": recognition.grooves,
         "flats": recognition.flats,
         "pads": recognition.pads,
+        "gusset_ribs": recognition.gusset_ribs,
+        "gusset_rib_patterns": recognition.gusset_rib_patterns,
         "profiles": recognition.turned_profiles,
         "step_zs": (),
         "face_levels": recognition.step_levels,

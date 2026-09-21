@@ -158,12 +158,11 @@ class TestPrismaticClassification:
         dwg = build_drawing(part)
         xlocs = {n for n in dwg.annotations() if n.startswith("dim_loc_front_x")}
         assert len(xlocs) == 2, f"both side-drilled holes must be located, got {xlocs}"
-        # The X offsets are the #225 subject and both land. The corrected side-right strip
-        # also admits one Z-height companion; the other still records an info-level
-        # `off_axis_location_dropped`, so #1250 must not report success over that loss.
+        # The X offsets are the #225 subject and both land. The shared placement solve now
+        # also admits both Z-height companions, so no completeness error remains.
         issues = dwg.lint()
-        assert [i.code for i in issues if i.severity == "error"] == ["plan_incomplete"]
-        assert [i.code for i in issues].count("off_axis_location_dropped") == 1
+        assert not [i for i in issues if i.severity == "error"]
+        assert not [i for i in issues if i.code == "off_axis_location_dropped"]
 
     @pytest.mark.timeout(60)
     def test_corner_fillets_do_not_make_a_plate_rotational(self):

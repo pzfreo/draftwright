@@ -1076,18 +1076,21 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
 
-    assert (drawing.page_w, drawing.page_h, drawing.scale) == (841.0, 594.0, 10.0)
-    assert set(drawing.views) == {"front", "side", "iso"}
-    assert drawing.view_decision["status"] == "reduced"
-    assert drawing.view_decision["chosen"] == ("front", "side")
-    assert drawing.scale_decision["status"] == "automatic_replanned"
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (594.0, 420.0, 2.0)
+    assert set(drawing.views) == {"front", "plan", "side", "iso", "detail_a"}
+    assert drawing.view_decision["status"] == "retained_after_rejection"
+    assert drawing.view_decision["chosen"] == ("front", "plan", "side")
+    # The hard-validity verdict makes the long-standing ink collisions explicit instead
+    # of allowing the otherwise complete manufacturing record to report success.
+    assert drawing.scale_decision["status"] == "invalid"
     attempts = drawing.scale_decision["attempts"]
-    assert attempts[-1]["status"] == "complete"
+    assert attempts[0]["status"] == "detail_reservation_conservative"
     assert {
         source_id
         for attempt in attempts[:-1]
         for blocker in attempt.get("blockers", ())
         for source_id in blocker.get("source_ids", ())
+        if source_id.startswith("manufacturing_requirement:")
     } == {"manufacturing_requirement:#2004"}
 
     expected_manufacturing = {
@@ -1157,13 +1160,15 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         "annotation_overlap",
         "annotation_out_of_bounds",
         "view_overlap",
-        "feature_leader_crossing",
     }
     assert not [
         issue
         for issue in issues
         if issue.severity == "error" or issue.code in forbidden or issue.code.endswith("_dropped")
     ]
+    assert all(
+        issue.severity == "info" for issue in issues if issue.code == "feature_leader_crossing"
+    )
     unsupported = [issue for issue in issues if issue.code == "pmi_not_lowered"]
     assert {issue.source_ids[0]: issue.severity for issue in unsupported} == {
         "manufacturing_requirement:#2012": "warning",

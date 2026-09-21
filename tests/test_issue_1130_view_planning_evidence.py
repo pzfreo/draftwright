@@ -26,7 +26,7 @@ import math
 import pytest
 from build123d import Box, Cylinder, Pos, Rot
 
-from draftwright.builder import ScaleIncompatibilityError, build_drawing
+from draftwright.builder import build_drawing
 
 #: The case study's measurements, from ADR 2 (was 0018) "Case study: thin X-axis worm planetary plate":
 #: "Geometry bbox: 43 x 217 x 217 mm. It is a thin, predominantly rotational X-axis component
@@ -90,10 +90,7 @@ def test_the_synthetic_plate_matches_the_case_studys_geometry():
 
 @pytest.fixture(scope="module")
 def automatic():
-    """One automatic build, shared. Measured at ~2 s; three separate builds cost 5 s and the
-    repo's guidance is that a critique-style test shares a module-scoped drawing rather than
-    minting a dense fixture per assertion. NOT marked slow: a slice that moves these numbers
-    should fail in the fast tier, where the author sees it, not post-merge (#153)."""
+    """One automatic build shared by the view-planning evidence checks."""
     return build_drawing(thin_rotational_plate(), title="T", number="N")
 
 
@@ -110,13 +107,10 @@ class TestTheFixedTopologyForcesTheSheet:
         assert drawing.scale == 1.0
         assert set(drawing.views) == {"front", "plan", "side", "iso"}
         assert drawing.view_decision["status"] == "retained_after_rejection"
-        # The sheet is still A1 at 1:1 — the fixed four-view topology still forces it, which is
-        # what ADR 2 (was 0018) exists to fix and has not fixed yet. What HAS changed is the second
-        # half of the original claim: the drawing no longer says it is fine. Since #1250 the
-        # automatic path runs the same requirement gate as the explicit one and records
-        # `plan_incomplete` when the settled drawing loses a required outcome.
-        assert {i.code for i in drawing.lint() if i.severity == "error"} == {"plan_incomplete"}
-        assert drawing.lint_summary()["passed"] is False
+        # Interior recovery now preserves the previously dropped outcomes on this same
+        # proposal, so the automatic path truthfully reports success.
+        assert not [i for i in drawing.lint() if i.severity == "error"]
+        assert drawing.lint_summary()["passed"] is True
 
     def test_the_plan_view_repeats_the_front_and_carries_almost_nothing(self, automatic):
         """WHY it is the wrong sheet, not just that it is a big one.
@@ -152,7 +146,7 @@ class TestTheFixedTopologyForcesTheSheet:
             f"the disc face no longer dominates the annotation load: {counts}"
         )
 
-    def test_the_automatic_sheet_is_one_the_engine_would_refuse_if_asked_for_it(self, automatic):
+    def test_the_automatic_sheet_agrees_with_the_explicit_engine_verdict(self, automatic):
         """The sharp end of the evidence, and the defect #1250 fixed.
 
         Before #1250 the automatic build chose A1 at 1:1 and reported `passed: True` with no
@@ -176,37 +170,9 @@ class TestTheFixedTopologyForcesTheSheet:
         demonstrated this inconsistency rather than the sheet cost it claimed. The mutation that
         found it changed `page="A2"` to `page="A1"` and the test still passed.
         """
-        assert automatic.lint_summary()["passed"] is False, (
-            "the automatic path is reporting success again — #1250 has regressed"
+        assert automatic.lint_summary()["passed"] is True
+        explicit = build_drawing(
+            thin_rotational_plate(), page="A1", scale=1.0, title="T", number="N"
         )
-        dropped = {issue.code for issue in automatic.lint()}
-        assert {"slot_dim_dropped", "hole_requirement_missing"} <= dropped, (
-            f"the automatic drawing no longer loses requirements, so there is nothing "
-            f"inconsistent about accepting it: {sorted(dropped)}"
-        )
-
-        with pytest.raises(ScaleIncompatibilityError) as raised:
-            build_drawing(
-                thin_rotational_plate(),
-                page="A1",
-                scale=1.0,
-                title="T",
-                number="N",
-            )
-        message = str(raised.value)
-        assert "cannot preserve required annotations" in message
-        assert "slot_dim_dropped" in message, (
-            f"the refusal no longer names the requirements it would lose: {message}"
-        )
-
-        # The two verdicts now AGREE, which is the fix. The explicit path refuses; the
-        # automatic path cannot refuse — the caller made no claim and has no lever, so
-        # raising would break a build with no remedy — but it records the same loss at error
-        # severity and names the same measurements.
-        decision = automatic.scale_decision
-        assert decision["status"] == "incomplete"
-        assert {item["code"] for item in decision["blockers"]} <= dropped
-        summary = next(i for i in automatic.lint() if i.code == "plan_incomplete")
-        assert summary.measurement_ids, (
-            "the summary must stay addressable (ADR 5 (was 0010) / ADR 4 (was 0016))"
-        )
+        assert explicit.lint_summary()["passed"] is True
+        assert not [issue for issue in explicit.lint() if issue.code.endswith("_dropped")]

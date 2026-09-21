@@ -43,6 +43,7 @@ from draftwright._core import (
     _SLOT_DIM_HEIGHT,
     _SLOT_DIM_STEP,
     _SLOT_DIM_WIDTH,
+    _STRIP_SPACING,
     _WITNESS_LIFT_MM,
     DetailRequest,
     _analysis_margins,
@@ -77,6 +78,7 @@ from draftwright.annotations._common import (
     PRIORITY,
     CorridorCandidate,
     Escalation,
+    InteriorDimensionJob,
     _anno_box,
     _box_hits,
     _geom_box,
@@ -87,6 +89,7 @@ from draftwright.annotations._common import (
     analytical_leader_lands_clear,
     carve_free_position,
     dim_footprint,
+    dimension_candidate_geometry,
     full_strip_message,
     leader_callout_geometry,
     place_strip_candidates,
@@ -101,7 +104,10 @@ from draftwright.annotations._common import (
 from draftwright.annotations.angular import AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderJob,
+    LeaderCandidateRegion,
+    LeaderRegionPolicy,
     collect_feature_leader,
+    feature_leader_candidates,
     material_penalty_units,
     place_feature_leader_jobs,
     view_material,
@@ -799,6 +805,8 @@ def _location_candidate(
     measurement=None,
     pinned=False,
     footprint=None,
+    interior_build=None,
+    interior_geometry=None,
     location_coverage=(),
     hole_requirements=(),
     placement_side="above",
@@ -845,6 +853,14 @@ def _location_candidate(
         feature=feature,  # provenance (ADR 5 (was 0010)): the located hole/pattern
         measurement=measurement,  # which of its measurements this is (#1002)
         footprint=footprint,  # analytical measure — no probe build (#602)
+        interior_view=None if pinned else view,
+        interior_side=None if pinned else placement_side,
+        interior_build=(
+            None
+            if pinned or interior_build is None
+            else lambda pos: _with_hole_location_coverage(interior_build(pos), location_coverage)
+        ),
+        interior_geometry=None if pinned else interior_geometry,
     )
 
 
@@ -1214,6 +1230,28 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                         label_offset_x=_offset,
                     )
                 ),
+                interior_build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                    _dim(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        "below",
+                        abs(pos - PY(_ry)),
+                        draft,
+                        label=_label,
+                        label_offset_x=_offset,
+                    )
+                ),
+                interior_geometry=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                    dimension_candidate_geometry(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        "below",
+                        abs(pos - PY(_ry)),
+                        draft,
+                        _label,
+                        label_offset_x=_offset,
+                    )
+                ),
             ),
         )
 
@@ -1317,6 +1355,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         label_offset = (
             short_dimension_label_offset(pa, pb, draft, label) if view == "side" else 0.0
         )
+        interior_direction = {
+            "above": "below",
+            "below": "above",
+            "right": "left",
+            "left": "right",
+        }[direction]
         register_corridor(
             ctx,
             (view, direction),
@@ -1353,6 +1397,28 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 pinned=pin_ref,
                 footprint=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label, _offset=label_offset: (
                     dim_footprint(
+                        _pa,
+                        _pb,
+                        _direction,
+                        abs(pos - _edge),
+                        draft,
+                        _label,
+                        label_offset_x=_offset,
+                    )
+                ),
+                interior_build=lambda pos, _pa=pa, _pb=pb, _direction=interior_direction, _edge=edge, _label=label, _offset=label_offset: (
+                    _dim(
+                        _pa,
+                        _pb,
+                        _direction,
+                        abs(pos - _edge),
+                        draft,
+                        label=_label,
+                        label_offset_x=_offset,
+                    )
+                ),
+                interior_geometry=lambda pos, _pa=pa, _pb=pb, _direction=interior_direction, _edge=edge, _label=label, _offset=label_offset: (
+                    dimension_candidate_geometry(
                         _pa,
                         _pb,
                         _direction,
@@ -2423,6 +2489,7 @@ def place_machined_leader_jobs(
     geom_clear=False,
     joint=False,
     expand_lanes=True,
+    region_policy=LeaderRegionPolicy.EXTERIOR,
     source_ids_by_name=None,
     priority=0.0,
 ) -> int:
@@ -2431,17 +2498,81 @@ def place_machined_leader_jobs(
     Post-drain families join the canonical late inventory.  Pre-drain families
     are solved immediately through that same analytical machinery with its lazy
     producer floor, preserving both their semantic stage and first-clear order.
+    ``region_policy`` lets a later compiler stage opt a complete feature family
+    into the shared region adapter without changing other producers.
     """
 
     source_ids_by_name = source_ids_by_name or {}
     late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
     feature_jobs = []
+    interior_clearance_by_view = {}
     for name, view, silhouette, label, raw_candidates, measurement in jobs:
-        joint_candidates, fallback_candidates = tee(iter(raw_candidates))
+        (
+            joint_interior_anchors,
+            joint_exterior_anchors,
+            fallback_interior_anchors,
+            fallback_exterior_anchors,
+        ) = tee(iter(raw_candidates), 4)
+        label_width, label_height = _text_size(
+            str(label),
+            float(dwg.draft.font_size),
+            getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(dwg.draft, "font", "Arial"),
+        )
+        label_box = (
+            (0.0, 0.0, label_width, label_height)
+            if label_width > 0.0 and label_height > 0.0
+            else None
+        )
 
-        def _lane_candidates(_raw=joint_candidates):
+        def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
+            if _label_box is None:
+                return None
+            return leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
+
+        region_policy = LeaderRegionPolicy(region_policy)
+        if (
+            region_policy is not LeaderRegionPolicy.EXTERIOR
+            and view not in interior_clearance_by_view
+        ):
+            interior_clearance_by_view[view] = view_label_clearance(dwg, view)
+        interior_label_clear = interior_clearance_by_view.get(view)
+
+        def _lane_candidates(
+            _interior_anchors=joint_interior_anchors,
+            _exterior_anchors=joint_exterior_anchors,
+            _silhouette=silhouette,
+            _analytical_geometry=_analytical_geometry,
+            _interior_label_clear=interior_label_clear,
+        ):
             spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
-            for tip, elbow, feature in _raw:
+            interior_count = 0
+            if late_inventory and region_policy is not LeaderRegionPolicy.EXTERIOR:
+                # Expand the complete semantic job in one call.  Calling the adapter
+                # once per physical anchor would turn its per-feature cap into
+                # ``anchors × cap`` for grouped fillets and polygonal bosses.
+                for candidate in feature_leader_candidates(
+                    _interior_anchors,
+                    region_policy=LeaderRegionPolicy.INTERIOR,
+                    silhouette=_silhouette,
+                    analytical_geometry=_analytical_geometry,
+                    draft=dwg.draft,
+                    interior_label_clear=_interior_label_clear,
+                ):
+                    yield candidate
+                    interior_count += 1
+                if region_policy is LeaderRegionPolicy.INTERIOR:
+                    return
+            for tip, elbow, feature in _exterior_anchors:
+                if interior_count:
+                    # Once this job has proven projected-clear interior options,
+                    # retain one exterior alternative per semantic anchor instead
+                    # of multiplying every anchor by nine compatibility lanes.  A
+                    # job with no interior option keeps the complete historical
+                    # lane inventory below, and AUTO's resource fallback keeps the
+                    # exact pre-interior exterior floor in either case.
+                    yield (tip, elbow, feature)
+                    continue
                 dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
                 length = math.hypot(dx, dy)
                 if length <= 1e-12:
@@ -2473,23 +2604,6 @@ def place_machined_leader_jobs(
         def _build(tip, elbow, _feature, *, _label=label):
             return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
 
-        label_width, label_height = _text_size(
-            str(label),
-            float(dwg.draft.font_size),
-            getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
-            getattr(dwg.draft, "font", "Arial"),
-        )
-        label_box = (
-            (0.0, 0.0, label_width, label_height)
-            if label_width > 0.0 and label_height > 0.0
-            else None
-        )
-
-        def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
-            if _label_box is None:
-                return None
-            return leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
-
         def _fallback_accept(
             candidate,
             obstacles,
@@ -2499,6 +2613,8 @@ def place_machined_leader_jobs(
             _geom_clear=geom_clear,
             _label=label,
         ):
+            if candidate.region is LeaderCandidateRegion.INTERIOR:
+                return True
             return analytical_leader_lands_clear(
                 candidate,
                 obstacles,
@@ -2535,7 +2651,9 @@ def place_machined_leader_jobs(
                 silhouette=silhouette,
                 label=label,
                 candidates=(
-                    _lane_candidates() if late_inventory and expand_lanes else joint_candidates
+                    _lane_candidates()
+                    if late_inventory and expand_lanes
+                    else joint_exterior_anchors
                 ),
                 build=_build,
                 analytical_geometry=_analytical_geometry,
@@ -2543,8 +2661,23 @@ def place_machined_leader_jobs(
                 noun=noun,
                 drop_code=drop_code,
                 priority=priority,
-                fallback_candidates=fallback_candidates,
+                fallback_candidates=(
+                    _lane_candidates(
+                        _interior_anchors=fallback_interior_anchors,
+                        _exterior_anchors=fallback_exterior_anchors,
+                    )
+                    if region_policy is LeaderRegionPolicy.INTERIOR
+                    and late_inventory
+                    and expand_lanes
+                    # AUTO is an optional expansion of the joint solve.  Its
+                    # bounded-resource fallback remains the exact established
+                    # exterior producer floor; otherwise extra interior anchors
+                    # can make an incomplete legacy floor look complete and
+                    # displace a complete joint incumbent.
+                    else fallback_exterior_anchors
+                ),
                 fallback_accept=_fallback_accept,
+                interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
                 on_drop=_on_drop if source_ids else None,
             )
@@ -2661,6 +2794,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         drop_code="chamfer_dropped",
         ctx=ctx,
         joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
 
 
@@ -2885,6 +3019,7 @@ def _render_radius_callouts(
         drop_code=drop_code,
         ctx=ctx,
         joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
 
 
@@ -4471,6 +4606,8 @@ def _render_polygonal_prisms(
         drop_code=drop_code,
         ctx=ctx,
         geom_clear=True,
+        joint=True,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
 
 
@@ -5038,7 +5175,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             # final and `place_strip_candidates` spaces into what is genuinely free.
             def _retry():
                 bounds = dwg.view_bounds(_view)
-                if _above is not None and bounds is not None:
+                if bounds is not None:
                     lift = bounds[3] + _WITNESS_LIFT_MM
 
                     def _fallback_build(pos, _l=lift):
@@ -5053,25 +5190,70 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         dim._dw_measurement_span = _span
                         return dim
 
-                    if not place_strip_candidates(
-                        dwg,
-                        _above,
-                        _view,
-                        "y",
-                        [
-                            (
-                                nm,
-                                _fallback_build,
+                    if _above is not None:
+                        if not place_strip_candidates(
+                            dwg,
+                            _above,
+                            _view,
+                            "y",
+                            [
+                                (
+                                    nm,
+                                    _fallback_build,
+                                )
+                            ],
+                            tier,
+                            ctx=ctx,
+                            measurements={nm: _mid},
+                            features={nm: env.ref},
+                            trace=ctx.trace,
+                            trace_label=f"{nm}_above_fallthrough",
+                        ):
+                            return  # placed above — the measurement is on the sheet
+                    interior_jobs = getattr(ctx, "interior_dimensions", None)
+                    if interior_jobs is not None:
+
+                        def _interior_build(pos, _l=lift):
+                            dim = _dim(
+                                (_xs[0], _l, 0),
+                                (_xs[1], _l, 0),
+                                "below",
+                                abs(pos - _l),
+                                dwg.draft,
+                                label=_label,
                             )
-                        ],
-                        tier,
-                        ctx=ctx,
-                        measurements={nm: _mid},
-                        features={nm: env.ref},
-                        trace=ctx.trace,
-                        trace_label=f"{nm}_above_fallthrough",
-                    ):
-                        return  # placed above — the measurement is on the sheet
+                            dim._dw_measurement_span = _span
+                            return dim
+
+                        interior_jobs.append(
+                            InteriorDimensionJob(
+                                name=nm,
+                                view=_view,
+                                side="above",
+                                build=_fallback_build,
+                                on_place=lambda _name: None,
+                                on_drop=_report,
+                                lane_step=(
+                                    tier
+                                    + (_above.spacing if _above is not None else _STRIP_SPACING)
+                                ),
+                                priority=_MANDATORY_OVERALL_PRIORITY,
+                                feature=env.ref,
+                                measurement=_mid,
+                                interior_build=_interior_build,
+                                analytical_geometry=lambda pos, _l=lift: (
+                                    dimension_candidate_geometry(
+                                        (_xs[0], _l, 0),
+                                        (_xs[1], _l, 0),
+                                        "below",
+                                        abs(pos - _l),
+                                        dwg.draft,
+                                        _label,
+                                    )
+                                ),
+                            )
+                        )
+                        return
                 _report(nm)
 
             ctx.post_drain.append(_retry)

@@ -17,6 +17,46 @@ from _unit_manifest import UNIT_MODULES
 pytest_plugins = ("_burden_report",)
 
 
+@pytest.fixture
+def preserve_exterior_dimension_failures(monkeypatch):
+    """Let diagnostics for an exterior fallback exercise their original failure path.
+
+    Production now retries failed eligible dimensions in proven interior whitespace.
+    Tests whose subject is the exterior drop/replan/reporting machinery opt out explicitly
+    instead of relying on a formerly inevitable placement failure.
+    """
+    import draftwright.annotations._common as common
+
+    def drop_interior_jobs(ctx, _drawing):
+        jobs = tuple(ctx.interior_dimensions or ())
+        ctx.interior_dimensions = []
+        for job in jobs:
+            job.on_drop(job.name)
+
+    monkeypatch.setattr(common, "_drain_interior_dimensions", drop_interior_jobs)
+
+
+@pytest.fixture
+def preserve_exterior_feature_leaders(monkeypatch):
+    """Let diagnostics for exterior routing retain their historical precondition."""
+    from draftwright.annotations import from_model, holes, leaders
+
+    produce = leaders.feature_leader_candidates
+    place_machined = from_model.place_machined_leader_jobs
+
+    def exterior_only(*args, **kwargs):
+        kwargs["region_policy"] = leaders.LeaderRegionPolicy.EXTERIOR
+        return produce(*args, **kwargs)
+
+    def exterior_machined(*args, **kwargs):
+        kwargs["region_policy"] = leaders.LeaderRegionPolicy.EXTERIOR
+        return place_machined(*args, **kwargs)
+
+    monkeypatch.setattr(from_model, "feature_leader_candidates", exterior_only)
+    monkeypatch.setattr(from_model, "place_machined_leader_jobs", exterior_machined)
+    monkeypatch.setattr(holes, "feature_leader_candidates", exterior_only)
+
+
 @contextmanager
 def counting_calls(functions: Mapping[str, Callable[..., object]]):
     """Count invocations of *functions* (``{name: callable}``) by CODE OBJECT.

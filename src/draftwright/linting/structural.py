@@ -1064,6 +1064,13 @@ def _lint_view_shapes(
                     )
                 )
             else:
+                # A typed interior candidate reached this point only after the shared
+                # solve proved its complete label clear of projected edges and fixed
+                # annotation ink.  Do not turn that deliberate result into the generic
+                # advisory emitted for unclassified annotations inside a view.  The
+                # warning path above remains active if projected edges do intersect it.
+                if getattr(ann, "_dw_candidate_region", None) == "interior":
+                    continue
                 issues.append(
                     LintIssue(
                         severity="info",

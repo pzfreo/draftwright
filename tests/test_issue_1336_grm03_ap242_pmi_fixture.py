@@ -34,12 +34,17 @@ def test_fixture_carries_the_ap242_pmi_those_tests_read():
     report = extract_pmi_report(PMI_FIXTURE)
 
     assert report.error is None
-    assert len(report.records) == 18
+    assert len(report.records) == 20
     assert Counter(record.source_category for record in report.records) == {
         "dimension": 10,
         "manufacturing_requirement": 8,
+        "datum": 2,
     }
-    assert sorted(record.part21_id for record in report.records if record.part21_id) == [
+    assert sorted(
+        record.part21_id
+        for record in report.records
+        if record.part21_id and record.source_category == "manufacturing_requirement"
+    ) == [
         "#2000",
         "#2004",
         "#2008",

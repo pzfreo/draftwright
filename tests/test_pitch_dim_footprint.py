@@ -29,7 +29,11 @@ from build123d_drafting import draft_preset
 
 from draftwright import build_drawing
 from draftwright._core import _dim
-from draftwright.annotations._common import _geom_box, dim_footprint
+from draftwright.annotations._common import (
+    _geom_box,
+    dim_footprint,
+    dimension_candidate_geometry,
+)
 
 
 @pytest.mark.parametrize(
@@ -64,6 +68,55 @@ def test_dim_footprint_matches_name_resolved_font():
     est = dim_footprint((10, 20, 0), (40, 20, 0), (0, -1, 0), 15, draft, "2× 15")
     assert real is not None
     assert max(abs(e - r) for e, r in zip(est, real)) <= 0.15
+
+
+@pytest.mark.parametrize(
+    ("p1", "p2", "side"),
+    [
+        ((10, 20, 0), (40, 20, 0), "above"),
+        ((10, 20, 0), (40, 20, 0), "below"),
+        ((30, 10, 0), (30, 60, 0), "left"),
+        ((30, 10, 0), (30, 60, 0), "right"),
+    ],
+)
+def test_interior_dimension_analytical_label_matches_rendered_ink(p1, p2, side):
+    draft = draft_preset(font_size=3.5, decimal_precision=1)
+    rendered = _dim(p1, p2, side, 15, draft, label="30")
+    analytical = dimension_candidate_geometry(p1, p2, side, 15, draft, "30")
+
+    assert analytical is not None
+    assert analytical.label_bbox == pytest.approx(rendered.label_bbox)
+    assert analytical.box == pytest.approx(_geom_box(rendered), abs=0.15)
+
+
+def test_interior_dimension_analytical_geometry_matches_above_horizontal_text():
+    draft = draft_preset(
+        font_size=3.5,
+        decimal_precision=1,
+        text_position="above",
+        text_orientation="horizontal",
+    )
+    p1, p2, side = (30, 10, 0), (30, 60, 0), "left"
+    rendered = _dim(p1, p2, side, 15, draft, label="50")
+    analytical = dimension_candidate_geometry(p1, p2, side, 15, draft, "50")
+
+    assert analytical is not None
+    assert analytical.label_bbox == pytest.approx(rendered.label_bbox)
+    assert analytical.box == pytest.approx(_geom_box(rendered), abs=0.15)
+
+
+@pytest.mark.parametrize(
+    ("p1", "p2"),
+    [
+        ((10, 10, 0), (10, 10, 0)),
+        ((10, 10, 0), (20, 20, 0)),
+    ],
+    ids=("zero-length", "diagonal"),
+)
+def test_interior_dimension_analytical_geometry_fails_closed_for_unsupported_spans(p1, p2):
+    draft = draft_preset(font_size=3.5, decimal_precision=1)
+
+    assert dimension_candidate_geometry(p1, p2, "above", 15, draft, "10") is None
 
 
 def _grid_plate():

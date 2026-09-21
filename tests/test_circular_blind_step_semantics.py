@@ -301,7 +301,9 @@ def test_standalone_model_runs_one_aggregate_and_one_cylinder_scan(monkeypatch) 
     ) as counts:
         build_part_model(Box(40, 30, 20))
 
-    assert counts == {"cylinders": 1, "turned_steps": 1}
+    # Turned steps now arrive in the provider aggregate; a sibling public scan
+    # would be a second recognition authority for the same occurrence family.
+    assert counts == {"cylinders": 1}
     assert rotational_flags == [False]
 
     rotational_flags.clear()

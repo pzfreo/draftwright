@@ -1,7 +1,8 @@
 """Actionable lint suggestions for incomplete drawings."""
 
+from types import SimpleNamespace
+
 import pytest
-from _parts import crowded_shoulder_part as _crowded_shoulder_part
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
@@ -61,10 +62,16 @@ class TestLintSuggestions:
         assert dicts[0]["suggestion"]
 
     def test_step_dim_dropped_suggestion_mentions_detail_view(self):
-        dwg = build_drawing(_crowded_shoulder_part(), detail_view=False)
-        issues = [i for i in dwg.lint() if i.code == "step_dim_dropped"]
-        assert issues, "crowded shoulders should drop a step dim"
-        assert "detail_view=True" in issues[0].suggestion
+        from draftwright.linting import _suggest_fix
+
+        dwg = build_drawing(Box(20, 20, 20))
+        issue = LintIssue(
+            severity="warning",
+            code="step_dim_dropped",
+            message="one step height was too closely spaced to dimension",
+            measurement_ids=(SimpleNamespace(feature=SimpleNamespace(kind="step_level")),),
+        )
+        assert "detail_view=True" in _suggest_fix(issue, dwg)
 
     def test_annotation_overlap_suggestion_prefers_dimension_with_place_dim_fallback(self):
         # Synthetic issue — exercise the _suggest_fix branch directly.

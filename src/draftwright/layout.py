@@ -459,6 +459,40 @@ def _assign_leader_candidates(
         )
         return _LeaderAssignment(independent, True, 1)
 
+    # Remove candidates that can never improve any complete assignment.  Within
+    # one job, candidate A dominates B when A conflicts with a subset of B's
+    # neighbours and has a better local objective tuple.  Replacing B with A
+    # then preserves every other selected job while improving penalty, length,
+    # or the stable candidate-order tie-break.  Dense geometric producers often
+    # generate many such equivalent rays; retaining all of them turns the exact
+    # search into a Cartesian product for no semantic gain.
+    candidate_options = []
+    for job_index, job in enumerate(costs):
+        options = []
+        for candidate_index in range(len(job)):
+            candidate = offsets[job_index] + candidate_index
+            quality = (
+                penalties[job_index][candidate_index],
+                job[candidate_index],
+                candidate_index,
+            )
+            dominated = False
+            for other_index in range(len(job)):
+                if other_index == candidate_index:
+                    continue
+                other = offsets[job_index] + other_index
+                other_quality = (
+                    penalties[job_index][other_index],
+                    job[other_index],
+                    other_index,
+                )
+                if other_quality < quality and adjacency[other].issubset(adjacency[candidate]):
+                    dominated = True
+                    break
+            if not dominated:
+                options.append(candidate_index)
+        candidate_options.append(tuple(options))
+
     # The exact pre-#740 policy: visit jobs and candidates in input order, and
     # keep the first candidate compatible with every earlier selection.
     greedy = []
@@ -468,7 +502,8 @@ def _assign_leader_candidates(
     greedy_penalty = 0
     for job_index, job in enumerate(costs):
         selected = None
-        for candidate_index, cost in enumerate(job):
+        for candidate_index in candidate_options[job_index]:
+            cost = job[candidate_index]
             candidate = offsets[job_index] + candidate_index
             if adjacency[candidate].isdisjoint(greedy_selected):
                 selected = candidate_index
@@ -508,15 +543,19 @@ def _assign_leader_candidates(
     suffix_min_penalty = [0] * (len(costs) + 1)
     suffix_min_cost = [0] * (len(costs) + 1)
     for index in range(len(costs) - 1, -1, -1):
-        suffix_nonempty[index] = suffix_nonempty[index + 1] + bool(costs[index])
+        suffix_nonempty[index] = suffix_nonempty[index + 1] + bool(candidate_options[index])
         suffix_priority[index] = suffix_priority[index + 1] + (
-            job_priorities[index] if costs[index] else 0
+            job_priorities[index] if candidate_options[index] else 0
         )
         suffix_min_penalty[index] = suffix_min_penalty[index + 1] + (
-            min(penalties[index]) if penalties[index] else 0
+            min(penalties[index][candidate] for candidate in candidate_options[index])
+            if candidate_options[index]
+            else 0
         )
         suffix_min_cost[index] = suffix_min_cost[index + 1] + (
-            min(costs[index]) if costs[index] else 0
+            min(costs[index][candidate] for candidate in candidate_options[index])
+            if candidate_options[index]
+            else 0
         )
 
     states = 0
@@ -573,12 +612,19 @@ def _assign_leader_candidates(
                 best_score = candidate_score
             return
 
-        # Lower-cost alternatives first find a strong incumbent quickly; the
-        # candidate index is the deterministic tie-break. Dropping is last because
-        # cardinality is the primary objective.
+        # Follow the objective's own order when searching alternatives.  Penalty
+        # precedes length in the score, so exploring a short-but-crossing route
+        # first produces a weak incumbent and can exhaust the bounded search long
+        # before the pruning bounds become useful.  Candidate index remains the
+        # deterministic final tie-break. Dropping is last because cardinality is
+        # the primary objective.
         for candidate_index in sorted(
-            range(len(costs[job_index])),
-            key=lambda index: (costs[job_index][index], index),
+            candidate_options[job_index],
+            key=lambda index: (
+                penalties[job_index][index],
+                costs[job_index][index],
+                index,
+            ),
         ):
             candidate = offsets[job_index] + candidate_index
             if not adjacency[candidate].isdisjoint(selected_candidates):

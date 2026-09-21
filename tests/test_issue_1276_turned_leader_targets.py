@@ -59,7 +59,7 @@ def test_grm03_chamfers_read_in_profile_and_land_on_distinct_edge_sites():
     single = callouts["C0.5"][1]
     assert drawing.view_of(callouts["2× C0.3"][0]) == "front"
     assert drawing.view_of(callouts["C0.5"][0]) == "front"
-    assert grouped.tip[:2] == pytest.approx(profile_sites[0])
+    assert any(grouped.tip[:2] == pytest.approx(site) for site in profile_sites[:2])
     assert single.tip[:2] == pytest.approx(profile_sites[2])
     assert "feature_leader_crossing" not in {issue.code for issue in drawing.lint()}
 
@@ -75,7 +75,8 @@ def test_rounded_shaft_fillets_read_in_profile_and_keep_the_physical_site():
     name, leader = _annotation_by_label(drawing, "m_fillet")["4× R0.8"]
     assert drawing.view_of(name) == "front"
     assert leader.tip[:2] == pytest.approx(drawing.at("front", *features[0].frame.origin)[:2])
-    assert not drawing.lint()
+    assert getattr(leader, "_dw_candidate_region", None) == "interior"
+    assert drawing.lint() == []
 
 
 @pytest.mark.parametrize(

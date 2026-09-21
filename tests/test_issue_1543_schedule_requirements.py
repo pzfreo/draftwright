@@ -217,7 +217,7 @@ def test_document_report_preserves_exact_cells_and_schedule_intent(scheduled_hol
     report = result.report()
     assert report["schema_version"] == 5
     validate_schedule_report(report)
-    assert drawing.report()["schema_version"] == 3
+    assert drawing.report()["schema_version"] == 8
     (sheet,) = report["sheets"]
     (intent,) = sheet["schedule_intents"]
     assert intent["name"] == "holes" and intent["rows"][0]["parameters"] == [

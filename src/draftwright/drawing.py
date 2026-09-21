@@ -1095,13 +1095,36 @@ class Drawing:
             source = (
                 getattr(self._analysis, "step_file", None) if self._analysis is not None else None
             )
-            return declared_drawing_report(
+            lint = self.lint_summary()
+            report = declared_drawing_report(
                 model=self.model(),
-                lint=self.lint_summary(),
+                lint=lint,
                 source=source,
                 registry=self._registry,
                 drawing=self,
             )
+            # Document sheets are authored views over one source-owned detected model.
+            # Keep schema 8's declared layout evidence, but do not discard the exact
+            # occurrence/requirement ledger that the document bound to this member.
+            if (
+                self.recognition_evidence() is not None
+                and self.recognition_ownership() is not None
+            ):
+                snapshot = self.requirement_snapshot()
+                source_report = drawing_report(
+                    evidence=snapshot.evidence,
+                    ownership=snapshot.ownership,
+                    model=snapshot.model,
+                    lint=lint,
+                    source=snapshot.source,
+                    registry=snapshot.registry,
+                    omissions=snapshot.omissions,
+                    dimension_plan=snapshot.dimension_plan,
+                    part=snapshot.part,
+                    requirement_outcomes=snapshot.outcomes,
+                )
+                report["recognition"] = source_report["recognition"]
+            return report
 
         snapshot = self.requirement_snapshot()
         with _reuse_report_requirements(self, snapshot.outcomes, snapshot.dimension_plan):
@@ -2969,6 +2992,7 @@ class Drawing:
             model_declared=self.model_declared,
             trace=self._build.trace,  # the finalize drain traces too (#736)
             feature_leaders=[],
+            interior_dimensions=[],
         )
         # The solve trace joins the transaction (#736 review): the recorder appends during
         # the drain, so a rolled-back finalize must also truncate those records — else the
