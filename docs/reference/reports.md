@@ -117,6 +117,20 @@ and `unexpectedly_missing`. A known unsupported, deferred, evidence-only, or mis
 an unprojected/unavailable requirement boundary, or any non-credit requirement outcome makes
 top-level `status` be `needs-attention`. Otherwise it is `bounded-clear`.
 
+For raw automatic reports, `lint.assessment` is the primary compact status summary. Its
+`basis` is `evidence-vector-no-scalar`; independent recognition, requirement, completeness,
+fidelity, legibility, restraint, and lint-diagnostic axes retain affected counts,
+denominators where one exists, and unavailable reasons. `status_reasons` names every predicate that selected
+`needs-attention`, its responsible axis, affected count and denominator, plus at most five
+deterministically ordered typed evidence references. One unresolved occurrence out of 177 is therefore
+distinguishable from 177 out of 177 without inventing a weighted severity score. The human
+`summary` is rendered from those same structured reasons.
+
+The surrounding lint payload still carries `score` and `diagnostic_score` as legacy diagnostic
+compatibility aliases. Neither is a drawing-quality result, and the assessment projection does
+not read them. Consumers should start with `lint.assessment`, then inspect the linked occurrence,
+requirement, quality-component, and lint evidence.
+
 `bounded-clear` does **not** mean manufacturing-ready or physically complete. A non-credit semantic
 requirement state makes the report require attention, but the report still covers accepted
 recogniser output rather than every physical feature a recogniser might fail to find. Material,
