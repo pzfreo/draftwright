@@ -64,11 +64,9 @@ def test_options_and_validation_are_available_before_build() -> None:
     assert unsupported["issues"][0]["code"] == "unsupported_declaration"
     future = sheet.validate_layout_override("declaration:57", lane="outer")
     assert future["supported"] is False
-    assert future["options"] == sheet.layout_options("declaration:57")
     assert future["issues"][0] == {
-        "code": "unsupported_control",
-        "controls": ["lane"],
-        "message": "layout_override currently accepts only side",
+        "code": "invalid_control_combination",
+        "message": "lane requires an exact parameter selector",
     }
 
 
@@ -150,6 +148,8 @@ def test_invalid_or_duplicate_override_fails_before_build_and_accepts_no_coordin
         "self",
         "declaration_id",
         "side",
+        "parameter",
+        "lane",
     )
     with pytest.raises(TypeError):
         sheet.layout_override("declaration:63", side="below", x=10)  # type: ignore[call-arg]

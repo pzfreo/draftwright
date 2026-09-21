@@ -243,7 +243,7 @@ generation run recorded by the declaration.
 
 ### Declaration-scoped layout overrides
 
-An agent editing a generated script can append a bounded corridor override without changing the
+An agent editing a generated script can append a bounded layout override without changing the
 original feature declaration or supplying page coordinates:
 
 ```python
@@ -251,23 +251,47 @@ options = sheet.layout_options("declaration:57")
 check = sheet.validate_layout_override("declaration:57", side="above")
 if check["supported"]:
     sheet.layout_override("declaration:57", side="above")
+
+lane_options = sheet.layout_options(
+    "declaration:9", parameter="slot_width.length"
+)
+lane_check = sheet.validate_layout_override(
+    "declaration:9", parameter="slot_width.length", lane=3
+)
+if lane_check["supported"]:
+    sheet.layout_override(
+        "declaration:9", parameter="slot_width.length", lane=3
+    )
 ```
 
-`layout_options()` reports the declaration's current side and supported values. The initial
-surface accepts only `above`, `below`, `left`, and `right`; `validate_layout_override()` returns
+Without `parameter=`, `layout_options()` reports the declaration's current side and supported
+values. With an exact declared parameter it reports dimension-lane capability. A lane is an
+integer from 1 through 8: a one-based drafting-spaced rank from that dimension's physical
+witness, not a distance. The shared measured-candidate solve may resolve it into proven
+whitespace inside or outside the view and records that candidate's region explicitly. The
+current lane-capable slice is the linear width/length dimensions of slots. Capability is
+declared in one compiler-owned registry so another dimension family is added deliberately, not
+by teaching each renderer a private spelling.
+
+The side surface accepts `above`, `below`, `left`, and `right`;
+`validate_layout_override()` returns
 structured `invalid_declaration`, `unsupported_declaration`, `unsupported_control`, or
-`unsupported_value` refusals without mutating the sheet. Both documents say
+`unsupported_value` refusals, plus `invalid_control_combination` when side and lane addressing
+are mixed, without mutating the sheet. Both documents say
 `requires_build_validation: true`: support means that the declaration and vocabulary are valid,
 not that the final sheet has enough space. `build()` and `lint()` remain the authority for
 feasibility and collision-free placement.
 
-`layout_override()` accepts exactly one keyword-only `side` and rejects duplicate overrides for
-the same declaration. It updates the corridor intent consumed by the existing shared solve; it
-does not create a family-specific placement path, set a lane, move an annotation to a coordinate,
-or change its measurement, tolerance, datum, or other engineering semantics. Generated scripts
+`layout_override()` accepts either keyword-only `side`, or an exact `parameter` plus `lane`, and
+rejects duplicate overrides for the same target. Side chooses a feature corridor; lane ranks a
+parallel position for one referential dimension. Neither is pinning or priority, and neither moves
+an annotation to a caller-supplied coordinate or changes its measurement, tolerance, datum, or
+other engineering semantics. Generated scripts
 emit the override as a separate line after the identity-bearing declarations. A declared report
 records the requested and resolved value under `layout.overrides` with
-`intent_class: "layout-only"`. Omitting the override retains the existing placement behaviour.
+`intent_class: "layout-only"`; lane rows also retain `parameter_id`. An infeasible lane drops
+honestly with the requested lane in the lint message. Omitting the override retains the existing
+placement behaviour.
 
 ## Checking dimension placement rules
 

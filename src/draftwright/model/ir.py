@@ -3873,9 +3873,20 @@ class RequestedDimension:
     #: Declaration-local hole member, or the centre of a bolt-circle pattern.
     #: Paired with the measured-axis discriminator to select one location component.
     member: int | Literal["centre"] | None = None
+    #: One-based drafting-spaced lane from this dimension's physical witness. This is
+    #: a relative rank, never a page-space distance; the measured-candidate solve
+    #: resolves the physical position and may drop an infeasible request honestly.
+    #: Appended after the established positional fields to preserve their constructor ABI.
+    lane: int | None = None
 
     def __post_init__(self) -> None:
         validate_placement_intent(self.view, self.side, owner="requested dimension")
+        if self.lane is not None and (
+            isinstance(self.lane, bool)
+            or not isinstance(self.lane, int)
+            or not 1 <= self.lane <= 8
+        ):
+            raise ValueError("requested dimension lane must be an integer from 1 to 8")
         if self.member is not None and self.role != "location":
             raise ValueError("member selects only a location measurement")
         if self.role == "location" and (self.member is not None or self.discriminator is not None):
@@ -3907,6 +3918,11 @@ class RequestedDimension:
             raise ValueError(
                 "placement intent is unavailable for location dimensions: one location "
                 "may compile into multiple directional values"
+            )
+        if self.role == "location" and self.lane is not None:
+            raise ValueError(
+                "lane intent is unavailable for location dimensions: one location may "
+                "compile into multiple directional values"
             )
         decimals = self.display_decimals
         if decimals is None:
@@ -3961,14 +3977,17 @@ class FeatureSchedule:
 class LayoutOverride:
     """One append-only layout-only edit against a build-scoped declaration.
 
-    The record carries a corridor side, never page coordinates.  The matching feature in
-    :class:`PartModel` contains the resolved value used by the renderer; retaining this
-    separate intent record makes generated replay and assessment evidence explicit without
-    turning layout policy into engineering meaning.
+    The record carries either a feature corridor side or one exact dimension's relative
+    lane, never page coordinates. The matching feature/request in :class:`PartModel`
+    contains the resolved value used by the renderer; retaining this separate intent
+    record makes generated replay and assessment evidence explicit without turning layout
+    policy into engineering meaning.
     """
 
     declaration_id: str
-    side: str
+    side: str | None = None
+    parameter_id: str | None = None
+    lane: int | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -3980,7 +3999,23 @@ class LayoutOverride:
                 "layout override requires a non-empty declaration_id without "
                 "surrounding whitespace"
             )
-        validate_placement_intent(None, self.side, owner="layout override")
+        if (self.side is None) == (self.lane is None):
+            raise ValueError("layout override requires exactly one of side or lane")
+        if self.side is not None:
+            if self.parameter_id is not None:
+                raise ValueError("a side override targets a declaration, not a parameter")
+            validate_placement_intent(None, self.side, owner="layout override")
+            return
+        if not isinstance(self.parameter_id, str) or not self.parameter_id.strip():
+            raise ValueError("a lane override requires a non-empty parameter_id")
+        if self.parameter_id != self.parameter_id.strip():
+            raise ValueError("layout override parameter_id cannot contain surrounding whitespace")
+        if (
+            isinstance(self.lane, bool)
+            or not isinstance(self.lane, int)
+            or not 1 <= self.lane <= 8
+        ):
+            raise ValueError("layout override lane must be an integer from 1 to 8")
 
 
 @dataclass(frozen=True)
@@ -4098,9 +4133,11 @@ class PartModel:
             not isinstance(override, LayoutOverride) for override in self.layout_overrides
         ):
             raise ValueError("PartModel.layout_overrides requires LayoutOverride entries")
-        override_ids = [override.declaration_id for override in self.layout_overrides]
-        if len(set(override_ids)) != len(override_ids):
-            raise ValueError("PartModel.layout_overrides requires unique declaration IDs")
+        override_targets = [
+            (override.declaration_id, override.parameter_id) for override in self.layout_overrides
+        ]
+        if len(set(override_targets)) != len(override_targets):
+            raise ValueError("PartModel.layout_overrides requires unique layout targets")
         identities_by_id = {
             identity.declaration_id: index
             for index, identity in enumerate(self.declaration_identities)
@@ -4113,11 +4150,27 @@ class PartModel:
                     "PartModel.layout_overrides must target one declared feature; "
                     f"found none for {override.declaration_id!r}"
                 )
-            resolved = getattr(self.features[index], "side", None)
-            if resolved != override.side:
+            feature = self.features[index]
+            if override.side is not None:
+                resolved = getattr(feature, "side", None)
+                if resolved != override.side:
+                    raise ValueError(
+                        f"layout override {override.declaration_id!r} records side "
+                        f"{override.side!r}, but the resolved feature side is {resolved!r}"
+                    )
+                continue
+            matching = [
+                request
+                for request in (*self.requested_dimensions, *(self.authored_dimensions or ()))
+                if request.feature is feature
+                and request.role == override.parameter_id
+                and request.lane == override.lane
+            ]
+            if len(matching) != 1:
                 raise ValueError(
-                    f"layout override {override.declaration_id!r} records side "
-                    f"{override.side!r}, but the resolved feature side is {resolved!r}"
+                    f"layout override {override.declaration_id!r} records lane "
+                    f"{override.lane!r} for {override.parameter_id!r}, but found "
+                    f"{len(matching)} matching resolved dimension intents"
                 )
         self._validate_structured_note_origins()
         self._validate_schedule_origins()

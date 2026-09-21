@@ -161,6 +161,39 @@ _CONVENTION = {
     ("pad_length", "length"): "linear",
 }
 
+# Public lane capability is declared once at the compiler boundary, not inferred from
+# whichever renderer happens to accept an extra keyword.  Each entry must have a common
+# measured-candidate implementation and an acceptance test before it is added here.
+_DIMENSION_LANE_PARAMETERS = frozenset(
+    {
+        ("slot", "slot_width.length"),
+        ("slot", "slot_length.length"),
+    }
+)
+
+
+def dimension_lane_supported(feature: Feature, parameter_id: str) -> bool:
+    """Whether one exact referential dimension exposes the bounded lane actuator."""
+
+    return (feature.kind, parameter_id) in _DIMENSION_LANE_PARAMETERS
+
+
+def _validate_dimension_lane(
+    feature: Feature,
+    parameters: tuple[DimParameter, ...] | list[DimParameter],
+    lane: int | None,
+) -> None:
+    """Reject lane intent unless it addresses one explicitly supported measurement."""
+
+    if lane is None:
+        return
+    parameter_ids = [parameter.parameter_id for parameter in parameters]
+    if len(parameter_ids) != 1 or not dimension_lane_supported(feature, parameter_ids[0]):
+        raise ValueError(
+            "lane intent requires one exact dimension that exposes a lane control; "
+            f"{feature.kind} target(s) {parameter_ids or 'none'} are unsupported"
+        )
+
 
 @dataclass(frozen=True)
 class PlannedDimension:
@@ -204,6 +237,8 @@ class PlannedDimension:
     # None identifies a pattern centre (or a location family without member addressing).
     location_member: int | None = None
     location_axes: tuple[str, ...] | None = None
+    # Appended after the established positional fields to preserve their constructor ABI.
+    lane: int | None = None
 
 
 # Correlated sets (ADR 4 (was 0016) identity, tier 3): exact ``(feature kind, role)`` pairs
@@ -1295,20 +1330,22 @@ def _check_intent_policy_conflicts(model: PartModel) -> None:
         if model.authored_dimensions is not None
         else model.requested_dimensions
     )
-    seen: dict[tuple[int, str], tuple[int | None, str | None, str | None]] = {}
+    seen: dict[tuple[int, str], tuple[int | None, str | None, str | None, int | None]] = {}
     for request in requests:
         targets: tuple[str, ...]
         if request.role == LOCATION_ROLE:
             targets = (LOCATION_ROLE,)
         else:
-            targets = tuple(
-                parameter.parameter_id
+            parameters = tuple(
+                parameter
                 for parameter in request.feature.parameters()
                 if _authored_addresses(request, request.feature, parameter)
             )
+            _validate_dimension_lane(request.feature, parameters, request.lane)
+            targets = tuple(parameter.parameter_id for parameter in parameters)
         for parameter_id in targets:
             key = (id(request.feature), parameter_id)
-            policy = (request.display_decimals, request.view, request.side)
+            policy = (request.display_decimals, request.view, request.side, request.lane)
             previous = seen.get(key, policy)
             if key in seen and previous != policy:
                 if previous[0] != policy[0]:
@@ -1445,6 +1482,7 @@ def validate_dimension_placement(request: RequestedDimension) -> None:
     ]
     if not parameters:
         raise ValueError(f"no parameter matches {request.role!r}")
+    _validate_dimension_lane(request.feature, parameters, request.lane)
     _group_placement(
         request.feature,
         [
@@ -1989,6 +2027,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                     ),
                     view=display_intent.view if display_intent is not None else None,
                     side=display_intent.side if display_intent is not None else None,
+                    lane=display_intent.lane if display_intent is not None else None,
                 )
             )
         if dims:

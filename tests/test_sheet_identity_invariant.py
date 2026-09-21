@@ -207,17 +207,36 @@ def _scn_schedule(s):
 
 
 def _scn_add_dimension(s):
-    """Retain a `DimensionIntent`, reorder, then apply its display policy.
+    """Retain a `DimensionIntent`, reorder, then apply all of its policies.
 
     This covers both halves of the identity claim: `add_dimension()` records the target by
-    token, and the retained handle's `format()` must update that same intent after neighbouring
-    features move. The closed verb-roster test below forces any future handle verb into this
-    driver too.
+    token, and the retained handle's `format()` / `place()` must update that same intent after
+    neighbouring features move. A slot-width target is deliberate: lane capability is bounded
+    by the compiler, so using a hole would test only the refusal. The closed verb-roster test
+    below forces any future handle verb into this driver too.
     """
-    a = s.hole(diameter=10, at=(-25, 0, 20), axis="z").depth(12)
-    s.hole(diameter=6, at=(25, 0, 20), axis="z").depth(8)
-    intent = s.add_dimension(a, "bore.diameter")
-    return intent, lambda intent: intent.format(decimals=2)
+    a = s.slot(
+        width=10,
+        length=30,
+        long_axis="x",
+        width_axis="y",
+        lo=-15,
+        hi=15,
+        w_center=-10,
+        at=(0, -10, 20),
+    )
+    s.slot(
+        width=8,
+        length=20,
+        long_axis="x",
+        width_axis="y",
+        lo=-10,
+        hi=10,
+        w_center=15,
+        at=(0, 15, 20),
+    )
+    intent = s.add_dimension(a, "slot_width.length")
+    return intent, lambda intent: intent.format(decimals=2).place(lane=2)
 
 
 def _scn_view(s):
@@ -852,7 +871,7 @@ def test_dimension_intent_verb_roster_is_closed():
         for f in intent.body
         if isinstance(f, ast.FunctionDef) and not f.name.startswith("_")
     }
-    assert verbs == {"format"}, (
+    assert verbs == {"format", "place"}, (
         f"DimensionIntent verbs changed to {sorted(verbs)} — make _scn_add_dimension's driver "
         "call every verb after the mutation, or the retained-object matrix does not cover them"
     )

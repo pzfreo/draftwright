@@ -2061,13 +2061,14 @@ def _declared_layout(
             raise ReportUnavailableError(
                 f"layout override {override.declaration_id!r} has no final declaration"
             )
-        resolved = getattr(model.features[feature_index], "side", None)
-        if resolved != override.side:
-            raise ReportUnavailableError(
-                f"layout override {override.declaration_id!r} did not resolve to its recorded side"
-            )
-        overrides.append(
-            {
+        feature = model.features[feature_index]
+        if override.side is not None:
+            resolved = getattr(feature, "side", None)
+            if resolved != override.side:
+                raise ReportUnavailableError(
+                    f"layout override {override.declaration_id!r} did not resolve to its recorded side"
+                )
+            row = {
                 "declaration_id": override.declaration_id,
                 "control": "side",
                 "authored_value": override.side,
@@ -2075,7 +2076,27 @@ def _declared_layout(
                 "intent_class": "layout-only",
                 "status": "applied",
             }
-        )
+        else:
+            matches = [
+                request
+                for request in (*model.requested_dimensions, *(model.authored_dimensions or ()))
+                if request.feature is feature and request.role == override.parameter_id
+            ]
+            if len(matches) != 1 or matches[0].lane != override.lane:
+                raise ReportUnavailableError(
+                    f"layout override {override.declaration_id!r} did not resolve lane "
+                    f"for {override.parameter_id!r}"
+                )
+            row = {
+                "declaration_id": override.declaration_id,
+                "parameter_id": override.parameter_id,
+                "control": "lane",
+                "authored_value": override.lane,
+                "resolved_value": matches[0].lane,
+                "intent_class": "layout-only",
+                "status": "applied",
+            }
+        overrides.append(row)
     page_w, page_h = float(drawing.page_w), float(drawing.page_h)
     left, bottom, right, top = drawing.drawable_bounds
     result = {

@@ -128,6 +128,7 @@ from draftwright.model.ir import (
 )
 from draftwright.model.planner import LOCATION_ROLE as _LOCATION_ROLE
 from draftwright.model.planner import (
+    dimension_lane_supported,
     dimension_placement_options,
     location_components,
     schedule_row_dimensions,
@@ -735,9 +736,10 @@ class _Dim(_Nameable):
 class DimensionIntent:
     """The handle :meth:`Sheet.add_dimension` returns (ADR 4 (was 0016)).
 
-    It exposes no coordinate or tier. Optional ``view=`` / ``side=`` are declared on the
-    verb as semantic corridor selection; the engine still solves the candidate's position —
-    *a dimension line references; the engine places*.
+    It exposes no coordinate. Optional ``view=`` / ``side=`` are declared on the verb as
+    semantic corridor selection; :meth:`place` can add a bounded relative lane. The engine
+    still solves and validates the candidate's physical position — *a dimension line
+    references; the engine places*.
 
     ADR 2 (was 0012)'s ``.pin()`` / ``.priority()`` are deliberately absent for now. The engine
     already has two spellings of "keep this put" at different layers, and adding a third
@@ -765,6 +767,29 @@ class DimensionIntent:
         if isinstance(decimals, bool) or not isinstance(decimals, int) or not 0 <= decimals <= 15:
             raise ValueError("format(decimals=...) requires an integer from 0 to 15")
         self._entry["display_decimals"] = decimals
+        return self
+
+    def place(self, *, lane: int) -> DimensionIntent:
+        """Prefer a one-based drafting-spaced lane from this dimension's witness.
+
+        The value is a relative rank, not a page-space offset. Physical placement and
+        feasibility remain owned by the shared measured-candidate solve, which may admit
+        a proven-clear interior or exterior candidate.
+        Generated scripts normally record the same policy through
+        :meth:`Sheet.layout_override`, which also retains declaration evidence.
+        """
+
+        if isinstance(lane, bool) or not isinstance(lane, int) or not 1 <= lane <= 8:
+            raise ValueError("place(lane=...) requires an integer from 1 to 8")
+        feature = self._sheet._features[
+            self._sheet._index_of_token(cast(int, self._entry["token"]))
+        ]
+        parameter_id = cast(str, self._entry["role"])
+        if not dimension_lane_supported(feature, parameter_id):
+            raise ValueError(
+                f"dimension {parameter_id!r} on {feature.kind} does not expose a lane control"
+            )
+        self._entry["lane"] = lane
         return self
 
     def __getattr__(self, name):  # declare-then-chain: forward to the sheet
@@ -1785,7 +1810,29 @@ class Sheet:
             )
         return matches[0]
 
-    def layout_options(self, declaration_id: str) -> dict[str, object]:
+    def _dimension_entry_for_layout(
+        self, token: int, parameter_id: str
+    ) -> tuple[dict, str] | None:
+        """Return the one declared dimension entry addressed by a lane override."""
+
+        for entries in (self._authored, self._added_dimensions):
+            matches = [
+                entry
+                for entry in entries
+                if entry["token"] == token and entry["role"] == parameter_id
+            ]
+            if len(matches) > 1:
+                raise ValueError(
+                    f"dimension {parameter_id!r} is declared more than once; "
+                    "remove the conflicting intent before overriding its lane"
+                )
+            if matches:
+                return matches[0], parameter_id
+        return None
+
+    def layout_options(
+        self, declaration_id: str, *, parameter: DimensionParameterId | None = None
+    ) -> dict[str, object]:
         """Describe the bounded layout-only controls supported by one declaration.
 
         This is a pre-build capability query, not a feasibility promise: the shared layout
@@ -1794,6 +1841,47 @@ class Sheet:
 
         token = self._declaration_token(declaration_id)
         feature = self._features[self._index_of_token(token)]
+        if parameter is not None:
+            handle = _Params(self, self._index_of_token(token))
+            _resolved_token, target, discriminator, canonical = self._resolve_measurement(
+                handle, parameter, None, "layout_options"
+            )
+            parameter_id = next(
+                (
+                    item.parameter_id
+                    for item in target.parameters()
+                    if canonical in (item.role, item.parameter_id)
+                    and item.discriminator == discriminator
+                ),
+                canonical,
+            )
+            entry = self._dimension_entry_for_layout(token, parameter_id)
+            if entry is None:
+                raise ValueError(
+                    f"declaration {declaration_id!r} has no declared dimension "
+                    f"{parameter_id!r} to override"
+                )
+            if not dimension_lane_supported(feature, parameter_id):
+                raise ValueError(
+                    f"dimension {parameter_id!r} on {feature.kind} does not expose a lane control"
+                )
+            return {
+                "schema": "draftwright.layout-options",
+                "schema_version": 1,
+                "scope": "single-dimension-layout-controls",
+                "requires_build_validation": True,
+                "declaration_id": declaration_id,
+                "feature_kind": feature.kind,
+                "parameter_id": parameter_id,
+                "controls": {
+                    "lane": {
+                        "current": entry[0].get("lane"),
+                        "minimum": 1,
+                        "maximum": 8,
+                        "meaning": "one-based drafting-spaced lane from the feature witness",
+                    }
+                },
+            }
         side = getattr(feature, "side", None)
         if side not in PLACEMENT_SIDES:
             raise ValueError(
@@ -1819,6 +1907,8 @@ class Sheet:
         declaration_id: str,
         *,
         side: str | None = None,
+        parameter: DimensionParameterId | None = None,
+        lane: int | None = None,
         **unsupported_controls,
     ) -> dict[str, object]:
         """Preflight a layout override without mutating the sheet.
@@ -1847,61 +1937,120 @@ class Sheet:
                 }
             ]
             return result
-        feature = self._features[self._index_of_token(token)]
-        if getattr(feature, "side", None) not in PLACEMENT_SIDES:
-            result["issues"] = [
-                {
-                    "code": "unsupported_declaration",
-                    "feature_kind": feature.kind,
-                    "message": (
-                        f"declaration {declaration_id!r} does not expose a supported side control"
-                    ),
-                }
-            ]
-            return result
-        options = self.layout_options(declaration_id)
-        result["options"] = options
         if unsupported_controls:
             result["issues"] = [
                 {
                     "code": "unsupported_control",
                     "controls": sorted(unsupported_controls),
-                    "message": "layout_override currently accepts only side",
+                    "message": "layout_override accepts only side, or parameter with lane",
                 }
             ]
             return result
-        supported = options["controls"]["side"]["supported_values"]  # type: ignore[index]
-        if side not in supported:
+        if (side is None) == (lane is None):
             result["issues"] = [
                 {
-                    "code": "unsupported_value",
-                    "control": "side",
-                    "value": side,
-                    "supported_values": supported,
-                    "message": f"side must be a supported side: {supported} (got {side!r})",
+                    "code": "invalid_control_combination",
+                    "message": "specify exactly one of side or lane",
                 }
             ]
             return result
+        if lane is not None and parameter is None:
+            result["issues"] = [
+                {
+                    "code": "invalid_control_combination",
+                    "message": "lane requires an exact parameter selector",
+                }
+            ]
+            return result
+        if side is not None and parameter is not None:
+            result["issues"] = [
+                {
+                    "code": "invalid_control_combination",
+                    "message": "parameter selects a dimension lane and cannot accompany side",
+                }
+            ]
+            return result
+        feature = self._features[self._index_of_token(token)]
+        try:
+            options = self.layout_options(declaration_id, parameter=parameter)
+        except (TypeError, ValueError, IndexError) as error:
+            result["issues"] = [
+                {
+                    "code": "unsupported_declaration",
+                    "feature_kind": feature.kind,
+                    "message": str(error),
+                }
+            ]
+            return result
+        result["options"] = options
+        if side is not None:
+            supported = options["controls"]["side"]["supported_values"]  # type: ignore[index]
+            if side not in supported:
+                result["issues"] = [
+                    {
+                        "code": "unsupported_value",
+                        "control": "side",
+                        "value": side,
+                        "supported_values": supported,
+                        "message": f"side must be a supported side: {supported} (got {side!r})",
+                    }
+                ]
+                return result
+        else:
+            assert parameter is not None
+            if isinstance(lane, bool) or not isinstance(lane, int) or not 1 <= lane <= 8:
+                result["issues"] = [
+                    {
+                        "code": "unsupported_value",
+                        "control": "lane",
+                        "value": lane,
+                        "minimum": 1,
+                        "maximum": 8,
+                        "message": f"lane must be an integer from 1 to 8 (got {lane!r})",
+                    }
+                ]
+                return result
         result["supported"] = True
         return result
 
-    def layout_override(self, declaration_id: str, *, side: str) -> Sheet:
-        """Append one declaration-scoped corridor-side override.
+    def layout_override(
+        self,
+        declaration_id: str,
+        *,
+        side: str | None = None,
+        parameter: DimensionParameterId | None = None,
+        lane: int | None = None,
+    ) -> Sheet:
+        """Append one bounded declaration-scoped layout override.
 
-        The operation records layout intent and updates the immutable feature consumed by the
-        existing solver.  It deliberately accepts no coordinates, lanes, or engineering data.
+        ``side`` selects a feature corridor. ``parameter`` + ``lane`` selects a one-based
+        parallel lane for one declared referential dimension. Neither form accepts page
+        coordinates; the shared placement solve resolves and validates the physical offset.
         """
 
-        if any(row.declaration_id == declaration_id for row in self._layout_overrides):
-            raise ValueError(f"declaration {declaration_id!r} already has a layout override")
-        validation = self.validate_layout_override(declaration_id, side=side)
+        key = (declaration_id, parameter)
+        if any((row.declaration_id, row.parameter_id) == key for row in self._layout_overrides):
+            raise ValueError(f"layout target {key!r} already has a layout override")
+        validation = self.validate_layout_override(
+            declaration_id, side=side, parameter=parameter, lane=lane
+        )
         if not validation["supported"]:
             issues = cast(list[dict[str, object]], validation["issues"])
             raise ValueError(str(issues[0]["message"]))
         token = self._declaration_token(declaration_id)
-        index = self._index_of_token(token)
-        self._replace_feature(index, replace(self._features[index], side=side))
-        self._layout_overrides.append(LayoutOverride(declaration_id, side))
+        if side is not None:
+            index = self._index_of_token(token)
+            self._replace_feature(index, replace(self._features[index], side=side))
+            self._layout_overrides.append(LayoutOverride(declaration_id, side))
+        else:
+            options = cast(dict[str, object], validation["options"])
+            parameter_id = cast(str, options["parameter_id"])
+            entry = self._dimension_entry_for_layout(token, parameter_id)
+            assert entry is not None and lane is not None
+            entry[0]["lane"] = lane
+            self._layout_overrides.append(
+                LayoutOverride(declaration_id, parameter_id=parameter_id, lane=lane)
+            )
         return self
 
     def _declared_token(self, ref, *, verb: str) -> int | None:
@@ -3352,6 +3501,7 @@ class Sheet:
                 display_decimals=e.get("display_decimals"),
                 view=e.get("view"),
                 side=e.get("side"),
+                lane=e.get("lane"),
             )
             for e in self._added_dimensions
         )
@@ -3381,6 +3531,7 @@ class Sheet:
                 display_decimals=e.get("display_decimals"),
                 view=e.get("view"),
                 side=e.get("side"),
+                lane=e.get("lane"),
             )
             for e in self._authored
         )

@@ -4,6 +4,12 @@
 
 ### Added
 
+- Declared slot width and length dimensions now expose bounded, feature-relative lanes through
+  `DimensionIntent.place(lane=...)` and declaration-scoped
+  `layout_override(..., parameter=..., lane=...)`. Generated scripts and report-v8 evidence
+  retain the layout-only policy; the shared solver admits only wholly interior or exterior,
+  page-safe, ink-clear candidates and reports bounded blocker evidence when a requested lane is
+  infeasible. Automatic drawings and scripts without lane intent remain unchanged (#1757).
 - Declared sheets now support append-only, build-scoped `layout_override(..., side=...)`
   edits plus structured capability and validation queries. Overrides select only a semantic
   corridor, retain declaration identity through generated-script replay, and appear as

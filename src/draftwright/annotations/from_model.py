@@ -322,7 +322,18 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     return callout
 
 
-def _record_slot_drop(ctx, dwg, kind, idx, view, feat, measurement=None):
+def _record_slot_drop(
+    ctx,
+    dwg,
+    kind,
+    idx,
+    view,
+    feat,
+    measurement=None,
+    *,
+    lane=None,
+    blockers=(),
+):
     """Record a slot dim the layout could not place (#135).
 
     Info severity — a dim with no clear room is dropped as "place what fits",
@@ -333,11 +344,20 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat, measurement=None):
     """
     feature_kind = getattr(feat, "kind", None)
     noun = feature_kind if feature_kind in ("pad", "pocket") else "slot"
+    lane_reason = "" if lane is None else f"; requested lane {lane} unavailable"
+    blocker_reason = "" if not blockers else f"; blockers: {', '.join(blockers)}"
     ctx.record_issue(
         "info",
         f"{noun}_dim_dropped",
-        f"{noun}{idx} {kind} dim not placed (no room beside the {view})",
+        f"{noun}{idx} {kind} dim not placed "
+        f"(no room beside the {view}{lane_reason}{blocker_reason})",
         measurement=measurement,
+        evidence_reason=(
+            None
+            if lane is None
+            else f"requested_lane_unavailable:{lane}:"
+            + ",".join(blockers or ("no_admissible_candidate",))
+        ),
     )
     ctx.escalations.append(
         Escalation(kind=noun, view=view, feature=feat, reason=f"no room beside the {view}")
@@ -559,6 +579,76 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 or vw[0] == "front"
                 or (meas_axis == ha and vw[0] in ("plan", "side"))
             )
+            is_pos = kind.startswith("pos")
+            drop_word = "position" if is_pos else kind
+            near_side, near_strip, near_hi = sides[0]
+            far_side, far_strip, far_hi = sides[1]
+            corridor_axis = "y" if near_side in ("above", "below") else "x"
+
+            def _shared_placed(nm, _owners=shared_owners):
+                if len(_owners) > 1:
+                    dwg.get_annotation(nm).source_features = _owners
+
+            # A declared lane is feature-relative: lane 1 is the first drafting-spaced
+            # parallel position beyond this dimension's own witness, not the edge of the
+            # whole orthographic view.  This lets the shared measured-candidate solve use
+            # proven whitespace either inside or outside the view without exposing a page
+            # coordinate.  Automatic dimensions retain their established exterior path.
+            if approved.lane is not None:
+                jobs = getattr(ctx, "interior_dimensions", None)
+                if jobs is None:
+                    return False
+                _candidate_name, lane_build = _cand_for(near_side, near_hi)
+                witness = perp_proj(perp_hi if near_hi else perp_lo)
+                lane_step = tier + (
+                    near_strip.spacing if near_strip is not None else _STRIP_SPACING
+                )
+                direction = 1.0 if near_side in ("above", "right") else -1.0
+                position = witness + direction * (
+                    2 * dwg.draft.extension_gap + approved.lane * lane_step
+                )
+                lane_rejections: list[str] = []
+
+                def _lane_dropped(
+                    _name,
+                    _dw=drop_word,
+                    _feat=s,
+                    _mid=approved.id,
+                    _idx=idx,
+                    _view=vw[0],
+                    _lane=approved.lane,
+                    _blockers=lane_rejections,
+                ):
+                    _record_slot_drop(
+                        ctx,
+                        dwg,
+                        _dw,
+                        _idx,
+                        _view,
+                        _feat,
+                        _mid,
+                        lane=_lane,
+                        blockers=tuple(_blockers),
+                    )
+
+                jobs.append(
+                    InteriorDimensionJob(
+                        name=cname,
+                        view=vw[0],
+                        side=near_side,
+                        build=lane_build,
+                        on_place=_shared_placed,
+                        on_drop=_lane_dropped,
+                        lane_step=lane_step,
+                        feature=s,
+                        measurement=approved.id,
+                        interior_build=lane_build,
+                        explicit_position=position,
+                        requested_lane=approved.lane,
+                        rejection_reasons=lane_rejections,
+                    )
+                )
+                return True
             if not use_corridor:
                 for side, strip, hi in sides:
                     if strip is None:
@@ -580,8 +670,6 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                         return True
                 return False
 
-            is_pos = kind.startswith("pos")
-            drop_word = "position" if is_pos else kind
             dedup_key = (
                 (vw[0], round(meas_proj(raw_lo), 1), round(meas_proj(raw_hi), 1), lbl)
                 if is_pos
@@ -589,9 +677,6 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 if len(shared_owners) > 1
                 else None
             )
-            near_side, near_strip, near_hi = sides[0]
-            far_side, far_strip, far_hi = sides[1]
-            corridor_axis = "y" if near_side in ("above", "below") else "x"
 
             def _far_or_drop(
                 nm,
@@ -602,6 +687,11 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 _feat=s,
                 _dw=drop_word,
                 _shared=shared_owners,
+                _measurement=approved.id,
+                _view=vw[0],
+                _idx=idx,
+                _tier=tier,
+                _candidate=_cand_for,
             ):
                 # Opposite-strip fallthrough. On the FRONT view — the path this change
                 # adds — it is DEFERRED to ctx.post_drain so it runs after every corridor
@@ -613,26 +703,26 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # since #345/#346. The primary candidate is nevertheless a member of the
                 # shared solve above; alternate-side fallthrough in ``on_drop`` is the
                 # assignment model ADR 2 (was 0014) explicitly retains.
-                def _retry(_fs=_fs, _fsd=_fsd, _fh=_fh, _ax=_ax, _feat=_feat, _dw=_dw) -> None:
+                def _retry() -> None:
                     if _fs is not None and not place_strip_candidates(
                         dwg,
                         _fs,
-                        vw[0],
+                        _view,
                         _ax,
-                        [_cand_for(_fsd, _fh)],
-                        tier,
+                        [_candidate(_fsd, _fh)],
+                        _tier,
                         ctx=ctx,
-                        features={cname: _feat},
-                        measurements={cname: approved.id},  # #1002
+                        features={nm: _feat},
+                        measurements={nm: _measurement},  # #1002
                         trace=ctx.trace,
                         trace_label=f"slot_{_fsd}_fallthrough",
                     ):
                         if len(_shared) > 1:
-                            dwg.get_annotation(cname).source_features = _shared
+                            dwg.get_annotation(nm).source_features = _shared
                         return  # placed on the opposite strip
-                    _record_slot_drop(ctx, dwg, _dw, idx, vw[0], _feat, approved.id)
+                    _record_slot_drop(ctx, dwg, _dw, _idx, _view, _feat, _measurement)
 
-                if vw[0] == "front":
+                if _view == "front":
                     ctx.post_drain.append(_retry)
                 else:
                     _retry()
@@ -641,10 +731,6 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 # Nothing to register against; the opposite side is the only chance.
                 _far_or_drop(cname)
                 return True
-
-            def _shared_placed(nm, _owners=shared_owners):
-                if len(_owners) > 1:
-                    dwg.get_annotation(nm).source_features = _owners
 
             register_corridor(
                 ctx,

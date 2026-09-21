@@ -182,3 +182,87 @@ def test_interior_dimension_retry_checks_sheet_wide_fixed_ink(monkeypatch):
 
     assert dropped == ["cross_view_blocked"]
     assert checked_views and set(checked_views) == {None}
+
+
+def test_declared_feature_relative_lanes_share_assignment_and_keep_region_provenance(
+    monkeypatch,
+):
+    """One semantic lane may resolve inside or outside without accepting a coordinate."""
+
+    placed = []
+
+    def dimension(position):
+        return SimpleNamespace(
+            label_bbox=(position - 2.0, 15.0, position + 2.0, 18.0),
+            box=(position - 3.0, 10.0, position + 3.0, 22.0),
+        )
+
+    jobs = [
+        _common.InteriorDimensionJob(
+            name=name,
+            view="front",
+            side="right",
+            build=dimension,
+            on_place=lambda _name: None,
+            on_drop=lambda _name: pytest.fail("a clear declared lane was dropped"),
+            lane_step=5.0,
+            interior_build=dimension,
+            explicit_position=position,
+            requested_lane=lane,
+        )
+        for name, position, lane in (("inside", 20.0, 3), ("outside", 45.0, 4))
+    ]
+    ctx = _common.PlacementContext(interior_dimensions=jobs)
+    ctx.place = lambda annotation, name, **_kwargs: placed.append(
+        (name, annotation._dw_candidate_region)
+    )
+    drawing = SimpleNamespace(view_bounds=lambda _view: (0.0, 0.0, 40.0, 40.0))
+
+    monkeypatch.setattr(_common, "_drawing_bounds", lambda _drawing: (0.0, 0.0, 50.0, 50.0))
+    monkeypatch.setattr(_common, "view_label_clearance", lambda *_args: lambda _box: True)
+    monkeypatch.setattr(_common, "annotation_ink_clear", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(_common, "_geom_box", lambda annotation: annotation.box)
+
+    _common._drain_interior_dimensions(ctx, drawing)
+
+    assert placed == [("inside", "interior"), ("outside", "exterior")]
+
+
+def test_declared_lane_that_straddles_the_view_boundary_fails_closed(monkeypatch):
+    dropped = []
+    rejection_reasons = []
+
+    def dimension(position):
+        return SimpleNamespace(
+            label_bbox=(position - 2.0, 15.0, position + 2.0, 18.0),
+            box=(position - 3.0, 10.0, position + 3.0, 22.0),
+        )
+
+    ctx = _common.PlacementContext(
+        interior_dimensions=[
+            _common.InteriorDimensionJob(
+                name="straddled",
+                view="front",
+                side="right",
+                build=dimension,
+                on_place=lambda _name: pytest.fail("a boundary-straddling lane was placed"),
+                on_drop=dropped.append,
+                lane_step=5.0,
+                interior_build=dimension,
+                explicit_position=39.0,
+                requested_lane=8,
+                rejection_reasons=rejection_reasons,
+            )
+        ]
+    )
+    drawing = SimpleNamespace(view_bounds=lambda _view: (0.0, 0.0, 40.0, 40.0))
+
+    monkeypatch.setattr(_common, "_drawing_bounds", lambda _drawing: (0.0, 0.0, 50.0, 50.0))
+    monkeypatch.setattr(_common, "view_label_clearance", lambda *_args: lambda _box: True)
+    monkeypatch.setattr(_common, "annotation_ink_clear", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(_common, "_geom_box", lambda annotation: annotation.box)
+
+    _common._drain_interior_dimensions(ctx, drawing)
+
+    assert dropped == ["straddled"]
+    assert rejection_reasons == ["view_boundary_straddle"]
