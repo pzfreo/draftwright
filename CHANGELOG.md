@@ -4,6 +4,10 @@
 
 ### Added
 
+- Raw automatic report assessments now include a typed remediation projection that separates
+  contradictions, missing carriers, layout, importer/lowering, source ambiguity, and unavailable
+  evidence. It retains affected evidence identities, names preservation invariants, advertises
+  only bounded public actions, and leaves unknown findings unclassified without guessing (#1759).
 - Raw automatic reports now lead agents with a vector-first `lint.assessment`: per-axis status,
   affected counts, available denominators, unavailable reasons, and stable structured reasons
   for every `needs-attention` verdict. Its human summary is rendered from the same reason rows,
