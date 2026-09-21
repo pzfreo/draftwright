@@ -71,6 +71,7 @@ def _slot_key(slot) -> tuple:
         _rounded(slot.w_center),
         _rounded(slot.lo),
         _rounded(slot.hi),
+        None if getattr(slot, "end_radius", None) is None else _rounded(slot.end_radius),
     )
 
 
@@ -81,6 +82,7 @@ def _slot_spec_key(slot) -> tuple:
         slot.long_axis,
         _rounded(slot.width),
         _rounded(slot.length),
+        None if getattr(slot, "end_radius", None) is None else _rounded(slot.end_radius),
     )
 
 
@@ -164,6 +166,9 @@ def _parameter_ids(feature, *, pattern: bool) -> tuple[str, ...] | None:
         by_role[parameter.role].append(parameter.parameter_id)
 
     required_roles = ["slot_width", "slot_length"]
+    radius_owner = feature.member if pattern else feature
+    if getattr(radius_owner, "end_radius", None) is not None:
+        required_roles.append("slot_end_radius")
     if pattern:
         if feature.pattern == "linear":
             required_roles.append("pitch")
@@ -200,15 +205,18 @@ def _matches(measurement, feature, parameter: str) -> bool:
 def _physical_requirement_count(kind: SlotSourceKind, source) -> int:
     """Requirement cardinality derived from recognition, never declared IR.
 
-    A lone slot requires width, length, and location. A pattern adds its independent pitch
-    vocabulary and two datum locations: linear = width/length/pitch/X/Y; grid =
-    width/length/row-pitch/column-pitch/X/Y. This mirrors the semantic roles enforced by
-    ``_parameter_ids`` while remaining available when the declaration is absent.
+    A lone rectangular slot requires width, length, and location; a proved obround adds its
+    end radius. A pattern adds its independent pitch vocabulary and two datum locations:
+    linear = width/length[/radius]/pitch/X/Y; grid =
+    width/length[/radius]/row-pitch/column-pitch/X/Y. This mirrors the semantic roles
+    enforced by ``_parameter_ids`` while remaining available when the declaration is absent.
     """
 
+    member = source.slots[0] if kind == "slot_pattern" else source
+    radius_count = int(getattr(member, "end_radius", None) is not None)
     if kind == "slot":
-        return 3
-    return 5 if _pattern_key(source)[0] == "linear" else 6
+        return 3 + radius_count
+    return (5 if _pattern_key(source)[0] == "linear" else 6) + radius_count
 
 
 def _state(feature, parameter, *, placed, satisfied, suppressed, dropped, registry):

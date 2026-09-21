@@ -529,6 +529,7 @@ DimensionParameterId = Literal[
     "stock_length.length",
     "profile_across_flats.length",
     "slot_length.length",
+    "slot_end_radius.radius",
     "slot_width.length",
     "spotface.depth",
     "spotface.diameter",
@@ -1149,13 +1150,17 @@ class SlotFeature:
     w_center: float
     lo: float
     hi: float
+    end_radius: float | None = None
     kind: ClassVar[str] = "slot"
 
     def parameters(self) -> list[DimParameter]:
-        return [
+        parameters = [
             DimParameter("length", "slot_width", self.width),
             DimParameter("length", "slot_length", self.length),
         ]
+        if self.end_radius is not None:
+            parameters.append(DimParameter("radius", "slot_end_radius", self.end_radius))
+        return parameters
 
     def references(self) -> list[Datum]:
         return []
@@ -1985,7 +1990,7 @@ class SlotPatternFeature:
     kind: ClassVar[str] = "slot_pattern"
 
     def parameters(self) -> list[DimParameter]:
-        ps = list(self.member.parameters())  # slot width + length (no depth)
+        ps = list(self.member.parameters())  # slot width + length + optional end radius (no depth)
         if self.pitch is not None:
             ps.append(DimParameter("length", "pitch", self.pitch))
         if self.grid is not None:

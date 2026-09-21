@@ -285,6 +285,33 @@ class TestPlannerDecorations:
         assert wpd.param.tolerance == 0.1 and lpd.param.tolerance == 0.1
         assert not wpd.suppressed and not lpd.suppressed
 
+    def test_obround_slot_radius_is_a_separate_leader_measurement(self):
+        sl = slot(
+            width=8,
+            length=20,
+            long_axis="x",
+            width_axis="y",
+            lo=-10,
+            hi=10,
+            w_center=0,
+            end_radius=4,
+        )
+        model = PartModel(
+            bbox=Box(50, 30, 20).bounding_box(),
+            orientation=None,
+            features=[sl],
+            decorations={(sl, "radius", "slot_end_radius"): 0.05},
+        )
+        group = next(group for group in plan_dimensions(model) if group.feature_kind == "slot")
+        radius = next(
+            planned
+            for planned in group.dims
+            if (planned.param.role, planned.param.kind) == ("slot_end_radius", "radius")
+        )
+        assert radius.convention == "leader"
+        assert radius.param.value == 4
+        assert radius.param.tolerance == 0.05
+
 
 class TestCalloutRendering:
     def test_hole_bore_spec_carries_tolerance_and_widens_callout(self):

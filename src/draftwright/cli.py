@@ -20,6 +20,8 @@ from pathlib import Path
 
 import typer
 
+from draftwright.leader_policy import LeaderRegionPolicy
+
 
 @contextmanager
 def _progress_display(*, verbose: bool, disabled: bool = False):
@@ -225,6 +227,13 @@ def main(
     text_orientation: str = typer.Option(
         "aligned", help="Dimension text reading direction: aligned or horizontal"
     ),
+    leader_region: LeaderRegionPolicy = typer.Option(
+        LeaderRegionPolicy.AUTO,
+        "--leader-region",
+        help=(
+            "Feature-leader label region: auto, interior where proved, or historical exterior-only"
+        ),
+    ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
     ),
@@ -357,6 +366,7 @@ def main(
                 projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
+                leader_region=leader_region.value,
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
@@ -393,6 +403,7 @@ def main(
                 projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
+                leader_region=leader_region.value,
                 pmi=pmi.value if pmi is not None else "off",
                 formats=tuple(formats),
                 inspect=not no_report,
@@ -437,6 +448,7 @@ def main(
                 projection_symbol=projection_symbol,
                 text_position=text_position,
                 text_orientation=text_orientation,
+                leader_region=leader_region.value,
                 zones=zones,
             )
             visual_paths = _emit(dwg, formats)

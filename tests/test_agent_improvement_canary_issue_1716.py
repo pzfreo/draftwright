@@ -41,7 +41,7 @@ _TARGET = LayoutFindingIdentity(
 
 
 def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
-    """CTC-01's reviewed 78 claims, independent of either observed assessment."""
+    """CTC-01's reviewed 79 claims, independent of either observed assessment."""
 
     rows: list[tuple[str, str]] = []
     for declaration in (1, 2):
@@ -67,6 +67,7 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
             (f"declaration:{declaration}", parameter)
             for parameter in ("location_slot.length", "slot_length.length", "slot_width.length")
         )
+    rows.append(("declaration:4", "slot_end_radius.radius"))
     rows.extend(
         ("declaration:6", parameter)
         for parameter in ("boss_height.length", "polygon_across_flats.length")
@@ -79,7 +80,7 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
     rows.extend((f"declaration:{declaration}", "chamfer.length") for declaration in range(9, 12))
     rows.extend((f"declaration:{declaration}", "fillet.radius") for declaration in range(12, 20))
     rows.extend((f"declaration:{declaration}", "blend.radius") for declaration in range(20, 51))
-    assert len(rows) == 78
+    assert len(rows) == 79
     return tuple(ExpectedRequirement(*row) for row in rows)
 
 
@@ -206,8 +207,8 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     assert not comparison["policy"]["blockers"]
     assert not comparison["unavailable"]["reasons"]
     assert all(not row["changes"] for row in comparison["requirements"]["transitions"])
-    assert len(baseline["measurements"]["entries"]) == 78
-    assert len(candidate["measurements"]["entries"]) == 78
+    assert len(baseline["measurements"]["entries"]) == 79
+    assert len(candidate["measurements"]["entries"]) == 79
     assert baseline["measurements"]["unknown"] == candidate["measurements"]["unknown"] == []
     assert baseline["measurements"]["unavailable_owner_claims"] == []
     assert candidate["measurements"]["unavailable_owner_claims"] == []

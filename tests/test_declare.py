@@ -120,6 +120,23 @@ class TestConstructors:
         assert f.width == 6 and f.length == 20
         assert f.long_axis == "x" and f.width_axis == "y"
 
+    def test_obround_slot_declares_its_end_radius(self):
+        f = slot(
+            width=8,
+            length=30,
+            long_axis="x",
+            width_axis="y",
+            lo=-15,
+            hi=15,
+            end_radius=4,
+        )
+        assert f.end_radius == 4
+        assert [parameter.parameter_id for parameter in f.parameters()] == [
+            "slot_width.length",
+            "slot_length.length",
+            "slot_end_radius.radius",
+        ]
+
     def test_slot_reads_axes_off_object_by_span(self):
         # A milled slot tool: longest span = length/long axis, middle = width/width axis.
         tool = Box(20, 6, 4)  # X longest -> long_axis x, Y middle -> width_axis y
@@ -1358,6 +1375,42 @@ class TestConstructorInvariants:
     def test_slot_negative_width_raises(self):
         with pytest.raises(ValueError):
             slot(width=-6, length=20, long_axis="x", width_axis="y", lo=-10, hi=10)
+
+    def test_slot_end_radius_must_describe_semicircular_caps(self):
+        with pytest.raises(ValueError, match="half the width"):
+            slot(
+                width=8,
+                length=20,
+                long_axis="x",
+                width_axis="y",
+                lo=-10,
+                hi=10,
+                end_radius=3,
+            )
+
+    def test_slot_end_radius_accepts_provider_publication_rounding(self):
+        f = slot(
+            width=6.35,
+            length=20,
+            long_axis="x",
+            width_axis="y",
+            lo=-10,
+            hi=10,
+            end_radius=3.17,
+        )
+        assert f.end_radius == 3.17
+
+    def test_slot_length_must_contain_both_end_radii(self):
+        with pytest.raises(ValueError, match="at least its end diameter"):
+            slot(
+                width=8,
+                length=7,
+                long_axis="x",
+                width_axis="y",
+                lo=-3.5,
+                hi=3.5,
+                end_radius=4,
+            )
 
     def test_pattern_negative_bcd_raises(self):
         member = hole(diameter=3, at=(0, 0, 0), axis="z")

@@ -4,7 +4,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, Plane, Pos, SlotOverall, extrude
 from quiddity import recognise_slots
 
 from draftwright import Drawing, Sheet, build_drawing
@@ -158,6 +158,21 @@ def test_removing_an_off_centre_slots_location_is_detected():
         "slot_length.length": "placed",
         "location_slot.length": "missing",
     }
+
+
+def test_obround_end_radius_is_a_conditional_completeness_requirement():
+    obround = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(30, 8), 12, both=True)
+    drawing = build_drawing(obround)
+    states = {outcome.parameter_id: outcome.state for outcome in _outcomes(drawing)}
+    assert states["slot_end_radius.radius"] == "placed"
+
+    drawing.remove("m_slot0_radius")
+    states = {outcome.parameter_id: outcome.state for outcome in _outcomes(drawing)}
+    assert states["slot_end_radius.radius"] == "missing"
+
+    rectangular = build_drawing(_off_centre_slot())
+    rectangular_ids = {outcome.parameter_id for outcome in _outcomes(rectangular)}
+    assert "slot_end_radius.radius" not in rectangular_ids
 
 
 def test_grid_pitch_annotations_retain_distinct_directional_provenance():

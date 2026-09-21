@@ -70,12 +70,20 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.3.1 runtime contract
+### Quiddity 0.3.2 runtime contract
 
-The runtime pins the published `quiddity==0.3.1` package, following the 0.2.4 adoption in
+The runtime pins the published `quiddity==0.3.2` package, following the 0.2.4 adoption in
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) and the migration in
-[#1471](https://github.com/pzfreo/draftwright/issues/1471). Version 0.3.1 retains the same 29
-families and record schemas while tightening material-empty gating for rectangular recesses,
+[#1471](https://github.com/pzfreo/draftwright/issues/1471). Version 0.3.2 advances the public
+`Slot` record to schema 2: `end_radius` distinguishes two semicircular stadium ends and
+`corner_radius` distinguishes rounded rectangular corners. Draftwright consumes
+`end_radius` for through-slot radius requirements; rounded-corner rectangular slots remain a
+separate drafting-policy decision, although their corrected overall extents feed the existing
+width/length grammar. A published hole-pattern relation whose members differ only along their
+drilling axis is retained as recognition evidence but refused as a drawing pattern: its axes
+coincide in the required end view, so Draftwright keeps the ordinary grouped-hole owner instead.
+Version 0.3.1 retained the same 29 families and record
+schemas while tightening material-empty gating for rectangular recesses,
 restoring passage discovery during rotational reconciliation, and adding the public opaque
 `CandidateRef` evidence surface delivered by
 [quiddity#688](https://github.com/pzfreo/quiddity/issues/688). Draftwright requires that symbol

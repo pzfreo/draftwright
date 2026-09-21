@@ -151,6 +151,31 @@ SVG, PDF and DXF export the same resolved ink. Unsupported values raise `ValueEr
 The choices affect rendering and its placement footprint, not feature measurements
 or tolerances. These are explicit rendering choices, not a claim of standards conformity.
 
+## Feature-leader region policy
+
+Feature callouts may use proved whitespace inside a projected view without exposing raw page
+coordinates. The drawing-wide `leader_region` policy is accepted by `Sheet(...)`,
+`build_drawing()`, `make_drawing()`, and generated scripts:
+
+```python
+sheet = Sheet(part, leader_region="exterior")
+# or: build_drawing(part, leader_region="interior")
+```
+
+- `"auto"` is the default and preserves the normal solve: eligible feature families offer
+  interior candidates while retaining their established exterior fallback.
+- `"interior"` requires an interior candidate for an eligible, unconstrained feature. It does
+  not invent interior geometry for unsupported families; those remain exterior. If no proved
+  interior candidate fits, the eligible callout drops and lint reports it.
+- `"exterior"` removes all interior candidates and restores the historical exterior-only
+  feature-leader layout.
+
+The CLI spelling is `--leader-region auto|interior|exterior`. Generated `--script` output
+retains a non-default selection in its `Sheet(...)` constructor. A feature carrying an explicit
+`side="left"|"right"|"above"|"below"` remains exterior because authored placement intent is
+stronger than the drawing-wide preference. The policy affects feature leaders only—not linear
+dimensions, free notes, tables, or view placement—and never supplies coordinates.
+
 ## Through-hole wording
 
 The optional argument to a hole handle's `through()` controls its printed indicator:
@@ -851,6 +876,15 @@ drop, or missing ink is not hidden by the ownership choice.
 ::: draftwright.sheet._Params
     options:
       filters: public
+
+### Axis-aligned through-slots
+
+`Sheet.slot(...)` declares the independently addressable `slot_width.length` and
+`slot_length.length` measurements. Pass `end_radius=` only for a stadium/obround slot; this adds
+`slot_end_radius.radius`, rendered as a solver-placed `2× R…` leader whose arrow remains normal
+to either end arc. Leaving it unset preserves the rectangular-slot grammar. The declared radius
+must equal half the width, and generated Sheet scripts retain the field when recognition proved
+semicircular ends.
 
 ## GD&T control builder
 

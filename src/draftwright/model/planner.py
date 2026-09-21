@@ -145,10 +145,12 @@ _CONVENTION = {
     # registry, and a planner-fed kind relying on the implicit default would erode
     # that — unknown pairs should eventually fail loudly, not silently go linear.
     ("thickness", "length"): "linear",
-    # A slot's width + length are linear Dimensions with witness lines (#730) —
+    # A slot's width + length are linear Dimensions with witness lines (#730); a proved
+    # obround end radius is a normal-to-arc leader (#1752) —
     # again the table default, entered explicitly per the #744 review rule above.
     ("slot_width", "length"): "linear",
     ("slot_length", "length"): "linear",
+    ("slot_end_radius", "radius"): "leader",
     ("oriented_slot_width", "length"): "leader",
     ("oriented_slot_length", "length"): "leader",
     # A pad height is its terminal-to-attachment rise on every axis.  A Z profile level,

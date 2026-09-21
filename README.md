@@ -54,6 +54,7 @@ draftwright my_part.step --format pdf,dxf     # also: svg, all
 draftwright my_part.step --no-report          # opt out of the JSON sidecar
 draftwright my_part.step --scale 2 --page A3  # override the auto scale / page
 draftwright my_part.step --scale 1 --page A4 --scale-policy strict
+draftwright my_part.step --leader-region exterior  # historical exterior-only callouts
 draftwright my_part.step --script             # write an editable declarative Sheet script
 draftwright /parts/my_part.step --out-dir .   # explicitly write into the working directory
 draftwright my_part.step --out-dir drawings   # create/use a separate output directory

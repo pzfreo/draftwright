@@ -159,7 +159,7 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.3.1"
+    assert INSTALLED_PACKAGE_VERSION == "0.3.2"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {
@@ -1336,6 +1336,7 @@ def test_only_reviewed_records_accept_non_v1_schemas() -> None:
         ("section-recesses", "SectionRecessEnds"): [2],
         ("section-recesses", "SectionRecessGeometry"): [2],
         ("section-recesses", "SectionRecessDocument"): [3],
+        ("slots", "Slot"): [2],
         ("through-steps", "ThroughStep"): [2],
         ("turned-steps", "TurnedProfile"): [2],
         ("turned-steps", "TurnedProfileKey"): [2],

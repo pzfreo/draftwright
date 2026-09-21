@@ -431,6 +431,7 @@ _STAGE_ROUTED_CODES = frozenset(
         "round_bottom_blind_slot_dropped",
         "oriented_slot_dropped",
         "slot_dropped",
+        "slot_dim_dropped",
     }
 )
 

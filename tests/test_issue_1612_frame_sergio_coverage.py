@@ -27,6 +27,10 @@ def test_sergio_frame_repaired_location_retains_hole_coverage():
     )
     assert drawing.drawable_bounds == (25, 10, 410, 287)
     assert drawing.get_annotation("title_block").block_bbox["width"] == 175
+    assert [row.reason_code for row in drawing.recognition_ownership().hole_pattern_refusals] == [
+        "uncorroborated_bolt_circle",
+        "noncoplanar_pattern_members",
+    ]
     assert len(outcomes) == 15
     assert all(row.state == "placed" and row.carriers for row in outcomes)
     assert not any(issue.code == "label_centerline_overlap" for issue in drawing.lint())

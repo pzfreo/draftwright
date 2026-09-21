@@ -458,7 +458,11 @@ class HolePatternRefusal:
     """A same-run derived pattern deliberately lowered as ordinary physical holes."""
 
     pattern: object
-    reason_code: Literal["oblique_pattern_plane", "uncorroborated_bolt_circle"]
+    reason_code: Literal[
+        "oblique_pattern_plane",
+        "noncoplanar_pattern_members",
+        "uncorroborated_bolt_circle",
+    ]
 
 
 @dataclass(frozen=True)
@@ -628,11 +632,19 @@ class RecognitionOwnershipBuilder:
         self,
         pattern: object,
         *,
-        reason_code: Literal["oblique_pattern_plane", "uncorroborated_bolt_circle"],
+        reason_code: Literal[
+            "oblique_pattern_plane",
+            "noncoplanar_pattern_members",
+            "uncorroborated_bolt_circle",
+        ],
     ) -> None:
         """Record the adapter's decision without removing any physical occurrence."""
 
-        if reason_code not in {"oblique_pattern_plane", "uncorroborated_bolt_circle"}:
+        if reason_code not in {
+            "oblique_pattern_plane",
+            "noncoplanar_pattern_members",
+            "uncorroborated_bolt_circle",
+        }:
             raise ValueError("unknown hole-pattern refusal reason")
         if not any(candidate is pattern for candidate in self.result.hole_patterns):
             raise ValueError("refused pattern must belong to this recognition run")

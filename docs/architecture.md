@@ -9,7 +9,8 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: leaf modules (`progress.py`, `layout.py`, `registry.py`, `fonts.py`, `_geometry.py`,
+top: leaf modules (`progress.py`, `layout.py`, `leader_policy.py`, `registry.py`, `fonts.py`,
+`_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
@@ -167,6 +168,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   (`fit_box`), and the balloon band-assignment min-cost max-flow solve
   (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
   layer). Sits *below* the domain API.
+- **`leader_policy.py`** — the typed, coordinate-free document policy that filters
+  feature-leader candidate regions without granting placement coordinates or inventing
+  interior eligibility for a producer.
 - **`_geometry.py`** — model-neutral geometry primitives (`_xyz`, `HoleRef`,
   `_axis_letter`, `_END_ON`) plus the #700 shared page-plane maths (`_fmt`,
   `_boxes_overlap`, the two segment/box tests) and `plane_axes` — the one

@@ -819,6 +819,11 @@ class Drawing:
         return getattr(self._build.analysis, "recognition_frame", None)
 
     @property
+    def leader_region(self) -> str:
+        """The resolved feature-leader region policy for this drawing."""
+        return getattr(self._build.analysis, "leader_region", "auto")
+
+    @property
     def recognition_frame_decision(self) -> dict[str, object]:
         """A copy of the explicit framed/raw/refusal selection outcome."""
         decision = getattr(self._build.analysis, "recognition_frame_decision", None)
@@ -2751,15 +2756,17 @@ class Drawing:
             and it.kwargs.get("param") == "length"
             and it.kwargs.get("role") == "step"
         }
-        # SLOT/PAD dimension intents (#426 Phase 2b / #885) → render_slots' corridor
-        # placement. Both record two size dims on one feature; routing either feature
-        # regenerates its width + length. Slots also regenerate their historical datum
+        # SLOT/PAD dimension intents (#426 Phase 2b / #885 / #1752) → render_slots' shared
+        # placement. Both record two linear size dims; an obround slot adds its radius
+        # leader. Routing any of them regenerates the feature's approved dimensions. Slots
+        # also regenerate their historical datum
         # position; pads use a separate locate() intent for their two-axis location.
         # Both share the location corridor,
         # so they register alongside B2's locations and drain in the SAME solve (the #345
         # dedup of a slot position coincident with a hole location needs one combined pass).
-        # Match on param/role like len_ids above (#439): a slot exposes only the two length
-        # params, so a malformed slot dim (e.g. dimension(slot, "diameter")) falls through to
+        # Match on param/role like len_ids above (#439): a slot exposes the two length
+        # parameters plus an optional end radius, so a malformed slot dim (for example
+        # dimension(slot, "diameter")) falls through to
         # live replay, where the verb raises the same ValueError instead of being swallowed.
         slot_ids = {
             id(it)
@@ -2767,8 +2774,18 @@ class Drawing:
             if routable
             and it.kind == "dimension"
             and getattr(it.feature, "kind", None) in ("slot", "pad")
-            and it.kwargs.get("param") == "length"
-            and it.kwargs.get("role") in ("slot_width", "slot_length", "pad_width", "pad_length")
+            and (
+                (
+                    it.kwargs.get("param") == "length"
+                    and it.kwargs.get("role")
+                    in ("slot_width", "slot_length", "pad_width", "pad_length")
+                )
+                or (
+                    getattr(it.feature, "kind", None) == "slot"
+                    and it.kwargs.get("param") == "radius"
+                    and it.kwargs.get("role") == "slot_end_radius"
+                )
+            )
         }
         # Prismatic height-ladder intent. StepLevelFeature exposes one value per interior
         # level, but those rungs are a correlated chain whose witness bases leapfrog from
@@ -2958,8 +2975,8 @@ class Drawing:
           full count, #434); the escalations live only on the per-run ctx, so a repeat
           batch starts clean (#639).
 
-        A slot records two size dims (``slot_width``/``slot_length``) on one feature; routing
-        the feature also regenerates its model-derived datum **position** dim, so finalize
+        A slot records width/length and, for an obround, ``slot_end_radius`` on one feature;
+        routing the feature also regenerates its model-derived datum **position** dim, so finalize
         places a *superset* of the recorded slot intents (auto-pass parity by design —
         commenting one of a slot's two lines still routes the feature). An unsupported-axis
         (Y-turned) step/boss callout live-replays, so it surfaces the same ValueError the
@@ -3389,9 +3406,9 @@ class Drawing:
             self._intents = [it for it in self._intents if id(it) not in r.len_ids]
 
         def _s_slots():
-            # Slots regenerate width + length + the model-derived datum position (a
+            # Slots regenerate width + length + optional end radius + the model-derived datum position (a
             # superset of the recorded slot intents — auto-pass parity by design) and
-            # register into the shared corridor. Planner-fed (#730): the width/length
+            # register into the shared solves. Planner-fed (#730): the width/length/radius
             # values + tolerances come from the plan, like the auto-pass.
             if r.slot_feats:
                 assert a is not None and isinstance(model, PartModel)  # ⟹ routable

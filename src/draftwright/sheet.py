@@ -1176,6 +1176,7 @@ class Sheet:
         projection_symbol=True,
         text_position="inline",
         text_orientation="aligned",
+        leader_region="auto",
         zones=None,
         detail_view=None,
         pmi=None,
@@ -1193,6 +1194,9 @@ class Sheet:
         _validated_title_block_width(title_block_width)
         validate_projection(projection, projection_symbol=projection_symbol)
         _dimension_draft(text_position, text_orientation)
+        from draftwright.leader_policy import leader_region_policy
+
+        leader_region = leader_region_policy(leader_region).value
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
         # view; handles hold tokens and resolve through it, so a reorder of the public
@@ -1263,6 +1267,7 @@ class Sheet:
             scale_policy=scale_policy,
             page=page,
             out=out,
+            leader_region=leader_region,
         )
         # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
         # unset value keeps build_drawing's own defaults rather than None. Since #1157 the
@@ -1894,7 +1899,7 @@ class Sheet:
         return _Dim(self, len(self._features) - 1, "length")
 
     def slot(self, obj=None, **kw) -> _Params:
-        """Declare a milled slot / reduced across-flats section (width + length)."""
+        """Declare a milled slot (width + length, with optional ``end_radius``)."""
         self._features.append(_slot(obj, **kw))
         return _Params(self, len(self._features) - 1)
 
