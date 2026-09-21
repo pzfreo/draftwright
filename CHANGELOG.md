@@ -4,6 +4,11 @@
 
 ### Added
 
+- Replay comparison now matches unresolved measurement evidence by its serialized annotation,
+  table cell, or ownerless parameter identity and classifies it as carried, resolved,
+  introduced, changed, or ambiguous. Carried uncertainty keeps certification unavailable but
+  no longer erases an otherwise Pareto-dominant layout improvement; new, changed, or duplicate
+  identities fail closed (#1753).
 - Assessment comparison v2 reports independently evidenced requirement, completeness,
   fidelity, legibility, and restraint axes plus their Pareto relation. Dominance,
   equivalence, domination, incomparability, and unavailable evidence are derived from concrete
