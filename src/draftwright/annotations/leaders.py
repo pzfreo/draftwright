@@ -106,15 +106,6 @@ class RadialLeaderTarget:
 
     center: tuple[float, float]
     radius: float
-    outward: tuple[float, float] | None = None
-
-    def allows(self, direction: tuple[float, float]) -> bool:
-        """Whether *direction* lands on the proved circular boundary segment."""
-        return (
-            self.outward is None
-            or sum(left * right for left, right in zip(direction, self.outward, strict=True))
-            >= -1e-9
-        )
 
     def tip(self, direction: tuple[float, float]) -> tuple[float, float]:
         return (
@@ -228,8 +219,6 @@ def interior_leader_candidates(
     for angle in _INTERIOR_RAY_ANGLES:
         cosine, sine = math.cos(angle), math.sin(angle)
         direction = (ux * cosine - uy * sine, ux * sine + uy * cosine)
-        if radial_target is not None and not radial_target.allows(direction):
-            continue
         candidate_tip = radial_target.tip(direction) if radial_target is not None else tip2
         limit = _ray_exit_distance(candidate_tip, direction, silhouette)
         for lane in range(1, _INTERIOR_LANES_PER_RAY + 1):

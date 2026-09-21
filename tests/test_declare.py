@@ -1400,6 +1400,18 @@ class TestConstructorInvariants:
         )
         assert f.end_radius == 3.17
 
+    def test_slot_length_must_contain_both_end_radii(self):
+        with pytest.raises(ValueError, match="at least its end diameter"):
+            slot(
+                width=8,
+                length=7,
+                long_axis="x",
+                width_axis="y",
+                lo=-3.5,
+                hi=3.5,
+                end_radius=4,
+            )
+
     def test_pattern_negative_bcd_raises(self):
         member = hole(diameter=3, at=(0, 0, 0), axis="z")
         with pytest.raises(ValueError):

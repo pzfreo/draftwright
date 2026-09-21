@@ -107,7 +107,6 @@ from draftwright.annotations.leaders import (
     FeatureLeaderJob,
     LeaderCandidateRegion,
     LeaderRegionPolicy,
-    RadialLeaderTarget,
     collect_feature_leader,
     feature_leader_candidates,
     material_penalty_units,
@@ -879,18 +878,16 @@ def _obround_radius_candidates(
             feature=provenance,
             region=LeaderCandidateRegion.INTERIOR,
         )
-        radial_target = RadialLeaderTarget(
-            center=(float(page_centre[0]), float(page_centre[1])),
-            radius=page_radius,
-            outward=(ux, uy),
-        )
         # The whole proved semicircle is a legitimate attachment, not only its apex.
         # Fan across that arc so a crowded view can keep the radius without evicting an
         # unrelated leader; each shaft remains collinear with its local radius.
         for angle in (0.0, math.pi / 4, -math.pi / 4, math.pi / 2, -math.pi / 2):
             cosine, sine = math.cos(angle), math.sin(angle)
             direction = (ux * cosine - uy * sine, ux * sine + uy * cosine)
-            arc_tip = radial_target.tip(direction)
+            arc_tip = (
+                float(page_centre[0]) + direction[0] * page_radius,
+                float(page_centre[1]) + direction[1] * page_radius,
+            )
             exit_distance = _ray_exit_dist(
                 arc_tip[0], arc_tip[1], direction[0], direction[1], bounds
             )
@@ -903,7 +900,6 @@ def _obround_radius_candidates(
                 tip=arc_tip,
                 elbow=elbow,
                 feature=provenance,
-                radial_target=radial_target,
             )
 
 
@@ -2699,12 +2695,7 @@ def place_machined_leader_jobs(
                     interior_count += 1
                 if _region_policy is LeaderRegionPolicy.INTERIOR:
                     return
-            for raw in _exterior_anchors:
-                typed = isinstance(raw, FeatureLeaderCandidate)
-                candidate = raw if typed else FeatureLeaderCandidate(*raw)
-                if candidate.region is not LeaderCandidateRegion.EXTERIOR:
-                    continue
-                tip, elbow, feature = candidate.tip, candidate.elbow, candidate.feature
+            for tip, elbow, feature in _exterior_anchors:
                 if interior_count:
                     # Once this job has proven projected-clear interior options,
                     # retain one exterior alternative per semantic anchor instead
@@ -2712,12 +2703,12 @@ def place_machined_leader_jobs(
                     # job with no interior option keeps the complete historical
                     # lane inventory below, and AUTO's resource fallback keeps the
                     # exact pre-interior exterior floor in either case.
-                    yield candidate if typed else raw
+                    yield (tip, elbow, feature)
                     continue
                 dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
                 length = math.hypot(dx, dy)
                 if length <= 1e-12:
-                    yield candidate if typed else raw
+                    yield (tip, elbow, feature)
                     continue
                 ux, uy = dx / length, dy / length
                 px, py = -dy / length, dx / length
@@ -2732,38 +2723,15 @@ def place_machined_leader_jobs(
                     (1, 1),
                     (1, -1),
                 ):
-                    shifted_elbow = (
-                        float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
-                        float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
-                        0,
+                    yield (
+                        tip,
+                        (
+                            float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
+                            float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
+                            0,
+                        ),
+                        feature,
                     )
-                    if typed:
-                        shifted_tip = tip
-                        if candidate.radial_target is not None:
-                            radial_dx = shifted_elbow[0] - candidate.radial_target.center[0]
-                            radial_dy = shifted_elbow[1] - candidate.radial_target.center[1]
-                            radial_length = math.hypot(radial_dx, radial_dy)
-                            if radial_length <= 1e-12:
-                                continue
-                            radial_direction = (
-                                radial_dx / radial_length,
-                                radial_dy / radial_length,
-                            )
-                            if not candidate.radial_target.allows(radial_direction):
-                                continue
-                            shifted_tip = candidate.radial_target.tip(radial_direction)
-                        yield FeatureLeaderCandidate(
-                            tip=shifted_tip,
-                            elbow=shifted_elbow,
-                            feature=feature,
-                            radial_target=candidate.radial_target,
-                        )
-                    else:
-                        yield (
-                            tip,
-                            shifted_elbow,
-                            feature,
-                        )
 
         def _build(tip, elbow, _feature, *, _label=label):
             return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
