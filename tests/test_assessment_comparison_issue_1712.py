@@ -17,7 +17,7 @@ from draftwright.audit import (
 )
 
 _SCHEMA = (
-    Path(__file__).parents[1] / "docs/reference/draftwright-assessment-comparison-v1.schema.json"
+    Path(__file__).parents[1] / "docs/reference/draftwright-assessment-comparison-v2.schema.json"
 )
 
 
@@ -158,6 +158,11 @@ def test_resolving_selected_crossing_with_expected_measurement_is_preferred() ->
     )
 
     assert result["decision"] == "preferred", result
+    assert result["pareto"]["relation"] == "dominates"
+    assert result["pareto"]["orientation"] == "candidate-versus-baseline"
+    assert result["pareto"]["improved_axes"] == ["legibility"]
+    assert result["axes"]["legibility"]["relation"] == "improved"
+    assert result["axes"]["requirements"]["relation"] == "unchanged"
     assert result["layout"]["selected_transition"] == "resolved"
     assert not result["requirements"]["blockers"]
     assert result["restraint"]["availability"] == "unavailable"
@@ -187,6 +192,9 @@ def test_deleting_crossed_requirement_is_rejected_even_if_layout_clears() -> Non
     )
 
     assert result["decision"] == "rejected"
+    assert result["pareto"]["relation"] == "incomparable"
+    assert result["pareto"]["improved_axes"] == ["legibility"]
+    assert result["pareto"]["regressed_axes"] == ["requirements"]
     assert result["layout"]["selected_transition"] == "resolved"
     assert any(
         row["code"] == "requirement_regression" for row in result["requirements"]["blockers"]
@@ -201,6 +209,7 @@ def test_fixed_denominator_exposes_a_shared_omission() -> None:
     )
 
     assert result["decision"] == "rejected"
+    assert result["pareto"]["relation"] == "equivalent"
     transition = result["requirements"]["transitions"][0]
     assert transition["baseline"]["state"] == transition["candidate"]["state"] == "unrepresented"
 
@@ -343,6 +352,9 @@ def test_new_adverse_completeness_fidelity_and_unclassified_evidence_rejects() -
     )
 
     assert result["decision"] == "rejected"
+    assert result["pareto"]["relation"] == "unavailable"
+    assert result["axes"]["completeness"]["relation"] == "regressed"
+    assert result["axes"]["fidelity"]["relation"] == "regressed"
     codes = {row["code"] for row in result["policy"]["blockers"]}
     assert {
         "adverse_completeness_outcome_introduced",
@@ -410,6 +422,7 @@ def test_a_better_score_from_a_smaller_recognized_denominator_is_rejected() -> N
     )
 
     assert result["decision"] == "rejected"
+    assert result["pareto"]["relation"] == "incomparable"
     assert any(
         row["code"] == "recognized_requirement_denominator_shrank"
         for row in result["policy"]["blockers"]
@@ -467,6 +480,8 @@ def test_incompatible_authority_is_refused(change, reason) -> None:
     result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
 
     assert result["decision"] == "incomparable"
+    assert result["pareto"]["relation"] == "unavailable"
+    assert result["axes"] is None
     assert reason in result["compatibility"]["reasons"]
     assert result["requirements"] is None
 
@@ -547,3 +562,114 @@ def test_output_is_deterministic_for_identical_inputs() -> None:
     validator = validator_for(schema)
     validator.check_schema(schema)
     validator(schema).validate(first)
+
+
+def test_legacy_numeric_scores_cannot_change_the_pareto_relation() -> None:
+    baseline, candidate = _assessment(), _assessment(crossing=False)
+    reference = compare_assessments(
+        baseline,
+        candidate,
+        expected_requirements=_EXPECTED,
+        selected_layout_finding=_CROSSING,
+    )
+
+    baseline_quality = baseline["drawing"]["lint"]["quality"]
+    candidate_quality = candidate["drawing"]["lint"]["quality"]
+    baseline_quality["completeness"]["audited_score"] = 0.0
+    candidate_quality["completeness"]["audited_score"] = 1.0
+    baseline_quality["fidelity"]["score"] = 1000.0
+    candidate_quality["fidelity"]["score"] = -1000.0
+    baseline_quality["legibility"]["score"] = 1.0
+    candidate_quality["legibility"]["score"] = 0.0
+    baseline_quality["restraint"]["score"] = 123.0
+    candidate_quality["restraint"]["score"] = -456.0
+
+    changed = compare_assessments(
+        baseline,
+        candidate,
+        expected_requirements=_EXPECTED,
+        selected_layout_finding=_CROSSING,
+    )
+
+    assert changed["pareto"] == reference["pareto"]
+    assert changed["decision"] == reference["decision"] == "preferred"
+    assert changed["policy"] == reference["policy"]
+
+
+def test_resolved_and_introduced_layout_findings_are_pareto_incomparable() -> None:
+    baseline, candidate = _assessment(), _assessment(crossing=False)
+    candidate["drawing"]["layout"]["findings"] = [
+        {
+            "lint_issue_index": 1,
+            "code": "annotation_out_of_bounds",
+            "annotation_names": ["hole_callout"],
+            "declaration_ids": ["declaration:hole"],
+            "owner_ids": ["hole:1"],
+            "remedies": ["side"],
+        }
+    ]
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["axes"]["legibility"]["relation"] == "incomparable"
+    assert result["pareto"]["relation"] == "incomparable"
+
+
+def test_introducing_a_layout_finding_is_pareto_dominated() -> None:
+    result = compare_assessments(
+        _assessment(crossing=False),
+        _assessment(),
+        expected_requirements=_EXPECTED,
+    )
+
+    assert result["axes"]["legibility"]["relation"] == "regressed"
+    assert result["pareto"]["relation"] == "dominated"
+
+
+def test_specific_fidelity_regression_survives_axis_wide_unavailability() -> None:
+    baseline, candidate = _assessment(), _assessment()
+    baseline_fidelity = baseline["drawing"]["lint"]["quality"]["fidelity"]
+    candidate_fidelity = candidate["drawing"]["lint"]["quality"]["fidelity"]
+    baseline_fidelity.update(available=False, score=None)
+    candidate_fidelity.update(
+        available=False,
+        score=None,
+        by_code={"label_vs_measured": 1},
+    )
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["axes"]["fidelity"]["relation"] == "regressed"
+    assert result["axes"]["fidelity"]["unavailable_reasons"]
+    assert result["pareto"]["relation"] == "dominated"
+
+
+def test_resolving_a_fidelity_finding_is_pareto_dominant() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["drawing"]["lint"]["quality"]["fidelity"]["by_code"] = {"label_vs_measured": 1}
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["axes"]["fidelity"]["relation"] == "improved"
+    assert result["pareto"]["relation"] == "dominates"
+
+
+def test_resolving_an_adverse_completeness_outcome_is_pareto_dominant() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["drawing"]["lint"]["quality"]["completeness"]["missing"] = 1
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["axes"]["completeness"]["relation"] == "improved"
+    assert result["pareto"]["relation"] == "dominates"
+
+
+def test_trading_one_completeness_failure_for_another_is_incomparable() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["drawing"]["lint"]["quality"]["completeness"]["missing"] = 1
+    candidate["drawing"]["lint"]["quality"]["completeness"]["dropped"] = 1
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["axes"]["completeness"]["relation"] == "incomparable"
+    assert result["pareto"]["relation"] == "incomparable"

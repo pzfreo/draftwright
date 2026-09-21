@@ -14,8 +14,9 @@ Capture ``Drawing.measurement_snapshot()`` before mutating a live drawing.
 ``compare_assessments`` is the persisted cross-replay counterpart. It accepts only compatible
 v2 replay assessments for the same STEP bytes, producer, and run options, then reports separate
 requirement, lint, completeness, fidelity, layout, and availability deltas. A caller-supplied
-fixed denominator exposes omissions shared by both inputs. It returns a policy decision and
-reasons, never a composite score or inferred topology correspondence.
+fixed denominator exposes omissions shared by both inputs. It returns an evidence-derived
+Pareto relationship for those independent axes, plus a deprecated policy decision for v1
+consumers; it never constructs a composite score or inferred topology correspondence.
 
 The comparison scope is named compiled measurements. It checks their recorded owner,
 parameter, nominal value, tolerance, directional span and rendered claim text. A linear
@@ -444,6 +445,78 @@ def _code_count_delta(before: Mapping, after: Mapping) -> dict:
     }
 
 
+def _axis_result(
+    *,
+    improvements: Sequence[Mapping] = (),
+    regressions: Sequence[Mapping] = (),
+    unavailable_reasons: Sequence[str] = (),
+) -> dict:
+    """Describe one independently evidenced comparison axis without a numeric score."""
+
+    improved = sorted((dict(row) for row in improvements), key=_frozen)
+    regressed = sorted((dict(row) for row in regressions), key=_frozen)
+    unavailable = sorted(set(unavailable_reasons))
+    if improved and regressed:
+        relation = "incomparable"
+    elif regressed:
+        relation = "regressed"
+    elif improved:
+        relation = "improved"
+    elif unavailable:
+        relation = "unavailable"
+    else:
+        relation = "unchanged"
+    return {
+        "relation": relation,
+        "improvements": improved,
+        "regressions": regressed,
+        "unavailable_reasons": unavailable,
+    }
+
+
+def _pareto_result(axes: Mapping[str, Mapping] | None, limitations: Sequence[str]) -> dict:
+    """Return the partial order across comparable axes; never weight or average them."""
+
+    names_by_relation = {
+        relation: sorted(
+            name for name, axis in (axes or {}).items() if axis["relation"] == relation
+        )
+        for relation in (
+            "improved",
+            "regressed",
+            "incomparable",
+            "unchanged",
+            "unavailable",
+        )
+    }
+    limitations = sorted(set(limitations))
+    if limitations or axes is None:
+        relation = "unavailable"
+    elif names_by_relation["incomparable"] or (
+        names_by_relation["improved"] and names_by_relation["regressed"]
+    ):
+        relation = "incomparable"
+    elif names_by_relation["regressed"]:
+        relation = "dominated"
+    elif names_by_relation["improved"]:
+        relation = "dominates"
+    elif names_by_relation["unchanged"]:
+        relation = "equivalent"
+    else:
+        relation = "unavailable"
+    return {
+        "relation": relation,
+        "basis": "evidence-vector-no-scalar",
+        "orientation": "candidate-versus-baseline",
+        "improved_axes": names_by_relation["improved"],
+        "regressed_axes": names_by_relation["regressed"],
+        "incomparable_axes": names_by_relation["incomparable"],
+        "unchanged_axes": names_by_relation["unchanged"],
+        "unavailable_axes": names_by_relation["unavailable"],
+        "limitations": limitations,
+    }
+
+
 def compare_assessments(
     baseline: Mapping,
     candidate: Mapping,
@@ -452,7 +525,7 @@ def compare_assessments(
     intentional_changes: Sequence[IntentionalChange | Mapping] = (),
     selected_layout_finding: LayoutFindingIdentity | Mapping | None = None,
 ) -> dict:
-    """Compare two exact replay assessments without collapsing evidence into one score.
+    """Compare two exact replay assessments using separate axes and a Pareto relation.
 
     Compatibility is fail-closed: both documents must be v2 assessments for the same immutable
     STEP bytes, producer versions, and run options. ``expected_requirements`` is the caller's
@@ -465,7 +538,7 @@ def compare_assessments(
     compatibility = _compatibility_reasons(baseline, candidate)
     base = {
         "schema": "draftwright-assessment-comparison",
-        "schema_version": 1,
+        "schema_version": 2,
         "scope": "same-source-replay-delta",
         "decision": "incomparable" if compatibility else "no-preference",
         "reasons": compatibility,
@@ -485,6 +558,8 @@ def compare_assessments(
     if compatibility:
         return {
             **base,
+            "axes": None,
+            "pareto": _pareto_result(None, compatibility),
             "lint": None,
             "requirements": None,
             "completeness": None,
@@ -623,46 +698,81 @@ def compare_assessments(
     after_quality = candidate["drawing"]["lint"]["quality"]
     before_completeness = before_quality["completeness"]
     after_completeness = after_quality["completeness"]
+    completeness_improvements: list[dict[str, Any]] = []
+    completeness_regressions: list[dict[str, Any]] = []
     completeness_changes: dict[str, dict[str, int]] = {}
     for state in _ADVERSE_COMPLETENESS_STATES:
         old_count = int(before_completeness.get(state, 0))
         new_count = int(after_completeness.get(state, 0))
         completeness_changes[state] = {"baseline": old_count, "candidate": new_count}
         if new_count > old_count:
-            blockers.append(
+            regression = {
+                "code": "adverse_completeness_outcome_introduced",
+                "state": state,
+                "count": new_count - old_count,
+            }
+            blockers.append(regression)
+            completeness_regressions.append(regression)
+        elif new_count < old_count:
+            completeness_improvements.append(
                 {
-                    "code": "adverse_completeness_outcome_introduced",
+                    "code": "adverse_completeness_outcome_resolved",
                     "state": state,
-                    "count": new_count - old_count,
+                    "count": old_count - new_count,
                 }
             )
     old_known = int(before_completeness.get("known_requirement_count", 0))
     new_known = int(after_completeness.get("known_requirement_count", 0))
     if new_known < old_known:
-        blockers.append(
-            {
-                "code": "recognized_requirement_denominator_shrank",
-                "baseline": old_known,
-                "candidate": new_known,
-            }
-        )
+        regression = {
+            "code": "recognized_requirement_denominator_shrank",
+            "baseline": old_known,
+            "candidate": new_known,
+        }
+        blockers.append(regression)
+        completeness_regressions.append(regression)
     old_unscored_families = set(before_completeness.get("unscored_recognized_families", ()))
     new_unscored_families = set(after_completeness.get("unscored_recognized_families", ()))
     if new_unscored_families - old_unscored_families:
-        blockers.append(
-            {
-                "code": "recognized_family_became_unscored",
-                "families": sorted(new_unscored_families - old_unscored_families),
-            }
-        )
+        regression = {
+            "code": "recognized_family_became_unscored",
+            "families": sorted(new_unscored_families - old_unscored_families),
+        }
+        blockers.append(regression)
+        completeness_regressions.append(regression)
     old_unrecognised = int(before_completeness.get("unrecognised_geometry_reports", 0))
     new_unrecognised = int(after_completeness.get("unrecognised_geometry_reports", 0))
     if new_unrecognised > old_unrecognised:
-        blockers.append(
+        regression = {
+            "code": "unrecognised_geometry_reports_increased",
+            "baseline": old_unrecognised,
+            "candidate": new_unrecognised,
+        }
+        blockers.append(regression)
+        completeness_regressions.append(regression)
+    before_completeness_available = bool(before_completeness.get("available"))
+    after_completeness_available = bool(after_completeness.get("available"))
+    completeness_unavailable: list[str] = []
+    if before_completeness_available and not after_completeness_available:
+        completeness_regressions.append({"code": "completeness_became_unavailable"})
+    elif not before_completeness_available and after_completeness_available:
+        completeness_improvements.append({"code": "completeness_became_available"})
+    elif not before_completeness_available:
+        completeness_unavailable.append("completeness unavailable in both assessments")
+    old_unknown_cardinality = int(before_completeness.get("unknown_cardinality_rows", 0))
+    new_unknown_cardinality = int(after_completeness.get("unknown_cardinality_rows", 0))
+    if new_unknown_cardinality > old_unknown_cardinality:
+        completeness_regressions.append(
             {
-                "code": "unrecognised_geometry_reports_increased",
-                "baseline": old_unrecognised,
-                "candidate": new_unrecognised,
+                "code": "requirement_cardinality_uncertainty_introduced",
+                "count": new_unknown_cardinality - old_unknown_cardinality,
+            }
+        )
+    elif new_unknown_cardinality < old_unknown_cardinality:
+        completeness_improvements.append(
+            {
+                "code": "requirement_cardinality_uncertainty_resolved",
+                "count": old_unknown_cardinality - new_unknown_cardinality,
             }
         )
     if not after_completeness.get("available"):
@@ -673,14 +783,26 @@ def compare_assessments(
     fidelity = _component_delta(baseline, candidate, "fidelity")
     old_fidelity, new_fidelity = fidelity["baseline"], fidelity["candidate"]
     fidelity["target_validation"] = _code_count_delta(old_fidelity, new_fidelity)
+    fidelity_improvements = [
+        {"code": "fidelity_finding_resolved", "finding": row}
+        for row in fidelity["target_validation"]["resolved"]
+    ]
+    fidelity_regressions = [
+        {"code": "fidelity_finding_introduced", "finding": row}
+        for row in fidelity["target_validation"]["introduced"]
+    ]
+    fidelity_unavailable: list[str] = []
+    before_fidelity_available = bool(old_fidelity.get("available"))
+    after_fidelity_available = bool(new_fidelity.get("available"))
+    if before_fidelity_available and not after_fidelity_available:
+        fidelity_regressions.append({"code": "fidelity_became_unavailable"})
+    elif not before_fidelity_available and after_fidelity_available:
+        fidelity_improvements.append({"code": "fidelity_became_available"})
+    elif not before_fidelity_available:
+        fidelity_unavailable.append("fidelity unavailable in both assessments")
     if not new_fidelity.get("available"):
         unavailable.append("candidate fidelity is unavailable")
-    elif fidelity["target_validation"]["introduced"] or (
-        old_fidelity.get("available")
-        and new_fidelity.get("score") is not None
-        and old_fidelity.get("score") is not None
-        and new_fidelity["score"] < old_fidelity["score"]
-    ):
+    elif fidelity["target_validation"]["introduced"]:
         blockers.append({"code": "fidelity_regression"})
 
     unscored = _component_delta(baseline, candidate, "unscored")
@@ -758,6 +880,56 @@ def compare_assessments(
     for row in applied_changes:
         row.setdefault("status", "applied")
     applied_changes.sort(key=_frozen)
+
+    requirement_regressions = [
+        row
+        for row in blockers
+        if row["code"] == "requirement_regression"
+        and row.get("changes") != ["fixed_denominator_omission"]
+    ]
+    requirement_improvements = [
+        row for row in improvements if row["code"] == "requirement_resolved"
+    ]
+    axes = {
+        "requirements": _axis_result(
+            improvements=requirement_improvements,
+            regressions=requirement_regressions,
+        ),
+        "completeness": _axis_result(
+            improvements=completeness_improvements,
+            regressions=completeness_regressions,
+            unavailable_reasons=completeness_unavailable,
+        ),
+        "fidelity": _axis_result(
+            improvements=fidelity_improvements,
+            regressions=fidelity_regressions,
+            unavailable_reasons=fidelity_unavailable,
+        ),
+        "legibility": _axis_result(
+            improvements=layout["resolved"],
+            regressions=layout["introduced"],
+        ),
+        "restraint": _axis_result(
+            unavailable_reasons=(
+                "physical requirement equivalence is not established by this comparison",
+            )
+        ),
+    }
+    fidelity_introduced_codes = {
+        row["code"] for row in fidelity["target_validation"]["introduced"]
+    }
+    layout_introduced_codes = {row["code"] for row in layout["introduced"]}
+    pareto_limitations = [
+        row["code"]
+        for row in blockers
+        if row["code"] in {"unclassified_lint_introduced", "unverifiable_measurement_claim"}
+        or (
+            row["code"] == "error_lint_introduced"
+            and row["finding"].get("code")
+            not in fidelity_introduced_codes | layout_introduced_codes
+        )
+    ]
+    pareto = _pareto_result(axes, pareto_limitations)
     if blockers:
         decision = "rejected"
         reasons: list[str] = [row["code"] for row in blockers]
@@ -771,6 +943,8 @@ def compare_assessments(
         **base,
         "decision": decision,
         "reasons": reasons,
+        "axes": axes,
+        "pareto": pareto,
         "lint": lint,
         "policy": {"blockers": blockers, "improvements": improvements},
         "requirements": {

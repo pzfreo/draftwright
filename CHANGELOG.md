@@ -4,6 +4,11 @@
 
 ### Added
 
+- Assessment comparison v2 reports independently evidenced requirement, completeness,
+  fidelity, legibility, and restraint axes plus their Pareto relation. Dominance,
+  equivalence, domination, incomparability, and unavailable evidence are derived from concrete
+  transitions rather than any legacy diagnostic, component, or audited-completeness score
+  (#1609). The v1 `decision` remains temporarily as a deprecated compatibility policy result.
 - Stadium through-slots now retain Quiddity 0.3.2's proved end radius through detection,
   declared `Sheet` scripts, compiled measurement identity, placement, and completeness. A
   normal-to-arc `2× R…` leader distinguishes an obround from an equal-sized rectangular slot

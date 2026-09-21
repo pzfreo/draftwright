@@ -29,20 +29,37 @@ remains published for readers of older artifacts.
 
 `draftwright.audit.compare_assessments(baseline, candidate, ...)` compares two v2 assessments
 only when they name the same immutable STEP hash, producer versions, and run options. It returns
-the versioned [`draftwright-assessment-comparison` v1](draftwright-assessment-comparison-v1.schema.json)
-evidence vector. The result keeps lint, requirement transitions, confirmed meanings, carriers,
-carrier pin state, completeness, fidelity, layout, unscored findings, and unavailable evidence
-separate; it never constructs a composite quality score.
+the versioned [`draftwright-assessment-comparison` v2](draftwright-assessment-comparison-v2.schema.json)
+evidence vector. The v1 schema remains published for readers of older comparison artifacts. The
+result keeps lint, requirement transitions, confirmed meanings, carriers, carrier pin state,
+completeness, fidelity, layout, unscored findings, and unavailable evidence separate; it never
+constructs a composite quality score.
+
+V2 adds an `axes` projection and `pareto.relation`, oriented as candidate versus baseline.
+`dominates` means the candidate improved at least one comparable axis and regressed none;
+`dominated` is the inverse; `equivalent` means every
+comparable axis is unchanged; and `incomparable` preserves a real trade-off instead of choosing
+one with weights. `unavailable` means unclassified or incompatible evidence prevents the
+requested comparison. Each axis retains its concrete improvements, regressions, and unavailable
+reasons. The calculation never reads `score`, `diagnostic_score`, component `score`, or
+`audited_score`. The top-level `decision` is retained temporarily as the deprecated v1 policy
+result; new consumers use the Pareto relation and the separate certification limitations.
+
+The `requirements` axis describes exact declared requirement/measurement transitions against
+the caller-fixed denominator. The `completeness` axis separately describes the
+recognition-owned outcome ledger and its bounded denominator. Keeping both prevents a change in
+what recognition counted from masquerading as an improvement to what the drawing represents.
 
 Pass `ExpectedRequirement(declaration_id, parameter_id)` values as a fixed denominator. This is
 how a caller detects a requirement omitted from both drawings: neither drawing can rediscover an
 expectation that both scripts deleted. Pass `IntentionalChange(...)` to separate an authorised
 design change from incidental regressions, and `LayoutFindingIdentity(...)` when one layout
-defect is the edit target. A candidate is preferred only for evidence-backed improvement with no
-blocking or unavailable evidence. Semantic loss, physical-owner substitution, newly adverse
-completeness/fidelity evidence, unclassified lint, or deletion used to clear layout rejects it;
-incompatible authority makes it incomparable. Restraint and manufacturing readiness remain
-explicitly unavailable.
+defect is the edit target. Semantic loss, physical-owner substitution, newly adverse
+completeness/fidelity evidence, unclassified lint, or deletion used to clear layout remains
+visible in its own axis or limitation. A layout improvement coupled to a coverage regression is
+therefore `incomparable`, not numerically ranked. Incompatible authority makes the Pareto
+relation unavailable. Restraint and manufacturing readiness remain explicitly unavailable and
+cannot silently become a pass.
 
 The bounded CTC-01 real-part canary exercises that loop before merge: generate an inspected
 script, replay a traced baseline, make one sanctioned `Sheet` layout edit, replay once, and
