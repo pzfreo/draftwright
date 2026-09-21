@@ -126,6 +126,23 @@ deterministically ordered typed evidence references. One unresolved occurrence o
 distinguishable from 177 out of 177 without inventing a weighted severity score. The human
 `summary` is rendered from those same structured reasons.
 
+`lint.assessment.remediation` is the compact responsibility projection over that evidence. It
+groups findings and adverse occurrence/requirement outcomes into `contradiction`,
+`missing-carrier`, `layout`, `importer-lowering`, `source-ambiguity`, or
+`evidence-unavailable`; anything outside the bounded classifier remains visible as
+`unclassified`. Items retain their report-local lint, occurrence, requirement, declaration,
+owner, annotation, and source identities where those identities exist. Requirement subjects also
+carry family, parameter, and reason fields, so an agent need not infer “plate thickness” from an
+opaque requirement number.
+
+Remediation order is severity, then the documented domain order, then evidence identity. It never
+reads a quality score. `supported_actions` is deliberately narrow: an action names an allowlisted
+public verb, its arguments, and the exact evidence to which it applies. When no such bounded action
+is supported, `no_supported_action_reason` says so; unknown codes never acquire a remedy from their
+message text. Every item names the measurement ownership, parameter meaning, source provenance,
+and unrelated requirement outcomes an edit must preserve. This is diagnosis and bounded edit
+capability, not authorization to release a drawing.
+
 The surrounding lint payload still carries `score` and `diagnostic_score` as legacy diagnostic
 compatibility aliases. Neither is a drawing-quality result, and the assessment projection does
 not read them. Consumers should start with `lint.assessment`, then inspect the linked occurrence,

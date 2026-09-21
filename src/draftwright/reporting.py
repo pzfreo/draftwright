@@ -6,7 +6,7 @@ import json
 import os
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.metadata import version as distribution_version
 from math import isfinite
 from numbers import Real
@@ -49,6 +49,129 @@ _LAYOUT_REMEDIES_BY_CODE = {
     "view_out_of_bounds": ("page", "scale", "view"),
     "leader_crosses_silhouette": ("view", "section", "side"),
 }
+
+_REMEDIATION_DOMAINS = (
+    "contradiction",
+    "missing-carrier",
+    "layout",
+    "importer-lowering",
+    "source-ambiguity",
+    "evidence-unavailable",
+    "unclassified",
+)
+_REMEDIATION_SEVERITIES = ("error", "warning", "info")
+_REMEDIATION_PRESERVE = (
+    "measurement-owner",
+    "parameter-meaning",
+    "source-provenance",
+    "unrelated-requirement-outcomes",
+)
+_IMPORTER_LOWERING_CODES = frozenset(
+    {
+        "angled_step_requirement_unsupported",
+        "dimension_kind_unsupported",
+        "passage_requirement_unsupported",
+        "pmi_not_extracted",
+        "pmi_not_lowered",
+        "pmi_not_rendered",
+        "pmi_present_but_ignored",
+        "prismatic_pocket_requirement_unsupported",
+        "section_recess_requirement_unsupported",
+        "unrecognised_defining_geometry",
+    }
+)
+_SOURCE_AMBIGUITY_CODES = frozenset(
+    {
+        "authored_dim_degenerate",
+        "nominal_rounded",
+        "pmi_unreconciled",
+        "section_recess_recognition_refused",
+        "step_position_coincident_with_datum",
+    }
+)
+_EVIDENCE_UNAVAILABLE_CODES = frozenset(
+    {
+        "authored_dim_source_unresolved",
+        "claimed_representation_no_expected_value",
+        "claimed_representation_unreadable",
+        "gear_correspondence_unverifiable",
+        "pad_footprint_not_defined",
+    }
+)
+_MISSING_CARRIER_CODES = frozenset(
+    {
+        "authored_omission",
+        "axial_length_missing",
+        "boss_height_missing",
+        "collapsed_tolerance_withheld",
+        "feature_count_mismatch",
+        "feature_no_centermark",
+        "feature_not_dimensioned",
+        "feature_not_located",
+        "gear_semantics_missing",
+        "missing_principal_dimension",
+        "pattern_pitch_tolerance_withheld",
+        "plan_incomplete",
+        "pocket_not_located",
+        "profiled_bore_not_dimensioned",
+        "section_dropped",
+        "step_dim_withheld",
+        "turned_profile_not_spanned",
+    }
+)
+_LAYOUT_RESPONSIBILITY_CODES = frozenset({"gdt_side_relaxed"})
+
+
+@dataclass
+class _RemediationGroup:
+    """Mutable aggregation only; :meth:`document` returns the closed public projection."""
+
+    domain: str
+    severity: str = "info"
+    finding_ids: set[str] = field(default_factory=set)
+    occurrence_ids: set[str] = field(default_factory=set)
+    requirement_ids: set[str] = field(default_factory=set)
+    declaration_ids: set[str] = field(default_factory=set)
+    owner_ids: set[str] = field(default_factory=set)
+    annotation_names: set[str] = field(default_factory=set)
+    source_ids: set[str] = field(default_factory=set)
+    subjects: list[dict[str, object]] = field(default_factory=list)
+    repairable_finding_ids: set[str] = field(default_factory=set)
+
+    def raise_severity(self, severity: object) -> None:
+        candidate = severity if severity in _REMEDIATION_SEVERITIES else "info"
+        if _REMEDIATION_SEVERITIES.index(candidate) < _REMEDIATION_SEVERITIES.index(self.severity):
+            self.severity = candidate
+
+    def document(self) -> dict[str, object]:
+        repairable = sorted(self.repairable_finding_ids)
+        evidence_refs = self.finding_ids | self.occurrence_ids | self.requirement_ids
+        unaddressed = sorted(evidence_refs - self.repairable_finding_ids)
+        actions = (
+            [{"verb": "Drawing.repair", "arguments": {}, "applies_to": repairable}]
+            if repairable
+            else []
+        )
+        return {
+            "domain": self.domain,
+            "severity": self.severity,
+            "finding_ids": sorted(self.finding_ids),
+            "occurrence_ids": sorted(self.occurrence_ids),
+            "requirement_ids": sorted(self.requirement_ids),
+            "declaration_ids": sorted(self.declaration_ids),
+            "owner_ids": sorted(self.owner_ids),
+            "annotation_names": sorted(self.annotation_names),
+            "source_ids": sorted(self.source_ids),
+            "subjects": sorted(self.subjects, key=lambda row: str(row["evidence_ref"])),
+            "supported_actions": actions,
+            "unaddressed_evidence_refs": unaddressed,
+            "no_supported_action_reason": (
+                None
+                if actions and not unaddressed
+                else "no bounded public remedy is classified for this evidence"
+            ),
+            "preserve": list(_REMEDIATION_PRESERVE),
+        }
 
 
 @dataclass(frozen=True)
@@ -1144,6 +1267,193 @@ def _axis_summary(
     }
 
 
+def _string_values(value: object) -> tuple[str, ...]:
+    """Return only non-empty string identities from an open report field."""
+
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(item for item in value if isinstance(item, str) and item)
+
+
+def _lint_remediation_domain(
+    row: Mapping[str, object], *, unclassified_codes: frozenset[str]
+) -> str:
+    """Classify one serialized finding without reading prose or inventing a remedy."""
+
+    from types import SimpleNamespace
+
+    from draftwright.linting.quality import _is_fidelity_issue, _is_legibility_issue
+
+    code = row.get("code")
+    if not isinstance(code, str) or not code:
+        return "unclassified"
+    if code in unclassified_codes:
+        return "unclassified"
+    if code in _IMPORTER_LOWERING_CODES:
+        return "importer-lowering"
+    if code in _SOURCE_AMBIGUITY_CODES:
+        return "source-ambiguity"
+    if code in _LAYOUT_RESPONSIBILITY_CODES:
+        return "layout"
+    if code.endswith("_unsupported"):
+        return "importer-lowering"
+    issue = SimpleNamespace(code=code, outcome_stage=row.get("outcome_stage"))
+    if _is_fidelity_issue(issue):
+        return "contradiction"
+    if _is_legibility_issue(issue):
+        return "layout"
+    if code in _EVIDENCE_UNAVAILABLE_CODES or code.endswith("_unverifiable"):
+        return "evidence-unavailable"
+    if (
+        code in _MISSING_CARRIER_CODES
+        or code.endswith("_missing")
+        or code.endswith("_suppressed")
+        or code.endswith("_withheld")
+        or code.endswith("_dropped")
+    ):
+        return "missing-carrier"
+    return "unclassified"
+
+
+def _requirement_remediation_domain(row: Mapping[str, object]) -> str | None:
+    state = row.get("state")
+    if not isinstance(state, str):
+        return None
+    return {
+        "dropped": "layout",
+        "suppressed": "missing-carrier",
+        "missing": "missing-carrier",
+        "unsupported": "importer-lowering",
+        "unverifiable": "evidence-unavailable",
+    }.get(state)
+
+
+def _occurrence_remediation_domain(row: Mapping[str, object]) -> str | None:
+    disposition = row.get("disposition")
+    if not isinstance(disposition, str):
+        return None
+    return {
+        "unsupported": "importer-lowering",
+        "deferred": "source-ambiguity",
+        "evidence_only": "evidence-unavailable",
+        "unexpectedly_missing": "missing-carrier",
+    }.get(disposition)
+
+
+def _remediation_projection(
+    *,
+    lint: Mapping[str, object],
+    occurrences: list[dict[str, Any]],
+    requirements: list[dict[str, Any]],
+) -> dict[str, object]:
+    """Group actionable responsibility using only typed report evidence.
+
+    The ordering is policy, not a score. Public actions are a narrow allowlist backed by an
+    existing capability; absent capability stays explicit instead of becoming generated advice.
+    """
+
+    groups: dict[str, _RemediationGroup] = {}
+
+    def group(domain: str) -> _RemediationGroup:
+        return groups.setdefault(domain, _RemediationGroup(domain))
+
+    issue_rows = lint.get("issues", [])
+    quality = lint.get("quality", {})
+    unscored = quality.get("unscored", {}) if isinstance(quality, Mapping) else {}
+    unclassified_codes = frozenset(
+        _string_values(unscored.get("unclassified")) if isinstance(unscored, Mapping) else ()
+    )
+    for index, value in enumerate(issue_rows if isinstance(issue_rows, list) else []):
+        if not isinstance(value, Mapping):
+            continue
+        lint_domain = _lint_remediation_domain(value, unclassified_codes=unclassified_codes)
+        target = group(lint_domain)
+        finding_id = f"lint:{index}"
+        target.finding_ids.add(finding_id)
+        target.raise_severity(value.get("severity"))
+        target.declaration_ids.update(_string_values(value.get("declaration_ids")))
+        target.owner_ids.update(_string_values(value.get("owner_ids")))
+        target.source_ids.update(_string_values(value.get("source_ids")))
+        names = (
+            *(
+                (value.get("annotation_name"),)
+                if isinstance(value.get("annotation_name"), str)
+                else ()
+            ),
+            *_string_values(value.get("related_annotation_names")),
+        )
+        target.annotation_names.update(names)
+        if lint_domain == "layout" and value.get("code") == "annotation_ink_overlap":
+            target.repairable_finding_ids.add(finding_id)
+
+    for row in requirements:
+        requirement_domain = _requirement_remediation_domain(row)
+        requirement_id = row.get("id")
+        if requirement_domain is None or not isinstance(requirement_id, str) or not requirement_id:
+            continue
+        target = group(requirement_domain)
+        target.requirement_ids.add(requirement_id)
+        target.owner_ids.update(_string_values(row.get("owner_ids")))
+        target.declaration_ids.update(_string_values(row.get("declaration_ids")))
+        target.raise_severity("warning")
+        target.subjects.append(
+            {
+                "evidence_ref": requirement_id,
+                "kind": "requirement",
+                "family": row.get("family"),
+                "parameter_id": row.get("parameter_id"),
+                "reason_code": row.get("reason_code"),
+            }
+        )
+
+    for row in occurrences:
+        occurrence_domain = _occurrence_remediation_domain(row)
+        occurrence_id = row.get("id")
+        if occurrence_domain is None or not isinstance(occurrence_id, str) or not occurrence_id:
+            continue
+        target = group(occurrence_domain)
+        target.occurrence_ids.add(occurrence_id)
+        owners = row.get("owners", [])
+        if isinstance(owners, list):
+            target.owner_ids.update(
+                owner["id"]
+                for owner in owners
+                if isinstance(owner, Mapping) and isinstance(owner.get("id"), str)
+            )
+        target.raise_severity("warning")
+        target.subjects.append(
+            {
+                "evidence_ref": occurrence_id,
+                "kind": "occurrence",
+                "family": row.get("family"),
+                "parameter_id": None,
+                "reason_code": row.get("reason_code"),
+            }
+        )
+
+    items = [target.document() for target in groups.values()]
+
+    items.sort(
+        key=lambda row: (
+            _REMEDIATION_SEVERITIES.index(str(row["severity"])),
+            _REMEDIATION_DOMAINS.index(str(row["domain"])),
+            tuple(cast(list[str], row["finding_ids"])),
+            tuple(cast(list[str], row["requirement_ids"])),
+            tuple(cast(list[str], row["occurrence_ids"])),
+        )
+    )
+    return {
+        "ordering": "severity(error,warning,info)-then-domain-then-evidence-id",
+        "items": items,
+        "unclassified_finding_ids": sorted(
+            finding
+            for row in items
+            if row["domain"] == "unclassified"
+            for finding in cast(list[str], row["finding_ids"])
+        ),
+    }
+
+
 def _raw_report_assessment(
     *,
     lint: Mapping[str, object],
@@ -1352,6 +1662,9 @@ def _raw_report_assessment(
         "status": status,
         "axes": axes,
         "status_reasons": reasons,
+        "remediation": _remediation_projection(
+            lint=lint, occurrences=occurrences, requirements=requirements
+        ),
         "summary": text,
     }
 
