@@ -43,6 +43,14 @@ annotations. Remedies are limited to supported semantic controls (`page`, `scale
 `section`, `schedule`, `side`, `priority`, and `pin`). Page coordinates are evidence for review,
 not an editing API.
 
+When a generated or hand-authored sheet uses
+`sheet.layout_override(declaration_id, side=...)`, `layout.overrides` records the declaration,
+the authored and resolved corridor side, `status: "applied"`, and
+`intent_class: "layout-only"`. The corresponding feature still carries its complete semantic
+content and the ordinary shared placement solve still owns coordinates and feasibility. The
+field is emitted as an empty array when no override exists; it is optional in the version-8
+schema so previously written version-8 documents remain valid.
+
 Detailed solver outcomes are opt-in. Without `build_drawing(trace=...)`,
 `layout.placement.availability` is `unavailable` with a reason rather than an empty successful
 solve. With tracing enabled, corridor outcomes retain placed/dropped/deduplicated/promoted/deferred

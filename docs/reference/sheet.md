@@ -241,6 +241,34 @@ intent. It is not a persistent feature, face or topology ID and makes no corresp
 across recognition runs. Recognition occurrence IDs, when present, remain local to the exact
 generation run recorded by the declaration.
 
+### Declaration-scoped layout overrides
+
+An agent editing a generated script can append a bounded corridor override without changing the
+original feature declaration or supplying page coordinates:
+
+```python
+options = sheet.layout_options("declaration:57")
+check = sheet.validate_layout_override("declaration:57", side="above")
+if check["supported"]:
+    sheet.layout_override("declaration:57", side="above")
+```
+
+`layout_options()` reports the declaration's current side and supported values. The initial
+surface accepts only `above`, `below`, `left`, and `right`; `validate_layout_override()` returns
+structured `invalid_declaration`, `unsupported_declaration`, `unsupported_control`, or
+`unsupported_value` refusals without mutating the sheet. Both documents say
+`requires_build_validation: true`: support means that the declaration and vocabulary are valid,
+not that the final sheet has enough space. `build()` and `lint()` remain the authority for
+feasibility and collision-free placement.
+
+`layout_override()` accepts exactly one keyword-only `side` and rejects duplicate overrides for
+the same declaration. It updates the corridor intent consumed by the existing shared solve; it
+does not create a family-specific placement path, set a lane, move an annotation to a coordinate,
+or change its measurement, tolerance, datum, or other engineering semantics. Generated scripts
+emit the override as a separate line after the identity-bearing declarations. A declared report
+records the requested and resolved value under `layout.overrides` with
+`intent_class: "layout-only"`. Omitting the override retains the existing placement behaviour.
+
 ## Checking dimension placement rules
 
 Call `handle.dimension_ids()` to find the measurements a declared feature exposes, then

@@ -172,6 +172,22 @@
             "availability": { "const": "available" },
             "coordinate_space": { "const": "page-mm-from-sheet-origin" },
             "edit_surface": { "const": "semantic-dsl-only" },
+            "overrides": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["declaration_id", "control", "authored_value", "resolved_value", "intent_class", "status"],
+                "properties": {
+                  "declaration_id": { "type": "string", "minLength": 1 },
+                  "control": { "const": "side" },
+                  "authored_value": { "enum": ["above", "below", "left", "right"] },
+                  "resolved_value": { "enum": ["above", "below", "left", "right"] },
+                  "intent_class": { "const": "layout-only" },
+                  "status": { "const": "applied" }
+                }
+              }
+            },
             "remedy_vocabulary": { "$ref": "#/$defs/remedies" },
             "page": {
               "type": "object",

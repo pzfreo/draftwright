@@ -44,7 +44,7 @@ import pytest
 from build123d import Box, Cylinder, Pos, export_step
 
 from draftwright import Document, Sheet
-from draftwright.model import Frame, HoleFeature
+from draftwright.model import ControlFrame, Frame, HoleFeature
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.py"
 
@@ -85,7 +85,8 @@ def _canonical(model) -> tuple:
     decorations = sorted((repr(k), repr(v)) for k, v in getattr(model, "decorations", {}).items())
     requested = sorted(repr(r) for r in getattr(model, "requested_dimensions", ()))
     schedules = sorted(repr(schedule) for schedule in getattr(model, "schedules", ()))
-    return (features, decorations, requested, schedules)
+    layout_overrides = sorted(repr(row) for row in getattr(model, "layout_overrides", ()))
+    return (features, decorations, requested, schedules, layout_overrides)
 
 
 def _canonical_sheet(sheet) -> tuple:
@@ -116,6 +117,16 @@ def _scn_by_declaration(s):
     s.hole(diameter=10, at=(-25, 0, 20), axis="z").identify("declaration:1")
     s.hole(diameter=6, at=(25, 0, 20), axis="z").identify("declaration:2")
     return s.by_declaration("declaration:1"), lambda handle: handle.tolerance(0.025)
+
+
+def _scn_layout_override(s):
+    s.add(ControlFrame(Frame((-25, 0, 20), "z"), "position", "0.1", "plan", "below")).identify(
+        "layout:first"
+    )
+    s.add(ControlFrame(Frame((25, 0, 20), "z"), "flatness", "0.2", "plan", "below")).identify(
+        "layout:second"
+    )
+    return s, lambda sheet: sheet.layout_override("layout:first", side="above")
 
 
 def _scn_diameter(s):
@@ -244,6 +255,7 @@ _SCENARIOS = {
     "hole": _scn_hole,
     "of": _scn_of,
     "by_declaration": _scn_by_declaration,
+    "layout_override": _scn_layout_override,
     "diameter": _scn_diameter,
     "step": _scn_step,
     "envelope": _scn_envelope,
@@ -701,6 +713,7 @@ _STATE_CARRYING_FEATURE_REFS = frozenset(
         "_authored",
         "_schedules",
         "_declaration_identities",
+        "_layout_overrides",
         "_derived_views",
         "_added_derived_views",
     }

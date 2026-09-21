@@ -114,10 +114,12 @@ from draftwright.model.declare import (
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
 from draftwright.model.ir import (
+    PLACEMENT_SIDES,
     ControlFrame,
     DatumRef,
     DeclarationIdentity,
     FeatureSchedule,
+    LayoutOverride,
     NominalRequirement,
     Note,
     RequestedDimension,
@@ -1204,6 +1206,7 @@ class Sheet:
         self._entries: list[tuple[int, object]] = []
         self._features = _FeatureView(self._entries)
         self._declaration_identities: dict[int, DeclarationIdentity] = {}
+        self._layout_overrides: list[LayoutOverride] = []
         self._document_input: DocumentInput | None = None
         self._replayed_recognition = bool(_replayed_recognition)
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
@@ -1764,6 +1767,11 @@ class Sheet:
     def by_declaration(self, declaration_id: str) -> _Params:
         """Return the live handle carrying *declaration_id*, or fail if it was withdrawn."""
 
+        return _Params(self, self._index_of_token(self._declaration_token(declaration_id)))
+
+    def _declaration_token(self, declaration_id: str) -> int:
+        """Resolve one build-scoped declaration ID to its live token."""
+
         live_tokens = {token for token, _feature in self._entries}
         matches = [
             token
@@ -1775,7 +1783,126 @@ class Sheet:
                 f"by_declaration({declaration_id!r}) requires one live declaration; "
                 f"found {len(matches)}"
             )
-        return _Params(self, self._index_of_token(matches[0]))
+        return matches[0]
+
+    def layout_options(self, declaration_id: str) -> dict[str, object]:
+        """Describe the bounded layout-only controls supported by one declaration.
+
+        This is a pre-build capability query, not a feasibility promise: the shared layout
+        solve still decides whether the requested corridor can be used on the final sheet.
+        """
+
+        token = self._declaration_token(declaration_id)
+        feature = self._features[self._index_of_token(token)]
+        side = getattr(feature, "side", None)
+        if side not in PLACEMENT_SIDES:
+            raise ValueError(
+                f"declaration {declaration_id!r} does not expose a supported side control"
+            )
+        return {
+            "schema": "draftwright.layout-options",
+            "schema_version": 1,
+            "scope": "single-declaration-layout-controls",
+            "requires_build_validation": True,
+            "declaration_id": declaration_id,
+            "feature_kind": feature.kind,
+            "controls": {
+                "side": {
+                    "current": side,
+                    "supported_values": sorted(PLACEMENT_SIDES),
+                }
+            },
+        }
+
+    def validate_layout_override(
+        self,
+        declaration_id: str,
+        *,
+        side: str | None = None,
+        **unsupported_controls,
+    ) -> dict[str, object]:
+        """Preflight a layout override without mutating the sheet.
+
+        A supported result means the declaration and bounded vocabulary are valid.  It still
+        requires :meth:`build` to establish geometric feasibility on the composed sheet.
+        """
+
+        result: dict[str, object] = {
+            "schema": "draftwright.layout-validation",
+            "schema_version": 1,
+            "scope": "single-declaration-layout-controls",
+            "requires_build_validation": True,
+            "declaration_id": declaration_id,
+            "supported": False,
+            "issues": [],
+            "options": None,
+        }
+        try:
+            token = self._declaration_token(declaration_id)
+        except ValueError as error:
+            result["issues"] = [
+                {
+                    "code": "invalid_declaration",
+                    "message": str(error),
+                }
+            ]
+            return result
+        feature = self._features[self._index_of_token(token)]
+        if getattr(feature, "side", None) not in PLACEMENT_SIDES:
+            result["issues"] = [
+                {
+                    "code": "unsupported_declaration",
+                    "feature_kind": feature.kind,
+                    "message": (
+                        f"declaration {declaration_id!r} does not expose a supported side control"
+                    ),
+                }
+            ]
+            return result
+        options = self.layout_options(declaration_id)
+        result["options"] = options
+        if unsupported_controls:
+            result["issues"] = [
+                {
+                    "code": "unsupported_control",
+                    "controls": sorted(unsupported_controls),
+                    "message": "layout_override currently accepts only side",
+                }
+            ]
+            return result
+        supported = options["controls"]["side"]["supported_values"]  # type: ignore[index]
+        if side not in supported:
+            result["issues"] = [
+                {
+                    "code": "unsupported_value",
+                    "control": "side",
+                    "value": side,
+                    "supported_values": supported,
+                    "message": f"side must be a supported side: {supported} (got {side!r})",
+                }
+            ]
+            return result
+        result["supported"] = True
+        return result
+
+    def layout_override(self, declaration_id: str, *, side: str) -> Sheet:
+        """Append one declaration-scoped corridor-side override.
+
+        The operation records layout intent and updates the immutable feature consumed by the
+        existing solver.  It deliberately accepts no coordinates, lanes, or engineering data.
+        """
+
+        if any(row.declaration_id == declaration_id for row in self._layout_overrides):
+            raise ValueError(f"declaration {declaration_id!r} already has a layout override")
+        validation = self.validate_layout_override(declaration_id, side=side)
+        if not validation["supported"]:
+            issues = cast(list[dict[str, object]], validation["issues"])
+            raise ValueError(str(issues[0]["message"]))
+        token = self._declaration_token(declaration_id)
+        index = self._index_of_token(token)
+        self._replace_feature(index, replace(self._features[index], side=side))
+        self._layout_overrides.append(LayoutOverride(declaration_id, side))
+        return self
 
     def _declared_token(self, ref, *, verb: str) -> int | None:
         """The token of the declared feature *ref* names, or ``None`` if it names none.
@@ -3317,11 +3444,20 @@ class Sheet:
         identities = tuple(
             self._declaration_identities.get(token) for token, _feature in self._entries
         )
-        if not self._schedules and not self._replayed_recognition and not any(identities):
+        if (
+            not self._schedules
+            and not self._replayed_recognition
+            and not any(identities)
+            and not self._layout_overrides
+        ):
             return model
         model = _coerce_model(model, _solids_body(self._part), authored=self._authored_set())
-        if any(identities):
-            model = replace(model, declaration_identities=identities)
+        if any(identities) or self._layout_overrides:
+            model = replace(
+                model,
+                declaration_identities=identities,
+                layout_overrides=tuple(self._layout_overrides),
+            )
         if self._replayed_recognition:
             model = replace(model, detected=True, replayed_recognition=True)
         return replace(model, schedules=self._resolved_schedules()) if self._schedules else model

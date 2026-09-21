@@ -3958,6 +3958,32 @@ class FeatureSchedule:
 
 
 @dataclass(frozen=True)
+class LayoutOverride:
+    """One append-only layout-only edit against a build-scoped declaration.
+
+    The record carries a corridor side, never page coordinates.  The matching feature in
+    :class:`PartModel` contains the resolved value used by the renderer; retaining this
+    separate intent record makes generated replay and assessment evidence explicit without
+    turning layout policy into engineering meaning.
+    """
+
+    declaration_id: str
+    side: str
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.declaration_id, str)
+            or not self.declaration_id.strip()
+            or self.declaration_id != self.declaration_id.strip()
+        ):
+            raise ValueError(
+                "layout override requires a non-empty declaration_id without "
+                "surrounding whitespace"
+            )
+        validate_placement_intent(None, self.side, owner="layout override")
+
+
+@dataclass(frozen=True)
 class DeclarationIdentity:
     """Build-scoped identity for one editable declaration.
 
@@ -4044,6 +4070,10 @@ class PartModel:
     # compare equal and must not collapse into one declaration (#1710). Empty means the caller
     # supplied no declaration identity inventory; otherwise there is one slot per feature.
     declaration_identities: tuple[DeclarationIdentity | None, ...] = ()
+    # Explicit layout-only edits, addressed through the declaration inventory.  Appended to
+    # preserve positional PartModel construction.  The feature carries the resolved side;
+    # this ledger records why that side differs from the authored/generated default (#1757).
+    layout_overrides: tuple[LayoutOverride, ...] = ()
 
     def __post_init__(self) -> None:
         if self.declaration_identities and len(self.declaration_identities) != len(self.features):
@@ -4064,6 +4094,31 @@ class PartModel:
         ]
         if len(set(declaration_ids)) != len(declaration_ids):
             raise ValueError("PartModel.declaration_identities requires unique declaration IDs")
+        if not isinstance(self.layout_overrides, tuple) or any(
+            not isinstance(override, LayoutOverride) for override in self.layout_overrides
+        ):
+            raise ValueError("PartModel.layout_overrides requires LayoutOverride entries")
+        override_ids = [override.declaration_id for override in self.layout_overrides]
+        if len(set(override_ids)) != len(override_ids):
+            raise ValueError("PartModel.layout_overrides requires unique declaration IDs")
+        identities_by_id = {
+            identity.declaration_id: index
+            for index, identity in enumerate(self.declaration_identities)
+            if identity is not None
+        }
+        for override in self.layout_overrides:
+            index = identities_by_id.get(override.declaration_id)
+            if index is None:
+                raise ValueError(
+                    "PartModel.layout_overrides must target one declared feature; "
+                    f"found none for {override.declaration_id!r}"
+                )
+            resolved = getattr(self.features[index], "side", None)
+            if resolved != override.side:
+                raise ValueError(
+                    f"layout override {override.declaration_id!r} records side "
+                    f"{override.side!r}, but the resolved feature side is {resolved!r}"
+                )
         self._validate_structured_note_origins()
         self._validate_schedule_origins()
 

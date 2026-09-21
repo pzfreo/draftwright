@@ -1438,7 +1438,12 @@ def mirror_model(model):
     # marker on the frozen `EnvelopeFeature` and rediscovered it later by position and size —
     # emitter bookkeeping masquerading as model state, on a public IR type (#944 review).
     # Which feature the emitter synthesised is the emitter's own fact; it travels out-of-band.
-    return replace(model, features=[*model.features, env]), env
+    identities = (*model.declaration_identities, None) if model.declaration_identities else ()
+    return replace(
+        model,
+        features=[*model.features, env],
+        declaration_identities=identities,
+    ), env
 
 
 def unmirrored_dimensions(model) -> list[str]:
@@ -1752,6 +1757,22 @@ def _schedule_block(model, names: dict[int, str]) -> list[str]:
             out.append(f"    ({name}, {row.parameters!r}),")
         out.append(f"], name={schedule.name!r}, prefer={schedule.prefer!r})")
     return out
+
+
+def _layout_override_block(model) -> list[str]:
+    """Emit append-only layout policy after every declaration has its identity."""
+
+    if not model.layout_overrides:
+        return []
+    return [
+        "# ── Layout-only declaration overrides ──────────────────────────────────────────",
+        "# Corridor choice only; the placement solve still owns coordinates and feasibility.",
+        *(
+            "sheet.layout_override("
+            f"{json.dumps(override.declaration_id)}, side={json.dumps(override.side)})"
+            for override in model.layout_overrides
+        ),
+    ]
 
 
 def _feature_block(
@@ -2361,21 +2382,44 @@ def emit_sheet_script(
     )
     model, _synth_env = mirror_model(model)
     declaration_metadata = {}
+    reserved_declaration_ids = {
+        identity.declaration_id
+        for identity in model.declaration_identities
+        if identity is not None
+    }
+    generated_declaration_ids: set[str] = set()
     for index, feature in enumerate(model.features, start=1):
-        if id(feature) not in source_feature_ids:
-            provenance = "derived"
-        elif feature.kind in {"pmi", "control_frame", "datum_ref"}:
-            provenance = "pmi"
-        elif feature.kind == "note":
-            provenance = "structured-note"
-        elif source_detected:
-            provenance = "detected-geometry"
+        identity = (
+            model.declaration_identities[index - 1] if model.declaration_identities else None
+        )
+        if identity is not None:
+            declaration_id = identity.declaration_id
+            provenance = identity.provenance
+            occurrence_ids = identity.occurrence_ids
         else:
-            provenance = "authored"
+            declaration_id = f"declaration:{index}"
+            suffix = 1
+            while declaration_id in reserved_declaration_ids | generated_declaration_ids:
+                declaration_id = f"declaration:{index}:generated-{suffix}"
+                suffix += 1
+            generated_declaration_ids.add(declaration_id)
+            if id(feature) not in source_feature_ids:
+                provenance = "derived"
+            elif feature.kind in {"pmi", "control_frame", "datum_ref"}:
+                provenance = "pmi"
+            elif feature.kind == "note":
+                provenance = "structured-note"
+            elif source_detected:
+                provenance = "detected-geometry"
+            else:
+                provenance = "authored"
+            occurrence_ids = ()
+        if declaration_occurrences is not None and id(feature) in declaration_occurrences:
+            occurrence_ids = tuple(declaration_occurrences[id(feature)])
         declaration_metadata[id(feature)] = (
-            f"declaration:{index}",
+            declaration_id,
             provenance,
-            tuple((declaration_occurrences or {}).get(id(feature), ())),
+            occurrence_ids,
         )
     # Every constructor a member template can name has to be listed here. The pattern verbs
     # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
@@ -2618,6 +2662,8 @@ def emit_sheet_script(
         *_dimension_block(model, _names, _synth_env),
         *_schedule_block(model, _names),
         "",
+        *_layout_override_block(model),
+        *([""] if model.layout_overrides else []),
         "# ── Views ─────────────────────────────────────────────────────────────────────",
     ]
     principal_views = tuple(

@@ -4,6 +4,11 @@
 
 ### Added
 
+- Declared sheets now support append-only, build-scoped `layout_override(..., side=...)`
+  edits plus structured capability and validation queries. Overrides select only a semantic
+  corridor, retain declaration identity through generated-script replay, and appear as
+  layout-only resolution evidence in declared report v8; coordinates and engineering meaning
+  remain unchanged, and sheets without overrides preserve existing behaviour (#1757).
 - Raw automatic report assessments now include a typed remediation projection that separates
   contradictions, missing carriers, layout, importer/lowering, source ambiguity, and unavailable
   evidence. It retains affected evidence identities, names preservation invariants, advertises
