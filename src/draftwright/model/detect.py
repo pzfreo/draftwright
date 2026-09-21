@@ -598,6 +598,7 @@ def _convert_slot(sl: Slot, ctx: ConvContext) -> SlotFeature:
         w_center=sl.w_center,
         lo=sl.lo,
         hi=sl.hi,
+        end_radius=sl.end_radius,
     )
 
 
@@ -621,6 +622,7 @@ def _member_slot(sl: Slot) -> SlotFeature:
         w_center=sl.w_center,
         lo=sl.lo,
         hi=sl.hi,
+        end_radius=sl.end_radius,
     )
 
 
@@ -2158,6 +2160,25 @@ def build_part_model(
             # ADR 1 (was 0015) waist; that option stays recorded on #971.
             if ownership is not None:
                 ownership.refuse_hole_pattern(pat, reason_code="oblique_pattern_plane")
+            continue
+        axis_index = max(range(3), key=lambda index: abs(members[0].axis[index]))
+        projected_members = {
+            tuple(
+                round(float(value), 6)
+                for index, value in enumerate(member.location)
+                if index != axis_index
+            )
+            for member in members
+        }
+        if len(projected_members) != len(members):
+            # A drafting hole pattern is one set of distinct axes in the opening plane.
+            # Quiddity 0.3.2 can also publish a linear relation between coaxial openings
+            # separated only along the drilling direction. Those records are useful
+            # geometric evidence, but collapsing them into PatternFeature would put all
+            # members on one end-view point and state a pitch that cannot be drawn there.
+            # Keep the ordinary grouped-hole grammar as owner of those bores.
+            if ownership is not None:
+                ownership.refuse_hole_pattern(pat, reason_code="noncoplanar_pattern_members")
             continue
         if isinstance(pat, BoltCircle) and not bolt_circle_is_corroborated(
             pat, members, holes, bosses

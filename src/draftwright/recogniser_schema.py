@@ -8,7 +8,6 @@ resolve engine implementations.
 from __future__ import annotations
 
 _SCHEMA_1_RECORDS = {
-    ("slots", "Slot"),
     ("repeating-radial-profiles", "RepeatingRadialProfile"),
     ("polygonal-bosses", "PolygonalBoss"),
     ("slot-patterns", "SlotGrid"),
@@ -74,6 +73,7 @@ _RECORD_SCHEMA_VERSIONS: dict[tuple[str, str], tuple[int, ...]] = {
     ("section-recesses", "SectionRecessGrid"): (1,),
     ("section-recesses", "SectionRecessRefusal"): (1,),
     ("through-steps", "ThroughStep"): (2,),
+    ("slots", "Slot"): (2,),
     ("turned-steps", "TurnedProfileKey"): (2,),
 }
 

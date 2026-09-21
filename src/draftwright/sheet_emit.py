@@ -532,7 +532,9 @@ def _member_slot_str(m) -> str:
     return (
         f"slot(width={_n(m.width)}, length={length}, "
         f'long_axis="{m.long_axis}", width_axis="{m.width_axis}", '
-        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)})"
+        f"lo={lo}, hi={hi}, w_center={_n(m.w_center)}, at={_pt(m.frame.origin)}"
+        + (f", end_radius={_n(m.end_radius)}" if m.end_radius is not None else "")
+        + ")"
     )
 
 
@@ -913,7 +915,9 @@ def _feature_line(
         return (
             f"sheet.slot(width={_n(f.width)}, length={length}, "
             f'long_axis="{f.long_axis}", width_axis="{f.width_axis}", '
-            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)})"
+            f"lo={lo}, hi={hi}, w_center={_n(f.w_center)}, at={_pt(f.frame.origin)}"
+            + (f", end_radius={_n(f.end_radius)}" if f.end_radius is not None else "")
+            + ")"
         )
     if k == "blend":
         path = (

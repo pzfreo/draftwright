@@ -4,6 +4,14 @@
 
 ### Added
 
+- Stadium through-slots now retain Quiddity 0.3.2's proved end radius through detection,
+  declared `Sheet` scripts, compiled measurement identity, placement, and completeness. A
+  normal-to-arc `2× R…` leader distinguishes an obround from an equal-sized rectangular slot
+  without introducing coordinate placement (#1752).
+- The Quiddity 0.3.2 adoption also retains corrected overall extents for rounded-corner
+  rectangular slots. Hole-pattern records whose members differ only along the drilling axis
+  are explicitly refused at the drafting boundary, preserving their ordinary grouped-hole
+  requirements instead of emitting a coincident, undrawable pitch pattern.
 - Feature-leader placement now has one coordinate-free drawing policy across
   `build_drawing`, `make_drawing`, `Sheet`, generated scripts, and the CLI. The default
   `auto` policy keeps the shared interior/exterior solve, `interior` requires proved

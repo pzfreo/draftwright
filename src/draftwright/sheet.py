@@ -1899,7 +1899,7 @@ class Sheet:
         return _Dim(self, len(self._features) - 1, "length")
 
     def slot(self, obj=None, **kw) -> _Params:
-        """Declare a milled slot / reduced across-flats section (width + length)."""
+        """Declare a milled slot (width + length, with optional ``end_radius``)."""
         self._features.append(_slot(obj, **kw))
         return _Params(self, len(self._features) - 1)
 

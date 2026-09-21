@@ -877,6 +877,15 @@ drop, or missing ink is not hidden by the ownership choice.
     options:
       filters: public
 
+### Axis-aligned through-slots
+
+`Sheet.slot(...)` declares the independently addressable `slot_width.length` and
+`slot_length.length` measurements. Pass `end_radius=` only for a stadium/obround slot; this adds
+`slot_end_radius.radius`, rendered as a solver-placed `2× R…` leader whose arrow remains normal
+to either end arc. Leaving it unset preserves the rectangular-slot grammar. The declared radius
+must equal half the width, and generated Sheet scripts retain the field when recognition proved
+semicircular ends.
+
 ## GD&T control builder
 
 ::: draftwright.sheet._Control

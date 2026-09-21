@@ -1178,6 +1178,19 @@ class TestEmit:
         line = _call_expr(_feature_line_for(_script_for(part), "sheet.slot("))
         eval(line, {"sheet": Sheet(part).auto_dimensions()})  # declare.slot() must not raise
 
+    def test_obround_slot_line_round_trips_end_radius(self):
+        from build123d import Plane, SlotOverall, extrude
+
+        from draftwright import Sheet
+
+        part = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(30, 8), 12, both=True)
+        line = _call_expr(_feature_line_for(_script_for(part), "sheet.slot("))
+        assert "end_radius=4" in line
+        sheet = Sheet(part).auto_dimensions()
+        eval(line, {"sheet": sheet})
+        feature = next(feature for feature in sheet.model().features if feature.kind == "slot")
+        assert feature.end_radius == 4
+
     def test_pocket_line_re_runs_without_the_length_invariant_error(self):
         # #148a: declare.pocket() checks hi - lo == length to 1e-6; the emitter must derive
         # length from the emitted lo/hi so the generated pocket line doesn't raise on re-run.

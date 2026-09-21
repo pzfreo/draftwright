@@ -30,6 +30,21 @@ def _member():
     )
 
 
+def _obround_member():
+    return slot(
+        width=8.0,
+        length=20.0,
+        long_axis="x",
+        width_axis="y",
+        depth_axis="z",
+        lo=-10.0,
+        hi=10.0,
+        w_center=0.0,
+        end_radius=4.0,
+        at=(0.0, 0.0, 0.0),
+    )
+
+
 def test_declare_composes_member_and_layout():
     sp = slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
     assert sp.kind == "slot_pattern"
@@ -59,6 +74,29 @@ def test_linear_pattern_renders_one_grouped_callout_plus_pitch():
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
     # the member slots are composed into the pattern — NOT rendered individually
     assert not [n for n in names if n.startswith("m_slot0")]
+
+
+def test_obround_pattern_adds_one_end_radius_requirement():
+    s = Sheet(Box(60, 161, 21)).auto_dimensions()
+    s.envelope()
+    s.slot_pattern(_obround_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
+    dwg = s.build()
+    labels = {
+        name: dwg.get_annotation(name).label
+        for name in dwg.annotations()
+        if name.startswith("m_slotpat")
+    }
+    assert sorted(labels.values()) == ["2× R4", "4× SLOT 8 × 20"]
+    assert not [issue for issue in dwg.lint() if issue.code.startswith("slot_requirement_")]
+
+
+def test_obround_pattern_member_emits_and_rebuilds_its_radius():
+    from draftwright.sheet_emit import _member_slot_str
+
+    expression = _member_slot_str(_obround_member())
+    assert "end_radius=4" in expression
+    rebuilt = eval(expression, {"slot": slot})
+    assert rebuilt.end_radius == 4
 
 
 def test_grid_pattern_renders_both_pitch_dims():

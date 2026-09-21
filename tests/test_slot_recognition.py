@@ -1,5 +1,6 @@
 """Slot recognition and automatic slot dimensioning."""
 
+import math
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,7 @@ class TestFindSlots:
         assert s.width == 8.0
         assert s.length == 30.0
         assert (s.lo, s.hi) == (-15.0, 15.0)
+        assert s.end_radius == 4.0
 
     def test_obround_pocket_reports_overall_length(self):
         # The blind counterpart — a floored obround pocket likewise reports overall length (#613).
@@ -144,6 +146,7 @@ class TestFindSlots:
         # its length is its flat span, already the overall length (#613 must not regress it).
         (s,) = recognise_slots(Box(60, 30, 10) - Box(30, 8, 20))
         assert s.length == 30.0
+        assert s.end_radius is None
 
     def test_recognise_matches_declare_on_obround_length(self):
         # #613 also removes a recognise/declare divergence: declare.slot(obj) reads the overall
@@ -476,6 +479,48 @@ class TestSlotDimensioning:
         }
         assert labels.get("m_slot0_width") == "8"
         assert labels.get("m_slot0_length") == "13.5"
+        assert labels.get("m_slot0_radius") == "2× R4"
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("leader_region", ["auto", "interior", "exterior"])
+    def test_obround_radius_leader_meets_an_end_arc_normally(self, leader_region):
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(30, 8), 12, both=True)
+        dwg = build_drawing(part, leader_region=leader_region)
+        slot = next(feature for feature in dwg.model().features if feature.kind == "slot")
+        leader = dwg.get_annotation("m_slot0_radius")
+        tip = leader._tip_local
+        elbow = leader._elbow_local
+        cap_centres = []
+        for centre_x, end_x in (
+            (slot.lo + slot.end_radius, slot.lo),
+            (slot.hi - slot.end_radius, slot.hi),
+        ):
+            point = dict(zip("xyz", slot.frame.origin, strict=True))
+            point[slot.long_axis] = centre_x
+            point[slot.width_axis] = slot.w_center
+            projected_centre = dwg.at("plan", *(point[axis] for axis in "xyz"))
+            point[slot.long_axis] = end_x
+            projected_end = dwg.at("plan", *(point[axis] for axis in "xyz"))
+            cap_centres.append(
+                (
+                    (projected_centre[0], projected_centre[1]),
+                    (
+                        projected_end[0] - projected_centre[0],
+                        projected_end[1] - projected_centre[1],
+                    ),
+                )
+            )
+        centre, outward = min(
+            cap_centres,
+            key=lambda item: math.hypot(tip[0] - item[0][0], tip[1] - item[0][1]),
+        )
+        radius = (tip[0] - centre[0], tip[1] - centre[1])
+        shaft = (elbow[0] - tip[0], elbow[1] - tip[1])
+        assert math.hypot(*radius) == pytest.approx(math.hypot(*outward), abs=1e-6)
+        assert radius[0] * shaft[1] - radius[1] * shaft[0] == pytest.approx(0.0, abs=1e-6)
+        assert radius[0] * outward[0] + radius[1] * outward[1] >= 0
 
     @pytest.mark.timeout(60)
     def test_non_round_width_label_matches_geometry(self):

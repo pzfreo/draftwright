@@ -126,6 +126,22 @@ class TestFeatureEditCorridors:
         assert not [n for n in dwg.annotations() if n.startswith("dim_length")]
         assert dwg._intents == []
 
+    def test_finalize_routes_obround_radius_through_the_shared_leader_solve(self):
+        from build123d import Plane, SlotOverall, extrude
+
+        part = Box(60, 30, 12) - extrude(Plane.XY * SlotOverall(30, 8), 12, both=True)
+        auto = build_drawing(part)
+        dwg = build_drawing(part, auto_dims=False)
+        slot = next(feature for feature in dwg.model().features if feature.kind == "slot")
+
+        with dwg.deferred():
+            dwg.dimension(slot, "radius", role="slot_end_radius")
+
+        assert dwg.get_annotation("m_slot0_radius").label == "2× R4"
+        assert {name for name in dwg.annotations() if name.startswith("m_slot")} == {
+            name for name in auto.annotations() if name.startswith("m_slot")
+        }
+
     def test_finalize_malformed_slot_dimension_surfaces_the_live_valueerror(self):
         # #439: slot_ids matches only param="length" + role in (slot_width, slot_length),
         # like len_ids/dia_ids. A malformed slot dim (a param a slot has no parameter for)

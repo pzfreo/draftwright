@@ -1343,13 +1343,16 @@ def slot(
     w_center=None,
     lo=None,
     hi=None,
+    end_radius=None,
     at=None,
 ) -> SlotFeature:
     """A milled slot / reduced across-flats section. From an object the depth (through, not
     stored) axis defaults to the *shortest* bbox span; the two remaining axes are read as
     long_axis (the longer) / width_axis (the shorter). ``lo``/``hi`` are the extent along the
-    long axis and ``w_center`` the centre across the width axis. An object supplies *defaults*;
-    any explicit keyword overrides that field (#451).
+    long axis and ``w_center`` the centre across the width axis. ``end_radius`` declares two
+    equal semicircular end caps; leave it unset for a rectangular slot. An object supplies
+    geometric size defaults, but cannot infer this semantic end shape; pass ``end_radius=``
+    explicitly. Any explicit keyword overrides the corresponding measured field (#451).
 
     Pass ``depth_axis=`` when the cutter's through span is *not* the shortest — a through-Z
     milled slot cut by a tall cutter has Z as its longest span, so the shortest-span default
@@ -1426,6 +1429,14 @@ def slot(
             f"slot() depth_axis must differ from long_axis/width_axis (got {depth_axis!r})"
         )
     _require_positive(width=width, length=length)
+    if end_radius is not None:
+        _require_positive(end_radius=end_radius)
+        if not math.isclose(2 * end_radius, width, rel_tol=1e-6, abs_tol=1e-6):
+            raise ValueError(
+                f"slot() end_radius={end_radius!r} must equal half the width ({width / 2!r})"
+            )
+        if 2 * end_radius > length + 1e-6:
+            raise ValueError("slot() length must be at least its end diameter")
     if not lo < hi:
         raise ValueError(f"slot() needs lo < hi (got lo={lo!r}, hi={hi!r})")
     if not math.isclose(hi - lo, length, rel_tol=1e-6, abs_tol=1e-6):
@@ -1446,6 +1457,7 @@ def slot(
         w_center=w_center,
         lo=lo,
         hi=hi,
+        end_radius=end_radius,
     )
 
 

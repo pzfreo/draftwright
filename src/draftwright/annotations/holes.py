@@ -70,6 +70,7 @@ from draftwright.annotations.from_model import (
     _diameter_column_left,
     _diameter_row_below,
     _leader_callout_reach,
+    _obround_radius_candidates,
     _pocket_label,
     _radial_candidates,
     _slot_label,
@@ -2019,7 +2020,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
 
 def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     """Grouped milled-slot-array callouts (#841): ONE ``count× SLOT W × L`` leader on the array
-    centre + the ``(n-1)× pitch`` dim(s), instead of N competing per-slot size dims (some of
+    centre + an optional ``2× R`` obround-end leader + the ``(n-1)× pitch`` dim(s), instead of N competing per-slot size dims (some of
     which drop for lack of room, #841 behaviour 1). The through-slot analog of
     :func:`render_pocket_patterns` — a slot has no depth, so the label carries no ``× D DEEP``.
 
@@ -2034,6 +2035,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     view_of = _END_ON
     pat_groups = list(plan.of_kind("slot_pattern"))
     jobs = []
+    radius_jobs = []
     furniture = []  # (i, feat, view, name) for the placed patterns' pitch dims
     for i, g in enumerate(
         sorted(pat_groups, key=lambda g: (g.facts.member_width_axis, g.facts.frame.origin))
@@ -2047,6 +2049,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
         by_key = {(pd.role, pd.kind): pd for pd in g.dims}
         wpd = by_key.get(("slot_width", "length"))
         lpd = by_key.get(("slot_length", "length"))
+        rpd = by_key.get(("slot_end_radius", "radius"))
         if wpd is None or lpd is None:
             continue
         view = view_of.get(through_axis)
@@ -2074,9 +2077,41 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 (wpd.id, lpd.id),  # width × length, one callout (#1002)
             )
         )
+        if rpd is not None:
+            radius_jobs.append(
+                (
+                    f"m_slotpat_radius_{feat.member_width_axis}{feat.member_long_axis}{i}",
+                    view,
+                    vb,
+                    f"2× R{rpd.value_text}{_tol_suffix(rpd.tolerance, draft)}",
+                    _obround_radius_candidates(
+                        dwg,
+                        view,
+                        vb,
+                        centre=feat.members[0] if feat.members else feat.frame.origin,
+                        long_axis=feat.member_long_axis,
+                        length=lpd.value,
+                        radius=rpd.value,
+                        reach=reach,
+                        provenance=g.ref,
+                    ),
+                    (rpd.id,),
+                )
+            )
         furniture.append((i, g, view, name))
     placed = place_machined_leader_jobs(
         dwg, a, jobs, noun="slot pattern", drop_code="slot_dropped", ctx=ctx
+    )
+    placed += place_machined_leader_jobs(
+        dwg,
+        a,
+        radius_jobs,
+        noun="slot-pattern end radius",
+        drop_code="slot_dim_dropped",
+        ctx=ctx,
+        joint=True,
+        expand_lanes=False,
+        region_policy=LeaderRegionPolicy.AUTO,
     )
     placed_names = dwg.annotations()
     for i, g, view, name in furniture:

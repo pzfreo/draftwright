@@ -81,14 +81,16 @@ EXPECTED = {
             "hc_front0": ("Leader", (122.875, 128.665, 146.85, 153.0)),
             "m_polygonal_boss_z0": ("Leader", (87.925, 218.931, 112.775, 226.34)),
             "m_slot0_width": ("Dimension", (74.775, 225.6, 209.775, 244.4)),
-            "m_slot1_width": ("Dimension", (184.775, 229.95, 222.625, 240.05)),
+            # Quiddity 0.3.2 retains the rounded-rectangle slot's R10 corners and reports
+            # its overall extents, moving these witnesses to the physical ends.
+            "m_slot1_width": ("Dimension", (186.775, 229.95, 222.625, 240.05)),
             "m_slot0_length": ("Dimension", (48.725, 241.0, 72.825, 292.0)),
-            "m_slot1_length": ("Dimension", (166.725, 242.0, 182.825, 301.5)),
+            "m_slot1_length": ("Dimension", (164.725, 242.0, 184.825, 301.5)),
             "m_slot0_pos": ("Dimension", (37.725, 241.0, 48.825, 311.0)),
             "m_locx0": ("Dimension", (37.725, 272.0, 52.825, 320.5)),
             "m_locx1": ("Dimension", (37.725, 246.0, 85.825, 330.0)),
             "m_locx2": ("Dimension", (37.725, 246.0, 149.825, 339.5)),
-            "m_slot1_pos": ("Dimension", (37.725, 242.0, 166.825, 349.0)),
+            "m_slot1_pos": ("Dimension", (37.725, 242.0, 164.825, 349.0)),
             "m_locx3": ("Dimension", (37.725, 272.0, 182.825, 358.5)),
             "m_locy0": ("Dimension", (250.725, 172.0, 260.825, 182.0)),
             "m_locy1": ("Dimension", (250.725, 172.0, 286.825, 191.5)),
@@ -105,6 +107,7 @@ EXPECTED = {
             # Circular interior alternatives remain normal to their physical rims.
             "hc_plan0": ("Leader", (87.543, 245.768, 114.866, 252.053)),
             "hc_plan1": ("Leader", (186.275, 268.665, 220.199, 271.335)),
+            "m_slot0_radius": ("Leader", (10.338, 233.917, 48.775, 236.083)),
             "m_chamfer_y0": ("Leader", (91.81, 164.568, 108.266, 169.491)),
             "m_chamfer_z1": ("Leader", (192.775, 275.0, 213.032, 283.142)),
             "m_fillet_z0": ("Leader", (45.454, 192.341, 64.846, 194.807)),

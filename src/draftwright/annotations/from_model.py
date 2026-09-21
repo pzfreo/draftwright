@@ -103,9 +103,11 @@ from draftwright.annotations._common import (
 )
 from draftwright.annotations.angular import AngularInk
 from draftwright.annotations.leaders import (
+    FeatureLeaderCandidate,
     FeatureLeaderJob,
     LeaderCandidateRegion,
     LeaderRegionPolicy,
+    RadialLeaderTarget,
     collect_feature_leader,
     feature_leader_candidates,
     material_penalty_units,
@@ -345,15 +347,17 @@ def _record_slot_drop(ctx, dwg, kind, idx, view, feat, measurement=None):
 
 def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     """Dimension milled slots from the IR — width (the defining size, across
-    ``width_axis``) + length (along ``long_axis``) + a position dim from the part
-    datum, in the view the two axes span. Places through the engine's zone strips
+    ``width_axis``) + length (along ``long_axis``) + an optional obround end-radius
+    leader + a position dim from the part datum, in the view the two axes span. Places
+    linear dimensions through the engine's zone strips and the radius through the shared leader solve
     (shared infra, ADR 1 (was 0008) Amend. 4); a dim with no clear room is dropped and
     recorded at info severity (place-what-fits). Sources slot `DimensionGroup`s
     from the plan; replaces the engine's `_annotate_slots`. Returns the count placed.
 
-    Planner-fed (#730 / #698): the width + length VALUES and their tolerances come
+    Planner-fed (#730 / #698 / #1752): width, length and radius VALUES and tolerances come
     from the planner's ``DimParameter``s, bound explicitly by ``(role, kind)`` —
-    ``("slot_width", "length")`` / ``("slot_length", "length")`` — never positionally.
+    ``("slot_width", "length")`` / ``("slot_length", "length")`` /
+    ``("slot_end_radius", "radius")`` — never positionally.
     Formatting ``s.width``/``s.length`` directly dropped an authored tolerance (the
     #629 class). Placement mechanics are untouched: which dims register into the
     (view, "above") corridor vs place immediately, the ``on_drop`` below-strip
@@ -402,6 +406,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
     }
 
     count = 0
+    radius_jobs = []
     kind_indices: dict[str, int] = {}
     only_refs = None if only is None else {FeatureRef(f) for f in only}
 
@@ -674,6 +679,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
         role_prefix = s.kind if s.kind in ("pad", "slot") else ""
         wpd = g.dim(role=f"{role_prefix}_width", kind="length")
         lpd = g.dim(role=f"{role_prefix}_length", kind="length")
+        rpd = g.dim(role="slot_end_radius", kind="radius") if s.kind == "slot" else None
         half = s.width / 2
         if wpd is not None:
             if _place(
@@ -703,6 +709,27 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                 count += 1
             else:
                 _record_slot_drop(ctx, dwg, "length", i, name, s, lpd.id)
+        if rpd is not None:
+            bounds = dwg.view_bounds(name)
+            if bounds is not None:
+                radius_jobs.append(
+                    (
+                        f"m_slot{i}_radius",
+                        name,
+                        bounds,
+                        f"2× R{rpd.value_text}{_tol_suffix(rpd.tolerance, draft)}",
+                        _slot_end_radius_candidates(
+                            dwg,
+                            name,
+                            bounds,
+                            s,
+                            rpd.value,
+                            _leader_callout_reach(draft),
+                            provenance=g.ref,
+                        ),
+                        (rpd.id,),
+                    )
+                )
         # Pads are located by the compiled location set on both axes; slots retain their
         # historical single-axis position dimension here.
         pos = slot_positions.get(g.ref)
@@ -774,7 +801,110 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
                     # called unobservable fixes 29 records, while the one I reverted as
                     # non-reproducing was leaving 12 broken (#1231 review, finding 3).
                     _record_slot_drop(ctx, dwg, "position", i, name, s, entry.id)
+    count += place_machined_leader_jobs(
+        dwg,
+        a,
+        radius_jobs,
+        noun="slot end radius",
+        drop_code="slot_dim_dropped",
+        ctx=ctx,
+        joint=True,
+        expand_lanes=False,
+        region_policy=LeaderRegionPolicy.AUTO,
+    )
     return count
+
+
+def _slot_end_radius_candidates(
+    dwg,
+    view,
+    bounds,
+    slot,
+    radius,
+    reach,
+    *,
+    provenance,
+):
+    """Lead normally into either proved semicircular end of an obround slot."""
+    depth_axis = next(axis for axis in "xyz" if axis not in (slot.width_axis, slot.long_axis))
+    coordinates = dict(zip("xyz", slot.frame.origin, strict=True))
+    coordinates[slot.width_axis] = slot.w_center
+    coordinates[slot.long_axis] = (slot.lo + slot.hi) / 2
+    coordinates[depth_axis] = slot.frame.origin["xyz".index(depth_axis)]
+    yield from _obround_radius_candidates(
+        dwg,
+        view,
+        bounds,
+        centre=tuple(coordinates[axis] for axis in "xyz"),
+        long_axis=slot.long_axis,
+        length=slot.hi - slot.lo,
+        radius=radius,
+        reach=reach,
+        provenance=provenance,
+    )
+
+
+def _obround_radius_candidates(
+    dwg,
+    view,
+    bounds,
+    *,
+    centre,
+    long_axis,
+    length,
+    radius,
+    reach,
+    provenance,
+):
+    """Yield end-arc candidates from approved size and structural orientation."""
+    coordinates = dict(zip("xyz", centre, strict=True))
+    long_centre = coordinates[long_axis]
+    for sign in (1.0, -1.0):
+        coordinates[long_axis] = long_centre + sign * (length / 2 - radius)
+        page_centre = dwg.at(view, *(coordinates[axis] for axis in "xyz"))
+        coordinates[long_axis] = long_centre + sign * length / 2
+        tip_page = dwg.at(view, *(coordinates[axis] for axis in "xyz"))
+        dx, dy = float(tip_page[0] - page_centre[0]), float(tip_page[1] - page_centre[1])
+        page_radius = math.hypot(dx, dy)
+        if page_radius <= 1e-12:
+            continue
+        ux, uy = dx / page_radius, dy / page_radius
+        tip = (float(tip_page[0]), float(tip_page[1]))
+        # A stadium's void is useful proved whitespace too. Offer one fixed candidate
+        # pointing back through the cap centre into that opening; it remains normal to
+        # the arc while avoiding the exterior strips occupied by the width/length chain.
+        yield FeatureLeaderCandidate(
+            tip=tip,
+            elbow=(tip[0] - ux * reach, tip[1] - uy * reach, 0),
+            feature=provenance,
+            region=LeaderCandidateRegion.INTERIOR,
+        )
+        radial_target = RadialLeaderTarget(
+            center=(float(page_centre[0]), float(page_centre[1])),
+            radius=page_radius,
+            outward=(ux, uy),
+        )
+        # The whole proved semicircle is a legitimate attachment, not only its apex.
+        # Fan across that arc so a crowded view can keep the radius without evicting an
+        # unrelated leader; each shaft remains collinear with its local radius.
+        for angle in (0.0, math.pi / 4, -math.pi / 4, math.pi / 2, -math.pi / 2):
+            cosine, sine = math.cos(angle), math.sin(angle)
+            direction = (ux * cosine - uy * sine, ux * sine + uy * cosine)
+            arc_tip = radial_target.tip(direction)
+            exit_distance = _ray_exit_dist(
+                arc_tip[0], arc_tip[1], direction[0], direction[1], bounds
+            )
+            elbow = (
+                arc_tip[0] + direction[0] * (exit_distance + reach),
+                arc_tip[1] + direction[1] * (exit_distance + reach),
+                0,
+            )
+            yield FeatureLeaderCandidate(
+                tip=arc_tip,
+                elbow=elbow,
+                feature=provenance,
+                radial_target=radial_target,
+            )
 
 
 # Corridor-ladder ordering (ADR 2 (was 0009) end state, #346): feature-SIZE dims sit nearer the
@@ -2569,7 +2699,12 @@ def place_machined_leader_jobs(
                     interior_count += 1
                 if _region_policy is LeaderRegionPolicy.INTERIOR:
                     return
-            for tip, elbow, feature in _exterior_anchors:
+            for raw in _exterior_anchors:
+                typed = isinstance(raw, FeatureLeaderCandidate)
+                candidate = raw if typed else FeatureLeaderCandidate(*raw)
+                if candidate.region is not LeaderCandidateRegion.EXTERIOR:
+                    continue
+                tip, elbow, feature = candidate.tip, candidate.elbow, candidate.feature
                 if interior_count:
                     # Once this job has proven projected-clear interior options,
                     # retain one exterior alternative per semantic anchor instead
@@ -2577,12 +2712,12 @@ def place_machined_leader_jobs(
                     # job with no interior option keeps the complete historical
                     # lane inventory below, and AUTO's resource fallback keeps the
                     # exact pre-interior exterior floor in either case.
-                    yield (tip, elbow, feature)
+                    yield candidate if typed else raw
                     continue
                 dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
                 length = math.hypot(dx, dy)
                 if length <= 1e-12:
-                    yield (tip, elbow, feature)
+                    yield candidate if typed else raw
                     continue
                 ux, uy = dx / length, dy / length
                 px, py = -dy / length, dx / length
@@ -2597,15 +2732,38 @@ def place_machined_leader_jobs(
                     (1, 1),
                     (1, -1),
                 ):
-                    yield (
-                        tip,
-                        (
-                            float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
-                            float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
-                            0,
-                        ),
-                        feature,
+                    shifted_elbow = (
+                        float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
+                        float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
+                        0,
                     )
+                    if typed:
+                        shifted_tip = tip
+                        if candidate.radial_target is not None:
+                            radial_dx = shifted_elbow[0] - candidate.radial_target.center[0]
+                            radial_dy = shifted_elbow[1] - candidate.radial_target.center[1]
+                            radial_length = math.hypot(radial_dx, radial_dy)
+                            if radial_length <= 1e-12:
+                                continue
+                            radial_direction = (
+                                radial_dx / radial_length,
+                                radial_dy / radial_length,
+                            )
+                            if not candidate.radial_target.allows(radial_direction):
+                                continue
+                            shifted_tip = candidate.radial_target.tip(radial_direction)
+                        yield FeatureLeaderCandidate(
+                            tip=shifted_tip,
+                            elbow=shifted_elbow,
+                            feature=feature,
+                            radial_target=candidate.radial_target,
+                        )
+                    else:
+                        yield (
+                            tip,
+                            shifted_elbow,
+                            feature,
+                        )
 
         def _build(tip, elbow, _feature, *, _label=label):
             return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
@@ -2632,6 +2790,36 @@ def place_machined_leader_jobs(
 
         source_ids = tuple(source_ids_by_name.get(name, ()))
 
+        def _exterior_floor(_anchors=fallback_exterior_anchors):
+            for raw in _anchors:
+                candidate = raw if isinstance(raw, FeatureLeaderCandidate) else None
+                if candidate is None or candidate.region is LeaderCandidateRegion.EXTERIOR:
+                    yield raw
+
+        def _compact_candidates(
+            _anchors,
+            *,
+            _policy=effective_region_policy,
+        ):
+            for raw in _anchors:
+                candidate = (
+                    raw
+                    if isinstance(raw, FeatureLeaderCandidate)
+                    else FeatureLeaderCandidate(*raw)
+                )
+                if (
+                    _policy is LeaderRegionPolicy.AUTO
+                    or (
+                        _policy is LeaderRegionPolicy.INTERIOR
+                        and candidate.region is LeaderCandidateRegion.INTERIOR
+                    )
+                    or (
+                        _policy is LeaderRegionPolicy.EXTERIOR
+                        and candidate.region is LeaderCandidateRegion.EXTERIOR
+                    )
+                ):
+                    yield candidate if isinstance(raw, FeatureLeaderCandidate) else raw
+
         def _on_drop(
             reason,
             *,
@@ -2650,38 +2838,45 @@ def place_machined_leader_jobs(
                 outcome_stage="validation" if validation else "placement",
             )
 
+        if late_inventory:
+            candidates = (
+                _lane_candidates() if expand_lanes else _compact_candidates(joint_exterior_anchors)
+            )
+            if effective_region_policy is LeaderRegionPolicy.INTERIOR:
+                fallback_candidates = (
+                    _lane_candidates(
+                        _interior_anchors=fallback_interior_anchors,
+                        _exterior_anchors=fallback_exterior_anchors,
+                    )
+                    if expand_lanes
+                    else _compact_candidates(
+                        fallback_exterior_anchors,
+                        _policy=LeaderRegionPolicy.INTERIOR,
+                    )
+                )
+            else:
+                # AUTO's bounded-resource fallback remains the exact established
+                # exterior floor; extra interior anchors must not displace a complete
+                # incumbent. EXTERIOR naturally uses that same floor.
+                fallback_candidates = _exterior_floor()
+        else:
+            candidates = joint_exterior_anchors
+            fallback_candidates = _exterior_floor()
+
         feature_jobs.append(
             FeatureLeaderJob(
                 name=name,
                 view=view,
                 silhouette=silhouette,
                 label=label,
-                candidates=(
-                    _lane_candidates()
-                    if late_inventory and expand_lanes
-                    else joint_exterior_anchors
-                ),
+                candidates=candidates,
                 build=_build,
                 analytical_geometry=_analytical_geometry,
                 measurement=tuple(measurement),
                 noun=noun,
                 drop_code=drop_code,
                 priority=priority,
-                fallback_candidates=(
-                    _lane_candidates(
-                        _interior_anchors=fallback_interior_anchors,
-                        _exterior_anchors=fallback_exterior_anchors,
-                    )
-                    if effective_region_policy is LeaderRegionPolicy.INTERIOR
-                    and late_inventory
-                    and expand_lanes
-                    # AUTO is an optional expansion of the joint solve.  Its
-                    # bounded-resource fallback remains the exact established
-                    # exterior producer floor; otherwise extra interior anchors
-                    # can make an incomplete legacy floor look complete and
-                    # displace a complete joint incumbent.
-                    else fallback_exterior_anchors
-                ),
+                fallback_candidates=fallback_candidates,
                 fallback_accept=_fallback_accept,
                 interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
