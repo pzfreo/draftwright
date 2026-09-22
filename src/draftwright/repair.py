@@ -93,8 +93,6 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
     original = list(dwg.iter_annotations())
     pins = dwg.registry.pinned_names()
     measurements = dwg.measurement_snapshot()
-    if measurements.unknown:
-        return  # an unconfirmed measurement cannot authorise an automatic move
     candidates = choose_candidates(original, pins)
     if [name for name, _ in candidates] != [name for name, _ in original]:
         return
@@ -104,6 +102,14 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
         if old is not new
     ]
     if not changes:
+        return
+    changed_names = {
+        name for (name, old), (_, new) in zip(original, candidates, strict=True) if old is not new
+    }
+    if changed_names & {name for name, _reason in measurements.unknown}:
+        # Unknown authority on an annotation we would move still fails closed.  An
+        # unrelated piece of sheet furniture with no measurement identity cannot veto a
+        # mechanically proved move of a confirmed dimension elsewhere (#1781).
         return
     for (name, old), (_, new) in zip(original, candidates, strict=True):
         if old is new:
@@ -126,12 +132,32 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
             # as returned, without overwriting evidence that the comparison reads.
             _swap_annotation(dwg, old, new)
         after = dwg.lint(physical=False)
+        after_measurements = dwg.measurement_snapshot()
+        measurement_comparison = compare_measurements(measurements, after_measurements)
+        confirmed_claims_preserved = not any(
+            measurement_comparison[key] for key in ("lost", "gained", "changed")
+        )
+        unknown_authority_unchanged = (
+            len(measurements.owners) == len(after_measurements.owners)
+            and all(
+                before_owner is after_owner
+                for before_owner, after_owner in zip(
+                    measurements.owners,
+                    after_measurements.owners,
+                    strict=True,
+                )
+            )
+            and measurements.unknown == after_measurements.unknown
+            and measurements.cell_unknown == after_measurements.cell_unknown
+            and not (changed_names & {name for name, _reason in after_measurements.unknown})
+        )
         before_counts = Counter((issue.code, issue.severity) for issue in before)
         after_counts = Counter((issue.code, issue.severity) for issue in after)
         accepted = (
             bool(before_counts - after_counts)
             and not (after_counts - before_counts)
-            and compare_measurements(measurements, dwg)["status"] == "preserved"
+            and confirmed_claims_preserved
+            and unknown_authority_unchanged
         )
     finally:
         if not accepted:

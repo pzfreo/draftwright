@@ -3583,18 +3583,39 @@ def place_strip_candidates(
         todo = todo + rejected_total
         solved.extend(placed)
 
-    if len(solved) > 1:
+    if solved:
         assert len({name for name, _dim_obj in solved}) == len(solved), (
             "strip survivor names must be unique before label selection"
         )
         natural_solved = dict(solved)
-        adjusted = prevent_dimension_label_ink(
-            solved,
+        # Local dimensions already participate through strip occupancy, and dimensions
+        # owned by another view retain their independent corridor/repair contract.  The
+        # missing class is non-dimension ink whose semantic owner is another view: an
+        # outboard leader can physically enter this corridor even though the projected
+        # view blocks are disjoint (#1781).
+        committed = []
+        for name, annotation in dwg.iter_annotations():
+            owner = dwg.view_of(name)
+            if (
+                owner is not None
+                and owner != view
+                and not isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
+                and type(annotation).__name__ not in CROSSABLE_TYPES
+            ):
+                committed.append((name, annotation))
+        committed_names = {name for name, _annotation in committed}
+        adjusted_batch = prevent_dimension_label_ink(
+            [*committed, *solved],
             page=(
                 _drawing_bounds(dwg) if hasattr(dwg, "page_w") and hasattr(dwg, "page_h") else None
             ),
-            immutable={name for name, _dim_obj in solved if (anchored or {}).get(name, False)},
+            immutable={
+                *committed_names,
+                *(name for name, _dim_obj in solved if (anchored or {}).get(name, False)),
+            },
+            perpendicular_step=tier + strip.spacing,
         )
+        adjusted = adjusted_batch[len(committed) :]
         # A label shift normally stays inside the dimension's measured span and
         # therefore inside its already-validated footprint.  Keep the validation
         # contract explicit nevertheless: if an unusual helper/style grows the real
