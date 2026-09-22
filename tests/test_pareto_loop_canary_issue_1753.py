@@ -33,7 +33,7 @@ _TARGET = LayoutFindingIdentity(
 
 
 def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
-    """Reviewed Quiddity-0.3.2/AP242 claims; never derive the denominator from output."""
+    """Reviewed Quiddity-0.3.3/AP242 claims; never derive the denominator from output."""
 
     rows: list[tuple[str, str]] = []
     rows.append(("declaration:1", "bore.diameter"))
@@ -150,7 +150,7 @@ def test_ctc01_side_only_edit_is_pareto_dominant_without_certifying_the_drawing(
         )
     )
     baseline = _run(baseline_script, tmp_path / "baseline-trace")
-    assert baseline["producer"]["quiddity"] == "0.3.2"
+    assert baseline["producer"]["quiddity"] == "0.3.3"
     assert baseline["source"]["sha256"] == _FIXTURE_SHA256
 
     # The agent reads typed finding identities and the bounded remedy vocabulary. It does not

@@ -68,9 +68,9 @@ def _section_axis(vector: tuple[float, ...]) -> tuple[int, int]:
 
 
 def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dict:
-    """Validate the schema-3 pocket projection and return consumer geometry fields."""
+    """Validate the schema-4 pocket projection and return consumer geometry fields."""
 
-    if type(schema_version) is not int or schema_version != 3:
+    if type(schema_version) is not int or schema_version != 4:
         raise ValueError("unsupported SectionRecess schema version")
     row = _section_object(
         record, {"index", "body", "geometry", "classification", "evidence"}, "occurrence"
@@ -147,11 +147,31 @@ def section_recess_pocket_fields(record: Mapping, *, schema_version: int) -> dic
         raise ValueError("pocket requires exactly one capped and one open end")
 
     edge_anchored = kind == "edge_open_recess"
-    profile = _section_object(
-        geometry["profile"],
-        {"closure", "boundary", "opening"} if edge_anchored else {"closure", "boundary"},
-        "profile",
+    profile_keys = (
+        {"closure", "boundary", "opening"}
+        if edge_anchored
+        else {
+            "closure",
+            "boundary",
+        }
     )
+    profile_source = geometry["profile"]
+    if not isinstance(profile_source, Mapping):
+        raise ValueError("profile must be an object")
+    actual_profile_keys = set(profile_source)
+    allowed_profile_keys = (
+        (profile_keys, profile_keys | {"material_side"}) if edge_anchored else (profile_keys,)
+    )
+    if actual_profile_keys not in allowed_profile_keys:
+        raise ValueError(
+            f"profile must contain exactly {sorted(profile_keys)}"
+            + (" with optional material_side" if edge_anchored else "")
+        )
+    material_side = profile_source.get("material_side")
+    if material_side not in (None, "left", "right"):
+        raise ValueError("profile material_side must be left or right")
+    profile = dict(profile_source)
+    profile.pop("material_side", None)
     if profile["closure"] != ("open" if edge_anchored else "closed"):
         raise ValueError("profile closure disagrees with pocket classification")
     boundary = profile["boundary"]
@@ -311,7 +331,7 @@ def _validate_public_value(value: object) -> None:
             _validate_public_value(item)
     elif value_type in (int, float):
         _section_numbers((value,), 1, "published numeric value")
-    elif value_type is not str:
+    elif value is not None and value_type is not str:
         raise TypeError("SectionRecess must contain exact public record and primitive types")
 
 
@@ -348,7 +368,7 @@ def section_recess_fields(source: object) -> tuple[str, dict]:
     if (kind, shape) == ("pocket", "general"):
         return "pocket", _rounded_rectangle_pocket_fields(source)
     if (kind, shape) in (("pocket", "rectangular"), ("edge_open_recess", "polygonal")):
-        return "pocket", section_recess_pocket_fields(source.to_dict(), schema_version=3)
+        return "pocket", section_recess_pocket_fields(source.to_dict(), schema_version=4)
     if kind not in ("edge_open_recess", "channel"):
         raise UnsupportedSectionRecess("profile has no supported drafting grammar")
     geometry = source.geometry

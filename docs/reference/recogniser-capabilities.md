@@ -70,11 +70,19 @@ issue. The contract test derives package record outputs, converter registries, l
 and emitter branches independently, so copying a new name into the declaration alone cannot make CI
 pass.
 
-### Quiddity 0.3.2 runtime contract
+### Quiddity 0.3.3 runtime contract
 
-The runtime pins the published `quiddity==0.3.2` package, following the 0.2.4 adoption in
+The runtime pins the published `quiddity==0.3.3` package. This release adds material-side
+reconstruction facts to fillets, planar chamfers and angled steps, paired ramps, and open-section
+profiles. Draftwright consumes these records to describe and annotate the recognised part; it does
+not reconstruct a cut solid from them, so the new `side`, `corner`, `opening_direction`,
+`half_width`, and `material_side` fields do not enter the drafting IR. The exact consumer schema
+declarations advance with the provider, and the section-recess adapter accepts document schema 4
+while continuing to reject unknown later schemas.
+
+Version 0.3.2 followed the 0.2.4 adoption in
 [#1486](https://github.com/pzfreo/draftwright/pull/1486) and the migration in
-[#1471](https://github.com/pzfreo/draftwright/issues/1471). Version 0.3.2 advances the public
+[#1471](https://github.com/pzfreo/draftwright/issues/1471). It advanced the public
 `Slot` record to schema 2: `end_radius` distinguishes two semicircular stadium ends and
 `corner_radius` distinguishes rounded rectangular corners. Draftwright consumes
 `end_radius` for through-slot radius requirements; rounded-corner rectangular slots remain a

@@ -159,12 +159,12 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     assert not retired & package.keys()
     assert not retired & consumer.keys()
     family = package["section-recesses"]
-    assert INSTALLED_PACKAGE_VERSION == "0.3.2"
+    assert INSTALLED_PACKAGE_VERSION == "0.3.3"
     assert family["introduced_in"] == "0.2.0"
     assert family["census_output"] == "RecognitionResult.section_recesses"
     expected_fields = {
         "ClosedSectionProfile": {"boundary", "closure"},
-        "OpenSectionProfile": {"boundary", "closure", "opening"},
+        "OpenSectionProfile": {"boundary", "closure", "material_side", "opening"},
         "PassageFrame": {"origin", "run", "u", "v"},
         "PassageSection": {"boundary"},
         "PassageSectionVertex": {"bulge", "point"},
@@ -204,19 +204,15 @@ def test_section_recess_family_covers_the_published_geometry_and_occurrence_cont
     }
     assert {r["name"]: set(r["fields"]) for r in family["records"]} == expected_fields
     schemas = {name: [1] for name in expected_fields}
+    schemas.update({name: [2] for name in ("PassageSection", "SectionEnd", "SectionRecessEnds")})
     schemas.update(
         {
-            name: [2]
-            for name in (
-                "PassageSection",
-                "SectionEnd",
-                "SectionRecess",
-                "SectionRecessEnds",
-                "SectionRecessGeometry",
-            )
+            "OpenSectionProfile": [2],
+            "SectionRecess": [3],
+            "SectionRecessDocument": [4],
+            "SectionRecessGeometry": [3],
         }
     )
-    schemas["SectionRecessDocument"] = [3]
     assert {r["name"]: [r["schema_version"]] for r in family["records"]} == schemas
     declaration = consumer["section-recesses"]
     assert declaration["record_schemas"] == schemas
@@ -721,7 +717,7 @@ def test_circular_blind_steps_are_supported_at_every_consumer_boundary() -> None
 def test_paired_ramp_steps_are_supported_at_every_consumer_boundary() -> None:
     family = _families(consumer_capability_declaration())["paired-ramp-steps"]
 
-    assert family["record_schemas"] == {"PairedRampStep": [1]}
+    assert family["record_schemas"] == {"PairedRampStep": [2]}
     assert family["disposition"] == "supported"
     assert {
         family[boundary]["state"]
@@ -980,9 +976,9 @@ def test_angled_step_contract_has_an_explicit_unsupported_completeness_outcome()
     record = package["records"][0]
     assert record["name"] == "AngledStep"
     assert record["role"] == "output"
-    assert record["schema_version"] == 1
+    assert record["schema_version"] == 2
     assert record["aggregate_membership"] == ["RecognitionResult.angled_steps"]
-    assert consumer["record_schemas"] == {"AngledStep": [1]}
+    assert consumer["record_schemas"] == {"AngledStep": [2]}
     assert consumer["disposition"] == "unsupported"
     assert consumer["tracking"] == "https://github.com/pzfreo/draftwright/issues/1247"
     assert {
@@ -1321,21 +1317,24 @@ def test_only_reviewed_records_accept_non_v1_schemas() -> None:
         if versions != [1]
     } == {
         ("blends", "Blend"): [3],
-        ("chamfers", "Chamfer"): [2],
+        ("angled-steps", "AngledStep"): [2],
+        ("chamfers", "Chamfer"): [3],
         ("face-levels", "FaceLevel"): [2],
-        ("fillets", "Fillet"): [2],
+        ("fillets", "Fillet"): [3],
         ("grooves", "Groove"): [2],
         ("plates", "Plate"): [2],
+        ("paired-ramp-steps", "PairedRampStep"): [2],
         ("rectangular-pads", "RaisedPad"): [2],
         ("risers", "RiserEvidence"): [3],
         ("section-recesses", "PassageSection"): [2],
         ("oriented-slots", "SectionPassage"): [2],
         ("oriented-slots", "PassageEnds"): [2],
         ("section-recesses", "SectionEnd"): [2],
-        ("section-recesses", "SectionRecess"): [2],
+        ("section-recesses", "OpenSectionProfile"): [2],
+        ("section-recesses", "SectionRecess"): [3],
         ("section-recesses", "SectionRecessEnds"): [2],
-        ("section-recesses", "SectionRecessGeometry"): [2],
-        ("section-recesses", "SectionRecessDocument"): [3],
+        ("section-recesses", "SectionRecessGeometry"): [3],
+        ("section-recesses", "SectionRecessDocument"): [4],
         ("slots", "Slot"): [2],
         ("through-steps", "ThroughStep"): [2],
         ("turned-steps", "TurnedProfile"): [2],
@@ -1344,7 +1343,7 @@ def test_only_reviewed_records_accept_non_v1_schemas() -> None:
     }
     package = recognition.capability_manifest()
     _validate(declaration, package=package)
-    _families(package)["chamfers"]["records"][0]["schema_version"] = 3
+    _families(package)["chamfers"]["records"][0]["schema_version"] = 4
     with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
         _validate(declaration, package=package)
 

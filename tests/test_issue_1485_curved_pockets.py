@@ -168,7 +168,7 @@ def test_curved_source_rejects_a_floor_that_breaks_through_the_mouth(curved):
     interval[plane_index] = (low + high) / 2
     source["geometry"]["run_interval"] = interval
     with pytest.raises(ValueError, match="positive depth over its complete profile"):
-        section_recess_pocket_fields(source, schema_version=3)
+        section_recess_pocket_fields(source, schema_version=4)
 
 
 def test_curved_source_rejects_a_false_centroid_intersection(curved):
@@ -181,7 +181,7 @@ def test_curved_source_rejects_a_false_centroid_intersection(curved):
     interval[index] += 0.5
     source["geometry"]["run_interval"] = interval
     with pytest.raises(ValueError, match="published centroid intersection"):
-        section_recess_pocket_fields(source, schema_version=3)
+        section_recess_pocket_fields(source, schema_version=4)
 
 
 @pytest.mark.parametrize("fault", ["unknown_surface", "two_cylinders", "inward_branch"])
@@ -193,7 +193,7 @@ def test_curved_source_refuses_unsupported_or_contradictory_end_surfaces(curved,
 
     _, _, drawing, _ = curved
     source = drawing.recognition().section_recesses[0].to_dict()
-    assert section_recess_pocket_fields(source, schema_version=3)["mouth_radius"] == 20
+    assert section_recess_pocket_fields(source, schema_version=4)["mouth_radius"] == 20
     ends = source["geometry"]["ends"]
     cylinder = next(end for end in ends.values() if end["surface"]["type"] == "cylinder")
     plane = next(end for end in ends.values() if end["surface"]["type"] == "plane")
@@ -208,7 +208,7 @@ def test_curved_source_refuses_unsupported_or_contradictory_end_surfaces(curved,
         surface["branch"] = "negative" if surface["branch"] == "positive" else "positive"
         error, match = ValueError, "open away from its planar floor"
     with pytest.raises(error, match=match):
-        section_recess_pocket_fields(source, schema_version=3)
+        section_recess_pocket_fields(source, schema_version=4)
 
 
 def test_repeated_curved_pockets_keep_one_group_and_every_original_occurrence(tmp_path):
