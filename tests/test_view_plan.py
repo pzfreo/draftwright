@@ -22,8 +22,10 @@ import dataclasses
 import pytest
 from build123d import Align, Box, Cylinder, Pos, Rot
 
+from draftwright import Sheet
 from draftwright.builder import build_drawing
 from draftwright.view_plan import (
+    DerivedViewIdentifierPool,
     ResolvedViewPlan,
     ViewPlacement,
     ViewSpec,
@@ -115,6 +117,18 @@ class TestTheResolvedPlanCannotBeMistakenForARequest:
         with pytest.raises(ValueError, match="duplicate view names"):
             ResolvedViewPlan(specs=(spec, spec), placements={}, scale=1.0, page=(420.0, 297.0))
 
+    def test_a_plan_refuses_one_identifier_for_a_section_and_detail(self):
+        with pytest.raises(ValueError, match="duplicate derived-view identifiers.*A"):
+            ResolvedViewPlan(
+                specs=(
+                    ViewSpec("section_aa", "section"),
+                    ViewSpec("detail_a", "detail"),
+                ),
+                placements={},
+                scale=1.0,
+                page=(420.0, 297.0),
+            )
+
     def test_a_spec_refuses_an_unknown_kind(self):
         """The kind is what makes "which views should exist" answerable, so it is closed.
 
@@ -124,6 +138,41 @@ class TestTheResolvedPlanCannotBeMistakenForARequest:
         """
         with pytest.raises(ValueError, match="unknown view kind"):
             ViewSpec(name="x", kind="decorative")
+
+
+class TestDerivedViewIdentifiers:
+    def test_authored_identifiers_are_reserved_before_automatic_allocation(self):
+        pool = DerivedViewIdentifierPool(("A", "C"))
+
+        assert pool.allocate() == "B"
+        assert pool.allocate() == "D"
+
+    def test_automatic_sequence_skips_i_o_and_q(self):
+        pool = DerivedViewIdentifierPool()
+        issued = []
+        while identifier := pool.allocate():
+            issued.append(identifier)
+
+        assert "".join(issued) == "ABCDEFGHJKLMNPRSTUVWXYZ"
+
+    def test_an_unrendered_automatic_view_releases_its_identifier(self):
+        pool = DerivedViewIdentifierPool(("B",))
+
+        assert pool.allocate() == "A"
+        pool.release("A")
+        assert pool.allocate() == "A"
+
+        authored = DerivedViewIdentifierPool(("A",))
+        authored.release("A")
+        assert authored.allocate() == "B"
+
+    def test_sheet_refuses_a_cross_kind_authored_identifier_collision_at_the_verb(self):
+        sheet = Sheet(Box(50, 30, 10)).authored_dimensions()
+        hole = sheet.hole(diameter=6, at=(0, 0, 0), axis="z")
+        sheet.section_view("A", at=0)
+
+        with pytest.raises(ValueError, match="identifier 'A'.*already used"):
+            sheet.detail_view("a", around=hole)
 
 
 class TestTheRepresentationChangedNothing:

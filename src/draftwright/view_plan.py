@@ -26,6 +26,7 @@ Rank 0: this is a leaf. It describes views; it cannot reach the code that draws 
 from __future__ import annotations
 
 import math
+import string
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -102,6 +103,83 @@ _PRINCIPAL_PAGE_AXES = {
 # authored choice even when visibility or coverage would benefit from it.
 PRINCIPAL_VIEW_NAMES = tuple(_PRINCIPAL_PAGE_AXES)
 _AUTOMATIC_PRINCIPALS = ("front", "plan", "side")
+
+#: ISO/ASME derived-view identification sequence.  The ambiguous glyphs I, O and Q
+#: are never issued automatically; authored identifiers are preserved even when they
+#: deliberately use a character outside this sequence.
+DERIVED_VIEW_IDENTIFIERS = tuple(
+    letter for letter in string.ascii_uppercase if letter not in {"I", "O", "Q"}
+)
+
+
+def derived_view_identifier(kind: str, name: str) -> str | None:
+    """Return the semantic identifier encoded by a canonical derived-view *name*.
+
+    View names are structured compiler values, not rendered captions.  Sections retain
+    their historic doubled slug (``section_aa``), while details use ``detail_a``.  Keeping
+    this decoding beside :class:`ViewSpec` gives planning and independent finished-sheet
+    lint one vocabulary without either parsing display text.
+    """
+
+    if not isinstance(name, str):
+        return None
+    if kind == "detail" and name.startswith("detail_"):
+        identifier = name.removeprefix("detail_")
+    elif kind == "section" and name.startswith("section_"):
+        slug = name.removeprefix("section_")
+        midpoint = len(slug) // 2
+        if len(slug) % 2 or slug[:midpoint] != slug[midpoint:]:
+            return None
+        identifier = slug[:midpoint]
+    else:
+        return None
+    return identifier.upper() if identifier and identifier.isalnum() else None
+
+
+class DerivedViewIdentifierPool:
+    """One deterministic identifier authority for every derived view in a build.
+
+    Authored identifiers are reserved as a complete set before automatic planning so
+    authored labels never get renamed by stage order.  Automatic sections, details and any
+    future auxiliary-view producer then draw from the same sequence.
+    """
+
+    def __init__(self, authored=(), *, candidates=DERIVED_VIEW_IDENTIFIERS) -> None:
+        normalized = tuple(str(identifier).strip().upper() for identifier in authored)
+        invalid = [identifier for identifier in normalized if not identifier.isalnum()]
+        if invalid:
+            raise ValueError(f"derived-view identifiers must be alphanumeric: {invalid}")
+        duplicates = sorted(
+            identifier for identifier in set(normalized) if normalized.count(identifier) > 1
+        )
+        if duplicates:
+            joined = ", ".join(duplicates)
+            raise ValueError(
+                f"derived-view identifier reused across sections/details: {joined}; "
+                "each derived view on a drawing needs a distinct identifier"
+            )
+        self._authored = frozenset(normalized)
+        self._automatic: set[str] = set()
+        self._candidates = tuple(str(candidate).upper() for candidate in candidates)
+
+    @property
+    def used(self) -> frozenset[str]:
+        return self._authored | self._automatic
+
+    def allocate(self) -> str | None:
+        """Claim and return the first unused automatic identifier, or ``None``."""
+
+        identifier = next(
+            (candidate for candidate in self._candidates if candidate not in self.used), None
+        )
+        if identifier is not None:
+            self._automatic.add(identifier)
+        return identifier
+
+    def release(self, identifier: str) -> None:
+        """Release an unrendered automatic identity; authored reservations never move."""
+
+        self._automatic.discard(str(identifier).strip().upper())
 
 
 @dataclass(frozen=True)
@@ -332,6 +410,18 @@ class ResolvedViewPlan:
         names = [spec.name for spec in self.specs]
         if len(names) != len(set(names)):
             raise ValueError(f"duplicate view names in plan: {names}")
+        identifiers = [
+            identifier
+            for spec in self.specs
+            if (identifier := derived_view_identifier(spec.kind, spec.name)) is not None
+        ]
+        duplicates = sorted(
+            identifier for identifier in set(identifiers) if identifiers.count(identifier) > 1
+        )
+        if duplicates:
+            raise ValueError(
+                "duplicate derived-view identifiers in plan: " + ", ".join(duplicates)
+            )
         object.__setattr__(self, "placements", MappingProxyType(dict(self.placements)))
 
     def spec(self, name: str) -> ViewSpec | None:

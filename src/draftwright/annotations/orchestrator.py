@@ -125,16 +125,50 @@ from draftwright.model.planner import annotation_groups, internal_section_rows
 from draftwright.progress import stage
 from draftwright.registry import MeasurementCell
 from draftwright.repair import reconcile_witness_labels
-from draftwright.view_plan import ViewConstraints
+from draftwright.view_plan import (
+    DERIVED_VIEW_IDENTIFIERS,
+    DerivedViewIdentifierPool,
+    ViewConstraints,
+    derived_view_identifier,
+)
 
 
-def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
+def _derived_view_identifier_pool(a) -> DerivedViewIdentifierPool:
+    """Reserve every authored section/detail identity before any derived view renders."""
+
+    constraints = a.view_constraints
+    if not isinstance(constraints, ViewConstraints):
+        return DerivedViewIdentifierPool(candidates=DERIVED_VIEW_IDENTIFIERS)
+    requested = (
+        constraints.derived
+        if constraints.derived_source == "authored"
+        else constraints.added_derived
+    )
+    identifiers = []
+    for item in requested:
+        identifier = derived_view_identifier(item.spec.kind, item.spec.name)
+        if identifier is None:
+            raise ValueError(
+                f"derived view {item.spec.name!r} from {item.source} has no canonical identifier"
+            )
+        identifiers.append(identifier)
+    return DerivedViewIdentifierPool(identifiers, candidates=DERIVED_VIEW_IDENTIFIERS)
+
+
+def _planned_sections(a, model, feature_keys, *, identifiers) -> tuple[SectionPlan, ...]:
     """Combine the automatic section candidate with ADR 2 (was 0018) authored/add requests."""
 
     constraints = a.view_constraints
     if not isinstance(constraints, ViewConstraints):
         automatic = plan_sections(model, feature_keys)
-        return (automatic,) if automatic is not None else ()
+        if automatic is None:
+            return ()
+        label = identifiers.allocate()
+        if label is None:
+            raise ValueError(
+                "automatic section cannot be named: derived-view identifiers exhausted"
+            )
+        return (replace(automatic, label=label),)
 
     requested = (
         constraints.derived
@@ -158,8 +192,9 @@ def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
                 f"section {item.spec.name!r} from {item.source} cuts at y={cut_y:g}, outside "
                 f"the part interior ({a.bb.min.Y:g}, {a.bb.max.Y:g})"
             )
-        slug = item.spec.name.removeprefix("section_")
-        label = slug[0].upper() if len(set(slug)) == 1 else slug.upper()
+        label = derived_view_identifier(item.spec.kind, item.spec.name)
+        if label is None:
+            raise ValueError(f"section {item.spec.name!r} has no canonical identifier")
         plans.append(
             SectionPlan(
                 cut_y,
@@ -173,12 +208,13 @@ def _planned_sections(a, model, feature_keys) -> tuple[SectionPlan, ...]:
 
     if constraints.derived_source != "authored":
         automatic = plan_sections(model, feature_keys)
+        if automatic is not None and any(plan.cut_y == automatic.cut_y for plan in plans):
+            automatic = None
         if automatic is not None:
-            used = {plan.label for plan in plans}
-            auto_label = next((letter for letter in "ABCDEFGH" if letter not in used), None)
+            auto_label = identifiers.allocate()
             if auto_label is None:
                 raise ValueError(
-                    "automatic section cannot be named: authored labels A-H are exhausted"
+                    "automatic section cannot be named: derived-view identifiers exhausted"
                 )
             plans.insert(0, replace(automatic, label=auto_label))
     return tuple(plans)
@@ -202,7 +238,9 @@ def _queue_authored_details(dwg, a, ctx, plan) -> None:
         if not (isinstance(target, tuple) and len(target) == 2 and target[0] == "feature"):
             raise ValueError(f"detail {item.spec.name!r} has no semantic feature target")
         feature = target[1]
-        label = item.spec.name.removeprefix("detail_").upper()
+        label = derived_view_identifier(item.spec.kind, item.spec.name)
+        if label is None:
+            raise ValueError(f"detail {item.spec.name!r} has no canonical identifier")
         factor = item.spec.scale_factor or 2.0
         if queue_step_detail(
             dwg,
@@ -626,7 +664,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Decide the section trigger + cut-plane row now (pure function of _model/
     # feature_keys, no placement dependency); the "reserve_section" stage reserves
     # its row and the "section" stage renders it.
-    _sections = _planned_sections(a, _model, feature_keys)
+    _derived_identifiers = _derived_view_identifier_pool(a)
+    _sections = _planned_sections(a, _model, feature_keys, identifiers=_derived_identifiers)
     ctx.dense_internal_section = any(section.internal_detail for section in _sections)
 
     # ── the stage thunks, run in _PASS_SEQUENCE order (#699 slice b) ─────────
@@ -902,7 +941,8 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # still render after it and avoid the section view.
         if _sections:
             for section in _sections:
-                _add_section_view(dwg, a, section, ctx=ctx)
+                if not _add_section_view(dwg, a, section, ctx=ctx):
+                    _derived_identifiers.release(section.label)
         else:
             # Recorded, not left at the initial `not_evaluated`: the planner DID run and
             # found no counterbore/spotface/blind Z-hole, which is a different fact from
@@ -917,7 +957,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # crowded turned heads alike — through the one generic detailer, now that all
         # views and main-view annotations are placed (so the detail avoids them).
         _queue_authored_details(dwg, a, ctx, _compiled)
-        _resolve_details(dwg, a, ctx=ctx)
+        _resolve_details(dwg, a, ctx=ctx, identifiers=_derived_identifiers)
 
     def _s_title_block():
         _add_title_block(dwg, a)

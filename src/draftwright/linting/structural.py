@@ -30,6 +30,7 @@ from draftwright.linting.angular import lint_angular_geometry
 from draftwright.linting.ink_overlap import crossable_region, label_crossings, segments_of
 from draftwright.linting.issues import LintIssue, _IssueAggregation
 from draftwright.projection import _MATERIAL_PAGE_TOLERANCE
+from draftwright.view_plan import derived_view_identifier
 
 #: The shared visible-stroke floor. Imported rather than restated so the critique cannot
 #: drift from the router that solves against the same field (#798).
@@ -410,6 +411,7 @@ def lint_drawing(
         raise ValueError(f"drawing_scale must be positive, got {drawing_scale}")
 
     issues: list[LintIssue] = []
+    _lint_derived_view_identifiers(view_names or (), issues)
     names = {} if annotation_names is None else annotation_names
     box_cache = {} if ann_box_cache is None else ann_box_cache
     # Per-run label_bbox warning memo (#711 review / Codex sweep): threaded to every
@@ -786,6 +788,42 @@ def lint_drawing(
     # address and one test was relying on it.
     _lint_display_precision(items, issues, drawing_scale, display_decimals=display_decimals)
     return issues
+
+
+def _lint_derived_view_identifiers(view_names, issues) -> None:
+    """Flag one semantic identifier naming more than one rendered derived view.
+
+    This reads the drawing's structured view keys, never caption text or the compiler plan,
+    so it remains an independent finished-sheet backstop for the planning allocator.
+    """
+
+    by_identifier: dict[str, list[str]] = {}
+    for name in view_names:
+        if not isinstance(name, str):
+            continue
+        kind = (
+            "section"
+            if name.startswith("section_")
+            else "detail"
+            if name.startswith("detail_")
+            else ""
+        )
+        identifier = derived_view_identifier(kind, name)
+        if identifier is not None:
+            by_identifier.setdefault(identifier, []).append(name)
+    for identifier, names in sorted(by_identifier.items()):
+        if len(names) < 2:
+            continue
+        issues.append(
+            LintIssue(
+                severity="error",
+                code="derived_view_identifier_reused",
+                message=(
+                    f"derived-view identifier {identifier!r} names multiple views: "
+                    + ", ".join(repr(name) for name in names)
+                ),
+            )
+        )
 
 
 def _overshoots(bb, bounds) -> list[str]:

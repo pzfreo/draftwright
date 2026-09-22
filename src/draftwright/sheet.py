@@ -151,6 +151,7 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     ViewRelation,
     ViewSpec,
+    derived_view_identifier,
     third_angle_view_names,
     validate_projection,
 )
@@ -2588,6 +2589,16 @@ class Sheet:
     ) -> _View:
         if name in self._all_view_names():
             raise ValueError(f"view {name!r} is declared more than once")
+        identifier = derived_view_identifier(kind, name)
+        if identifier is not None:
+            for records in (self._derived_views, self._added_derived_views):
+                for record in records:
+                    if derived_view_identifier(record["kind"], record["name"]) == identifier:
+                        raise ValueError(
+                            f"derived-view identifier {identifier!r} is already used by "
+                            f"{record['name']!r}; sections and details share one drawing-wide "
+                            "identifier sequence"
+                        )
         records = getattr(self, bucket)
         records.append(
             {
