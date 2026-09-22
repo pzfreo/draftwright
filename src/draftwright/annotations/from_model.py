@@ -1963,14 +1963,15 @@ def _diameter_step_anchor(anchor, groups):
     return tuple(centred)
 
 
-def _manufacturing_suffix(thread, knurl=None) -> str | None:
+def _manufacturing_suffix(thread, knurl=None, *, include_source_pmi=True) -> str | None:
     """Renderer text for typed manufacturing aspects after the canonical diameter."""
     terms = []
     if isinstance(thread, ThreadRequirement):
-        terms.append(thread.callout_suffix)
+        if include_source_pmi:
+            terms.append(thread.callout_suffix)
     elif thread:
         terms.append(str(thread))
-    if isinstance(knurl, KnurlRequirement):
+    if isinstance(knurl, KnurlRequirement) and include_source_pmi:
         terms.append(knurl.callout_suffix)
     return "; ".join(terms) or None
 
@@ -2012,7 +2013,9 @@ def _diameter_source_bounds(dwg, view, feature, diameter) -> tuple[float, float,
     )
 
 
-def _render_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ctx) -> int:
+def _render_diameter_leaders(
+    dwg, a, indexed_buckets, *, prefix, start, ctx, include_source_pmi=True
+) -> int:
     """Route external diameters through the shared leader solve.
 
     The legacy row deliberately gives every item the widest label's pitch.  That is stable and
@@ -2064,16 +2067,20 @@ def _render_diameter_leaders(dwg, a, indexed_buckets, *, prefix, start, ctx) -> 
 
         candidates = _wide_lanes()
         name = f"{prefix}{start + index}"
-        source_ids_by_name[name] = tuple(
-            dict.fromkeys(
-                source_id
-                for group in groups
-                for aspect in (
-                    group.facts.get("thread"),
-                    group.facts.get("knurl"),
+        source_ids_by_name[name] = (
+            tuple(
+                dict.fromkeys(
+                    source_id
+                    for group in groups
+                    for aspect in (
+                        group.facts.get("thread"),
+                        group.facts.get("knurl"),
+                    )
+                    for source_id in getattr(aspect, "source_ids", ())
                 )
-                for source_id in getattr(aspect, "source_ids", ())
             )
+            if include_source_pmi
+            else ()
         )
         jobs.append(
             (
@@ -2122,6 +2129,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
     row_buckets: dict = {}  # semantic print key -> [anchor, dia, text, {features}, tol, ...]
     col_buckets: dict = {}  # Z-turned
     end_buckets: dict = {}  # Y-turned: radial leaders in the end-on front view
+    include_source_pmi = not ctx.document_member or a.pmi_mode == "annotate"
     for g in plan.of_kind("step", "boss"):
         if only is not None and g.ref not in only:  # #426 finalize: recorded subset
             continue
@@ -2132,6 +2140,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
         thr = _manufacturing_suffix(
             g.facts.get("thread"),
             g.facts.get("knurl"),
+            include_source_pmi=include_source_pmi,
         )
         if dwg.registry.has_measurement(dpd.id):
             continue
@@ -2183,7 +2192,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
     indexed_row = list(enumerate(row_buckets.values()))
 
     def _typed(entry):
-        return any(
+        return include_source_pmi and any(
             isinstance(group.facts.get("thread"), ThreadRequirement)
             or isinstance(group.facts.get("knurl"), KnurlRequirement)
             for group in entry[6]
@@ -2214,6 +2223,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
         prefix="m_dia_x",
         start=start_x,
         ctx=ctx,
+        include_source_pmi=include_source_pmi,
     )
     unplaced = [
         entry
@@ -2229,6 +2239,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
         prefix="m_dia_x",
         start=start_x + len(row_buckets),
         ctx=ctx,
+        include_source_pmi=include_source_pmi,
     )
     placed += _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace, ctx=ctx)
 
@@ -3007,6 +3018,9 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         if pd is None:
             continue
         ch = g.facts
+        source = resolve_feature(g.ref)
+        if ctx.document_member and a.pmi_mode != "annotate" and getattr(source, "source_ids", ()):
+            continue
         # Equal printed values are not enough: two chamfers with the same first leg but a
         # different second leg/angle state different manufacturing requirements.
         # A tolerance is part of the rendered requirement. Splitting by its rendered suffix
@@ -4790,6 +4804,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
         thr = _manufacturing_suffix(
             getattr(b, "thread", None),
             getattr(b, "knurl", None),
+            include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
         )
         if dwg.registry.has_measurement(dpd.id):
             continue
@@ -8850,7 +8865,12 @@ def render_pmi(dwg, model, a, *, ctx) -> int:
                     too compressed in the side view)
     """
     draft = dwg.draft
-    pmi = [f for f in model.features if f.kind in ("authored_dimension", "pmi")]
+    pmi = [
+        f
+        for f in model.features
+        if f.kind in ("authored_dimension", "pmi")
+        and (a.pmi_mode == "annotate" or id(f) not in ctx.document_source_annotation_ids)
+    ]
     usable = _renderable_pmi_records(pmi)
     for blocked in _blocked_authored_dimension_records(pmi):
         _record_blocked_authored_dimension(ctx, blocked)
@@ -8945,9 +8965,13 @@ def _pmi_source_ids(item) -> tuple[str, ...]:
     return tuple(dict.fromkeys(((singular,) if singular else ()) + plural))
 
 
-def render_document_notes(dwg, model) -> int:
+def render_document_notes(dwg, model, *, exclude=()) -> int:
     """Place source-proven drawing-wide requirements in one solver-owned notes block."""
-    notes = [feature for feature in model.features if feature.kind == "document_note"]
+    notes = [
+        feature
+        for feature in model.features
+        if feature.kind == "document_note" and id(feature) not in exclude
+    ]
     if not notes:
         return 0
     rows = [("GENERAL NOTES",)] + [
@@ -9072,7 +9096,11 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         if f.kind in _GDT_KINDS
         # Automatic AP242 discovery keeps typed IR available in report mode, but report must
         # not draw it. Explicit/round-tripped models remain declarations and therefore render.
-        and (not _pmi_source_ids(f) or a.pmi_mode == "annotate" or ctx.model_declared)
+        and (
+            not _pmi_source_ids(f)
+            or a.pmi_mode == "annotate"
+            or (ctx.model_declared and id(f) not in ctx.document_source_annotation_ids)
+        )
     ]
     if not items:
         return 0

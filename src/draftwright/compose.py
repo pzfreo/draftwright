@@ -256,7 +256,12 @@ def _est_hole_table_sizes(
 
 
 def _est_planned_bore_callout_width(
-    groups, draft, font_size: float = _FONT_SIZE, pad_around_text: float = 2.0
+    groups,
+    draft,
+    font_size: float = _FONT_SIZE,
+    pad_around_text: float = 2.0,
+    *,
+    include_source_pmi: bool = True,
 ) -> float:
     """Estimate widest hole/pattern callout from planned IR dimensions.
 
@@ -270,7 +275,7 @@ def _est_planned_bore_callout_width(
     gap = 0.45 * font_size
     sym_w = font_size
     max_w = 0.0
-    for batch in hole_callout_batches(groups):
+    for batch in hole_callout_batches(groups, include_source_pmi=include_source_pmi):
         # ONE reading of the plan, shared with the renderer (#875 review). This function used to
         # re-derive bore/depth/cbore/suffix itself, and the two drifted: the copy here inferred
         # THRU from a missing depth (the inference #868 removed from the renderer) and ignored

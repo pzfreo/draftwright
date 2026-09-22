@@ -868,8 +868,8 @@ def _analyse(
             or {"status": "not_evaluated", "gauge": None, "refusal_reason": None}
         )
         src = str(_reuse.step_file)
-        pmi_defaulted = _reuse.pmi_defaulted
-        pmi_mode = _reuse.pmi_mode
+        pmi_defaulted = pmi is None
+        pmi_mode = _reuse.pmi_mode if pmi_defaulted else pmi
         pmi_report = _reuse.pmi_report
         pmi_records = _reuse.pmi if pmi_mode != "off" else []
         bb = _reuse.bb
@@ -1192,7 +1192,11 @@ def _analyse(
     )
     sizing_groups = annotation_groups(strip_sizing_model, sizing_groups)
     bore_callout_width = _est_planned_bore_callout_width(
-        sizing_groups, _draft_est, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
+        sizing_groups,
+        _draft_est,
+        font_size=_FONT_SIZE,
+        pad_around_text=_pad_around_text,
+        include_source_pmi=_document_input is None or pmi_mode == "annotate",
     )
     section_count = _planned_section_count(
         sizing_model,
@@ -1517,6 +1521,10 @@ def _analyse(
         pmi_report=pmi_report,
         pmi_mode=pmi_mode,
         pmi_defaulted=pmi_defaulted,
+        document_member=_document_input is not None,
+        document_source_annotations=(
+            _document_input.source_annotations() if _document_input is not None else ()
+        ),
         # The sizing model IS the render model when detection ran (identical inputs by
         # construction — #584 WP1 A); store it so the pipeline never detects twice
         # (ADR 1 (was 0008 Amdt 5), #602). A declared model (layout_model) is NOT stored: the

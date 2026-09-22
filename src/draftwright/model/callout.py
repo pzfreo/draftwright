@@ -55,7 +55,9 @@ def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
     )
 
 
-def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutBatch, ...]:
+def hole_callout_batches(
+    groups, *, member_locations=None, include_source_pmi=True
+) -> tuple[HoleCalloutBatch, ...]:
     """Group compatible printed content without replacing any feature or identity.
 
     Composition uses the complete inventory; rendering may supply already-filtered
@@ -66,7 +68,7 @@ def hole_callout_batches(groups, *, member_locations=None) -> tuple[HoleCalloutB
     ordered: list[list] = []
     for group in groups:
         feature = group.feature
-        spec = hole_callout_spec(group)
+        spec = hole_callout_spec(group, include_source_pmi=include_source_pmi)
         if spec is None:
             continue
         complete = tuple(feature.members or (group.anchor,))
@@ -524,7 +526,7 @@ def authored_omission_in(group) -> bool:
     )
 
 
-def hole_callout_spec(group: DimensionGroup) -> dict | None:
+def hole_callout_spec(group: DimensionGroup, *, include_source_pmi=True) -> dict | None:
     """A hole/pattern group's plan → `HoleCallout` kwargs, mirroring the engine's
     convention. ``None`` if not a hole-bearing callout.
 
@@ -575,6 +577,8 @@ def hole_callout_spec(group: DimensionGroup) -> dict | None:
     # defining call), then any pattern suffix: e.g. "M3x0.5" or "M3x0.5 EQ SP ON ø50 BC".
     hole = feat.member if isinstance(feat, PatternFeature) else feat
     thread = getattr(hole, "thread", None)
+    if isinstance(thread, ThreadRequirement) and not include_source_pmi:
+        thread = None
     thread_source_ids = thread.source_ids if isinstance(thread, ThreadRequirement) else ()
     if isinstance(thread, ThreadRequirement | ThreadOperation):
         thread = thread.callout_suffix

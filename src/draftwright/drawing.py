@@ -797,6 +797,8 @@ class Drawing:
         # than it being detected — gates the model-driven hole/pattern render membership so a
         # declared hole draws even where detection missed it, no-op for the detected path (#448).
         self._model_declared: bool = False
+        self._document_member: bool = False
+        self._document_source_annotation_ids: frozenset[int] = frozenset()
         # Deferred placement intents (#426 Phase 1). When _defer_intents is True the add
         # verbs record an Intent instead of placing; finalize() drains them (Phase 1
         # replays through the live helpers). Default off → the live path is unchanged.
@@ -2342,7 +2344,13 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+        )
         if kind in ("step", "boss"):
             return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
         if kind in _MACHINED_CALLOUT_KINDS:
@@ -2508,7 +2516,13 @@ class Drawing:
         from draftwright.model.compiled import compile_dimensions
 
         before = set(self.annotations())
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+        )
         # ONLY the overall height: the renderer also draws the step ladder, which is a
         # different intent with its own verb. The drain projects the plan with the same
         # helper, so the two routes cannot disagree about what was asked for (#934 review).
@@ -2540,7 +2554,13 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_furniture
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+        )
         return add_feature_furniture(
             self, feature, self._part_model, self._analysis, view=view, ctx=ctx
         )
@@ -2565,7 +2585,13 @@ class Drawing:
         from draftwright.annotations.from_model import render_rotational
         from draftwright.model.compiled import compile_dimensions
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+        )
         render_rotational(self, compile_dimensions(self._part_model), self._analysis, ctx=ctx)
         return []
 
@@ -2589,7 +2615,13 @@ class Drawing:
             return []
         from draftwright.annotations.sections import add_section
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+        )
         return add_section(self, self._part_model, self._analysis, ctx=ctx)
 
     def locate(self, feature, *, axes=None, pin=False) -> list[str]:
@@ -2625,7 +2657,13 @@ class Drawing:
         from draftwright.annotations._common import PlacementContext
         from draftwright.annotations.holes import add_feature_location
 
-        ctx = PlacementContext(registry=self._registry, coverage=self._coverage, items=self.items)
+        ctx = PlacementContext(
+            registry=self._registry,
+            coverage=self._coverage,
+            items=self.items,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+        )
         if getattr(feature, "kind", None) == "circular_channel":
             from draftwright.annotations._common import drain_corridors
             from draftwright.annotations.from_model import render_circular_channel_locations
@@ -3012,6 +3050,8 @@ class Drawing:
             items=self.items,
             part_model=self.model(),
             model_declared=self.model_declared,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
             trace=self._build.trace,  # the finalize drain traces too (#736)
             feature_leaders=[],
             interior_dimensions=[],
@@ -3989,6 +4029,8 @@ class Drawing:
             coverage=self._coverage,
             items=self.items,
             part_model=self._part_model,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
         )
         render_balloons(self, self._analysis, view, specs, ctx, avoid_annotation_labels=True)
 

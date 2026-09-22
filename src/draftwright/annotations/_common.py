@@ -2832,6 +2832,10 @@ class PlacementContext:
     # Whether the model was DECLARED (vs detected) — the ADR 4 (was 0011) gate the orchestrator reads,
     # threaded off ``getattr(dwg, "_model_declared")`` (#639).
     model_declared: bool = False
+    # Document models are declared for common-geometry authority, while their imported PMI
+    # remains discovery-sourced and obeys the member's pmi= policy (#1794).
+    document_member: bool = False
+    document_source_annotation_ids: frozenset[int] = frozenset()
     # Per-run cache for :meth:`feature_of_hole_at` — the model is fixed after build, so a
     # per-ctx (per-run) index is correct (mirrors the old ``Drawing._hole_feature_index``).
     _hole_feature_index: Any = field(default=None, repr=False)

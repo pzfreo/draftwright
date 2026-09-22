@@ -1371,6 +1371,11 @@ class Analysis:
     # from the effective mode so the ignored-PMI diagnostic can distinguish that default from
     # an explicit opt-out without widening the three-mode renderer contract (#623).
     pmi_defaulted: bool
+    # True when this layout is a member projection of a Document's sealed acquisition.
+    document_member: bool = False
+    # Exact top-level annotation objects supplied by the Document acquisition. Member-authored
+    # annotations are absent even when they carry external provenance of their own.
+    document_source_annotations: tuple[object, ...] = ()
     # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
     # blank (the TitleBlock helper's own defaults).
