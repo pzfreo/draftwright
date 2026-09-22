@@ -122,7 +122,7 @@ def turned_profile_fills_footprint(
         )
     except (AttributeError, TypeError, ValueError):
         return False
-    transverse_filled = origin is None or all(
+    transverse_filled = origin is not None and all(
         abs(lo - (origin[index] - radius)) <= tol and abs(hi - (origin[index] + radius)) <= tol
         for index, (lo, hi) in enumerate(bounds)
         if index != axis_index

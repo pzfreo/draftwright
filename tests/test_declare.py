@@ -2179,6 +2179,8 @@ def test_the_synthesised_envelope_is_centred_like_a_detected_one():
     Pinned directly. The emit suite proves behavioural parity, which is why nothing caught this
     — the frame does not move a dimension, it moves what a GD&T frame or note would target.
     """
+    from dataclasses import replace
+
     from build123d import Align, Axis, Box, Cylinder, Pos
 
     from draftwright.model.detect import build_part_model
@@ -2194,7 +2196,12 @@ def test_the_synthesised_envelope_is_centred_like_a_detected_one():
         for y in (-18, 18):
             part -= Pos(x, y, 0) * Cylinder(2, 10)
 
-    model = build_part_model(part.rotate(Axis.X, 90))
+    detected = build_part_model(part.rotate(Axis.X, 90))
+    assert any(feature.kind == "envelope" for feature in detected.features)
+    model = replace(
+        detected,
+        features=[feature for feature in detected.features if feature.kind != "envelope"],
+    )
     _declared, synthesised = mirror_model(model)
     assert synthesised is not None, "the fixture no longer reaches the synthesis path"
 
@@ -2204,3 +2211,16 @@ def test_the_synthesised_envelope_is_centred_like_a_detected_one():
         f"synthesised frame {synthesised.frame.origin} is not the bbox centre {centre} — it is "
         "hardcoded rather than measured, so it only matches for a part centred on the origin"
     )
+
+
+@pytest.mark.parametrize("value", (0, -1, float("inf"), float("nan")))
+def test_generated_scale_replay_rejects_non_positive_or_non_finite_values(value):
+    with pytest.raises(ValueError, match="finite and positive"):
+        Sheet(Box(10, 10, 10), page="A4", _replayed_scale=value)
+
+
+def test_generated_scale_replay_requires_a_page_and_no_authored_scale():
+    with pytest.raises(ValueError, match="requires the settled page"):
+        Sheet(Box(10, 10, 10), _replayed_scale=1)
+    with pytest.raises(ValueError, match="cannot be combined"):
+        Sheet(Box(10, 10, 10), page="A4", scale=1, _replayed_scale=1)

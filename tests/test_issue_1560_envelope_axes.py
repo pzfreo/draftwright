@@ -102,6 +102,22 @@ def test_local_turned_profile_cannot_hide_a_longer_body_axis(axis, parameter_id)
     )
 
 
+def test_legacy_profile_without_axis_origin_cannot_hide_transverse_extents():
+    """Public legacy profiles have axial spans but no evidence for their axis line."""
+
+    part = Box(100, 100, 100)
+    profile = TurnedProfile.from_steps(
+        (
+            TurnedStep("x", -50, 0, 80),
+            TurnedStep("x", 0, 50, 60),
+        )
+    )
+    assert profile is not None and profile.profile is None
+
+    model = build_part_model(part, profiles=(profile,))
+    assert any(feature.kind == "envelope" for feature in model.features)
+
+
 def test_overlapping_step_spans_do_not_claim_an_overall_axis():
     """Two overlapping local lengths are not an end-to-end overall-length chain."""
 

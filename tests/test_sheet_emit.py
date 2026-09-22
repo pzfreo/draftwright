@@ -2877,6 +2877,9 @@ class TestTheDimensionMirror:
             number="N",
             settled_layout=settled_layout_for(automatic),
         )
+        if name == "hybrid flange":
+            assert "_replayed_scale=1.0" in src
+            assert " scale=1.0" not in src
         regenerated = self._run(src, part)["sheet"].build()
 
         names = {n for n, _ in automatic.iter_annotations()}
@@ -4738,7 +4741,8 @@ def test_a_settled_view_set_is_not_pinned_beside_auto_dimensions(
     from draftwright import sheet_emit as se
 
     part = Box(80, 60, 30) - Pos(0, -20, 7.5) * Box(80, 20, 15)
-    settled = settled_layout_for(build_drawing(part, title="T", number="N"))
+    direct = build_drawing(part, title="T", number="N")
+    settled = settled_layout_for(direct)
     assert settled is not None, "precondition: this part must replan, or nothing is pinned"
     assert "iso" not in settled["views"], "precondition: the settled set must differ"
 
@@ -4749,6 +4753,24 @@ def test_a_settled_view_set_is_not_pinned_beside_auto_dimensions(
     assert "sheet.auto_dimensions()" in src, "precondition: the mirror must be refused"
     assert "sheet.authored_views()" not in src
     assert "# The automatic build settled on: front, plan, side." in src
+    assert f"scale={direct.scale!r}" in src
+    assert "_replayed_scale=" not in src
+
+    replayed = TestTheDimensionMirror._run(src, part)["sheet"].build()
+    assert replayed.scale == direct.scale
+    assert (replayed.page_w, replayed.page_h) == (direct.page_w, direct.page_h)
+    assert replayed.scale_decision["policy"] == "fallback"
+    assert replayed.scale_decision["requested_scale"] == direct.scale
+    assert replayed.scale_decision["effective_scale"] == direct.scale
+    assert {
+        annotation.label
+        for _name, annotation in replayed.iter_annotations()
+        if str(getattr(annotation, "label", "")).startswith("SCALE ")
+    } == {
+        annotation.label
+        for _name, annotation in direct.iter_annotations()
+        if str(getattr(annotation, "label", "")).startswith("SCALE ")
+    }
 
 
 def test_the_new_iso_7200_fields_reach_the_generated_script():

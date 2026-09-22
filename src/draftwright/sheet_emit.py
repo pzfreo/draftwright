@@ -2323,8 +2323,9 @@ def settled_layout_for(drawing) -> dict | None:
     built sheet, finds a required mark has nowhere to go, and drops the optional pictorial or
     spends a larger page. A declared build never enters that ladder (ADR 4: a declared script
     does what it is told), so the resolved page and view set have to be written down. The
-    automatically selected scale deliberately remains automatic: spelling its numeric result
-    as an authored ``scale=`` request changes the compose policy even when the number agrees.
+    automatically selected scale is replayed through a private constraint: spelling its numeric
+    result as an authored ``scale=`` request changes the compose policy even when the number
+    agrees, while discarding it can select another standard scale on the settled page.
 
     One function because two callers must agree on what "the settled layout" is:
     :func:`generate_sheet_script`, and the round-trip parity tests that assert a generated
@@ -2333,7 +2334,7 @@ def settled_layout_for(drawing) -> dict | None:
     if drawing.scale_decision.get("status") != "automatic_replanned":
         return None
     return {
-        "scale": None,
+        "scale": drawing.scale,
         "page": (drawing.page_w, drawing.page_h),
         "views": tuple(drawing.views),
     }
@@ -2574,10 +2575,15 @@ def emit_sheet_script(
     if tolerance is not None:
         ctor.append(f"tolerance={tolerance!r}")
     emitted_scale = scale
-    if emitted_scale is None and settled_layout is not None:
+    if emitted_scale is None and settled_layout is not None and not _mirrors_dimensions(model):
+        # An unmirrorable model keeps auto_dimensions(), so its requirement planner must stay
+        # in charge of the view topology. Replay the settled numeric scale through the public
+        # explicit-scale path; the private authored-mirror constraint relies on fixed views.
         emitted_scale = settled_layout["scale"]
     if emitted_scale is not None:
         ctor.append(f"scale={emitted_scale!r}")
+    elif settled_layout is not None:
+        ctor.append(f"_replayed_scale={settled_layout['scale']!r}")
     if scale_policy != "fallback":
         ctor.append(f"scale_policy={scale_policy!r}")
     emitted_page = page
