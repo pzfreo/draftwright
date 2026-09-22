@@ -471,6 +471,9 @@ _FACTS: dict[str, tuple[str, ...]] = {
     "datum_ref": (),
     "finish": (),
     "note": (),
+    "general_tolerance": (),
+    "default_surface_finish": (),
+    "document_note": (),
 }
 
 

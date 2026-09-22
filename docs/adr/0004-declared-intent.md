@@ -42,7 +42,9 @@ only as a documented, deprecated escape hatch.
 4. **Renderers emit dimensional content only from the compiled plan.** `ApprovedDimension` has no
    `suppressed` field; the feature crosses as an opaque ref; no renderer formats a number the
    compiler did not; the migrated-renderer roster is pinned by contract and the `groups` tier is
-   empty. `test_compiled_plan_boundary.py`, `test_label_provenance.py`
+   empty. The exceptions render source-authored document PMI verbatim: general tolerance and
+   default surface finish as title/furniture content, plus document notes, GD&T, and raw PMI.
+   `test_compiled_plan_boundary.py`, `test_label_provenance.py`
    (`test_no_renderer_formats_a_number_the_compiler_did_not`, `test_the_ratchet_actually_bites`).
 5. **Two explicit dimension sources; mixing raises; requesting neither raises;
    `add_dimension` requires `auto_dimensions()`.** `test_add_dimension.py`,

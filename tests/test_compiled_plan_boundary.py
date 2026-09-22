@@ -1176,12 +1176,13 @@ class TestTheBoundaryIsLoadBearing:
             f"no renderer may take the advisory surface: {sorted(by_contract['groups'])}"
         )
 
-        # `render_gdt` and `render_pmi` draw AUTHOR-SUPPLIED text, not generated measurements:
-        # a control frame's tolerance and a PMI record's label are written by the script (or
-        # by the STEP file) and rendered verbatim, with no `DimParameter` to plan or suppress.
-        # They take the model because that is where those records live, which is a different
-        # thing from reconstructing a withheld measurement.
+        # These renderers draw AUTHOR-SUPPLIED text, not generated measurements: document
+        # notes, a control frame's tolerance, and a PMI record's label are written by the
+        # script (or by the STEP file) and rendered verbatim, with no `DimParameter` to plan
+        # or suppress. They take the model because that is where those records live, which is
+        # a different thing from reconstructing a withheld measurement.
         assert sorted(by_contract["model"]) == [
+            "render_document_notes",
             "render_gdt",
             "render_pmi",
         ], f"the raw-inventory set changed: {sorted(by_contract['model'])}"
