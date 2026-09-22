@@ -50,6 +50,35 @@ KNURL_TEXT = (
 )
 
 
+@pytest.mark.parametrize(
+    ("feature_type", "arguments", "message"),
+    [
+        (GeneralTolerance, {"designation": ""}, "non-empty designation"),
+        (GeneralTolerance, {"designation": " ISO 2768-m "}, "surrounding whitespace"),
+        (DefaultSurfaceFinish, {"ra": ""}, "non-empty Ra value"),
+        (DefaultSurfaceFinish, {"ra": " 3.2 "}, "surrounding whitespace"),
+        (
+            DocumentNote,
+            {"text": "", "note_kind": "datum_scheme"},
+            "non-empty text",
+        ),
+        (
+            DocumentNote,
+            {"text": " DATUM A IS PRIMARY ", "note_kind": "datum_scheme"},
+            "surrounding whitespace",
+        ),
+        (
+            DocumentNote,
+            {"text": "DATUM A IS PRIMARY", "note_kind": "free_text"},
+            "unsupported document-note kind",
+        ),
+    ],
+)
+def test_document_requirements_reject_ambiguous_values(feature_type, arguments, message):
+    with pytest.raises(ValueError, match=message):
+        feature_type(frame=Frame((0.0, 0.0, 0.0), "z"), **arguments)
+
+
 def _manufacturing_signature(model):
     """Typed requirements plus stable canonical-owner facts for emit/rebuild parity."""
     signature = []
