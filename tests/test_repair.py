@@ -91,6 +91,42 @@ class TestRepair:
             fixed = ew(build_drawing(part, repair=True))
             assert fixed <= raw
 
+    def test_unrelated_unknown_furniture_does_not_veto_confirmed_ink_repair_issue_1781(self):
+        from build123d import Box, Pos, Rot
+
+        from draftwright.audit import compare_measurements
+
+        part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
+        drawing = build_drawing(part, repair=False, scale=1, frame=True)
+        assert [issue.code for issue in drawing.lint(physical=False)] == [
+            "annotation_ink_overlap",
+            "annotation_ink_overlap",
+        ]
+
+        before = drawing.measurement_snapshot()
+        assert before.unknown == (("sheet_frame", "measurement_identity_unavailable"),)
+        target = drawing.get_annotation("m_env_width")
+        assert any(claim.annotation == "m_env_width" for claim in before.claims)
+        assert target._dw_spec.distance == 8.0
+
+        drawing.repair()
+
+        repaired = drawing.get_annotation("m_env_width")
+        assert repaired is not target
+        assert repaired._dw_spec.distance == 15.0
+        assert drawing.lint(physical=False) == []
+        after = drawing.measurement_snapshot()
+        assert after.unknown == before.unknown
+        comparison = compare_measurements(before, after)
+        assert comparison["status"] == "unknown", (
+            "the unchanged furniture uncertainty must remain honest"
+        )
+        assert comparison["lost"] == comparison["gained"] == comparison["changed"] == []
+
+        stable = list(drawing.items)
+        drawing.repair()
+        assert all(old is new for old, new in zip(stable, drawing.items, strict=True))
+
     def test_repair_ignores_annotation_overlap_without_mutation(self, fresh_drawing):
         # annotation_overlap is no longer repairable (#521). It remains visible
         # to lint rather than being moved by a fixed-step fallback.

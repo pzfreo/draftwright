@@ -890,6 +890,79 @@ def test_place_strip_candidates_ignores_perpendicular_disjoint_obstacle():
     assert not left and len(dwg.added) == 1, "perpendicular-disjoint obstacle must not block"
 
 
+def test_strip_candidate_avoids_foreign_view_ink_in_its_page_corridor_issue_1781():
+    """View ownership cannot hide ink that physically enters another view's strip."""
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotations._common import place_strip_candidates
+
+    def _obj(x0, y0, x1, y1, tname):
+        class _P:
+            def __init__(s, x, y):
+                s.X, s.Y = x, y
+
+        class _BB:
+            def __init__(s):
+                s.min, s.max = _P(x0, y0), _P(x1, y1)
+
+        return type(tname, (), {"bounding_box": lambda s: _BB()})()
+
+    class _Dwg:
+        def __init__(s):
+            # A front-view leader label reaches into the plan-view below corridor.
+            s.foreign = _obj(5.0, 6.0, 25.0, 11.0, "Leader")
+            s.foreign.label_bbox = (5.0, 6.0, 25.0, 11.0)
+            s.foreign.segments = ()
+            s.draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+            s.added = []
+
+        def iter_annotations(s):
+            return [("front_leader", s.foreign), *s.added]
+
+        def view_of(s, name):
+            return "front" if name == "front_leader" else "plan"
+
+        def place(s, obj, name, view=None, feature=None, measurement=None):
+            s.added.append((name, obj))
+
+    dwg = _Dwg()
+    scoped = strip_obstacles(dwg, view="plan")
+    sheet_wide = strip_obstacles(dwg)
+    assert scoped == [] and sheet_wide, "the fixture must exercise foreign-view ink"
+
+    strip = Strip(anchor=0.0, outer_limit=40.0, direction=1.0, gap=8.0, spacing=2.0)
+
+    def build(pos):
+        return _dim((5.0, 0.0, 0.0), (25.0, 0.0, 0.0), "above", pos, dwg.draft, label="20")
+
+    natural = build(8.0)
+    assert natural._dw_spec.distance == 8.0
+    assert any(
+        min(first[1], second[1]) <= 8.0 <= max(first[1], second[1])
+        and max(first[0], second[0]) >= 5.0
+        and min(first[0], second[0]) <= 25.0
+        for first, second in natural.segments
+    ), "the natural dimension line must enter the foreign label row"
+
+    left = place_strip_candidates(
+        dwg,
+        strip,
+        "plan",
+        "y",
+        [("plan_dimension", build)],
+        tier=5.0,
+        force=True,
+        ctx=dwg,
+    )
+
+    assert left == []
+    placed = dict(dwg.added)["plan_dimension"]
+    assert placed._dw_spec.distance == 15.0, (
+        "the bounded emit solve must move the dimension one established tier"
+    )
+
+
 def test_carve_free_position_exact_fit_and_innermost_outermost():
     # carve_free_position must place on a strip EXACTLY gap+tier wide — the label reaches
     # outer_limit inclusively, as the old Strip.allocate did (the double-reserve bug

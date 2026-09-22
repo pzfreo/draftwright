@@ -164,7 +164,11 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
             drawing.repair()
     else:
         drawing.repair()
-    assert bool(attempts) == (fault != "unknown")
+    # Candidate selection is geometry-only and may run before repair knows which
+    # annotation would move. Authority is then checked on that exact changed set:
+    # unknown authority on the target rejects the candidate, while unrelated unknown
+    # furniture no longer vetoes the whole drawing (#1781).
+    assert attempts
     assert all(a is b for a, b in zip(drawing.items, items, strict=True))
     assert drawing.registry.snapshot() == registry
     assert drawing.lint(physical=False) == before
