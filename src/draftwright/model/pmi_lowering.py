@@ -19,6 +19,7 @@ from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
     CylindricalReference,
+    DefaultSurfaceFinish,
     Feature,
     GeneralTolerance,
     HoleFeature,
@@ -921,7 +922,7 @@ def lower_ap242_manufacturing_requirements(
 
 def lower_ap242_document_requirements(model: PartModel) -> PartModel:
     """Lower source-proven document defaults that have an existing drafting carrier."""
-    candidates = [
+    tolerance_candidates = [
         (index, feature)
         for index, feature in enumerate(model.features)
         if isinstance(feature, PmiFeature)
@@ -929,24 +930,68 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
         and feature.pmi_kind == "general_tolerances"
         and not feature.lowering_blockers
     ]
-    if not candidates:
-        return model
-    if len(candidates) != 1:
+    if len(tolerance_candidates) > 1:
         features = list(model.features)
-        for index, feature in candidates:
+        for index, feature in tolerance_candidates:
             features[index] = _block_requirement(
                 feature, "ambiguous document default: multiple general-tolerance requirements"
             )
-        return replace(model, features=features)
-    index, feature = candidates[0]
-    designation = feature.label.split(";", 1)[0].strip()
-    if not designation:
+        model = replace(model, features=features)
+    elif tolerance_candidates:
+        index, feature = tolerance_candidates[0]
+        designation = feature.label.split(";", 1)[0].strip()
+        if not designation:
+            features = list(model.features)
+            features[index] = _block_requirement(feature, "general-tolerance designation is empty")
+            model = replace(model, features=features)
+        else:
+            requirement = GeneralTolerance(
+                frame=feature.frame,
+                designation=designation,
+                statement=feature.label,
+                source_id=feature.source_id,
+                part21_id=feature.part21_id,
+            )
+            model = replace(
+                model,
+                features=[
+                    requirement if position == index else item
+                    for position, item in enumerate(model.features)
+                ],
+            )
+
+    finish_candidates = [
+        (index, feature)
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, PmiFeature)
+        and feature.source_category == "manufacturing_requirement"
+        and feature.pmi_kind == "surface_texture"
+        and not feature.lowering_blockers
+    ]
+    if len(finish_candidates) > 1:
         features = list(model.features)
-        features[index] = _block_requirement(feature, "general-tolerance designation is empty")
+        for index, feature in finish_candidates:
+            features[index] = _block_requirement(
+                feature, "ambiguous document default: multiple surface-texture requirements"
+            )
         return replace(model, features=features)
-    requirement = GeneralTolerance(
+    if not finish_candidates:
+        return model
+    index, feature = finish_candidates[0]
+    match = re.fullmatch(
+        r"\s*Ra\s+(?P<ra>\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s+unless\s+otherwise\s+specified\s*",
+        feature.label,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        features = list(model.features)
+        features[index] = _block_requirement(
+            feature, "surface-texture requirement is not a supported document default"
+        )
+        return replace(model, features=features)
+    requirement = DefaultSurfaceFinish(
         frame=feature.frame,
-        designation=designation,
+        ra=match.group("ra"),
         statement=feature.label,
         source_id=feature.source_id,
         part21_id=feature.part21_id,

@@ -15,6 +15,7 @@ from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
     CylindricalReference,
+    DefaultSurfaceFinish,
     Frame,
     GeneralTolerance,
     HoleFeature,
@@ -131,6 +132,19 @@ def _general_tolerance(entity, label="ISO 2768-m"):
     )
 
 
+def _default_finish(entity, label="Ra 3.2 um unless otherwise specified"):
+    return PmiFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pmi_kind="surface_texture",
+        value=0.0,
+        label=label,
+        dominant_axis="?",
+        source_id=f"manufacturing_requirement:{entity}",
+        part21_id=entity,
+        source_category="manufacturing_requirement",
+    )
+
+
 def test_multiple_general_tolerance_requirements_fail_closed():
     lowered = lower_ap242_document_requirements(
         _model(_general_tolerance("#1"), _general_tolerance("#2", "ISO 2768-f"))
@@ -139,6 +153,37 @@ def test_multiple_general_tolerance_requirements_fail_closed():
     assert all(isinstance(feature, PmiFeature) for feature in lowered.features)
     assert {blocker for feature in lowered.features for blocker in feature.lowering_blockers} == {
         "ambiguous document default: multiple general-tolerance requirements"
+    }
+
+
+def test_document_default_surface_finish_lowers_only_the_supported_grammar():
+    lowered = lower_ap242_document_requirements(_model(_default_finish("#1")))
+
+    (finish,) = lowered.features
+    assert finish == DefaultSurfaceFinish(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        ra="3.2",
+        statement="Ra 3.2 um unless otherwise specified",
+        source_id="manufacturing_requirement:#1",
+        part21_id="#1",
+    )
+
+    unsupported = lower_ap242_document_requirements(_model(_default_finish("#2", "Ra 3.2")))
+    (raw,) = unsupported.features
+    assert isinstance(raw, PmiFeature)
+    assert raw.lowering_blockers == (
+        "surface-texture requirement is not a supported document default",
+    )
+
+
+def test_multiple_default_surface_finishes_fail_closed():
+    lowered = lower_ap242_document_requirements(
+        _model(_default_finish("#1"), _default_finish("#2", "Ra 1.6 um unless otherwise specified"))
+    )
+
+    assert all(isinstance(feature, PmiFeature) for feature in lowered.features)
+    assert {blocker for feature in lowered.features for blocker in feature.lowering_blockers} == {
+        "ambiguous document default: multiple surface-texture requirements"
     }
 
 
@@ -1104,6 +1149,12 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
     assert general_tolerance.designation == "ISO 2768-m"
     assert general_tolerance.statement == ("ISO 2768-m; dimensioning and tolerancing per ISO GPS")
     assert general_tolerance.source_id == "manufacturing_requirement:#2016"
+    (default_finish,) = [
+        feature for feature in model.features if isinstance(feature, DefaultSurfaceFinish)
+    ]
+    assert default_finish.ra == "3.2"
+    assert default_finish.statement == "Ra 3.2 um unless otherwise specified"
+    assert default_finish.source_id == "manufacturing_requirement:#2012"
 
 
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
@@ -1205,7 +1256,6 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     unsupported = [issue for issue in issues if issue.code == "pmi_not_lowered"]
     assert {issue.source_ids[0]: issue.severity for issue in unsupported} == {
-        "manufacturing_requirement:#2012": "warning",
         "manufacturing_requirement:#2020": "warning",
         "manufacturing_requirement:#2024": "warning",
         "manufacturing_requirement:#2028": "warning",
@@ -1220,6 +1270,10 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         feature for feature in model.features if isinstance(feature, GeneralTolerance)
     )
     assert drawing.registry.feature_of("title_block") is general_tolerance
+    default_finish = next(
+        feature for feature in model.features if isinstance(feature, DefaultSurfaceFinish)
+    )
+    assert drawing.registry.feature_of("default_surface_finish") is default_finish
 
     source = emit_sheet_script(model, "part", "grm03-pmi", title="GRM-03", number="GRM-03")
     namespace = {"part": _import_step(str(GRM03))}
@@ -1228,3 +1282,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         namespace,
     )
     assert _manufacturing_signature(namespace["sheet"].model()) == _manufacturing_signature(model)
+    (replayed_finish,) = [
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, DefaultSurfaceFinish)
+    ]
+    assert replayed_finish == default_finish

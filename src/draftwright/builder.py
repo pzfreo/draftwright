@@ -34,6 +34,7 @@ from draftwright._core import (
     _LADDER,
     _PAGE_SIZES,
     _SCALES,
+    _add_default_surface_finish,
     _add_projection_symbol,
     _add_scale_note,
     _add_sheet_frame,
@@ -665,6 +666,12 @@ def _assemble(
     )
     dwg._build.part_model = pm
     dwg._build.general_tolerance_source = general_tolerance_source
+    default_finishes = [
+        feature for feature in pm.features if feature.kind == "default_surface_finish"
+    ]
+    dwg._build.default_surface_finish_source = (
+        default_finishes[0] if len(default_finishes) == 1 else None
+    )
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
     # request on it exactly as the auto pass does (#661).
@@ -794,6 +801,7 @@ def _assemble(
             _add_zone_grid(dwg, a)
         _add_projection_symbol(dwg, a)
         _add_scale_note(dwg, a)
+        _add_default_surface_finish(dwg, a)
 
     # The NTS caption is post-fit late furniture too, and goes FIRST: it is tied to the
     # iso block it labels, whereas a table may sit anywhere the sheet has room. Placing

@@ -776,6 +776,14 @@ def _feature_line(
             kwargs.append(f"part21_id={f.part21_id!r}")
         suffix = f", {', '.join(kwargs)}" if kwargs else ""
         return f"sheet.general_tolerance({f.designation!r}{suffix})"
+    if k == "default_surface_finish":
+        kwargs = [f"statement={f.statement!r}"] if f.statement else []
+        if f.source_id:
+            kwargs.append(f"source_id={f.source_id!r}")
+        if f.part21_id:
+            kwargs.append(f"part21_id={f.part21_id!r}")
+        suffix = f", {', '.join(kwargs)}" if kwargs else ""
+        return f"sheet.default_surface_finish({f.ra!r}{suffix})"
     if k == "control_frame":
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
@@ -2434,7 +2442,13 @@ def emit_sheet_script(
             generated_declaration_ids.add(declaration_id)
             if id(feature) not in source_feature_ids:
                 provenance = "derived"
-            elif feature.kind in {"pmi", "control_frame", "datum_ref", "general_tolerance"}:
+            elif feature.kind in {
+                "pmi",
+                "control_frame",
+                "datum_ref",
+                "general_tolerance",
+                "default_surface_finish",
+            }:
                 provenance = "pmi"
             elif feature.kind == "note":
                 provenance = "structured-note"

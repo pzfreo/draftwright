@@ -529,6 +529,8 @@ class BuildState:
     #: Imported document default selected as the title-block tolerance carrier. ``None``
     #: when the caller supplied any explicit value, even identical display text.
     general_tolerance_source: object | None = None
+    #: Imported document-wide surface finish rendered as title-block furniture.
+    default_surface_finish_source: object | None = None
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
     #: Keyed by shape identity because the projected shapes carry no view label (lint
     #: takes their names from ``Drawing.views`` since #1196), and holding the shape

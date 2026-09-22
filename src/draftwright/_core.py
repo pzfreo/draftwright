@@ -1774,6 +1774,60 @@ def _add_scale_note(dwg, a: Analysis):
     place_annotation(dwg.registry, dwg.items, note, "scale_note")
 
 
+def _add_default_surface_finish(dwg, a: Analysis):
+    """Draw an imported document-wide ISO 1302 requirement without a leader.
+
+    The reserved band above the title block is sheet furniture space.  A document default
+    belongs there: hanging it from model geometry would falsely narrow its scope to one face.
+    """
+    requirement = dwg._build.default_surface_finish_source
+    if requirement is None:
+        return
+
+    from build123d_drafting import SurfaceFinish
+
+    symbol = SurfaceFinish(
+        f"Ra {requirement.ra}",
+        (0, 0),
+        draft=draft_preset(
+            font_size=dwg.draft.font_size,
+            decimal_precision=dwg.draft.decimal_precision,
+            font_path=PLEX_SANS_CONDENSED,
+        ),
+    )
+    box = symbol.bounding_box()
+    width, height = box.max.X - box.min.X, box.max.Y - box.min.Y
+    label = symbol.label_bbox
+    label_x = (label[0] + label[2] - box.min.X - box.max.X) / 2
+    label_y = (label[1] + label[3] - box.min.Y - box.max.Y) / 2
+    # Occupy the left end of the title-block furniture band. Scale and projection method use
+    # its right end, leaving independent document controls readable on every standard sheet.
+    cx = a.PAGE_W - a.TB_W - _title_margins(a).right + width / 2
+    cy = _title_block_top(a) + _TB_FURNITURE_GAP + height / 2
+    symbol = symbol.locate(Location((cx - box.min.X - width / 2, cy - box.min.Y - height / 2, 0)))
+    symbol.pdf_text_relative_specs = (
+        (
+            symbol.label,
+            label_x,
+            label_y,
+            dwg.draft.font_size,
+            PLEX_SANS_CONDENSED,
+            "IBM Plex Sans Condensed",
+            "REGULAR",
+            "center",
+            "middle",
+        ),
+    )
+    symbol.is_default_surface_finish = True
+    place_annotation(
+        dwg.registry,
+        dwg.items,
+        symbol,
+        "default_surface_finish",
+        feature=requirement,
+    )
+
+
 def _add_projection_symbol(dwg, a: Analysis):
     """Place the ISO 5456-2 projection-method glyph (#769) in the reserved title-block band,
     just above the drawn title block (deterministic empty space — the block reserves _TB_H but

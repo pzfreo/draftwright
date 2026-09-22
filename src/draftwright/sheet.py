@@ -64,7 +64,13 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
 from draftwright.document_input import DocumentInput
 from draftwright.fits import fit_class
-from draftwright.model import DimensionParameterId, Feature, Frame, GeneralTolerance
+from draftwright.model import (
+    DefaultSurfaceFinish,
+    DimensionParameterId,
+    Feature,
+    Frame,
+    GeneralTolerance,
+)
 from draftwright.model import angle as _angle
 from draftwright.model import angle_pattern as _angle_pattern
 from draftwright.model import blend as _blend
@@ -2410,6 +2416,28 @@ class Sheet:
             GeneralTolerance(
                 frame=Frame((center.X, center.Y, center.Z), "z"),
                 designation=designation,
+                statement=statement,
+                source_id=source_id,
+                part21_id=part21_id,
+            )
+        )
+        return _Params(self, len(self._features) - 1)
+
+    def default_surface_finish(
+        self,
+        ra: str,
+        *,
+        statement: str = "",
+        source_id: str = "",
+        part21_id: str = "",
+    ) -> _Params:
+        """Declare the document-wide surface finish shown beside the title block."""
+        bbox = self._part.bounding_box()
+        center = bbox.center()
+        self._features.append(
+            DefaultSurfaceFinish(
+                frame=Frame((center.X, center.Y, center.Z), "z"),
+                ra=str(ra).strip(),
                 statement=statement,
                 source_id=source_id,
                 part21_id=part21_id,
