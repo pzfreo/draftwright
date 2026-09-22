@@ -1339,6 +1339,29 @@ def _evidence_occurrence_for_record(
     return matches[0] if len(matches) == 1 else None
 
 
+def _records_share_defining_target(
+    evidence: RecognitionEvidence,
+    first_family: str,
+    first_record: object,
+    second_family: str,
+    second_record: object,
+) -> bool:
+    """Whether two exact same-run records name one non-empty defining-face set.
+
+    Recognition evidence is the provider's physical identity authority. In particular,
+    independently inferred axial extents may disagree at tapered transitions even though a
+    boss and turned step were derived from the same faces (#1599). Empty or ambiguous
+    evidence proves nothing and fails closed.
+    """
+
+    first = _evidence_occurrence_for_record(evidence, first_family, first_record)
+    second = _evidence_occurrence_for_record(evidence, second_family, second_record)
+    if first is None or second is None:
+        return False
+    defining = evidence.defining_faces(first)
+    return bool(defining) and defining == evidence.defining_faces(second)
+
+
 def _plate_owner_has_evidence_scope(
     evidence: RecognitionEvidence,
     plate: Plate,
@@ -2415,20 +2438,31 @@ def build_part_model(
             candidate_steps = tuple(
                 step
                 for profile in profiles
-                if profile.axis == axis
-                and (
-                    profile.profile is None
-                    or all(
-                        abs(float(b.location[index]) - profile.profile.axis_origin[index]) <= 0.5
-                        for index in range(3)
-                        if index != axis_index
-                    )
-                )
                 for step in profile.steps
                 if (
-                    abs(b.diameter - step.diameter) <= _DIA_TOL
-                    and abs(b_lo - step.lo) <= 0.5
-                    and abs(b_hi - step.hi) <= 0.5
+                    _records_share_defining_target(
+                        recognition_evidence,
+                        "bosses",
+                        b,
+                        "turned_steps",
+                        step,
+                    )
+                    if recognition_evidence is not None
+                    else (
+                        profile.axis == axis
+                        and (
+                            profile.profile is None
+                            or all(
+                                abs(float(b.location[index]) - profile.profile.axis_origin[index])
+                                <= 0.5
+                                for index in range(3)
+                                if index != axis_index
+                            )
+                        )
+                        and abs(b.diameter - step.diameter) <= _DIA_TOL
+                        and abs(b_lo - step.lo) <= 0.5
+                        and abs(b_hi - step.hi) <= 0.5
+                    )
                 )
             )
             boss_step_candidates.append((b, candidate_steps))

@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from build123d import Box, Compound, Cylinder, Pos, import_step
+from build123d import Align, Box, Compound, Cone, Cylinder, Pos, import_step
 from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
@@ -29,6 +29,34 @@ def _two_equal_bosses():
 
 def _stepped_shaft():
     return Cylinder(20, 60) + Pos(0, 0, 45) * Cylinder(30, 30)
+
+
+def _tapered_transition_shaft():
+    """A profile whose boss and step records disagree about one exact target's extent."""
+
+    def cylinder(radius, lo, hi):
+        return Pos(0, 0, lo) * Cylinder(
+            radius,
+            hi - lo,
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+        )
+
+    def transition(lo_radius, hi_radius, lo, hi):
+        return Pos(0, 0, lo) * Cone(
+            lo_radius,
+            hi_radius,
+            hi - lo,
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+        )
+
+    return (
+        cylinder(30.5, -35, -20)
+        + cylinder(27.5, -20, -5)
+        + transition(27.5, 44, -5, -3)
+        + cylinder(44, -3, 10)
+        + transition(44, 80, 10, 13)
+        + cylinder(80, 13, 35)
+    )
 
 
 def _boss_key(record) -> tuple[float, float, float]:
@@ -129,6 +157,76 @@ def test_turned_bosses_follow_their_exact_step_owners() -> None:
     assert ownership.unexpectedly_missing == ()
 
 
+def test_same_defining_target_is_dimensioned_once_when_derived_extents_disagree() -> None:
+    drawing = build_drawing(_tapered_transition_shaft())
+    evidence = drawing.recognition_evidence()
+    ownership = drawing.recognition_ownership()
+
+    assert evidence is not None
+    assert ownership is not None
+    boss_occurrence = next(
+        occurrence
+        for occurrence in _occurrences(ownership, "bosses")
+        if evidence.record(occurrence).diameter == pytest.approx(88.0)
+    )
+    boss = evidence.record(boss_occurrence)
+    step_occurrence = next(
+        occurrence
+        for occurrence in _occurrences(ownership, "turned_steps")
+        if evidence.defining_faces(occurrence) == evidence.defining_faces(boss_occurrence)
+    )
+    step = evidence.record(step_occurrence)
+
+    # The defect's precondition: geometry-derived spans disagree, so the old extent guess
+    # emitted both records, while the provider proves one non-empty physical target.
+    axis_index = max(range(3), key=lambda index: abs(boss.axis[index]))
+    boss_span = tuple(
+        sorted(
+            (
+                boss.location[axis_index],
+                boss.location[axis_index] - boss.axis[axis_index] * boss.height,
+            )
+        )
+    )
+    assert boss_span != pytest.approx((step.lo, step.hi))
+    assert evidence.defining_faces(boss_occurrence)
+
+    binding = ownership.binding_for(boss_occurrence)
+    step_binding = ownership.binding_for(step_occurrence)
+    assert binding is not None and step_binding is not None
+    assert binding.disposition == "absorbed"
+    assert binding.reason_code == "boss_turned_step_owner"
+    assert binding.feature is step_binding.feature
+
+    diameter_88 = [
+        name
+        for name in drawing.annotations()
+        if getattr(drawing.get_annotation(name), "label", None) == "ø88"
+    ]
+    assert len(diameter_88) == 1
+    assert set(drawing.registry.features_of(diameter_88[0])) == {binding.feature}
+
+    report = drawing.report()["recognition"]["occurrences"]
+    report_row = next(
+        row
+        for row in report
+        if row["family"] == "bosses" and row["record"]["diameter"] == pytest.approx(88.0)
+    )
+    step_report_row = next(
+        row
+        for row in report
+        if row["family"] == "turned_steps"
+        and row["record"]["diameter"] == pytest.approx(step.diameter)
+    )
+    assert (report_row["disposition"], report_row["reason_code"]) == (
+        "absorbed",
+        "boss_turned_step_owner",
+    )
+    assert report_row["owners"] == step_report_row["owners"]
+    assert len(report_row["owners"]) == 1
+    assert report_row["owners"][0]["kind"] == "step"
+
+
 def test_groove_floor_boss_follows_the_absorbed_step_to_the_exact_groove() -> None:
     drawing = build_drawing(import_step(FIXTURES / "groove-narrow.step"))
     ownership = drawing.recognition_ownership()
@@ -222,7 +320,7 @@ def test_a_groove_representative_cannot_claim_a_distinct_equal_diameter_boss() -
     assert cross_axis in ownership.unexpectedly_missing
 
 
-def test_two_coaxial_bosses_competing_for_one_step_both_fail_closed() -> None:
+def test_exact_faces_disambiguate_two_coaxial_bosses_near_one_step() -> None:
     part = Compound(children=[_stepped_shaft(), Cylinder(20, 60)])
     ownership = build_drawing(part).recognition_ownership()
 
@@ -234,10 +332,20 @@ def test_two_coaxial_bosses_competing_for_one_step_both_fail_closed() -> None:
     )
 
     assert len(competing) == 2
-    assert all(ownership.status(occurrence) == "unexpectedly_missing" for occurrence in competing)
+    statuses = {ownership.status(occurrence) for occurrence in competing}
+    assert statuses == {"absorbed", "represented"}
+    absorbed = next(
+        occurrence for occurrence in competing if ownership.status(occurrence) == "absorbed"
+    )
+    binding = ownership.binding_for(absorbed)
+    assert binding is not None
+    assert binding.reason_code == "boss_turned_step_owner"
+    assert ownership.evidence.defining_faces(absorbed) == ownership.evidence.defining_faces(
+        binding.via_occurrence
+    )
 
 
-def test_one_boss_matching_two_nearby_profile_steps_fails_closed() -> None:
+def test_exact_faces_pair_nearby_profile_bosses_to_their_own_steps() -> None:
     part = Compound(children=[_stepped_shaft(), Pos(0.25, 0, 0) * _stepped_shaft()])
     ownership = build_drawing(part).recognition_ownership()
 
@@ -245,7 +353,14 @@ def test_one_boss_matching_two_nearby_profile_steps_fails_closed() -> None:
     bosses = _occurrences(ownership, "bosses")
 
     assert len(bosses) == 4
-    assert all(ownership.status(occurrence) == "unexpectedly_missing" for occurrence in bosses)
+    assert all(ownership.status(occurrence) == "absorbed" for occurrence in bosses)
+    assert all(
+        (binding := ownership.binding_for(occurrence)) is not None
+        and binding.reason_code == "boss_turned_step_owner"
+        and ownership.evidence.defining_faces(occurrence)
+        == ownership.evidence.defining_faces(binding.via_occurrence)
+        for occurrence in bosses
+    )
 
 
 def test_two_coaxial_bosses_competing_for_one_groove_both_fail_closed() -> None:
