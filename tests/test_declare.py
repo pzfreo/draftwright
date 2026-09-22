@@ -2224,3 +2224,18 @@ def test_generated_scale_replay_requires_a_page_and_no_authored_scale():
         Sheet(Box(10, 10, 10), _replayed_scale=1)
     with pytest.raises(ValueError, match="cannot be combined"):
         Sheet(Box(10, 10, 10), page="A4", scale=1, _replayed_scale=1)
+
+
+@pytest.mark.parametrize("value", (0, float("inf")))
+def test_builder_scale_replay_rejects_invalid_values(value):
+    """The generated-only builder seam validates independently of ``Sheet``."""
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        build_drawing(Box(10, 10, 10), page="A4", _replayed_scale=value)
+
+
+def test_builder_scale_replay_requires_a_page_and_no_authored_scale():
+    with pytest.raises(ValueError, match="requires the settled page"):
+        build_drawing(Box(10, 10, 10), _replayed_scale=1)
+    with pytest.raises(ValueError, match="cannot be combined"):
+        build_drawing(Box(10, 10, 10), page="A4", scale=1, _replayed_scale=1)

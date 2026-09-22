@@ -151,6 +151,35 @@ def test_overlapping_step_spans_do_not_claim_an_overall_axis():
     assert axes["missing"] == axes["affected_count"] == 1
 
 
+def test_adjacent_legacy_steps_on_one_axis_line_convey_the_overall_axis():
+    """Ungrouped declared steps use their shared physical axis line as chain identity."""
+
+    part = Rotation(0, 90, 0) * Cylinder(10, 60, align=(Align.CENTER,) * 3)
+    sheet = Sheet(part, title="ADJACENT", number="1560-ADJACENT")
+    sheet.authored_dimensions()
+    left = sheet.step(
+        diameter=20,
+        length=30,
+        at=(-15, 0, 0),
+        axis="x",
+        span=((-30, 0, 0), (0, 0, 0)),
+    )
+    right = sheet.step(
+        diameter=20,
+        length=30,
+        at=(15, 0, 0),
+        axis="x",
+        span=((0, 0, 0), (30, 0, 0)),
+    )
+    for step in (left, right):
+        sheet.dimension(step, "step.length")
+        sheet.dimension(step, "step.diameter")
+
+    axes = sheet.build().lint_summary()["quality"]["completeness"]["envelope_axes"]
+    assert axes["requirements"] == axes["placed"] == 3
+    assert axes["affected_count"] == 0
+
+
 def test_each_removed_envelope_axis_remains_in_the_physical_denominator():
     annotation_by_axis = {
         "x": "m_env_width",
