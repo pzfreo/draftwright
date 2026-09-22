@@ -200,6 +200,40 @@ def test_shared_machined_adapter_fails_closed_with_provenance(monkeypatch):
     ]
 
 
+def test_source_aware_drop_severity_preserves_unsourced_warning(monkeypatch):
+    issues = []
+    ctx = SimpleNamespace(
+        feature_leaders=[],
+        record_issue=lambda *args, **kwargs: issues.append((args, kwargs)),
+    )
+    monkeypatch.setattr(from_model, "_text_size", lambda *_args, **_kwargs: (0.0, 0.0))
+    jobs = [
+        ("plain", "plan", (0.0, 0.0, 1.0, 1.0), "C1", (), ()),
+        ("imported", "plan", (0.0, 0.0, 1.0, 1.0), "C2", (), ()),
+    ]
+
+    from_model.place_machined_leader_jobs(
+        SimpleNamespace(draft=Draft()),
+        None,
+        jobs,
+        noun="chamfer",
+        drop_code="chamfer_dropped",
+        ctx=ctx,
+        joint=True,
+        source_ids_by_name={"imported": ("manufacturing_requirement:#1",)},
+        source_drop_severity="source",
+    )
+    for job in ctx.feature_leaders:
+        assert job.on_drop is not None
+        job.on_drop("no_clear_room")
+
+    assert [args[0] for args, _kwargs in issues] == ["warning", "error"]
+    assert [kwargs["source"] for _args, kwargs in issues] == [
+        (),
+        ("manufacturing_requirement:#1",),
+    ]
+
+
 @pytest.mark.parametrize("fixture", tuple(EXPECTED))
 def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, monkeypatch):
     from draftwright import builder as builder_module

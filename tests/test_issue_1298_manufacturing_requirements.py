@@ -14,6 +14,7 @@ from draftwright.model.detect import build_part_model
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
+    ChamferFeature,
     CylindricalReference,
     DefaultSurfaceFinish,
     DocumentNote,
@@ -28,6 +29,7 @@ from draftwright.model.ir import (
     ThreadRequirement,
 )
 from draftwright.model.pmi_lowering import (
+    lower_ap242_chamfer_requirements,
     lower_ap242_document_requirements,
     lower_ap242_manufacturing_requirements,
 )
@@ -1203,6 +1205,12 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
     assert set(records) == {"external_thread", "internal_thread", "knurl"}
     assert all(len(record.cylindrical_refs) == 1 for record in records.values())
     assert all(not record.lowering_blockers for record in records.values())
+    chamfer_record = next(record for record in report.records if record.kind == "chamfers")
+    assert chamfer_record.reference_item_ids == ("#283", "#426")
+    assert len(chamfer_record.reference_bboxes) == 2
+    assert [box[3] - box[0] for box in chamfer_record.reference_bboxes] == pytest.approx(
+        [0.3, 0.5], abs=0.001
+    )
 
     model = build_part_model(_import_step(str(GRM03)), pmi=report.records)
     aspects = [
@@ -1239,6 +1247,89 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
         ("datum_scheme", "manufacturing_requirement:#2020"),
         ("model_representation", "manufacturing_requirement:#2028"),
     ]
+    chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
+    assert [(feature.leg1, feature.source_ids) for feature in chamfers] == [
+        (0.3, ("manufacturing_requirement:#2024",)),
+        (0.3, ("manufacturing_requirement:#2024",)),
+        (0.5, ("manufacturing_requirement:#2024",)),
+    ]
+    assert not [
+        feature
+        for feature in model.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    ]
+
+
+def test_chamfer_requirement_with_changed_source_bounds_fails_closed():
+    report = extract_pmi_report(GRM03)
+    model = build_part_model(
+        _import_step(str(GRM03)),
+        pmi=report.records,
+        lower_pmi=False,
+    )
+    raw = next(
+        feature
+        for feature in model.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    )
+    changed = replace(
+        raw,
+        reference_bboxes=(
+            (10.0, -5.0, -5.0, 10.3, 5.0, 5.0),
+            raw.reference_bboxes[1],
+        ),
+    )
+    model = replace(
+        model,
+        features=[changed if feature is raw else feature for feature in model.features],
+    )
+
+    lowered = lower_ap242_chamfer_requirements(model)
+
+    fallback = next(
+        feature
+        for feature in lowered.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    )
+    assert fallback.lowering_blockers == (
+        "chamfer reference does not match one canonical turned chamfer",
+    )
+    assert all(not feature.source_ids for feature in lowered.features if feature.kind == "chamfer")
+
+    restored = replace(
+        model,
+        features=[raw if feature is changed else feature for feature in model.features],
+    )
+    with_knurl = lower_ap242_manufacturing_requirements(restored)
+    original = next(
+        feature
+        for feature in with_knurl.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    )
+    duplicate = replace(
+        original,
+        source_id="manufacturing_requirement:#2025",
+        part21_id="#2025",
+    )
+    duplicated = replace(with_knurl, features=[*with_knurl.features, duplicate])
+
+    overlap = lower_ap242_chamfer_requirements(duplicated)
+
+    assert {
+        source_id
+        for feature in overlap.features
+        if isinstance(feature, ChamferFeature)
+        for source_id in feature.source_ids
+    } == {"manufacturing_requirement:#2024"}
+    second = next(
+        feature
+        for feature in overlap.features
+        if isinstance(feature, PmiFeature)
+        and feature.source_id == "manufacturing_requirement:#2025"
+    )
+    assert second.lowering_blockers == (
+        "canonical chamfer is already claimed by imported provenance",
+    )
 
 
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
@@ -1339,9 +1430,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         issue.severity == "info" for issue in issues if issue.code == "feature_leader_crossing"
     )
     unsupported = [issue for issue in issues if issue.code == "pmi_not_lowered"]
-    assert {issue.source_ids[0]: issue.severity for issue in unsupported} == {
-        "manufacturing_requirement:#2024": "warning",
-    }
+    assert unsupported == []
     title_fields = {
         field: value
         for field, value, _size, _font in drawing.get_annotation("title_block").title_field_specs
@@ -1366,6 +1455,12 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         ),
     )
     assert drawing.registry.features_of("general_notes") == tuple(document_notes)
+    chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
+    assert [drawing.registry.names_for_feature(feature) for feature in chamfers] == [
+        ["m_chamfer_x0"],
+        ["m_chamfer_x0"],
+        ["m_chamfer_x1"],
+    ]
 
     source = emit_sheet_script(model, "part", "grm03-pmi", title="GRM-03", number="GRM-03")
     namespace = {"part": _import_step(str(GRM03))}
@@ -1383,3 +1478,6 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert [
         feature for feature in namespace["sheet"].model().features if isinstance(feature, DocumentNote)
     ] == document_notes
+    assert [
+        feature for feature in namespace["sheet"].model().features if isinstance(feature, ChamferFeature)
+    ] == chamfers

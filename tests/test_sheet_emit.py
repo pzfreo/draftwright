@@ -3197,6 +3197,9 @@ _KIND_MIRROR_COVERAGE = {
     "authored_dimension": "declared",
     "control_frame": "declared",
     "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",
+    "general_tolerance": "aspect — carries no DimParameter, so nothing to mirror",
+    "default_surface_finish": "aspect — carries no DimParameter, so nothing to mirror",
+    "document_note": "aspect — carries no DimParameter, so nothing to mirror",
     "finish": "aspect — carries no DimParameter, so nothing to mirror",
     "note": "aspect — carries no DimParameter, so nothing to mirror",
 }
@@ -3289,7 +3292,16 @@ def _aspect_instances():
     All four implementations return `[]` unconditionally today; if one becomes conditional, its
     semantics need a purpose-built test rather than a generic one anticipating it.
     """
-    from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
+    from draftwright.model.ir import (
+        ControlFrame,
+        DatumRef,
+        DefaultSurfaceFinish,
+        DocumentNote,
+        Finish,
+        Frame,
+        GeneralTolerance,
+        Note,
+    )
 
     frame = Frame((0.0, 0.0, 0.0), "z")
     common = {"frame": frame, "view": "front", "side": "top"}
@@ -3298,6 +3310,9 @@ def _aspect_instances():
             **common, characteristic="position", tolerance="0.1", datums=("A",)
         ),
         "datum_ref": DatumRef(**common, letter="A"),
+        "general_tolerance": GeneralTolerance(frame, "ISO 2768-m"),
+        "default_surface_finish": DefaultSurfaceFinish(frame, "3.2"),
+        "document_note": DocumentNote(frame, "Datum A is primary", "datum_scheme"),
         "finish": Finish(**common, ra="1.6"),
         "note": Note(**common, text="TYP"),
     }

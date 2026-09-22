@@ -2393,6 +2393,10 @@ class ChamferFeature:
     # same ``axis`` field is the bevel-edge direction for a prismatic chamfer, so this semantic
     # discriminator is required for faithful view selection and Sheet round-trip (#1276).
     turned: bool = False
+    source_ids: tuple[str, ...] = ()
+    part21_id: str = ""
+    shape_aspect_ids: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
     kind: ClassVar[str] = "chamfer"
 
     def parameters(self) -> list[DimParameter]:
@@ -3687,6 +3691,7 @@ class PmiFeature:
     semantic_name: str = ""
     shape_aspect_ids: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+    reference_bboxes: tuple[tuple[float, float, float, float, float, float], ...] = ()
     kind: ClassVar[str] = "pmi"
 
     def parameters(self) -> list[DimParameter]:

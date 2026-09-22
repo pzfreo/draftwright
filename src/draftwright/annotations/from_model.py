@@ -2704,6 +2704,7 @@ def place_machined_leader_jobs(
     expand_lanes=True,
     region_policy=LeaderRegionPolicy.EXTERIOR,
     source_ids_by_name=None,
+    source_drop_severity="warning",
     priority=0.0,
 ) -> int:
     """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
@@ -2819,8 +2820,27 @@ def place_machined_leader_jobs(
                         feature,
                     )
 
-        def _build(tip, elbow, _feature, *, _label=label):
-            return Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
+        source_features = tuple(
+            {
+                id(getattr(identity, "feature", None)): getattr(identity, "feature", None)
+                for identity in measurement
+                if getattr(identity, "feature", None) is not None
+            }.values()
+        )
+
+        def _build(
+            tip,
+            elbow,
+            _feature,
+            *,
+            _label=label,
+            _source_features=source_features,
+        ):
+            leader = Leader(
+                tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft
+            )
+            leader.source_features = _source_features
+            return leader
 
         def _fallback_accept(
             candidate,
@@ -2883,8 +2903,11 @@ def place_machined_leader_jobs(
         ):
             validation = reason == "geometry_validation"
             detail = "rendered geometry validation failed" if validation else "no clear room"
+            severity = (
+                "error" if _source_ids else "warning"
+            ) if source_drop_severity == "source" else source_drop_severity
             ctx.record_issue(
-                "warning",
+                severity,
                 drop_code,
                 f"{noun} callout {_label} not placed ({detail})",
                 measurement=_measurement,
@@ -2934,7 +2957,9 @@ def place_machined_leader_jobs(
                 fallback_accept=_fallback_accept,
                 interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
-                on_drop=_on_drop if source_ids else None,
+                on_drop=(
+                    _on_drop if source_ids or source_drop_severity == "source" else None
+                ),
             )
         )
 
@@ -2996,6 +3021,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         collapse.setdefault(spec, []).append((g, pd))
 
     jobs = []
+    source_ids_by_name = {}
     for gi, (_spec, members) in enumerate(sorted(collapse.items())):
         if only is not None:
             # Filter after enumerating the full collapse so a surviving group keeps the same
@@ -3023,9 +3049,17 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         label = _chamfer_label(representative_pd.value_text, representative_pd.value, ch)
         if len(members) > 1:
             label = f"{len(members)}× {label}"
+        name = f"m_chamfer_{axis}{gi}"
+        source_ids_by_name[name] = tuple(
+            dict.fromkeys(
+                source_id
+                for member, _pd in members
+                for source_id in getattr(member.facts, "source_ids", ())
+            )
+        )
         jobs.append(
             (
-                f"m_chamfer_{axis}{gi}",
+                name,
                 view,
                 vb,
                 label + _tol_suffix(representative_pd.tolerance, draft),
@@ -3050,6 +3084,8 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         ctx=ctx,
         joint=True,
         region_policy=LeaderRegionPolicy.AUTO,
+        source_ids_by_name=source_ids_by_name,
+        source_drop_severity="source",
     )
 
 
