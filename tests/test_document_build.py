@@ -30,6 +30,13 @@ def pmi_source():
     return Document.from_part(path, pmi="annotate")._source
 
 
+@pytest.fixture(scope="module")
+def round_source(tmp_path_factory):
+    path = tmp_path_factory.mktemp("document-round") / "shaft.step"
+    export_step(Cylinder(10, 30), path)
+    return path
+
+
 def authored_member(document, name):
     sheet = document.sheet(name, detail_view=False).authored_dimensions().authored_views()
     for view in ("front", "plan", "side"):
@@ -112,6 +119,22 @@ def test_members_and_live_reports_reuse_one_exact_recognition(source, monkeypatc
         != "placed"
     )
     assert len(calls) == 1
+
+
+def test_document_seals_one_derived_envelope_for_every_member(round_source):
+    document = Document.from_part(round_source)
+    envelopes = [feature for feature in document.features if feature.kind == "envelope"]
+    assert len(envelopes) == 1
+
+    sheet = document.sheet("overall", detail_view=False).authored_dimensions().authored_views()
+    for view in ("front", "plan", "side"):
+        sheet.view(view)
+    sheet.dimension(envelopes[0], "height.length")
+
+    result = document.build()
+    drawing = result.sheets["overall"]
+    assert drawing.annotations_of(envelopes[0])
+    assert result.report()["schema_version"] == 4
 
 
 def test_sealed_members_reject_physical_mutation_before_changing_anything(source):

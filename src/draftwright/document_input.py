@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from draftwright._core import Analysis
+from draftwright.model.declare import _envelope_from_bbox
 from draftwright.model.ir import (
     AuthoredDimension,
     ControlFrame,
@@ -60,6 +61,11 @@ class DocumentInput:
             raise ValueError("a document requires exact raw recognition and conversion ownership")
         model = analysis.model
         features = tuple(model.features)
+        if not any(getattr(feature, "kind", None) == "envelope" for feature in features):
+            # The envelope is a deterministic derivation of the already-authoritative body
+            # bounds.  Seal it once with the common inventory so every member can address
+            # overall dimensions without changing physical recognition membership.
+            features += (_envelope_from_bbox(model.bbox),)
         physical = physical_features(features)
         if len({id(feature) for feature in physical}) != len(physical):
             raise ValueError("the document physical inventory repeats an owner")
