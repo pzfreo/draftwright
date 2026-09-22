@@ -72,6 +72,24 @@ def test_an_explicit_empty_tolerance_leaves_the_cell_blank():
     assert "general_tolerance" not in _fields(_sheet(tolerance="").build())
 
 
+@pytest.mark.parametrize("explicit", ["ISO 2768-f", "", "ISO 2768-m"])
+def test_explicit_title_tolerance_does_not_borrow_imported_source_provenance(explicit):
+    sheet = Sheet(_PART, title="BLOCK", tolerance=explicit)
+    sheet.general_tolerance(
+        "ISO 2768-m",
+        statement="ISO 2768-m; dimensioning and tolerancing per ISO GPS",
+        source_id="manufacturing_requirement:#2016",
+    )
+    sheet.authored_dimensions()
+    drawing = sheet.build()
+
+    if explicit:
+        assert _fields(drawing)["general_tolerance"] == explicit
+    else:
+        assert "general_tolerance" not in _fields(drawing)
+    assert drawing.registry.feature_of("title_block") is None
+
+
 def test_the_unspecified_text_clears_its_own_cell(narrowest):
     """Measure what the block actually rendered, on the narrowest block, rather than a
     literal repeated here — otherwise a longer replacement overflows A4 while this test

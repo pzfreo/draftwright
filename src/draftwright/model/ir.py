@@ -2393,6 +2393,10 @@ class ChamferFeature:
     # same ``axis`` field is the bevel-edge direction for a prismatic chamfer, so this semantic
     # discriminator is required for faithful view selection and Sheet round-trip (#1276).
     turned: bool = False
+    source_ids: tuple[str, ...] = ()
+    part21_id: str = ""
+    shape_aspect_ids: tuple[str, ...] = ()
+    reference_item_ids: tuple[str, ...] = ()
     kind: ClassVar[str] = "chamfer"
 
     def parameters(self) -> list[DimParameter]:
@@ -3687,7 +3691,89 @@ class PmiFeature:
     semantic_name: str = ""
     shape_aspect_ids: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+    reference_bboxes: tuple[tuple[float, float, float, float, float, float], ...] = ()
     kind: ClassVar[str] = "pmi"
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class GeneralTolerance:
+    """A document-wide dimensional tolerance requirement carried by the title block."""
+
+    frame: Frame
+    designation: str
+    statement: str = ""
+    source_id: str = ""
+    part21_id: str = ""
+    kind: ClassVar[str] = "general_tolerance"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.designation, str) or not self.designation.strip():
+            raise ValueError("general tolerance needs a non-empty designation")
+        if self.designation != self.designation.strip():
+            raise ValueError("general tolerance designation cannot contain surrounding whitespace")
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class DefaultSurfaceFinish:
+    """A document-wide ISO 1302 surface-texture requirement.
+
+    Unlike :class:`Finish`, this requirement has no geometric target and therefore renders as
+    sheet furniture without a leader.  ``statement`` retains the source wording while ``ra`` is
+    the normalized micrometre value shown by the drafting symbol.
+    """
+
+    frame: Frame
+    ra: str
+    statement: str = ""
+    source_id: str = ""
+    part21_id: str = ""
+    kind: ClassVar[str] = "default_surface_finish"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.ra, str) or not self.ra.strip():
+            raise ValueError("default surface finish needs a non-empty Ra value")
+        if self.ra != self.ra.strip():
+            raise ValueError(
+                "default surface finish Ra value cannot contain surrounding whitespace"
+            )
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
+class DocumentNote:
+    """A source-proven document requirement with no honest geometric attachment."""
+
+    frame: Frame
+    text: str
+    note_kind: str
+    source_id: str = ""
+    part21_id: str = ""
+    kind: ClassVar[str] = "document_note"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError("document note needs non-empty text")
+        if self.text != self.text.strip():
+            raise ValueError("document note text cannot contain surrounding whitespace")
+        if self.note_kind not in ("datum_scheme", "model_representation"):
+            raise ValueError(f"unsupported document-note kind {self.note_kind!r}")
 
     def parameters(self) -> list[DimParameter]:
         return []

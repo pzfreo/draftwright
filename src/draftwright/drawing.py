@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from itertools import permutations
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult
@@ -526,6 +526,11 @@ class BuildState:
     #: The title block's deterministic page-space footprint, measured before it is
     #: drawn so strip placement can avoid it (#1593). None until the builder sets it.
     pending_title_block_box: tuple | None = None
+    #: Imported document default selected as the title-block tolerance carrier. ``None``
+    #: when the caller supplied any explicit value, even identical display text.
+    general_tolerance_source: object | None = None
+    #: Imported document-wide surface finish rendered as title-block furniture.
+    default_surface_finish_source: object | None = None
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
     #: Keyed by shape identity because the projected shapes carry no view label (lint
     #: takes their names from ``Drawing.views`` since #1196), and holding the shape
@@ -3804,6 +3809,10 @@ class Drawing:
         name="table",
         block_cols=None,
         _source_id: str | None = None,
+        _source_ids: tuple[str, ...] = (),
+        _features: tuple[object, ...] = (),
+        _drop_code: str = "table_dropped",
+        _drop_severity: Literal["error", "warning", "info"] = "warning",
         _cells=(),
     ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
@@ -3876,18 +3885,23 @@ class Drawing:
                 detail = "solver returned no placement trace"
             self._registry.record_issue(
                 LintIssue(
-                    severity="warning",
-                    code="table_dropped",
+                    severity=_drop_severity,
+                    code=_drop_code,
                     message=(
                         f"table {name!r} did not fit the sheet; measured page-space footprint "
                         f"{measured}; {detail}"
                     ),
-                    source_ids=(_source_id,) if _source_id is not None else (),
+                    source_ids=tuple(
+                        dict.fromkeys(
+                            ((_source_id,) if _source_id is not None else ()) + _source_ids
+                        )
+                    ),
                     measurement_ids=tuple(cell.measurement for cell in _cells),
                 )
             )
             return None
         placed = table.locate(Location((pos[0], pos[1], 0)))
+        placed.source_features = _features
         if not _cells:
             return self._add(placed, name)
         snapshot = self._registry.snapshot()

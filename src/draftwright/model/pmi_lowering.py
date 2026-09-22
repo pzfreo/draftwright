@@ -18,8 +18,12 @@ from typing import Literal, cast
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
+    ChamferFeature,
     CylindricalReference,
+    DefaultSurfaceFinish,
+    DocumentNote,
     Feature,
+    GeneralTolerance,
     HoleFeature,
     KnurlRequirement,
     NominalRequirement,
@@ -656,6 +660,12 @@ _KNURL = re.compile(
     re.IGNORECASE,
 )
 
+_CHAMFERS = re.compile(
+    r"Two head-edge chamfers C(?P<head>\d+(?:\.\d+)?);\s*"
+    r"M3 free-end chamfer C(?P<free>\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+
 
 def _requirement_source_ids(feature: PmiFeature) -> tuple[str, ...]:
     return tuple(
@@ -918,6 +928,267 @@ def lower_ap242_manufacturing_requirements(
     return replace(lowered, features=rebuilt)
 
 
+def _turned_chamfer_matches_box(feature: ChamferFeature, box) -> bool:
+    if not feature.turned or feature.axis not in "xyz":
+        return False
+    axis_index = "xyz".index(feature.axis)
+    lo, hi = box[axis_index], box[axis_index + 3]
+    if not _same_number(feature.frame.origin[axis_index], (lo + hi) / 2, abs_tol=0.002):
+        return False
+    if not _same_number(feature.leg1, hi - lo, abs_tol=0.002):
+        return False
+    transverse = [index for index in range(3) if index != axis_index]
+    centers = [(box[index] + box[index + 3]) / 2 for index in transverse]
+    outer_radius = max((box[index + 3] - box[index]) / 2 for index in transverse)
+    feature_radius = (
+        sum(
+            (feature.frame.origin[index] - center) ** 2
+            for index, center in zip(transverse, centers, strict=True)
+        )
+        ** 0.5
+    )
+    return _same_number(
+        feature_radius,
+        outer_radius - feature.leg2 / 2,
+        abs_tol=0.002,
+    )
+
+
+def lower_ap242_chamfer_requirements(
+    model: PartModel, *, feature_remap: FeatureRemap | None = None
+) -> PartModel:
+    """Correlate the supported grouped turned-chamfer requirement from exact face bounds."""
+    candidates = [
+        (index, feature)
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, PmiFeature)
+        and feature.source_category == "manufacturing_requirement"
+        and feature.pmi_kind == "chamfers"
+        and not feature.lowering_blockers
+    ]
+    if not candidates:
+        return model
+    features = list(model.features)
+    chamfers = [feature for feature in features if isinstance(feature, ChamferFeature)]
+    replacements: dict[int, Feature] = {}
+    consumed = set()
+    for index, requirement in candidates:
+        match = _CHAMFERS.fullmatch(requirement.label.strip())
+        if match is None:
+            features[index] = _block_requirement(
+                requirement, "unsupported grouped chamfer requirement syntax"
+            )
+            continue
+        if len(requirement.reference_bboxes) != 2:
+            features[index] = _block_requirement(
+                requirement, "grouped chamfer requirement needs two exact conical references"
+            )
+            continue
+        direct_groups = [
+            [chamfer for chamfer in chamfers if _turned_chamfer_matches_box(chamfer, box)]
+            for box in requirement.reference_bboxes
+        ]
+        if any(len(group) != 1 for group in direct_groups):
+            features[index] = _block_requirement(
+                requirement, "chamfer reference does not match one canonical turned chamfer"
+            )
+            continue
+        direct = [group[0] for group in direct_groups]
+        head = float(match.group("head"))
+        free = float(match.group("free"))
+        head_direct = [item for item in direct if _same_number(item.leg1, head, abs_tol=0.002)]
+        free_direct = [item for item in direct if _same_number(item.leg1, free, abs_tol=0.002)]
+        if len(head_direct) != 1 or len(free_direct) != 1:
+            features[index] = _block_requirement(
+                requirement, "chamfer text disagrees with exact conical references"
+            )
+            continue
+        head_feature = head_direct[0]
+        knurled = [
+            owner
+            for owner in features
+            if isinstance(owner, (StepFeature, BossFeature))
+            and owner.knurl is not None
+            and _same_number(owner.knurl.edge_chamfer or 0.0, head, abs_tol=0.002)
+            and len(owner.knurl.cylindrical_refs) == 1
+        ]
+        if len(knurled) != 1:
+            features[index] = _block_requirement(
+                requirement, "head chamfer pair has no unique source-proven knurled owner"
+            )
+            continue
+        knurl = knurled[0].knurl
+        assert knurl is not None
+        cylinder = knurl.cylindrical_refs[0]
+        adjacent = [
+            chamfer
+            for chamfer in chamfers
+            if chamfer.axis == cylinder.principal_axis.lower()
+            and chamfer.turned
+            and _same_number(chamfer.leg1, head, abs_tol=0.002)
+            and any(
+                _same_number(
+                    chamfer.frame.origin["xyz".index(chamfer.axis)] + sign * chamfer.leg1 / 2,
+                    station,
+                    abs_tol=0.002,
+                )
+                for sign in (-1, 1)
+                for station in cylinder.axial_interval
+            )
+        ]
+        if len(adjacent) != 2 or head_feature not in adjacent:
+            features[index] = _block_requirement(
+                requirement, "source topology does not prove the two head-edge chamfers"
+            )
+            continue
+        matched = [*adjacent, free_direct[0]]
+        if len({id(item) for item in matched}) != 3:
+            features[index] = _block_requirement(
+                requirement, "grouped chamfer members are not three distinct features"
+            )
+            continue
+        source_ids = _requirement_source_ids(requirement)
+        pending = {}
+        for chamfer in matched:
+            if chamfer.source_ids or id(chamfer) in replacements:
+                features[index] = _block_requirement(
+                    requirement, "canonical chamfer is already claimed by imported provenance"
+                )
+                break
+            replacement = replace(
+                chamfer,
+                source_ids=source_ids,
+                part21_id=requirement.part21_id,
+                shape_aspect_ids=requirement.shape_aspect_ids,
+                reference_item_ids=requirement.reference_item_ids,
+            )
+            pending[id(chamfer)] = replacement
+        else:
+            replacements.update(pending)
+            consumed.add(index)
+
+    lowered = _remap_model_features(replace(model, features=features), replacements)
+    if feature_remap is not None:
+        for source in chamfers:
+            if id(source) in replacements:
+                feature_remap(source, (replacements[id(source)],), None)
+    return replace(
+        lowered,
+        features=[
+            feature
+            for position, feature in enumerate(lowered.features)
+            if position not in consumed
+        ],
+    )
+
+
+def lower_ap242_document_requirements(model: PartModel) -> PartModel:
+    """Lower source-proven document defaults that have an existing drafting carrier."""
+    tolerance_candidates = [
+        (index, feature)
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, PmiFeature)
+        and feature.source_category == "manufacturing_requirement"
+        and feature.pmi_kind == "general_tolerances"
+        and not feature.lowering_blockers
+    ]
+    if len(tolerance_candidates) > 1:
+        features = list(model.features)
+        for index, feature in tolerance_candidates:
+            features[index] = _block_requirement(
+                feature, "ambiguous document default: multiple general-tolerance requirements"
+            )
+        model = replace(model, features=features)
+    elif tolerance_candidates:
+        index, feature = tolerance_candidates[0]
+        designation = feature.label.split(";", 1)[0].strip()
+        if not designation:
+            features = list(model.features)
+            features[index] = _block_requirement(feature, "general-tolerance designation is empty")
+            model = replace(model, features=features)
+        else:
+            tolerance_requirement = GeneralTolerance(
+                frame=feature.frame,
+                designation=designation,
+                statement=feature.label,
+                source_id=feature.source_id,
+                part21_id=feature.part21_id,
+            )
+            model = replace(
+                model,
+                features=[
+                    tolerance_requirement if position == index else item
+                    for position, item in enumerate(model.features)
+                ],
+            )
+
+    finish_candidates = [
+        (index, feature)
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, PmiFeature)
+        and feature.source_category == "manufacturing_requirement"
+        and feature.pmi_kind == "surface_texture"
+        and not feature.lowering_blockers
+    ]
+    if len(finish_candidates) > 1:
+        features = list(model.features)
+        for index, feature in finish_candidates:
+            features[index] = _block_requirement(
+                feature, "ambiguous document default: multiple surface-texture requirements"
+            )
+        model = replace(model, features=features)
+    elif finish_candidates:
+        index, feature = finish_candidates[0]
+        match = re.fullmatch(
+            r"\s*Ra\s+(?P<ra>\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s+unless\s+otherwise\s+specified\s*",
+            feature.label,
+            flags=re.IGNORECASE,
+        )
+        if match is None:
+            features = list(model.features)
+            features[index] = _block_requirement(
+                feature, "surface-texture requirement is not a supported document default"
+            )
+            model = replace(model, features=features)
+        else:
+            finish_requirement = DefaultSurfaceFinish(
+                frame=feature.frame,
+                ra=match.group("ra"),
+                statement=feature.label,
+                source_id=feature.source_id,
+                part21_id=feature.part21_id,
+            )
+            model = replace(
+                model,
+                features=[
+                    finish_requirement if position == index else item
+                    for position, item in enumerate(model.features)
+                ],
+            )
+
+    document_kinds = {"datum_scheme", "model_representation"}
+    features = list(model.features)
+    for index, item in enumerate(features):
+        if not (
+            isinstance(item, PmiFeature)
+            and item.source_category == "manufacturing_requirement"
+            and item.pmi_kind in document_kinds
+            and not item.lowering_blockers
+        ):
+            continue
+        if not item.label.strip():
+            features[index] = _block_requirement(item, "document requirement text is empty")
+            continue
+        features[index] = DocumentNote(
+            frame=item.frame,
+            text=item.label,
+            note_kind=item.pmi_kind,
+            source_id=item.source_id,
+            part21_id=item.part21_id,
+        )
+    return replace(model, features=features)
+
+
 def lower_ap242_dimensions(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -925,4 +1196,6 @@ def lower_ap242_dimensions(
     dimensions = lower_ap242_nominal_diameters(
         lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
     )
-    return lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
+    manufacturing = lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
+    chamfers = lower_ap242_chamfer_requirements(manufacturing, feature_remap=feature_remap)
+    return lower_ap242_document_requirements(chamfers)

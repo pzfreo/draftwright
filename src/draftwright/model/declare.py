@@ -603,6 +603,10 @@ def chamfer(
     angle=None,
     at=None,
     turned=False,
+    source_ids=(),
+    part21_id="",
+    shape_aspect_ids=(),
+    reference_item_ids=(),
 ) -> ChamferFeature:
     """A chamfer (bevelled edge, #560/#576). Either ``chamfer(bevel_face)`` — the oblique
     chamfer face supplies axis, both legs and a leader point **on the bevel** — or explicit
@@ -647,6 +651,10 @@ def chamfer(
         leg2=lo,
         angle=angle,
         turned=bool(turned),
+        source_ids=tuple(source_ids),
+        part21_id=str(part21_id),
+        shape_aspect_ids=tuple(shape_aspect_ids),
+        reference_item_ids=tuple(reference_item_ids),
     )
 
 

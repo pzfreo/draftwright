@@ -3197,6 +3197,9 @@ _KIND_MIRROR_COVERAGE = {
     "authored_dimension": "declared",
     "control_frame": "declared",
     "datum_ref": "aspect — carries no DimParameter, so nothing to mirror",
+    "general_tolerance": "aspect — carries no DimParameter, so nothing to mirror",
+    "default_surface_finish": "aspect — carries no DimParameter, so nothing to mirror",
+    "document_note": "aspect — carries no DimParameter, so nothing to mirror",
     "finish": "aspect — carries no DimParameter, so nothing to mirror",
     "note": "aspect — carries no DimParameter, so nothing to mirror",
 }
@@ -3289,7 +3292,16 @@ def _aspect_instances():
     All four implementations return `[]` unconditionally today; if one becomes conditional, its
     semantics need a purpose-built test rather than a generic one anticipating it.
     """
-    from draftwright.model.ir import ControlFrame, DatumRef, Finish, Frame, Note
+    from draftwright.model.ir import (
+        ControlFrame,
+        DatumRef,
+        DefaultSurfaceFinish,
+        DocumentNote,
+        Finish,
+        Frame,
+        GeneralTolerance,
+        Note,
+    )
 
     frame = Frame((0.0, 0.0, 0.0), "z")
     common = {"frame": frame, "view": "front", "side": "top"}
@@ -3298,6 +3310,9 @@ def _aspect_instances():
             **common, characteristic="position", tolerance="0.1", datums=("A",)
         ),
         "datum_ref": DatumRef(**common, letter="A"),
+        "general_tolerance": GeneralTolerance(frame, "ISO 2768-m"),
+        "default_surface_finish": DefaultSurfaceFinish(frame, "3.2"),
+        "document_note": DocumentNote(frame, "Datum A is primary", "datum_scheme"),
         "finish": Finish(**common, ra="1.6"),
         "note": Note(**common, text="TYP"),
     }
@@ -3706,6 +3721,18 @@ _FIDELITY_ROUTE = {
     # geometry to lose and have no declarative feature line to round-trip.
     "control_frame": ("declared", "GD&T, emitted as sheet.add(ControlFrame(...))"),
     "datum_ref": ("declared", "GD&T, emitted as sheet.add(DatumRef(...))"),
+    "general_tolerance": (
+        "declared",
+        "document-wide tolerance, emitted as sheet.general_tolerance(...)",
+    ),
+    "default_surface_finish": (
+        "declared",
+        "document-wide finish, emitted as sheet.default_surface_finish(...)",
+    ),
+    "document_note": (
+        "declared",
+        "source-proven document requirement, emitted as sheet.document_note(...)",
+    ),
     "finish": ("aspect", "surface finish; carries no DimParameter"),
     "note": ("aspect", "free text"),
     # Also declared: `_raw_pmi_line` SERIALISES every raw record as `sheet.add(PmiFeature(...))`,
@@ -4104,6 +4131,42 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             )
             return part, sheet.model()
 
+        def general_tolerance():
+            part = Box(40, 20, 10)
+            sheet = Sheet(part, title="T", number="N")
+            sheet.general_tolerance(
+                "ISO 2768-m",
+                statement="GENERAL TOLERANCE ISO 2768-m",
+                source_id="general_tolerance:0:1:4:test",
+                part21_id="#21",
+            )
+            sheet.authored_dimensions()
+            return part, sheet.model()
+
+        def default_surface_finish():
+            part = Box(40, 20, 10)
+            sheet = Sheet(part, title="T", number="N")
+            sheet.default_surface_finish(
+                "3.2",
+                statement="SURFACE FINISH Ra 3.2",
+                source_id="surface_finish:0:1:4:test",
+                part21_id="#22",
+            )
+            sheet.authored_dimensions()
+            return part, sheet.model()
+
+        def document_note():
+            part = Box(40, 20, 10)
+            sheet = Sheet(part, title="T", number="N")
+            sheet.document_note(
+                "DATUM A IS PRIMARY",
+                kind="datum_scheme",
+                source_id="datum_scheme:0:1:4:test",
+                part21_id="#23",
+            )
+            sheet.authored_dimensions()
+            return part, sheet.model()
+
         def raw_pmi():
             import dataclasses
 
@@ -4196,7 +4259,10 @@ class TestTheDeclaredModelMatchesTheDetectedOne:
             "angle": angle,
             "control frame": control_frame,
             "datum feature": datum_ref,
+            "default surface finish": default_surface_finish,
+            "document note": document_note,
             "external spur gear": external_spur_gear,
+            "general tolerance": general_tolerance,
             "measured dimension": measured_dimension,
             "raw pmi": raw_pmi,
         }

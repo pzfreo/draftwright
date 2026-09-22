@@ -1389,6 +1389,9 @@ class TestEveryFeatureVerbIsNameable:
         ),
         "flat": dict(axis="z", across=15, at=(0, 0, 0)),
         "groove": dict(axis="z", width=3, diameter=16, at=(0, 0, 0)),
+        "general_tolerance": dict(designation="ISO 2768-m"),
+        "default_surface_finish": dict(ra="3.2"),
+        "document_note": dict(text="DATUM A IS PRIMARY", kind="datum_scheme"),
         "gusset_rib": dict(
             axis="x",
             supports=(("y", 17), ("z", 8)),

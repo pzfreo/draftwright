@@ -635,6 +635,9 @@ def _raw_pmi_expr(f) -> str:
         if getattr(f, "cylindrical_refs", ())
         else ""
     )
+    reference_bboxes = (
+        f", reference_bboxes={f.reference_bboxes!r}" if getattr(f, "reference_bboxes", ()) else ""
+    )
     return (
         "PmiFeature("
         f"frame=Frame({_pt(f.frame.origin)}, {f.frame.axis!r}), "
@@ -643,6 +646,7 @@ def _raw_pmi_expr(f) -> str:
         f"ref_pts=tuple({_pts_arg(f.ref_pts)}){source_id}{datum_refs}{part21_id}"
         f"{source_category}{gtol_modifiers}{lowering_blockers}{source_ids}{datum_contexts}"
         f"{reference_item_ids}{reference_axis}{semantic_name}{shape_aspect_ids}{cylindrical_refs}"
+        f"{reference_bboxes}"
         ")"
     )
 
@@ -768,6 +772,29 @@ def _feature_line(
         return _measured_dimension_line(f)
     if k == "pmi":
         return _raw_pmi_line(f)
+    if k == "general_tolerance":
+        kwargs = [f"statement={f.statement!r}"] if f.statement else []
+        if f.source_id:
+            kwargs.append(f"source_id={f.source_id!r}")
+        if f.part21_id:
+            kwargs.append(f"part21_id={f.part21_id!r}")
+        suffix = f", {', '.join(kwargs)}" if kwargs else ""
+        return f"sheet.general_tolerance({f.designation!r}{suffix})"
+    if k == "default_surface_finish":
+        kwargs = [f"statement={f.statement!r}"] if f.statement else []
+        if f.source_id:
+            kwargs.append(f"source_id={f.source_id!r}")
+        if f.part21_id:
+            kwargs.append(f"part21_id={f.part21_id!r}")
+        suffix = f", {', '.join(kwargs)}" if kwargs else ""
+        return f"sheet.default_surface_finish({f.ra!r}{suffix})"
+    if k == "document_note":
+        kwargs = [f"kind={f.note_kind!r}"]
+        if f.source_id:
+            kwargs.append(f"source_id={f.source_id!r}")
+        if f.part21_id:
+            kwargs.append(f"part21_id={f.part21_id!r}")
+        return f"sheet.document_note({f.text!r}, {', '.join(kwargs)})"
     if k == "control_frame":
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
@@ -1065,9 +1092,18 @@ def _feature_line(
         return f"sheet.slot_pattern({_member_slot_str(f.member)}, " + ", ".join(parts) + ")"
     if k == "chamfer":
         turned = ", turned=True" if f.turned else ""
+        provenance = ""
+        if f.source_ids:
+            provenance += f", source_ids={f.source_ids!r}"
+        if f.part21_id:
+            provenance += f", part21_id={f.part21_id!r}"
+        if f.shape_aspect_ids:
+            provenance += f", shape_aspect_ids={f.shape_aspect_ids!r}"
+        if f.reference_item_ids:
+            provenance += f", reference_item_ids={f.reference_item_ids!r}"
         return (
             f'sheet.chamfer(axis="{f.axis}", leg1={_n(f.leg1)}, leg2={_n(f.leg2)}, '
-            f"angle={_n(f.angle)}, at={_pt(f.frame.origin)}{turned})"
+            f"angle={_n(f.angle)}, at={_pt(f.frame.origin)}{turned}{provenance})"
         )
     if k == "fillet":
         turned = ", turned=True" if f.turned else ""
@@ -2426,7 +2462,14 @@ def emit_sheet_script(
             generated_declaration_ids.add(declaration_id)
             if id(feature) not in source_feature_ids:
                 provenance = "derived"
-            elif feature.kind in {"pmi", "control_frame", "datum_ref"}:
+            elif feature.kind in {
+                "pmi",
+                "control_frame",
+                "datum_ref",
+                "general_tolerance",
+                "default_surface_finish",
+                "document_note",
+            }:
                 provenance = "pmi"
             elif feature.kind == "note":
                 provenance = "structured-note"

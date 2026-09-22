@@ -487,6 +487,7 @@ def build_pmi_features(
             semantic_name=r.semantic_name,
             shape_aspect_ids=r.shape_aspect_ids,
             cylindrical_refs=r.cylindrical_refs,
+            reference_bboxes=r.reference_bboxes,
         )
         if r.source_category == "geometric_tolerance" and not r.lowering_blockers:
             material_modifier = None

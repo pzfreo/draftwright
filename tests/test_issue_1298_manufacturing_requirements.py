@@ -7,15 +7,19 @@ from pathlib import Path
 import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
 from draftwright.analysis import _import_step
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
 from draftwright.model.detect import build_part_model
 from draftwright.model.ir import (
     AuthoredDimension,
     BossFeature,
+    ChamferFeature,
     CylindricalReference,
+    DefaultSurfaceFinish,
+    DocumentNote,
     Frame,
+    GeneralTolerance,
     HoleFeature,
     KnurlRequirement,
     PartModel,
@@ -24,7 +28,11 @@ from draftwright.model.ir import (
     StepFeature,
     ThreadRequirement,
 )
-from draftwright.model.pmi_lowering import lower_ap242_manufacturing_requirements
+from draftwright.model.pmi_lowering import (
+    lower_ap242_chamfer_requirements,
+    lower_ap242_document_requirements,
+    lower_ap242_manufacturing_requirements,
+)
 from draftwright.pmi import PmiExtractionReport, PmiRecord, extract_pmi_report
 from draftwright.sheet_emit import emit_sheet_script
 
@@ -40,6 +48,75 @@ KNURL_TEXT = (
     "Straight knurl, 1.0 mm pitch, full width between C0.3 chamfers, DIA 10 mm "
     "maximum after knurling; cut or formed process permitted"
 )
+
+
+@pytest.mark.parametrize(
+    ("feature_type", "arguments", "message"),
+    [
+        (GeneralTolerance, {"designation": ""}, "non-empty designation"),
+        (GeneralTolerance, {"designation": " ISO 2768-m "}, "surrounding whitespace"),
+        (DefaultSurfaceFinish, {"ra": ""}, "non-empty Ra value"),
+        (DefaultSurfaceFinish, {"ra": " 3.2 "}, "surrounding whitespace"),
+        (
+            DocumentNote,
+            {"text": "", "note_kind": "datum_scheme"},
+            "non-empty text",
+        ),
+        (
+            DocumentNote,
+            {"text": " DATUM A IS PRIMARY ", "note_kind": "datum_scheme"},
+            "surrounding whitespace",
+        ),
+        (
+            DocumentNote,
+            {"text": "DATUM A IS PRIMARY", "note_kind": "free_text"},
+            "unsupported document-note kind",
+        ),
+    ],
+)
+def test_document_requirements_reject_ambiguous_values(feature_type, arguments, message):
+    with pytest.raises(ValueError, match=message):
+        feature_type(frame=Frame((0.0, 0.0, 0.0), "z"), **arguments)
+
+
+@pytest.mark.parametrize(
+    "feature",
+    [
+        GeneralTolerance(Frame((0.0, 0.0, 0.0), "z"), "ISO 2768-m"),
+        DefaultSurfaceFinish(Frame((0.0, 0.0, 0.0), "z"), "3.2"),
+        DocumentNote(Frame((0.0, 0.0, 0.0), "z"), "DATUM A IS PRIMARY", "datum_scheme"),
+    ],
+)
+def test_document_requirements_have_no_dimension_or_datum_contract(feature):
+    assert feature.parameters() == []
+    assert feature.references() == []
+
+
+def test_sourced_chamfer_emit_preserves_complete_part21_provenance():
+    part = Box(10, 10, 10)
+    chamfer = ChamferFeature(
+        Frame((5.0, 0.0, 0.0), "x"),
+        "x",
+        0.3,
+        0.3,
+        45.0,
+        source_ids=("manufacturing_requirement:#2024",),
+        part21_id="#2024",
+        shape_aspect_ids=("#2019",),
+        reference_item_ids=("#283", "#426"),
+    )
+    source = emit_sheet_script(
+        PartModel(part.bounding_box(), None, [chamfer]),
+        "part",
+        "sourced-chamfer",
+        title="P",
+        number="N",
+    )
+
+    assert "source_ids=('manufacturing_requirement:#2024',)" in source
+    assert "part21_id='#2024'" in source
+    assert "shape_aspect_ids=('#2019',)" in source
+    assert "reference_item_ids=('#283', '#426')" in source
 
 
 def _manufacturing_signature(model):
@@ -112,6 +189,195 @@ def _step(diameter, lo, hi):
 
 def _model(*features):
     return PartModel(Box(40, 20, 20).bounding_box(), "x", list(features))
+
+
+def _general_tolerance(entity, label="ISO 2768-m"):
+    return PmiFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pmi_kind="general_tolerances",
+        value=0.0,
+        label=label,
+        dominant_axis="?",
+        source_id=f"manufacturing_requirement:{entity}",
+        part21_id=entity,
+        source_category="manufacturing_requirement",
+    )
+
+
+def _default_finish(entity, label="Ra 3.2 um unless otherwise specified"):
+    return PmiFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pmi_kind="surface_texture",
+        value=0.0,
+        label=label,
+        dominant_axis="?",
+        source_id=f"manufacturing_requirement:{entity}",
+        part21_id=entity,
+        source_category="manufacturing_requirement",
+    )
+
+
+def _document_note(entity, kind, label):
+    return PmiFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pmi_kind=kind,
+        value=0.0,
+        label=label,
+        dominant_axis="?",
+        source_id=f"manufacturing_requirement:{entity}",
+        part21_id=entity,
+        source_category="manufacturing_requirement",
+    )
+
+
+def test_multiple_general_tolerance_requirements_fail_closed():
+    lowered = lower_ap242_document_requirements(
+        _model(_general_tolerance("#1"), _general_tolerance("#2", "ISO 2768-f"))
+    )
+
+    assert all(isinstance(feature, PmiFeature) for feature in lowered.features)
+    assert {blocker for feature in lowered.features for blocker in feature.lowering_blockers} == {
+        "ambiguous document default: multiple general-tolerance requirements"
+    }
+
+
+def test_document_default_surface_finish_lowers_only_the_supported_grammar():
+    lowered = lower_ap242_document_requirements(_model(_default_finish("#1")))
+
+    (finish,) = lowered.features
+    assert finish == DefaultSurfaceFinish(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        ra="3.2",
+        statement="Ra 3.2 um unless otherwise specified",
+        source_id="manufacturing_requirement:#1",
+        part21_id="#1",
+    )
+
+    unsupported = lower_ap242_document_requirements(_model(_default_finish("#2", "Ra 3.2")))
+    (raw,) = unsupported.features
+    assert isinstance(raw, PmiFeature)
+    assert raw.lowering_blockers == (
+        "surface-texture requirement is not a supported document default",
+    )
+
+
+def test_multiple_default_surface_finishes_fail_closed():
+    lowered = lower_ap242_document_requirements(
+        _model(
+            _default_finish("#1"), _default_finish("#2", "Ra 1.6 um unless otherwise specified")
+        )
+    )
+
+    assert all(isinstance(feature, PmiFeature) for feature in lowered.features)
+    assert {blocker for feature in lowered.features for blocker in feature.lowering_blockers} == {
+        "ambiguous document default: multiple surface-texture requirements"
+    }
+
+
+def test_document_requirements_lower_to_unattached_typed_notes():
+    lowered = lower_ap242_document_requirements(
+        _model(
+            _document_note("#1", "datum_scheme", "Datum A is the axis"),
+            _document_note("#2", "model_representation", "Threads are represented by PMI"),
+        )
+    )
+
+    assert [(note.note_kind, note.text, note.source_id) for note in lowered.features] == [
+        ("datum_scheme", "Datum A is the axis", "manufacturing_requirement:#1"),
+        (
+            "model_representation",
+            "Threads are represented by PMI",
+            "manufacturing_requirement:#2",
+        ),
+    ]
+    assert all(isinstance(note, DocumentNote) for note in lowered.features)
+
+
+def test_empty_document_requirement_stays_raw_with_a_blocker():
+    lowered = lower_ap242_document_requirements(_model(_document_note("#1", "datum_scheme", "")))
+
+    (raw,) = lowered.features
+    assert isinstance(raw, PmiFeature)
+    assert raw.lowering_blockers == ("document requirement text is empty",)
+
+
+def test_document_note_table_drop_is_a_source_complete_annotate_error(monkeypatch):
+    import draftwright.drawing as drawing_module
+
+    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    part = Box(40, 20, 20)
+    notes = [
+        DocumentNote(
+            Frame((0.0, 0.0, 0.0), "z"),
+            "Datum A is the axis",
+            "datum_scheme",
+            "manufacturing_requirement:#1",
+            "#1",
+        ),
+        DocumentNote(
+            Frame((0.0, 0.0, 0.0), "z"),
+            "Threads are represented by PMI",
+            "model_representation",
+            "manufacturing_requirement:#2",
+            "#2",
+        ),
+    ]
+
+    drawing = build_drawing(
+        part,
+        model=PartModel(part.bounding_box(), "z", notes),
+        pmi="annotate",
+    )
+
+    assert "general_notes" not in drawing.annotations()
+    drops = [issue for issue in drawing.lint(physical=False) if issue.code == "pmi_dropped"]
+    assert len(drops) == 1
+    assert drops[0].severity == "error"
+    assert drops[0].source_ids == (
+        "manufacturing_requirement:#1",
+        "manufacturing_requirement:#2",
+    )
+
+
+@pytest.mark.parametrize("provenance", ["singular", "plural"])
+def test_source_backed_new_typed_pmi_prevents_automatic_resynthesis(monkeypatch, provenance):
+    import draftwright.builder as builder_module
+
+    part = Box(40, 20, 10)
+    sheet = Sheet(part, source=GRM03, pmi="annotate").authored_dimensions()
+    if provenance == "singular":
+        sheet.add(
+            DefaultSurfaceFinish(
+                Frame((0.0, 0.0, 0.0), "z"),
+                "3.2",
+                source_id="manufacturing_requirement:#2012",
+                part21_id="#2012",
+            )
+        )
+    else:
+        sheet.add(
+            ChamferFeature(
+                Frame((19.5, 0.0, 4.5), "z"),
+                "z",
+                0.5,
+                0.5,
+                45.0,
+                source_ids=("manufacturing_requirement:#2024",),
+                part21_id="#2024",
+            )
+        )
+
+    def unexpected_resynthesis(*_args, **_kwargs):
+        raise AssertionError("declared imported PMI must suppress automatic re-synthesis")
+
+    monkeypatch.setattr(builder_module, "build_pmi_features", unexpected_resynthesis)
+
+    drawing = sheet.build()
+
+    assert len(drawing.model().features) == 1
+    assert drawing.model().features[0].kind == (
+        "default_surface_finish" if provenance == "singular" else "chamfer"
+    )
 
 
 def test_external_thread_uses_finite_source_topology_to_choose_one_equal_diameter_step():
@@ -1051,6 +1317,12 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
     assert set(records) == {"external_thread", "internal_thread", "knurl"}
     assert all(len(record.cylindrical_refs) == 1 for record in records.values())
     assert all(not record.lowering_blockers for record in records.values())
+    chamfer_record = next(record for record in report.records if record.kind == "chamfers")
+    assert chamfer_record.reference_item_ids == ("#283", "#426")
+    assert len(chamfer_record.reference_bboxes) == 2
+    assert [box[3] - box[0] for box in chamfer_record.reference_bboxes] == pytest.approx(
+        [0.3, 0.5], abs=0.001
+    )
 
     model = build_part_model(_import_step(str(GRM03)), pmi=report.records)
     aspects = [
@@ -1070,8 +1342,109 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
         if isinstance(feature, PmiFeature)
         and feature.pmi_kind in {"external_thread", "internal_thread", "knurl"}
     ]
+    (general_tolerance,) = [
+        feature for feature in model.features if isinstance(feature, GeneralTolerance)
+    ]
+    assert general_tolerance.designation == "ISO 2768-m"
+    assert general_tolerance.statement == ("ISO 2768-m; dimensioning and tolerancing per ISO GPS")
+    assert general_tolerance.source_id == "manufacturing_requirement:#2016"
+    (default_finish,) = [
+        feature for feature in model.features if isinstance(feature, DefaultSurfaceFinish)
+    ]
+    assert default_finish.ra == "3.2"
+    assert default_finish.statement == "Ra 3.2 um unless otherwise specified"
+    assert default_finish.source_id == "manufacturing_requirement:#2012"
+    document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
+    assert [(note.note_kind, note.source_id) for note in document_notes] == [
+        ("datum_scheme", "manufacturing_requirement:#2020"),
+        ("model_representation", "manufacturing_requirement:#2028"),
+    ]
+    chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
+    assert [(feature.leg1, feature.source_ids) for feature in chamfers] == [
+        (0.3, ("manufacturing_requirement:#2024",)),
+        (0.3, ("manufacturing_requirement:#2024",)),
+        (0.5, ("manufacturing_requirement:#2024",)),
+    ]
+    assert not [
+        feature
+        for feature in model.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    ]
 
 
+def test_chamfer_requirement_with_changed_source_bounds_fails_closed():
+    report = extract_pmi_report(GRM03)
+    model = build_part_model(
+        _import_step(str(GRM03)),
+        pmi=report.records,
+        lower_pmi=False,
+    )
+    raw = next(
+        feature
+        for feature in model.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    )
+    changed = replace(
+        raw,
+        reference_bboxes=(
+            (10.0, -5.0, -5.0, 10.3, 5.0, 5.0),
+            raw.reference_bboxes[1],
+        ),
+    )
+    model = replace(
+        model,
+        features=[changed if feature is raw else feature for feature in model.features],
+    )
+
+    lowered = lower_ap242_chamfer_requirements(model)
+
+    fallback = next(
+        feature
+        for feature in lowered.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    )
+    assert fallback.lowering_blockers == (
+        "chamfer reference does not match one canonical turned chamfer",
+    )
+    assert all(not feature.source_ids for feature in lowered.features if feature.kind == "chamfer")
+
+    restored = replace(
+        model,
+        features=[raw if feature is changed else feature for feature in model.features],
+    )
+    with_knurl = lower_ap242_manufacturing_requirements(restored)
+    original = next(
+        feature
+        for feature in with_knurl.features
+        if isinstance(feature, PmiFeature) and feature.pmi_kind == "chamfers"
+    )
+    duplicate = replace(
+        original,
+        source_id="manufacturing_requirement:#2025",
+        part21_id="#2025",
+    )
+    duplicated = replace(with_knurl, features=[*with_knurl.features, duplicate])
+
+    overlap = lower_ap242_chamfer_requirements(duplicated)
+
+    assert {
+        source_id
+        for feature in overlap.features
+        if isinstance(feature, ChamferFeature)
+        for source_id in feature.source_ids
+    } == {"manufacturing_requirement:#2024"}
+    second = next(
+        feature
+        for feature in overlap.features
+        if isinstance(feature, PmiFeature)
+        and feature.source_id == "manufacturing_requirement:#2025"
+    )
+    assert second.lowering_blockers == (
+        "canonical chamfer is already claimed by imported provenance",
+    )
+
+
+@pytest.mark.slow
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
@@ -1170,19 +1543,98 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         issue.severity == "info" for issue in issues if issue.code == "feature_leader_crossing"
     )
     unsupported = [issue for issue in issues if issue.code == "pmi_not_lowered"]
-    assert {issue.source_ids[0]: issue.severity for issue in unsupported} == {
-        "manufacturing_requirement:#2012": "warning",
-        "manufacturing_requirement:#2016": "warning",
-        "manufacturing_requirement:#2020": "warning",
-        "manufacturing_requirement:#2024": "warning",
-        "manufacturing_requirement:#2028": "warning",
+    assert unsupported == []
+    title_fields = {
+        field: value
+        for field, value, _size, _font in drawing.get_annotation("title_block").title_field_specs
     }
-
+    assert title_fields["general_tolerance"] == "ISO 2768-m"
     model = drawing.model()
-    source = emit_sheet_script(model, "part", "grm03-pmi", title="GRM-03", number="GRM-03")
+    general_tolerance = next(
+        feature for feature in model.features if isinstance(feature, GeneralTolerance)
+    )
+    assert drawing.registry.feature_of("title_block") is general_tolerance
+    default_finish = next(
+        feature for feature in model.features if isinstance(feature, DefaultSurfaceFinish)
+    )
+    assert drawing.registry.feature_of("default_surface_finish") is default_finish
+    document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
+    assert drawing.get_annotation("general_notes").table_rows == (
+        ("GENERAL NOTES",),
+        (
+            "1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",
+        ),
+        (
+            "2  Thread and knurl teeth are represented by semantic PMI; "
+            "their nominal envelope geometry remains smooth",
+        ),
+    )
+    assert drawing.registry.features_of("general_notes") == tuple(document_notes)
+    chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
+    assert [drawing.registry.names_for_feature(feature) for feature in chamfers] == [
+        ["m_chamfer_x0"],
+        ["m_chamfer_x0"],
+        ["m_chamfer_x1"],
+    ]
+
+    source = emit_sheet_script(
+        model,
+        "part",
+        "grm03-pmi",
+        title="GRM-03",
+        number="GRM-03",
+        pmi="annotate",
+        pmi_source=str(GRM03.resolve()),
+    )
     namespace = {"part": _import_step(str(GRM03))}
     exec(  # noqa: S102
         compile(source[: source.index("drawing = sheet.build()")], "<grm03-pmi-emit>", "exec"),
         namespace,
     )
     assert _manufacturing_signature(namespace["sheet"].model()) == _manufacturing_signature(model)
+    (replayed_finish,) = [
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, DefaultSurfaceFinish)
+    ]
+    assert replayed_finish == default_finish
+    assert [
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, DocumentNote)
+    ] == document_notes
+    assert [
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, ChamferFeature)
+    ] == chamfers
+    replayed = namespace["sheet"].build()
+    replayed_model = replayed.model()
+    assert sum(isinstance(feature, GeneralTolerance) for feature in replayed_model.features) == 1
+    assert (
+        sum(isinstance(feature, DefaultSurfaceFinish) for feature in replayed_model.features) == 1
+    )
+    assert sum(isinstance(feature, DocumentNote) for feature in replayed_model.features) == 2
+    assert sum(isinstance(feature, ChamferFeature) for feature in replayed_model.features) == 3
+    assert (
+        replayed.get_annotation("general_notes").table_rows
+        == drawing.get_annotation("general_notes").table_rows
+    )
+    assert replayed.registry.feature_of("title_block").source_id == general_tolerance.source_id
+    assert (
+        replayed.registry.feature_of("default_surface_finish").source_id
+        == default_finish.source_id
+    )
+    assert not [
+        feature
+        for feature in replayed_model.features
+        if isinstance(feature, PmiFeature)
+        and feature.pmi_kind
+        in {
+            "general_tolerances",
+            "surface_texture",
+            "datum_scheme",
+            "model_representation",
+            "chamfers",
+        }
+    ]

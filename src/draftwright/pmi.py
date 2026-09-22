@@ -263,6 +263,7 @@ class PmiRecord:
         shape_aspect_ids: Part21 shape aspects associating a semantic requirement to geometry.
         cylindrical_refs: Canonical finite-cylinder topology referenced by a Size_Diameter
                         requirement. Empty for other dimension families or unresolved geometry.
+        reference_bboxes: Per-item bounds for exact imported manufacturing supports.
         circular_refs: Canonical circular-edge topology referenced by a Size_Diameter
                         requirement whose semantic association names edges rather than faces.
         angular_reference: Oriented planar supports for an angular requirement. ``None``
@@ -303,6 +304,7 @@ class PmiRecord:
     # canonical owner yet remain a truthful standalone dimension (#1116/#1209).
     rendering_blockers: tuple[str, ...] = ()
     cylindrical_refs: tuple[CylindricalReference, ...] = ()
+    reference_bboxes: tuple[tuple[float, float, float, float, float, float], ...] = ()
     angular_reference: AngularReference | None = None
     reference_item_groups: tuple[tuple[str, ...], ...] = ()
     circular_refs: tuple[CircularReference, ...] = ()
@@ -2061,6 +2063,27 @@ def _surface_label_projection(
 _CYLINDRICAL_REQUIREMENT_KINDS = frozenset(("external_thread", "internal_thread", "knurl"))
 
 
+def _chamfer_reference_bboxes(shapes, frame: PartFrame | None = None):
+    """Measure exact conical faces referenced by a semantic chamfer requirement."""
+    boxes = []
+    reasons = []
+    for shape in shapes:
+        try:
+            if shape.ShapeType() != TopAbs_FACE:
+                reasons.append("one chamfer reference is not a face")
+                continue
+            surface = BRepAdaptor_Surface(TopoDS.Face_s(shape))
+            if surface.GetType() != GeomAbs_Cone:
+                reasons.append("one chamfer reference face is not conical")
+                continue
+            boxes.append(_shape_bbox(shape) if frame is None else _shape_bbox(shape, frame))
+        except Exception as exc:
+            reasons.append(f"one chamfer reference could not be measured ({_failure_reason(exc)})")
+    if not boxes and not reasons:
+        reasons.append("chamfer reference geometry is unavailable")
+    return tuple(boxes), tuple(dict.fromkeys(reasons))
+
+
 def _manufacturing_requirement_topology(
     records, step_reader, frame: PartFrame | None = None
 ) -> tuple[PmiRecord, ...]:
@@ -2070,7 +2093,10 @@ def _manufacturing_requirement_topology(
     resolver = _DatumTopologyResolver(step_reader, imported_faces)
     projected = []
     for record in records:
-        if record.kind not in _CYLINDRICAL_REQUIREMENT_KINDS or record.lowering_blockers:
+        if (
+            record.kind not in _CYLINDRICAL_REQUIREMENT_KINDS | {"chamfers"}
+            or record.lowering_blockers
+        ):
             projected.append(record)
             continue
         shapes, topology_reasons = resolver.resolve(
@@ -2078,6 +2104,13 @@ def _manufacturing_requirement_topology(
             record.reference_item_ids,
             noun="manufacturing requirement",
         )
+        if record.kind == "chamfers":
+            boxes, geometry_reasons = _chamfer_reference_bboxes(shapes, frame)
+            blockers = tuple(
+                dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
+            )
+            projected.append(replace(record, reference_bboxes=boxes, lowering_blockers=blockers))
+            continue
         if frame is None:
             references, geometry_reasons = _cylindrical_references_from_shapes(
                 shapes, noun="manufacturing requirement"

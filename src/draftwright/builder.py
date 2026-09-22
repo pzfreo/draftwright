@@ -34,6 +34,7 @@ from draftwright._core import (
     _LADDER,
     _PAGE_SIZES,
     _SCALES,
+    _add_default_surface_finish,
     _add_projection_symbol,
     _add_scale_note,
     _add_sheet_frame,
@@ -58,6 +59,7 @@ from draftwright.annotations._common import (
     annotation_ink_obstacles,
     place_iso_nts_note,
 )
+from draftwright.annotations.from_model import render_document_notes
 from draftwright.annotations.gears import render_gear_tables
 from draftwright.annotations.orchestrator import (
     _WITHHOLDING_CODES,
@@ -567,6 +569,7 @@ def _assemble(
                     features=[*pm.features, rot],
                     declaration_identities=(*identities, None) if identities else (),
                 )
+
         # A z step declares a segment of a z-turned profile. `.step()` on a BOSS — an external
         # cylinder on a prismatic part — is a misuse of the verb, and the symptom is that the
         # declared steps leave the bulk of the part unspanned (#631). This is a verb-misuse
@@ -586,13 +589,16 @@ def _assemble(
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
         # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
         # imported authored annotations, so an explicit set wins.
+        def _declares_imported_pmi(feature) -> bool:
+            if feature.kind in ("authored_dimension", "pmi"):
+                return True
+            return bool(
+                getattr(feature, "source_id", "") or tuple(getattr(feature, "source_ids", ()))
+            )
+
         if (
             a.pmi_mode == "annotate"
-            and not any(
-                f.kind in ("authored_dimension", "pmi")
-                or (f.kind == "control_frame" and bool(getattr(f, "source_id", "")))
-                for f in pm.features
-            )
+            and not any(_declares_imported_pmi(feature) for feature in pm.features)
             and not any(
                 getattr(value, "source", "") == "ap242_pmi" and getattr(value, "source_ids", ())
                 for value in pm.decorations.values()
@@ -636,6 +642,15 @@ def _assemble(
                         else ()
                     ),
                 )
+    # A source-proven document default uses the existing title-block carrier when the caller
+    # did not explicitly author one. An explicit tolerance, including the blank string, wins.
+    general_tolerance_source = None
+    if a.tolerance is None:
+        defaults = [feature for feature in pm.features if feature.kind == "general_tolerance"]
+        if len(defaults) == 1:
+            general_tolerance_source = defaults[0]
+            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))
+
     # ADR 1 (was 0005 §2) (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
@@ -655,6 +670,13 @@ def _assemble(
         ownership=a.recognition_ownership,
     )
     dwg._build.part_model = pm
+    dwg._build.general_tolerance_source = general_tolerance_source
+    default_finishes = [
+        feature for feature in pm.features if feature.kind == "default_surface_finish"
+    ]
+    dwg._build.default_surface_finish_source = (
+        default_finishes[0] if len(default_finishes) == 1 else None
+    )
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
     # request on it exactly as the auto pass does (#661).
@@ -784,6 +806,7 @@ def _assemble(
             _add_zone_grid(dwg, a)
         _add_projection_symbol(dwg, a)
         _add_scale_note(dwg, a)
+        _add_default_surface_finish(dwg, a)
 
     # The NTS caption is post-fit late furniture too, and goes FIRST: it is tied to the
     # iso block it labels, whereas a table may sit anywhere the sheet has room. Placing
@@ -796,6 +819,7 @@ def _assemble(
     # `_fit_iso_view`; placing a table there lets the subsequently fitted ISO view move into
     # it. Every initial/repacked assembly reaches this common point after its final ISO fit,
     # and `add_table()` now sees the settled views plus all earlier annotations as obstacles.
+    render_document_notes(dwg, pm)
     render_gear_tables(dwg, pm)
 
     # The audit ledger, filled at ONE site for both paths (#996 / ADR 1 (was 0005 §2)).
