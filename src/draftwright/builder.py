@@ -588,13 +588,17 @@ def _assemble(
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
         # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
         # imported authored annotations, so an explicit set wins.
+        def _declares_imported_pmi(feature) -> bool:
+            if feature.kind in ("authored_dimension", "pmi"):
+                return True
+            return bool(
+                getattr(feature, "source_id", "")
+                or tuple(getattr(feature, "source_ids", ()))
+            )
+
         if (
             a.pmi_mode == "annotate"
-            and not any(
-                f.kind in ("authored_dimension", "pmi")
-                or (f.kind == "control_frame" and bool(getattr(f, "source_id", "")))
-                for f in pm.features
-            )
+            and not any(_declares_imported_pmi(feature) for feature in pm.features)
             and not any(
                 getattr(value, "source", "") == "ap242_pmi" and getattr(value, "source_ids", ())
                 for value in pm.decorations.values()

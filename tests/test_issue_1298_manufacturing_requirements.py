@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
 from draftwright.analysis import _import_step
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
 from draftwright.model.detect import build_part_model
@@ -265,6 +265,47 @@ def test_document_note_table_drop_is_a_source_complete_annotate_error(monkeypatc
     assert drops[0].source_ids == (
         "manufacturing_requirement:#1",
         "manufacturing_requirement:#2",
+    )
+
+
+@pytest.mark.parametrize("provenance", ["singular", "plural"])
+def test_source_backed_new_typed_pmi_prevents_automatic_resynthesis(monkeypatch, provenance):
+    import draftwright.builder as builder_module
+
+    part = Box(40, 20, 10)
+    sheet = Sheet(part, source=GRM03, pmi="annotate").authored_dimensions()
+    if provenance == "singular":
+        sheet.add(
+            DefaultSurfaceFinish(
+                Frame((0.0, 0.0, 0.0), "z"),
+                "3.2",
+                source_id="manufacturing_requirement:#2012",
+                part21_id="#2012",
+            )
+        )
+    else:
+        sheet.add(
+            ChamferFeature(
+                Frame((19.5, 0.0, 4.5), "z"),
+                "z",
+                0.5,
+                0.5,
+                45.0,
+                source_ids=("manufacturing_requirement:#2024",),
+                part21_id="#2024",
+            )
+        )
+
+    def unexpected_resynthesis(*_args, **_kwargs):
+        raise AssertionError("declared imported PMI must suppress automatic re-synthesis")
+
+    monkeypatch.setattr(builder_module, "build_pmi_features", unexpected_resynthesis)
+
+    drawing = sheet.build()
+
+    assert len(drawing.model().features) == 1
+    assert drawing.model().features[0].kind == (
+        "default_surface_finish" if provenance == "singular" else "chamfer"
     )
 
 
@@ -1462,7 +1503,15 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         ["m_chamfer_x1"],
     ]
 
-    source = emit_sheet_script(model, "part", "grm03-pmi", title="GRM-03", number="GRM-03")
+    source = emit_sheet_script(
+        model,
+        "part",
+        "grm03-pmi",
+        title="GRM-03",
+        number="GRM-03",
+        pmi="annotate",
+        pmi_source=str(GRM03.resolve()),
+    )
     namespace = {"part": _import_step(str(GRM03))}
     exec(  # noqa: S102
         compile(source[: source.index("drawing = sheet.build()")], "<grm03-pmi-emit>", "exec"),
@@ -1481,3 +1530,24 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert [
         feature for feature in namespace["sheet"].model().features if isinstance(feature, ChamferFeature)
     ] == chamfers
+    replayed = namespace["sheet"].build()
+    replayed_model = replayed.model()
+    assert sum(isinstance(feature, GeneralTolerance) for feature in replayed_model.features) == 1
+    assert sum(isinstance(feature, DefaultSurfaceFinish) for feature in replayed_model.features) == 1
+    assert sum(isinstance(feature, DocumentNote) for feature in replayed_model.features) == 2
+    assert sum(isinstance(feature, ChamferFeature) for feature in replayed_model.features) == 3
+    assert replayed.get_annotation("general_notes").table_rows == drawing.get_annotation(
+        "general_notes"
+    ).table_rows
+    assert replayed.registry.feature_of("title_block").source_id == general_tolerance.source_id
+    assert (
+        replayed.registry.feature_of("default_surface_finish").source_id
+        == default_finish.source_id
+    )
+    assert not [
+        feature
+        for feature in replayed_model.features
+        if isinstance(feature, PmiFeature)
+        and feature.pmi_kind
+        in {"general_tolerances", "surface_texture", "datum_scheme", "model_representation", "chamfers"}
+    ]
