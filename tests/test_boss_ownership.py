@@ -7,11 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Compound, Cone, Cylinder, Pos, import_step
+from quiddity import BossRecord
 from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
+from draftwright.linting.boss_coverage import boss_requirement_outcomes
 from draftwright.model.detect import _records_share_defining_target
 from draftwright.recognition_ownership import OccurrenceBinding, RecognitionOwnershipBuilder
+from draftwright.registry import AnnotationRegistry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "evaluation"
 
@@ -119,7 +122,7 @@ def test_a_plain_prismatic_boss_is_represented_by_its_exact_feature() -> None:
     assert ownership.unexpectedly_missing == ()
 
 
-def test_report_marks_a_supported_family_without_a_requirement_ledger_for_attention() -> None:
+def test_report_projects_each_plain_boss_requirement() -> None:
     drawing = build_drawing(Box(60, 60, 10) + Pos(0, 0, 9) * Cylinder(12, 8))
     report = drawing.report()
     bosses = [
@@ -129,14 +132,106 @@ def test_report_marks_a_supported_family_without_a_requirement_ledger_for_attent
     ]
 
     assert bosses
-    assert all(
-        occurrence["requirements"] == {"coverage": "not-projected", "ids": []}
-        for occurrence in bosses
+    assert all(occurrence["requirements"]["coverage"] == "ledger" for occurrence in bosses)
+    requirements = {
+        requirement["parameter_id"]: requirement
+        for requirement in report["recognition"]["requirements"]
+        if requirement["family"] == "bosses"
+    }
+    assert set(requirements) == {"boss.diameter", "boss_height.length"}
+    assert {requirement["state"] for requirement in requirements.values()} == {"placed"}
+
+
+def test_boss_ledger_fails_closed_when_its_exact_owner_leaves_final_ir() -> None:
+    drawing = build_drawing(Box(60, 60, 10) + Pos(0, 0, 9) * Cylinder(12, 8))
+    evidence = drawing.recognition_evidence()
+    ownership = drawing.recognition_ownership()
+
+    outcomes = boss_requirement_outcomes(
+        drawing.recognition(),
+        (),
+        drawing.registry,
+        (),
+        evidence=evidence,
+        ownership=ownership,
     )
-    assert report["status"] == "needs-attention"
+
+    assert len(outcomes) == 1
+    assert outcomes[0].parameter_id == "?"
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 2
+    assert outcomes[0].source_records == (evidence.result.bosses[0],)
 
 
-def test_equal_diameter_bosses_retain_occurrence_membership_in_one_existing_owner() -> None:
+def test_boss_ledger_fails_closed_when_conversion_never_bound_the_occurrence() -> None:
+    recognition = object()
+    reference = object()
+    source = BossRecord(
+        axis=(0.0, 0.0, 1.0),
+        location=(0.0, 0.0, 8.0),
+        diameter=16.0,
+        height=8.0,
+    )
+    evidence = SimpleNamespace(
+        result=recognition,
+        features=(reference,),
+        family=lambda occurrence: "bosses" if occurrence is reference else "foreign",
+        record=lambda occurrence: source if occurrence is reference else None,
+    )
+    ownership = SimpleNamespace(
+        evidence=evidence,
+        binding_for=lambda occurrence: None,
+    )
+
+    outcomes = boss_requirement_outcomes(
+        recognition,
+        (),
+        AnnotationRegistry(),
+        evidence=evidence,
+        ownership=ownership,
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].parameter_id == "?"
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 2
+    assert outcomes[0].source_records == (source,)
+
+
+def test_boss_ledger_fails_closed_on_a_nonprincipal_provider_axis() -> None:
+    recognition = object()
+    reference = object()
+    source = BossRecord(
+        axis=(1.0, 1.0, 0.0),
+        location=(0.0, 0.0, 8.0),
+        diameter=16.0,
+        height=8.0,
+    )
+    evidence = SimpleNamespace(
+        result=recognition,
+        features=(reference,),
+        family=lambda occurrence: "bosses" if occurrence is reference else "foreign",
+        record=lambda occurrence: source if occurrence is reference else None,
+    )
+    ownership = SimpleNamespace(evidence=evidence, binding_for=lambda occurrence: None)
+
+    outcomes = boss_requirement_outcomes(
+        recognition,
+        (),
+        AnnotationRegistry(),
+        evidence=evidence,
+        ownership=ownership,
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].parameter_id == "?"
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 2
+    assert outcomes[0].source_at is None
+    assert outcomes[0].source_records == (source,)
+
+
+def test_equal_diameter_bosses_keep_distinct_owners_and_one_counted_callout() -> None:
     drawing = build_drawing(_two_equal_bosses())
     ownership = drawing.recognition_ownership()
 
@@ -148,14 +243,51 @@ def test_equal_diameter_bosses_retain_occurrence_membership_in_one_existing_owne
     assert all(binding is not None for binding in bindings)
     assert all(
         binding is not None
-        and binding.disposition == "absorbed"
-        and binding.reason_code == "boss_diameter_group_member"
+        and binding.disposition == "represented"
+        and binding.reason_code == "boss_adapter"
         for binding in bindings
     )
-    assert bindings[0].feature is bindings[1].feature
-    assert tuple(binding.member_index for binding in bindings if binding is not None) == (0, 1)
-    assert sum(feature.kind == "boss" for feature in drawing.model().features) == 1
+    assert bindings[0].feature is not bindings[1].feature
+    assert sum(feature.kind == "boss" for feature in drawing.model().features) == 2
+    diameter_names = [name for name in drawing.annotations() if name.startswith("m_bossdia_")]
+    assert len(diameter_names) == 1
+    diameter = drawing.get_annotation(diameter_names[0])
+    assert diameter.label == "2× ø16"
+    assert diameter.covers_count == 2
+    assert {
+        measurement.parameter for measurement in drawing.registry.measurement_of(diameter_names[0])
+    } == {"boss.diameter", "grouping.count"}
+    boss_requirements = [
+        requirement
+        for requirement in drawing.report()["recognition"]["requirements"]
+        if requirement["family"] == "bosses"
+    ]
+    assert [requirement["parameter_id"] for requirement in boss_requirements].count(
+        "boss_height.length"
+    ) == 2
+    count_requirement = next(
+        requirement
+        for requirement in boss_requirements
+        if requirement["parameter_id"] == "grouping.count"
+    )
+    assert count_requirement["state"] == "placed"
+    assert count_requirement["annotations"] == diameter_names
+    assert len(count_requirement["occurrence_ids"]) == 2
     assert ownership.unexpectedly_missing == ()
+
+
+def test_boss_count_requires_one_truthful_counted_carrier() -> None:
+    drawing = build_drawing(_two_equal_bosses())
+    (name,) = [name for name in drawing.annotations() if name.startswith("m_bossdia_")]
+
+    drawing.get_annotation(name).covers_count = 1
+
+    count_requirement = next(
+        requirement
+        for requirement in drawing.report()["recognition"]["requirements"]
+        if requirement["family"] == "bosses" and requirement["parameter_id"] == "grouping.count"
+    )
+    assert count_requirement["state"] == "missing"
 
 
 def test_turned_bosses_follow_their_exact_step_owners() -> None:
@@ -324,7 +456,7 @@ def test_profile_gate_fallback_binds_the_floor_boss_directly_to_its_groove() -> 
     assert ownership.unexpectedly_missing == ()
 
 
-def test_a_groove_representative_cannot_claim_a_distinct_equal_diameter_boss() -> None:
+def test_a_groove_member_does_not_erase_a_distinct_equal_diameter_boss() -> None:
     part = Cylinder(10, 40) - Pos(0, 0, 5) * (Cylinder(10, 2) - Cylinder(8, 2))
     part += Box(40, 12, 4)
     part += Pos(24, 0, 0) * Cylinder(8, 8, rotation=(0, 90, 0))
@@ -348,9 +480,11 @@ def test_a_groove_representative_cannot_claim_a_distinct_equal_diameter_boss() -
     assert floor_binding is not None
     assert floor_binding.reason_code == "boss_groove_owner"
     assert floor_binding.feature.kind == "groove"
-    assert ownership.binding_for(cross_axis) is None
-    assert ownership.status(cross_axis) == "unexpectedly_missing"
-    assert cross_axis in ownership.unexpectedly_missing
+    cross_binding = ownership.binding_for(cross_axis)
+    assert cross_binding is not None
+    assert cross_binding.reason_code == "boss_adapter"
+    assert cross_binding.feature.kind == "boss"
+    assert ownership.unexpectedly_missing == ()
 
 
 def test_exact_faces_disambiguate_two_coaxial_bosses_near_one_step() -> None:

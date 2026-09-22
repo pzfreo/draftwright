@@ -37,6 +37,7 @@ _CASES = (
     ("channels", "plate-u-additive.step", None),
     ("oriented_slots", "test_issue_1432_oriented_slot_semantics", "_part"),
     ("blends", "test_issue_1433_blend_semantics", "_single_blend"),
+    ("bosses", "test_boss_ownership", "_two_equal_bosses"),
     ("paired_ramp_steps", "test_paired_ramp_semantics", "_paired_ramp_part"),
     ("circular_blind_steps", "test_circular_blind_step_semantics", "_part"),
     ("round_bottom_blind_slots", "test_issue_1421_round_bottom_blind_slot_completeness", "_part"),
