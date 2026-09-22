@@ -416,7 +416,9 @@ _FACTS: dict[str, tuple[str, ...]] = {
     # toleranced today. That is an IR gap, recorded in the ADR inventory rather than closed
     # here: making the angle addressable adds a parameter to every chamfer's plan, which
     # changes output, and a migration that claims byte-identity is the wrong place for it.
-    "chamfer": ("frame", "axis", "leg2", "angle", "turned"),
+    # Source identity is provenance, not a printable measurement.  It lets document policy
+    # suppress imported PMI without resolving the compiler's opaque FeatureRef in a renderer.
+    "chamfer": ("frame", "axis", "leg2", "angle", "turned", "source_ids"),
     "fillet": ("frame", "axis", "turned"),
     # Full free-axis direction is structural identity and survives to the renderer/replay.
     # Radius remains an approved dimension and cannot leak through these facts.

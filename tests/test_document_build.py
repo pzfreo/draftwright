@@ -37,6 +37,26 @@ def authored_member(document, name):
     return sheet
 
 
+def rendered_text(drawing):
+    """Visible semantic strings through the public annotation read surface."""
+    values = []
+    for _name, annotation in drawing.iter_annotations():
+        for attr in ("label", "text", "pdf_text"):
+            value = getattr(annotation, attr, None)
+            if value:
+                values.append(str(value))
+        for row in getattr(annotation, "table_rows", ()):
+            values.extend(str(value) for value in row)
+        for spec in (
+            *getattr(annotation, "pdf_text_specs", ()),
+            *getattr(annotation, "pdf_text_relative_specs", ()),
+        ):
+            value = spec[0] if isinstance(spec, tuple) else getattr(spec, "text", None)
+            if value:
+                values.append(str(value))
+    return "\n".join(values)
+
+
 def test_members_and_live_reports_reuse_one_exact_recognition(source, monkeypatch):
     calls = []
     original = analysis_module.build_recognition_evidence
@@ -200,21 +220,13 @@ def test_member_pmi_policy_controls_all_rendered_source_requirements(pmi_source)
 
     result = document.build()
     drawings = result.sheets
-    assert [drawings[name]._analysis.pmi_mode for name in drawings] == [
-        "annotate",
-        "report",
-        "off",
-    ]
     assert all(
         drawing.recognition_evidence() is pmi_source.analysis.recognition_evidence
         for drawing in drawings.values()
     )
 
-    def text(drawing):
-        return "\n".join(run.text for run in drawing._pdf_text_runs())
-
     annotated_names = drawings["gdt"].annotations()
-    annotated_text = text(drawings["gdt"])
+    annotated_text = rendered_text(drawings["gdt"])
     assert {"default_surface_finish", "general_notes"} <= annotated_names.keys()
     assert any(name.startswith("m_gdt") for name in annotated_names)
     assert any(name.startswith("pmi_") for name in annotated_names)
@@ -225,7 +237,7 @@ def test_member_pmi_policy_controls_all_rendered_source_requirements(pmi_source)
     for name in ("report", "dimensions"):
         drawing = drawings[name]
         names = drawing.annotations()
-        rendered = text(drawing)
+        rendered = rendered_text(drawing)
         assert "default_surface_finish" not in names
         assert "general_notes" not in names
         assert not any(item.startswith(("m_gdt", "pmi_", "m_chamfer")) for item in names)
@@ -255,7 +267,7 @@ def test_member_pmi_policy_controls_all_rendered_source_requirements(pmi_source)
         drawing.callout(threaded_step)
     drawing.drop(sourced_chamfer)
     assert drawing.callout(sourced_chamfer) == ""
-    edited_text = text(drawing)
+    edited_text = rendered_text(drawing)
     assert "M2 x 0.4" not in edited_text
     assert "M3 x 0.5" not in edited_text
     assert not any(name.startswith("m_chamfer") for name in drawing.annotations())
@@ -302,8 +314,7 @@ def test_member_authored_requirements_survive_lower_pmi_policy(source):
     drawings = document.build().sheets
     for mode, drawing in drawings.items():
         names = drawing.annotations()
-        text = "\n".join(run.text for run in drawing._pdf_text_runs())
-        assert drawing._analysis.tolerance == f"MEMBER-{mode.upper()}"
+        text = rendered_text(drawing)
         assert {"default_surface_finish", "general_notes"} <= names.keys()
         assert any(name.startswith("pmi_") for name in names)
         assert f"MEMBER {mode.upper()} NOTE" in text

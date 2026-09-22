@@ -3018,8 +3018,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         if pd is None:
             continue
         ch = g.facts
-        source = resolve_feature(g.ref)
-        if ctx.document_member and a.pmi_mode != "annotate" and getattr(source, "source_ids", ()):
+        if ctx.document_member and a.pmi_mode != "annotate" and ch.source_ids:
             continue
         # Equal printed values are not enough: two chamfers with the same first leg but a
         # different second leg/angle state different manufacturing requirements.
