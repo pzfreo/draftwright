@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
+import warnings
 
 import numpy as np
 from build123d import Compound, Edge, GeomType, Location, Plane, ThreePointArc, Vector
@@ -27,6 +28,7 @@ from OCP.GeomAbs import (
     GeomAbs_SurfaceOfRevolution,
     GeomAbs_Torus,
 )
+from OCP.gp import gp_Pnt
 
 from draftwright._core import (
     Analysis,
@@ -38,36 +40,77 @@ from draftwright._geometry import (
     _scale_world,
     material_field,
 )
+from draftwright._warnings import ProjectionGeometryWarning
 from draftwright.progress import stage
 
 _log = logging.getLogger(__name__)
 
 
 _SILHOUETTE_TOL = 0.12
+_PROJECTED_EDGE_BOUNDS_TOL = 1e-4
 
 
-def _raw_view_projector(axes, look_at_scaled):
+def _raw_view_projector(camera, up, look_at_scaled):
     """Build a ``gp_Pnt -> (x, y)`` projector into raw viewport coordinates.
 
     ``project_to_viewport`` returns edges centred on ``look_at`` with the world
-    axes mapped to page X/Y per :func:`view_axes`.  This reproduces that 2D
-    mapping for an arbitrary point on the *scaled* solid, so a revolution axis's
-    location can be projected into the same frame as the projected edges (before
-    the view is placed at its page position).
+    axes mapped into the camera's orthonormal X/Y basis. This reproduces that 2D
+    mapping for an arbitrary point on the *scaled* solid, including oblique views
+    that :func:`view_axes` deliberately cannot represent, before page placement.
     """
-    idx = {"world_X": 0, "world_Y": 1, "world_Z": 2}
-    x_terms = [(idx[w], s) for w, (p, s) in axes.items() if p == "page_X"]
-    y_terms = [(idx[w], s) for w, (p, s) in axes.items() if p == "page_Y"]
-    lx, ly, lz = look_at_scaled
-    center = (lx, ly, lz)
+
+    centre = Vector(look_at_scaled)
+    view_direction = (Vector(camera) - centre).normalized()
+    screen_x = Vector(up).normalized().cross(view_direction).normalized()
+    screen_y = view_direction.cross(screen_x).normalized()
 
     def proj(pnt):
-        c = (pnt.X(), pnt.Y(), pnt.Z())
-        x = sum((c[i] - center[i]) * s for i, s in x_terms)
-        y = sum((c[i] - center[i]) * s for i, s in y_terms)
-        return (x, y)
+        delta = Vector(pnt.X(), pnt.Y(), pnt.Z()) - centre
+        return (delta.dot(screen_x), delta.dot(screen_y))
 
     return proj
+
+
+def _projected_shape_bounds(shape, project) -> tuple[float, float, float, float]:
+    """The exact orthographic envelope implied by *shape*'s model-space AABB."""
+
+    bounds = shape.bounding_box()
+    projected = [
+        project(gp_Pnt(x, y, z))
+        for x in (bounds.min.X, bounds.max.X)
+        for y in (bounds.min.Y, bounds.max.Y)
+        for z in (bounds.min.Z, bounds.max.Z)
+    ]
+    return (
+        min(point[0] for point in projected),
+        min(point[1] for point in projected),
+        max(point[0] for point in projected),
+        max(point[1] for point in projected),
+    )
+
+
+def _bounded_projected_edges(edges, bounds, *, tol=_PROJECTED_EDGE_BOUNDS_TOL):
+    """Partition HLR edges by the source solid's mathematically possible projection."""
+
+    x0, y0, x1, y1 = bounds
+    kept: list[Edge] = []
+    rejected: list[Edge] = []
+    for edge in edges:
+        try:
+            box = edge.bounding_box()
+            finite = all(
+                math.isfinite(value) for value in (box.min.X, box.min.Y, box.max.X, box.max.Y)
+            )
+            inside = (
+                box.min.X >= x0 - tol
+                and box.min.Y >= y0 - tol
+                and box.max.X <= x1 + tol
+                and box.max.Y <= y1 + tol
+            )
+        except Exception:  # noqa: BLE001 — an unmeasurable projected edge is unusable
+            finite = inside = False
+        (kept if finite and inside else rejected).append(edge)
+    return kept, rejected
 
 
 # ── Filled material lowering (#798) ─────────────────────────────────────────────────────
@@ -304,12 +347,27 @@ def project_view_geometry(scale, name, shape, camera, up, position, *, look_at, 
             f"(camera {camera}) — check the camera position and look_at."
         )
     axes = view_axes(camera, up, look_at)
+    proj = _raw_view_projector(camera, up, look_at)
+    projected_bounds = _projected_shape_bounds(shape_s, proj)
+    vl, rejected_visible = _bounded_projected_edges(vl, projected_bounds)
+    hl, rejected_hidden = _bounded_projected_edges(hl, projected_bounds)
+    if rejected_visible or rejected_hidden:
+        warnings.warn(
+            f"view {name!r}: rejected {len(rejected_visible)} visible and "
+            f"{len(rejected_hidden)} hidden projected edge(s) outside the source shape's "
+            "orthographic envelope; invalid projector geometry was omitted",
+            ProjectionGeometryWarning,
+            stacklevel=2,
+        )
+    if not vl and not hl:
+        raise ValueError(
+            f"project_to_viewport returned no bounded geometry for view {name!r} (camera {camera})"
+        )
     # Recover exact circles for revolution silhouettes that HLR projected as approximating splines
     # (#67) — a no-op when no revolution axis is parallel to the view direction (iso/section views).
     if vl:
         vd = Vector(look_at[0] - camera[0], look_at[1] - camera[1], look_at[2] - camera[2])
         vd = vd.normalized()
-        proj = _raw_view_projector(axes, look_at)
         vl, n_circ = _exactify_silhouettes(vl, shape_s.faces(), (vd.X, vd.Y, vd.Z), proj)
         if n_circ:
             _log.info("  %s: %d silhouette spline(s) refit to circles", name, n_circ)

@@ -45,3 +45,7 @@ class ScaleCompletenessWarning(UserWarning):
     Callers can filter this policy decision independently of unrelated user warnings while
     still inspecting the complete machine-readable record on ``Drawing.scale_decision``.
     """
+
+
+class ProjectionGeometryWarning(UserWarning):
+    """A projector emitted geometry outside the source shape's possible view envelope."""

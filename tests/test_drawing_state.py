@@ -1,8 +1,13 @@
 """Drawing pinning, annotation-query, and view-bound behavior."""
 
+from types import SimpleNamespace
+
 import pytest
-from build123d import Compound, Edge
+from build123d import Align, Box, Compound, Edge
 from build123d_drafting import Leader
+
+from draftwright import ProjectionGeometryWarning
+from draftwright.projection import project_view_geometry
 
 
 @pytest.fixture
@@ -175,3 +180,47 @@ class TestViewBounds:
         far = Compound(children=[Edge.make_line((x1 + 10, 0, 0), (x1 + 10, 5, 0))])
         dwg.views["front"] = (vis, far)
         assert dwg.view_bounds("front")[2] == pytest.approx(x1 + 10)
+
+    def test_projection_rejects_curve_outside_source_envelope(self):
+        source_bounds = Box(20, 10, 5, align=Align.CENTER).bounding_box()
+        valid = Edge.make_line((-10, -5, 0), (10, -5, 0))
+        runaway = Edge.make_spline([(-1, 0, 0), (0, 100, 0), (1, 0, 0)])
+        shape = SimpleNamespace(
+            bounding_box=lambda: source_bounds,
+            project_to_viewport=lambda *_args: ((valid, runaway), ()),
+            faces=lambda: [],
+        )
+
+        # Its endpoints look plausible, but the complete HLR curve cannot belong to the source.
+        assert all(abs(vertex.X) <= 10 and abs(vertex.Y) <= 5 for vertex in runaway.vertices())
+        assert runaway.bounding_box().max.Y > 90
+
+        with pytest.warns(ProjectionGeometryWarning, match="rejected 1 visible"):
+            placed, hidden, _coords = project_view_geometry(
+                1,
+                "plan",
+                shape,
+                (0, 0, 100),
+                (0, 1, 0),
+                (50, 40),
+                look_at=(0, 0, 0),
+                scaled=True,
+            )
+
+        assert hidden is None
+        assert len(placed.edges()) == 1
+        assert placed.bounding_box().max.Y == pytest.approx(35)
+
+        shape.project_to_viewport = lambda *_args: ((runaway,), ())
+        with pytest.warns(ProjectionGeometryWarning, match="rejected 1 visible"):
+            with pytest.raises(ValueError, match="no bounded geometry"):
+                project_view_geometry(
+                    1,
+                    "plan",
+                    shape,
+                    (0, 0, 100),
+                    (0, 1, 0),
+                    (50, 40),
+                    look_at=(0, 0, 0),
+                    scaled=True,
+                )
