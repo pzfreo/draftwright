@@ -7,11 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Box, Compound, Cone, Cylinder, Pos, import_step
+from quiddity import BossRecord
 from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
+from draftwright.linting.boss_coverage import boss_requirement_outcomes
 from draftwright.model.detect import _records_share_defining_target
 from draftwright.recognition_ownership import OccurrenceBinding, RecognitionOwnershipBuilder
+from draftwright.registry import AnnotationRegistry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "evaluation"
 
@@ -137,6 +140,95 @@ def test_report_projects_each_plain_boss_requirement() -> None:
     }
     assert set(requirements) == {"boss.diameter", "boss_height.length"}
     assert {requirement["state"] for requirement in requirements.values()} == {"placed"}
+
+
+def test_boss_ledger_fails_closed_when_its_exact_owner_leaves_final_ir() -> None:
+    drawing = build_drawing(Box(60, 60, 10) + Pos(0, 0, 9) * Cylinder(12, 8))
+    evidence = drawing.recognition_evidence()
+    ownership = drawing.recognition_ownership()
+
+    outcomes = boss_requirement_outcomes(
+        drawing.recognition(),
+        (),
+        drawing.registry,
+        (),
+        evidence=evidence,
+        ownership=ownership,
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].parameter_id == "?"
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 2
+    assert outcomes[0].source_records == (evidence.result.bosses[0],)
+
+
+def test_boss_ledger_fails_closed_when_conversion_never_bound_the_occurrence() -> None:
+    recognition = object()
+    reference = object()
+    source = BossRecord(
+        axis=(0.0, 0.0, 1.0),
+        location=(0.0, 0.0, 8.0),
+        diameter=16.0,
+        height=8.0,
+    )
+    evidence = SimpleNamespace(
+        result=recognition,
+        features=(reference,),
+        family=lambda occurrence: "bosses" if occurrence is reference else "foreign",
+        record=lambda occurrence: source if occurrence is reference else None,
+    )
+    ownership = SimpleNamespace(
+        evidence=evidence,
+        binding_for=lambda occurrence: None,
+    )
+
+    outcomes = boss_requirement_outcomes(
+        recognition,
+        (),
+        AnnotationRegistry(),
+        evidence=evidence,
+        ownership=ownership,
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].parameter_id == "?"
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 2
+    assert outcomes[0].source_records == (source,)
+
+
+def test_boss_ledger_fails_closed_on_a_nonprincipal_provider_axis() -> None:
+    recognition = object()
+    reference = object()
+    source = BossRecord(
+        axis=(1.0, 1.0, 0.0),
+        location=(0.0, 0.0, 8.0),
+        diameter=16.0,
+        height=8.0,
+    )
+    evidence = SimpleNamespace(
+        result=recognition,
+        features=(reference,),
+        family=lambda occurrence: "bosses" if occurrence is reference else "foreign",
+        record=lambda occurrence: source if occurrence is reference else None,
+    )
+    ownership = SimpleNamespace(evidence=evidence, binding_for=lambda occurrence: None)
+
+    outcomes = boss_requirement_outcomes(
+        recognition,
+        (),
+        AnnotationRegistry(),
+        evidence=evidence,
+        ownership=ownership,
+    )
+
+    assert len(outcomes) == 1
+    assert outcomes[0].parameter_id == "?"
+    assert outcomes[0].state == "unverifiable"
+    assert outcomes[0].requirement_count == 2
+    assert outcomes[0].source_at is None
+    assert outcomes[0].source_records == (source,)
 
 
 def test_equal_diameter_bosses_keep_distinct_owners_and_one_counted_callout() -> None:
