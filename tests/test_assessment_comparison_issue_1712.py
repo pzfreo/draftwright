@@ -741,7 +741,7 @@ def test_measurement_uncertainty_transitions_are_classified_without_order_pairin
 def test_resolved_uncertainty_no_longer_limits_the_candidate() -> None:
     baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
     baseline["measurements"]["unknown"] = [
-        {"annotation": "resolved", "reason": "compiled_claim_unconfirmed"}
+        {"annotation": "hole_callout", "reason": "compiled_claim_unconfirmed"}
     ]
 
     result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
@@ -753,6 +753,33 @@ def test_resolved_uncertainty_no_longer_limits_the_candidate() -> None:
         "one or more compiled measurement claims are unresolved"
         not in result["unavailable"]["reasons"]
     )
+
+
+def test_removing_the_only_declared_carrier_cannot_resolve_uncertainty() -> None:
+    baseline, candidate = _assessment(), _assessment(crossing=False)
+    unknown = {"annotation": "hole_callout", "reason": "measurement_identity_unavailable"}
+    baseline["measurements"]["unknown"] = [unknown]
+    candidate["measurements"]["unknown"] = []
+    candidate["drawing"]["declarations"]["entries"][0]["representations"] = []
+
+    result = compare_assessments(
+        baseline,
+        candidate,
+        expected_requirements=_EXPECTED,
+        selected_layout_finding=_CROSSING,
+    )
+
+    assert result["decision"] == "rejected"
+    assert result["pareto"]["relation"] == "unavailable"
+    assert result["policy"]["blockers"] == [
+        {
+            "code": "measurement_uncertainty_carrier_removed",
+            "identity": {"annotation": "hole_callout", "kind": "measurement"},
+            "baseline_declaration_ids": ["declaration:hole"],
+            "candidate_declaration_ids": [],
+        }
+    ]
+    _validate_comparison(result)
 
 
 def test_ownerless_claim_identity_includes_parameter() -> None:
@@ -779,6 +806,28 @@ def test_ownerless_claim_identity_includes_parameter() -> None:
         "height.length",
         "width.length",
     ]
+    _validate_comparison(result)
+
+
+def test_resolved_ownerless_claim_does_not_require_a_declared_carrier() -> None:
+    baseline, candidate = _assessment(crossing=False), _assessment(crossing=False)
+    baseline["measurements"]["unavailable_owner_claims"] = [
+        {
+            "annotation": "table",
+            "parameter_id": "width.length",
+            "reason": "claim owner has no declaration identity",
+        }
+    ]
+
+    result = compare_assessments(baseline, candidate, expected_requirements=_EXPECTED)
+
+    assert result["uncertainty"]["resolved"][0]["identity"] == {
+        "kind": "ownerless-claim",
+        "annotation": "table",
+        "parameter_id": "width.length",
+    }
+    assert result["policy"]["blockers"] == []
+    assert result["pareto"]["relation"] == "equivalent"
     _validate_comparison(result)
 
 

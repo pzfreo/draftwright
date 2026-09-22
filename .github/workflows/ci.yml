@@ -427,6 +427,7 @@ jobs:
           tests/test_issue_827_real_part_canary.py
           tests/test_issue_1544_frame_document_canary.py
           tests/test_agent_improvement_canary_issue_1716.py
+          tests/test_pareto_loop_canary_issue_1753.py
           -m real_part_canary -v -s --durations=3
 
   test-slow:

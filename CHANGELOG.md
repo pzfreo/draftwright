@@ -4,6 +4,12 @@
 
 ### Added
 
+- A hash-pinned AP242 CTC-01 canary now proves the full Pareto-first layout loop against
+  a reviewed 80-measurement denominator: read typed finding remedies, apply only two public
+  declaration-side overrides, replay once, and establish legibility-only dominance while 12
+  unresolved claims remain carried and certification remains unavailable (#1753). Detailed
+  diagnostic prose remains optional presentation derived from structured evidence, never a
+  comparison identity or decision input.
 - Declared slot width and length dimensions now expose bounded, feature-relative lanes through
   `DimensionIntent.place(lane=...)` and declaration-scoped
   `layout_override(..., parameter=..., lane=...)`. Generated scripts and report-v8 evidence
@@ -82,6 +88,10 @@
 
 ### Fixed
 
+- Assessment comparison now rejects an apparent resolution of measurement uncertainty when the
+  declaration carrying that unresolved annotation was removed. Deleting crossed GD&T ink can no
+  longer masquerade as evidence improvement; genuine resolution with the carrier retained still
+  compares normally (#1753).
 - Imported upper/lower limit dimensions now retain their typed absolute interval through the
   compiled evidence boundary. Both bounds together satisfy the owned nominal claim, while a
   changed/missing bound or two coincidental numbers around the nominal still produces

@@ -58,6 +58,10 @@ Carried uncertainty remains a certification limitation but does not erase a Pare
 proved on the comparable axes. Introduced or changed uncertainty, and any ambiguous duplicate,
 makes that relationship unavailable. A baseline uncertainty absent from the candidate is
 reported as resolved and no longer appears among the candidate's unavailable measurement claims.
+Resolution is fail-closed when the baseline claim had a declared annotation carrier: removing or
+retargeting that carrier does not prove the uncertainty was resolved and makes the Pareto relation
+unavailable. A genuine evidence improvement keeps the same declaration carrier while the unknown
+claim disappears.
 These keys are comparison-local evidence, not persistent or physical owner identity; source/run
 compatibility and the separate declaration, requirement, owner, meaning, and carrier transitions
 remain mandatory guards.
@@ -73,12 +77,19 @@ therefore `incomparable`, not numerically ranked. Incompatible authority makes t
 relation unavailable. Restraint and manufacturing readiness remain explicitly unavailable and
 cannot silently become a pass.
 
-The bounded CTC-01 real-part canary exercises that loop before merge: generate an inspected
-script, replay a traced baseline, make one sanctioned `Sheet` layout edit, replay once, and
-compare against a reviewed 78-claim denominator. It deliberately proves that deleting the
-crossed measurement or substituting another recognised owner is rejected. The counterfactuals
-operate on the two captured documents, so the CI lane pays for exactly two CAD builds rather
-than rebuilding the part for every policy failure.
+Two bounded CTC-01 real-part canaries exercise that loop before merge. The AP203 canary compares
+against its reviewed 79-claim geometry denominator. The AP242 Pareto canary is versioned to the
+Quiddity 0.3.2 evidence boundary and compares against a separately reviewed 80-claim denominator,
+with 12 unresolved PMI claims carried on both sides. It reads typed layout finding identities and
+remedies, applies only two public declaration-side overrides, then proves legibility-only Pareto
+dominance while certification remains unavailable. Both deliberately prove that deleting a
+carrier or substituting another recognised physical owner is rejected. Their counterfactuals
+operate on the two captured documents, so each CI case pays for exactly two CAD builds rather than
+rebuilding the part for every policy failure.
+
+Consumers may render the detailed finding messages and summaries as optional human-facing labels.
+Those strings are derived presentation: comparison identity, remediation selection, and Pareto
+decisions use the structured codes, ids, transitions, counts, and availability fields instead.
 
 The generated script removes an older Draftwright-owned assessment before importing or building
 the part. Build, export, strict-report, identity, and write failures therefore leave no old

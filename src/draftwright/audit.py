@@ -332,6 +332,16 @@ def _carrier_rows(declarations: Mapping[str, Mapping]) -> dict[tuple[str, str], 
     return result
 
 
+def _annotation_declarations(declarations: Mapping[str, Mapping]) -> dict[str, tuple[str, ...]]:
+    """Index visible representation names without pretending they are physical identities."""
+
+    result: dict[str, set[str]] = {}
+    for declaration_id, declaration in declarations.items():
+        for representation in declaration["representations"]:
+            result.setdefault(representation["name"], set()).add(declaration_id)
+    return {name: tuple(sorted(ids)) for name, ids in result.items()}
+
+
 def _requirement_side(
     key: tuple[str, str],
     declarations: Mapping[str, Mapping],
@@ -931,6 +941,24 @@ def compare_assessments(
             improvements.append({"code": "selected_layout_finding_resolved"})
 
     uncertainty = _uncertainty_delta(baseline, candidate)
+    old_annotation_declarations = _annotation_declarations(before_declarations)
+    new_annotation_declarations = _annotation_declarations(after_declarations)
+    for transition in uncertainty["resolved"]:
+        identity = transition["identity"]
+        if identity["kind"] != "measurement":
+            continue
+        annotation = identity["annotation"]
+        old_ids = old_annotation_declarations.get(annotation, ())
+        new_ids = new_annotation_declarations.get(annotation, ())
+        if old_ids and not set(old_ids).issubset(new_ids):
+            blockers.append(
+                {
+                    "code": "measurement_uncertainty_carrier_removed",
+                    "identity": identity,
+                    "baseline_declaration_ids": list(old_ids),
+                    "candidate_declaration_ids": list(new_ids),
+                }
+            )
     candidate_unknown = [
         {"side": "candidate", **row}
         for field in ("unknown", "unavailable_owner_claims")
@@ -1024,6 +1052,7 @@ def compare_assessments(
         for row in blockers
         if row["code"]
         in {
+            "measurement_uncertainty_carrier_removed",
             "measurement_uncertainty_changed",
             "measurement_uncertainty_identity_ambiguous",
             "measurement_uncertainty_introduced",
