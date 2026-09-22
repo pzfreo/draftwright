@@ -1586,9 +1586,14 @@ def _raw_report_assessment(
         int(completeness_row.get(state, 0) or 0)
         for state in ("suppressed", "dropped", "missing", "unverifiable", "unsupported")
     )
+    envelope_axes = completeness_row.get("envelope_axes", {})
+    envelope_row = envelope_axes if isinstance(envelope_axes, Mapping) else {}
+    envelope_affected = int(envelope_row.get("affected_count", 0) or 0)
+    envelope_requirements = int(envelope_row.get("requirements", 0) or 0)
+    adverse_completeness += envelope_affected
     known_requirement_count = completeness_row.get("known_requirement_count")
     completeness_denominator = (
-        int(known_requirement_count)
+        int(known_requirement_count) + envelope_requirements
         if completeness_available and isinstance(known_requirement_count, int)
         else None
     )

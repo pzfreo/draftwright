@@ -9,11 +9,13 @@ undefined on the sheet with nothing reporting it.
 ADR 3 (was 0013)'s rule for a record that looks too thin is that the fix is the record.
 """
 
+import math
+
 import pytest
 from build123d import Box, Cylinder, Pos, Rot
 from quiddity import recognise_flats
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
 from draftwright.model.declare import flat as declare_flat
 
 
@@ -63,7 +65,43 @@ def test_a_double_d_still_gets_exactly_one_callout():
 
     callouts = sorted(n for n in dwg.annotations() if n.startswith("m_flat_"))
     assert len(callouts) == 1, f"a double-D is ONE A/F definition, got {callouts}"
+    assert dwg.get_annotation(callouts[0]).label == "15 A/F"
     assert not [i for i in dwg.lint() if i.code == "flat_dropped"]
+
+
+def _declared_flat_family(points):
+    sheet = Sheet(Box(100, 100, 10))
+    for point in points:
+        flat = sheet.flat(
+            axis="z",
+            across=15,
+            at=(*point, 0),
+            axis_line=(0, 0),
+            stock_span=(-5, 5),
+        )
+        sheet.dimension(flat, "flat.length")
+    drawing = sheet.build()
+    (name,) = [name for name in drawing.annotations() if name.startswith("m_flat_")]
+    return drawing, name
+
+
+def test_noncentred_members_on_shared_stock_metadata_retain_their_count():
+    points = ((-30, 20), (0, 30), (30, 20))
+    drawing, name = _declared_flat_family(points)
+
+    assert drawing.get_annotation(name).label == "3× 15 A/F"
+    assert len(drawing.measurement_keys(name)) == len(points)
+
+
+def test_one_centred_hexagonal_stock_does_not_count_its_six_faces():
+    points = tuple(
+        (9.3 * math.cos(math.radians(angle)), 9.3 * math.sin(math.radians(angle)))
+        for angle in range(0, 360, 60)
+    )
+    drawing, name = _declared_flat_family(points)
+
+    assert drawing.get_annotation(name).label == "15 A/F"
+    assert len(drawing.measurement_keys(name)) == len(points)
 
 
 def test_two_parallel_lobes_place_two_independent_definitions():

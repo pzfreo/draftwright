@@ -94,6 +94,40 @@ def boss_fills_footprint(bbox, bosses, tol: float = _ROUND_FOOTPRINT_TOL) -> boo
     )
 
 
+def turned_profile_fills_footprint(
+    bbox, turned_profile, tol: float = _ROUND_FOOTPRINT_TOL
+) -> bool:
+    """Whether one turned profile's largest OD conveys both transverse extents.
+
+    A profile can belong to a local round body inside a larger prismatic body.  Its mere
+    presence therefore cannot suppress the whole-part envelope: only an OD centred on the
+    profile axis and reaching both sides of both transverse bounding-box axes carries those
+    overall sizes.  Unknown/legacy profile identity fails closed to the established turned
+    interpretation rather than inventing an axis origin.
+    """
+
+    try:
+        axis = str(turned_profile.axis)
+        axis_index = "xyz".index(axis)
+        profile = turned_profile.profile
+        if profile is None:
+            return True
+        origin = tuple(float(value) for value in profile.axis_origin)
+        radius = max(float(step.diameter) for step in turned_profile.steps) / 2.0
+        bounds = (
+            (float(bbox.min.X), float(bbox.max.X)),
+            (float(bbox.min.Y), float(bbox.max.Y)),
+            (float(bbox.min.Z), float(bbox.max.Z)),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return True
+    return all(
+        abs(lo - (origin[index] - radius)) <= tol and abs(hi - (origin[index] + radius)) <= tol
+        for index, (lo, hi) in enumerate(bounds)
+        if index != axis_index
+    )
+
+
 def envelope_is_emittable(*, bbox, bosses, turned_profiles, polygonal_stock) -> bool:
     """Whether an ordinary envelope dimension will carry this part's overall size.
 
@@ -112,7 +146,9 @@ def envelope_is_emittable(*, bbox, bosses, turned_profiles, polygonal_stock) -> 
     """
 
     return bool(
-        not turned_profiles and not boss_fills_footprint(bbox, bosses) and not polygonal_stock
+        not any(turned_profile_fills_footprint(bbox, profile) for profile in turned_profiles)
+        and not boss_fills_footprint(bbox, bosses)
+        and not polygonal_stock
     )
 
 
