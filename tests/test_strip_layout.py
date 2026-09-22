@@ -1284,6 +1284,90 @@ def test_corridor_orders_location_ladder_monotonically():
     )
 
 
+def test_front_right_baseline_keeps_sizes_inner_then_orders_datum_heights_issue_1779(
+    tmp_path,
+):
+    """Local sizes stay inner; common-datum heights share one ordered outer run."""
+    from build123d import Align
+
+    from draftwright import Sheet
+
+    part = Box(147, 100, 65.5, align=(Align.MIN, Align.MIN, Align.MIN))
+    sheet = Sheet(
+        part,
+        out=str(tmp_path / "baseline-ladder"),
+        page="A2",
+        scale=1,
+        scale_policy="permissive",
+    )
+    envelope = sheet.envelope()
+    steps = sheet.step_level(
+        base=0,
+        levels=(43, 58),
+        datum=(0, 0, 0),
+        at=(73.5, 50, 0),
+    )
+    bosses = (
+        sheet.boss(
+            diameter=20,
+            height=8,
+            at=(20, 20, 0),
+            axis="z",
+            span=((20, 20, 0), (20, 20, 8)),
+        ),
+        sheet.boss(
+            diameter=20,
+            height=12,
+            at=(120, 80, 45),
+            axis="z",
+            span=((120, 80, 45), (120, 80, 57)),
+        ),
+    )
+    side_hole = sheet.hole(diameter=10, at=(70, 50, 33), axis="y", through=True)
+
+    sheet.dimension(envelope, "height.length")
+    sheet.dimension(steps, "step_height.length")
+    for boss in bosses:
+        sheet.dimension(boss, "boss_height.length")
+    sheet.dimension(side_hole, "location", axis="z", member=0)
+    drawing = sheet.build()
+    assert drawing.scale == 1
+
+    names = [
+        name
+        for name in drawing.annotations()
+        if name.startswith(("dim_step_", "m_bossheight_z", "dim_loc_front_z"))
+        or name == "dim_height"
+    ]
+    assert len([name for name in names if name.startswith("dim_step_")]) == 2
+    assert len([name for name in names if name.startswith("m_bossheight_z")]) == 2
+    assert len([name for name in names if name.startswith("dim_loc_front_z")]) == 1
+    assert names.count("dim_height") == 1
+    assert {drawing.view_of(name) for name in names} == {"front"}
+    assert {drawing.get_annotation(name)._dw_spec.side for name in names} == {"right"}
+
+    outward = sorted(names, key=lambda name: drawing.get_annotation(name).bounding_box().max.X)
+    assert [drawing.get_annotation(name).label for name in outward] == [
+        "8",
+        "12",
+        "33",
+        "43",
+        "58",
+        "65.5",
+    ]
+
+
+def test_representative_step_height_uses_the_same_datum_ordering_issue_1779():
+    """The collapsed N× rung also carries its approved value into corridor ordering."""
+    from _parts import uniform_staircase
+
+    drawing = build_drawing(uniform_staircase(n_treads=8, rise=15.0))
+
+    representative = drawing.get_annotation("dim_step_typ")
+    assert representative.label == "8× 15"
+    assert drawing.view_of("dim_step_typ") == "front"
+
+
 def _pitch_dim_over_centerline(centerline_factory, centerline_name):
     # Shared #129 repro: a plate whose 2-hole pitch dim naturally centres its label at
     # plan_x(0) — then a centre-line-family annotation is placed exactly there (computed
