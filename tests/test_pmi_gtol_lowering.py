@@ -1,5 +1,6 @@
 """Geometric-tolerance modifier preservation and concept lowering (#1095)."""
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -111,6 +112,25 @@ def test_complete_geometric_tolerance_lowers_to_control_frame():
     assert feature.origin.gtol_modifiers == ("all_around",)
 
 
+def test_repeated_datum_targets_lower_to_one_ordered_compartment():
+    record = replace(_record(), datum_refs=("A", "A", "A", "B", "B", "C"))
+
+    (feature,) = build_pmi_features((record,), Box(20, 20, 20).bounding_box())
+
+    assert isinstance(feature, ControlFrame)
+    assert feature.datums == ("A", "B", "C")
+
+
+def test_imported_control_frame_tolerance_uses_drawing_precision():
+    record = replace(_record(), value=0.254000000000003)
+
+    (feature,) = build_pmi_features((record,), Box(20, 20, 20).bounding_box())
+
+    assert isinstance(feature, ControlFrame)
+    assert feature.tolerance == "0.254000000000003"
+    assert feature.display_tolerance == "0.3"
+
+
 def test_complete_all_over_tolerance_lowers_to_control_frame():
     (feature,) = build_pmi_features(
         (_record(modifiers=("all_over",)),), Box(20, 20, 20).bounding_box()
@@ -154,6 +174,7 @@ def test_generated_sheet_round_trips_imported_zone_and_material_qualifiers():
     assert isinstance(restored, ControlFrame)
     assert restored.diameter is True
     assert restored.modifier == "M"
+    assert restored.display_tolerance == feature.display_tolerance == "0.5"
     assert isinstance(restored.origin, PmiFeature)
     assert restored.origin.gtol_modifiers == modifiers
 

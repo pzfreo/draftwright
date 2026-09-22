@@ -3810,6 +3810,10 @@ class ControlFrame:
     part21_id: str = ""
     # Appended after the existing public fields to preserve positional ControlFrame construction.
     all_over: bool = False
+    # Compiler-owned display text for imported numeric PMI.  ``None`` keeps an authored
+    # tolerance string exact; AP242 lowering retains the source magnitude in ``tolerance``
+    # while deciding the sheet-normalized text once, before rendering.
+    display_tolerance: str | None = None
     kind: ClassVar[str] = "control_frame"
 
     def parameters(self) -> list[DimParameter]:

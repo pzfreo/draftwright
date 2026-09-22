@@ -8993,9 +8993,10 @@ def _gdt_glyph(item, draft):
     (the :class:`Leader` repositions it). A fresh sketch per call — the leader translate
     must not alias a shared object across the strip solve's repeated probe builds."""
     if item.kind == "control_frame":
+        tolerance = item.display_tolerance or item.tolerance
         return FeatureControlFrame(
             item.characteristic,
-            item.tolerance,
+            tolerance,
             datums=item.datums,
             draft=draft,
             diameter=item.diameter,
@@ -9058,9 +9059,10 @@ def _gdt_pdf_text_specs(glyph, item, draft) -> tuple:
         diameter_cx = x + diameter_radius
         add("ø", diameter_cx, H / 2.0)
         x = diameter_cx + diameter_radius + pad
-    tolerance_width = _text_size(item.tolerance, h, font_path, font_name)[0]
+    tolerance = item.display_tolerance or item.tolerance
+    tolerance_width = _text_size(tolerance, h, font_path, font_name)[0]
     tolerance_cx = x + tolerance_width / 2.0
-    add(item.tolerance, tolerance_cx, H / 2.0)
+    add(tolerance, tolerance_cx, H / 2.0)
     x = tolerance_cx + tolerance_width / 2.0 + pad
     if item.modifier:
         modifier_cx = x + modifier_radius

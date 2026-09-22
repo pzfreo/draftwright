@@ -22,6 +22,7 @@ _CTC01_SHA256 = hashlib.sha256(
 
 CTC01 = FIXTURES / "nist_ctc_01_asme1_ap242.stp"
 CTC01_AP203 = FIXTURES / "nist_ctc_01_asme1_ap203.stp"
+CTC02 = FIXTURES / "nist_ctc_02_asme1_ap242.stp"
 CTC03 = FIXTURES / "nist_ctc_03_asme1_ap242.stp"
 CTC04 = FIXTURES / "nist_ctc_04_asme1_ap242.stp"
 
@@ -52,6 +53,21 @@ class TestExtractPmi:
     def test_nist_ctc01_returns_records(self, ctc01_extraction_report):
         recs = ctc01_extraction_report.records
         assert len(recs) > 0
+
+    @pytest.mark.slow
+    def test_ctc02_datum_targets_lower_to_ordered_datum_system(self):
+        from draftwright.model.detect import build_pmi_features
+
+        report = extract_pmi_report(CTC02)
+        frames = {
+            feature.part21_id: feature
+            for feature in build_pmi_features(report.records, Box(500, 800, 100).bounding_box())
+            if getattr(feature, "kind", "") == "control_frame"
+        }
+
+        assert frames["#56"].datums == ("A", "B", "C")
+        assert frames["#82"].tolerance == "0.254000000000003"
+        assert frames["#82"].display_tolerance == "0.3"
 
     def test_ctc03_length_nominals_are_normalized_before_geometry_checks(
         self, ctc03_extraction_report
