@@ -1368,10 +1368,10 @@ def _records_share_defining_target(
 
     first_matches = _evidence_occurrences_for_record(evidence, first_family, first_record)
     second_matches = _evidence_occurrences_for_record(evidence, second_family, second_record)
+    if len(first_matches) > 1 or len(second_matches) > 1:
+        return False
     if not first_matches or not second_matches:
         return None
-    if len(first_matches) != 1 or len(second_matches) != 1:
-        return False
     first = first_matches[0]
     second = second_matches[0]
     defining = evidence.defining_faces(first)

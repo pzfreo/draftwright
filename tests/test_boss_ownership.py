@@ -35,9 +35,16 @@ def _stepped_shaft():
 def test_evidence_identity_distinguishes_foreign_from_ambiguous_records() -> None:
     boss = object()
     step = object()
-    refs = (object(), object(), object())
-    families = dict(zip(refs, ("bosses", "bosses", "turned_steps"), strict=True))
-    records = {refs[0]: boss, refs[1]: boss, refs[2]: step}
+    unique_step = object()
+    refs = (object(), object(), object(), object(), object())
+    families = dict(
+        zip(
+            refs,
+            ("bosses", "bosses", "turned_steps", "turned_steps", "turned_steps"),
+            strict=True,
+        )
+    )
+    records = {refs[0]: boss, refs[1]: boss, refs[2]: step, refs[3]: step, refs[4]: unique_step}
     evidence = SimpleNamespace(
         features=refs,
         family=families.__getitem__,
@@ -46,9 +53,15 @@ def test_evidence_identity_distinguishes_foreign_from_ambiguous_records() -> Non
     )
 
     assert (
-        _records_share_defining_target(evidence, "bosses", object(), "turned_steps", step) is None
+        _records_share_defining_target(evidence, "bosses", object(), "turned_steps", unique_step)
+        is None
     )
-    assert _records_share_defining_target(evidence, "bosses", boss, "turned_steps", step) is False
+    assert (
+        _records_share_defining_target(evidence, "bosses", boss, "turned_steps", object()) is False
+    )
+    assert (
+        _records_share_defining_target(evidence, "bosses", object(), "turned_steps", step) is False
+    )
 
 
 def _tapered_transition_shaft():
