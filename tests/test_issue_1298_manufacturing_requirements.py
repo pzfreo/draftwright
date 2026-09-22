@@ -79,6 +79,19 @@ def test_document_requirements_reject_ambiguous_values(feature_type, arguments, 
         feature_type(frame=Frame((0.0, 0.0, 0.0), "z"), **arguments)
 
 
+@pytest.mark.parametrize(
+    "feature",
+    [
+        GeneralTolerance(Frame((0.0, 0.0, 0.0), "z"), "ISO 2768-m"),
+        DefaultSurfaceFinish(Frame((0.0, 0.0, 0.0), "z"), "3.2"),
+        DocumentNote(Frame((0.0, 0.0, 0.0), "z"), "DATUM A IS PRIMARY", "datum_scheme"),
+    ],
+)
+def test_document_requirements_have_no_dimension_or_datum_contract(feature):
+    assert feature.parameters() == []
+    assert feature.references() == []
+
+
 def _manufacturing_signature(model):
     """Typed requirements plus stable canonical-owner facts for emit/rebuild parity."""
     signature = []
