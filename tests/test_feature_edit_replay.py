@@ -105,6 +105,20 @@ class TestFeatureEditReplay:
         # the callout carve saw the reserved section row → callouts match the auto-pass
         assert self._hc_ys(dwg) and self._hc_ys(dwg) == self._hc_ys(auto)
 
+    def test_deferred_section_does_not_repeat_an_existing_semantic_cut(self):
+        """Live and deferred repetition both preserve the one automatic section."""
+        part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)
+        dwg = build_drawing(part, auto_dims=False)
+        assert "section_caption" in dwg.section()
+
+        with dwg.deferred():
+            dwg.section()
+
+        assert [name for name in dwg.views if name.startswith("section_")] == ["section_aa"]
+        assert [
+            name for name in dwg.annotations() if name.endswith("_caption") and "section" in name
+        ] == ["section_caption"]
+
     @staticmethod
     def _dia_ys(d):
         return sorted(

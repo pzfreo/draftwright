@@ -53,8 +53,7 @@ from draftwright.annotations._common import carve_free_segments, strip_obstacles
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
-
-_DETAIL_LETTERS = "ABCDEFGH"
+from draftwright.view_plan import DERIVED_VIEW_IDENTIFIERS, DerivedViewIdentifierPool
 
 
 def _section_identity(section) -> tuple[str, str, str]:
@@ -134,11 +133,24 @@ def add_section(dwg, model, a, *, ctx) -> list[str]:
     plan = plan_sections(model, feature_hole_keys(model, a))
     if plan is None:
         return []  # no qualifying internal detail — no section warranted
+    if _has_rendered_section(dwg, plan):
+        return []
     before = set(dwg.annotations())
     _add_section_view(
         dwg, a, plan, ctx=ctx
     )  # calls _clear_section_reservation itself; no reserve needed
     return sorted(set(dwg.annotations()) - before)
+
+
+def _has_rendered_section(dwg, section) -> bool:
+    """Whether this semantic cut plane already owns a rendered section view."""
+
+    cut_y = float(section.cut_y)
+    return any(
+        getattr(annotation, "_dw_section_cut_y", None) == cut_y
+        and getattr(annotation, "_dw_section_view", None) in dwg.views
+        for _name, annotation in dwg.iter_annotations()
+    )
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
@@ -260,7 +272,7 @@ def _cut_section(body, cutter):
     return shape, faces
 
 
-def _add_section_view(dwg, a: Analysis, section, *, ctx):
+def _add_section_view(dwg, a: Analysis, section, *, ctx) -> bool:
     """Render the planned full section A–A (#94, #207).
 
     The *trigger* + cut-plane row are decided by the planner (`plan_sections` →
@@ -324,7 +336,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             f"{2 * half_w:.1f} mm section within x<={right_limit:.1f}",
             section=section,
         )
-        return
+        return False
     # The section's row dips into the title-block band only when its CAPTION does —
     # the view itself can clear the block while the caption at `-half_h - 7` does not,
     # which is exactly why GRM-01 is refused on A4 (view bottom y 49.5, caption y 42.5,
@@ -347,7 +359,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             f"y={_TB_CLEAR + _TB_H:.1f} out to x={tb_left:.1f}",
             section=section,
         )
-        return
+        return False
     pos_x = usable[0][0] + half_w
 
     big = 4 * a.bbox_max
@@ -357,7 +369,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
     solids = a.part.solids()
     if not solids:
         _skip_section(dwg, ctx, "no_solids", "no solid bodies to cut", section=section)
-        return
+        return False
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
     try:
         # Fuzzy boolean: the exact `body - Box(...)` aborts uncatchably
@@ -365,16 +377,16 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         cut = _cut_section(body, Pos(a.cx, y_star - big / 2, a.cz) * Box(big, big, big))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
         _skip_section(dwg, ctx, "cut_failed", f"cut failed: {exc}", section=section)
-        return
+        return False
     if cut is None:
         _skip_section(dwg, ctx, "cut_empty", "boolean cut produced no solid", section=section)
-        return
+        return False
     keep_behind, cut_faces = cut
     if not cut_faces:
         _skip_section(
             dwg, ctx, "cut_no_intersection", "cut plane creates no section faces", section=section
         )
-        return
+        return False
     # Resolve the final cutting-plane ink before committing the section view.
     # Optional section furniture yields if a required landed feature leader
     # consumed the conservative provisional row.
@@ -434,7 +446,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
             + ", ".join(f"{leader}/{component}" for leader, component in conflicts),
             section=section,
         )
-        return
+        return False
 
     camera = (dwg.look_at[0], dwg.look_at[1] - dwg.dist, dwg.look_at[2])
     dwg._add_view(view_name, keep_behind, camera, (0, 0, 1), (pos_x, a.FV_Y))
@@ -462,13 +474,17 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx):
         hatch = Compound(children=hatch_edges)
         hatch.is_section_hatch = True  # exempt from view_annotation_overlap lint
         ctx.place(hatch, f"{prefix}_hatch")
+    return True
 
 
 def _place_cutting_plane(dwg, y_page, x0, x1, *, section, ctx):
     """Place one complete, unmeasured cutting-plane furniture candidate."""
 
-    _label, _view, prefix = _section_identity(section)
-    ctx.place(Centerline((x0, y_page, 0), (x1, y_page, 0)), f"{prefix}_line")
+    _label, view_name, prefix = _section_identity(section)
+    line = Centerline((x0, y_page, 0), (x1, y_page, 0))
+    line._dw_section_cut_y = float(section.cut_y)
+    line._dw_section_view = view_name
+    ctx.place(line, f"{prefix}_line")
     _add_cutting_plane_arrows(dwg, y_page, x0, x1, section=section, ctx=ctx)
     _add_section_letters(dwg, y_page, x0, x1, section=section, ctx=ctx)
 
@@ -893,7 +909,7 @@ def _render_detail(
     return True
 
 
-def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
+def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
     """Resolve every queued :class:`DetailRequest` (#307) through the one generic
     detailer, lettering DETAIL A/B/… On a placement bail-out nothing is drawn for that
     request — the main view already carries the located head/block inline, so lint
@@ -901,10 +917,11 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
     the queue."""
     reqs = list(ctx.detail_requests)
     ctx.detail_requests = []
-    reserved = {req.label for req in reqs if req.label is not None}
-    if len(reserved) != sum(req.label is not None for req in reqs):
-        raise ValueError("authored detail labels must be unique")
-    used: set[str] = set()
+    if identifiers is None:
+        identifiers = DerivedViewIdentifierPool(
+            (req.label for req in reqs if req.label is not None),
+            candidates=DERIVED_VIEW_IDENTIFIERS,
+        )
 
     def _record_prismatic_failure(req, message):
         if req.kind != "prismatic-steps":
@@ -918,14 +935,13 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
         )
 
     for req in reqs:
-        letter = req.label or next(
-            (candidate for candidate in _DETAIL_LETTERS if candidate not in reserved | used), None
-        )
+        automatic_identifier = req.label is None
+        letter = req.label or identifiers.allocate()
         if letter is None:
-            _log.info("detail request '%s' dropped: detail letters A–H exhausted", req.kind)
+            _log.info("detail request '%s' dropped: derived-view identifiers exhausted", req.kind)
             _record_prismatic_failure(
                 req,
-                f"{req.kind} detail view requested but detail letters A–H are exhausted",
+                f"{req.kind} detail view requested but derived-view identifiers are exhausted",
             )
             continue
         view_name = req.view_name or f"detail_{letter.lower()}"
@@ -959,14 +975,12 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                 # behind when it was added (Codex r2).
                 ctx.place(hobj, hname)
                 dwg.registry.reapply(hname, ident)
-        if placed:
-            used.add(letter)
-        elif req.keep_without_annotations or req.view_name is not None:
+        if not placed and (req.keep_without_annotations or req.view_name is not None):
             raise ValueError(
                 f"authored detail {letter!r} from {req.source} is infeasible on this sheet; "
                 "its target, scale, or whole-view footprint was not relaxed"
             )
-        elif req.kind == "prismatic-steps":
+        elif not placed and req.kind == "prismatic-steps":
             # (#630) The prismatic-steps request is queued when detail recovery is enabled
             # (_request_prismatic_detail's gate), so a bail-out here means the requested
             # recovery produced nothing. Say so — with an
@@ -990,6 +1004,8 @@ def _resolve_details(dwg, a: Analysis, *, ctx) -> None:
                     "sheet (the crowded band is too wide to enlarge and still fit); dimension "
                     "the feature manually or move it onto its own sheet",
                 )
+        if not placed and automatic_identifier:
+            identifiers.release(letter)
 
 
 def _overall_height_name(dwg, a: Analysis) -> str | None:

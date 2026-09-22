@@ -444,6 +444,15 @@ class TestLintViewShapes:
         issues = [i for i in lint_drawing([], view_shapes=[v1, v2]) if i.code == "view_overlap"]
         assert issues and issues[0].severity == "warning"
 
+    def test_reused_section_detail_identifier_is_a_structured_error(self):
+        issues = lint_drawing([], view_names=["front", "section_aa", "detail_a"])
+
+        reused = [issue for issue in issues if issue.code == "derived_view_identifier_reused"]
+        assert len(reused) == 1
+        assert reused[0].severity == "error"
+        assert "section_aa" in reused[0].message
+        assert "detail_a" in reused[0].message
+
     def test_three_views_only_adjacent_pairs_flagged(self):
         # v1 overlaps v2; v2 overlaps v3; v1 and v3 do not overlap each other
         v1 = self._make_box_shape(0, 0, 60, 40)

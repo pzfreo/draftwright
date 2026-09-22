@@ -4,12 +4,16 @@ import pytest
 from _parts import crowded_shoulder_part as _crowded_shoulder_part
 from build123d import Box, Cylinder, Pos
 
-from draftwright import build_drawing
+from draftwright import Sheet, build_drawing
 from draftwright._core import _fmt
 
 
 @pytest.mark.timeout(120)
 class TestDetailView:
+    @staticmethod
+    def _sectioned_crowded_shoulders():
+        return _crowded_shoulder_part() - Pos(0, 0, 12) * Cylinder(2.5, 20)
+
     @pytest.mark.parametrize(
         ("override", "expected"), [({}, True), ({"detail_view": False}, False)]
     )
@@ -93,6 +97,59 @@ class TestDetailView:
         assert not marker.min.Y <= source_base_y <= marker.max.Y
         # No error-severity lint introduced.
         assert [i for i in dwg.lint() if i.severity == "error"] == []
+
+    def test_automatic_section_and_detail_share_one_identifier_sequence(self):
+        drawing = build_drawing(
+            self._sectioned_crowded_shoulders(),
+            page="A2",
+            scale=2,
+            title="T",
+            number="N",
+        )
+
+        assert {name for name in drawing.views if name.startswith(("section_", "detail_"))} == {
+            "section_aa",
+            "detail_b",
+        }
+        assert drawing.get_annotation("section_caption").label == "SECTION A–A"
+        assert drawing.get_annotation("detail_caption_B").label.startswith("DETAIL B —")
+        assert not [
+            issue for issue in drawing.lint() if issue.code == "derived_view_identifier_reused"
+        ]
+
+    def test_authored_detail_keeps_its_label_before_automatic_derived_views(self):
+        sheet = Sheet.from_part(self._sectioned_crowded_shoulders(), page="A2", scale=2).take_over(
+            dimensions="automatic",
+            principal_views="automatic",
+            derived_views="automatic",
+        )
+        hole = next(feature for feature in sheet.features if feature.kind == "hole")
+        sheet.add_detail_view("A", hole).scale(2)
+
+        drawing = sheet.build()
+
+        assert {name for name in drawing.views if name.startswith(("section_", "detail_"))} == {
+            "detail_a",
+            "section_bb",
+            "detail_c",
+        }
+        assert drawing.get_annotation("detail_caption_A").label.startswith("DETAIL A —")
+        assert drawing.get_annotation("section_b_caption").label == "SECTION B–B"
+        assert drawing.get_annotation("detail_caption_C").label.startswith("DETAIL C —")
+
+    def test_authored_section_at_the_inferred_cut_satisfies_the_automatic_view(self):
+        part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)
+        sheet = Sheet.from_part(part).take_over(
+            dimensions="automatic",
+            principal_views="automatic",
+            derived_views="automatic",
+        )
+        sheet.add_section_view("A", at=0)
+
+        drawing = sheet.build()
+
+        assert [name for name in drawing.views if name.startswith("section_")] == ["section_aa"]
+        assert drawing.get_annotation("section_caption").label == "SECTION A–A"
 
     def test_prismatic_detail_gates_on_the_step_escalation_not_raw_legibility(self):
         # #351 PR-4b: _request_prismatic_detail previously recomputed the legibility

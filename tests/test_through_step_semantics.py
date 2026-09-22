@@ -1005,11 +1005,12 @@ def test_legacy_owner_placement_drops_retain_measurement_identity(monkeypatch) -
 
 @pytest.mark.parametrize("failure", ["letters", "render"])
 def test_failed_prismatic_detail_records_exact_recovery_requirements(monkeypatch, failure) -> None:
+    import draftwright.annotations.orchestrator as orchestrator
     import draftwright.annotations.sections as sections
     from draftwright.linting.issues import is_placement_drop
 
     if failure == "letters":
-        monkeypatch.setattr(sections, "_DETAIL_LETTERS", "")
+        monkeypatch.setattr(orchestrator, "DERIVED_VIEW_IDENTIFIERS", ())
     else:
         monkeypatch.setattr(sections, "_render_detail", lambda *_args, **_kwargs: False)
 

@@ -61,6 +61,7 @@ _LEGIBILITY_CODES = frozenset(
         "title_field_overflow",
         "annotation_overlap",
         "annotation_ink_overlap",
+        "derived_view_identifier_reused",
         "detail_unplaceable",
         "dim_inside_part",
         "feature_leader_crossing",

@@ -3132,6 +3132,7 @@ class Drawing:
         )
         from draftwright.annotations.sections import (
             _add_section_view,
+            _has_rendered_section,
             _request_prismatic_detail,
             _reserve_section_row,
             _resolve_details,
@@ -3139,9 +3140,35 @@ class Drawing:
         )
         from draftwright.model import PartModel, plan_dimensions
         from draftwright.model.compiled import compile_dimensions
+        from draftwright.view_plan import DerivedViewIdentifierPool, derived_view_identifier
 
         routable = model is not None and a is not None
         queued_dim_ids: set = set()
+        existing_identifiers = []
+        for view_name in self.views:
+            kind = (
+                "section"
+                if view_name.startswith("section_")
+                else "detail"
+                if view_name.startswith("detail_")
+                else ""
+            )
+            identifier = derived_view_identifier(kind, view_name)
+            if identifier is not None:
+                existing_identifiers.append(identifier)
+        derived_identifiers = DerivedViewIdentifierPool(existing_identifiers)
+        section = r.section
+        if section is not None and _has_rendered_section(self, section):
+            section = None
+        elif section is not None:
+            from dataclasses import replace
+
+            section_label = derived_identifiers.allocate()
+            if section_label is None:
+                raise ValueError(
+                    "recorded section cannot be named: derived-view identifiers exhausted"
+                )
+            section = replace(section, label=section_label)
 
         def _report_authored_omissions(features, before) -> None:
             """Say so when a recorded edit drew nothing because the AUTHOR omitted it.
@@ -3199,9 +3226,9 @@ class Drawing:
             # Reserve the section's cutting-plane row BEFORE the callout carve so the
             # carve sees it as an obstacle (Coupling A, ADR 2 (was 0009) P5 strand 3); rendered
             # last (the "section" stage).
-            if r.section is not None:
+            if section is not None:
                 assert a is not None
-                _reserve_section_row(self, a, r.section, ctx=ctx)
+                _reserve_section_row(self, a, section, ctx=ctx)
 
         def _s_live_replay():
             # Live-replay every intent EXCEPT the routed callouts/locates and section
@@ -3588,9 +3615,10 @@ class Drawing:
             # `_add_section_view` clears the reservation and records the outcome. A
             # recorded section with no trigger (r.section is None) is a no-op.
             self._intents = [it for it in self._intents if it.kind != "section"]
-            if r.section is not None:
+            if section is not None:
                 assert a is not None
-                _add_section_view(self, a, r.section, ctx=ctx)
+                if not _add_section_view(self, a, section, ctx=ctx):
+                    derived_identifiers.release(section.label)
 
         def _s_details():
             # Resolve every queued enlarged-detail request (#661): the prismatic
@@ -3615,7 +3643,7 @@ class Drawing:
                 # covers views/_coords, so a raise mid-stage rolls the iso back too).
                 if "iso" in self.views:
                     _project_iso(self, a, a.SCALE * (a.planned_iso_scale or 1.0))
-                _resolve_details(self, a, ctx=ctx)
+                _resolve_details(self, a, ctx=ctx, identifiers=derived_identifiers)
                 if "iso" in self.views and a.planned_iso_scale is None:
                     # Obstacles as on the build path (#1240) — inert today, since a details
                     # refit disables the grow branch, but the call must not drift from the
