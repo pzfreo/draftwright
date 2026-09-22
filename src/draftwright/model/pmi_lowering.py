@@ -940,10 +940,13 @@ def _turned_chamfer_matches_box(feature: ChamferFeature, box) -> bool:
     transverse = [index for index in range(3) if index != axis_index]
     centers = [(box[index] + box[index + 3]) / 2 for index in transverse]
     outer_radius = max((box[index + 3] - box[index]) / 2 for index in transverse)
-    feature_radius = sum(
-        (feature.frame.origin[index] - center) ** 2
-        for index, center in zip(transverse, centers, strict=True)
-    ) ** 0.5
+    feature_radius = (
+        sum(
+            (feature.frame.origin[index] - center) ** 2
+            for index, center in zip(transverse, centers, strict=True)
+        )
+        ** 0.5
+    )
     return _same_number(
         feature_radius,
         outer_radius - feature.leg2 / 2,
@@ -967,7 +970,7 @@ def lower_ap242_chamfer_requirements(
         return model
     features = list(model.features)
     chamfers = [feature for feature in features if isinstance(feature, ChamferFeature)]
-    replacements: dict[int, ChamferFeature] = {}
+    replacements: dict[int, Feature] = {}
     consumed = set()
     for index, requirement in candidates:
         match = _CHAMFERS.fullmatch(requirement.label.strip())
@@ -1014,7 +1017,9 @@ def lower_ap242_chamfer_requirements(
                 requirement, "head chamfer pair has no unique source-proven knurled owner"
             )
             continue
-        cylinder = knurled[0].knurl.cylindrical_refs[0]
+        knurl = knurled[0].knurl
+        assert knurl is not None
+        cylinder = knurl.cylindrical_refs[0]
         adjacent = [
             chamfer
             for chamfer in chamfers
@@ -1069,7 +1074,11 @@ def lower_ap242_chamfer_requirements(
                 feature_remap(source, (replacements[id(source)],), None)
     return replace(
         lowered,
-        features=[feature for position, feature in enumerate(lowered.features) if position not in consumed],
+        features=[
+            feature
+            for position, feature in enumerate(lowered.features)
+            if position not in consumed
+        ],
     )
 
 
@@ -1098,7 +1107,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             features[index] = _block_requirement(feature, "general-tolerance designation is empty")
             model = replace(model, features=features)
         else:
-            requirement = GeneralTolerance(
+            tolerance_requirement = GeneralTolerance(
                 frame=feature.frame,
                 designation=designation,
                 statement=feature.label,
@@ -1108,7 +1117,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             model = replace(
                 model,
                 features=[
-                    requirement if position == index else item
+                    tolerance_requirement if position == index else item
                     for position, item in enumerate(model.features)
                 ],
             )
@@ -1142,7 +1151,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             )
             model = replace(model, features=features)
         else:
-            requirement = DefaultSurfaceFinish(
+            finish_requirement = DefaultSurfaceFinish(
                 frame=feature.frame,
                 ra=match.group("ra"),
                 statement=feature.label,
@@ -1152,7 +1161,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             model = replace(
                 model,
                 features=[
-                    requirement if position == index else item
+                    finish_requirement if position == index else item
                     for position, item in enumerate(model.features)
                 ],
             )
@@ -1171,12 +1180,12 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             features[index] = _block_requirement(item, "document requirement text is empty")
             continue
         features[index] = DocumentNote(
-                frame=item.frame,
-                text=item.label,
-                note_kind=item.pmi_kind,
-                source_id=item.source_id,
-                part21_id=item.part21_id,
-            )
+            frame=item.frame,
+            text=item.label,
+            note_kind=item.pmi_kind,
+            source_id=item.source_id,
+            part21_id=item.part21_id,
+        )
     return replace(model, features=features)
 
 

@@ -2109,9 +2109,7 @@ def _manufacturing_requirement_topology(
             blockers = tuple(
                 dict.fromkeys((*record.lowering_blockers, *topology_reasons, *geometry_reasons))
             )
-            projected.append(
-                replace(record, reference_bboxes=boxes, lowering_blockers=blockers)
-            )
+            projected.append(replace(record, reference_bboxes=boxes, lowering_blockers=blockers))
             continue
         if frame is None:
             references, geometry_reasons = _cylindrical_references_from_shapes(

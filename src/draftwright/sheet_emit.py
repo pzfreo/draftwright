@@ -636,9 +636,7 @@ def _raw_pmi_expr(f) -> str:
         else ""
     )
     reference_bboxes = (
-        f", reference_bboxes={f.reference_bboxes!r}"
-        if getattr(f, "reference_bboxes", ())
-        else ""
+        f", reference_bboxes={f.reference_bboxes!r}" if getattr(f, "reference_bboxes", ()) else ""
     )
     return (
         "PmiFeature("

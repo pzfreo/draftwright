@@ -3892,7 +3892,9 @@ class Drawing:
                         f"{measured}; {detail}"
                     ),
                     source_ids=tuple(
-                        dict.fromkeys(((_source_id,) if _source_id is not None else ()) + _source_ids)
+                        dict.fromkeys(
+                            ((_source_id,) if _source_id is not None else ()) + _source_ids
+                        )
                     ),
                     measurement_ids=tuple(cell.measurement for cell in _cells),
                 )

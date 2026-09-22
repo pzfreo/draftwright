@@ -3745,7 +3745,9 @@ class DefaultSurfaceFinish:
         if not isinstance(self.ra, str) or not self.ra.strip():
             raise ValueError("default surface finish needs a non-empty Ra value")
         if self.ra != self.ra.strip():
-            raise ValueError("default surface finish Ra value cannot contain surrounding whitespace")
+            raise ValueError(
+                "default surface finish Ra value cannot contain surrounding whitespace"
+            )
 
     def parameters(self) -> list[DimParameter]:
         return []

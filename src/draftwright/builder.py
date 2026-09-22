@@ -569,6 +569,7 @@ def _assemble(
                     features=[*pm.features, rot],
                     declaration_identities=(*identities, None) if identities else (),
                 )
+
         # A z step declares a segment of a z-turned profile. `.step()` on a BOSS — an external
         # cylinder on a prismatic part — is a misuse of the verb, and the symptom is that the
         # declared steps leave the bulk of the part unspanned (#631). This is a verb-misuse
@@ -592,8 +593,7 @@ def _assemble(
             if feature.kind in ("authored_dimension", "pmi"):
                 return True
             return bool(
-                getattr(feature, "source_id", "")
-                or tuple(getattr(feature, "source_ids", ()))
+                getattr(feature, "source_id", "") or tuple(getattr(feature, "source_ids", ()))
             )
 
         if (

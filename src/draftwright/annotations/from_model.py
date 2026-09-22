@@ -2836,9 +2836,7 @@ def place_machined_leader_jobs(
             _label=label,
             _source_features=source_features,
         ):
-            leader = Leader(
-                tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft
-            )
+            leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
             leader.source_features = _source_features
             return leader
 
@@ -2904,8 +2902,10 @@ def place_machined_leader_jobs(
             validation = reason == "geometry_validation"
             detail = "rendered geometry validation failed" if validation else "no clear room"
             severity = (
-                "error" if _source_ids else "warning"
-            ) if source_drop_severity == "source" else source_drop_severity
+                ("error" if _source_ids else "warning")
+                if source_drop_severity == "source"
+                else source_drop_severity
+            )
             ctx.record_issue(
                 severity,
                 drop_code,
@@ -2957,9 +2957,7 @@ def place_machined_leader_jobs(
                 fallback_accept=_fallback_accept,
                 interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
-                on_drop=(
-                    _on_drop if source_ids or source_drop_severity == "source" else None
-                ),
+                on_drop=(_on_drop if source_ids or source_drop_severity == "source" else None),
             )
         )
 
@@ -8920,9 +8918,7 @@ def render_document_notes(dwg, model) -> int:
         rows,
         prefer="tr",
         name="general_notes",
-        _source_ids=tuple(
-            source_id for note in notes for source_id in _pmi_source_ids(note)
-        ),
+        _source_ids=tuple(source_id for note in notes for source_id in _pmi_source_ids(note)),
         _features=tuple(notes),
         _drop_code="pmi_dropped",
         _drop_severity="error",

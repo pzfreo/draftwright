@@ -194,7 +194,9 @@ def test_document_default_surface_finish_lowers_only_the_supported_grammar():
 
 def test_multiple_default_surface_finishes_fail_closed():
     lowered = lower_ap242_document_requirements(
-        _model(_default_finish("#1"), _default_finish("#2", "Ra 1.6 um unless otherwise specified"))
+        _model(
+            _default_finish("#1"), _default_finish("#2", "Ra 1.6 um unless otherwise specified")
+        )
     )
 
     assert all(isinstance(feature, PmiFeature) for feature in lowered.features)
@@ -1489,7 +1491,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
     assert drawing.get_annotation("general_notes").table_rows == (
         ("GENERAL NOTES",),
-        ("1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",),
+        (
+            "1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",
+        ),
         (
             "2  Thread and knurl teeth are represented by semantic PMI; "
             "their nominal envelope geometry remains smooth",
@@ -1525,20 +1529,27 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     ]
     assert replayed_finish == default_finish
     assert [
-        feature for feature in namespace["sheet"].model().features if isinstance(feature, DocumentNote)
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, DocumentNote)
     ] == document_notes
     assert [
-        feature for feature in namespace["sheet"].model().features if isinstance(feature, ChamferFeature)
+        feature
+        for feature in namespace["sheet"].model().features
+        if isinstance(feature, ChamferFeature)
     ] == chamfers
     replayed = namespace["sheet"].build()
     replayed_model = replayed.model()
     assert sum(isinstance(feature, GeneralTolerance) for feature in replayed_model.features) == 1
-    assert sum(isinstance(feature, DefaultSurfaceFinish) for feature in replayed_model.features) == 1
+    assert (
+        sum(isinstance(feature, DefaultSurfaceFinish) for feature in replayed_model.features) == 1
+    )
     assert sum(isinstance(feature, DocumentNote) for feature in replayed_model.features) == 2
     assert sum(isinstance(feature, ChamferFeature) for feature in replayed_model.features) == 3
-    assert replayed.get_annotation("general_notes").table_rows == drawing.get_annotation(
-        "general_notes"
-    ).table_rows
+    assert (
+        replayed.get_annotation("general_notes").table_rows
+        == drawing.get_annotation("general_notes").table_rows
+    )
     assert replayed.registry.feature_of("title_block").source_id == general_tolerance.source_id
     assert (
         replayed.registry.feature_of("default_surface_finish").source_id
@@ -1549,5 +1560,11 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         for feature in replayed_model.features
         if isinstance(feature, PmiFeature)
         and feature.pmi_kind
-        in {"general_tolerances", "surface_texture", "datum_scheme", "model_representation", "chamfers"}
+        in {
+            "general_tolerances",
+            "surface_texture",
+            "datum_scheme",
+            "model_representation",
+            "chamfers",
+        }
     ]
