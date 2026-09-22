@@ -79,7 +79,7 @@ cannot silently become a pass.
 
 Two bounded CTC-01 real-part canaries exercise that loop before merge. The AP203 canary compares
 against its reviewed 79-claim geometry denominator. The AP242 Pareto canary is versioned to the
-Quiddity 0.3.2 evidence boundary and compares against a separately reviewed 80-claim denominator,
+Quiddity 0.3.3 evidence boundary and compares against a separately reviewed 80-claim denominator,
 with 12 unresolved PMI claims carried on both sides. It reads typed layout finding identities and
 remedies, applies only two public declaration-side overrides, then proves legibility-only Pareto
 dominance while certification remains unavailable. Both deliberately prove that deleting a
