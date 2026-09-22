@@ -29,6 +29,7 @@ from draftwright.view_plan import (
     ResolvedViewPlan,
     ViewPlacement,
     ViewSpec,
+    derived_view_identifier,
     resolve_from_analysis,
     third_angle_principals,
 )
@@ -141,6 +142,26 @@ class TestTheResolvedPlanCannotBeMistakenForARequest:
 
 
 class TestDerivedViewIdentifiers:
+    @pytest.mark.parametrize(
+        ("kind", "name"),
+        [
+            ("section", "section_ab"),
+            ("section", "section_aaa"),
+            ("detail", None),
+        ],
+    )
+    def test_only_canonical_structured_view_names_have_identifiers(self, kind, name):
+        assert derived_view_identifier(kind, name) is None
+
+    @pytest.mark.parametrize("identifier", ["A-A", "A B"])
+    def test_authored_identifiers_must_be_alphanumeric(self, identifier):
+        with pytest.raises(ValueError, match="identifiers must be alphanumeric"):
+            DerivedViewIdentifierPool((identifier,))
+
+    def test_identifier_pool_refuses_duplicates_after_normalization(self):
+        with pytest.raises(ValueError, match="identifier reused.*A"):
+            DerivedViewIdentifierPool((" A ", "a"))
+
     def test_authored_identifiers_are_reserved_before_automatic_allocation(self):
         pool = DerivedViewIdentifierPool(("A", "C"))
 
