@@ -2691,7 +2691,7 @@ class TestTheDimensionMirror:
 
         return {
             "plate+hole": Box(80, 50, 8) - Pos(-20, 0, 0) * Cylinder(4, 20),
-            "flange (no envelope feature)": flange(),
+            "hybrid flange": flange(),
             "stepped": Box(40, 12, 40) - Pos(10, 0, 20) * Box(20, 12, 20),
             "slot": Box(80, 60, 12) - Pos(10, 0, 0) * Box(30, 8, 20),
             "pocket": Box(80, 60, 20) - Pos(0, 0, 14) * Box(30, 20, 14),
@@ -2781,7 +2781,7 @@ class TestTheDimensionMirror:
         "outer angles": {"angle"},
         # The mounting lugs are solid material pierced by bores, not pockets. The
         # dedicated pocket and pad fixtures exercise those two mirror paths.
-        "flange (no envelope feature)": {"boss", "hole", "pattern", "step"},
+        "hybrid flange": {"boss", "envelope", "hole", "pattern", "step"},
         "stepped": {"step_level"},
         "slot": {"slot"},
         "pocket": {"pocket"},
@@ -2833,13 +2833,13 @@ class TestTheDimensionMirror:
 
         from build123d import Box, Pos
 
-        part = self._corpus()["flange (no envelope feature)"]
+        part = self._corpus()["hybrid flange"]
         for x in (-18, 18):
             for z in (-18, 18):
                 lug = Pos(x, -2, z) * Box(10, 4, 10)
                 # Only the radius-2 bore is removed from each nominal lug volume.
                 assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
-        model = self._models()["flange (no envelope feature)"]
+        model = self._models()["hybrid flange"]
         assert not [f for f in model.features if f.kind == "pocket"]
 
     def test_the_side_drilled_fixture_reaches_the_off_axis_location_path(self):
@@ -2953,8 +2953,18 @@ class TestTheDimensionMirror:
         be able to name every measurement in it and `_compile_overall_height` refuses the
         bounding-box fallback under one (#925). Naming only `height` keeps the drawing
         identical — width and depth stay omitted exactly as the planner left them."""
-        part = TestTheDimensionMirror._corpus()["flange (no envelope feature)"]
-        model = detect_part_model(part)
+        from dataclasses import replace
+
+        part = TestTheDimensionMirror._corpus()["hybrid flange"]
+        detected = detect_part_model(part)
+        assert any(f.kind == "envelope" for f in detected.features), (
+            "the hybrid now legitimately owns an envelope; this test must construct its "
+            "sparse recognition boundary explicitly"
+        )
+        model = replace(
+            detected,
+            features=[feature for feature in detected.features if feature.kind != "envelope"],
+        )
         assert not any(f.kind == "envelope" for f in model.features)
         src = emit_sheet_script(model, "part", "s", title="T", number="N")
         assert 'sheet.dimension(envelope1, "height.length")' in src
@@ -3481,12 +3491,19 @@ class TestTheMirrorCoversTheCompiledSet:
         separately, so a branch that silently stopped reporting shows up as a missing
         category rather than as a slightly shorter list.
         """
+        from dataclasses import replace
+
         from draftwright import sheet_emit
 
-        # A part carrying all three: group dims (hole/envelope), a location, and the
-        # bounding-box overall-height ladder via the synthesised envelope.
-        part = TestTheDimensionMirror._corpus()["flange (no envelope feature)"]
-        model = detect_part_model(part)
+        # Construct the sparse recognition boundary that carries group dimensions, a
+        # location, and the bounding-box overall-height ladder via a synthesised envelope.
+        part = TestTheDimensionMirror._corpus()["hybrid flange"]
+        detected = detect_part_model(part)
+        assert any(feature.kind == "envelope" for feature in detected.features)
+        model = replace(
+            detected,
+            features=[feature for feature in detected.features if feature.kind != "envelope"],
+        )
         monkeypatch.setattr(sheet_emit, "_mirrored_requests", lambda *_a, **_kw: [])
 
         missing = unmirrored_dimensions(model)

@@ -31,6 +31,13 @@ _TOL = 1e-3
 
 
 @dataclass(frozen=True)
+class _AxisCarrier:
+    lo: float
+    hi: float
+    chain: tuple | None = None
+
+
+@dataclass(frozen=True)
 class EnvelopeRequirementOutcome:
     """The observable engine outcome of one whole-part bounding extent."""
 
@@ -49,7 +56,7 @@ def _bbox_bounds(part) -> tuple[tuple[float, float], ...]:
     )
 
 
-def _identity_interval(identity, bounds, axis_index: int) -> tuple[float, float] | None:
+def _identity_interval(identity, bounds, axis_index: int) -> _AxisCarrier | None:
     """Return the physical interval one semantic measurement carries on *axis_index*."""
 
     feature: Any = getattr(identity, "feature", None)
@@ -72,7 +79,25 @@ def _identity_interval(identity, bounds, axis_index: int) -> tuple[float, float]
             if varying != (axis_index,):
                 return None
             lo, hi = sorted((float(span[0][axis_index]), float(span[1][axis_index])))
-            return (lo, hi)
+            chain = None
+            if (
+                getattr(feature, "kind", None) == "step"
+                and parameter.parameter_id == "step.length"
+            ):
+                axis = str(feature.frame.axis)
+                group = getattr(feature, "profile_group", None)
+                profile = getattr(feature, "profile", None)
+                if group is not None:
+                    chain = ("profile_group", axis, group)
+                elif profile is not None:
+                    chain = ("profile", axis, profile)
+                else:
+                    origin = tuple(float(value) for value in feature.frame.origin)
+                    transverse = tuple(
+                        round(origin[index] / _TOL) for index in range(3) if index != axis_index
+                    )
+                    chain = ("axis_line", axis, transverse)
+            return _AxisCarrier(lo, hi, chain)
         except (IndexError, TypeError, ValueError):
             return None
 
@@ -91,26 +116,39 @@ def _identity_interval(identity, bounds, axis_index: int) -> tuple[float, float]
         return None
     if feature_axis == axis_index:
         return None
-    return (centre - radius, centre + radius)
+    return _AxisCarrier(centre - radius, centre + radius)
 
 
 def _intervals_cover_axis(identities, bounds, axis_index: int) -> bool:
-    intervals = sorted(
-        interval
+    carriers = tuple(
+        carrier
         for identity in identities
-        if (interval := _identity_interval(identity, bounds, axis_index)) is not None
+        if (carrier := _identity_interval(identity, bounds, axis_index)) is not None
     )
-    if not intervals:
+    if not carriers:
         return False
     low, high = bounds[axis_index]
-    cursor = low
-    for interval_low, interval_high in intervals:
-        if interval_high < cursor - _TOL:
+    if any(abs(item.lo - low) <= _TOL and abs(item.hi - high) <= _TOL for item in carriers):
+        return True
+
+    chains: dict[tuple, list[_AxisCarrier]] = {}
+    for carrier in carriers:
+        if carrier.chain is not None:
+            chains.setdefault(carrier.chain, []).append(carrier)
+    for chain in chains.values():
+        ordered = sorted(chain, key=lambda item: (item.lo, item.hi))
+        if abs(ordered[0].lo - low) > _TOL:
             continue
-        if interval_low > cursor + _TOL:
-            return False
-        cursor = max(cursor, interval_high)
-        if cursor >= high - _TOL:
+        cursor = ordered[0].hi
+        valid = True
+        for carrier in ordered[1:]:
+            # A step chain is a partition, not an interval union: overlap can prove neither
+            # the missing shoulder nor the overall extent the planner intentionally withheld.
+            if abs(carrier.lo - cursor) > _TOL:
+                valid = False
+                break
+            cursor = carrier.hi
+        if valid and abs(cursor - high) <= _TOL:
             return True
     return False
 

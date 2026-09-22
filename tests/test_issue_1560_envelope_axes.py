@@ -3,10 +3,13 @@
 from dataclasses import replace
 from unittest.mock import patch
 
-from build123d import Box, Cylinder
+import pytest
+from build123d import Align, Box, Cylinder, Rotation
+from quiddity import TurnedProfile, TurnedProfileKey, TurnedStep
 
-from draftwright import Drawing, build_drawing
+from draftwright import Drawing, Sheet, build_drawing
 from draftwright.model.compiled import compile_dimensions
+from draftwright.model.detect import build_part_model
 from draftwright.model.ir import PartModel
 from draftwright.sheet_emit import emit_sheet_script
 
@@ -59,6 +62,77 @@ def test_ordinary_box_and_round_stock_do_not_gain_false_envelope_withholdings():
         envelope_axes = drawing.lint_summary()["quality"]["completeness"]["envelope_axes"]
         assert envelope_axes["requirements"] == envelope_axes["placed"] == 3
         assert envelope_axes["affected_count"] == 0
+
+
+@pytest.mark.parametrize(("axis", "parameter_id"), (("x", "width.length"), ("y", "depth.length")))
+def test_local_turned_profile_cannot_hide_a_longer_body_axis(axis, parameter_id):
+    """Transverse OD coverage does not prove the profile owns the body's axial extent."""
+
+    part = Box(100 if axis == "x" else 80, 100 if axis == "y" else 80, 80)
+    bounds = part.bounding_box()
+    key = TurnedProfileKey(
+        axis,
+        (0.0, 0.0, 0.0),
+        (
+            float(bounds.min.X),
+            float(bounds.min.Y),
+            float(bounds.min.Z),
+            float(bounds.max.X),
+            float(bounds.max.Y),
+            float(bounds.max.Z),
+        ),
+    )
+    profile = TurnedProfile.from_steps(
+        (
+            TurnedStep(axis, -9, -3, 80, key),
+            TurnedStep(axis, -3, 9, 80, key),
+        )
+    )
+    assert profile is not None and profile.profile == key
+
+    model = build_part_model(part, profiles=(profile,))
+    envelope = next(feature for feature in model.features if feature.kind == "envelope")
+    assert any(parameter.parameter_id == parameter_id for parameter in envelope.parameters())
+
+    plan = compile_dimensions(model)
+    assert any(
+        dimension.id.feature is envelope and dimension.id.parameter == parameter_id
+        for group in plan.groups
+        for dimension in group.dims
+    )
+
+
+def test_overlapping_step_spans_do_not_claim_an_overall_axis():
+    """Two overlapping local lengths are not an end-to-end overall-length chain."""
+
+    part = Rotation(0, 90, 0) * Cylinder(10, 60, align=(Align.CENTER, Align.CENTER, Align.CENTER))
+    sheet = Sheet(part, title="OVERLAP", number="1560-OVERLAP")
+    sheet.authored_dimensions()
+    left = sheet.step(
+        diameter=20,
+        length=40,
+        at=(-10, 0, 0),
+        axis="x",
+        span=((-30, 0, 0), (10, 0, 0)),
+        profile_group="one-body",
+    )
+    right = sheet.step(
+        diameter=20,
+        length=40,
+        at=(10, 0, 0),
+        axis="x",
+        span=((-10, 0, 0), (30, 0, 0)),
+        profile_group="one-body",
+    )
+    for step in (left, right):
+        sheet.dimension(step, "step.length")
+        sheet.dimension(step, "step.diameter")
+    drawing = sheet.build()
+
+    axes = drawing.lint_summary()["quality"]["completeness"]["envelope_axes"]
+    assert axes["requirements"] == 3
+    assert axes["placed"] == 2
+    assert axes["missing"] == axes["affected_count"] == 1
 
 
 def test_each_removed_envelope_axis_remains_in_the_physical_denominator():

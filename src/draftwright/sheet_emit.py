@@ -2322,7 +2322,9 @@ def settled_layout_for(drawing) -> dict | None:
     sheet. It is the replan that a model cannot reproduce — the automatic path measures a
     built sheet, finds a required mark has nowhere to go, and drops the optional pictorial or
     spends a larger page. A declared build never enters that ladder (ADR 4: a declared script
-    does what it is told), so the resolved page, scale and view set have to be written down.
+    does what it is told), so the resolved page and view set have to be written down. The
+    automatically selected scale deliberately remains automatic: spelling its numeric result
+    as an authored ``scale=`` request changes the compose policy even when the number agrees.
 
     One function because two callers must agree on what "the settled layout" is:
     :func:`generate_sheet_script`, and the round-trip parity tests that assert a generated
@@ -2331,7 +2333,7 @@ def settled_layout_for(drawing) -> dict | None:
     if drawing.scale_decision.get("status") != "automatic_replanned":
         return None
     return {
-        "scale": drawing.scale,
+        "scale": None,
         "page": (drawing.page_w, drawing.page_h),
         "views": tuple(drawing.views),
     }
