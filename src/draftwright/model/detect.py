@@ -86,7 +86,7 @@ from quiddity import (
     recognise_through_steps,
     step_level_records,
 )
-from quiddity.evidence import RecognitionEvidence, build_recognition_evidence
+from quiddity.evidence import FeatureRef, RecognitionEvidence, build_recognition_evidence
 
 from draftwright._geometry import (
     _axis_letter,
@@ -1324,18 +1324,28 @@ def _through_step_plate_owner_record_ids(
     return frozenset(owners)
 
 
+def _evidence_occurrences_for_record(
+    evidence: RecognitionEvidence,
+    family: str,
+    record: object,
+) -> tuple[FeatureRef, ...]:
+    """Return every exact same-run occurrence, never a value-equal substitute."""
+
+    return tuple(
+        occurrence
+        for occurrence in evidence.features
+        if evidence.family(occurrence) == family and evidence.record(occurrence) is record
+    )
+
+
 def _evidence_occurrence_for_record(
     evidence: RecognitionEvidence,
     family: str,
     record: object,
 ):
-    """Return one exact same-run occurrence, never a value-equal substitute."""
+    """Return one unambiguous exact same-run occurrence."""
 
-    matches = tuple(
-        occurrence
-        for occurrence in evidence.features
-        if evidence.family(occurrence) == family and evidence.record(occurrence) is record
-    )
+    matches = _evidence_occurrences_for_record(evidence, family, record)
     return matches[0] if len(matches) == 1 else None
 
 
@@ -1345,19 +1355,25 @@ def _records_share_defining_target(
     first_record: object,
     second_family: str,
     second_record: object,
-) -> bool:
+) -> bool | None:
     """Whether two exact same-run records name one non-empty defining-face set.
 
     Recognition evidence is the provider's physical identity authority. In particular,
     independently inferred axial extents may disagree at tapered transitions even though a
-    boss and turned step were derived from the same faces (#1599). Empty or ambiguous
-    evidence proves nothing and fails closed.
+    boss and turned step were derived from the same faces (#1599). ``None`` means at least
+    one caller-supplied record is not from this evidence run, so the established public
+    geometry contract must decide instead. Empty same-run evidence proves no shared target
+    and fails closed.
     """
 
-    first = _evidence_occurrence_for_record(evidence, first_family, first_record)
-    second = _evidence_occurrence_for_record(evidence, second_family, second_record)
-    if first is None or second is None:
+    first_matches = _evidence_occurrences_for_record(evidence, first_family, first_record)
+    second_matches = _evidence_occurrences_for_record(evidence, second_family, second_record)
+    if not first_matches or not second_matches:
+        return None
+    if len(first_matches) != 1 or len(second_matches) != 1:
         return False
+    first = first_matches[0]
+    second = second_matches[0]
     defining = evidence.defining_faces(first)
     return bool(defining) and defining == evidence.defining_faces(second)
 
@@ -2435,37 +2451,42 @@ def build_part_model(
                     float(b.location[axis_index] - b.axis[axis_index] * b.height),
                 )
             )
-            candidate_steps = tuple(
-                step
-                for profile in profiles
-                for step in profile.steps
-                if (
-                    _records_share_defining_target(
-                        recognition_evidence,
-                        "bosses",
-                        b,
-                        "turned_steps",
-                        step,
-                    )
-                    if recognition_evidence is not None
-                    else (
-                        profile.axis == axis
-                        and (
-                            profile.profile is None
-                            or all(
-                                abs(float(b.location[index]) - profile.profile.axis_origin[index])
-                                <= 0.5
-                                for index in range(3)
-                                if index != axis_index
-                            )
+            candidate_steps = []
+            for profile in profiles:
+                for step in profile.steps:
+                    evidence_match = (
+                        _records_share_defining_target(
+                            recognition_evidence,
+                            "bosses",
+                            b,
+                            "turned_steps",
+                            step,
                         )
-                        and abs(b.diameter - step.diameter) <= _DIA_TOL
-                        and abs(b_lo - step.lo) <= 0.5
-                        and abs(b_hi - step.hi) <= 0.5
+                        if recognition_evidence is not None
+                        else None
                     )
-                )
-            )
-            boss_step_candidates.append((b, candidate_steps))
+                    if evidence_match is None:
+                        evidence_match = (
+                            profile.axis == axis
+                            and (
+                                profile.profile is None
+                                or all(
+                                    abs(
+                                        float(b.location[index])
+                                        - profile.profile.axis_origin[index]
+                                    )
+                                    <= 0.5
+                                    for index in range(3)
+                                    if index != axis_index
+                                )
+                            )
+                            and abs(b.diameter - step.diameter) <= _DIA_TOL
+                            and abs(b_lo - step.lo) <= 0.5
+                            and abs(b_hi - step.hi) <= 0.5
+                        )
+                    if evidence_match:
+                        candidate_steps.append(step)
+            boss_step_candidates.append((b, tuple(candidate_steps)))
             owned = bool(candidate_steps)
             if not owned:
                 candidate_grooves = _boss_groove_floor_candidates(b, grooves)

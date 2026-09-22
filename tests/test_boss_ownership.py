@@ -10,6 +10,7 @@ from build123d import Align, Box, Compound, Cone, Cylinder, Pos, import_step
 from quiddity.evidence import build_recognition_evidence
 
 from draftwright import build_drawing
+from draftwright.model.detect import _records_share_defining_target
 from draftwright.recognition_ownership import OccurrenceBinding, RecognitionOwnershipBuilder
 
 FIXTURES = Path(__file__).parent / "fixtures" / "evaluation"
@@ -29,6 +30,25 @@ def _two_equal_bosses():
 
 def _stepped_shaft():
     return Cylinder(20, 60) + Pos(0, 0, 45) * Cylinder(30, 30)
+
+
+def test_evidence_identity_distinguishes_foreign_from_ambiguous_records() -> None:
+    boss = object()
+    step = object()
+    refs = (object(), object(), object())
+    families = dict(zip(refs, ("bosses", "bosses", "turned_steps"), strict=True))
+    records = {refs[0]: boss, refs[1]: boss, refs[2]: step}
+    evidence = SimpleNamespace(
+        features=refs,
+        family=families.__getitem__,
+        record=records.__getitem__,
+        defining_faces=lambda _occurrence: frozenset({"face:1"}),
+    )
+
+    assert (
+        _records_share_defining_target(evidence, "bosses", object(), "turned_steps", step) is None
+    )
+    assert _records_share_defining_target(evidence, "bosses", boss, "turned_steps", step) is False
 
 
 def _tapered_transition_shaft():
