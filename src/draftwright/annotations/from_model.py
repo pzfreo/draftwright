@@ -2848,9 +2848,18 @@ def place_machined_leader_jobs(
             *,
             _label=label,
             _source_features=source_features,
+            _measurement=measurement,
         ):
             leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
             leader.source_features = _source_features
+            grouping_features = {
+                id(identity.feature): identity.feature
+                for identity in _measurement
+                if getattr(identity, "parameter", None) == "grouping.count"
+                and getattr(identity, "feature", None) is not None
+            }
+            if grouping_features:
+                leader.covers_count = len(grouping_features)
             return leader
 
         def _fallback_accept(
@@ -4791,9 +4800,8 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     boss_groups = list(plan.of_kind("boss"))
     reach = draft.font_size + 6 * draft.pad_around_text
     jobs = []
-    for bi, g in enumerate(
-        sorted(boss_groups, key=lambda g: (g.facts.frame.axis, g.facts.frame.origin))
-    ):
+    collapsed: dict[tuple, list[tuple]] = {}
+    for g in sorted(boss_groups, key=lambda g: (g.facts.frame.axis, g.facts.frame.origin)):
         b = g.facts
         dpd = next((pd for pd in g.dims if pd.kind == "diameter"), None)
         if dpd is None:
@@ -4813,17 +4821,43 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        suffix = _tol_suffix(dtol, draft)
+        key = (b.frame.axis, view, dpd.value_text, suffix, thr or "")
+        collapsed.setdefault(key, []).append((g, dpd, b, vb, dia))
+
+    for bi, ((_axis, view, value_text, suffix, thr), members) in enumerate(
+        sorted(collapsed.items())
+    ):
+        count = len(members)
+        label = (f"{count}× " if count > 1 else "") + f"ø{value_text}{suffix}"
+        if thr:
+            label += f" {thr}"
+        measurements = tuple(member[1].id for member in members)
+        if count > 1:
+            measurements += tuple(
+                DimensionId(member[1].id.feature, "grouping.count") for member in members
+            )
+
+        def candidates(_members=tuple(members), _view=view):
+            for group, _dimension, facts, vb, diameter in _members:
+                yield from _radial_candidates(
+                    dwg,
+                    _view,
+                    vb,
+                    facts,
+                    reach,
+                    rim=diameter / 2 * a.SCALE,
+                    provenance=group.ref,
+                )
+
         jobs.append(
             (
-                f"m_bossdia_{b.frame.axis}{bi}",
+                f"m_bossdia_{_axis}{bi}",
                 view,
-                vb,
-                f"ø{dpd.value_text}{_tol_suffix(dtol, draft)}" + (f" {thr}" if thr else ""),
-                # arrowhead on the boss circle's rim, not its centre
-                _radial_candidates(
-                    dwg, view, vb, b, reach, rim=dia / 2 * a.SCALE, provenance=g.ref
-                ),
-                (dpd.id,),
+                members[0][3],
+                label,
+                candidates(),
+                measurements,
             )
         )
     return place_machined_leader_jobs(

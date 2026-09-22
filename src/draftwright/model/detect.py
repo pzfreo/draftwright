@@ -2542,40 +2542,23 @@ def build_part_model(
             id(boss): candidates for boss, candidates in boss_groove_candidates
         }
         for group in remaining_boss_groups:
-            b = group[0]
-            # A grooved round body can still fail the turned-step squareness gate (e.g. a
-            # shaft with a rectangular flange) and land here with prof=None. Suppress the
-            # groove-floor boss so its ø is not dimensioned twice — boss ø + groove callout
-            # (#148c 3rd-pass review).
-            if _boss_is_groove_floor(b, grooves):
-                if ownership is not None:
-                    pending_boss_owners.extend(
-                        (member, candidates[0], "boss_groove_owner")
-                        for member in group
-                        if len(candidates := groove_candidates_by_boss_id[id(member)]) == 1
+            # Diameter equality is a presentation grouping, not physical ownership. Keep
+            # every accepted boss as its own IR owner so its axial extent remains an
+            # addressable requirement; the renderer groups equal diameter ink later.
+            for member in group:
+                candidates = groove_candidates_by_boss_id[id(member)]
+                if candidates:
+                    if (
+                        ownership is not None
+                        and len(candidates) == 1
                         and groove_claim_counts[id(candidates[0])] == 1
-                    )
-                continue
-            boss_feature = convert(b, ctx)
-            features.append(boss_feature)
-            if ownership is not None:
-                represented = tuple(
-                    member for member in group if not groove_candidates_by_boss_id[id(member)]
-                )
-                if len(represented) == 1:
-                    ownership.bind(represented[0], boss_feature, reason_code="boss_adapter")
-                else:
-                    ownership.absorb(
-                        represented,
-                        boss_feature,
-                        reason_code="boss_diameter_group_member",
-                    )
-                pending_boss_owners.extend(
-                    (member, candidates[0], "boss_groove_owner")
-                    for member in group
-                    if len(candidates := groove_candidates_by_boss_id[id(member)]) == 1
-                    and groove_claim_counts[id(candidates[0])] == 1
-                )
+                    ):
+                        pending_boss_owners.append((member, candidates[0], "boss_groove_owner"))
+                    continue
+                boss_feature = convert(member, ctx)
+                features.append(boss_feature)
+                if ownership is not None:
+                    ownership.bind(member, boss_feature, reason_code="boss_adapter")
 
     # Overall envelope dims when neither a whole-part OD nor polygonal stock already conveys
     # the footprint. A local turned profile may coexist with wider prismatic geometry; its

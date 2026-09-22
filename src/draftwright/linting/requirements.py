@@ -8,6 +8,7 @@ from typing import Any
 
 from draftwright.linting.angular import profile_angle_requirement_outcomes
 from draftwright.linting.blend_coverage import blend_requirement_outcomes
+from draftwright.linting.boss_coverage import boss_requirement_outcomes
 from draftwright.linting.chamfer_coverage import chamfer_requirement_outcomes
 from draftwright.linting.channel_coverage import channel_requirement_outcomes
 from draftwright.linting.circular_blind_step_coverage import (
@@ -49,6 +50,7 @@ REQUIREMENT_SOURCE_FAMILIES = frozenset(
         "section_recesses",
         "chamfers",
         "blends",
+        "bosses",
         "channels",
         "circular_blind_steps",
         "fillets",
@@ -139,6 +141,16 @@ def recognized_requirement_outcomes(
         ],
         "chamfers": chamfer_requirement_outcomes(recognition, features, registry, omissions),
         "blends": blend_requirement_outcomes(recognition, features, registry, omissions),
+        "bosses": boss_requirement_outcomes(
+            recognition,
+            features,
+            registry,
+            omissions,
+            evidence=evidence,
+            ownership=ownership,
+        )
+        if evidence is not None and ownership is not None
+        else [],
         "channels": channel_requirement_outcomes(recognition, features, registry, omissions),
         "circular_blind_steps": circular_blind_step_requirement_outcomes(
             recognition, features, registry, omissions
