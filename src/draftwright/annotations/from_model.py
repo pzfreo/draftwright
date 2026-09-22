@@ -3731,6 +3731,37 @@ def _flat_label(across_text, sfx="") -> str:
     return f"{across_text}{sfx} A/F"
 
 
+def _flat_definition_count(members) -> int:
+    """Count repeated flat definitions without counting one centred opposed set as many.
+
+    ``axis_line`` and ``stock_span`` identify the provider's stock region, but interrupted
+    housing geometry can give several independent flat supports that share both.  A true
+    double-D or hex remains one definition because every support has its reflection through
+    that stock axis; a non-centred family retains one instance per source support.
+    """
+
+    if len(members) <= 1:
+        return 1
+    facts = members[0][0].facts
+    transverse = tuple(index for index, axis in enumerate("xyz") if axis != facts.axis)
+    centre = tuple(float(value) for value in facts.axis_line)
+    points = tuple(
+        tuple(float(member.facts.frame.origin[index]) for index in transverse)
+        for member, _dimension in members
+    )
+    centred = all(
+        any(
+            all(
+                abs(candidate[index] - (2.0 * centre[index] - point[index])) <= 0.01
+                for index in range(2)
+            )
+            for candidate in points
+        )
+        for point in points
+    )
+    return 1 if centred else len(members)
+
+
 def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
     """Render physical stock definitions, counting identical ones without counting faces.
 
@@ -3793,8 +3824,9 @@ def render_flats(dwg, plan, a, *, ctx, only=None) -> int:
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
-        if len(stocks) > 1:
-            label = f"{len(stocks)}× {label}"
+        definition_count = sum(_flat_definition_count(members) for _, members, _ in stocks)
+        if definition_count > 1:
+            label = f"{definition_count}× {label}"
         candidates = _flat_candidates(
             dwg,
             view,

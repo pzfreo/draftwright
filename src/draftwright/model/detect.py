@@ -2572,18 +2572,19 @@ def build_part_model(
                     if len(candidates := groove_candidates_by_boss_id[id(member)]) == 1
                     and groove_claim_counts[id(candidates[0])] == 1
                 )
-        # Overall envelope dims for a *prismatic* part — not a round single-OD body
-        # (a boss whose diameter fills the footprint is the body, dimensioned by its
-        # OD, not a box).
-        if not _is_round(bbox, bosses_d) and not polygonal_stock:
-            # The same construction the declared verb and the emitter's synthesis use.
-            # Detection was the REFERENCE the other two were fixed to match (#977/#976); with
-            # three independent producers, "matches the detector" was a property to re-verify
-            # rather than one the code held. Now there is one spelling.
-            from draftwright.model.declare import _envelope_from_bbox
 
-            envelope_feature = _envelope_from_bbox(bbox)
-            features.append(envelope_feature)
+    # Overall envelope dims when neither a whole-part OD nor polygonal stock already conveys
+    # the footprint. A local turned profile may coexist with wider prismatic geometry; its
+    # mere presence does not own those whole-part extents (#1785).
+    if envelope_emittable:
+        # The same construction the declared verb and the emitter's synthesis use.
+        # Detection was the REFERENCE the other two were fixed to match (#977/#976); with
+        # three independent producers, "matches the detector" was a property to re-verify
+        # rather than one the code held. Now there is one spelling.
+        from draftwright.model.declare import _envelope_from_bbox
+
+        envelope_feature = _envelope_from_bbox(bbox)
+        features.append(envelope_feature)
 
     # Plate/wall thicknesses on a multi-plate prismatic (#559) — the thin extent of a
     # slab that no other prismatic dim recovers (a wall along X/Y, or a Z base plate too

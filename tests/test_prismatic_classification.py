@@ -34,6 +34,30 @@ class TestPrismaticClassification:
         assert "ldr_z0" in dwg.annotations()
 
     @pytest.mark.timeout(60)
+    def test_local_turned_profile_does_not_hide_a_wider_body_envelope(self):
+        part = (
+            Pos(0, 0, -5) * Cylinder(80, 18)
+            + Pos(0, 0, 13) * Cylinder(44, 15)
+            + Pos(0, 0, 28) * Cylinder(30, 22)
+            + Pos(0, 0, 50) * Cylinder(28, 15)
+            + Pos(70, 0, 0) * Box(50, 20, 18)
+        )
+        drawing = build_drawing(part)
+        recognition = drawing.recognition()
+        assert recognition is not None and len(recognition.turned_profiles) == 1
+        profile = recognition.turned_profiles[0]
+        assert profile.profile is not None
+        diameter = max(step.diameter for step in profile.steps)
+        bbox = part.bounding_box()
+        assert diameter < bbox.size.X and diameter < bbox.size.Y, (
+            "the regression needs a local OD that cannot convey either transverse extent"
+        )
+
+        envelopes = [feature for feature in drawing.model().features if feature.kind == "envelope"]
+        assert len(envelopes) == 1
+        assert {"m_env_width", "m_env_depth"} <= drawing.annotations().keys()
+
+    @pytest.mark.timeout(60)
     def test_z_axis_stepped_shaft_calls_out_step_diameters(self):
         # A vertical (Z-axis) stepped shaft: dim_od dimensions the OD, and the
         # intermediate step diameter gets a ø callout in the left-hand column

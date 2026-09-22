@@ -83,6 +83,7 @@ BOSS_BLEND_DIAMETER_TOL = 0.15
 #: A boss OD within this (mm) of both footprint extents means the body is round, and its
 #: overall size is dimensioned by that OD rather than by a width x depth envelope.
 _ROUND_FOOTPRINT_TOL = 0.5
+_PROFILE_AXIAL_SPAN_TOL = 0.005
 
 
 def boss_fills_footprint(bbox, bosses, tol: float = _ROUND_FOOTPRINT_TOL) -> bool:
@@ -91,6 +92,53 @@ def boss_fills_footprint(bbox, bosses, tol: float = _ROUND_FOOTPRINT_TOL) -> boo
     return any(
         abs(boss.diameter - bbox.size.X) <= tol and abs(boss.diameter - bbox.size.Y) <= tol
         for boss in bosses
+    )
+
+
+def turned_profile_fills_footprint(
+    bbox, turned_profile, tol: float = _ROUND_FOOTPRINT_TOL
+) -> bool:
+    """Whether one turned profile conveys the complete body envelope.
+
+    A profile can belong to a local round body inside a larger prismatic body.  Its mere
+    presence therefore cannot suppress the whole-part envelope: its OD must reach both sides
+    of both transverse bounding-box axes *and* its end-to-end step chain must exactly tile the
+    axial extent. Unknown/legacy profile identity fails closed to the established turned
+    interpretation for the transverse axes, but still has to prove its axial chain. An
+    uninspectable record preserves the envelope rather than claiming dimensions it cannot prove.
+    """
+
+    try:
+        axis = str(turned_profile.axis)
+        axis_index = "xyz".index(axis)
+        profile = turned_profile.profile
+        steps = tuple(turned_profile.steps)
+        origin = None if profile is None else tuple(float(value) for value in profile.axis_origin)
+        radius = max(float(step.diameter) for step in steps) / 2.0
+        bounds = (
+            (float(bbox.min.X), float(bbox.max.X)),
+            (float(bbox.min.Y), float(bbox.max.Y)),
+            (float(bbox.min.Z), float(bbox.max.Z)),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return False
+    transverse_filled = origin is not None and all(
+        abs(lo - (origin[index] - radius)) <= tol and abs(hi - (origin[index] + radius)) <= tol
+        for index, (lo, hi) in enumerate(bounds)
+        if index != axis_index
+    )
+    intervals = sorted(sorted((float(step.lo), float(step.hi))) for step in steps)
+    if not transverse_filled or not intervals:
+        return False
+    axial_lo, axial_hi = bounds[axis_index]
+    if (
+        abs(intervals[0][0] - axial_lo) > _PROFILE_AXIAL_SPAN_TOL
+        or abs(intervals[-1][1] - axial_hi) > _PROFILE_AXIAL_SPAN_TOL
+    ):
+        return False
+    return all(
+        abs(left[1] - right[0]) <= _PROFILE_AXIAL_SPAN_TOL
+        for left, right in zip(intervals, intervals[1:])
     )
 
 
@@ -112,7 +160,9 @@ def envelope_is_emittable(*, bbox, bosses, turned_profiles, polygonal_stock) -> 
     """
 
     return bool(
-        not turned_profiles and not boss_fills_footprint(bbox, bosses) and not polygonal_stock
+        not any(turned_profile_fills_footprint(bbox, profile) for profile in turned_profiles)
+        and not boss_fills_footprint(bbox, bosses)
+        and not polygonal_stock
     )
 
 

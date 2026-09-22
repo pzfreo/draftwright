@@ -297,23 +297,21 @@ def test_detect_and_lint_decide_absorption_from_one_shared_predicate() -> None:
     assert not envelope_is_emittable(
         bbox=_Bbox(), bosses=(_RoundBoss(),), turned_profiles=(), polygonal_stock=()
     )
-    assert not envelope_is_emittable(
-        bbox=_Bbox(), bosses=(), turned_profiles=("a profile",), polygonal_stock=()
+    assert envelope_is_emittable(
+        bbox=_Bbox(), bosses=(), turned_profiles=("an uninspectable profile",), polygonal_stock=()
     )
     assert not envelope_is_emittable(
         bbox=_Bbox(), bosses=(), turned_profiles=(), polygonal_stock=("stock",)
     )
 
 
-def test_lint_honours_the_build_profile_set_rather_than_re_deriving_it() -> None:
-    """The behavioural half of the shared decision: the argument must change the answer.
+def test_uninspectable_declared_profile_cannot_change_envelope_ownership() -> None:
+    """A profile argument is evidence, not an unconditional round-body switch.
 
     GRM-04 has no turned profile, so recognition reports none and the boss is absorbed. A
-    build that DECLARED a profile makes the envelope non-emittable, and detect would then keep
-    the boss — so lint must keep its diameter in the physical inventory too. If lint re-derives
-    the profile set from the recognition result it cannot see the declaration, and the two
-    sides disagree. That is the defect this fixture exercises: it is not detectable by checking
-    that a parameter is present, only by checking that passing it changes the outcome.
+    bare object with no axis, steps or body-local geometry proves nothing about that envelope.
+    Treating mere presence as a round-body claim can hide a real overall axis; the X/Y hybrid
+    regressions exercise the same safety boundary with inspectable profiles.
     """
 
     part = import_step(FIXTURE)
@@ -336,11 +334,6 @@ def test_lint_honours_the_build_profile_set_rather_than_re_deriving_it() -> None
         )
 
     absorbed = _codes()
-    declared_profile = _codes(turned_profiles=("a declared turned profile",))
+    uninspectable_profile = _codes(turned_profiles=("an uninspectable profile",))
 
-    assert absorbed != declared_profile, (
-        "lint ignored the build's profile set and re-derived it from the recognition result"
-    )
-    # And in the direction that matters: declaring a profile stops the absorption, so the
-    # boss diameter returns to the inventory and its missing callout is reported again.
-    assert len(declared_profile) > len(absorbed), (absorbed, declared_profile)
+    assert absorbed == uninspectable_profile

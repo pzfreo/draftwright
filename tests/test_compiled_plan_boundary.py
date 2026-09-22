@@ -1318,7 +1318,13 @@ def test_the_completeness_gate_compiles_the_original_not_the_mirror_model():
     for x in (-18, 18):
         for y in (-18, 18):
             part -= Pos(x, y, 0) * Cylinder(2, 10)
-    model = detect_part_model(part.rotate(Axis.X, 90))
+    detected = detect_part_model(part.rotate(Axis.X, 90))
+    assert any(f.kind == "envelope" for f in detected.features), (
+        "a local turned profile on a wider flange must now retain its whole-part envelope"
+    )
+    # This boundary test needs the sparse original that an older detector produced. Construct
+    # that input explicitly rather than making the current detector regress to provide it.
+    model = replace(detected, features=[f for f in detected.features if f.kind != "envelope"])
     assert not any(f.kind == "envelope" for f in model.features), "fixture stopped proving this"
 
     declared, synthesised = mirror_model(model)

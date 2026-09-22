@@ -34,6 +34,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
+from draftwright.linting.envelope_coverage import envelope_requirement_outcomes
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.requirements import recognized_requirement_outcomes
 
@@ -712,6 +713,13 @@ def _empty_completeness(reason: str, unrecognised: int) -> dict:
         "unknown_cardinality": [],
         **{state: 0 for state in _OUTCOME_STATES},
         "by_family": {},
+        "envelope_axes": {
+            "available": False,
+            "requirements": 0,
+            "affected_count": 0,
+            "score": None,
+            **{state: 0 for state in _OUTCOME_STATES},
+        },
     }
 
 
@@ -748,7 +756,6 @@ def _completeness_component(
             ownership=ownership,
         )
     )
-
     counts: Counter = Counter()
     by_family: dict[str, int] = {}
     unknown_cardinality: list[dict[str, str | None]] = []
@@ -798,6 +805,16 @@ def _completeness_component(
     unaudited_requirements = recognised - set(_AUDITED_FAMILIES)
     unaudited = sorted(unaudited_requirements | undecided)
     covered = counts["placed"] + counts["satisfied_by_structured_note"]
+    # Whole-part extents are available directly from geometry and deliberately stay outside
+    # the recognition-owned report catalog and its score. Keep their independent physical
+    # denominator visible inside completeness instead of silently changing the meaning of
+    # `audited_score` or requiring a provider occurrence for a bbox fact (#1785 / ADR 5).
+    envelope_counts: Counter = Counter(
+        outcome.state for outcome in envelope_requirement_outcomes(part, registry, omissions)
+    )
+    envelope_requirements = sum(envelope_counts.values())
+    envelope_covered = envelope_counts["placed"] + envelope_counts["satisfied_by_structured_note"]
+    envelope_affected = envelope_requirements - envelope_covered
     audited_score = (
         covered / known_requirements if known_requirements and not unknown_cardinality else None
     )
@@ -810,6 +827,11 @@ def _completeness_component(
         reason = (
             "audited_score covers recognized requirements in audited families only; it is "
             "not evidence that the drawing is complete"
+        )
+    elif envelope_requirements:
+        reason = (
+            "whole-part envelope axes have an independent physical denominator; "
+            "no auditable recognized requirements exist"
         )
     elif undecided and unaudited_requirements:
         reason = (
@@ -829,7 +851,7 @@ def _completeness_component(
         # Conditional completeness, not physical recall: score the requirements this run
         # recognised AND for which Draftwright has a semantic outcome ledger. Missing
         # recognisers are outside the scope; recognised-but-unscored families remain explicit.
-        "available": known_requirements > 0 and not unknown_cardinality,
+        "available": bool(known_requirements or envelope_requirements) and not unknown_cardinality,
         "audited_score": audited_score,
         "scope": "audited_recognized_requirements",
         "coverage": "indeterminate" if unknown_cardinality else "partial",
@@ -845,6 +867,13 @@ def _completeness_component(
         "unknown_cardinality": unknown_cardinality,
         **{state: counts[state] for state in _OUTCOME_STATES},
         "by_family": by_family,
+        "envelope_axes": {
+            "available": envelope_requirements > 0,
+            "requirements": envelope_requirements,
+            "affected_count": envelope_affected,
+            "score": (envelope_covered / envelope_requirements if envelope_requirements else None),
+            **{state: envelope_counts[state] for state in _OUTCOME_STATES},
+        },
     }
 
 

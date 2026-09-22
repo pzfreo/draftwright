@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import collections
 import json
+import math
 import os
 import warnings
 from collections.abc import Callable, Iterable, Sequence
@@ -2145,6 +2146,7 @@ def build_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
+    _replayed_scale: float | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
 
@@ -2177,6 +2179,16 @@ def build_drawing(
     validate_projection(projection, projection_symbol=projection_symbol)
     _dimension_draft(text_position, text_orientation)
     leader_region = leader_region_policy(leader_region).value
+    if _replayed_scale is not None:
+        _replayed_scale = float(_replayed_scale)
+        if not math.isfinite(_replayed_scale) or _replayed_scale <= 0:
+            raise ValueError(
+                f"_replayed_scale must be finite and positive, got {_replayed_scale!r}"
+            )
+        if scale is not None:
+            raise ValueError("_replayed_scale cannot be combined with authored scale=")
+        if page is None:
+            raise ValueError("_replayed_scale requires the settled page")
     if scale_policy not in {"strict", "fallback", "permissive"}:
         raise ValueError(
             f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
@@ -2981,6 +2993,39 @@ def build_drawing(
                                     drawing = larger
                                     settled_issues = issues
                                     replanned = True
+        if _replayed_scale is not None and abs(drawing.scale - _replayed_scale) > 1e-12:
+            # Let the declared model take the complete automatic recovery path first. Most
+            # replays (including detail-bearing step drawings) naturally recover the recorded
+            # scale and must retain that measured history unchanged. Only a final scale drift
+            # pays for one bounded rebuild under the already settled topology/arrangement.
+            replayed = _build(
+                _replayed_scale,
+                arrangements=(settled_arrangement,),
+                views=_principal_names(drawing),
+                include_iso="iso" in drawing.views,
+                retry_reason="replay_settled_scale",
+            )
+            replay_issues, replay_blockers, rejection = _qualify_candidate(
+                replayed,
+                require_axial_coverage=False,
+                allow_recovery_detail=True,
+            )
+            if rejection is not None:
+                raise ValueError(
+                    f"settled scale replay {_replayed_scale!r} is no longer valid: {rejection}; "
+                    f"issues={[(issue.code, issue.severity) for issue in replay_issues]}"
+                )
+            _record_attempt(
+                replayed.scale,
+                "complete",
+                replay_blockers,
+                reason="replay_settled_scale",
+                candidate=replayed,
+            )
+            drawing = replayed
+            settled_issues = replay_issues
+            replanned = True
+
         # The default record, set BEFORE the completeness pass so that pass can replace it.
         # It used to be assigned afterwards and silently overwrote whatever the pass had
         # decided, so an incomplete plan reported itself as an ordinary automatic one.

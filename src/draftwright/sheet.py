@@ -1217,6 +1217,7 @@ class Sheet:
         pmi=None,
         source=None,
         _replayed_recognition=False,
+        _replayed_scale=None,
     ):
         from draftwright._core import _sheet_option_margins, _validated_title_block_width
 
@@ -1242,6 +1243,16 @@ class Sheet:
         self._layout_overrides: list[LayoutOverride] = []
         self._document_input: DocumentInput | None = None
         self._replayed_recognition = bool(_replayed_recognition)
+        if _replayed_scale is not None:
+            _replayed_scale = float(_replayed_scale)
+            if not math.isfinite(_replayed_scale) or _replayed_scale <= 0:
+                raise ValueError(
+                    f"_replayed_scale must be finite and positive, got {_replayed_scale!r}"
+                )
+            if scale is not None:
+                raise ValueError("_replayed_scale cannot be combined with authored scale=")
+            if page is None:
+                raise ValueError("_replayed_scale requires the settled page")
         # P2a ± tolerances, keyed by (feature index, ParamKind) so a handle survives a later
         # feature replacement (e.g. hole().depth()); materialized to (feature, kind) at build.
         self._tolerances: dict = {}
@@ -1305,6 +1316,8 @@ class Sheet:
             out=out,
             leader_region=leader_region,
         )
+        if _replayed_scale is not None:
+            self._opts["_replayed_scale"] = _replayed_scale
         # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
         # unset value keeps build_drawing's own defaults rather than None. Since #1157 the
         # tolerance default IS None — an unauthored general tolerance is stated as unspecified
