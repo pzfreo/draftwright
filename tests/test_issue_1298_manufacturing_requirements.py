@@ -92,6 +92,33 @@ def test_document_requirements_have_no_dimension_or_datum_contract(feature):
     assert feature.references() == []
 
 
+def test_sourced_chamfer_emit_preserves_complete_part21_provenance():
+    part = Box(10, 10, 10)
+    chamfer = ChamferFeature(
+        Frame((5.0, 0.0, 0.0), "x"),
+        "x",
+        0.3,
+        0.3,
+        45.0,
+        source_ids=("manufacturing_requirement:#2024",),
+        part21_id="#2024",
+        shape_aspect_ids=("#2019",),
+        reference_item_ids=("#283", "#426"),
+    )
+    source = emit_sheet_script(
+        PartModel(part.bounding_box(), None, [chamfer]),
+        "part",
+        "sourced-chamfer",
+        title="P",
+        number="N",
+    )
+
+    assert "source_ids=('manufacturing_requirement:#2024',)" in source
+    assert "part21_id='#2024'" in source
+    assert "shape_aspect_ids=('#2019',)" in source
+    assert "reference_item_ids=('#283', '#426')" in source
+
+
 def _manufacturing_signature(model):
     """Typed requirements plus stable canonical-owner facts for emit/rebuild parity."""
     signature = []
