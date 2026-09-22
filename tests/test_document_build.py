@@ -275,6 +275,8 @@ def test_member_pmi_policy_controls_all_rendered_source_requirements(pmi_source)
 
 def test_member_cannot_request_pmi_that_the_document_did_not_acquire(source):
     document = Document.from_part(source, pmi="off")
+    with pytest.raises(ValueError, match="pmi must be"):
+        document.sheet("invalid", pmi="invented")
     with pytest.raises(ValueError, match="cannot raise.*annotate"):
         document.sheet("gdt", pmi="annotate")
 
