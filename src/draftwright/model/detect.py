@@ -91,6 +91,7 @@ from quiddity.evidence import FeatureRef, RecognitionEvidence, build_recognition
 from draftwright._geometry import (
     _axis_letter,
     _classify_rotational_cylinders,
+    _fmt,
     _is_principal_axis,
     _xyz,
     plane_axis_names,
@@ -499,7 +500,9 @@ def build_pmi_features(
                 r.kind,
                 str(r.value),
                 raw,
-                datums=r.datum_refs,
+                # Datum targets may repeat the datum they collectively establish.  An FCF
+                # carries the ordered datum precedence, with one compartment per datum.
+                datums=tuple(dict.fromkeys(r.datum_refs)),
                 diameter="diameter_zone" in r.gtol_modifiers,
                 modifier=material_modifier,
             )
@@ -510,6 +513,7 @@ def build_pmi_features(
                     all_over="all_over" in r.gtol_modifiers,
                     source_id=r.source_id,
                     part21_id=r.part21_id,
+                    display_tolerance=_fmt(r.value),
                 )
             )
             continue
