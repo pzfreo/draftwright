@@ -9,13 +9,26 @@ from draftwright.model.ir import (
     AuthoredDimension,
     ControlFrame,
     DatumRef,
+    DefaultSurfaceFinish,
+    DocumentNote,
     Finish,
+    GeneralTolerance,
     Note,
     PartModel,
     PmiFeature,
 )
 
-_ANNOTATION_FEATURES = (AuthoredDimension, ControlFrame, DatumRef, Finish, Note, PmiFeature)
+_ANNOTATION_FEATURES = (
+    AuthoredDimension,
+    ControlFrame,
+    DatumRef,
+    DefaultSurfaceFinish,
+    DocumentNote,
+    Finish,
+    GeneralTolerance,
+    Note,
+    PmiFeature,
+)
 
 
 def physical_features(features):
@@ -97,5 +110,26 @@ class DocumentInput:
             decorations=dict(self._model.decorations),
         )
 
-    def initial_features(self):
-        return tuple(self._model.features)
+    def initial_features(self, pmi_mode: str | None = None):
+        """Return the common inventory projected through a member's PMI policy.
+
+        Source annotations belong to the acquisition, but they are not physical owners.
+        A document member may therefore omit them without weakening the sealed common
+        geometry.  Annotations the member declares afterwards remain ordinary authored
+        features and are unaffected.
+        """
+        if pmi_mode is None or pmi_mode != "off":
+            return tuple(self._model.features)
+        return tuple(
+            feature
+            for feature in self._model.features
+            if not isinstance(feature, _ANNOTATION_FEATURES)
+        )
+
+    def source_annotations(self):
+        """Annotation objects owned by the common acquisition, by exact identity."""
+        return tuple(
+            feature
+            for feature in self._model.features
+            if isinstance(feature, _ANNOTATION_FEATURES)
+        )

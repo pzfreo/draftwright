@@ -150,8 +150,22 @@ class Document:
             raise ValueError("a document sheet needs a nonempty name")
         if name in self._sheets:
             raise ValueError(f"duplicate document sheet {name!r}")
+        source_mode = self._source.analysis.pmi_mode
+        member_mode = options.get("pmi", source_mode)
+        modes = {"off": 0, "report": 1, "annotate": 2}
+        if member_mode not in modes:
+            raise ValueError(f"pmi must be 'off', 'report', or 'annotate', got {member_mode!r}")
+        if modes[member_mode] > modes[source_mode]:
+            raise ValueError(
+                f"document PMI was acquired as {source_mode!r}; sheet {name!r} cannot "
+                f"raise it to {member_mode!r}"
+            )
+        # Make inheritance explicit.  The member build reuses the source analysis, so this
+        # option is also the member's presentation policy rather than an ignored constructor
+        # argument (#1794).
+        options["pmi"] = member_mode
         sheet = Sheet(self._source.analysis.part, **options)
-        sheet._bind_document(self._source)
+        sheet._bind_document(self._source, pmi_mode=member_mode)
         self._sheets[name] = sheet
         return sheet
 

@@ -166,7 +166,14 @@ def add_feature_callout(
         ),
         None,
     )
-    spec = hole_callout_spec(group) if group is not None else None
+    spec = (
+        hole_callout_spec(
+            group,
+            include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
+        )
+        if group is not None
+        else None
+    )
     if spec is None:
         if any(o.feature is feature and o.authored for o in compile_dimensions(model).diagnostics):
             # "Exposes none" would be a false claim: the feature exposes a bore ⌀ and was
@@ -585,7 +592,13 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
             dpd.value_text,
             feature,
             dpd.tolerance,
-            getattr(feature, "thread", None),
+            (
+                None
+                if ctx.document_member
+                and dwg._analysis.pmi_mode != "annotate"
+                and getattr(getattr(feature, "thread", None), "source", "") == "ap242_pmi"
+                else getattr(feature, "thread", None)
+            ),
             (dpd.id,),
         )
     ]
@@ -2454,7 +2467,7 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
     return y_by_id, dropped_ids
 
 
-def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
+def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft, *, ctx):
     """Render shared presentation batches over the surviving original IR members."""
     from draftwright.model.callout import hole_callout_batches
 
@@ -2474,7 +2487,11 @@ def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft):
     by_view: dict = {}
     feat_of_callout: dict[int, object] = {}
     side_of_callout: dict[int, str] = {}
-    for batch in hole_callout_batches(eligible, member_locations=members_by_owner):
+    for batch in hole_callout_batches(
+        eligible,
+        member_locations=members_by_owner,
+        include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
+    ):
         group = batch.groups[0]
         feature = group.feature
         complete = tuple(feature.members or (group.anchor,))
@@ -3549,7 +3566,7 @@ def _annotate_holes(
     )
 
     by_view, feat_of_callout, side_of_callout = _assemble_view_callouts(
-        a, view_of_axis, groups, feature_keys, only, draft
+        a, view_of_axis, groups, feature_keys, only, draft, ctx=ctx
     )
 
     # One shared name pool across every view + both branches (#430): built once and

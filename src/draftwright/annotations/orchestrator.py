@@ -602,6 +602,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _model = dwg.model() if dwg.model() is not None else build_model(a)
     ctx.part_model = _model
     ctx.model_declared = dwg.model_declared
+    ctx.document_member = getattr(dwg, "_document_member", False)
+    ctx.document_source_annotation_ids = getattr(
+        dwg, "_document_source_annotation_ids", frozenset()
+    )
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
     _groups = plan_dimensions(_model, planned_views=a.planned_views)
@@ -911,7 +915,11 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Authored STEP PMI dims (#393) — same pre-drain registration as GD&T above.
         if a.pmi_mode == "annotate" or (
             ctx.model_declared
-            and any(f.kind in ("authored_dimension", "pmi") for f in _model.features)
+            and any(
+                f.kind in ("authored_dimension", "pmi")
+                and id(f) not in ctx.document_source_annotation_ids
+                for f in _model.features
+            )
         ):
             render_pmi(dwg, _model, a, ctx=ctx)
 

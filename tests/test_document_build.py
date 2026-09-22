@@ -14,7 +14,7 @@ from draftwright import (
 )
 from draftwright import analysis as analysis_module
 from draftwright import recognition_cache as cache_module
-from draftwright.model.ir import Note
+from draftwright.model.ir import AuthoredDimension, Frame, Note, PmiFeature
 
 
 @pytest.fixture(scope="module")
@@ -24,11 +24,37 @@ def source(tmp_path_factory):
     return path
 
 
+@pytest.fixture(scope="module")
+def pmi_source():
+    path = "tests/fixtures/grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    return Document.from_part(path, pmi="annotate")._source
+
+
 def authored_member(document, name):
     sheet = document.sheet(name, detail_view=False).authored_dimensions().authored_views()
     for view in ("front", "plan", "side"):
         sheet.view(view)
     return sheet
+
+
+def rendered_text(drawing):
+    """Visible semantic strings through the public annotation read surface."""
+    values = []
+    for _name, annotation in drawing.iter_annotations():
+        for attr in ("label", "text", "pdf_text"):
+            value = getattr(annotation, attr, None)
+            if value:
+                values.append(str(value))
+        for row in getattr(annotation, "table_rows", ()):
+            values.extend(str(value) for value in row)
+        for spec in (
+            *getattr(annotation, "pdf_text_specs", ()),
+            *getattr(annotation, "pdf_text_relative_specs", ()),
+        ):
+            value = spec[0] if isinstance(spec, tuple) else getattr(spec, "text", None)
+            if value:
+                values.append(str(value))
+    return "\n".join(values)
 
 
 def test_members_and_live_reports_reuse_one_exact_recognition(source, monkeypatch):
@@ -136,6 +162,170 @@ def test_foreign_member_handles_remain_foreign_and_plain_sheets_keep_editing(sou
     assert plain.features[0].depth == 6
     plain.features.clear()
     assert not plain.features
+
+
+def test_member_pmi_policy_projects_one_common_acquisition(pmi_source):
+    document = Document(pmi_source)
+    annotated = document.sheet("gdt")
+    reported = document.sheet("report", pmi="report")
+    suppressed = document.sheet("dimensions", pmi="off")
+
+    annotation_kinds = {
+        "authored_dimension",
+        "datum_ref",
+        "default_surface_finish",
+        "document_note",
+        "general_tolerance",
+    }
+    assert annotation_kinds <= {feature.kind for feature in annotated.features}
+    assert annotation_kinds.isdisjoint(feature.kind for feature in suppressed.features)
+    assert tuple(document.features) == tuple(suppressed.features)
+    assert annotated._opts["pmi"] == "annotate"
+    assert suppressed._opts["pmi"] == "off"
+    snapshot = reported._snapshot_for_document()
+    source_annotations = pmi_source.source_annotations()
+    assert all(
+        any(feature is source_feature for feature in snapshot.features)
+        for source_feature in source_annotations
+    )
+
+    analysis = analysis_module._analyse(
+        suppressed._part,
+        None,
+        "DWG-001",
+        None,
+        "",
+        None,
+        pmi="off",
+        model=suppressed._build_model_input(),
+        _document_input=document._source,
+    )
+    assert analysis.pmi_mode == "off"
+    assert analysis.pmi_working_records is None
+    assert analysis.recognition_evidence is pmi_source.analysis.recognition_evidence
+
+
+@pytest.mark.slow
+def test_member_pmi_policy_controls_all_rendered_source_requirements(pmi_source):
+    document = Document(pmi_source)
+    options = {
+        "detail_view": False,
+        "page": "A3",
+        "scale": 0.5,
+        "scale_policy": "permissive",
+    }
+    document.sheet("gdt", **options).auto_dimensions().auto_views()
+    document.sheet("report", pmi="report", **options).auto_dimensions().auto_views()
+    document.sheet("dimensions", pmi="off", **options).auto_dimensions().auto_views()
+
+    result = document.build()
+    drawings = result.sheets
+    assert all(
+        drawing.recognition_evidence() is pmi_source.analysis.recognition_evidence
+        for drawing in drawings.values()
+    )
+
+    annotated_names = drawings["gdt"].annotations()
+    annotated_text = rendered_text(drawings["gdt"])
+    assert {"default_surface_finish", "general_notes"} <= annotated_names.keys()
+    assert any(name.startswith("m_gdt") for name in annotated_names)
+    assert any(name.startswith("pmi_") for name in annotated_names)
+    assert any(name.startswith("m_chamfer") for name in annotated_names)
+    for expected in ("ISO 2768-m", "KNURL", "M3 x 0.5", "GENERAL NOTES", "Ra 3.2"):
+        assert expected in annotated_text
+
+    for name in ("report", "dimensions"):
+        drawing = drawings[name]
+        names = drawing.annotations()
+        rendered = rendered_text(drawing)
+        assert "default_surface_finish" not in names
+        assert "general_notes" not in names
+        assert not any(item.startswith(("m_gdt", "pmi_", "m_chamfer")) for item in names)
+        for excluded in ("ISO 2768-m", "KNURL", "M3 x 0.5", "GENERAL NOTES", "Ra 3.2"):
+            assert excluded not in rendered
+
+    # The policy survives the initial build: neither an immediate edit nor the deferred
+    # shared solve may restore source PMI from the sealed physical owners.
+    drawing = drawings["dimensions"]
+    hole = next(
+        feature for feature in drawing.model().features if getattr(feature, "thread", None)
+    )
+    threaded_step = next(
+        feature
+        for feature in drawing.model().features
+        if feature.kind == "step" and getattr(feature, "thread", None)
+    )
+    sourced_chamfer = next(
+        feature
+        for feature in drawing.model().features
+        if feature.kind == "chamfer" and feature.source_ids
+    )
+    drawing.drop(hole)
+    drawing.callout(hole)
+    drawing.drop(threaded_step)
+    with drawing.deferred():
+        drawing.callout(threaded_step)
+    drawing.drop(sourced_chamfer)
+    assert drawing.callout(sourced_chamfer) == ""
+    edited_text = rendered_text(drawing)
+    assert "M2 x 0.4" not in edited_text
+    assert "M3 x 0.5" not in edited_text
+    assert not any(name.startswith("m_chamfer") for name in drawing.annotations())
+
+
+def test_member_cannot_request_pmi_that_the_document_did_not_acquire(source):
+    document = Document.from_part(source, pmi="off")
+    with pytest.raises(ValueError, match="pmi must be"):
+        document.sheet("invalid", pmi="invented")
+    with pytest.raises(ValueError, match="cannot raise.*annotate"):
+        document.sheet("gdt", pmi="annotate")
+
+
+def test_member_authored_requirements_survive_lower_pmi_policy(source):
+    document = Document.from_part(source, pmi="annotate")
+    for mode in ("report", "off"):
+        sheet = document.sheet(mode, pmi=mode, detail_view=False)
+        sheet.authored_dimensions().authored_views()
+        for view in ("front", "plan", "side"):
+            sheet.view(view)
+        sheet.general_tolerance(f"MEMBER-{mode.upper()}")
+        sheet.default_surface_finish("1.6")
+        sheet.document_note(f"MEMBER {mode.upper()} NOTE", kind="model_representation")
+        sheet.add(
+            AuthoredDimension(
+                frame=Frame((0.0, 0.0, 0.0), "z"),
+                dimension_kind="linear",
+                value=1.0,
+                label=f"MEMBER {mode.upper()} PMI",
+                dominant_axis="X",
+                ref_pts=((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+                source_id=f"member:{mode}",
+            )
+        )
+        sheet.add(
+            PmiFeature(
+                frame=Frame((0.0, 0.0, 0.0), "z"),
+                pmi_kind="surface_texture",
+                value=0.0,
+                label=f"MEMBER {mode.upper()} RAW PMI",
+                dominant_axis="?",
+                source_id=f"member:{mode}:raw",
+            )
+        )
+
+    drawings = document.build().sheets
+    for mode, drawing in drawings.items():
+        names = drawing.annotations()
+        text = rendered_text(drawing)
+        assert {"default_surface_finish", "general_notes"} <= names.keys()
+        assert any(name.startswith("pmi_") for name in names)
+        assert f"MEMBER {mode.upper()} NOTE" in text
+        assert f"MEMBER {mode.upper()} PMI" in text
+        assert "Ra 1.6" in text
+        assert any(
+            feature.kind == "pmi" and feature.source_id == f"member:{mode}:raw"
+            for feature in drawing.model().features
+        )
 
 
 def test_document_names_failure_and_returns_no_partial_result(source):

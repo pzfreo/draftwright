@@ -60,6 +60,8 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_coverage",
         "_cyl_cache",
         "_defer_intents",
+        "_document_member",
+        "_document_source_annotation_ids",
         "_intents",
         "_model_declared",
         "_registry",

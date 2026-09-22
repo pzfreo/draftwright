@@ -62,7 +62,7 @@ from draftwright._geometry import _solids_body
 from draftwright._warnings import SoftDeprecationWarning
 from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
-from draftwright.document_input import DocumentInput
+from draftwright.document_input import DocumentInput, physical_features
 from draftwright.fits import fit_class
 from draftwright.model import (
     DefaultSurfaceFinish,
@@ -1365,11 +1365,12 @@ class Sheet:
             if _v is not None:
                 self._opts[_k] = _v
 
-    def _bind_document(self, source) -> None:
+    def _bind_document(self, source, *, pmi_mode: str | None = None) -> None:
         if self._entries or self._document_input is not None:
             raise ValueError("document binding requires a new empty Sheet")
-        source.validate(self._part, source.initial_features())
-        self._features.extend(source.initial_features())
+        features = source.initial_features(pmi_mode)
+        source.validate(self._part, features)
+        self._features.extend(features)
         self._document_input = source
         self._features.validate_change = source.validate_features
 
@@ -1391,7 +1392,7 @@ class Sheet:
             raise ValueError("only a bound document Sheet has common input authority")
         source = self._document_input
         source.validate(self._part, self._features)
-        shared = (source, self._part, *source.features)
+        shared = (source, self._part, *source.features, *source.source_annotations())
         return deepcopy(self, {id(value): value for value in shared})
 
     @classmethod
@@ -1437,7 +1438,11 @@ class Sheet:
         and token-binds that provenance exactly like the public GD&T verbs."""
         if not isinstance(feature, Feature):
             raise TypeError("add() requires an IR Feature")
-        token = self._declared_token(feature, verb="add()")
+        token = (
+            None
+            if self._document_input is not None and not physical_features((feature,))
+            else self._declared_token(feature, verb="add()")
+        )
         if token is not None:
             return _Params(self, self._index_of_token(token))
         src_token = None

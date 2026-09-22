@@ -646,8 +646,17 @@ def _assemble(
     # A source-proven document default uses the existing title-block carrier when the caller
     # did not explicitly author one. An explicit tolerance, including the blank string, wins.
     general_tolerance_source = None
+    hidden_source_annotations = (
+        {id(feature) for feature in a.document_source_annotations}
+        if a.document_member and a.pmi_mode != "annotate"
+        else set()
+    )
     if a.tolerance is None:
-        defaults = [feature for feature in pm.features if feature.kind == "general_tolerance"]
+        defaults = [
+            feature
+            for feature in pm.features
+            if feature.kind == "general_tolerance" and id(feature) not in hidden_source_annotations
+        ]
         if len(defaults) == 1:
             general_tolerance_source = defaults[0]
             a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))
@@ -673,7 +682,10 @@ def _assemble(
     dwg._build.part_model = pm
     dwg._build.general_tolerance_source = general_tolerance_source
     default_finishes = [
-        feature for feature in pm.features if feature.kind == "default_surface_finish"
+        feature
+        for feature in pm.features
+        if feature.kind == "default_surface_finish"
+        and id(feature) not in hidden_source_annotations
     ]
     dwg._build.default_surface_finish_source = (
         default_finishes[0] if len(default_finishes) == 1 else None
@@ -687,6 +699,10 @@ def _assemble(
     # a live Drawing through a named method (#830: the engine constructs, never mutates).
     dwg._build.trace = trace
     dwg._model_declared = model is not None  # ADR 4 (was 0011) #448: gate model-driven hole render
+    # A document member uses a declared model for its sealed physical inventory, but source
+    # PMI within that model remains governed by the member's presentation policy (#1794).
+    dwg._document_member = a.document_member
+    dwg._document_source_annotation_ids = frozenset(hidden_source_annotations)
 
     # The solid this assembly projects. ADR 2 (was 0004) wants the real geometry built ONCE, but the
     # measure-and-repack loop assembles up to three times, so today it is projected up to three
@@ -820,7 +836,7 @@ def _assemble(
     # `_fit_iso_view`; placing a table there lets the subsequently fitted ISO view move into
     # it. Every initial/repacked assembly reaches this common point after its final ISO fit,
     # and `add_table()` now sees the settled views plus all earlier annotations as obstacles.
-    render_document_notes(dwg, pm)
+    render_document_notes(dwg, pm, exclude=hidden_source_annotations)
     render_gear_tables(dwg, pm)
 
     # The audit ledger, filled at ONE site for both paths (#996 / ADR 1 (was 0005 §2)).
