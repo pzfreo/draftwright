@@ -990,8 +990,10 @@ def _obround_radius_candidates(
 
 
 # Corridor-ladder ordering (ADR 2 (was 0009) end state, #346): feature-SIZE dims sit nearer the
-# view (inner run), datum-referenced LOCATION dims stack outward (a single ascending chain
-# by datum distance). Segregating the two runs keeps a slot length from landing mid-ladder.
+# view (inner run), while datum-referenced LOCATION dims form one ascending outer chain.
+# Step-height rungs measure from the common height datum, so they belong to that value-ordered
+# run rather than to producer registration order (#1779). Segregating ordinary feature sizes
+# keeps a slot length or local boss height from landing mid-ladder.
 _SIZE_SUBCHAIN = 0
 _LOC_SUBCHAIN = 1
 _OVERALL_SUBCHAIN = 2
@@ -6841,8 +6843,10 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
     # compiler's own number instead of re-deriving a convention from the rendered string,
     # which is the pattern ADR 4 (was 0016 Amendment 1) exists to stop.
     chain: list = []
+    order_values: dict[str, float] = {}
     if rung_set is not None and rung_set.representative:
         (rep,) = rungs
+        order_values["dim_step_typ"] = rep.value
         chain.append(
             (
                 "dim_step_typ",
@@ -6933,6 +6937,7 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
             if has_shoulders and rung.value * frame.scale < _MIN_STEP_DIM_MM:
                 short_rungs.append(rung)
                 continue
+            order_values[f"dim_step_{col}"] = rung.value
             chain.append(
                 (
                     f"dim_step_{col}",
@@ -7103,11 +7108,13 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
                 build=_build,
                 # Steps stack inner→outer in chain order; the overall height rides the
                 # OVERALL subchain so it lands outermost by construction (as the envelope
-                # dims do), replacing the old carve's outermost=True.
+                # dims do). Ordinary rungs join the same value-ordered baseline run as
+                # off-axis-hole heights (#1779), outside the inner boss-size run, instead
+                # of retaining producer registration order.
                 order=(
                     (_OVERALL_SUBCHAIN, 0, name)
                     if name == "dim_height"
-                    else (_SIZE_SUBCHAIN, k, name)
+                    else (_LOC_SUBCHAIN, order_values[name], name)
                 ),
                 on_place=lambda nm: None,
                 on_drop=_drop,
