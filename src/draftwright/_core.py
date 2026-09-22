@@ -1689,7 +1689,13 @@ def _add_title_block(dwg, a: Analysis):
         bx + cell["max_x"],
         margins.bottom + cell["max_y"],
     )
-    place_annotation(dwg.registry, dwg.items, tb, "title_block")
+    place_annotation(
+        dwg.registry,
+        dwg.items,
+        tb,
+        "title_block",
+        feature=dwg._build.general_tolerance_source,
+    )
 
 
 def _make_sheet_frame(a: Analysis) -> Compound:

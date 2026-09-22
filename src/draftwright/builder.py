@@ -636,6 +636,15 @@ def _assemble(
                         else ()
                     ),
                 )
+    # A source-proven document default uses the existing title-block carrier when the caller
+    # did not explicitly author one. An explicit tolerance, including the blank string, wins.
+    general_tolerance_source = None
+    if a.tolerance is None:
+        defaults = [feature for feature in pm.features if feature.kind == "general_tolerance"]
+        if len(defaults) == 1:
+            general_tolerance_source = defaults[0]
+            a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))
+
     # ADR 1 (was 0005 §2) (#639): the ONE build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
@@ -655,6 +664,7 @@ def _assemble(
         ownership=a.recognition_ownership,
     )
     dwg._build.part_model = pm
+    dwg._build.general_tolerance_source = general_tolerance_source
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
     # request on it exactly as the auto pass does (#661).

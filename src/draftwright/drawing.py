@@ -526,6 +526,9 @@ class BuildState:
     #: The title block's deterministic page-space footprint, measured before it is
     #: drawn so strip placement can avoid it (#1593). None until the builder sets it.
     pending_title_block_box: tuple | None = None
+    #: Imported document default selected as the title-block tolerance carrier. ``None``
+    #: when the caller supplied any explicit value, even identical display text.
+    general_tolerance_source: object | None = None
     #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
     #: Keyed by shape identity because the projected shapes carry no view label (lint
     #: takes their names from ``Drawing.views`` since #1196), and holding the shape

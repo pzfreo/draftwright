@@ -20,6 +20,7 @@ from draftwright.model.ir import (
     BossFeature,
     CylindricalReference,
     Feature,
+    GeneralTolerance,
     HoleFeature,
     KnurlRequirement,
     NominalRequirement,
@@ -918,6 +919,47 @@ def lower_ap242_manufacturing_requirements(
     return replace(lowered, features=rebuilt)
 
 
+def lower_ap242_document_requirements(model: PartModel) -> PartModel:
+    """Lower source-proven document defaults that have an existing drafting carrier."""
+    candidates = [
+        (index, feature)
+        for index, feature in enumerate(model.features)
+        if isinstance(feature, PmiFeature)
+        and feature.source_category == "manufacturing_requirement"
+        and feature.pmi_kind == "general_tolerances"
+        and not feature.lowering_blockers
+    ]
+    if not candidates:
+        return model
+    if len(candidates) != 1:
+        features = list(model.features)
+        for index, feature in candidates:
+            features[index] = _block_requirement(
+                feature, "ambiguous document default: multiple general-tolerance requirements"
+            )
+        return replace(model, features=features)
+    index, feature = candidates[0]
+    designation = feature.label.split(";", 1)[0].strip()
+    if not designation:
+        features = list(model.features)
+        features[index] = _block_requirement(feature, "general-tolerance designation is empty")
+        return replace(model, features=features)
+    requirement = GeneralTolerance(
+        frame=feature.frame,
+        designation=designation,
+        statement=feature.label,
+        source_id=feature.source_id,
+        part21_id=feature.part21_id,
+    )
+    return replace(
+        model,
+        features=[
+            requirement if position == index else item
+            for position, item in enumerate(model.features)
+        ],
+    )
+
+
 def lower_ap242_dimensions(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
@@ -925,4 +967,5 @@ def lower_ap242_dimensions(
     dimensions = lower_ap242_nominal_diameters(
         lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
     )
-    return lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
+    manufacturing = lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
+    return lower_ap242_document_requirements(manufacturing)

@@ -768,6 +768,14 @@ def _feature_line(
         return _measured_dimension_line(f)
     if k == "pmi":
         return _raw_pmi_line(f)
+    if k == "general_tolerance":
+        kwargs = [f"statement={f.statement!r}"] if f.statement else []
+        if f.source_id:
+            kwargs.append(f"source_id={f.source_id!r}")
+        if f.part21_id:
+            kwargs.append(f"part21_id={f.part21_id!r}")
+        suffix = f", {', '.join(kwargs)}" if kwargs else ""
+        return f"sheet.general_tolerance({f.designation!r}{suffix})"
     if k == "control_frame":
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
@@ -2426,7 +2434,7 @@ def emit_sheet_script(
             generated_declaration_ids.add(declaration_id)
             if id(feature) not in source_feature_ids:
                 provenance = "derived"
-            elif feature.kind in {"pmi", "control_frame", "datum_ref"}:
+            elif feature.kind in {"pmi", "control_frame", "datum_ref", "general_tolerance"}:
                 provenance = "pmi"
             elif feature.kind == "note":
                 provenance = "structured-note"

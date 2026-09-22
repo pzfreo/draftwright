@@ -16,6 +16,7 @@ from draftwright.model.ir import (
     BossFeature,
     CylindricalReference,
     Frame,
+    GeneralTolerance,
     HoleFeature,
     KnurlRequirement,
     PartModel,
@@ -24,7 +25,10 @@ from draftwright.model.ir import (
     StepFeature,
     ThreadRequirement,
 )
-from draftwright.model.pmi_lowering import lower_ap242_manufacturing_requirements
+from draftwright.model.pmi_lowering import (
+    lower_ap242_document_requirements,
+    lower_ap242_manufacturing_requirements,
+)
 from draftwright.pmi import PmiExtractionReport, PmiRecord, extract_pmi_report
 from draftwright.sheet_emit import emit_sheet_script
 
@@ -112,6 +116,30 @@ def _step(diameter, lo, hi):
 
 def _model(*features):
     return PartModel(Box(40, 20, 20).bounding_box(), "x", list(features))
+
+
+def _general_tolerance(entity, label="ISO 2768-m"):
+    return PmiFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pmi_kind="general_tolerances",
+        value=0.0,
+        label=label,
+        dominant_axis="?",
+        source_id=f"manufacturing_requirement:{entity}",
+        part21_id=entity,
+        source_category="manufacturing_requirement",
+    )
+
+
+def test_multiple_general_tolerance_requirements_fail_closed():
+    lowered = lower_ap242_document_requirements(
+        _model(_general_tolerance("#1"), _general_tolerance("#2", "ISO 2768-f"))
+    )
+
+    assert all(isinstance(feature, PmiFeature) for feature in lowered.features)
+    assert {blocker for feature in lowered.features for blocker in feature.lowering_blockers} == {
+        "ambiguous document default: multiple general-tolerance requirements"
+    }
 
 
 def test_external_thread_uses_finite_source_topology_to_choose_one_equal_diameter_step():
@@ -1070,6 +1098,12 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
         if isinstance(feature, PmiFeature)
         and feature.pmi_kind in {"external_thread", "internal_thread", "knurl"}
     ]
+    (general_tolerance,) = [
+        feature for feature in model.features if isinstance(feature, GeneralTolerance)
+    ]
+    assert general_tolerance.designation == "ISO 2768-m"
+    assert general_tolerance.statement == ("ISO 2768-m; dimensioning and tolerancing per ISO GPS")
+    assert general_tolerance.source_id == "manufacturing_requirement:#2016"
 
 
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
@@ -1172,13 +1206,21 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     unsupported = [issue for issue in issues if issue.code == "pmi_not_lowered"]
     assert {issue.source_ids[0]: issue.severity for issue in unsupported} == {
         "manufacturing_requirement:#2012": "warning",
-        "manufacturing_requirement:#2016": "warning",
         "manufacturing_requirement:#2020": "warning",
         "manufacturing_requirement:#2024": "warning",
         "manufacturing_requirement:#2028": "warning",
     }
-
+    title_fields = {
+        field: value
+        for field, value, _size, _font in drawing.get_annotation("title_block").title_field_specs
+    }
+    assert title_fields["general_tolerance"] == "ISO 2768-m"
     model = drawing.model()
+    general_tolerance = next(
+        feature for feature in model.features if isinstance(feature, GeneralTolerance)
+    )
+    assert drawing.registry.feature_of("title_block") is general_tolerance
+
     source = emit_sheet_script(model, "part", "grm03-pmi", title="GRM-03", number="GRM-03")
     namespace = {"part": _import_step(str(GRM03))}
     exec(  # noqa: S102

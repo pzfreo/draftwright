@@ -3697,6 +3697,30 @@ class PmiFeature:
 
 
 @dataclass(frozen=True)
+class GeneralTolerance:
+    """A document-wide dimensional tolerance requirement carried by the title block."""
+
+    frame: Frame
+    designation: str
+    statement: str = ""
+    source_id: str = ""
+    part21_id: str = ""
+    kind: ClassVar[str] = "general_tolerance"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.designation, str) or not self.designation.strip():
+            raise ValueError("general tolerance needs a non-empty designation")
+        if self.designation != self.designation.strip():
+            raise ValueError("general tolerance designation cannot contain surrounding whitespace")
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class ControlFrame:
     """A geometric-tolerance feature control frame (ISO 1101) declared on the drawing
     (ADR 4 (was 0011 §4) aspect side-layer, #61). Placed as a first-class ADR 2 (was 0009) corridor

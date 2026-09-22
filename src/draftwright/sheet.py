@@ -64,7 +64,7 @@ from draftwright.builder import _coerce_model, build_drawing, detect_part_model
 from draftwright.compose import _est_table_size
 from draftwright.document_input import DocumentInput
 from draftwright.fits import fit_class
-from draftwright.model import DimensionParameterId, Feature
+from draftwright.model import DimensionParameterId, Feature, Frame, GeneralTolerance
 from draftwright.model import angle as _angle
 from draftwright.model import angle_pattern as _angle_pattern
 from draftwright.model import blend as _blend
@@ -2393,6 +2393,28 @@ class Sheet:
                 if existing == feature:
                     return _Params(self, index)
         self._features.append(feature)
+        return _Params(self, len(self._features) - 1)
+
+    def general_tolerance(
+        self,
+        designation: str,
+        *,
+        statement: str = "",
+        source_id: str = "",
+        part21_id: str = "",
+    ) -> _Params:
+        """Declare the document-wide general tolerance printed in the title block."""
+        bbox = self._part.bounding_box()
+        center = bbox.center()
+        self._features.append(
+            GeneralTolerance(
+                frame=Frame((center.X, center.Y, center.Z), "z"),
+                designation=designation,
+                statement=statement,
+                source_id=source_id,
+                part21_id=part21_id,
+            )
+        )
         return _Params(self, len(self._features) - 1)
 
     # -- GD&T / finish aspects (ADR 4 (was 0011) P2c, #479) ---------------------------
