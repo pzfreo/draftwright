@@ -1404,6 +1404,7 @@ def test_chamfer_requirement_with_changed_source_bounds_fails_closed():
     )
 
 
+@pytest.mark.slow
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
