@@ -20,6 +20,7 @@ from draftwright.model.ir import (
     BossFeature,
     CylindricalReference,
     DefaultSurfaceFinish,
+    DocumentNote,
     Feature,
     GeneralTolerance,
     HoleFeature,
@@ -974,35 +975,57 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             features[index] = _block_requirement(
                 feature, "ambiguous document default: multiple surface-texture requirements"
             )
-        return replace(model, features=features)
-    if not finish_candidates:
-        return model
-    index, feature = finish_candidates[0]
-    match = re.fullmatch(
-        r"\s*Ra\s+(?P<ra>\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s+unless\s+otherwise\s+specified\s*",
-        feature.label,
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        features = list(model.features)
-        features[index] = _block_requirement(
-            feature, "surface-texture requirement is not a supported document default"
+        model = replace(model, features=features)
+    elif finish_candidates:
+        index, feature = finish_candidates[0]
+        match = re.fullmatch(
+            r"\s*Ra\s+(?P<ra>\d+(?:\.\d+)?)\s*(?:um|µm|μm)\s+unless\s+otherwise\s+specified\s*",
+            feature.label,
+            flags=re.IGNORECASE,
         )
-        return replace(model, features=features)
-    requirement = DefaultSurfaceFinish(
-        frame=feature.frame,
-        ra=match.group("ra"),
-        statement=feature.label,
-        source_id=feature.source_id,
-        part21_id=feature.part21_id,
-    )
-    return replace(
-        model,
-        features=[
-            requirement if position == index else item
-            for position, item in enumerate(model.features)
-        ],
-    )
+        if match is None:
+            features = list(model.features)
+            features[index] = _block_requirement(
+                feature, "surface-texture requirement is not a supported document default"
+            )
+            model = replace(model, features=features)
+        else:
+            requirement = DefaultSurfaceFinish(
+                frame=feature.frame,
+                ra=match.group("ra"),
+                statement=feature.label,
+                source_id=feature.source_id,
+                part21_id=feature.part21_id,
+            )
+            model = replace(
+                model,
+                features=[
+                    requirement if position == index else item
+                    for position, item in enumerate(model.features)
+                ],
+            )
+
+    document_kinds = {"datum_scheme", "model_representation"}
+    features = list(model.features)
+    for index, item in enumerate(features):
+        if not (
+            isinstance(item, PmiFeature)
+            and item.source_category == "manufacturing_requirement"
+            and item.pmi_kind in document_kinds
+            and not item.lowering_blockers
+        ):
+            continue
+        if not item.label.strip():
+            features[index] = _block_requirement(item, "document requirement text is empty")
+            continue
+        features[index] = DocumentNote(
+                frame=item.frame,
+                text=item.label,
+                note_kind=item.pmi_kind,
+                source_id=item.source_id,
+                part21_id=item.part21_id,
+            )
+    return replace(model, features=features)
 
 
 def lower_ap242_dimensions(

@@ -8872,6 +8872,28 @@ def _pmi_source_ids(item) -> tuple[str, ...]:
     return tuple(dict.fromkeys(((singular,) if singular else ()) + plural))
 
 
+def render_document_notes(dwg, model) -> int:
+    """Place source-proven drawing-wide requirements in one solver-owned notes block."""
+    notes = [feature for feature in model.features if feature.kind == "document_note"]
+    if not notes:
+        return 0
+    rows = [("GENERAL NOTES",)] + [
+        (f"{index}  {_font_safe_text(note.text)}",) for index, note in enumerate(notes, 1)
+    ]
+    placed = dwg.add_table(
+        rows,
+        prefer="tr",
+        name="general_notes",
+        _source_ids=tuple(
+            source_id for note in notes for source_id in _pmi_source_ids(note)
+        ),
+        _features=tuple(notes),
+        _drop_code="pmi_dropped",
+        _drop_severity="error",
+    )
+    return len(notes) if placed is not None else 0
+
+
 def _gdt_glyph(item, draft):
     """Build the ISO 1101/5459/1302 glyph sketch for one GD&T IR item at the origin
     (the :class:`Leader` repositions it). A fresh sketch per call — the leader translate

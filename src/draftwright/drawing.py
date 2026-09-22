@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from dataclasses import field as dataclasses_field
 from itertools import permutations
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult
@@ -3809,6 +3809,10 @@ class Drawing:
         name="table",
         block_cols=None,
         _source_id: str | None = None,
+        _source_ids: tuple[str, ...] = (),
+        _features: tuple[object, ...] = (),
+        _drop_code: str = "table_dropped",
+        _drop_severity: Literal["error", "warning", "info"] = "warning",
         _cells=(),
     ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
@@ -3881,18 +3885,21 @@ class Drawing:
                 detail = "solver returned no placement trace"
             self._registry.record_issue(
                 LintIssue(
-                    severity="warning",
-                    code="table_dropped",
+                    severity=_drop_severity,
+                    code=_drop_code,
                     message=(
                         f"table {name!r} did not fit the sheet; measured page-space footprint "
                         f"{measured}; {detail}"
                     ),
-                    source_ids=(_source_id,) if _source_id is not None else (),
+                    source_ids=tuple(
+                        dict.fromkeys(((_source_id,) if _source_id is not None else ()) + _source_ids)
+                    ),
                     measurement_ids=tuple(cell.measurement for cell in _cells),
                 )
             )
             return None
         placed = table.locate(Location((pos[0], pos[1], 0)))
+        placed.source_features = _features
         if not _cells:
             return self._add(placed, name)
         snapshot = self._registry.snapshot()

@@ -16,6 +16,7 @@ from draftwright.model.ir import (
     BossFeature,
     CylindricalReference,
     DefaultSurfaceFinish,
+    DocumentNote,
     Frame,
     GeneralTolerance,
     HoleFeature,
@@ -145,6 +146,19 @@ def _default_finish(entity, label="Ra 3.2 um unless otherwise specified"):
     )
 
 
+def _document_note(entity, kind, label):
+    return PmiFeature(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        pmi_kind=kind,
+        value=0.0,
+        label=label,
+        dominant_axis="?",
+        source_id=f"manufacturing_requirement:{entity}",
+        part21_id=entity,
+        source_category="manufacturing_requirement",
+    )
+
+
 def test_multiple_general_tolerance_requirements_fail_closed():
     lowered = lower_ap242_document_requirements(
         _model(_general_tolerance("#1"), _general_tolerance("#2", "ISO 2768-f"))
@@ -185,6 +199,71 @@ def test_multiple_default_surface_finishes_fail_closed():
     assert {blocker for feature in lowered.features for blocker in feature.lowering_blockers} == {
         "ambiguous document default: multiple surface-texture requirements"
     }
+
+
+def test_document_requirements_lower_to_unattached_typed_notes():
+    lowered = lower_ap242_document_requirements(
+        _model(
+            _document_note("#1", "datum_scheme", "Datum A is the axis"),
+            _document_note("#2", "model_representation", "Threads are represented by PMI"),
+        )
+    )
+
+    assert [(note.note_kind, note.text, note.source_id) for note in lowered.features] == [
+        ("datum_scheme", "Datum A is the axis", "manufacturing_requirement:#1"),
+        (
+            "model_representation",
+            "Threads are represented by PMI",
+            "manufacturing_requirement:#2",
+        ),
+    ]
+    assert all(isinstance(note, DocumentNote) for note in lowered.features)
+
+
+def test_empty_document_requirement_stays_raw_with_a_blocker():
+    lowered = lower_ap242_document_requirements(_model(_document_note("#1", "datum_scheme", "")))
+
+    (raw,) = lowered.features
+    assert isinstance(raw, PmiFeature)
+    assert raw.lowering_blockers == ("document requirement text is empty",)
+
+
+def test_document_note_table_drop_is_a_source_complete_annotate_error(monkeypatch):
+    import draftwright.drawing as drawing_module
+
+    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    part = Box(40, 20, 20)
+    notes = [
+        DocumentNote(
+            Frame((0.0, 0.0, 0.0), "z"),
+            "Datum A is the axis",
+            "datum_scheme",
+            "manufacturing_requirement:#1",
+            "#1",
+        ),
+        DocumentNote(
+            Frame((0.0, 0.0, 0.0), "z"),
+            "Threads are represented by PMI",
+            "model_representation",
+            "manufacturing_requirement:#2",
+            "#2",
+        ),
+    ]
+
+    drawing = build_drawing(
+        part,
+        model=PartModel(part.bounding_box(), "z", notes),
+        pmi="annotate",
+    )
+
+    assert "general_notes" not in drawing.annotations()
+    drops = [issue for issue in drawing.lint(physical=False) if issue.code == "pmi_dropped"]
+    assert len(drops) == 1
+    assert drops[0].severity == "error"
+    assert drops[0].source_ids == (
+        "manufacturing_requirement:#1",
+        "manufacturing_requirement:#2",
+    )
 
 
 def test_external_thread_uses_finite_source_topology_to_choose_one_equal_diameter_step():
@@ -1155,6 +1234,11 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
     assert default_finish.ra == "3.2"
     assert default_finish.statement == "Ra 3.2 um unless otherwise specified"
     assert default_finish.source_id == "manufacturing_requirement:#2012"
+    document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
+    assert [(note.note_kind, note.source_id) for note in document_notes] == [
+        ("datum_scheme", "manufacturing_requirement:#2020"),
+        ("model_representation", "manufacturing_requirement:#2028"),
+    ]
 
 
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
@@ -1256,9 +1340,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     unsupported = [issue for issue in issues if issue.code == "pmi_not_lowered"]
     assert {issue.source_ids[0]: issue.severity for issue in unsupported} == {
-        "manufacturing_requirement:#2020": "warning",
         "manufacturing_requirement:#2024": "warning",
-        "manufacturing_requirement:#2028": "warning",
     }
     title_fields = {
         field: value
@@ -1274,6 +1356,16 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         feature for feature in model.features if isinstance(feature, DefaultSurfaceFinish)
     )
     assert drawing.registry.feature_of("default_surface_finish") is default_finish
+    document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
+    assert drawing.get_annotation("general_notes").table_rows == (
+        ("GENERAL NOTES",),
+        ("1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",),
+        (
+            "2  Thread and knurl teeth are represented by semantic PMI; "
+            "their nominal envelope geometry remains smooth",
+        ),
+    )
+    assert drawing.registry.features_of("general_notes") == tuple(document_notes)
 
     source = emit_sheet_script(model, "part", "grm03-pmi", title="GRM-03", number="GRM-03")
     namespace = {"part": _import_step(str(GRM03))}
@@ -1288,3 +1380,6 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         if isinstance(feature, DefaultSurfaceFinish)
     ]
     assert replayed_finish == default_finish
+    assert [
+        feature for feature in namespace["sheet"].model().features if isinstance(feature, DocumentNote)
+    ] == document_notes

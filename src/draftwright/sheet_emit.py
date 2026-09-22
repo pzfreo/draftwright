@@ -784,6 +784,13 @@ def _feature_line(
             kwargs.append(f"part21_id={f.part21_id!r}")
         suffix = f", {', '.join(kwargs)}" if kwargs else ""
         return f"sheet.default_surface_finish({f.ra!r}{suffix})"
+    if k == "document_note":
+        kwargs = [f"kind={f.note_kind!r}"]
+        if f.source_id:
+            kwargs.append(f"source_id={f.source_id!r}")
+        if f.part21_id:
+            kwargs.append(f"part21_id={f.part21_id!r}")
+        return f"sheet.document_note({f.text!r}, {', '.join(kwargs)})"
     if k == "control_frame":
         return _control_frame_line(f, origin_ref)
     if k == "datum_ref":
@@ -2448,6 +2455,7 @@ def emit_sheet_script(
                 "datum_ref",
                 "general_tolerance",
                 "default_surface_finish",
+                "document_note",
             }:
                 provenance = "pmi"
             elif feature.kind == "note":

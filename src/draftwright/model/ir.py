@@ -3750,6 +3750,32 @@ class DefaultSurfaceFinish:
 
 
 @dataclass(frozen=True)
+class DocumentNote:
+    """A source-proven document requirement with no honest geometric attachment."""
+
+    frame: Frame
+    text: str
+    note_kind: str
+    source_id: str = ""
+    part21_id: str = ""
+    kind: ClassVar[str] = "document_note"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError("document note needs non-empty text")
+        if self.text != self.text.strip():
+            raise ValueError("document note text cannot contain surrounding whitespace")
+        if self.note_kind not in ("datum_scheme", "model_representation"):
+            raise ValueError(f"unsupported document-note kind {self.note_kind!r}")
+
+    def parameters(self) -> list[DimParameter]:
+        return []
+
+    def references(self) -> list[Datum]:
+        return []
+
+
+@dataclass(frozen=True)
 class ControlFrame:
     """A geometric-tolerance feature control frame (ISO 1101) declared on the drawing
     (ADR 4 (was 0011 §4) aspect side-layer, #61). Placed as a first-class ADR 2 (was 0009) corridor

@@ -67,6 +67,7 @@ from draftwright.fits import fit_class
 from draftwright.model import (
     DefaultSurfaceFinish,
     DimensionParameterId,
+    DocumentNote,
     Feature,
     Frame,
     GeneralTolerance,
@@ -2439,6 +2440,28 @@ class Sheet:
                 frame=Frame((center.X, center.Y, center.Z), "z"),
                 ra=str(ra).strip(),
                 statement=statement,
+                source_id=source_id,
+                part21_id=part21_id,
+            )
+        )
+        return _Params(self, len(self._features) - 1)
+
+    def document_note(
+        self,
+        text: str,
+        *,
+        kind: str,
+        source_id: str = "",
+        part21_id: str = "",
+    ) -> _Params:
+        """Declare a source-proven requirement for the solver-placed GENERAL NOTES block."""
+        bbox = self._part.bounding_box()
+        center = bbox.center()
+        self._features.append(
+            DocumentNote(
+                frame=Frame((center.X, center.Y, center.Z), "z"),
+                text=str(text).strip(),
+                note_kind=kind,
                 source_id=source_id,
                 part21_id=part21_id,
             )

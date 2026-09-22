@@ -59,6 +59,7 @@ from draftwright.annotations._common import (
     annotation_ink_obstacles,
     place_iso_nts_note,
 )
+from draftwright.annotations.from_model import render_document_notes
 from draftwright.annotations.gears import render_gear_tables
 from draftwright.annotations.orchestrator import (
     _WITHHOLDING_CODES,
@@ -814,6 +815,7 @@ def _assemble(
     # `_fit_iso_view`; placing a table there lets the subsequently fitted ISO view move into
     # it. Every initial/repacked assembly reaches this common point after its final ISO fit,
     # and `add_table()` now sees the settled views plus all earlier annotations as obstacles.
+    render_document_notes(dwg, pm)
     render_gear_tables(dwg, pm)
 
     # The audit ledger, filled at ONE site for both paths (#996 / ADR 1 (was 0005 §2)).
