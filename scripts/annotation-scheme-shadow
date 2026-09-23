@@ -13,6 +13,10 @@ import time
 import traceback
 from pathlib import Path
 
+_CHECKOUT_SRC = Path(__file__).resolve().parents[1] / "src"
+if _CHECKOUT_SRC.is_dir():
+    sys.path.insert(0, str(_CHECKOUT_SRC))
+
 
 def _analyse_one(path: str, pmi: str) -> dict:
     """Analyse one document in a disposable process so OCC memory cannot accumulate."""
