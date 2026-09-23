@@ -1,7 +1,13 @@
+import pytest
 from build123d import Box
 
 from draftwright.compose import _measure_strips
-from draftwright.layout_scheme import plan_annotation_scheme
+from draftwright.layout_scheme import (
+    AnnotationDemand,
+    AnnotationScheme,
+    pack_annotation_lanes,
+    plan_annotation_scheme,
+)
 from draftwright.model import Frame, PartModel
 from draftwright.model.ir import ControlFrame, DatumRef, Note, PmiFeature
 
@@ -39,3 +45,73 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
     assert strips.scheme == plan_annotation_scheme(model)
     assert strips.right == 20.0
     assert strips.left == 20.0
+
+
+def _demand(identity, site, *, view="front", side="above", index=0):
+    return AnnotationDemand(identity, "authored_dimension", view, side, index, site)
+
+
+def test_lane_packing_separates_overlaps_and_reuses_the_first_available_lane():
+    scheme = AnnotationScheme(
+        (
+            _demand("middle", (2, 0, 0), index=1),
+            _demand("right", (10, 0, 0), index=2),
+            _demand("left", (0, 0, 0), index=0),
+        ),
+        (),
+    )
+
+    plan = pack_annotation_lanes(scheme, scale=1, span_for=lambda demand: 6)
+    corridor = plan.corridor("front", "above")
+
+    assert corridor is not None
+    assert corridor.lane_count == 2
+    assert [(item.demand.identity, item.lane) for item in corridor.reservations] == [
+        ("left", 0),
+        ("middle", 1),
+        ("right", 0),
+    ]
+
+
+def test_lane_packing_is_input_order_independent_and_uses_corridor_axis():
+    demands = (
+        _demand("front", (9, 0, 1), view="front", side="right", index=0),
+        _demand("side", (0, 3, 10), view="side", side="below", index=1),
+    )
+
+    forward = pack_annotation_lanes(
+        AnnotationScheme(demands, ()), scale=2, span_for=lambda demand: 4
+    )
+    reverse = pack_annotation_lanes(
+        AnnotationScheme(tuple(reversed(demands)), ()), scale=2, span_for=lambda demand: 4
+    )
+
+    def intervals(plan):
+        return {
+            item.demand.identity: (item.start, item.end, item.lane)
+            for corridor in plan.corridors
+            for item in corridor.reservations
+        }
+
+    # A vertical front corridor follows model z; a horizontal side corridor follows model y.
+    assert intervals(forward) == {"front": (0, 4, 0), "side": (4, 8, 0)}
+    assert intervals(reverse) == intervals(forward)
+
+
+def test_lane_packing_rejects_invalid_scale_clearance_and_spans():
+    scheme = AnnotationScheme((_demand("one", (0, 0, 0)),), ())
+
+    for kwargs in ({"scale": 0}, {"scale": 1, "clearance": -1}):
+        with pytest.raises(ValueError):
+            pack_annotation_lanes(scheme, span_for=lambda demand: 1, **kwargs)
+
+    with pytest.raises(ValueError):
+        pack_annotation_lanes(scheme, scale=1, span_for=lambda demand: float("nan"))
+
+    bad_route = AnnotationScheme((_demand("route", (0, 0, 0), view="iso"),), ())
+    with pytest.raises(ValueError, match="principal view and side"):
+        pack_annotation_lanes(bad_route, scale=1, span_for=lambda demand: 1)
+
+    bad_site = AnnotationScheme((_demand("site", (float("inf"), 0, 0)),), ())
+    with pytest.raises(ValueError, match="must be finite"):
+        pack_annotation_lanes(bad_site, scale=1, span_for=lambda demand: 1)
