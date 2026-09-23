@@ -77,6 +77,14 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
         ("front", "left"): (17.0, 20.0, -3.0),
         ("side", "below"): (17.0, 0.0, 17.0),
     }
+    report = strips.annotation_scheme_shadow_report(1)
+    assert report.unplanned_count == 1
+    assert [(item.view, item.side) for item in report.under_reserved] == [
+        ("front", "above"),
+        ("side", "below"),
+    ]
+    assert [(item.view, item.side) for item in report.over_reserved] == [("front", "left")]
+    assert report.to_dict()["under_reserved"] == 2
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):

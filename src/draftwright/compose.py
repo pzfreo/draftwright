@@ -367,7 +367,7 @@ class AngularReservation:
         return geometry.footprint(geometry.minimum_radius)
 
 
-@dataclass
+@dataclass(frozen=True)
 class CorridorDepthComparison:
     """Observational difference between scheme-planned and legacy reserved depth."""
 
@@ -379,6 +379,41 @@ class CorridorDepthComparison:
     @property
     def delta(self) -> float:
         return self.planned - self.reserved
+
+
+@dataclass(frozen=True)
+class AnnotationSchemeShadowReport:
+    """Serializable, non-authoritative comparison collected during normal analysis."""
+
+    scale: float
+    corridors: tuple[CorridorDepthComparison, ...]
+    unplanned_count: int
+
+    @property
+    def under_reserved(self) -> tuple[CorridorDepthComparison, ...]:
+        return tuple(item for item in self.corridors if item.delta > 1e-9)
+
+    @property
+    def over_reserved(self) -> tuple[CorridorDepthComparison, ...]:
+        return tuple(item for item in self.corridors if item.delta < -1e-9)
+
+    def to_dict(self) -> dict:
+        return {
+            "scale": self.scale,
+            "unplanned_count": self.unplanned_count,
+            "corridors": [
+                {
+                    "view": item.view,
+                    "side": item.side,
+                    "planned": item.planned,
+                    "reserved": item.reserved,
+                    "delta": item.delta,
+                }
+                for item in self.corridors
+            ],
+            "under_reserved": len(self.under_reserved),
+            "over_reserved": len(self.over_reserved),
+        }
 
 
 @dataclass
@@ -466,6 +501,17 @@ class StripDepths:
                 float(reserved.get((view, side), 0.0)),
             )
             for (view, side), depth in sorted(planned.items())
+        )
+
+    def annotation_scheme_shadow_report(
+        self, scale: float, **planning_style
+    ) -> AnnotationSchemeShadowReport:
+        """Return stable shadow metrics without changing the selected layout."""
+
+        return AnnotationSchemeShadowReport(
+            scale=float(scale),
+            corridors=self.compare_planned_corridors(scale, **planning_style),
+            unplanned_count=len(self.scheme.unplanned) if self.scheme is not None else 0,
         )
 
 
