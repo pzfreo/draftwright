@@ -1840,17 +1840,18 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             for first, second in _segments(annotation)
         )
 
-    def place(job_index, candidate, annotation):
+    def place(job_index, candidate, annotation, *, recovered=False):
         job = jobs[job_index]
         # Preserve typed candidate provenance on the rendered object.  Besides trace
         # diagnostics, structural lint uses this to distinguish a solver-proven interior
         # label from an arbitrary annotation that merely happens to lie inside a view.
-        annotation._dw_candidate_region = candidate.region.value
+        if not recovered:
+            annotation._dw_candidate_region = candidate.region.value
         ctx.place(
             annotation,
             job.name,
             view=job.view,
-            feature=resolve_feature(candidate.feature),
+            feature=resolve_feature(candidate if recovered else candidate.feature),
             measurement=job.measurement,
         )
         if job.on_place is not None:
@@ -2350,15 +2351,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             recovered = jobs[job_index].recover()
             if recovered is not None:
                 annotation, feature = recovered
-                ctx.place(
-                    annotation,
-                    jobs[job_index].name,
-                    view=jobs[job_index].view,
-                    feature=resolve_feature(feature),
-                    measurement=jobs[job_index].measurement,
-                )
-                if jobs[job_index].on_place is not None:
-                    jobs[job_index].on_place(annotation)
+                place(job_index, feature, annotation, recovered=True)
                 placed_count += 1
                 total_priority += jobs[job_index].priority
                 total_cost += recovery_cost(annotation)
@@ -2856,15 +2849,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             recovered = jobs[job_index].recover() if jobs[job_index].recover is not None else None
             if recovered is not None:
                 annotation, feature = recovered
-                ctx.place(
-                    annotation,
-                    jobs[job_index].name,
-                    view=jobs[job_index].view,
-                    feature=resolve_feature(feature),
-                    measurement=jobs[job_index].measurement,
-                )
-                if jobs[job_index].on_place is not None:
-                    jobs[job_index].on_place(annotation)
+                place(job_index, feature, annotation, recovered=True)
                 placed_count += 1
                 recovery_priority += jobs[job_index].priority
                 recovery_path_cost += recovery_cost(annotation)
