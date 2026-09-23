@@ -60,3 +60,9 @@ def test_compare_rejects_semantic_content_changes_and_interior_dimensions():
     assert [item["label"] for item in parity["missing"]] == ["10"]
     assert [item["label"] for item in parity["added"]] == ["11"]
     assert parity["candidate_interior_dimensions"] == ["dim_b"]
+
+
+def test_parse_routes():
+    parse = _load_script()._parse_routes
+
+    assert parse("plan/below,side/right") == {("plan", "below"), ("side", "right")}

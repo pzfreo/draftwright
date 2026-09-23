@@ -14,6 +14,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SRC = _ROOT / "src"
+_CAP_REPORT = {}
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
@@ -23,7 +24,7 @@ def _python() -> str:
     return str(candidate if candidate.is_file() else Path(sys.executable))
 
 
-def _cap_scheme_strips(scale: float) -> None:
+def _cap_scheme_strips(scale: float, enabled_routes: set[tuple[str, str]]) -> None:
     analysis = import_module("draftwright.analysis")
     legacy_measure = analysis._measure_strips
 
@@ -32,10 +33,12 @@ def _cap_scheme_strips(scale: float) -> None:
         planned = strips.planned_corridor_depths(scale)
 
         def cap(current, *routes):
+            if not any(route in enabled_routes for route in routes):
+                return current
             values = [planned[route] for route in routes if route in planned]
             return min(current, max(values)) if current > 0 and values else current
 
-        return replace(
+        capped = replace(
             strips,
             right=cap(strips.right, ("front", "right"), ("plan", "right")),
             left=cap(strips.left, ("front", "left"), ("plan", "left")),
@@ -49,6 +52,44 @@ def _cap_scheme_strips(scale: float) -> None:
             sv_right=cap(strips.sv_right, ("side", "right")),
             rv_right=cap(strips.rv_right, ("rear", "right")),
         )
+        _CAP_REPORT.update(
+            {
+                "before": {
+                    name: getattr(strips, name)
+                    for name in (
+                        "right",
+                        "left",
+                        "top",
+                        "fv_top",
+                        "fv_bottom",
+                        "pv_authored_top",
+                        "pv_bottom",
+                        "sv_top",
+                        "sv_bottom",
+                        "sv_right",
+                        "rv_right",
+                    )
+                },
+                "after": {
+                    name: getattr(capped, name)
+                    for name in (
+                        "right",
+                        "left",
+                        "top",
+                        "fv_top",
+                        "fv_bottom",
+                        "pv_authored_top",
+                        "pv_bottom",
+                        "sv_top",
+                        "sv_bottom",
+                        "sv_right",
+                        "rv_right",
+                    )
+                },
+                "planned": {f"{view}/{side}": depth for (view, side), depth in planned.items()},
+            }
+        )
+        return capped
 
     analysis._measure_strips = measured
 
@@ -88,7 +129,7 @@ def _manifest(drawing) -> dict:
 
 def _worker(args) -> int:
     if args.mode == "candidate":
-        _cap_scheme_strips(args.scale)
+        _cap_scheme_strips(args.scale, _parse_routes(args.candidate_routes))
     from draftwright import build_drawing
 
     output = Path(args.output)
@@ -113,6 +154,7 @@ def _worker(args) -> int:
                 "page": [drawing.page_w, drawing.page_h],
                 "scale": drawing.scale,
                 "views": list(drawing.views),
+                "corridor_depths": _CAP_REPORT,
                 "manifest": _manifest(drawing),
             },
             sort_keys=True,
@@ -140,6 +182,8 @@ def _run_worker(args, mode: str, output: Path) -> dict:
         args.title,
         "--number",
         args.number,
+        "--candidate-routes",
+        args.candidate_routes,
     ]
     completed = subprocess.run(command, check=False, capture_output=True, text=True)
     if completed.returncode:
@@ -191,6 +235,16 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     return {"baseline": baseline, "candidate": candidate, "parity": parity}
 
 
+def _parse_routes(value: str) -> set[tuple[str, str]]:
+    routes = set()
+    for item in value.split(","):
+        view, separator, side = item.partition("/")
+        if not separator or not view or not side:
+            raise ValueError(f"invalid corridor route {item!r}; expected view/side")
+        routes.add((view, side))
+    return routes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
@@ -199,6 +253,14 @@ def main() -> int:
     parser.add_argument("--scale", type=float, default=0.2)
     parser.add_argument("--title", default="CTC-01")
     parser.add_argument("--number", default="NIST-CTC-01")
+    parser.add_argument(
+        "--candidate-routes",
+        default=(
+            "front/right,plan/right,front/left,plan/left,plan/above,front/above,"
+            "front/below,plan/below,side/above,side/below,side/right,rear/right"
+        ),
+        help="comma-separated view/side corridors whose legacy depths may be capped",
+    )
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--mode", choices=("baseline", "candidate"), default="baseline")
     args = parser.parse_args()
