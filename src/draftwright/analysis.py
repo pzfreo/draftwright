@@ -1394,6 +1394,15 @@ def _analyse(
     # here (PAGE_H - margin / iso_right_limit); _auto_annotate() tightens
     # them once the iso has been projected.
     fv_zones, pv_zones, sv_zones = _build_zones(_g, margin, PAGE_H)
+    if ARRANGEMENT == "staggered-side":
+        # The aligned row spends headroom to clear the title block. Its exterior ladders
+        # retain the full label height and 1 mm of clear air rather than the legacy 2.5 mm.
+        # Scope this to the opt-in arrangement so established sheets remain byte-identical.
+        for view_zones in (fv_zones, pv_zones, sv_zones):
+            for side in ("above", "below", "left", "right"):
+                strip = getattr(view_zones, side, None)
+                if strip is not None:
+                    strip.spacing = 1.0
 
     page_label = {297: "A4", 420: "A3", 594: "A2", 841: "A1", 1189: "A0"}.get(
         int(PAGE_W), f"{PAGE_W:.0f}mm"

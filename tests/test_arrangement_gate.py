@@ -80,6 +80,7 @@ class TestTheAlternativeArrangementIsRealGeometry:
         geometry = _geom("staggered-side", page=A3, size=(800.0, 450.0, 150.0))
 
         assert geometry.SV_Y - geometry.fv_hh >= 57.5
+        assert geometry.FV_Y == geometry.SV_Y
 
     def test_staggered_side_is_not_an_automatic_candidate_yet(self):
         assert "staggered-side" in ARRANGEMENTS

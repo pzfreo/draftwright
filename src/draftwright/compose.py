@@ -1830,10 +1830,15 @@ def _layout_geometry(
         PV_X, PV_Y = origin_x, origin_y + principal_origins["plan"][1]
         SV_X, SV_Y = origin_x + principal_origins["side"][0], origin_y
     if arrangement == "staggered-side" and has_side:
-        # The title block is pinned. Place the complete side-view block immediately above
-        # it; later corridor construction receives this same resolved origin.
-        title_top = tb_bottom + _TB_H + DIM_PAD
-        SV_Y = title_top + sv.bottom + sv.hh
+        # The title block is pinned. Lift the complete orthographic row above it while
+        # preserving the front/side alignment and the plan/front projection relation.
+        title_top = tb_bottom + _TB_H + 4.0
+        aligned_y = title_top + max(fv.bottom + fv.hh, sv.bottom + sv.hh)
+        lift = max(0.0, aligned_y - FV_Y)
+        FV_Y += lift
+        SV_Y = FV_Y
+        if has_plan:
+            PV_Y += lift
     RV_X = (origin_x + principal_origins["rear"][0]) if composed_origins else 0.0
     RV_Y = origin_y if composed_origins else 0.0
     # Keep the side geometry edge separate from the packed outer footprint.  The
