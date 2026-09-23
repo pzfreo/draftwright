@@ -30,6 +30,7 @@ class AnnotationDemand:
     side: str
     feature_index: int
     model_site: tuple[float, float, float]
+    model_interval: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,9 @@ class AnnotationScheme:
                     "side": demand.side,
                     "feature_index": demand.feature_index,
                     "model_site": list(demand.model_site),
+                    "model_interval": (
+                        list(demand.model_interval) if demand.model_interval is not None else None
+                    ),
                 }
                 for demand in self.demands
             ],
@@ -168,7 +172,19 @@ def pack_annotation_lanes(
             ) from exc
         if not math.isfinite(station):
             raise ValueError(f"annotation site for {demand.identity!r} must be finite")
-        half_span = span / 2
+        if demand.model_interval is None:
+            start, end = station, station
+        else:
+            try:
+                start, end = sorted(float(value) * scale for value in demand.model_interval)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"annotation support for {demand.identity!r} must contain two coordinates"
+                ) from exc
+            if not math.isfinite(start) or not math.isfinite(end):
+                raise ValueError(f"annotation support for {demand.identity!r} must be finite")
+            station = (start + end) / 2
+        half_span = max(span, end - start) / 2
         grouped.setdefault((demand.view, demand.side), []).append(
             (station - half_span, station + half_span, demand)
         )
@@ -208,6 +224,21 @@ def _identity(feature, index: int) -> str:
 def _site(feature) -> tuple[float, float, float]:
     origin = getattr(getattr(feature, "frame", None), "origin", (0.0, 0.0, 0.0))
     return tuple(float(origin[index]) for index in range(3))
+
+
+def _support_interval(feature, view: str, side: str) -> tuple[float, float] | None:
+    """Return a dimension's model-space support along its corridor axis, when explicit."""
+
+    page_axis = 0 if side in {"above", "below"} else 1
+    axis = "xyz".index(VIEW_AXES[view][page_axis])
+    points = tuple(getattr(feature, "ref_pts", ()))
+    if len(points) >= 2:
+        coordinates = [float(point[axis]) for point in points]
+        return min(coordinates), max(coordinates)
+    bbox = getattr(feature, "ref_bbox", None)
+    if bbox is not None and len(bbox) == 6:
+        return tuple(sorted((float(bbox[axis]), float(bbox[axis + 3]))))
+    return None
 
 
 def plan_annotation_scheme(model) -> AnnotationScheme:
@@ -253,6 +284,9 @@ def plan_annotation_scheme(model) -> AnnotationScheme:
                 UnplannedAnnotation(identity, family, index, "invalid or absent view-side route")
             )
             continue
-        demands.append(AnnotationDemand(identity, family, view, side, index, _site(feature)))
+        support = _support_interval(feature, view, side) if kind == "authored_dimension" else None
+        demands.append(
+            AnnotationDemand(identity, family, view, side, index, _site(feature), support)
+        )
 
     return AnnotationScheme(tuple(demands), tuple(unplanned))

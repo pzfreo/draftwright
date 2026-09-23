@@ -9,7 +9,7 @@ from draftwright.layout_scheme import (
     plan_annotation_scheme,
 )
 from draftwright.model import Frame, PartModel
-from draftwright.model.ir import ControlFrame, DatumRef, Note, PmiFeature
+from draftwright.model.ir import AuthoredDimension, ControlFrame, DatumRef, Note, PmiFeature
 
 
 def _model():
@@ -115,3 +115,25 @@ def test_lane_packing_rejects_invalid_scale_clearance_and_spans():
     bad_site = AnnotationScheme((_demand("site", (float("inf"), 0, 0)),), ())
     with pytest.raises(ValueError, match="must be finite"):
         pack_annotation_lanes(bad_site, scale=1, span_for=lambda demand: 1)
+
+
+def test_authored_dimension_support_widens_its_lane_reservation():
+    dimension = AuthoredDimension(
+        Frame((50, 0, 0), "z"),
+        "linear",
+        40,
+        "40",
+        "X",
+        ref_pts=((10, 0, 0), (50, 0, 0)),
+        source_id="dimension:wide",
+        view="front",
+        side="above",
+    )
+    model = PartModel(Box(100, 60, 20).bounding_box(), "z", [dimension])
+
+    scheme = plan_annotation_scheme(model)
+    plan = pack_annotation_lanes(scheme, scale=0.5, span_for=lambda demand: 8)
+    reservation = plan.corridor("front", "above").reservations[0]
+
+    assert scheme.demands[0].model_interval == (10.0, 50.0)
+    assert (reservation.start, reservation.end) == (5.0, 25.0)
