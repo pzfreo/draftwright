@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -130,6 +131,10 @@ def _manifest(drawing) -> dict:
 def _worker(args) -> int:
     if args.mode == "candidate":
         _cap_scheme_strips(args.scale, _parse_routes(args.candidate_routes))
+        if args.arrangement is not None:
+            os.environ["DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT"] = args.arrangement
+        if args.exterior_dimensions:
+            os.environ["DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS"] = "1"
     from draftwright import build_drawing
 
     output = Path(args.output)
@@ -145,7 +150,7 @@ def _worker(args) -> int:
         _views=("front", "plan", "side"),
         _include_iso=True,
     )
-    paths = drawing.export(str(output), formats=("pdf", "png"))
+    paths = drawing.export(str(output), formats=tuple(args.formats.split(",")))
     print(
         json.dumps(
             {
@@ -182,9 +187,15 @@ def _run_worker(args, mode: str, output: Path) -> dict:
         args.title,
         "--number",
         args.number,
+        "--formats",
+        args.formats,
         "--candidate-routes",
         args.candidate_routes,
     ]
+    if args.arrangement is not None:
+        command.extend(("--arrangement", args.arrangement))
+    if args.exterior_dimensions:
+        command.append("--exterior-dimensions")
     completed = subprocess.run(command, check=False, capture_output=True, text=True)
     if completed.returncode:
         raise RuntimeError(f"{mode} build failed:\n{completed.stderr}")
@@ -253,6 +264,9 @@ def main() -> int:
     parser.add_argument("--scale", type=float, default=0.2)
     parser.add_argument("--title", default="CTC-01")
     parser.add_argument("--number", default="NIST-CTC-01")
+    parser.add_argument("--formats", default="pdf,png")
+    parser.add_argument("--arrangement", choices=("columns", "stacked-iso", "staggered-side"))
+    parser.add_argument("--exterior-dimensions", action="store_true")
     parser.add_argument(
         "--candidate-routes",
         default=(

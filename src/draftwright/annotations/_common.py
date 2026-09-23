@@ -2655,7 +2655,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         interior_jobs = getattr(ctx, "interior_dimensions", None)
         displaced = losers.get(candidate.dedup, ()) if candidate.dedup is not None else ()
         if (
-            interior_jobs is None
+            (ctx is not None and ctx.exterior_dimensions_only)
+            or interior_jobs is None
             or candidate.interior_view is None
             or candidate.interior_side is None
             or displaced
@@ -2871,6 +2872,8 @@ class PlacementContext:
     # Optional pre-render annotation lanes. Automatic builds attach the scheme's
     # deterministic plan; live edits leave this unset and retain their existing order.
     annotation_lanes: Any = None
+    # A drafter-style scheme treats exterior dimension lanes as a hard contract.
+    exterior_dimensions_only: bool = False
     # Automatic placement may reserve a dense internal section row. Only that
     # run needs the extended hole-leader resource-floor routing preference.
     dense_internal_section: bool = False

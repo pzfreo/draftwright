@@ -1284,6 +1284,15 @@ def _analyse(
     # re-deriving would compose the sheet under a different arrangement than the one whose
     # feasibility was actually established (#1130).
     ARRANGEMENT = arrangement_of(scale_pick)
+    # The staggered-side scheme reserves the upper-right corridor for defining
+    # orthographic dimensions.  Its ISO is orientation-only (NTS), so project it
+    # smaller from the outset rather than placing annotations against a temporary
+    # sheet-scale obstacle and shrinking it after those placements are settled.
+    layout_iso_scale = (
+        0.65
+        if ARRANGEMENT == "staggered-side" and planned_iso_scale is None
+        else planned_iso_scale
+    )
     _validate_explicit_scale(
         scale,
         SCALE,
@@ -1303,7 +1312,7 @@ def _analyse(
         advisories=layout_advisories,
         views=_views,
         include_iso=_include_iso,
-        iso_scale_factor=planned_iso_scale,
+        iso_scale_factor=layout_iso_scale,
         convention=convention,
     )
     DIM_PAD = _DIM_PAD
@@ -1339,7 +1348,7 @@ def _analyse(
         arrangement=ARRANGEMENT,
         views=_views,
         include_iso=_include_iso,
-        iso_scale_factor=planned_iso_scale,
+        iso_scale_factor=layout_iso_scale,
         convention=convention,
     )
     _apply_principal_view_pins(
@@ -1411,7 +1420,7 @@ def _analyse(
         RV_X=_g.RV_X,
         RV_Y=_g.RV_Y,
         rv_zones=_build_rear_zones(_g, margin, PAGE_H),
-        planned_iso_scale=planned_iso_scale,
+        planned_iso_scale=layout_iso_scale,
         view_constraints=_view_constraints,
         part=part,
         source_part=source_part,

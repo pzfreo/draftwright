@@ -601,7 +601,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             # coordinate.  Automatic dimensions retain their established exterior path.
             if approved.lane is not None:
                 jobs = getattr(ctx, "interior_dimensions", None)
-                if jobs is None:
+                if jobs is None or ctx.exterior_dimensions_only:
                     return False
                 _candidate_name, lane_build = _cand_for(near_side, near_hi)
                 witness = perp_proj(perp_hi if near_hi else perp_lo)
@@ -5660,7 +5660,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         ):
                             return  # placed above — the measurement is on the sheet
                     interior_jobs = getattr(ctx, "interior_dimensions", None)
-                    if interior_jobs is not None:
+                    if interior_jobs is not None and not ctx.exterior_dimensions_only:
 
                         def _interior_build(pos, _l=lift):
                             dim = _dim(
@@ -5746,6 +5746,16 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         # present in the resolved view plan; placement still goes through the normal strip
         # candidate solve below.
         view = extent.view or views_showing(axis, dwg.views, horizontal=True)
+        if (
+            extent.view is None
+            and role == "width"
+            and a.arrangement == "staggered-side"
+            and "front" in dwg.views
+        ):
+            # The staggered scheme gives the plan corridor to feature/slot locations.
+            # Overall X is equally observable in the front projection; route it there
+            # before placement rather than recovering it into plan-view whitespace.
+            view = "front"
         if view is None:
             # No planned view can carry it. Reported against the measurement, never dropped
             # in silence (ADR 4 (was 0016 Amdt 6)) — and this is exactly what the ADR 2 (was 0018)

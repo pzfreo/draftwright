@@ -15,6 +15,7 @@ bore set, side-drilled locations, the hole table) + the section/PMI passes.
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Literal
@@ -616,13 +617,18 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
     _groups = annotation_groups(_model, _groups)
-    if a.layout_strips.scheme is not None:
+    if (
+        os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_SCHEME_LAYOUT") == "1"
+        and a.layout_strips.scheme is not None
+    ):
         ctx.annotation_lanes = pack_estimated_annotation_lanes(
             a.layout_strips.scheme,
             scale=a.SCALE,
             font_size=dwg.draft.font_size,
             padding=dwg.draft.pad_around_text,
         )
+    if os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS") == "1":
+        ctx.exterior_dimensions_only = True
     for omission in _compiled.diagnostics:
         if omission.code == "step_position_coincident_with_datum":
             measurement = (

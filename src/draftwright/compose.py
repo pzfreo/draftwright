@@ -75,6 +75,7 @@ from draftwright.model.planner import (
 )
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    AUTOMATIC_ARRANGEMENTS,
     VIEW_AXES,
     LayoutCandidate,
     ScalePick,
@@ -1103,6 +1104,14 @@ def choose_scale(
             layout does not fit).
     """
     title_block_width = _validated_title_block_width(title_block_width)
+    requested_arrangements = (
+        AUTOMATIC_ARRANGEMENTS if arrangements is None else tuple(arrangements)
+    )
+    if not requested_arrangements or any(
+        item not in ARRANGEMENTS for item in requested_arrangements
+    ):
+        raise ValueError(f"arrangements must contain values from {ARRANGEMENTS}")
+    requested_arrangement = requested_arrangements[0]
 
     if scale is not None and not float(scale) > 0:
         # `not x > 0` rather than `x <= 0` so NaN is refused: `nan <= 0` is False, and a NaN
@@ -1140,6 +1149,7 @@ def choose_scale(
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
+            arrangement=requested_arrangement,
         ):
             if advisories is not None:
                 advisories.append(
@@ -1155,7 +1165,7 @@ def choose_scale(
                 scale,
                 page,
             )
-        return float(scale), pw, ph, tb
+        return ScalePick(float(scale), pw, ph, tb, arrangement=requested_arrangement)
     if page is not None:
         pw, ph, tb = _parse_page(page)
         tb = title_block_width if title_block_width is not None else tb
@@ -1246,7 +1256,7 @@ def choose_scale(
     # `arrangements` restricts the fourth dimension of the choice. The requirement gate in
     # `builder` uses it to re-run a build under the preferred arrangement alone, so that a
     # candidate which lost a requirement can be compared against one that could not have.
-    allowed = ARRANGEMENTS if arrangements is None else tuple(arrangements)
+    allowed = requested_arrangements
     preferred, alternatives = allowed[0], allowed[1:]
 
     # Pass 1 — the scale. Only the preferred arrangement may decide it.
@@ -1773,6 +1783,31 @@ def _layout_geometry(
         total_content_w = ortho_row_w
         x_offset = 0.0
 
+    if arrangement == "staggered-side" and has_side:
+        # Reserve the complete side-view ladder before the ISO is fitted.  Location
+        # dimensions are nested and therefore consume one outward tier each even when
+        # their one-dimensional support intervals do not overlap.
+        side_ladder_count = 0
+        if strips is not None and strips.scheme is not None:
+            side_ladder_count = sum(
+                demand.view == "side"
+                and demand.side == "above"
+                and demand.family != "feature_leader"
+                for demand in strips.scheme.demands
+            )
+        if side_ladder_count:
+            side_ladder_count = max(6, side_ladder_count)
+            tier = _FONT_SIZE + 2 * 2.0
+            sv = replace(
+                sv,
+                top=max(
+                    sv.top,
+                    _STRIP_GAP
+                    + side_ladder_count * tier
+                    + max(0, side_ladder_count - 1) * _STRIP_SPACING,
+                ),
+            )
+
     # Anchor the FV/PV column on the SHARED left corridor (col_left), not fv.left
     # alone: when the measured plan-view left band is the deeper of the two, the
     # column must clear it or PV slides left of the centred region — and off the
@@ -1794,6 +1829,11 @@ def _layout_geometry(
         FV_X, FV_Y = origin_x, origin_y
         PV_X, PV_Y = origin_x, origin_y + principal_origins["plan"][1]
         SV_X, SV_Y = origin_x + principal_origins["side"][0], origin_y
+    if arrangement == "staggered-side" and has_side:
+        # The title block is pinned. Place the complete side-view block immediately above
+        # it; later corridor construction receives this same resolved origin.
+        title_top = tb_bottom + _TB_H + DIM_PAD
+        SV_Y = title_top + sv.bottom + sv.hh
     RV_X = (origin_x + principal_origins["rear"][0]) if composed_origins else 0.0
     RV_Y = origin_y if composed_origins else 0.0
     # Keep the side geometry edge separate from the packed outer footprint.  The

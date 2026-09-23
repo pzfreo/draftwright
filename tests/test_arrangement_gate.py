@@ -33,7 +33,7 @@ import draftwright.builder as builder_mod
 import draftwright.compose as compose_mod
 from draftwright import build_drawing
 from draftwright.compose import _layout_geometry, choose_scale
-from draftwright.view_plan import ARRANGEMENTS, ScalePick, arrangement_of
+from draftwright.view_plan import ARRANGEMENTS, AUTOMATIC_ARRANGEMENTS, ScalePick, arrangement_of
 
 A4 = (297.0, 210.0, 120.0)
 A3 = (420.0, 297.0, 150.0)
@@ -76,6 +76,15 @@ def _lint_codes(drawing):
 
 
 class TestTheAlternativeArrangementIsRealGeometry:
+    def test_staggered_side_places_side_geometry_above_the_title_block(self):
+        geometry = _geom("staggered-side", page=A3, size=(800.0, 450.0, 150.0))
+
+        assert geometry.SV_Y - geometry.fv_hh >= 57.5
+
+    def test_staggered_side_is_not_an_automatic_candidate_yet(self):
+        assert "staggered-side" in ARRANGEMENTS
+        assert "staggered-side" not in AUTOMATIC_ARRANGEMENTS
+
     def test_columns_does_not_fit_a4_and_stacked_iso_does(self):
         # The precondition the module rests on: a case where the two disagree. Without it
         # everything below would pass vacuously.
@@ -121,6 +130,18 @@ class TestTheDecisionIsMadeOnceAndCarried:
             arrangement_of(choose_scale(90.0, 60.0, 20.0, arrangements=ONLY_PREFERRED))
             == (ARRANGEMENTS[0])
         )
+
+    def test_fixed_scale_and_page_carry_the_requested_arrangement(self):
+        pick = choose_scale(
+            90.0,
+            60.0,
+            20.0,
+            scale=0.2,
+            page="A3",
+            arrangements=("staggered-side",),
+        )
+
+        assert arrangement_of(pick) == "staggered-side"
 
     def test_placement_composes_under_the_carried_arrangement(self):
         # The sheet is the evidence: A4 is only reachable under `stacked-iso`, so a placement

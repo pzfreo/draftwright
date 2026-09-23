@@ -3080,8 +3080,18 @@ def build_drawing(
 
     requested_scale = float(scale)
     automatic_view_policy = views_are_automatic and _views is None
+    experimental_arrangement = os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT")
+    arrangements = None
+    if experimental_arrangement is not None:
+        if experimental_arrangement not in ARRANGEMENTS:
+            raise ValueError(
+                f"experimental arrangement must be one of {ARRANGEMENTS}, "
+                f"got {experimental_arrangement!r}"
+            )
+        arrangements = (experimental_arrangement,)
     drawing = _build(
         requested_scale,
+        arrangements=arrangements,
         views=_views,
         select_automatic_views=automatic_view_policy,
     )
