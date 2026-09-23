@@ -92,6 +92,14 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # test reads the pure helper directly (like _bore_span_offsets above).
         ("from_model", "_diameter_step_anchor"),
         ("from_model", "_renderable_pmi_records"),
+        # #1797: these candidate constructors and the bounded sheet route are pure layout
+        # helpers.  Their failure cases (linear dimensions must not become leaders; an
+        # existing shaft must reject a crossing route) cannot be isolated after the full
+        # corridor solve has selected and placed a candidate, so mutation-relevant coverage
+        # exercises the geometry boundary directly.
+        ("from_model", "_pmi_dim_spec"),
+        ("from_model", "_pmi_leader_spec"),
+        ("from_model", "_sheet_leader_fallback"),
         ("holes", "_legible_locations"),
         # _leader_hits (#367) composes the pure rendered-ink primitive with the real
         # Leader label footprint. Its sub-millimetre arrow/shaft counterexamples cannot
