@@ -3,6 +3,7 @@ from dataclasses import replace
 import pytest
 from build123d import Box
 
+from draftwright import build_drawing
 from draftwright.compose import StripDepths, _measure_strips
 from draftwright.layout_scheme import (
     AnnotationDemand,
@@ -85,6 +86,18 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
     ]
     assert [(item.view, item.side) for item in report.over_reserved] == [("front", "left")]
     assert report.to_dict()["under_reserved"] == 2
+
+
+def test_completed_drawing_exposes_shadow_report_without_influencing_layout():
+    model = _model()
+    drawing = build_drawing(Box(100, 60, 20), model=model, auto_dims=False)
+
+    decision = drawing.annotation_scheme_decision
+    assert decision["status"] == "shadow"
+    assert decision["influenced_layout"] is False
+    assert decision["scale"] == drawing.scale
+    assert decision["unplanned_count"] == 1
+    assert decision["corridors"]
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):

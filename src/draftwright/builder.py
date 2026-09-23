@@ -544,6 +544,11 @@ def _assemble(
         assembly=assembly,
         reproducible=reproducible,
     )
+    dwg.annotation_scheme_decision = {
+        "status": "shadow",
+        "influenced_layout": False,
+        **a.layout_strips.annotation_scheme_shadow_report(a.SCALE).to_dict(),
+    }
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
