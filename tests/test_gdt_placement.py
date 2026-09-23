@@ -309,6 +309,27 @@ def test_wide_frame_in_narrow_strip_relaxes_not_overshoots():
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]  # never overshoots
 
 
+def test_full_adjacent_strips_fall_back_to_clear_sheet_space(monkeypatch):
+    """A required frame may use the sheet after every adjacent strip is exhausted."""
+    import draftwright.annotations.from_model as from_model
+
+    monkeypatch.setattr(from_model, "carve_free_position", lambda *_args, **_kwargs: None)
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="position",
+        tolerance="0.1",
+        view="plan",
+        side="left",
+        datums=("A", "B"),
+    )
+    dwg = _build(frame)
+
+    assert "m_gdt0" in dwg.annotations()
+    assert [i for i in dwg.registry.issues if i.code == "gdt_sheet_fallback"]
+    assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
+    assert not [i for i in dwg.lint() if i.code == "annotation_out_of_bounds"]
+
+
 def test_note_relaxes_side_when_requested_strip_full():
     # #841 confirmed-behaviour #2 / outcome C: an anchored note whose requested view/side strip
     # has no room must NOT silently drop — it auto-relaxes to a strip that fits (with a
