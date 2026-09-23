@@ -125,6 +125,12 @@ def test_scheme_collapses_compound_feature_leader_to_one_natural_route():
     assert leaders[0].identity == "auto:0:feature_leader"
     assert (leaders[0].view, leaders[0].side) == ("plan", "right")
     assert leaders[0].model_interval is None
+    assert leaders[0].dedicated_lane is False
+    lane_plan = pack_estimated_annotation_lanes(scheme, scale=1, font_size=2.5, padding=1)
+    leader_corridor = lane_plan.corridor("plan", "right")
+    assert leader_corridor is not None
+    assert leader_corridor.lane_count == 0
+    assert leader_corridor.shared_depth == pytest.approx(20.1)
 
 
 def test_scheme_does_not_route_compound_leader_to_missing_side_left_strip():
@@ -132,6 +138,7 @@ def test_scheme_does_not_route_compound_leader_to_missing_side_left_strip():
 
     leaders = [demand for demand in scheme.demands if demand.family == "feature_leader"]
     assert [(leader.view, leader.side) for leader in leaders] == [("side", "right")]
+    assert leaders[0].dedicated_lane is False
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):

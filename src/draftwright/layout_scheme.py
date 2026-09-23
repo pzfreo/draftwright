@@ -33,6 +33,7 @@ class AnnotationDemand:
     model_site: tuple[float, float, float]
     model_interval: tuple[float, float] | None = None
     estimated_ink_em: tuple[float, float] = (1.0, 1.0)
+    dedicated_lane: bool = True
 
     def estimated_paper_span(self, font_size: float, padding: float = 0.0) -> float:
         """Estimate along-corridor ink in page mm without constructing render geometry."""
@@ -42,6 +43,16 @@ class AnnotationDemand:
         if not math.isfinite(padding) or padding < 0:
             raise ValueError("annotation padding must be finite and non-negative")
         axis = 0 if self.side in {"above", "below"} else 1
+        return self.estimated_ink_em[axis] * font_size + 2 * padding
+
+    def estimated_paper_depth(self, font_size: float, padding: float = 0.0) -> float:
+        """Estimate perpendicular corridor depth for a shared leader gutter."""
+
+        if not math.isfinite(font_size) or font_size <= 0:
+            raise ValueError("annotation font size must be finite and positive")
+        if not math.isfinite(padding) or padding < 0:
+            raise ValueError("annotation padding must be finite and non-negative")
+        axis = 1 if self.side in {"above", "below"} else 0
         return self.estimated_ink_em[axis] * font_size + 2 * padding
 
 
@@ -88,6 +99,7 @@ class AnnotationScheme:
                         list(demand.model_interval) if demand.model_interval is not None else None
                     ),
                     "estimated_ink_em": list(demand.estimated_ink_em),
+                    "dedicated_lane": demand.dedicated_lane,
                 }
                 for demand in self.demands
             ],
@@ -120,6 +132,7 @@ class CorridorLanePlan:
     view: str
     side: str
     reservations: tuple[LaneReservation, ...]
+    shared_depth: float = 0.0
 
     @property
     def lane_count(self) -> int:
@@ -155,12 +168,16 @@ class AnnotationLanePlan:
             if not math.isfinite(value) or (value <= 0 if positive else value < 0):
                 qualifier = "positive" if positive else "non-negative"
                 raise ValueError(f"annotation lane {name} must be finite and {qualifier}")
-        return {
-            (corridor.view, corridor.side): gap
-            + corridor.lane_count * tier
-            + max(0, corridor.lane_count - 1) * spacing
-            for corridor in self.corridors
-        }
+        depths = {}
+        for corridor in self.corridors:
+            dedicated = (
+                gap + corridor.lane_count * tier + max(0, corridor.lane_count - 1) * spacing
+                if corridor.lane_count
+                else 0.0
+            )
+            shared = gap + corridor.shared_depth if corridor.shared_depth else 0.0
+            depths[(corridor.view, corridor.side)] = max(dedicated, shared)
+        return depths
 
 
 def pack_annotation_lanes(
@@ -168,6 +185,7 @@ def pack_annotation_lanes(
     *,
     scale: float,
     span_for: Callable[[AnnotationDemand], float],
+    depth_for: Callable[[AnnotationDemand], float] | None = None,
     clearance: float = 0.0,
 ) -> AnnotationLanePlan:
     """Pack corridor demand into the fewest first-fit lanes.
@@ -184,12 +202,16 @@ def pack_annotation_lanes(
         raise ValueError("annotation lane clearance must be finite and non-negative")
 
     grouped: dict[tuple[str, str], list[tuple[float, float, AnnotationDemand]]] = {}
+    shared: dict[tuple[str, str], list[AnnotationDemand]] = {}
     axis_index = {"x": 0, "y": 1, "z": 2}
     for demand in scheme.demands:
         if demand.view not in VIEW_AXES or demand.side not in _SIDES:
             raise ValueError(
                 f"annotation route for {demand.identity!r} must name a principal view and side"
             )
+        if not demand.dedicated_lane:
+            shared.setdefault((demand.view, demand.side), []).append(demand)
+            continue
         span = float(span_for(demand))
         if not math.isfinite(span) or span <= 0:
             raise ValueError(
@@ -223,7 +245,8 @@ def pack_annotation_lanes(
         )
 
     corridors: list[CorridorLanePlan] = []
-    for (view, side), intervals in sorted(grouped.items()):
+    for view, side in sorted(set(grouped) | set(shared)):
+        intervals = grouped.get((view, side), [])
         lane_ends: list[float] = []
         reservations: list[LaneReservation] = []
         for start, end, demand in sorted(
@@ -242,7 +265,15 @@ def pack_annotation_lanes(
             else:
                 lane_ends[lane] = end
             reservations.append(LaneReservation(demand, start, end, lane))
-        corridors.append(CorridorLanePlan(view, side, tuple(reservations)))
+        shared_depth = (
+            max(
+                (float(depth_for(demand)) for demand in shared.get((view, side), ())),
+                default=0.0,
+            )
+            if depth_for is not None
+            else 0.0
+        )
+        corridors.append(CorridorLanePlan(view, side, tuple(reservations), shared_depth))
     return AnnotationLanePlan(tuple(corridors))
 
 
@@ -260,6 +291,7 @@ def pack_estimated_annotation_lanes(
         scheme,
         scale=scale,
         span_for=lambda demand: demand.estimated_paper_span(font_size, padding),
+        depth_for=lambda demand: demand.estimated_paper_depth(font_size, padding),
         clearance=clearance,
     )
 
@@ -414,9 +446,17 @@ def _compound_leader_route(model, group, members, corridor_loads) -> tuple[str, 
     return view, min(candidates)[3]
 
 
-def _automatic_demand(identity, family, feature_index, feature, members, route):
+def _automatic_demand(
+    identity, family, feature_index, feature, members, route, *, dedicated_lane=True
+):
     view, side = route
     label = " ".join(f"{member.param.value:g}" for member in members)
+    ink = _text_ink_em(label)
+    if family == "feature_leader":
+        # Quantity/diameter/depth/tolerance syntax is supplied by the renderer rather than
+        # the numeric dimension members. Reserve a conservative label tail without creating
+        # one perpendicular lane per callout.
+        ink = (ink[0] + 6.0, ink[1])
     return AnnotationDemand(
         identity,
         family,
@@ -425,7 +465,8 @@ def _automatic_demand(identity, family, feature_index, feature, members, route):
         feature_index,
         _site(feature),
         _automatic_support(members, view, side),
-        _text_ink_em(label),
+        ink,
+        dedicated_lane,
     )
 
 
@@ -456,6 +497,9 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     "compound feature leader has no single typed corridor",
                 )
             else:
+                explicitly_exterior = any(
+                    member.side is not None or group.side is not None for member in leader_members
+                )
                 demand = _automatic_demand(
                     identity,
                     "feature_leader",
@@ -463,6 +507,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     group.feature,
                     leader_members,
                     route,
+                    dedicated_lane=explicitly_exterior,
                 )
                 corridor_loads[(demand.view, demand.side)] = (
                     corridor_loads.get((demand.view, demand.side), 0) + 1
