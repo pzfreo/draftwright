@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+"""Build a fixed-sheet baseline/candidate pair and enforce semantic content parity."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from collections import Counter
+from dataclasses import replace
+from importlib import import_module
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+
+def _python() -> str:
+    candidate = _ROOT / ".venv" / "bin" / "python"
+    return str(candidate if candidate.is_file() else Path(sys.executable))
+
+
+def _cap_scheme_strips(scale: float) -> None:
+    analysis = import_module("draftwright.analysis")
+    legacy_measure = analysis._measure_strips
+
+    def measured(*args, **kwargs):
+        strips = legacy_measure(*args, **kwargs)
+        planned = strips.planned_corridor_depths(scale)
+
+        def cap(current, *routes):
+            values = [planned[route] for route in routes if route in planned]
+            return min(current, max(values)) if current > 0 and values else current
+
+        return replace(
+            strips,
+            right=cap(strips.right, ("front", "right"), ("plan", "right")),
+            left=cap(strips.left, ("front", "left"), ("plan", "left")),
+            top=cap(strips.top, ("plan", "above")),
+            fv_top=cap(strips.fv_top, ("front", "above")),
+            fv_bottom=cap(strips.fv_bottom, ("front", "below")),
+            pv_authored_top=cap(strips.pv_authored_top, ("plan", "above")),
+            pv_bottom=cap(strips.pv_bottom, ("plan", "below")),
+            sv_top=cap(strips.sv_top, ("side", "above")),
+            sv_bottom=cap(strips.sv_bottom, ("side", "below")),
+            sv_right=cap(strips.sv_right, ("side", "right")),
+            rv_right=cap(strips.rv_right, ("rear", "right")),
+        )
+
+    analysis._measure_strips = measured
+
+
+def _manifest(drawing) -> dict:
+    annotations = {}
+    for name, annotation in drawing.iter_annotations():
+        annotations[name] = {
+            "type": type(annotation).__name__,
+            "label": str(getattr(annotation, "label", "")),
+            "view": drawing.view_of(name),
+            "region": getattr(annotation, "_dw_candidate_region", None),
+        }
+    lint = drawing.lint_summary()
+    completeness = lint["quality"]["completeness"]
+    drops = {
+        code: count
+        for code, count in lint["by_code"].items()
+        if "drop" in code or "withheld" in code or code == "placement_unsatisfiable"
+    }
+    return {
+        "annotations": annotations,
+        "interior_dimensions": sorted(
+            name
+            for name, annotation in drawing.iter_annotations()
+            if "Dimension" in type(annotation).__name__
+            and getattr(annotation, "_dw_candidate_region", None) == "interior"
+        ),
+        "coverage": {
+            key: completeness.get(key)
+            for key in ("requirements", "placed", "missing", "unverifiable", "unsupported")
+        },
+        "drops": drops,
+        "lint": {"errors": lint["errors"], "warnings": lint["warnings"]},
+    }
+
+
+def _worker(args) -> int:
+    if args.mode == "candidate":
+        _cap_scheme_strips(args.scale)
+    from draftwright import build_drawing
+
+    output = Path(args.output)
+    drawing = build_drawing(
+        Path(args.source),
+        out=str(output),
+        title=args.title,
+        number=args.number,
+        pmi="annotate",
+        page=args.page,
+        scale=args.scale,
+        scale_policy="permissive",
+        _views=("front", "plan", "side"),
+        _include_iso=True,
+    )
+    paths = drawing.export(str(output), formats=("pdf", "png"))
+    print(
+        json.dumps(
+            {
+                "mode": args.mode,
+                "paths": {key: str(value) for key, value in paths.items()},
+                "page": [drawing.page_w, drawing.page_h],
+                "scale": drawing.scale,
+                "views": list(drawing.views),
+                "manifest": _manifest(drawing),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _run_worker(args, mode: str, output: Path) -> dict:
+    command = [
+        _python(),
+        str(Path(__file__).resolve()),
+        "--worker",
+        "--mode",
+        mode,
+        "--source",
+        str(args.source),
+        "--output",
+        str(output),
+        "--page",
+        args.page,
+        "--scale",
+        str(args.scale),
+        "--title",
+        args.title,
+        "--number",
+        args.number,
+    ]
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if completed.returncode:
+        raise RuntimeError(f"{mode} build failed:\n{completed.stderr}")
+    return json.loads(completed.stdout)
+
+
+def _compare(baseline: dict, candidate: dict) -> dict:
+    before = baseline["manifest"]
+    after = candidate["manifest"]
+    before_annotations = before["annotations"]
+    after_annotations = after["annotations"]
+
+    def semantic_counts(annotations):
+        return Counter(
+            json.dumps(annotation, sort_keys=True, separators=(",", ":"))
+            for annotation in annotations.values()
+        )
+
+    before_semantics = semantic_counts(before_annotations)
+    after_semantics = semantic_counts(after_annotations)
+
+    def expand(delta):
+        return [json.loads(item) for item, count in sorted(delta.items()) for _ in range(count)]
+
+    parity = {
+        "missing": expand(before_semantics - after_semantics),
+        "added": expand(after_semantics - before_semantics),
+        "renamed_or_reordered": sorted(
+            name
+            for name in set(before_annotations) & set(after_annotations)
+            if before_annotations[name] != after_annotations[name]
+        ),
+        "coverage_equal": before["coverage"] == after["coverage"],
+        "drops_equal": before["drops"] == after["drops"],
+        "candidate_interior_dimensions": after["interior_dimensions"],
+    }
+    parity["passed"] = (
+        not any(
+            (
+                parity["missing"],
+                parity["added"],
+                parity["candidate_interior_dimensions"],
+            )
+        )
+        and parity["coverage_equal"]
+        and parity["drops_equal"]
+    )
+    return {"baseline": baseline, "candidate": candidate, "parity": parity}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--page", default="A3")
+    parser.add_argument("--scale", type=float, default=0.2)
+    parser.add_argument("--title", default="CTC-01")
+    parser.add_argument("--number", default="NIST-CTC-01")
+    parser.add_argument("--worker", action="store_true")
+    parser.add_argument("--mode", choices=("baseline", "candidate"), default="baseline")
+    args = parser.parse_args()
+    if args.worker:
+        return _worker(args)
+    baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
+    candidate = _run_worker(
+        args, "candidate", args.output.with_name(args.output.name + "-candidate")
+    )
+    result = _compare(baseline, candidate)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return int(not result["parity"]["passed"])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
