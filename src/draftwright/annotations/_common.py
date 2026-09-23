@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from build123d import FontStyle
-from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Note, SafeDimension
+from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Leader, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
     _STRIP_SPACING,
@@ -1862,10 +1862,44 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
         ):
             return False
         if annotation_segments:
-            if not crossable_strokes and any(
-                _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
-                for start, end in candidate_segments
-                for fixed_start, fixed_end in annotation_segments
+            candidate_tip = getattr(candidate, "tip", None)
+            annotation_tip = getattr(annotation, "tip", None)
+            candidate_elbow = getattr(candidate, "elbow", None)
+            annotation_elbow = getattr(annotation, "elbow", None)
+            shares_leader_trunk = (
+                type(candidate) is Leader
+                and type(annotation) is Leader
+                and candidate_tip is not None
+                and annotation_tip is not None
+                and candidate_elbow is not None
+                and annotation_elbow is not None
+                and math.dist(tuple(candidate_tip[:2]), tuple(annotation_tip[:2])) <= 1e-6
+                and abs(
+                    (candidate_elbow[0] - candidate_tip[0])
+                    * (annotation_elbow[1] - annotation_tip[1])
+                    - (candidate_elbow[1] - candidate_tip[1])
+                    * (annotation_elbow[0] - annotation_tip[0])
+                )
+                <= 1e-6
+                and (
+                    (candidate_elbow[0] - candidate_tip[0])
+                    * (annotation_elbow[0] - annotation_tip[0])
+                    + (candidate_elbow[1] - candidate_tip[1])
+                    * (annotation_elbow[1] - annotation_tip[1])
+                )
+                > 0.0
+            )
+            # Collinear, same-direction leaders from one physical target form a trunk with
+            # separate shelves. Their label-region checks above remain authoritative. Exact
+            # type checks exclude routed leaders, whose paths can cross again away from the tip.
+            if (
+                not crossable_strokes
+                and not shares_leader_trunk
+                and any(
+                    _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                    for start, end in candidate_segments
+                    for fixed_start, fixed_end in annotation_segments
+                )
             ):
                 return False
             continue

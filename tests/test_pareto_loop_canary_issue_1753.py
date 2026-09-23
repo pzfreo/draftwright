@@ -122,6 +122,23 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
             formats=("svg",),
         )
     )
+    source = baseline_script.read_text(encoding="utf-8")
+    marker = "drawing = sheet.build()"
+    assert source.count(marker) == 1
+    baseline_script.write_text(
+        source.replace(
+            marker,
+            marker
+            + "\n# #1756: co-sited datum B / perpendicularity leaders stay local after final solve."
+            + "\nfor _name in ('m_gdt4', 'm_gdt9'):"
+            + "\n    _leader = drawing.get_annotation(_name)"
+            + "\n    _points = (_leader.tip, *getattr(_leader, 'bends', ()), _leader.elbow)"
+            + "\n    _length = sum(((b[0]-a[0])**2 + (b[1]-a[1])**2)**0.5 "
+            + "for a, b in zip(_points, _points[1:]))"
+            + "\n    assert _length < 45.0, (_name, _length, _points)",
+        ),
+        encoding="utf-8",
+    )
     baseline = _run(baseline_script, tmp_path / "baseline-trace")
     assert baseline["producer"]["quiddity"] == "0.3.3"
     assert baseline["source"]["sha256"] == _FIXTURE_SHA256

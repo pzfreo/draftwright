@@ -8,6 +8,7 @@ never overlap, a full strip drops honestly (a warning, not a silent vanish), and
 placement stays lint-clean.
 """
 
+import math
 from collections import defaultdict
 from pathlib import Path
 from xml.etree import ElementTree
@@ -38,6 +39,11 @@ def _fcf_height():
     (NOT the leader+frame box). Two stacked frames must sit at least this far apart."""
     g = FeatureControlFrame("position", "0.1", datums=("A",), draft=Draft(font_size=3.0))
     return g.bounding_box().size.Y
+
+
+def _leader_path_length(leader):
+    points = (leader.tip, *getattr(leader, "bends", ()), leader.elbow)
+    return sum(math.dist(left[:2], right[:2]) for left, right in zip(points, points[1:]))
 
 
 def test_control_frame_places_first_class():
@@ -179,6 +185,38 @@ def test_datum_compacts_through_empty_part_of_conservative_obstacle(monkeypatch)
     # legal below-view tier, while retaining the declaration's registry identity.
     assert placed.tip[1] - placed.elbow[1] < 30.0
     assert dwg.registry.names_for_feature(datum) == ["m_gdt0"]
+
+
+def test_cosited_gdt_leaders_compact_as_a_stack(monkeypatch):
+    """A sibling's shared shaft must not pin both labels at their old remote tiers (#1756)."""
+    from draftwright.annotations import _common
+
+    real_obstacles = _common.strip_obstacles
+
+    def with_empty_hull(drawing, view=None, *, crossable=(), named=False):
+        obstacles = real_obstacles(drawing, view=view, crossable=crossable, named=named)
+        if view != "front":
+            return obstacles
+        hull = (30.0, 42.0, 115.0, 78.0)
+        return [*obstacles, ("dimension:empty-hull", hull) if named else hull]
+
+    monkeypatch.setattr(_common, "strip_obstacles", with_empty_hull)
+    origin = Frame((30.0, 0.0, 0.0), "z")
+    datum = DatumRef(frame=origin, letter="B", view="front", side="below")
+    control = ControlFrame(
+        frame=origin,
+        characteristic="perpendicularity",
+        tolerance="0.1",
+        view="front",
+        side="below",
+        datums=("B",),
+    )
+    dwg = _build(datum, control)
+
+    leaders = [dwg.get_annotation(name) for name in ("m_gdt0", "m_gdt1")]
+    lengths = [_leader_path_length(leader) for leader in leaders]
+    assert max(lengths) < 45.0, lengths
+    assert not [issue for issue in dwg.lint() if issue.code == "annotation_ink_overlap"]
 
 
 def test_stacked_frames_reserve_real_footprint():
