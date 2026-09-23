@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Run annotation-scheme shadow analysis over STEP files in isolated workers."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import resource
+import subprocess
+import sys
+import time
+import traceback
+from pathlib import Path
+
+
+def _analyse_one(path: str, pmi: str) -> dict:
+    """Analyse one document in a disposable process so OCC memory cannot accumulate."""
+
+    started = time.perf_counter()
+    try:
+        from draftwright.builder import _detect_part_model_analysis
+
+        model, analysis = _detect_part_model_analysis(Path(path), pmi=pmi)
+        report = analysis.layout_strips.annotation_scheme_shadow_report(analysis.SCALE)
+        result = {
+            "path": path,
+            "status": "ok",
+            "elapsed_seconds": time.perf_counter() - started,
+            "peak_rss_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
+            "feature_count": len(model.features),
+            "scale": analysis.SCALE,
+            "page": [analysis.PAGE_W, analysis.PAGE_H],
+            "shadow": report.to_dict(),
+        }
+    except Exception as exc:  # worker boundary returns ordinary analysis failures as data
+        result = {
+            "path": path,
+            "status": "error",
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+    return result
+
+
+def analyse_isolated(path: Path, *, pmi: str, timeout: float) -> dict:
+    """Return one JSON-friendly result, killing a worker that exceeds its budget."""
+
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--worker",
+        str(path),
+        "--pmi",
+        pmi,
+    ]
+    environment = os.environ.copy()
+    environment.setdefault("MALLOC_ARENA_MAX", "2")
+    environment.setdefault("PYTHONMALLOC", "malloc")
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            env=environment,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "path": str(path),
+            "status": "timeout",
+            "error": f"analysis exceeded {timeout:g} seconds",
+        }
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {
+            "path": str(path),
+            "status": "error",
+            "error": f"worker exited with status {completed.returncode}",
+            "stderr": completed.stderr,
+        }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("paths", nargs="+", type=Path)
+    parser.add_argument("--pmi", choices=("off", "report", "annotate"), default="annotate")
+    parser.add_argument("--timeout", type=float, default=120.0, help="seconds allowed per file")
+    parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
+
+    if args.worker:
+        if len(args.paths) != 1:
+            parser.error("--worker requires exactly one path")
+        result = _analyse_one(str(args.paths[0]), args.pmi)
+        print(json.dumps(result, sort_keys=True))
+        return int(result["status"] != "ok")
+
+    results = [analyse_isolated(path, pmi=args.pmi, timeout=args.timeout) for path in args.paths]
+    print(json.dumps(results, indent=2, sort_keys=True))
+    return int(any(result["status"] != "ok" for result in results))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
