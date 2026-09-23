@@ -22,6 +22,7 @@ from build123d import FontStyle
 from build123d_drafting.helpers import DEFAULT_FONT_PATH, Dimension, Leader, Note, SafeDimension
 
 from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
+    _DIMENSION_STRIP_SPACING,
     _STRIP_SPACING,
     _analysis_margins,
     _anno_box,
@@ -1708,7 +1709,7 @@ def carve_free_segments(lo, hi, intervals, pad):
     return free
 
 
-def corridor_blockers(dwg, view):
+def corridor_blockers(dwg, view, *, exact_leaders=False):
     """Boxes of annotations a dimension's *witness corridor* (the span from the view
     edge out to its dim line) must not cross — leaders/callouts, the section hatch, the
     title block: everything that is neither a datum-chained ``Dimension`` nor a
@@ -1721,7 +1722,12 @@ def corridor_blockers(dwg, view):
     full footprint hits one of these must route to another view, not overprint it (ISO
     128). Sibling location/envelope dims are excluded: they chain off the shared datum
     and legitimately share the corridor. View scoping mirrors :func:`strip_obstacles`
-    (this view's own annotations + drawing-level occupants that no ortho view owns)."""
+    (this view's own annotations + drawing-level occupants that no ortho view owns).
+
+    ``exact_leaders`` omits leaders that expose real segment geometry. The caller must then
+    validate its finally-built candidate against that ink; this avoids treating the empty
+    portion of a leader's bounding rectangle as a physical obstruction.
+    """
     cache = getattr(dwg, "box_cache", None)  # the drawing's one box memo (#1138)
     boxes = []
     for name, o in dwg.iter_annotations():
@@ -1729,7 +1735,11 @@ def corridor_blockers(dwg, view):
             owner = dwg.view_of(name)
             if owner is not None and owner != view:
                 continue
-        if isinstance(o, (Dimension, SafeDimension)) or type(o).__name__ in CROSSABLE_TYPES:
+        if (
+            isinstance(o, (Dimension, SafeDimension))
+            or type(o).__name__ in CROSSABLE_TYPES
+            or (exact_leaders and isinstance(o, Leader) and segments_of(o))
+        ):
             continue  # datum-chained dims share the corridor; centre lines are crossable
         bb = _geom_box(o, cache)
         if bb is not None:
@@ -1798,7 +1808,7 @@ def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
     )
 
 
-def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
+def annotation_ink_clear(dwg, candidate, *, view=None, additional=(), against=None) -> bool:
     """Whether *candidate* clears exact decomposable ink and conservative fixed furniture.
 
     A diagonal dimension cannot use the strip system's conservative AABB occupancy as its
@@ -1809,6 +1819,8 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
     may not intersect. Dimension/dimension and centre-furniture intersections keep their
     existing explicit exemptions. An annotation with no trustworthy segments is not empty:
     tables, title furniture and other compounds retain their conservative component boxes.
+    ``against`` optionally supplies a restricted ``(name, annotation)`` sequence for a caller
+    that already handled every other obstacle conservatively.
     """
     candidate_segments = segments_of(candidate)
     try:
@@ -1822,7 +1834,34 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
     )
     if candidate_region is None:
         return False
-    for name, annotation in chain(dwg.iter_annotations(), ((None, item) for item in additional)):
+
+    def _collinear(first_start, first_end, second_start, second_end):
+        """Whether two finite segments lie on one infinite line.
+
+        A dimension witness may legitimately continue along a callout shaft at their shared
+        feature station. That reads as one clean construction line on the sheet; only a
+        transverse crossing or label strike is ambiguous.
+        """
+
+        def cross(origin, first, second):
+            return (first[0] - origin[0]) * (second[1] - origin[1]) - (first[1] - origin[1]) * (
+                second[0] - origin[0]
+            )
+
+        return (
+            abs(cross(first_start, first_end, second_start)) <= 1e-9
+            and abs(cross(first_start, first_end, second_end)) <= 1e-9
+        )
+
+    def _point_on_segment(point, start, end):
+        return (
+            _collinear(start, end, point, point)
+            and min(start[0], end[0]) - 1e-9 <= point[0] <= max(start[0], end[0]) + 1e-9
+            and min(start[1], end[1]) - 1e-9 <= point[1] <= max(start[1], end[1]) + 1e-9
+        )
+
+    placed = dwg.iter_annotations() if against is None else against
+    for name, annotation in chain(placed, ((None, item) for item in additional)):
         owner = dwg.view_of(name) if name is not None else view
         if view is not None and owner is not None and owner != view:
             continue
@@ -1892,11 +1931,36 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
             # Collinear, same-direction leaders from one physical target form a trunk with
             # separate shelves. Their label-region checks above remain authoritative. Exact
             # type checks exclude routed leaders, whose paths can cross again away from the tip.
+            leader_continuation_elbow = None
+            if isinstance(candidate, (Dimension, SafeDimension)) and type(annotation) is Leader:
+                tip = getattr(annotation, "tip", None)
+                elbow = getattr(annotation, "elbow", None)
+                if (
+                    tip is not None
+                    and elbow is not None
+                    and any(
+                        _collinear(start, end, tip, elbow) for start, end in candidate_segments
+                    )
+                ):
+                    leader_continuation_elbow = tuple(elbow[:2])
+
+            def _dimension_leader_join(start, end, fixed_start, fixed_end):
+                if leader_continuation_elbow is None:
+                    return False
+                if _collinear(start, end, fixed_start, fixed_end):
+                    return True
+                # The shelf may meet the continued witness at the leader elbow. A crossing
+                # farther along that shelf is still rejected pair-by-pair.
+                return leader_continuation_elbow in (fixed_start, fixed_end) and _point_on_segment(
+                    leader_continuation_elbow, start, end
+                )
+
             if (
                 not crossable_strokes
                 and not shares_leader_trunk
                 and any(
                     _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                    and not _dimension_leader_join(start, end, fixed_start, fixed_end)
                     for start, end in candidate_segments
                     for fixed_start, fixed_end in annotation_segments
                 )
@@ -3356,31 +3420,45 @@ def place_strip_candidates(
     lo, hi, inner = strip_free_span(strip)
     idx = 1 if axis == "y" else 0
 
+    # Measure every candidate once at a known line position. Besides feeding the prediction
+    # model below, this gives the real outward ink extent used at the sheet boundary.
+    probe_boxes = {
+        name: (footprints[name](lo) if name in (footprints or {}) else _geom_box(build(lo)))
+        for name, build in cands
+    }
+
     # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
     # the dim-LINE position, but the label extends outward from it — so without this the last
     # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
-    # Strip.allocate which checked `start + tier <= outer_limit` (#338 review). A plain dim's
-    # label extends one `tier` outward (one-sided). A GD&T glyph (#61) hangs off a Leader that
+    # Strip.allocate which checked `start + tier <= outer_limit` (#338 review). A measured
+    # dimension reserves its actual outward ink; an opaque candidate falls back to one tier.
+    # A GD&T glyph (#61) hangs off a Leader that
     # CENTRES it on the elbow for an above/below strip (real outward extent = height/2) but
     # places it one-sided for a left/right strip (extent = full width). Reserve the MAX real
     # outward extent among these candidates — else a glyph wider than `tier` renders off the
     # sheet (annotation_out_of_bounds) instead of dropping when the strip is too narrow (ADR
-    # 0009 Amdt 7 fixed inter-candidate gaps but not this edge). With no `sizes` (every dim)
-    # this is `tier`, byte-identical. The strip edge is not an obstacle (obstacles carry their
-    # own footprint + pad), so only the boundary needs it.
+    # 0009 Amdt 7 fixed inter-candidate gaps but not this edge). The strip edge is not an
+    # obstacle (obstacles carry their own footprint + pad), so only the boundary needs it.
     def _outward(name):
         sz = (sizes or {}).get(name)
         if sz is None:
-            return tier  # a dim: one-sided tier reservation (unchanged)
+            box = probe_boxes.get(name)
+            if box is None:
+                return tier
+            return max(0.0, box[idx + 2] - lo if inner == lo else lo - box[idx])
         return sz[idx] if axis == "x" else sz[idx] / 2  # GD&T: one-sided (L/R) vs centred (A/B)
 
-    reserve = max([tier, *(_outward(n) for n, _ in cands)])
+    reserve = max(_outward(name) for name, _build in cands)
     if inner == lo:
         hi -= reserve
     else:
         lo += reserve
     perp = 0 if axis == "y" else 1  # the axis the dims do NOT stack along
-    pad = tier + strip.spacing  # min separation between stacked dim lines
+    # Plain dimensions need less air than GD&T frames and other explicitly-sized corridor
+    # occupants. A global reduction of ``Strip.spacing`` made stacked frames overlap; select
+    # the tighter pitch only for an all-dimension batch (``sizes`` is then empty).
+    ladder_spacing = strip.spacing if sizes else min(strip.spacing, _DIMENSION_STRIP_SPACING)
+    pad = tier + ladder_spacing  # min separation between stacked dim lines
     # Perpendicular band of these candidates. The 1-D carve projects obstacles onto the
     # stacking axis only, so an obstacle on ANOTHER strip of this view — disjoint in the
     # perpendicular axis, never actually touching — would falsely block (e.g. the overall
@@ -3399,10 +3477,6 @@ def place_strip_candidates(
     # (a prediction miss degrades to a later-segment retry, never a collision).
     # A candidate with an analytical *footprints* entry (#602) needs no probe build at
     # all — its box at any position is computed, not measured.
-    probe_boxes = {
-        name: (footprints[name](lo) if name in (footprints or {}) else _geom_box(build(lo)))
-        for name, build in cands
-    }
     pbands = [(b[perp], b[perp + 2]) for b in probe_boxes.values() if b is not None]
 
     def _predicted_box(name, pos):
@@ -3418,13 +3492,54 @@ def place_strip_candidates(
         box[idx + 2 if inner == lo else idx] += pos - lo
         return tuple(box)
 
-    if tp is None:
-        occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
-        owners = {}
-    else:  # tracing: same boxes, tagged with their owning annotation names (#736)
-        named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
-        occupied = [b for _, b in named]
-        owners = {id(b): n for n, b in named}
+    # Leaders have trustworthy public segment and label geometry.  Their decomposed AABBs are
+    # still deliberately conservative, but projecting those boxes across a whole 1-D strip
+    # turns empty space beside a shaft into a fictitious blocked ladder tier.  Keep such leaders
+    # out of the coarse carve and validate the finally-built dimension against their actual ink
+    # below.  Opaque furniture and annotations without segment metadata remain fail-closed boxes.
+    annotations = dict(dwg.iter_annotations())
+    all_named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
+    exact_leaders = [
+        (name, annotation)
+        for name, annotation in annotations.items()
+        if isinstance(annotation, Leader)
+        and segments_of(annotation)
+        and (dwg.view_of(name) in (None, view))
+    ]
+    stacking_sides = {"above", "below"} if axis == "y" else {"left", "right"}
+    exact_dimensions = [
+        (name, annotation)
+        for name, annotation in annotations.items()
+        if isinstance(annotation, (Dimension, SafeDimension))
+        and (dwg.view_of(name) in (None, view))
+        and getattr(getattr(annotation, "_dw_spec", None), "side", None) in stacking_sides
+    ]
+    exact_ink = [*exact_leaders, *exact_dimensions]
+    exact_names = {name for name, _annotation in exact_ink}
+    exact_boxes = [box for name, box in all_named if name in exact_names]
+    named = [(name, box) for name, box in all_named if name not in exact_names]
+
+    # A previously committed sibling dimension contributes its line station to the ladder,
+    # not every padded component box around its arrows and witnesses. Inflating those boxes by
+    # the full ladder pitch double-counted their ink extent, so a late mandatory overall extent
+    # could not append after the outermost rung even when its rendered label still fit the page.
+    # Exact label/ink validation below remains the safety net.
+    page_bounds = _drawing_bounds(dwg) if exact_dimensions else None
+    for name, dimension in exact_dimensions:
+        assert page_bounds is not None
+        spec = getattr(dimension, "_dw_spec", None)
+        if spec is None:
+            continue
+        if axis == "y":
+            sign = 1.0 if spec.side == "above" else -1.0
+            station = float(spec.p1[1]) + sign * float(spec.distance)
+            named.append((name, (page_bounds[0], station, page_bounds[2], station)))
+        else:
+            sign = 1.0 if spec.side == "right" else -1.0
+            station = float(spec.p1[0]) + sign * float(spec.distance)
+            named.append((name, (station, page_bounds[1], station, page_bounds[3])))
+    occupied = [box for _name, box in named]
+    owners = {id(box): name for name, box in named} if tp is not None else {}
     # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
     # carve below by design — but that makes the band prediction itself load-bearing: a
     # candidate whose real geometry exceeds its predicted band could land on one with no
@@ -3447,7 +3562,7 @@ def place_strip_candidates(
             for r in corner_reserves
             if r is not None and r[perp] < band_hi and r[perp + 2] > band_lo
         ]
-    blockers = () if force else corridor_blockers(dwg, view)
+    blockers = () if force else corridor_blockers(dwg, view, exact_leaders=bool(exact_leaders))
     # The title block (#1593). It is drawn near the end of `_PASS_SEQUENCE`, so it is
     # never in `occupied` above — but its box is fixed the moment the sheet is
     # (:func:`pending_title_block_box`), so a strip placer can honour it regardless.
@@ -3484,7 +3599,7 @@ def place_strip_candidates(
         tp["free_segments"] = [list(s) for s in segs]
     todo = list(cands)
 
-    def _real_box_conflict(name, real):
+    def _real_box_conflict(name, real, annotation=None):
         """Return the hard-obstacle reason for a built survivor, if any."""
         if real is None:
             return None
@@ -3497,6 +3612,18 @@ def place_strip_candidates(
             return "real_box_out_of_band"
         if _box_hits(real, keep_out):
             return "real_box_title_block"
+        if (
+            annotation is not None
+            and not force
+            and _box_hits(real, exact_boxes)
+            and not annotation_ink_clear(
+                dwg,
+                annotation,
+                view=view,
+                against=exact_ink,
+            )
+        ):
+            return "real_ink_leader_blocked"
         return None
 
     def _take_for_segment(items, n):
@@ -3610,7 +3737,7 @@ def place_strip_candidates(
         for (name, build), pos in accepted:
             dim = build(pos)
             real = _geom_box(dim)
-            if reason := _real_box_conflict(name, real):
+            if reason := _real_box_conflict(name, real, dim):
                 if tp is not None:
                     tp["rejected"].append({"name": name, "reason": reason})
                 rejected_total.append((name, build))
@@ -3651,7 +3778,7 @@ def place_strip_candidates(
                 *committed_names,
                 *(name for name, _dim_obj in solved if (anchored or {}).get(name, False)),
             },
-            perpendicular_step=tier + strip.spacing,
+            perpendicular_step=tier + ladder_spacing,
         )
         adjusted = adjusted_batch[len(committed) :]
         # A label shift normally stays inside the dimension's measured span and
@@ -3667,7 +3794,7 @@ def place_strip_candidates(
                 solved.append((name, dim))
                 continue
             real = _geom_box(dim)
-            solved.append((name, natural if _real_box_conflict(name, real) else dim))
+            solved.append((name, natural if _real_box_conflict(name, real, dim) else dim))
     # Some annotation ink can enclose large empty rectangles. After the shared
     # strip solve, try a bounded contraction using actual segments and labels
     # against both committed ink and this batch. Never move an anchored item.

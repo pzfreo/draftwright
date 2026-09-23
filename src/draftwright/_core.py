@@ -641,7 +641,11 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 # Y14.5, the FIRST dimension line sits furthest from the outline (clears the outline +
 # extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
 _STRIP_GAP = 10.0  # clearance between the view outline and the first dimension line
-_STRIP_SPACING = 2.5  # clear gap between successive parallel dimension lines (beyond the label)
+_STRIP_SPACING = 2.5  # clear gap between successive parallel annotations (beyond the label)
+# Plain dimension ladders can stack more tightly than GD&T frames and other tall corridor
+# occupants.  Keep this separate from ``Strip.spacing`` so reducing a ladder pitch cannot make
+# feature-control frames overlap.
+_DIMENSION_STRIP_SPACING = 1.0
 _BALLOON_RADIUS_FONT_FACTOR = 1.5
 
 
