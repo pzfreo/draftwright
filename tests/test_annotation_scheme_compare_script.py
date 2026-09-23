@@ -14,13 +14,14 @@ def _load_script():
     return module
 
 
-def _result(annotations):
+def _result(annotations, *, quality_key=(0, 0, 0, 0, 0, -0.2, 124740.0)):
     return {
         "manifest": {
             "annotations": annotations,
             "interior_dimensions": [],
             "coverage": {"requirements": 2, "placed": 2, "missing": 0},
             "drops": {},
+            "arrangement_quality": {"selection_key": quality_key},
         }
     }
 
@@ -66,3 +67,31 @@ def test_parse_routes():
     parse = _load_script()._parse_routes
 
     assert parse("plan/below,side/right") == {("plan", "below"), ("side", "right")}
+
+
+def test_compare_selects_better_quality_only_after_semantic_parity():
+    compare = _load_script()._compare
+    annotation = {
+        "dim_a": {"type": "LinearDimension", "label": "10", "view": "front", "region": None}
+    }
+
+    result = compare(
+        _result(annotation, quality_key=(0, 0, 0, 0, 2, -0.2, 124740.0)),
+        _result(annotation, quality_key=(0, 0, 0, 0, 1, -0.2, 124740.0)),
+    )
+
+    assert result["quality_comparison"]["verdict"] == "candidate"
+
+
+def test_compare_makes_semantically_changed_candidate_ineligible():
+    compare = _load_script()._compare
+    baseline = _result(
+        {"dim_a": {"type": "Dimension", "label": "10", "view": "front", "region": None}},
+        quality_key=(0, 0, 1, 1, 1, -0.1, 249480.0),
+    )
+    candidate = _result(
+        {"dim_b": {"type": "Dimension", "label": "11", "view": "front", "region": None}},
+        quality_key=(0, 0, 0, 0, 0, -1.0, 62370.0),
+    )
+
+    assert compare(baseline, candidate)["quality_comparison"]["verdict"] == "ineligible"

@@ -254,7 +254,26 @@ def _compare(baseline: dict, candidate: dict) -> dict:
         and parity["coverage_equal"]
         and parity["drops_equal"]
     )
-    return {"baseline": baseline, "candidate": candidate, "parity": parity}
+    baseline_key = tuple(before["arrangement_quality"]["selection_key"])
+    candidate_key = tuple(after["arrangement_quality"]["selection_key"])
+    if not parity["passed"]:
+        verdict = "ineligible"
+    elif candidate_key < baseline_key:
+        verdict = "candidate"
+    elif baseline_key < candidate_key:
+        verdict = "baseline"
+    else:
+        verdict = "tie"
+    return {
+        "baseline": baseline,
+        "candidate": candidate,
+        "parity": parity,
+        "quality_comparison": {
+            "verdict": verdict,
+            "baseline_key": baseline_key,
+            "candidate_key": candidate_key,
+        },
+    }
 
 
 def _parse_routes(value: str) -> set[tuple[str, str]]:
