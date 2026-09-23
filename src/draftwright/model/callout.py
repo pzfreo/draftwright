@@ -19,6 +19,7 @@ feature. `through` is read off the feature for exactly this reason.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from draftwright._geometry import _fmt
@@ -48,6 +49,17 @@ def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
     """Format the bore value after the callout's leading diameter symbol."""
     if limits := spec.get("diameter_limits"):
         lower, upper = limits
+        nominal = spec["diameter"]
+        tolerance = spec.get("tolerance")
+        # AP242 may encode a symmetric requirement as explicit limits while also
+        # carrying its nominal value.  Prefer the shorter, conventional ± form when
+        # those facts agree; keep authored limit notation for asymmetric ranges.
+        if (
+            isinstance(tolerance, int | float)
+            and math.isclose(nominal - lower, tolerance, abs_tol=1e-9)
+            and math.isclose(upper - nominal, tolerance, abs_tol=1e-9)
+        ):
+            return f"{_fmt(nominal, spec.get('diameter_decimals'))}{tolerance_suffix(tolerance)}"
         return f"{_fmt(lower)} - ⌀{_fmt(upper)}"
     return (
         f"{_fmt(spec['diameter'], spec.get('diameter_decimals'))}"
@@ -85,10 +97,11 @@ def hole_callout_batches(
             and feature.profile is None
             and feature.count == len(complete)
         )
+        authored_side = group.side if any(item.side is not None for item in group.dims) else None
         key = (
             (
                 group.view,
-                group.side,
+                authored_side,
                 feature.frame.axis,
                 # Hidden/omitted callout terms still distinguish physical machining.
                 # Equal selected text must not merge a recessed and plain bore.
@@ -110,6 +123,7 @@ def hole_callout_batches(
                         "source_measurements",
                         "geometry_measurements",
                         "geometry_qualifiers",
+                        "source_ids",
                     }
                 ),
             )

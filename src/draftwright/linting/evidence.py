@@ -159,7 +159,14 @@ def _expected_presentations(approved, *, location_component=None) -> tuple[froze
             # A typed-but-incoherent interval cannot fall back to the nominal and look
             # confirmed. Its producer must repair the evidence first.
             return ()
-        return (frozenset((lower, upper)),)
+        presentations = [frozenset((lower, upper))]
+        if abs(lower_deviation - upper_deviation) <= _VALUE_TOL:
+            # A symmetric typed interval may be printed in its equivalent, more compact
+            # nominal-plus/minus form.  This is not midpoint inference: the compiler has
+            # supplied both the nominal and equal typed deviations, and the coherence
+            # checks above prove they reconstruct the imported bounds.
+            presentations.append(frozenset((nominal, lower_deviation)))
+        return tuple(presentations)
     return tuple(
         frozenset((value,))
         for value in _expected_numbers(approved, location_component=location_component)

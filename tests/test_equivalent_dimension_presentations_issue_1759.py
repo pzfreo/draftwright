@@ -62,6 +62,21 @@ def test_two_typed_limits_bear_out_the_nominal_claim() -> None:
     assert _state("2× ⌀34.8 - ⌀35.2 THRU") == "confirmed"
 
 
+def test_symmetric_typed_limits_accept_equivalent_plus_minus_presentation() -> None:
+    assert _state("2× ⌀35 ±0.2 THRU") == "confirmed"
+
+
+def test_asymmetric_typed_limits_do_not_accept_plus_minus_presentation() -> None:
+    assert (
+        _state(
+            "2× ⌀35 ±0.2 THRU",
+            limit_bounds=(34.8, 35.1),
+            tolerance=(0.2, 0.1),
+        )
+        == "value_absent"
+    )
+
+
 def test_changed_bound_or_missing_bound_does_not_bear_out_the_interval() -> None:
     assert _state("2× ⌀34.7 - ⌀35.2 THRU") == "value_absent"
     assert _state("2× ⌀35.2 THRU") == "value_absent"

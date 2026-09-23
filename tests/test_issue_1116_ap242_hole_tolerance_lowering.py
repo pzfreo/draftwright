@@ -159,16 +159,41 @@ def test_independent_equal_requirements_keep_per_member_source_identity():
         ToleranceDecoration(0.1, "ap242_pmi", ("dimension:second",)),
     ]
     batches = hole_callout_batches(plan_dimensions(lowered))
-    assert [batch.spec["source_ids"] for batch in batches] == [
-        ("dimension:first",),
-        ("dimension:second",),
-    ]
+    assert len(batches) == 1
+    assert batches[0].spec["count"] == 2
+    assert batches[0].spec["source_ids"] == ("dimension:first", "dimension:second")
     assert [
         tuple(source_id for source_id, _measurement in batch.spec["source_measurements"])
         for batch in batches
-    ] == [("dimension:first",), ("dimension:second",)]
+    ] == [("dimension:first", "dimension:second")]
     assert all(not batch.spec["geometry_measurements"] for batch in batches)
-    assert all(batch.spec["geometry_qualifiers"] == ("bore.through",) for batch in batches)
+    assert batches[0].spec["geometry_qualifiers"] == ("bore.through", "grouping.count")
+
+
+def test_symmetric_imported_limits_use_compact_plus_minus_callout():
+    from draftwright.model.callout import bore_callout_value
+
+    spec = {
+        "diameter": 35.0,
+        "diameter_decimals": None,
+        "diameter_limits": (34.8, 35.2),
+        "tolerance": 0.2,
+    }
+
+    assert bore_callout_value(spec, lambda value: f" ±{value:g}") == "35 ±0.2"
+
+
+def test_asymmetric_imported_limits_retain_limit_callout():
+    from draftwright.model.callout import bore_callout_value
+
+    spec = {
+        "diameter": 35.0,
+        "diameter_decimals": None,
+        "diameter_limits": (34.8, 35.1),
+        "tolerance": (0.2, 0.1),
+    }
+
+    assert bore_callout_value(spec) == "34.8 - ⌀35.1"
 
 
 def test_pattern_wide_requirement_preserves_pattern_identity_and_membership():
