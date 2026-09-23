@@ -417,6 +417,7 @@ class TestEmit:
             f"the re-run declares {env.width} × {env.depth}, not the part's 800 × 450"
         )
 
+    @pytest.mark.slow  # full AP242 CTC-01 build; post-merge safety net (#153)
     @pytest.mark.skipif(not _PMI_AVAILABLE, reason="OCP GDT support not available")
     def test_step_seam_emits_ap242_pmi_as_sheet_dimensions(self, tmp_path):
         py = generate_sheet_script(str(AP242_CTC01), out=str(tmp_path / "ctc01"), pmi="annotate")
