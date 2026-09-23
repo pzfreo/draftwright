@@ -8329,7 +8329,7 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
     positions = sorted(
         ((x, y) for x in xs for y in ys if x0 < x < x1 and y0 < y < y1),
         key=lambda point: (math.hypot(point[0] - tip[0], point[1] - tip[1]), point),
-    )
+    )[:128]
 
     def _route_blocked(route):
         route_segments = tuple(zip(route, route[1:]))
@@ -8367,8 +8367,8 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
             bend_routes = [
                 ((elbow[0], tip[1]),),
                 ((tip[0], elbow[1]),),
-                *(((route_x, tip[1]), (route_x, elbow[1])) for route_x in corridor_xs),
-                *(((tip[0], route_y), (elbow[0], route_y)) for route_y in corridor_ys),
+                *(((route_x, tip[1]), (route_x, elbow[1])) for route_x in route_xs),
+                *(((tip[0], route_y), (elbow[0], route_y)) for route_y in route_ys),
                 *(
                     (
                         (route_x, tip[1]),
