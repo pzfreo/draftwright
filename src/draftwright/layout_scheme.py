@@ -273,7 +273,7 @@ def _identity(feature, index: int) -> str:
 
 def _site(feature) -> tuple[float, float, float]:
     origin = getattr(getattr(feature, "frame", None), "origin", (0.0, 0.0, 0.0))
-    return tuple(float(origin[index]) for index in range(3))
+    return float(origin[0]), float(origin[1]), float(origin[2])
 
 
 def _support_interval(feature, view: str, side: str) -> tuple[float, float] | None:
@@ -287,11 +287,12 @@ def _support_interval(feature, view: str, side: str) -> tuple[float, float] | No
         return min(coordinates), max(coordinates)
     bbox = getattr(feature, "ref_bbox", None)
     if bbox is not None and len(bbox) == 6:
-        return tuple(sorted((float(bbox[axis]), float(bbox[axis + 3]))))
+        first, second = sorted((float(bbox[axis]), float(bbox[axis + 3])))
+        return first, second
     return None
 
 
-def _text_ink_em(text: str) -> tuple[float, float]:
+def _text_ink_em(text: object) -> tuple[float, float]:
     """Cheap Plex-like text envelope used only by pre-render planning."""
 
     lines = str(text).splitlines() or [""]
