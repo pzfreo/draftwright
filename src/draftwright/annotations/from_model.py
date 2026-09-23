@@ -2745,7 +2745,8 @@ def place_machined_leader_jobs(
             joint_exterior_anchors,
             fallback_interior_anchors,
             fallback_exterior_anchors,
-        ) = tee(iter(raw_candidates), 4)
+            recovery_anchors,
+        ) = tee(iter(raw_candidates), 5)
         label_width, label_height = _text_size(
             str(label),
             float(dwg.draft.font_size),
@@ -2846,16 +2847,12 @@ def place_machined_leader_jobs(
             }.values()
         )
 
-        def _build(
-            tip,
-            elbow,
-            _feature,
+        def _decorate(
+            leader,
             *,
-            _label=label,
             _source_features=source_features,
             _measurement=measurement,
         ):
-            leader = Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
             leader.source_features = _source_features
             grouping_features = {
                 id(identity.feature): identity.feature
@@ -2866,6 +2863,73 @@ def place_machined_leader_jobs(
             if grouping_features:
                 leader.covers_count = len(grouping_features)
             return leader
+
+        def _build(tip, elbow, _feature, *, _label=label):
+            return _decorate(
+                Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
+            )
+
+        def _recover(
+            _anchors=recovery_anchors,
+            _view=view,
+            _label=label,
+            _label_size=(label_width, label_height),
+            _build_fn=_build,
+            _decorate_fn=_decorate,
+        ):
+            for raw in _anchors:
+                candidate = (
+                    raw
+                    if isinstance(raw, FeatureLeaderCandidate)
+                    else FeatureLeaderCandidate(raw[0], raw[1], raw[2])
+                )
+                tip, original_elbow, feature = (
+                    candidate.tip,
+                    candidate.elbow,
+                    candidate.feature,
+                )
+                search_tip = tip
+                normal_stub = None
+                if candidate.radial_target is not None:
+                    dx = float(original_elbow[0]) - float(tip[0])
+                    dy = float(original_elbow[1]) - float(tip[1])
+                    length = math.hypot(dx, dy)
+                    if length <= 1e-9:
+                        continue
+                    stub_length = min(
+                        length,
+                        max(
+                            dwg.draft.arrow_length, dwg.draft.font_size + dwg.draft.pad_around_text
+                        ),
+                    )
+                    normal_stub = (
+                        float(tip[0]) + dx * stub_length / length,
+                        float(tip[1]) + dy * stub_length / length,
+                    )
+                    search_tip = normal_stub
+
+                def build_at(elbow, _tip=tip, _feature=feature):
+                    if normal_stub is not None:
+                        return _decorate_fn(
+                            RoutedLeader(_tip, (normal_stub,), elbow, _label, dwg.draft)
+                        )
+                    return _build_fn(_tip, (*elbow, 0), _feature)
+
+                def build_routed(bends, elbow, _tip=tip):
+                    route_bends = (normal_stub, *bends) if normal_stub is not None else bends
+                    return _decorate_fn(RoutedLeader(_tip, route_bends, elbow, _label, dwg.draft))
+
+                annotation = _sheet_leader_fallback(
+                    dwg,
+                    search_tip,
+                    _view,
+                    build_at,
+                    build_routed,
+                    _label_size,
+                )
+                if annotation is not None:
+                    return annotation, feature
+            return None
 
         def _fallback_accept(
             candidate,
@@ -2985,6 +3049,7 @@ def place_machined_leader_jobs(
                 interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
                 on_drop=(_on_drop if source_ids or source_drop_severity == "source" else None),
+                recover=_recover,
             )
         )
 
@@ -4971,7 +5036,15 @@ def _polygonal_prism_jobs(dwg, plan, *, kind: str, name_prefix: str, only=None):
 
 
 def _render_polygonal_prisms(
-    dwg, plan, a, *, ctx, kind: str, noun: str, name_prefix: str, drop_code: str
+    dwg,
+    plan,
+    a,
+    *,
+    ctx,
+    kind: str,
+    noun: str,
+    name_prefix: str,
+    drop_code: str,
 ) -> int:
     jobs = _polygonal_prism_jobs(dwg, plan, kind=kind, name_prefix=name_prefix)
     return place_machined_leader_jobs(
@@ -8457,6 +8530,16 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
                     _segment_clips_box(start, end, fixed_label, pad=0.0)
                     for start, end in segments_of(candidate)
                     for fixed_label in settled_labels
+                )
+                or any(
+                    _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                    for start, end in segments_of(candidate)
+                    for fixed_start, fixed_end in settled_non_crossable_segments
+                )
+                or any(
+                    _segment_clips_box(start, end, view_box, pad=0.0)
+                    for start, end in segments_of(candidate)
+                    for view_box in other_view_boxes
                 )
                 or any(
                     _segment_clips_box(start, end, label_box, pad=0.0)
