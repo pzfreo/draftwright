@@ -179,8 +179,8 @@ jobs:
         #
         # One matrix widened by expression rather than a second job: a duplicate job would
         # repeat every step below and the two copies would drift.
-        # PR (Linux-only) jobs are additionally split in three shards via pytest-split
-        # (#656): each shard runs a third of the suite (balanced by the committed
+        # PR (Linux-only) jobs are additionally split in four shards via pytest-split
+        # (#656): each shard runs a quarter of the suite (balanced by the committed
         # .test_durations), keeping the changed-area tier within the runner budget. The
         # full-matrix sweep entries carry no `shard` key and run unsharded — sharding
         # the 10x-metered macOS jobs would double their setup cost for no billed gain.
@@ -190,15 +190,19 @@ jobs:
           && '[{"os":"ubuntu-latest","python-version":"3.10","shard":1},
                {"os":"ubuntu-latest","python-version":"3.10","shard":2},
                {"os":"ubuntu-latest","python-version":"3.10","shard":3},
+               {"os":"ubuntu-latest","python-version":"3.10","shard":4},
                {"os":"ubuntu-latest","python-version":"3.11","shard":1},
                {"os":"ubuntu-latest","python-version":"3.11","shard":2},
                {"os":"ubuntu-latest","python-version":"3.11","shard":3},
+               {"os":"ubuntu-latest","python-version":"3.11","shard":4},
                {"os":"ubuntu-latest","python-version":"3.12","shard":1},
                {"os":"ubuntu-latest","python-version":"3.12","shard":2},
                {"os":"ubuntu-latest","python-version":"3.12","shard":3},
+               {"os":"ubuntu-latest","python-version":"3.12","shard":4},
                {"os":"ubuntu-latest","python-version":"3.13","shard":1},
                {"os":"ubuntu-latest","python-version":"3.13","shard":2},
-               {"os":"ubuntu-latest","python-version":"3.13","shard":3}]'
+               {"os":"ubuntu-latest","python-version":"3.13","shard":3},
+               {"os":"ubuntu-latest","python-version":"3.13","shard":4}]'
           || '[{"os":"ubuntu-latest","python-version":"3.10"},
                 {"os":"ubuntu-latest","python-version":"3.11"},
                 {"os":"ubuntu-latest","python-version":"3.12"},
@@ -231,7 +235,7 @@ jobs:
         # [tool.pytest.ini_options]. The heaviest test (full specimen-sheet SVG
         # export) can exceed 120 s on the slower macOS runners.
         # Coverage is measured only by the Ubuntu/Python 3.14 `coverage` shards below.
-        # Instrumenting all fourteen compatibility jobs adds ~13% runtime without
+        # Instrumenting all sixteen compatibility jobs adds ~13% runtime without
         # producing another retained or uploaded report.
         # `--splits/--group` (pytest-split) apply only when the matrix entry carries a
         # shard; balance comes from the committed .test_durations (regenerate with
@@ -247,7 +251,7 @@ jobs:
           fi
           uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
             --durations=25 \
-            ${{ matrix.shard && format('--splits 3 --group {0}', matrix.shard) || '' }}
+            ${{ matrix.shard && format('--splits 4 --group {0}', matrix.shard) || '' }}
 
   coverage:
     needs: changes
@@ -264,7 +268,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -292,7 +296,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_NAME: ${{ github.event_name }}
         # `--cov-report=` renders nothing here and `--cov-fail-under=0` disables the
-        # pyproject floor for the shard: a third of the suite legitimately covers less than
+        # pyproject floor for the shard: a quarter of the suite legitimately covers less than
         # 90%, and the real gate runs on the combined data in `coverage-report`.
         run: |
           tier=full
@@ -304,7 +308,7 @@ jobs:
             burden_args+=(--burden-report "burden-report-${{ matrix.shard }}.json")
           fi
           uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
-            --splits 3 --group ${{ matrix.shard }} \
+            --splits 4 --group ${{ matrix.shard }} \
             --cov=src/draftwright \
             --cov-report= \
             --cov-fail-under=0 \

@@ -417,8 +417,9 @@ def test_coverage_artefacts_are_rendered_before_the_fail_under_gate():
 def test_coverage_combine_follows_the_shard_matrix():
     """The shard count lives in the matrix and `--splits`; combine must not restate it.
 
-    Naming the data files (`coverage-data-1 coverage-data-2 coverage-data-3`) is a third
-    place to keep in step. Raising the shard count without updating it combines a subset, which
+    Naming the data files
+    (`coverage-data-1 coverage-data-2 coverage-data-3 coverage-data-4`) is a third place to keep
+    in step. Raising the shard count without updating it combines a subset, which
     `coverage report` then measures against `fail_under` as though it were the suite.
     """
     workflow = _workflow("ci.yml")
@@ -428,7 +429,7 @@ def test_coverage_combine_follows_the_shard_matrix():
         "combine should glob the shard artefacts rather than naming each one"
     )
     shards = _job(workflow, "coverage")
-    assert "--splits 3" in shards and "shard: [1, 2, 3]" in shards, (
+    assert "--splits 4" in shards and "shard: [1, 2, 3, 4]" in shards, (
         "shard count is declared in the matrix and --splits; this test pins them together"
     )
 
