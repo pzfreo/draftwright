@@ -18,6 +18,15 @@ if _CHECKOUT_SRC.is_dir():
     sys.path.insert(0, str(_CHECKOUT_SRC))
 
 
+def _worker_python() -> str:
+    checkout = Path(__file__).resolve().parents[1]
+    candidates = (
+        checkout / ".venv" / "bin" / "python",
+        checkout / ".venv" / "Scripts" / "python.exe",
+    )
+    return str(next((path for path in candidates if path.is_file()), Path(sys.executable)))
+
+
 def _analyse_one(path: str, pmi: str) -> dict:
     """Analyse one document in a disposable process so OCC memory cannot accumulate."""
 
@@ -51,7 +60,7 @@ def analyse_isolated(path: Path, *, pmi: str, timeout: float) -> dict:
     """Return one JSON-friendly result, killing a worker that exceeds its budget."""
 
     command = [
-        sys.executable,
+        _worker_python(),
         str(Path(__file__).resolve()),
         "--worker",
         str(path),

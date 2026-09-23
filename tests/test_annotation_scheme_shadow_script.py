@@ -1,5 +1,6 @@
 import importlib.machinery
 import importlib.util
+import os
 import subprocess
 from pathlib import Path
 
@@ -39,11 +40,15 @@ def test_isolated_shadow_runner_reports_timeout_as_data():
 
 def test_checkout_executable_bootstraps_src_package():
     fixture = Path(__file__).parent / "fixtures" / "ap242_single_cylinder_diameter.step"
+    environment = os.environ.copy()
+    environment.pop("VIRTUAL_ENV", None)
+    environment["PATH"] = "/usr/local/bin:/usr/bin:/bin"
 
     completed = subprocess.run(
         [str(SCRIPT), "--timeout", "30", str(fixture)],
         check=False,
         capture_output=True,
+        env=environment,
         text=True,
     )
 
