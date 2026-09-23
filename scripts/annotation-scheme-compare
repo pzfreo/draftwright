@@ -96,6 +96,8 @@ def _cap_scheme_strips(scale: float, enabled_routes: set[tuple[str, str]]) -> No
 
 
 def _manifest(drawing) -> dict:
+    from draftwright.builder import _arrangement_quality, _scale_blockers_from_issues
+
     annotations = {}
     for name, annotation in drawing.iter_annotations():
         annotations[name] = {
@@ -104,6 +106,7 @@ def _manifest(drawing) -> dict:
             "view": drawing.view_of(name),
             "region": getattr(annotation, "_dw_candidate_region", None),
         }
+    issues = tuple(drawing.lint())
     lint = drawing.lint_summary()
     completeness = lint["quality"]["completeness"]
     drops = {
@@ -111,13 +114,21 @@ def _manifest(drawing) -> dict:
         for code, count in lint["by_code"].items()
         if "drop" in code or "withheld" in code or code == "placement_unsatisfiable"
     }
+    interior_dimensions = sorted(
+        name
+        for name, annotation in drawing.iter_annotations()
+        if "Dimension" in type(annotation).__name__
+        and getattr(annotation, "_dw_candidate_region", None) == "interior"
+    )
     return {
         "annotations": annotations,
-        "interior_dimensions": sorted(
-            name
-            for name, annotation in drawing.iter_annotations()
-            if "Dimension" in type(annotation).__name__
-            and getattr(annotation, "_dw_candidate_region", None) == "interior"
+        "interior_dimensions": interior_dimensions,
+        "arrangement_quality": _arrangement_quality(
+            issues,
+            _scale_blockers_from_issues(issues),
+            page=(drawing.page_w, drawing.page_h),
+            scale=drawing.scale,
+            interior_dimensions=len(interior_dimensions),
         ),
         "coverage": {
             key: completeness.get(key)
