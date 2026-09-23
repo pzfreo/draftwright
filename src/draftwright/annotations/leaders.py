@@ -1469,6 +1469,17 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
         components.append(_FixedInkComponent(f"{name}:label", box=label, owner=owner, kind=kind))
         if exhausted():
             return _FIXED_INVENTORY_EXHAUSTED
+
+    # The stock helper Leader has a closed analytical description here: segment zero is
+    # lowered by ``_leader_ink_polygons`` (shaft plus arrowhead), every later shelf segment
+    # is lowered at exact line width, and ``label_bbox`` carries its text. Walking and
+    # meshing all of its OCC faces only re-proves those same components. Dense real-part
+    # sheets can contain dozens of leaders and were spending seconds per assembly on that
+    # duplicate validation. Keep the exact-type gate: routed/custom leader subclasses may
+    # render extra ink and must continue through the conservative residual-face scan.
+    if type(annotation).__name__ == "Leader" and segments and label is not None:
+        return tuple(components)
+
     remaining = None if max_components is None else max_components - len(components)
     residual = _rendered_residual_components(
         name,

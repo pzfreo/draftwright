@@ -1659,6 +1659,26 @@ def test_empty_faces_accept_an_explicit_complete_fixed_ink_footprint(tiny_box_dw
     assert set(components[0].polygons[0]) == set(polygon)
 
 
+def test_stock_leader_fixed_ink_does_not_remesh_closed_analytical_geometry(
+    tiny_box_dwg, monkeypatch
+):
+    drawing = tiny_box_dwg
+    leader = Leader((10.0, 10.0, 0.0), (20.0, 20.0, 0.0), "HOLE", drawing.draft)
+
+    def unexpected_faces():
+        raise AssertionError("a stock Leader's published ink is already complete")
+
+    monkeypatch.setattr(leader, "faces", unexpected_faces)
+    components = _annotation_fixed_ink(drawing, "stock_leader", leader, max_components=8)
+
+    assert components is not _FIXED_INVENTORY_EXHAUSTED
+    assert [component.name for component in components] == [
+        "stock_leader:segment:0",
+        "stock_leader:segment:1",
+        "stock_leader:label",
+    ]
+
+
 @pytest.mark.parametrize("raising_attribute", ["segments", "fixed_ink_polygons", "label_bbox"])
 def test_raising_fixed_metadata_uses_the_unavailable_inventory_contract(
     raising_attribute, tiny_box_dwg
