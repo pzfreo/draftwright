@@ -31,6 +31,17 @@ class AnnotationDemand:
     feature_index: int
     model_site: tuple[float, float, float]
     model_interval: tuple[float, float] | None = None
+    estimated_ink_em: tuple[float, float] = (1.0, 1.0)
+
+    def estimated_paper_span(self, font_size: float, padding: float = 0.0) -> float:
+        """Estimate along-corridor ink in page mm without constructing render geometry."""
+
+        if not math.isfinite(font_size) or font_size <= 0:
+            raise ValueError("annotation font size must be finite and positive")
+        if not math.isfinite(padding) or padding < 0:
+            raise ValueError("annotation padding must be finite and non-negative")
+        axis = 0 if self.side in {"above", "below"} else 1
+        return self.estimated_ink_em[axis] * font_size + 2 * padding
 
 
 @dataclass(frozen=True)
@@ -75,6 +86,7 @@ class AnnotationScheme:
                     "model_interval": (
                         list(demand.model_interval) if demand.model_interval is not None else None
                     ),
+                    "estimated_ink_em": list(demand.estimated_ink_em),
                 }
                 for demand in self.demands
             ],
@@ -213,6 +225,24 @@ def pack_annotation_lanes(
     return AnnotationLanePlan(tuple(corridors))
 
 
+def pack_estimated_annotation_lanes(
+    scheme: AnnotationScheme,
+    *,
+    scale: float,
+    font_size: float,
+    padding: float = 0.0,
+    clearance: float = 0.0,
+) -> AnnotationLanePlan:
+    """Pack a scheme using its cheap pre-render ink envelopes."""
+
+    return pack_annotation_lanes(
+        scheme,
+        scale=scale,
+        span_for=lambda demand: demand.estimated_paper_span(font_size, padding),
+        clearance=clearance,
+    )
+
+
 def _identity(feature, index: int) -> str:
     return str(
         getattr(feature, "source_id", "")
@@ -239,6 +269,38 @@ def _support_interval(feature, view: str, side: str) -> tuple[float, float] | No
     if bbox is not None and len(bbox) == 6:
         return tuple(sorted((float(bbox[axis]), float(bbox[axis + 3]))))
     return None
+
+
+def _text_ink_em(text: str) -> tuple[float, float]:
+    """Cheap Plex-like text envelope used only by pre-render planning."""
+
+    lines = str(text).splitlines() or [""]
+    return max(1.0, max(map(len, lines), default=0) * 0.62), max(1.0, len(lines) * 1.3)
+
+
+def _estimated_ink_em(feature) -> tuple[float, float]:
+    kind = getattr(feature, "kind", "")
+    if kind == "authored_dimension":
+        return _text_ink_em(getattr(feature, "label", ""))
+    if kind == "note":
+        return _text_ink_em(getattr(feature, "text", ""))
+    if kind == "datum_ref":
+        return 2.0, 2.0
+    if kind == "finish":
+        value_width, _ = _text_ink_em(getattr(feature, "ra", ""))
+        return max(3.0, 2.0 + value_width), 2.5
+    if kind == "control_frame":
+        tolerance = getattr(feature, "display_tolerance", None) or getattr(
+            feature, "tolerance", ""
+        )
+        tolerance_width, _ = _text_ink_em(tolerance)
+        width = 3.2 + tolerance_width + 2.0 * len(getattr(feature, "datums", ()))
+        if getattr(feature, "diameter", False):
+            width += 1.44
+        if getattr(feature, "modifier", None):
+            width += 1.84
+        return width, 2.0
+    return 1.0, 1.0
 
 
 def plan_annotation_scheme(model) -> AnnotationScheme:
@@ -276,7 +338,7 @@ def plan_annotation_scheme(model) -> AnnotationScheme:
                 UnplannedAnnotation(identity, family, index, "raw PMI has no typed corridor")
             )
             continue
-        elif kind not in {"control_frame", "datum_ref", "note"}:
+        elif kind not in {"control_frame", "datum_ref", "finish", "note"}:
             continue
 
         if view not in _VIEWS or side not in _SIDES:
@@ -286,7 +348,16 @@ def plan_annotation_scheme(model) -> AnnotationScheme:
             continue
         support = _support_interval(feature, view, side) if kind == "authored_dimension" else None
         demands.append(
-            AnnotationDemand(identity, family, view, side, index, _site(feature), support)
+            AnnotationDemand(
+                identity,
+                family,
+                view,
+                side,
+                index,
+                _site(feature),
+                support,
+                _estimated_ink_em(feature),
+            )
         )
 
     return AnnotationScheme(tuple(demands), tuple(unplanned))

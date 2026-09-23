@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 from build123d import Box
 
@@ -6,10 +8,18 @@ from draftwright.layout_scheme import (
     AnnotationDemand,
     AnnotationScheme,
     pack_annotation_lanes,
+    pack_estimated_annotation_lanes,
     plan_annotation_scheme,
 )
 from draftwright.model import Frame, PartModel
-from draftwright.model.ir import AuthoredDimension, ControlFrame, DatumRef, Note, PmiFeature
+from draftwright.model.ir import (
+    AuthoredDimension,
+    ControlFrame,
+    DatumRef,
+    Finish,
+    Note,
+    PmiFeature,
+)
 
 
 def _model():
@@ -19,6 +29,7 @@ def _model():
         ControlFrame(frame, "position", "0.1", "front", "above", source_id="gdt:1"),
         DatumRef(frame, "A", "front", "above", source_id="datum:1"),
         Note(frame, "Ra 3.2", "side", "below", source_id="finish:1"),
+        Finish(frame, "1.6", "front", "left"),
         PmiFeature(frame, "location", 10.0, "?", "X", source_id="dimension:raw"),
     ]
     return PartModel(solid.bounding_box(), "z", features)
@@ -27,7 +38,11 @@ def _model():
 def test_scheme_groups_explicit_semantics_by_view_corridor_without_coordinates():
     scheme = plan_annotation_scheme(_model())
 
-    assert scheme.corridor_counts() == {("front", "above"): 2, ("side", "below"): 1}
+    assert scheme.corridor_counts() == {
+        ("front", "above"): 2,
+        ("side", "below"): 1,
+        ("front", "left"): 1,
+    }
     assert [demand.identity for demand in scheme.corridor("front", "above")] == [
         "gdt:1",
         "datum:1",
@@ -36,6 +51,9 @@ def test_scheme_groups_explicit_semantics_by_view_corridor_without_coordinates()
     assert [(item.identity, item.reason) for item in scheme.unplanned] == [
         ("dimension:raw", "raw PMI has no typed corridor")
     ]
+    finish = scheme.corridor("front", "left")[0]
+    assert finish.family == "finish"
+    assert finish.estimated_paper_span(font_size=2.5, padding=1) == 8.25
 
 
 def test_strip_measurement_carries_the_scheme_without_changing_depths():
@@ -137,3 +155,19 @@ def test_authored_dimension_support_widens_its_lane_reservation():
 
     assert scheme.demands[0].model_interval == (10.0, 50.0)
     assert (reservation.start, reservation.end) == (5.0, 25.0)
+
+
+def test_estimated_ink_span_tracks_corridor_orientation_without_render_geometry():
+    horizontal = _demand("horizontal", (0, 0, 0), side="above")
+    vertical = _demand("vertical", (0, 0, 0), side="right")
+    horizontal = replace(horizontal, estimated_ink_em=(6.0, 2.0))
+    vertical = replace(vertical, estimated_ink_em=(6.0, 2.0))
+
+    assert horizontal.estimated_paper_span(2.5, padding=1) == 17.0
+    assert vertical.estimated_paper_span(2.5, padding=1) == 7.0
+
+    plan = pack_estimated_annotation_lanes(
+        AnnotationScheme((horizontal, vertical), ()), scale=1, font_size=2.5, padding=1
+    )
+    assert plan.corridor("front", "above").reservations[0].end == 8.5
+    assert plan.corridor("front", "right").reservations[0].end == 3.5
