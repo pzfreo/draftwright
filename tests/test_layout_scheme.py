@@ -63,6 +63,11 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
     assert strips.scheme == plan_annotation_scheme(model)
     assert strips.right == 20.0
     assert strips.left == 20.0
+    assert strips.planned_corridor_depths(1) == {
+        ("front", "above"): 26.5,
+        ("front", "left"): 17.0,
+        ("side", "below"): 17.0,
+    }
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):
@@ -89,6 +94,7 @@ def test_lane_packing_separates_overlaps_and_reuses_the_first_available_lane():
         ("middle", 1),
         ("right", 0),
     ]
+    assert plan.corridor_depths(tier=6, gap=10, spacing=2.5) == {("front", "above"): 24.5}
 
 
 def test_lane_packing_is_input_order_independent_and_uses_corridor_axis():

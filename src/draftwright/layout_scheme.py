@@ -141,6 +141,26 @@ class AnnotationLanePlan:
             None,
         )
 
+    def corridor_depths(
+        self, *, tier: float, gap: float = 0.0, spacing: float = 0.0
+    ) -> dict[tuple[str, str], float]:
+        """Return perpendicular paper-space depth required by each packed corridor."""
+
+        for name, value, positive in (
+            ("tier", tier, True),
+            ("gap", gap, False),
+            ("spacing", spacing, False),
+        ):
+            if not math.isfinite(value) or (value <= 0 if positive else value < 0):
+                qualifier = "positive" if positive else "non-negative"
+                raise ValueError(f"annotation lane {name} must be finite and {qualifier}")
+        return {
+            (corridor.view, corridor.side): gap
+            + corridor.lane_count * tier
+            + max(0, corridor.lane_count - 1) * spacing
+            for corridor in self.corridors
+        }
+
 
 def pack_annotation_lanes(
     scheme: AnnotationScheme,

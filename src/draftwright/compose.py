@@ -60,7 +60,11 @@ from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
-from draftwright.layout_scheme import AnnotationScheme, plan_annotation_scheme
+from draftwright.layout_scheme import (
+    AnnotationScheme,
+    pack_estimated_annotation_lanes,
+    plan_annotation_scheme,
+)
 from draftwright.model.callout import bore_callout_value, hole_callout_batches, hole_callout_suffix
 from draftwright.model.ir import ThroughStepFeature, authored_dimension_target_view
 from draftwright.model.planner import (
@@ -386,6 +390,32 @@ class StripDepths:
     rv_right: float = 0.0
     # Observational drafter-style topology. It does not alter depths or placement yet.
     scheme: AnnotationScheme | None = None
+
+    def planned_corridor_depths(
+        self,
+        scale: float,
+        *,
+        font_size: float = _FONT_SIZE,
+        pad_around_text: float = 2.0,
+        gap: float = _STRIP_GAP,
+        spacing: float = _STRIP_SPACING,
+    ) -> dict[tuple[str, str], float]:
+        """Evaluate the observational scheme at one scale without changing layout."""
+
+        if self.scheme is None:
+            return {}
+        lanes = pack_estimated_annotation_lanes(
+            self.scheme,
+            scale=scale,
+            font_size=font_size,
+            padding=pad_around_text,
+            clearance=spacing,
+        )
+        return lanes.corridor_depths(
+            tier=font_size + 2 * pad_around_text,
+            gap=gap,
+            spacing=spacing,
+        )
 
 
 def _measure_strips(
