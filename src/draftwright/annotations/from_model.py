@@ -29,8 +29,10 @@ from build123d_drafting.helpers import (
     DEFAULT_FONT_PATH,
     Centerline,
     CenterMark,
+    Dimension,
     HoleCallout,
     Leader,
+    SafeDimension,
 )
 
 from draftwright._core import (
@@ -70,6 +72,7 @@ from draftwright._geometry import (
     _blend_profile_arcs,
     _fmt_chamfer,
     _segment_clips_box,
+    _segments_cross_or_overlap,
     _straight_blend_faces,
     _turned_profile_site,
 )
@@ -101,7 +104,7 @@ from draftwright.annotations._common import (
     strip_occupants,
     view_label_clearance,
 )
-from draftwright.annotations.angular import AngularInk
+from draftwright.annotations.angular import AngularDimension, AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     FeatureLeaderJob,
@@ -113,8 +116,10 @@ from draftwright.annotations.leaders import (
     place_feature_leader_jobs,
     view_material,
 )
+from draftwright.annotations.routed import RoutedLeader
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
+from draftwright.linting.ink_overlap import segments_of
 
 # Re-exported: `annotations/holes.py` and the tests import the spec from here, and the
 # renderer is its natural home from a caller's point of view even though the reading
@@ -8095,7 +8100,7 @@ def _pmi_witness_from_bbox(rec, view: str, a):
     return p1, p2, avg_t
 
 
-def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
+def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallback=False):
     if strip is None:
         return None
     if side in ("above", "below"):
@@ -8126,7 +8131,7 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
         return _dim(_q1, _q2, _side, dist, draft, label=_label)
 
     order_coord = min(perp)
-    return {
+    spec = {
         "name": name,
         "build": _build,
         "strip": strip,
@@ -8136,6 +8141,28 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
         "perp": perp,
         "order": (_PMI_SUBCHAIN, order_coord, name),
     }
+    if leader_fallback:
+
+        def _build_at(elbow, _tip=p2, _label=label):
+            return Leader(_tip, (*elbow, 0), _label, draft)
+
+        def _build_routed(bends, elbow, _tip=p2, _label=label):
+            return RoutedLeader(_tip, bends, elbow, _label, draft)
+
+        spec.update(
+            {
+                "build_at": _build_at,
+                "build_routed": _build_routed,
+                "tip": p2,
+                "label_size": _text_size(
+                    label,
+                    draft.font_size,
+                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                    getattr(draft, "font", "Arial"),
+                ),
+            }
+        )
+    return spec
 
 
 def _oblique_pmi_dim_spec(p1, p2, strip, label, name, view, side, draft):
@@ -8224,6 +8251,223 @@ def _oblique_linear_specs(a, rec, label, name, draft):
     ]
 
 
+def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=None):
+    """Return the nearest clear leader on a bounded drawable-sheet grid.
+
+    Adjacent strips remain authoritative. This last resort exists for the distinct
+    case where every strip is full while another sheet region is unused (#1797).
+    Candidates are derived from drawable fractions, never public coordinates, and
+    must clear settled annotation ink plus every non-owning view's complete bounds.
+    """
+    tip = (tip[0], tip[1])
+    page = _drawing_bounds(dwg)
+    x0, y0, x1, y1 = page
+    fractions = tuple(index / 10.0 for index in range(1, 10))
+    other_view_boxes = [
+        bounds
+        for name in getattr(dwg, "views", {})
+        if name != view and (bounds := dwg.view_bounds(name)) is not None
+    ]
+    all_views = [
+        bounds
+        for name in getattr(dwg, "views", {})
+        if (bounds := dwg.view_bounds(name)) is not None
+    ]
+    settled_labels = []
+    settled_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    settled_non_crossable_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for _name, annotation in dwg.iter_annotations():
+        annotation_segments = segments_of(annotation)
+        settled_segments.extend(annotation_segments)
+        crossable_strokes = (
+            isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
+            or bool(getattr(annotation, "_dw_dimension_candidate", False))
+            or type(annotation).__name__ in CROSSABLE_TYPES
+        )
+        if not crossable_strokes:
+            settled_non_crossable_segments.extend(annotation_segments)
+        label_box = getattr(annotation, "label_bbox", None)
+        if label_box is not None:
+            settled_labels.append(label_box)
+    clearance = dwg.draft.font_size + 2.0 * dwg.draft.pad_around_text
+    xs = {
+        tip[0],
+        *(x0 + (x1 - x0) * fraction for fraction in fractions),
+        *(
+            value
+            for bounds in all_views
+            for value in (bounds[0] - clearance, bounds[2] + clearance)
+        ),
+    }
+    ys = {
+        tip[1],
+        *(y0 + (y1 - y0) * fraction for fraction in fractions),
+        *(
+            value
+            for bounds in all_views
+            for value in (bounds[1] - clearance, bounds[3] + clearance)
+        ),
+    }
+    corridor_xs = {
+        *xs,
+        *(
+            point[0] + offset
+            for segment in settled_non_crossable_segments
+            for point in segment
+            for offset in (-clearance, clearance)
+        ),
+    }
+    corridor_ys = {
+        *ys,
+        *(
+            point[1] + offset
+            for segment in settled_non_crossable_segments
+            for point in segment
+            for offset in (-clearance, clearance)
+        ),
+    }
+    positions = sorted(
+        ((x, y) for x in xs for y in ys if x0 < x < x1 and y0 < y < y1),
+        key=lambda point: (math.hypot(point[0] - tip[0], point[1] - tip[1]), point),
+    )[:128]
+
+    def _route_blocked(route):
+        route_segments = tuple(zip(route, route[1:]))
+        return (
+            any(
+                _segment_clips_box(start, end, view_box, pad=0.0)
+                for start, end in route_segments
+                for view_box in other_view_boxes
+            )
+            or any(
+                _segment_clips_box(start, end, label_box, pad=0.0)
+                for start, end in route_segments
+                for label_box in settled_labels
+            )
+            or any(
+                _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                for start, end in route_segments
+                for fixed_start, fixed_end in settled_non_crossable_segments
+            )
+        )
+
+    for elbow in positions:
+        routes: list[tuple[tuple, tuple, Any]] = [((), (tip, elbow), build)]
+        if routed_build is not None:
+            nearest_xs = sorted(
+                corridor_xs,
+                key=lambda value: abs(value - tip[0]) + abs(value - elbow[0]),
+            )[:6]
+            nearest_ys = sorted(
+                corridor_ys,
+                key=lambda value: abs(value - tip[1]) + abs(value - elbow[1]),
+            )[:6]
+            route_xs = tuple(dict.fromkeys((*nearest_xs, min(corridor_xs), max(corridor_xs))))
+            route_ys = tuple(dict.fromkeys((*nearest_ys, min(corridor_ys), max(corridor_ys))))
+            bend_routes = [
+                ((elbow[0], tip[1]),),
+                ((tip[0], elbow[1]),),
+                *(((route_x, tip[1]), (route_x, elbow[1])) for route_x in route_xs),
+                *(((tip[0], route_y), (elbow[0], route_y)) for route_y in route_ys),
+                *(
+                    (
+                        (route_x, tip[1]),
+                        (route_x, route_y),
+                        (elbow[0], route_y),
+                    )
+                    for route_x in route_xs
+                    for route_y in route_ys
+                ),
+                *(
+                    (
+                        (tip[0], route_y),
+                        (route_x, route_y),
+                        (route_x, elbow[1]),
+                    )
+                    for route_x in route_xs
+                    for route_y in route_ys
+                ),
+            ]
+            routed = []
+            for bends in bend_routes:
+                route = (tip, *bends, elbow)
+                if any(left == right for left, right in zip(route, route[1:])):
+                    continue
+                if _route_blocked(route):
+                    continue
+                length = sum(
+                    math.hypot(right[0] - left[0], right[1] - left[1])
+                    for left, right in zip(route, route[1:])
+                )
+                routed.append((length, bends, route, routed_build))
+            routes.extend(item[1:] for item in sorted(routed, key=lambda item: item[0])[:96])
+        selected: dict[int, tuple[tuple, Any]] = {}
+        for bends, route, candidate_build in routes:
+            if _route_blocked(route):
+                continue
+            shelf_side = 1 if elbow[0] >= route[-2][0] else -1
+            selected.setdefault(shelf_side, (bends, candidate_build))
+            if len(selected) == 2:
+                break
+        if not selected:
+            continue
+        for shelf_side, (bends, candidate_build) in selected.items():
+            if label_size is not None:
+                width, height = label_size
+                gap = dwg.draft.pad_around_text
+                label_box = (
+                    elbow[0] + gap if shelf_side > 0 else elbow[0] - gap - width,
+                    elbow[1] - height / 2.0,
+                    elbow[0] + gap + width if shelf_side > 0 else elbow[0] - gap,
+                    elbow[1] + height / 2.0,
+                )
+                if (
+                    label_box[0] < x0
+                    or label_box[1] < y0
+                    or label_box[2] > x1
+                    or label_box[3] > y1
+                    or _box_hits(label_box, all_views)
+                    or _box_hits(label_box, settled_labels)
+                    or any(
+                        _segment_clips_box(start, end, label_box, pad=0.0)
+                        for start, end in settled_segments
+                    )
+                ):
+                    continue
+            try:
+                candidate = candidate_build(elbow) if not bends else candidate_build(bends, elbow)
+                box = _geom_box(candidate)
+                label_box = getattr(candidate, "label_bbox", None)
+            except Exception:  # noqa: BLE001 — one optional global candidate fails closed
+                continue
+            if (
+                box is None
+                or label_box is None
+                or box[0] < x0
+                or box[1] < y0
+                or box[2] > x1
+                or box[3] > y1
+            ):
+                continue
+            if _box_hits(label_box, all_views):
+                continue
+            if (
+                _box_hits(label_box, settled_labels)
+                or any(
+                    _segment_clips_box(start, end, fixed_label, pad=0.0)
+                    for start, end in segments_of(candidate)
+                    for fixed_label in settled_labels
+                )
+                or any(
+                    _segment_clips_box(start, end, label_box, pad=0.0)
+                    for start, end in settled_segments
+                )
+            ):
+                continue
+            return candidate
+    return None
+
+
 def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
     if strip is None:
         return None
@@ -8235,9 +8479,24 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
         elbow = (_tip[0], pos, 0) if _axis == "y" else (pos, _tip[1], 0)
         return Leader(_tip, elbow, _label, draft)
 
+    def _build_at(elbow, _tip=tip, _label=label):
+        return Leader(_tip, (*elbow, 0), _label, draft)
+
+    def _build_routed(bends, elbow, _tip=tip, _label=label):
+        return RoutedLeader(_tip, bends, elbow, _label, draft)
+
     return {
         "name": name,
         "build": _build,
+        "build_at": _build_at,
+        "build_routed": _build_routed,
+        "tip": tip,
+        "label_size": _text_size(
+            label,
+            draft.font_size,
+            getattr(draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(draft, "font", "Arial"),
+        ),
         "strip": strip,
         "view": view,
         "side": side,
@@ -8348,6 +8607,27 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
                     alt["side"],
                 )
                 return
+        for option in (primary, *_alts):
+            if "build_at" not in option:
+                continue
+            fallback = _sheet_leader_fallback(
+                dwg,
+                option["tip"],
+                option["view"],
+                option["build_at"],
+                option["build_routed"],
+                option["label_size"],
+            )
+            if fallback is None:
+                continue
+            ctx.place(fallback, nm, view=option["view"], feature=_rec)
+            ctx.record_issue(
+                "info",
+                "pmi_sheet_fallback",
+                f"{nm}: adjacent strips were full — placed in clear sheet space",
+                source=_pmi_source_ids(_rec),
+            )
+            return
         _record_pmi_drop(ctx, dwg, _ax, _label, _rec)
 
     register_corridor(
@@ -8708,7 +8988,15 @@ def _place_pmi_record(dwg, a, ctx, rec, idx, bore_cfg, draft) -> bool:
                     ctx,
                     [
                         _pmi_dim_spec(
-                            p1, p2, cfg["zones"][s], label, name_d, cfg["view"], s, draft
+                            p1,
+                            p2,
+                            cfg["zones"][s],
+                            label,
+                            name_d,
+                            cfg["view"],
+                            s,
+                            draft,
+                            leader_fallback=True,
                         )
                         for s in order
                     ],
@@ -9188,7 +9476,8 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         # (so a spec error can't reappear there) AND is made total against the OTHER raise
         # source — a zero-length Leader shaft (see the min-leader guard in `_build`).
         try:
-            gb = _gdt_glyph(item, draft).bounding_box().size
+            fallback_glyph = _gdt_glyph(item, draft)
+            gb = fallback_glyph.bounding_box().size
         except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
             ctx.record_issue(
                 "warning",
@@ -9244,6 +9533,51 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
             return leader
 
+        def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
+            leader = Leader(
+                tip=(_px, _py),
+                elbow=(*elbow, 0),
+                label="",
+                draft=draft,
+                callout=_g,
+                all_around=getattr(_it, "all_around", False),
+                all_over=getattr(_it, "all_over", False),
+            )
+            if _it.kind == "note":
+                leader.pdf_text = _font_safe_text(_it.text)
+                leader.pdf_text_font_style = "REGULAR"
+                leader.pdf_text_line_spacing = _text_line_spacing_em(
+                    draft.font_size,
+                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                    getattr(draft, "font", "Arial"),
+                )
+            else:
+                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
+            return leader
+
+        def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
+            leader = RoutedLeader(
+                (_px, _py),
+                bends,
+                elbow,
+                "",
+                draft,
+                callout=_g,
+                all_around=getattr(_it, "all_around", False),
+                all_over=getattr(_it, "all_over", False),
+            )
+            if _it.kind == "note":
+                leader.pdf_text = _font_safe_text(_it.text)
+                leader.pdf_text_font_style = "REGULAR"
+                leader.pdf_text_line_spacing = _text_line_spacing_em(
+                    draft.font_size,
+                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                    getattr(draft, "font", "Arial"),
+                )
+            else:
+                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
+            return leader
+
         def _compact_candidates(
             original,
             _build=_build,
@@ -9289,6 +9623,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
             _tb=tb_box,
             _source=source_ids,
             _satisfaction=satisfaction,
+            _global_build=_build_at,
+            _routed_build=_build_routed,
+            _declaration=item,
         ):
             # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
             # the same view before dropping, so a congested default still places somewhere
@@ -9309,6 +9646,11 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 _bld=_bld,
                 _feat=_feat,
                 _tb=_tb,
+                _source=_source,
+                _satisfaction=_satisfaction,
+                _global_build=_global_build,
+                _routed_build=_routed_build,
+                _declaration=_declaration,
             ):
                 # Auto-relax the requested side (#841 outcome C): the requested strip is full, so
                 # try the OPPOSITE side, then the two PERPENDICULAR sides, placing on the first
@@ -9344,11 +9686,36 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                         view=_v,
                         feature=_feat,
                         satisfaction=_satisfaction,
+                        declaration=_declaration,
                     )  # relaxed side
                     ctx.record_issue(
                         "info",
                         "gdt_side_relaxed",
                         f"{nm}: the {_v} {_s} strip was full — placed on {alt} instead",
+                    )
+                    return
+                fallback = _sheet_leader_fallback(
+                    dwg,
+                    (_px, _py),
+                    _v,
+                    _global_build,
+                    _routed_build,
+                    _sz,
+                )
+                if fallback is not None:
+                    ctx.place(
+                        fallback,
+                        nm,
+                        view=_v,
+                        feature=_feat,
+                        satisfaction=_satisfaction,
+                        declaration=_declaration,
+                    )
+                    ctx.record_issue(
+                        "info",
+                        "gdt_sheet_fallback",
+                        f"{nm}: adjacent {_v} strips were full — placed in clear sheet space",
+                        source=_source,
                     )
                     return
                 ctx.record_issue(

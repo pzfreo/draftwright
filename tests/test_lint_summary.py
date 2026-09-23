@@ -18,6 +18,7 @@ class TestLintSummaryAndDrops:
             "score",
             "diagnostic_score",
             "quality",
+            "layout_utilization",
             "review",
             "errors",
             "warnings",
@@ -30,6 +31,16 @@ class TestLintSummaryAndDrops:
         assert s["passed"] is (s["errors"] == 0)
         assert 0.0 <= s["score"] <= 1.0
         assert s["diagnostic_score"] == s["score"]
+        utilization = s["layout_utilization"]
+        assert utilization["scope"] == "clipped-view-and-annotation-bounding-boxes"
+        assert 0.0 < utilization["content_envelope_fraction"] <= 1.0
+        assert 0.0 < utilization["footprint_fraction"] <= 1.0
+        assert set(utilization["quadrants"]) == {
+            "left-bottom",
+            "right-bottom",
+            "left-top",
+            "right-top",
+        }
         # `fidelity` joined in #1176: completeness asks whether required content landed,
         # restraint whether there is too much of it, legibility whether a reader can make
         # it out, and fidelity whether what it says is TRUE. A drawing can pass the first
