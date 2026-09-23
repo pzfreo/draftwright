@@ -8274,8 +8274,8 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
         if (bounds := dwg.view_bounds(name)) is not None
     ]
     settled_labels = []
-    settled_segments = []
-    settled_non_crossable_segments = []
+    settled_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    settled_non_crossable_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
     for _name, annotation in dwg.iter_annotations():
         annotation_segments = segments_of(annotation)
         settled_segments.extend(annotation_segments)
@@ -8352,7 +8352,7 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
         )
 
     for elbow in positions:
-        routes = [((), (tip, elbow), build)]
+        routes: list[tuple[tuple, tuple, Any]] = [((), (tip, elbow), build)]
         if routed_build is not None:
             nearest_xs = sorted(
                 corridor_xs,
@@ -8401,7 +8401,7 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
                 )
                 routed.append((length, bends, route, routed_build))
             routes.extend(item[1:] for item in sorted(routed, key=lambda item: item[0])[:96])
-        selected = {}
+        selected: dict[int, tuple[tuple, Any]] = {}
         for bends, route, candidate_build in routes:
             if _route_blocked(route):
                 continue
