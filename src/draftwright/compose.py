@@ -368,6 +368,20 @@ class AngularReservation:
 
 
 @dataclass
+class CorridorDepthComparison:
+    """Observational difference between scheme-planned and legacy reserved depth."""
+
+    view: str
+    side: str
+    planned: float
+    reserved: float
+
+    @property
+    def delta(self) -> float:
+        return self.planned - self.reserved
+
+
+@dataclass
 class StripDepths:
     """Annotation strip depths (page-mm) computed before view positions are fixed.
 
@@ -415,6 +429,43 @@ class StripDepths:
             tier=font_size + 2 * pad_around_text,
             gap=gap,
             spacing=spacing,
+        )
+
+    def compare_planned_corridors(
+        self,
+        scale: float,
+        **planning_style,
+    ) -> tuple[CorridorDepthComparison, ...]:
+        """Compare scheme depth with today's reservations; never mutates layout inputs."""
+
+        halo = self.pv_halo
+        shared_side = max(_DIM_PAD, self.right, halo)
+        shared_left = max(_DIM_PAD, self.left, halo)
+        pv_below = _est_pv_below_depth()
+        pv_top = max(_DIM_PAD, self.top) + halo if halo > 0 else _DIM_PAD
+        reserved = {
+            ("front", "above"): max(_DIM_PAD - pv_below, self.fv_top),
+            ("front", "below"): max(_DIM_PAD, self.fv_bottom),
+            ("front", "left"): shared_left,
+            ("front", "right"): shared_side,
+            ("plan", "above"): max(pv_top, self.pv_authored_top),
+            ("plan", "below"): max(pv_below, halo, self.pv_bottom),
+            ("plan", "left"): shared_left,
+            ("plan", "right"): shared_side,
+            ("side", "above"): self.sv_top,
+            ("side", "below"): self.sv_bottom,
+            ("side", "right"): max(_DIM_PAD, self.sv_right),
+            ("rear", "right"): max(shared_side, self.rv_right),
+        }
+        planned = self.planned_corridor_depths(scale, **planning_style)
+        return tuple(
+            CorridorDepthComparison(
+                view,
+                side,
+                depth,
+                float(reserved.get((view, side), 0.0)),
+            )
+            for (view, side), depth in sorted(planned.items())
         )
 
 

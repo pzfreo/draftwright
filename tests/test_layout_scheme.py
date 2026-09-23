@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 from build123d import Box
 
-from draftwright.compose import _measure_strips
+from draftwright.compose import StripDepths, _measure_strips
 from draftwright.layout_scheme import (
     AnnotationDemand,
     AnnotationScheme,
@@ -68,6 +68,15 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
         ("front", "left"): 17.0,
         ("side", "below"): 17.0,
     }
+    comparisons = {
+        (item.view, item.side): (item.planned, item.reserved, item.delta)
+        for item in strips.compare_planned_corridors(1)
+    }
+    assert comparisons == {
+        ("front", "above"): (26.5, 2.0, 24.5),
+        ("front", "left"): (17.0, 20.0, -3.0),
+        ("side", "below"): (17.0, 0.0, 17.0),
+    }
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):
@@ -120,6 +129,15 @@ def test_lane_packing_is_input_order_independent_and_uses_corridor_axis():
     # A vertical front corridor follows model z; a horizontal side corridor follows model y.
     assert intervals(forward) == {"front": (0, 4, 0), "side": (4, 8, 0)}
     assert intervals(reverse) == intervals(forward)
+
+
+def test_corridor_comparison_uses_effective_composed_reservations():
+    scheme = AnnotationScheme((_demand("below", (0, 0, 0), side="below"),), ())
+    comparison = StripDepths(right=0, left=0, scheme=scheme).compare_planned_corridors(1)[0]
+
+    assert comparison.planned == 17.0
+    assert comparison.reserved == 20.0
+    assert comparison.delta == -3.0
 
 
 def test_lane_packing_rejects_invalid_scale_clearance_and_spans():
