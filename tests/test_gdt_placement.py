@@ -326,6 +326,7 @@ def test_full_adjacent_strips_fall_back_to_clear_sheet_space(monkeypatch):
 
     assert "m_gdt0" in dwg.annotations()
     assert [i for i in dwg.registry.issues if i.code == "gdt_sheet_fallback"]
+    assert dwg.registry.declaration_of("m_gdt0") is frame
     assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert not [i for i in dwg.lint() if i.code == "annotation_out_of_bounds"]
 

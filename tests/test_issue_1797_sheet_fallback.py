@@ -6,8 +6,14 @@ import pytest
 from build123d import Box, Draft
 from build123d_drafting import Leader
 
-from draftwright.annotations.from_model import _pmi_dim_spec, _pmi_leader_spec
+from draftwright._geometry import _segments_cross_or_overlap
+from draftwright.annotations.from_model import (
+    _pmi_dim_spec,
+    _pmi_leader_spec,
+    _sheet_leader_fallback,
+)
 from draftwright.annotations.routed import RoutedLeader
+from draftwright.linting.ink_overlap import segments_of
 
 
 def test_diameter_dimension_may_fall_back_to_a_routed_surface_leader():
@@ -74,3 +80,36 @@ def test_routed_leader_validates_routes_and_supports_all_over_symbol():
 
     leader = RoutedLeader((0, 0), (5, 0), (10, 5), "label", draft, all_over=True)
     assert tuple(leader.bend)[:2] == (5.0, 0.0)
+
+
+def test_sheet_fallback_routes_around_a_settled_leader_shaft():
+    draft = Draft(font_size=3.0)
+    fixed = Leader((50.0, 10.0), (50.0, 90.0), "FIXED", draft)
+
+    class DrawingStub:
+        drawable_bounds = (0.0, 0.0, 100.0, 100.0)
+        views = {"front": object()}
+
+        def __init__(self):
+            self.draft = draft
+
+        def view_bounds(self, name):
+            return (10.0, 10.0, 30.0, 30.0) if name == "front" else None
+
+        def iter_annotations(self):
+            return iter((("fixed", fixed),))
+
+    candidate = _sheet_leader_fallback(
+        DrawingStub(),
+        (20.0, 20.0),
+        "front",
+        lambda elbow: Leader((20.0, 20.0), elbow, "NEW", draft),
+        lambda bends, elbow: RoutedLeader((20.0, 20.0), bends, elbow, "NEW", draft),
+    )
+
+    assert candidate is not None
+    assert not any(
+        _segments_cross_or_overlap(a, b, c, d)
+        for a, b in segments_of(candidate)
+        for c, d in segments_of(fixed)
+    )

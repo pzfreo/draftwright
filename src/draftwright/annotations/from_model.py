@@ -29,8 +29,10 @@ from build123d_drafting.helpers import (
     DEFAULT_FONT_PATH,
     Centerline,
     CenterMark,
+    Dimension,
     HoleCallout,
     Leader,
+    SafeDimension,
 )
 
 from draftwright._core import (
@@ -70,6 +72,7 @@ from draftwright._geometry import (
     _blend_profile_arcs,
     _fmt_chamfer,
     _segment_clips_box,
+    _segments_cross_or_overlap,
     _straight_blend_faces,
     _turned_profile_site,
 )
@@ -101,7 +104,7 @@ from draftwright.annotations._common import (
     strip_occupants,
     view_label_clearance,
 )
-from draftwright.annotations.angular import AngularInk
+from draftwright.annotations.angular import AngularDimension, AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     FeatureLeaderJob,
@@ -8151,6 +8154,12 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallb
                 "build_at": _build_at,
                 "build_routed": _build_routed,
                 "tip": p2,
+                "label_size": _text_size(
+                    label,
+                    draft.font_size,
+                    getattr(draft, "font_path", DEFAULT_FONT_PATH),
+                    getattr(draft, "font", "Arial"),
+                ),
             }
         )
     return spec
@@ -8242,7 +8251,7 @@ def _oblique_linear_specs(a, rec, label, name, draft):
     ]
 
 
-def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None):
+def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=None):
     """Return the nearest clear leader on a bounded drawable-sheet grid.
 
     Adjacent strips remain authoritative. This last resort exists for the distinct
@@ -8266,8 +8275,17 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None):
     ]
     settled_labels = []
     settled_segments = []
+    settled_non_crossable_segments = []
     for _name, annotation in dwg.iter_annotations():
-        settled_segments.extend(segments_of(annotation))
+        annotation_segments = segments_of(annotation)
+        settled_segments.extend(annotation_segments)
+        crossable_strokes = (
+            isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
+            or bool(getattr(annotation, "_dw_dimension_candidate", False))
+            or type(annotation).__name__ in CROSSABLE_TYPES
+        )
+        if not crossable_strokes:
+            settled_non_crossable_segments.extend(annotation_segments)
         label_box = getattr(annotation, "label_bbox", None)
         if label_box is not None:
             settled_labels.append(label_box)
@@ -8290,42 +8308,102 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None):
             for value in (bounds[1] - clearance, bounds[3] + clearance)
         ),
     }
+    corridor_xs = {
+        *xs,
+        *(
+            point[0] + offset
+            for segment in settled_non_crossable_segments
+            for point in segment
+            for offset in (-clearance, clearance)
+        ),
+    }
+    corridor_ys = {
+        *ys,
+        *(
+            point[1] + offset
+            for segment in settled_non_crossable_segments
+            for point in segment
+            for offset in (-clearance, clearance)
+        ),
+    }
     positions = sorted(
         ((x, y) for x in xs for y in ys if x0 < x < x1 and y0 < y < y1),
         key=lambda point: (math.hypot(point[0] - tip[0], point[1] - tip[1]), point),
-    )[:128]
+    )
+
+    def _route_blocked(route):
+        route_segments = tuple(zip(route, route[1:]))
+        return (
+            any(
+                _segment_clips_box(start, end, view_box, pad=0.0)
+                for start, end in route_segments
+                for view_box in other_view_boxes
+            )
+            or any(
+                _segment_clips_box(start, end, label_box, pad=0.0)
+                for start, end in route_segments
+                for label_box in settled_labels
+            )
+            or any(
+                _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
+                for start, end in route_segments
+                for fixed_start, fixed_end in settled_non_crossable_segments
+            )
+        )
+
     for elbow in positions:
         routes = [((), (tip, elbow), build)]
         if routed_build is not None:
+            nearest_xs = sorted(
+                corridor_xs,
+                key=lambda value: abs(value - tip[0]) + abs(value - elbow[0]),
+            )[:6]
+            nearest_ys = sorted(
+                corridor_ys,
+                key=lambda value: abs(value - tip[1]) + abs(value - elbow[1]),
+            )[:6]
+            route_xs = tuple(dict.fromkeys((*nearest_xs, min(corridor_xs), max(corridor_xs))))
+            route_ys = tuple(dict.fromkeys((*nearest_ys, min(corridor_ys), max(corridor_ys))))
             bend_routes = [
                 ((elbow[0], tip[1]),),
                 ((tip[0], elbow[1]),),
-                *(((route_x, tip[1]), (route_x, elbow[1])) for route_x in xs),
-                *(((tip[0], route_y), (elbow[0], route_y)) for route_y in ys),
+                *(((route_x, tip[1]), (route_x, elbow[1])) for route_x in corridor_xs),
+                *(((tip[0], route_y), (elbow[0], route_y)) for route_y in corridor_ys),
+                *(
+                    (
+                        (route_x, tip[1]),
+                        (route_x, route_y),
+                        (elbow[0], route_y),
+                    )
+                    for route_x in route_xs
+                    for route_y in route_ys
+                ),
+                *(
+                    (
+                        (tip[0], route_y),
+                        (route_x, route_y),
+                        (route_x, elbow[1]),
+                    )
+                    for route_x in route_xs
+                    for route_y in route_ys
+                ),
             ]
             routed = []
             for bends in bend_routes:
                 route = (tip, *bends, elbow)
                 if any(left == right for left, right in zip(route, route[1:])):
                     continue
+                if _route_blocked(route):
+                    continue
                 length = sum(
                     math.hypot(right[0] - left[0], right[1] - left[1])
                     for left, right in zip(route, route[1:])
                 )
                 routed.append((length, bends, route, routed_build))
-            routes.extend(item[1:] for item in sorted(routed, key=lambda item: item[0])[:24])
+            routes.extend(item[1:] for item in sorted(routed, key=lambda item: item[0])[:96])
         selected = {}
         for bends, route, candidate_build in routes:
-            route_segments = tuple(zip(route, route[1:]))
-            if any(
-                _segment_clips_box(start, end, view_box, pad=0.0)
-                for start, end in route_segments
-                for view_box in other_view_boxes
-            ) or any(
-                _segment_clips_box(start, end, label_box, pad=0.0)
-                for start, end in route_segments
-                for label_box in settled_labels
-            ):
+            if _route_blocked(route):
                 continue
             shelf_side = 1 if elbow[0] >= route[-2][0] else -1
             selected.setdefault(shelf_side, (bends, candidate_build))
@@ -8333,7 +8411,29 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None):
                 break
         if not selected:
             continue
-        for bends, candidate_build in selected.values():
+        for shelf_side, (bends, candidate_build) in selected.items():
+            if label_size is not None:
+                width, height = label_size
+                gap = dwg.draft.pad_around_text
+                label_box = (
+                    elbow[0] + gap if shelf_side > 0 else elbow[0] - gap - width,
+                    elbow[1] - height / 2.0,
+                    elbow[0] + gap + width if shelf_side > 0 else elbow[0] - gap,
+                    elbow[1] + height / 2.0,
+                )
+                if (
+                    label_box[0] < x0
+                    or label_box[1] < y0
+                    or label_box[2] > x1
+                    or label_box[3] > y1
+                    or _box_hits(label_box, all_views)
+                    or _box_hits(label_box, settled_labels)
+                    or any(
+                        _segment_clips_box(start, end, label_box, pad=0.0)
+                        for start, end in settled_segments
+                    )
+                ):
+                    continue
             try:
                 candidate = candidate_build(elbow) if not bends else candidate_build(bends, elbow)
                 box = _geom_box(candidate)
@@ -8391,6 +8491,12 @@ def _pmi_leader_spec(tip, strip, label, name, view, side, draft):
         "build_at": _build_at,
         "build_routed": _build_routed,
         "tip": tip,
+        "label_size": _text_size(
+            label,
+            draft.font_size,
+            getattr(draft, "font_path", DEFAULT_FONT_PATH),
+            getattr(draft, "font", "Arial"),
+        ),
         "strip": strip,
         "view": view,
         "side": side,
@@ -8510,6 +8616,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
                 option["view"],
                 option["build_at"],
                 option["build_routed"],
+                option["label_size"],
             )
             if fallback is None:
                 continue
@@ -9369,7 +9476,8 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
         # (so a spec error can't reappear there) AND is made total against the OTHER raise
         # source — a zero-length Leader shaft (see the min-leader guard in `_build`).
         try:
-            gb = _gdt_glyph(item, draft).bounding_box().size
+            fallback_glyph = _gdt_glyph(item, draft)
+            gb = fallback_glyph.bounding_box().size
         except Exception as e:  # noqa: BLE001 — any glyph-spec error drops one item, not the build
             ctx.record_issue(
                 "warning",
@@ -9425,14 +9533,13 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
             return leader
 
-        def _build_at(elbow, _px=px, _py=py, _it=item):
-            g = _gdt_glyph(_it, draft)
+        def _build_at(elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
             leader = Leader(
                 tip=(_px, _py),
                 elbow=(*elbow, 0),
                 label="",
                 draft=draft,
-                callout=g,
+                callout=_g,
                 all_around=getattr(_it, "all_around", False),
                 all_over=getattr(_it, "all_over", False),
             )
@@ -9445,18 +9552,17 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
+                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
             return leader
 
-        def _build_routed(bends, elbow, _px=px, _py=py, _it=item):
-            g = _gdt_glyph(_it, draft)
+        def _build_routed(bends, elbow, _px=px, _py=py, _it=item, _g=fallback_glyph):
             leader = RoutedLeader(
                 (_px, _py),
                 bends,
                 elbow,
                 "",
                 draft,
-                callout=g,
+                callout=_g,
                 all_around=getattr(_it, "all_around", False),
                 all_over=getattr(_it, "all_over", False),
             )
@@ -9469,7 +9575,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     getattr(draft, "font", "Arial"),
                 )
             else:
-                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
+                leader.pdf_text_relative_specs = _gdt_pdf_text_specs(_g, _it, draft)
             return leader
 
         def _compact_candidates(
@@ -9519,6 +9625,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
             _satisfaction=satisfaction,
             _global_build=_build_at,
             _routed_build=_build_routed,
+            _declaration=item,
         ):
             # Fallthrough (#481): the declared/derived side is full — try the OPPOSITE side of
             # the same view before dropping, so a congested default still places somewhere
@@ -9543,6 +9650,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 _satisfaction=_satisfaction,
                 _global_build=_global_build,
                 _routed_build=_routed_build,
+                _declaration=_declaration,
             ):
                 # Auto-relax the requested side (#841 outcome C): the requested strip is full, so
                 # try the OPPOSITE side, then the two PERPENDICULAR sides, placing on the first
@@ -9578,6 +9686,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                         view=_v,
                         feature=_feat,
                         satisfaction=_satisfaction,
+                        declaration=_declaration,
                     )  # relaxed side
                     ctx.record_issue(
                         "info",
@@ -9586,7 +9695,12 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     )
                     return
                 fallback = _sheet_leader_fallback(
-                    dwg, (_px, _py), _v, _global_build, _routed_build
+                    dwg,
+                    (_px, _py),
+                    _v,
+                    _global_build,
+                    _routed_build,
+                    _sz,
                 )
                 if fallback is not None:
                     ctx.place(
@@ -9595,6 +9709,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                         view=_v,
                         feature=_feat,
                         satisfaction=_satisfaction,
+                        declaration=_declaration,
                     )
                     ctx.record_issue(
                         "info",
