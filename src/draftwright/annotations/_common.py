@@ -2555,7 +2555,32 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             losers.setdefault(c.dedup, []).append(c)
     for group in losers.values():
         group.sort(key=lambda c: (-c.precedence, c.name))
-    kept.sort(key=lambda c: c.order)
+
+    def _planned_order(candidate):
+        lanes = None if ctx is None else ctx.annotation_lanes
+        model = None if ctx is None else ctx.part_model
+        corridor = None
+        if lanes is not None and key is not None and len(key) == 2:
+            corridor = lanes.corridor(*key)
+        feature = resolve_feature(candidate.feature)
+        if corridor is not None and model is not None and feature is not None:
+            matches = [
+                reservation
+                for reservation in corridor.reservations
+                if model.features[reservation.demand.feature_index] is feature
+            ]
+            if matches:
+                planned = min(matches, key=lambda item: (item.lane, item.start, item.end))
+                return (
+                    candidate.order[0],
+                    0,
+                    planned.lane,
+                    planned.start,
+                    candidate.order,
+                )
+        return (candidate.order[0], 1, 0, 0.0, candidate.order)
+
+    kept.sort(key=_planned_order)
     if trace is not None:  # record who lost each dedup group (a loser never starves)
         for dk, group in losers.items():
             for loser in group:
@@ -2843,6 +2868,9 @@ class PlacementContext:
     # renderer calls and finished-sheet live verbs keep their immediate behavior;
     # the orchestrator/finalize paths opt in with ``[]`` and drain once.
     feature_leaders: list | None = None
+    # Optional pre-render annotation lanes. Automatic builds attach the scheme's
+    # deterministic plan; live edits leave this unset and retain their existing order.
+    annotation_lanes: Any = None
     # Automatic placement may reserve a dense internal section row. Only that
     # run needs the extended hole-leader resource-floor routing preference.
     dense_internal_section: bool = False

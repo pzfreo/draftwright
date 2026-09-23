@@ -108,6 +108,7 @@ from draftwright.annotations.sections import (
     _resolve_details,
     feature_hole_keys,
 )
+from draftwright.layout_scheme import pack_estimated_annotation_lanes
 from draftwright.model import (
     DimensionId,
     Frame,
@@ -615,6 +616,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
     _groups = annotation_groups(_model, _groups)
+    if a.layout_strips.scheme is not None:
+        ctx.annotation_lanes = pack_estimated_annotation_lanes(
+            a.layout_strips.scheme,
+            scale=a.SCALE,
+            font_size=dwg.draft.font_size,
+            padding=dwg.draft.pad_around_text,
+        )
     for omission in _compiled.diagnostics:
         if omission.code == "step_position_coincident_with_datum":
             measurement = (
