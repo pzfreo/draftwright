@@ -4783,6 +4783,94 @@ class Drawing:
             i.suggestion = _suggest_fix(i, self)
         return issues
 
+    def layout_utilization(self) -> dict:
+        """Conservative page-space utilization evidence for layout decisions.
+
+        The evidence uses clipped view and annotation bounding boxes. It therefore
+        overestimates sparse line-work by design, but it is deterministic, cross-family,
+        and sufficient to expose a large unused sheet or empty quadrant without parsing
+        an export (#1797).
+        """
+
+        page = _frame_margins(self._analysis).bounds(self.page_w, self.page_h)
+        boxes = [bounds for name in self.views if (bounds := self.view_bounds(name)) is not None]
+        for name, annotation in self.iter_annotations():
+            if name in {"sheet_frame", "title_block"}:
+                continue
+            try:
+                bounds = annotation.bounding_box()
+                boxes.append((bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y))
+            except Exception:  # noqa: BLE001 — unmeasurable ink stays outside this evidence
+                continue
+
+        def clip(box, region):
+            clipped = (
+                max(box[0], region[0]),
+                max(box[1], region[1]),
+                min(box[2], region[2]),
+                min(box[3], region[3]),
+            )
+            return clipped if clipped[0] < clipped[2] and clipped[1] < clipped[3] else None
+
+        def union_area(region):
+            clipped = [found for box in boxes if (found := clip(box, region)) is not None]
+            xs = sorted({value for box in clipped for value in (box[0], box[2])})
+            area = 0.0
+            for left, right in zip(xs, xs[1:]):
+                intervals = sorted(
+                    (box[1], box[3]) for box in clipped if box[0] < right and box[2] > left
+                )
+                covered = 0.0
+                end = None
+                for low, high in intervals:
+                    if end is None or low > end:
+                        covered += high - low
+                        end = high
+                    elif high > end:
+                        covered += high - end
+                        end = high
+                area += (right - left) * covered
+            return area
+
+        x0, y0, x1, y1 = page
+        width, height = x1 - x0, y1 - y0
+        envelope = None
+        clipped_boxes = [found for box in boxes if (found := clip(box, page)) is not None]
+        if clipped_boxes:
+            envelope = (
+                min(box[0] for box in clipped_boxes),
+                min(box[1] for box in clipped_boxes),
+                max(box[2] for box in clipped_boxes),
+                max(box[3] for box in clipped_boxes),
+            )
+        mid_x, mid_y = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        quadrants = {
+            "left-bottom": (x0, y0, mid_x, mid_y),
+            "right-bottom": (mid_x, y0, x1, mid_y),
+            "left-top": (x0, mid_y, mid_x, y1),
+            "right-top": (mid_x, mid_y, x1, y1),
+        }
+        page_area = width * height
+        return {
+            "scope": "clipped-view-and-annotation-bounding-boxes",
+            "drawable_bounds": page,
+            "content_bounds": envelope,
+            "content_envelope_fraction": (
+                None
+                if envelope is None or page_area <= 0.0
+                else (envelope[2] - envelope[0]) * (envelope[3] - envelope[1]) / page_area
+            ),
+            "footprint_fraction": None if page_area <= 0.0 else union_area(page) / page_area,
+            "quadrants": {
+                name: {
+                    "bounds": region,
+                    "footprint_fraction": union_area(region)
+                    / ((region[2] - region[0]) * (region[3] - region[1])),
+                }
+                for name, region in quadrants.items()
+            },
+        }
+
     def lint_summary(self) -> dict:
         """Aggregate :meth:`lint` into a JSON-friendly diagnostic summary.
 
@@ -4889,6 +4977,7 @@ class Drawing:
             "score": score,
             "diagnostic_score": score,
             "quality": quality,
+            "layout_utilization": self.layout_utilization(),
             "review": review_explanation(
                 quality=quality, errors=errors, warnings=warnings, score=score
             ),
