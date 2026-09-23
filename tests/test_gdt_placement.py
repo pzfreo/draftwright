@@ -156,6 +156,31 @@ def test_datum_and_finish_place():
     assert placed == {"m_gdt0", "m_gdt1"}
 
 
+def test_datum_compacts_through_empty_part_of_conservative_obstacle(monkeypatch):
+    """A broad obstacle box must not force remote GD&T ink when its real ink is clear."""
+    from draftwright.annotations import _common
+
+    real_obstacles = _common.strip_obstacles
+
+    def with_empty_hull(drawing, view=None, *, crossable=(), named=False):
+        obstacles = real_obstacles(drawing, view=view, crossable=crossable, named=named)
+        if view != "front":
+            return obstacles
+        hull = (30.0, 42.0, 115.0, 58.0)
+        return [*obstacles, ("dimension:empty-hull", hull) if named else hull]
+
+    monkeypatch.setattr(_common, "strip_obstacles", with_empty_hull)
+    datum = DatumRef(frame=Frame((30.0, 0.0, 0.0), "z"), letter="A", view="front", side="below")
+    dwg = _build(datum)
+    placed = dwg.get_annotation("m_gdt0")
+
+    # The conservative solve has to clear the injected 16 mm-deep hull. The
+    # exact-ink contraction can reclaim that empty space and restores the first
+    # legal below-view tier, while retaining the declaration's registry identity.
+    assert placed.tip[1] - placed.elbow[1] < 30.0
+    assert dwg.registry.names_for_feature(datum) == ["m_gdt0"]
+
+
 def test_stacked_frames_reserve_real_footprint():
     # Two frames on the same above strip. If placement reserved only one label-height
     # (the pre-#61 (tier, tier) hardcode) the ~6 mm-tall glyphs would overlap; the real

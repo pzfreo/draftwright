@@ -8485,7 +8485,7 @@ def _angular_specs(a, reference, label, name, draft, *, side=None, implicit_degr
                 "order": (_PMI_SUBCHAIN, ink.vertex[1 - index], name),
                 "natural": natural,
                 "valid_position": valid_position,
-                "compact_candidates": lambda: ink.compact_candidates(_PMI_SLOT),
+                "compact_candidates": lambda _original=None: ink.compact_candidates(_PMI_SLOT),
                 "build": lambda pos, _radius=radius: ink.build(
                     max(ink.minimum_radius, _radius(pos))
                 ),
@@ -9244,6 +9244,37 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 leader.pdf_text_relative_specs = _gdt_pdf_text_specs(g, _it, draft)
             return leader
 
+        def _compact_candidates(
+            original,
+            _build=_build,
+            _strip=strip,
+            _size=size,
+            _horizontal=horizontal,
+        ):
+            """Nearest-first same-strip landings checked later against exact ink.
+
+            Dimension extension lines make their conservative boxes intentionally
+            broad.  A GD&T leader may pass through the empty part of such a box, so
+            the corridor result is an upper bound rather than necessarily the best
+            landing.  Keep this search finite and inside the requested strip.
+            """
+            if original is None:
+                return
+            original_pos = original.elbow[1 if _horizontal else 0]
+            extent = _size[1 if _horizontal else 0]
+            near = _strip.anchor + _strip.direction * (_strip.gap + extent / 2.0)
+            distance = (original_pos - near) * _strip.direction
+            if distance <= 1e-6:
+                return
+            step = max(tier + _strip.spacing, 1.0)
+            count = min(64, int(math.ceil(distance / step)) + 1)
+            for index in range(count):
+                travel = min(distance, index * step)
+                pos = near + _strip.direction * travel
+                if abs(pos - original_pos) <= 1e-6:
+                    return
+                yield _build(pos)
+
         def _drop(
             nm,
             _v=item.view,
@@ -9355,6 +9386,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 satisfaction=satisfaction or None,
                 declaration=item,
                 size=size,
+                compact_candidates=_compact_candidates,
                 # Even a force-kept frame must not stack into the title block (#481 review) —
                 # place_strip_candidates rejects a placement hitting this box, then on_drop's
                 # fallthrough tries the other side.
