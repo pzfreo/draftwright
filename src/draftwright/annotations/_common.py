@@ -3634,9 +3634,9 @@ def place_strip_candidates(
                 continue
             real = _geom_box(dim)
             solved.append((name, natural if _real_box_conflict(name, real) else dim))
-    # Curved ink can enclose large empty rectangles. After the shared strip
-    # solve, try a bounded contraction using actual segments and labels against
-    # both committed ink and this batch. Never move an anchored dimension.
+    # Some annotation ink can enclose large empty rectangles. After the shared
+    # strip solve, try a bounded contraction using actual segments and labels
+    # against both committed ink and this batch. Never move an anchored item.
     active_names = {name for name, _build in cands}
     label_clear = view_label_clearance(dwg, view) if compact_candidates else None
     for name, alternatives in (compact_candidates or {}).items():
@@ -3647,8 +3647,13 @@ def place_strip_candidates(
         index = next((i for i, (key, _dim) in enumerate(solved) if key == name), None)
         original = solved[index][1] if index is not None else None
         others = [item for key, item in solved if key != name]
-        for candidate in alternatives():
-            if original is not None and candidate.arc_radius >= original.arc_radius - 1e-6:
+        for candidate in alternatives(original):
+            if (
+                original is not None
+                and hasattr(candidate, "arc_radius")
+                and hasattr(original, "arc_radius")
+                and candidate.arc_radius >= original.arc_radius - 1e-6
+            ):
                 break
             box = _geom_box(candidate)
             if (
@@ -3676,7 +3681,12 @@ def place_strip_candidates(
                     entry["strip_pos"] = entry["pos"]
                     entry["pos"] = (label[idx] + label[idx + 2]) / 2
             if tp is not None:
-                tp.setdefault("angular_contractions", []).append(name)
+                trace_field = (
+                    "angular_contractions"
+                    if hasattr(candidate, "arc_radius")
+                    else "ink_contractions"
+                )
+                tp.setdefault(trace_field, []).append(name)
             break
     for name, dim in solved:
         # Record feature provenance (ADR 5 (was 0010)): the drain-time seam for corridor-placed
