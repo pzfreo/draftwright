@@ -61,7 +61,10 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
         ("declaration:10", parameter)
         for parameter in ("location_slot.length", "slot_length.length", "slot_width.length")
     )
-    rows.append(("declaration:11", "boss_height.length"))
+    rows.extend(
+        ("declaration:11", parameter)
+        for parameter in ("boss_height.length", "polygon_across_flats.length")
+    )
     rows.extend(
         ("declaration:12", parameter)
         for parameter in ("depth.length", "height.length", "width.length")
@@ -70,7 +73,7 @@ def _fixed_requirements() -> tuple[ExpectedRequirement, ...]:
     rows.extend((f"declaration:{declaration}", "chamfer.length") for declaration in range(14, 17))
     rows.extend((f"declaration:{declaration}", "fillet.radius") for declaration in range(17, 24))
     rows.extend((f"declaration:{declaration}", "blend.radius") for declaration in range(24, 52))
-    assert len(rows) == 80
+    assert len(rows) == 81
     return tuple(ExpectedRequirement(*row) for row in rows)
 
 
@@ -135,7 +138,9 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
             + "\n    _points = (_leader.tip, *getattr(_leader, 'bends', ()), _leader.elbow)"
             + "\n    _length = sum(((b[0]-a[0])**2 + (b[1]-a[1])**2)**0.5 "
             + "for a, b in zip(_points, _points[1:]))"
-            + "\n    assert _length < 45.0, (_name, _length, _points)",
+            + "\n    assert _length < 45.0, (_name, _length, _points)"
+            + "\n# #1797: a required polygonal-boss callout recovers into clear sheet space."
+            + "\nassert 'm_polygonal_boss_z0' in drawing.annotations()",
         ),
         encoding="utf-8",
     )
@@ -163,4 +168,4 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
     assert {
         (row["declaration_id"], row["parameter_id"]) for row in baseline["measurements"]["entries"]
     } == expected
-    assert len(baseline["measurements"]["entries"]) == 80
+    assert len(baseline["measurements"]["entries"]) == 81

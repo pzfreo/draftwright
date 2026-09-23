@@ -7,7 +7,7 @@ from build123d_drafting.helpers import Leader, draft_preset
 
 from draftwright import Sheet
 from draftwright.annotations import from_model, leaders
-from draftwright.annotations._common import PlacementContext, leader_callout_geometry
+from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     FeatureLeaderJob,
@@ -24,6 +24,7 @@ from draftwright.annotations.leaders import (
     interior_leader_candidates,
     place_feature_leader_jobs,
 )
+from draftwright.annotations.routed import RoutedLeader
 from draftwright.model import hole
 
 
@@ -232,6 +233,193 @@ def test_resource_floor_rejects_unverified_interior_and_view_blocked_exterior(
         == 1
     )
     assert drawing.get_annotation("m_fillet0").segments[0][1] == outside[:2]
+
+
+def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(fresh_drawing, tmp_path):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    outside = (tip[0] + 20.0, tip[1], 0.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        trace=SolveTrace(tmp_path / "trace.json"),
+    )
+
+    def build(candidate_tip, elbow, _feature):
+        return Leader((*candidate_tip, 0.0), elbow, "R1", drawing.draft)
+
+    def recover():
+        assert "ordinary" in drawing.annotations()
+        return (
+            RoutedLeader(
+                (*tip, 0.0),
+                ((outside[0] - 5.0, outside[1] + 6.0),),
+                (outside[0], outside[1] + 12.0),
+                "HEX 100 A/F",
+                drawing.draft,
+            ),
+            None,
+        )
+
+    ordinary = FeatureLeaderJob(
+        name="ordinary",
+        view="front",
+        silhouette=bounds,
+        label="R1",
+        candidates=((tip, outside, None),),
+        build=build,
+        measurement=(),
+        noun="fillet",
+        drop_code="fillet_dropped",
+        fallback_accept=lambda *_args: True,
+    )
+    recovered = FeatureLeaderJob(
+        name="recovered",
+        view="front",
+        silhouette=bounds,
+        label="HEX 100 A/F",
+        candidates=(),
+        build=build,
+        measurement=(),
+        noun="polygonal boss",
+        drop_code="polygonal_boss_dropped",
+        recover=recover,
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert place_feature_leader_jobs(drawing, analysis, ctx, (ordinary, recovered)) == 2
+    assert {"ordinary", "recovered"} <= set(drawing.annotations())
+    assert not [
+        issue for issue in drawing.registry.issues if issue.code == "polygonal_boss_dropped"
+    ]
+    event = next(
+        row for row in ctx.trace.pass_events if row["label"] == "feature_leader_inventory"
+    )
+    placed = [row for row in event["items"] if row["outcome"] == "placed"]
+    assert event["objective"]["placed"] == len(placed) == 2
+    assert event["objective"]["cost"] == pytest.approx(sum(row["cost"] for row in placed))
+    recovered_item = next(row for row in placed if row["name"] == "recovered")
+    assert recovered_item["recovery"] == "sheet_recovery"
+    assert recovered_item["route"] == "bent"
+    assert recovered_item["bends"] == [
+        [outside[0] - 5.0, outside[1] + 6.0],
+    ]
+
+
+def test_greedy_sheet_recovery_preserves_success_and_honest_failure(fresh_drawing, tmp_path):
+    """The bounded-resource floor must retain the same recovery contract as the joint solve."""
+
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    elbow = (tip[0] + 20.0, tip[1] + 12.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        trace=SolveTrace(tmp_path / "trace.json"),
+    )
+
+    def build(candidate_tip, candidate_elbow, _feature):
+        return Leader((*candidate_tip, 0.0), candidate_elbow, "RECOVER", drawing.draft)
+
+    def job(name, recover):
+        return FeatureLeaderJob(
+            name=name,
+            view="front",
+            silhouette=bounds,
+            label=name,
+            candidates=(),
+            build=build,
+            measurement=(),
+            noun="feature",
+            drop_code=f"{name}_dropped",
+            recover=recover,
+        )
+
+    recovered = job(
+        "recovered",
+        lambda: (Leader((*tip, 0.0), elbow, "RECOVER", drawing.draft), None),
+    )
+    exhausted = job("exhausted", lambda: None)
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert (
+        place_feature_leader_jobs(
+            drawing,
+            analysis,
+            ctx,
+            (recovered, exhausted),
+            producer_floor=True,
+        )
+        == 1
+    )
+    assert "recovered" in drawing.annotations()
+    assert any(issue.code == "exhausted_dropped" for issue in drawing.registry.issues)
+    event = next(row for row in ctx.trace.pass_events if row["label"] == "feature_callouts")
+    assert [item["outcome"] for item in event["items"]] == ["placed", "dropped"]
+    placed = [item for item in event["items"] if item["outcome"] == "placed"]
+    assert event["objective"]["placed"] == len(placed) == 1
+    assert event["objective"]["cost"] == pytest.approx(sum(item["cost"] for item in placed))
+
+
+def test_typed_radial_recovery_preserves_a_normal_first_segment(monkeypatch, fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    centre = ((bounds[0] + bounds[2]) / 2.0, (bounds[1] + bounds[3]) / 2.0)
+    tip = (centre[0] + 5.0, centre[1])
+    elbow = (tip[0] + 20.0, tip[1], 0.0)
+    candidate = FeatureLeaderCandidate(
+        tip,
+        elbow,
+        None,
+        radial_target=RadialLeaderTarget(centre, 5.0),
+    )
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+
+    def forced_fallback(_drawing, search_tip, _view, build_at, _build_routed, _size):
+        return build_at((search_tip[0] + 12.0, search_tip[1] + 8.0))
+
+    monkeypatch.setattr(from_model, "_sheet_leader_fallback", forced_fallback)
+    from_model.place_machined_leader_jobs(
+        drawing,
+        SimpleNamespace(leader_region="auto"),
+        (("radial", "front", bounds, "R5", (candidate,), ()),),
+        noun="fillet",
+        drop_code="fillet_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+    assert len(ctx.feature_leaders) == 1
+    annotation, _feature = ctx.feature_leaders[0].recover()
+    assert isinstance(annotation, RoutedLeader)
+    first_bend = annotation.bends[0]
+    assert first_bend[1] == pytest.approx(tip[1])
+    assert first_bend[0] > tip[0]
 
 
 def test_interior_candidates_are_feature_relative_and_fully_inside_view():

@@ -113,3 +113,69 @@ def test_sheet_fallback_routes_around_a_settled_leader_shaft():
         for a, b in segments_of(candidate)
         for c, d in segments_of(fixed)
     )
+
+
+def test_sheet_fallback_rejects_a_hidden_radial_prefix_crossing():
+    draft = Draft(font_size=3.0)
+    fixed = Leader((15.0, 10.0), (15.0, 30.0), "FIXED", draft)
+    physical_tip = (10.0, 20.0)
+    normal_stub = (20.0, 20.0)
+
+    class DrawingStub:
+        drawable_bounds = (0.0, 0.0, 100.0, 100.0)
+        views = {"front": object()}
+
+        def __init__(self):
+            self.draft = draft
+
+        def view_bounds(self, name):
+            return (5.0, 5.0, 25.0, 35.0) if name == "front" else None
+
+        def iter_annotations(self):
+            return iter((("fixed", fixed),))
+
+    candidate = _sheet_leader_fallback(
+        DrawingStub(),
+        normal_stub,
+        "front",
+        lambda elbow: RoutedLeader(physical_tip, (normal_stub,), elbow, "NEW", draft),
+        lambda bends, elbow: RoutedLeader(
+            physical_tip, (normal_stub, *bends), elbow, "NEW", draft
+        ),
+    )
+
+    assert candidate is None
+
+
+def test_sheet_fallback_rejects_a_hidden_prefix_through_another_view():
+    draft = Draft(font_size=3.0)
+    physical_tip = (10.0, 20.0)
+    normal_stub = (20.0, 20.0)
+
+    class DrawingStub:
+        drawable_bounds = (0.0, 0.0, 100.0, 100.0)
+        views = {"front": object(), "side": object()}
+
+        def __init__(self):
+            self.draft = draft
+
+        def view_bounds(self, name):
+            return {
+                "front": (5.0, 5.0, 25.0, 35.0),
+                "side": (14.0, 19.0, 16.0, 21.0),
+            }[name]
+
+        def iter_annotations(self):
+            return iter(())
+
+    candidate = _sheet_leader_fallback(
+        DrawingStub(),
+        normal_stub,
+        "front",
+        lambda elbow: RoutedLeader(physical_tip, (normal_stub,), elbow, "NEW", draft),
+        lambda bends, elbow: RoutedLeader(
+            physical_tip, (normal_stub, *bends), elbow, "NEW", draft
+        ),
+    )
+
+    assert candidate is None

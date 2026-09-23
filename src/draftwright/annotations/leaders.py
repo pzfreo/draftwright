@@ -383,6 +383,7 @@ class FeatureLeaderJob:
     priority: float = 0.0
     on_place: Callable[[Any], None] | None = None
     on_drop: Callable[[str], None] | None = None
+    recover: Callable[[], tuple[Any, Any] | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -1773,6 +1774,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         candidate_inventory=(),
         producer_fallback=None,
         reason=None,
+        recovered=None,
     ):
         job = jobs[job_index]
         item = {
@@ -1799,7 +1801,21 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             item["viable_candidates"] = viable_count
         if policy_b_blockers:
             item["policy_b_blockers"] = list(policy_b_blockers)
-        if candidate is None:
+        if recovered is not None:
+            bends = tuple(getattr(recovered, "bends", ()))
+            item.update(
+                {
+                    "outcome": "placed",
+                    "recovery": "sheet_recovery",
+                    "route": "bent" if bends else "straight",
+                    "tip": list(recovered.tip[:2]),
+                    "elbow": list(recovered.elbow[:2]),
+                    "cost": recovery_cost(recovered),
+                }
+            )
+            if bends:
+                item["bends"] = [list(point[:2]) for point in bends]
+        elif candidate is None:
             item.update({"outcome": "dropped", "reason": reason or "no_clear_room"})
         else:
             item.update(
@@ -1817,17 +1833,25 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         if event is not None:
             event["items"].append(dict(item))
 
-    def place(job_index, candidate, annotation):
+    def recovery_cost(annotation) -> float:
+        """Use the same rendered-segment objective as an ordinary measured candidate."""
+        return sum(
+            math.hypot(second[0] - first[0], second[1] - first[1])
+            for first, second in _segments(annotation)
+        )
+
+    def place(job_index, candidate, annotation, *, recovered=False):
         job = jobs[job_index]
         # Preserve typed candidate provenance on the rendered object.  Besides trace
         # diagnostics, structural lint uses this to distinguish a solver-proven interior
         # label from an arbitrary annotation that merely happens to lie inside a view.
-        annotation._dw_candidate_region = candidate.region.value
+        if not recovered:
+            annotation._dw_candidate_region = candidate.region.value
         ctx.place(
             annotation,
             job.name,
             view=job.view,
-            feature=resolve_feature(candidate.feature),
+            feature=resolve_feature(candidate if recovered else candidate.feature),
             measurement=job.measurement,
         )
         if job.on_place is not None:
@@ -1994,6 +2018,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         fixed_result = bounded_fixed_obstacles()
         fixed_verified = fixed_result is not _FIXED_INVENTORY_EXHAUSTED
         fixed = fixed_result if fixed_verified else {view: () for view in views}
+        pending_recoveries = []
         legacy_boxes = {
             # Producer fallback replays the pre-#1166 acceptance floor; exact
             # blockers below still persist any retained crossing.  Optional
@@ -2244,6 +2269,19 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             )
             if selected is None:
                 drop_reason = terminal_reason(fallback_rejected)
+                if job.recover is not None:
+                    pending_recoveries.append(
+                        (
+                            job_index,
+                            recorded_raw_count,
+                            recorded_rejected,
+                            obstacle_count,
+                            recorded_inventory,
+                            producer_fallback,
+                            drop_reason,
+                        )
+                    )
+                    continue
                 drop(job_index, reason=drop_reason)
                 record_item(
                     job_index,
@@ -2299,6 +2337,37 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 selected, material_by_view.get(job.view)
             )
             total_cost += selected.cost
+        # Recovery runs after every ordinary winner is committed, so its exact sheet-space
+        # predicate sees the complete greedy result rather than depending on producer order.
+        for (
+            job_index,
+            recorded_raw_count,
+            recorded_rejected,
+            obstacle_count,
+            recorded_inventory,
+            producer_fallback,
+            drop_reason,
+        ) in pending_recoveries:
+            recovered = jobs[job_index].recover()
+            if recovered is not None:
+                annotation, feature = recovered
+                place(job_index, feature, annotation, recovered=True)
+                placed_count += 1
+                total_priority += jobs[job_index].priority
+                total_cost += recovery_cost(annotation)
+            else:
+                drop(job_index, reason=drop_reason)
+            record_item(
+                job_index,
+                None,
+                recorded_raw_count,
+                recorded_rejected,
+                obstacle_count=obstacle_count,
+                candidate_inventory=recorded_inventory,
+                producer_fallback=producer_fallback,
+                reason=drop_reason,
+                recovered=annotation if recovered is not None else None,
+            )
         set_assignment(
             reason,
             optimal=False,
@@ -2752,21 +2821,18 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
         else 0
     )
-    set_assignment(
-        "joint" if assignment.optimal else "joint_state_budget",
-        optimal=assignment.optimal,
-        states=assignment_states,
-        fixed_probes=total_fixed_probes,
-        fixed_probe_bound=total_fixed_probes,
-        pair_probes=pair_probes,
-        placed=sum(choice is not None for choice in final_choices),
-        priority=objective_priority,
-        penalty=objective_penalty,
-        provisional_penalty=objective_provisional_penalty,
-        cost=objective_cost,
-        provisional_refinement=provisional_refinement,
-    )
+    # Commit every joint-assignment winner before attempting recovery. A bent fallback must
+    # see the complete selected inventory, independent of producer order, or it can reserve
+    # space that the already-solved assignment owns.
+    for job_index, choice in enumerate(final_choices):
+        if choice is None:
+            continue
+        candidate = viable_by_job[job_index][choice]
+        place(job_index, candidate, materialized[job_index])
+
     placed_count = 0
+    recovery_priority = 0.0
+    recovery_path_cost = 0.0
     for job_index, choice in enumerate(final_choices):
         if choice is None:
             reason = (
@@ -2780,7 +2846,15 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 if viable_by_job[job_index]
                 else "no_clear_room"
             )
-            drop(job_index, reason=reason)
+            recovered = jobs[job_index].recover() if jobs[job_index].recover is not None else None
+            if recovered is not None:
+                annotation, feature = recovered
+                place(job_index, feature, annotation, recovered=True)
+                placed_count += 1
+                recovery_priority += jobs[job_index].priority
+                recovery_path_cost += recovery_cost(annotation)
+            else:
+                drop(job_index, reason=reason)
             record_item(
                 job_index,
                 None,
@@ -2790,10 +2864,10 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 viable_count=len(viable_by_job[job_index]),
                 candidate_inventory=joint_inventory(job_index),
                 reason=reason,
+                recovered=annotation if recovered is not None else None,
             )
             continue
         candidate = viable_by_job[job_index][choice]
-        place(job_index, candidate, materialized[job_index])
         record_policy_b(job_index, policy_blockers_by_job[job_index][choice])
         record_item(
             job_index,
@@ -2806,4 +2880,18 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             candidate_inventory=joint_inventory(job_index),
         )
         placed_count += 1
+    set_assignment(
+        "joint" if assignment.optimal else "joint_state_budget",
+        optimal=assignment.optimal,
+        states=assignment_states,
+        fixed_probes=total_fixed_probes,
+        fixed_probe_bound=total_fixed_probes,
+        pair_probes=pair_probes,
+        placed=placed_count,
+        priority=objective_priority + recovery_priority,
+        penalty=objective_penalty,
+        provisional_penalty=objective_provisional_penalty,
+        cost=objective_cost + recovery_path_cost,
+        provisional_refinement=provisional_refinement,
+    )
     return placed_count
