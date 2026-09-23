@@ -1,7 +1,7 @@
 from dataclasses import replace
 
 import pytest
-from build123d import Box
+from build123d import Box, Cylinder
 
 from draftwright import build_drawing
 from draftwright.compose import StripDepths, _measure_strips
@@ -115,6 +115,23 @@ def test_scheme_routes_approved_automatic_envelope_dimensions():
         "auto:0:depth.length",
     }
     assert scheme.corridor("plan", "below")[0].model_interval == (-50.0, 50.0)
+
+
+def test_scheme_collapses_compound_feature_leader_to_one_natural_route():
+    scheme = plan_annotation_scheme(build_part_model(Cylinder(10, 30)))
+
+    leaders = [demand for demand in scheme.demands if demand.family == "feature_leader"]
+    assert len(leaders) == 1
+    assert leaders[0].identity == "auto:0:feature_leader"
+    assert (leaders[0].view, leaders[0].side) == ("plan", "right")
+    assert leaders[0].model_interval is None
+
+
+def test_scheme_does_not_route_compound_leader_to_missing_side_left_strip():
+    scheme = plan_annotation_scheme(build_part_model(Cylinder(10, 30, rotation=(0, 90, 0))))
+
+    leaders = [demand for demand in scheme.demands if demand.family == "feature_leader"]
+    assert [(leader.view, leader.side) for leader in leaders] == [("side", "right")]
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):

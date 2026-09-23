@@ -363,7 +363,74 @@ def _automatic_support(members, view: str, side: str) -> tuple[float, float] | N
     return (min(coordinates), max(coordinates)) if coordinates else None
 
 
-def _automatic_scheme_items(model, groups=None):
+def _compound_leader_route(model, group, members, corridor_loads) -> tuple[str, str] | None:
+    explicit = {
+        (member.view or group.view, member.side or group.side)
+        for member in members
+        if member.side is not None or group.side is not None
+    }
+    if explicit:
+        return next(iter(explicit)) if len(explicit) == 1 else None
+    view = group.view
+    if view not in VIEW_AXES:
+        return None
+    site = _site(group.feature)
+    axis_index = {"x": 0, "y": 1, "z": 2}
+    bounds = {
+        "x": (float(model.bbox.min.X), float(model.bbox.max.X)),
+        "y": (float(model.bbox.min.Y), float(model.bbox.max.Y)),
+        "z": (float(model.bbox.min.Z), float(model.bbox.max.Z)),
+    }
+    horizontal, vertical = VIEW_AXES[view]
+    candidates = [
+        (
+            corridor_loads.get((view, "right"), 0),
+            abs(bounds[horizontal][1] - site[axis_index[horizontal]]),
+            0,
+            "right",
+        ),
+        (
+            corridor_loads.get((view, "above"), 0),
+            abs(bounds[vertical][1] - site[axis_index[vertical]]),
+            1,
+            "above",
+        ),
+        (
+            corridor_loads.get((view, "below"), 0),
+            abs(site[axis_index[vertical]] - bounds[vertical][0]),
+            3,
+            "below",
+        ),
+    ]
+    if view != "side":
+        candidates.append(
+            (
+                corridor_loads.get((view, "left"), 0),
+                abs(site[axis_index[horizontal]] - bounds[horizontal][0]),
+                2,
+                "left",
+            )
+        )
+    return view, min(candidates)[3]
+
+
+def _automatic_demand(identity, family, feature_index, feature, members, route):
+    view, side = route
+    label = " ".join(f"{member.param.value:g}" for member in members)
+    return AnnotationDemand(
+        identity,
+        family,
+        view,
+        side,
+        feature_index,
+        _site(feature),
+        _automatic_support(members, view, side),
+        _text_ink_em(label),
+    )
+
+
+def _automatic_scheme_items(model, groups=None, corridor_loads=None):
+    corridor_loads = {} if corridor_loads is None else corridor_loads
     indices = {id(feature): index for index, feature in enumerate(model.features)}
     groups = annotation_groups(model, plan_dimensions(model)) if groups is None else groups
     for group in groups:
@@ -372,8 +439,41 @@ def _automatic_scheme_items(model, groups=None):
             feature_index = next(
                 index for index, feature in enumerate(model.features) if feature == group.feature
             )
+        leader_members = tuple(
+            member
+            for unit in group.units
+            for member in unit.members
+            if not member.suppressed and member.convention == "leader"
+        )
+        if leader_members:
+            identity = f"auto:{feature_index}:feature_leader"
+            route = _compound_leader_route(model, group, leader_members, corridor_loads)
+            if route is None:
+                yield UnplannedAnnotation(
+                    identity,
+                    "feature_leader",
+                    feature_index,
+                    "compound feature leader has no single typed corridor",
+                )
+            else:
+                demand = _automatic_demand(
+                    identity,
+                    "feature_leader",
+                    feature_index,
+                    group.feature,
+                    leader_members,
+                    route,
+                )
+                corridor_loads[(demand.view, demand.side)] = (
+                    corridor_loads.get((demand.view, demand.side), 0) + 1
+                )
+                yield demand
         for unit in group.units:
-            members = tuple(member for member in unit.members if not member.suppressed)
+            members = tuple(
+                member
+                for member in unit.members
+                if not member.suppressed and member.convention != "leader"
+            )
             if not members:
                 continue
             identity = f"auto:{feature_index}:{unit.id}"
@@ -390,24 +490,24 @@ def _automatic_scheme_items(model, groups=None):
                 )
                 continue
             view, side = next(iter(routes))
-            label = " ".join(f"{member.param.value:g}" for member in members)
-            yield AnnotationDemand(
+            demand = _automatic_demand(
                 identity,
                 "automatic_dimension",
-                view,
-                side,
                 feature_index,
-                _site(group.feature),
-                _automatic_support(members, view, side),
-                _text_ink_em(label),
+                group.feature,
+                members,
+                (view, side),
             )
+            corridor_loads[(view, side)] = corridor_loads.get((view, side), 0) + 1
+            yield demand
 
 
 def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
     """Collect typed and approved automatic corridor demand from a ``PartModel``.
 
     Linear automatic dimensions use explicit placement intent, established envelope routes, or
-    their projected support axis. Compound leaders, unresolved angles, and raw PMI are carried as
+    their projected support axis. Compound feature leaders use their declared route or a
+    deterministic, load-balanced natural corridor. Unresolved angles and raw PMI are carried as
     ``unplanned`` rather than assigned to a guessed corridor.
     """
 
@@ -461,7 +561,8 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
             )
         )
 
-    for item in _automatic_scheme_items(model, groups):
+    corridor_loads = AnnotationScheme(tuple(demands), ()).corridor_counts()
+    for item in _automatic_scheme_items(model, groups, corridor_loads):
         if isinstance(item, AnnotationDemand):
             demands.append(item)
         else:
