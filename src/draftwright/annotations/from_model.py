@@ -5639,7 +5639,18 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         dim._dw_measurement_span = _span
                         return dim
 
+                    def _fallback_footprint(pos, _l=lift):
+                        return dim_footprint(
+                            (_xs[0], _l, 0),
+                            (_xs[1], _l, 0),
+                            "above",
+                            pos - _l,
+                            dwg.draft,
+                            _label,
+                        )
+
                     if _above is not None:
+                        destination_tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
                         if not place_strip_candidates(
                             dwg,
                             _above,
@@ -5651,10 +5662,11 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                                     _fallback_build,
                                 )
                             ],
-                            tier,
+                            destination_tier,
                             ctx=ctx,
                             measurements={nm: _mid},
                             features={nm: env.ref},
+                            footprints={nm: _fallback_footprint},
                             trace=ctx.trace,
                             trace_label=f"{nm}_above_fallthrough",
                         ):

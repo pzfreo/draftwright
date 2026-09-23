@@ -611,10 +611,9 @@ def test_bore_callout_priority_is_the_hole_diameter(monkeypatch):
 
 
 def test_place_strip_candidates_reserves_outermost_label_within_bounds():
-    # #338: the outermost label extends `tier` beyond its dim line; place_strip_candidates
-    # must keep it within outer_limit (the old Strip.allocate checked start+tier<=limit).
-    # An above-strip near=8..limit=20 (range 12) fits 2 dim LINES at pad=9 (8, 17), but the
-    # 2nd label [17,22] overshoots 20 — so only 1 may be placed; the 2nd is returned.
+    # #338: an opaque candidate whose real ink cannot be measured retains the conservative
+    # full-tier boundary reserve. Keep the strip narrow enough for one tight-pitch dimension;
+    # a second would overshoot the outer limit and must be returned.
     from draftwright._core import Strip
     from draftwright.annotations._common import place_strip_candidates
 
@@ -631,12 +630,121 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
         def place(s, obj, name, view=None, feature=None, measurement=None):
             s.added.append((name, obj))
 
-    strip = Strip(anchor=0.0, outer_limit=20.0, direction=1.0, gap=8.0, spacing=4.0)  # near=8
+    strip = Strip(anchor=0.0, outer_limit=17.0, direction=1.0, gap=8.0, spacing=4.0)  # near=8
     dwg = _Dwg()
     cands = [("a", lambda pos: ("dim", pos)), ("b", lambda pos: ("dim", pos))]
     left = place_strip_candidates(dwg, strip, "plan", "y", cands, tier=5.0, force=True, ctx=dwg)
     assert len(dwg.added) == 1, "outermost label would overshoot outer_limit — must not place it"
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
+
+
+def test_plain_dimension_ladder_uses_the_tighter_dimension_pitch():
+    from draftwright._core import Strip
+    from draftwright.annotations._common import place_strip_candidates
+
+    class _Dwg:
+        def __init__(s):
+            s.added = []
+
+        def iter_annotations(s):
+            return list(s.added)
+
+        def view_of(s, n):
+            return "plan"
+
+        def place(s, obj, name, view=None, feature=None, measurement=None):
+            s.added.append((name, obj))
+
+    dwg = _Dwg()
+    strip = Strip(anchor=0.0, outer_limit=40.0, direction=1.0, gap=8.0)
+    cands = [("a", lambda pos: ("dim", pos)), ("b", lambda pos: ("dim", pos))]
+    assert not place_strip_candidates(
+        dwg, strip, "plan", "y", cands, tier=7.0, force=True, ctx=dwg
+    )
+    assert [obj[1] for _name, obj in dwg.added] == pytest.approx([8.0, 16.0])
+
+
+def test_dimension_witness_may_continue_along_a_leader_shaft():
+    from build123d_drafting.helpers import Dimension, Draft, Leader
+
+    from draftwright.annotations._common import annotation_ink_clear
+
+    draft = Draft(font_size=3.0)
+    dimension = Dimension((0, 10, 0), (10, 10, 0), "below", 5, draft, label="10")
+    leader = Leader((10, 12, 0), (10, 6, 0), "HOLE", draft, text_side="right")
+
+    class _Dwg:
+        def __init__(self):
+            self.draft = draft
+
+        def iter_annotations(self):
+            return [("leader", leader)]
+
+        def view_of(self, _name):
+            return "front"
+
+    assert annotation_ink_clear(_Dwg(), dimension, view="front")
+
+
+def test_dimension_witness_does_not_hide_a_separate_leader_crossing():
+    from build123d_drafting.helpers import Dimension, Draft, Leader
+
+    from draftwright.annotations._common import annotation_ink_clear
+
+    draft = Draft(font_size=3.0)
+    dimension = Dimension((10, 10, 0), (12, 10, 0), "below", 5, draft, label="2")
+    # The shaft continues along the left witness, but its shelf also crosses the
+    # right witness away from the elbow. Only the joined continuation is exempt.
+    leader = Leader((10, 12, 0), (10, 6, 0), "HOLE", draft, text_side="right")
+
+    class _Dwg:
+        def __init__(self):
+            self.draft = draft
+
+        def iter_annotations(self):
+            return [("leader", leader)]
+
+        def view_of(self, _name):
+            return "front"
+
+    assert not annotation_ink_clear(_Dwg(), dimension, view="front")
+
+
+def test_perpendicular_dimension_does_not_shift_a_parallel_ladder():
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotations._common import place_strip_candidates
+
+    draft = Draft(font_size=3.0)
+    right_side = _dim((30, 0, 0), (30, 20, 0), "right", 8, draft, label="20")
+
+    class _Dwg:
+        page_w, page_h = 100.0, 100.0
+
+        def __init__(self):
+            self.draft = draft
+            self.added = []
+
+        def iter_annotations(self):
+            return [("right_side", right_side), *self.added]
+
+        def view_of(self, _name):
+            return "front"
+
+        def place(self, obj, name, view=None, feature=None, measurement=None):
+            self.added.append((name, obj))
+
+    dwg = _Dwg()
+    strip = Strip(anchor=0.0, outer_limit=40.0, direction=1.0, gap=8.0)
+
+    def build(pos):
+        return _dim((0, 0, 0), (20, 0, 0), "above", pos, draft, label="20")
+
+    assert not place_strip_candidates(
+        dwg, strip, "front", "y", [("above", build)], tier=7.0, force=True, ctx=dwg
+    )
+    assert dict(dwg.added)["above"]._dw_spec.distance == pytest.approx(8.0)
 
 
 def test_place_strip_candidates_forwards_present_declaration_only():
@@ -958,7 +1066,7 @@ def test_strip_candidate_avoids_foreign_view_ink_in_its_page_corridor_issue_1781
 
     assert left == []
     placed = dict(dwg.added)["plan_dimension"]
-    assert placed._dw_spec.distance == 15.0, (
+    assert placed._dw_spec.distance == 14.0, (
         "the bounded emit solve must move the dimension one established tier"
     )
 
