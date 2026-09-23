@@ -255,8 +255,9 @@ def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(fresh_drawing
     def recover():
         assert "ordinary" in drawing.annotations()
         return (
-            Leader(
+            RoutedLeader(
                 (*tip, 0.0),
+                ((outside[0] - 5.0, outside[1] + 6.0),),
                 (outside[0], outside[1] + 12.0),
                 "HEX 100 A/F",
                 drawing.draft,
@@ -308,7 +309,74 @@ def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(fresh_drawing
     assert event["objective"]["cost"] == pytest.approx(sum(row["cost"] for row in placed))
     recovered_item = next(row for row in placed if row["name"] == "recovered")
     assert recovered_item["recovery"] == "sheet_recovery"
-    assert recovered_item["route"] == "straight"
+    assert recovered_item["route"] == "bent"
+    assert recovered_item["bends"] == [
+        [outside[0] - 5.0, outside[1] + 6.0],
+    ]
+
+
+def test_greedy_sheet_recovery_preserves_success_and_honest_failure(fresh_drawing, tmp_path):
+    """The bounded-resource floor must retain the same recovery contract as the joint solve."""
+
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    elbow = (tip[0] + 20.0, tip[1] + 12.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        trace=SolveTrace(tmp_path / "trace.json"),
+    )
+
+    def build(candidate_tip, candidate_elbow, _feature):
+        return Leader((*candidate_tip, 0.0), candidate_elbow, "RECOVER", drawing.draft)
+
+    def job(name, recover):
+        return FeatureLeaderJob(
+            name=name,
+            view="front",
+            silhouette=bounds,
+            label=name,
+            candidates=(),
+            build=build,
+            measurement=(),
+            noun="feature",
+            drop_code=f"{name}_dropped",
+            recover=recover,
+        )
+
+    recovered = job(
+        "recovered",
+        lambda: (Leader((*tip, 0.0), elbow, "RECOVER", drawing.draft), None),
+    )
+    exhausted = job("exhausted", lambda: None)
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+
+    assert (
+        place_feature_leader_jobs(
+            drawing,
+            analysis,
+            ctx,
+            (recovered, exhausted),
+            producer_floor=True,
+        )
+        == 1
+    )
+    assert "recovered" in drawing.annotations()
+    assert any(issue.code == "exhausted_dropped" for issue in drawing.registry.issues)
+    event = next(row for row in ctx.trace.pass_events if row["label"] == "feature_callouts")
+    assert [item["outcome"] for item in event["items"]] == ["placed", "dropped"]
+    placed = [item for item in event["items"] if item["outcome"] == "placed"]
+    assert event["objective"]["placed"] == len(placed) == 1
+    assert event["objective"]["cost"] == pytest.approx(sum(item["cost"] for item in placed))
 
 
 def test_typed_radial_recovery_preserves_a_normal_first_segment(monkeypatch, fresh_drawing):
