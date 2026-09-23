@@ -1842,6 +1842,51 @@ def _blocker_identity(blocker) -> str:
     )
 
 
+def _arrangement_quality(issues, blockers, *, page, scale, interior_dimensions=0) -> dict:
+    """Return a stable, JSON-friendly shadow score for one finished arrangement.
+
+    The tuple is ordered as a production selector would reason: correctness and
+    readability are hard gates; compactness cannot buy back a lost requirement or
+    collision.  It is observational for now so corpus runs can validate the policy
+    before it is allowed to change automatic layout selection.
+    """
+    issues = tuple(issues)
+    blockers = tuple(blockers)
+    hard_layout = _hard_layout_issues(issues)
+    overlap_codes = {
+        "annotation_ink_overlap",
+        "annotation_overlap",
+        "view_annotation_overlap",
+    }
+    overlaps = tuple(issue for issue in issues if issue.code in overlap_codes)
+    crossings = tuple(issue for issue in issues if issue.code.endswith("crossing"))
+    width, height = (float(value) for value in page)
+    scale = float(scale)
+    if width <= 0 or height <= 0 or scale <= 0:
+        raise ValueError("arrangement quality needs positive page dimensions and scale")
+    if interior_dimensions < 0:
+        raise ValueError("arrangement quality needs a non-negative interior dimension count")
+    key = (
+        len(hard_layout),
+        len(blockers),
+        len(overlaps),
+        int(interior_dimensions),
+        len(crossings),
+        -scale,
+        width * height,
+    )
+    return {
+        "selection_key": key,
+        "hard_layout_violations": len(hard_layout),
+        "required_outcomes_dropped": len(blockers),
+        "overlaps": len(overlaps),
+        "interior_dimensions": int(interior_dimensions),
+        "crossings": len(crossings),
+        "scale": scale,
+        "page": (width, height),
+    }
+
+
 def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
     """Fail closed when the settled automatic plan is incomplete or unreadable.
 

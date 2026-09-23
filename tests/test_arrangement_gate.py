@@ -419,3 +419,52 @@ class TestTheGateComparesWhatWasLostNotHowMuch:
         assert builder_mod._blocker_identity(
             _blocker("location_ref_dropped", "loc_a")
         ) != builder_mod._blocker_identity(_blocker("location_ref_dropped", "loc_b"))
+
+
+class TestArrangementQualityShadowScore:
+    @staticmethod
+    def _issue(code, severity="warning"):
+        return SimpleNamespace(code=code, severity=severity)
+
+    @staticmethod
+    def _quality(issues=(), blockers=(), *, page=(420, 297), scale=0.2, interior=0):
+        return builder_mod._arrangement_quality(
+            issues,
+            blockers,
+            page=page,
+            scale=scale,
+            interior_dimensions=interior,
+        )
+
+    def test_lost_requirement_outweighs_aesthetic_compactness(self):
+        sound = self._quality(page=(594, 420), scale=0.1)
+        compact_but_incomplete = self._quality(
+            blockers=[_blocker("location_ref_dropped", "loc_a")],
+            page=(297, 210),
+            scale=1.0,
+        )
+
+        assert sound["selection_key"] < compact_but_incomplete["selection_key"]
+
+    def test_collision_outweighs_larger_scale(self):
+        sound = self._quality(scale=0.1)
+        colliding = self._quality([self._issue("annotation_ink_overlap", "error")], scale=1.0)
+
+        assert sound["selection_key"] < colliding["selection_key"]
+
+    def test_clean_layout_prefers_exterior_dimensions_then_fewer_crossings(self):
+        exterior = self._quality()
+        interior = self._quality(interior=1)
+        crossing = self._quality([self._issue("feature_leader_crossing")])
+
+        assert exterior["selection_key"] < interior["selection_key"]
+        assert exterior["selection_key"] < crossing["selection_key"]
+
+    def test_equal_quality_prefers_larger_scale_then_smaller_sheet(self):
+        assert (
+            self._quality(scale=0.2)["selection_key"] < self._quality(scale=0.1)["selection_key"]
+        )
+        assert (
+            self._quality(page=(420, 297))["selection_key"]
+            < self._quality(page=(594, 420))["selection_key"]
+        )
