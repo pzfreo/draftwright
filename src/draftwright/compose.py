@@ -60,6 +60,7 @@ from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
+from draftwright.layout_scheme import AnnotationScheme, plan_annotation_scheme
 from draftwright.model.callout import bore_callout_value, hole_callout_batches, hole_callout_suffix
 from draftwright.model.ir import ThroughStepFeature, authored_dimension_target_view
 from draftwright.model.planner import (
@@ -383,6 +384,8 @@ class StripDepths:
     angular: tuple[AngularReservation, ...] = ()
     pv_location_top: float = 0.0  # complete ladder depth for a facing plan/front corridor
     rv_right: float = 0.0
+    # Observational drafter-style topology. It does not alter depths or placement yet.
+    scheme: AnnotationScheme | None = None
 
 
 def _measure_strips(
@@ -402,7 +405,7 @@ def _measure_strips(
     their model-space extent so scale trials can evaluate their analytic boxes.
     *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
-    return _footprint_from_boxes(
+    footprint = _footprint_from_boxes(
         _compose_anno_boxes(
             model,
             n_steps,
@@ -414,6 +417,7 @@ def _measure_strips(
             text_orientation=text_orientation,
         )
     )
+    return replace(footprint, scheme=plan_annotation_scheme(model))
 
 
 @dataclass(frozen=True)
