@@ -179,9 +179,9 @@ jobs:
         #
         # One matrix widened by expression rather than a second job: a duplicate job would
         # repeat every step below and the two copies would drift.
-        # PR (Linux-only) jobs are additionally split in two shards via pytest-split
-        # (#656): each shard runs half the suite (balanced by the committed
-        # .test_durations), roughly halving the PR wall-clock at ~1x metering. The
+        # PR (Linux-only) jobs are additionally split in three shards via pytest-split
+        # (#656): each shard runs a third of the suite (balanced by the committed
+        # .test_durations), keeping the changed-area tier within the runner budget. The
         # full-matrix sweep entries carry no `shard` key and run unsharded — sharding
         # the 10x-metered macOS jobs would double their setup cost for no billed gain.
         include: ${{ fromJSON(
@@ -189,12 +189,16 @@ jobs:
             && !contains(github.event.pull_request.labels.*.name, 'full-matrix'))
           && '[{"os":"ubuntu-latest","python-version":"3.10","shard":1},
                {"os":"ubuntu-latest","python-version":"3.10","shard":2},
+               {"os":"ubuntu-latest","python-version":"3.10","shard":3},
                {"os":"ubuntu-latest","python-version":"3.11","shard":1},
                {"os":"ubuntu-latest","python-version":"3.11","shard":2},
+               {"os":"ubuntu-latest","python-version":"3.11","shard":3},
                {"os":"ubuntu-latest","python-version":"3.12","shard":1},
                {"os":"ubuntu-latest","python-version":"3.12","shard":2},
+               {"os":"ubuntu-latest","python-version":"3.12","shard":3},
                {"os":"ubuntu-latest","python-version":"3.13","shard":1},
-               {"os":"ubuntu-latest","python-version":"3.13","shard":2}]'
+               {"os":"ubuntu-latest","python-version":"3.13","shard":2},
+               {"os":"ubuntu-latest","python-version":"3.13","shard":3}]'
           || '[{"os":"ubuntu-latest","python-version":"3.10"},
                 {"os":"ubuntu-latest","python-version":"3.11"},
                 {"os":"ubuntu-latest","python-version":"3.12"},
@@ -232,7 +236,7 @@ jobs:
         # `--splits/--group` (pytest-split) apply only when the matrix entry carries a
         # shard; balance comes from the committed .test_durations (regenerate with
         # `--store-durations` when it drifts far from reality — stale entries only
-        # unbalance the halves, never drop tests).
+        # unbalance the shards, never drop tests).
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_TIER: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-matrix') }}
@@ -243,7 +247,7 @@ jobs:
           fi
           uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
             --durations=25 \
-            ${{ matrix.shard && format('--splits 2 --group {0}', matrix.shard) || '' }}
+            ${{ matrix.shard && format('--splits 3 --group {0}', matrix.shard) || '' }}
 
   coverage:
     needs: changes
@@ -253,14 +257,14 @@ jobs:
     # minutes while the slowest sharded compatibility leg took 42, so every PR waited
     # on this one job well after the rest of the matrix had gone green.
     # Sharded the same way as the `test` matrix, it costs the same billed minutes and
-    # halves that wait. Source PRs measure the affected test tier and enforce changed-line
+    # shortens that wait. Source PRs measure the affected test tier and enforce changed-line
     # coverage; deliberate full runs measure the complete suite and enforce the global floor.
-    # Reports are combined across both shards by `coverage-report`.
+    # Reports are combined across all shards by `coverage-report`.
     name: test (ubuntu-latest, 3.14, ${{ matrix.shard }})
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -288,7 +292,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           EVENT_NAME: ${{ github.event_name }}
         # `--cov-report=` renders nothing here and `--cov-fail-under=0` disables the
-        # pyproject floor for the shard: half the suite legitimately covers less than
+        # pyproject floor for the shard: a third of the suite legitimately covers less than
         # 90%, and the real gate runs on the combined data in `coverage-report`.
         run: |
           tier=full
@@ -300,7 +304,7 @@ jobs:
             burden_args+=(--burden-report "burden-report-${{ matrix.shard }}.json")
           fi
           uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
-            --splits 2 --group ${{ matrix.shard }} \
+            --splits 3 --group ${{ matrix.shard }} \
             --cov=src/draftwright \
             --cov-report= \
             --cov-fail-under=0 \
@@ -325,7 +329,7 @@ jobs:
           retention-days: 14
 
   coverage-report:
-    # Combine both shards and apply the gate selected above. Full runs produce HTML and
+    # Combine all shards and apply the gate selected above. Full runs produce HTML and
     # one Codecov upload; changed runs use diff-cover locally against the PR base.
     if: needs.changes.outputs.coverage_mode != 'skip' && needs.changes.outputs.version_only != 'true'
     needs: [changes, coverage]
@@ -353,7 +357,7 @@ jobs:
           merge-multiple: true
 
       - name: Combine the shards and render the canonical reports
-        # `relative_files = true` (pyproject) anchors both shards' paths at the repository
+        # `relative_files = true` (pyproject) anchors every shard's paths at the repository
         # root, so the data files combine without runner-specific rewriting.
         #
         # `coverage-data-*` rather than naming the shards: the shard count already lives in
