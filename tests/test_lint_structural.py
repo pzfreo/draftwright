@@ -814,6 +814,7 @@ class TestNominalRounded:
         assert "'4.5'" in report.message and "35" not in report.message
 
 
+@pytest.mark.slow  # repeated full-sheet real-fixture planning; post-merge safety net (#153)
 def test_the_whistle_frame_reports_its_rounded_nominals(tmp_path):
     """A standing guard on the real part, not just on stand-ins.
 
