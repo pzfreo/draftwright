@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 from build123d_drafting.helpers import draft_preset, format_drawing_scale
@@ -438,7 +438,7 @@ class StripDepths:
     pv_location_top: float = 0.0  # complete ladder depth for a facing plan/front corridor
     rv_right: float = 0.0
     # Observational drafter-style topology. It does not alter depths or placement yet.
-    scheme: AnnotationScheme | None = None
+    scheme: AnnotationScheme | None = field(default=None, compare=False)
 
     def planned_corridor_depths(
         self,
@@ -532,6 +532,7 @@ def _measure_strips(
     their model-space extent so scale trials can evaluate their analytic boxes.
     *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
+    planned_groups = annotation_groups(model, plan_dimensions(model))
     footprint = _footprint_from_boxes(
         _compose_anno_boxes(
             model,
@@ -542,9 +543,10 @@ def _measure_strips(
             pad_around_text=pad_around_text,
             text_position=text_position,
             text_orientation=text_orientation,
+            planned_groups=planned_groups,
         )
     )
-    return replace(footprint, scheme=plan_annotation_scheme(model))
+    return replace(footprint, scheme=plan_annotation_scheme(model, groups=planned_groups))
 
 
 @dataclass(frozen=True)
@@ -580,6 +582,7 @@ def _compose_anno_boxes(
     pad_around_text: float = 2.0,
     text_position: str = "inline",
     text_orientation: str = "aligned",
+    planned_groups=None,
 ) -> list[AnnoBox]:
     """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
 
@@ -590,6 +593,11 @@ def _compose_anno_boxes(
     (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
     caller measured with :func:`_est_planned_bore_callout_width`.
     """
+    planned_groups = (
+        annotation_groups(model, plan_dimensions(model))
+        if planned_groups is None
+        else planned_groups
+    )
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
@@ -659,7 +667,7 @@ def _compose_anno_boxes(
         # compose path also serves read-only inspection. Share the complete text
         # formatter so small authored tolerances reserve their actual footprint.
         # Each curved footprint grows only the sides it actually reaches.
-        for group in annotation_groups(model, plan_dimensions(model)):
+        for group in planned_groups:
             if group.feature.kind != "angle":
                 continue
             shared_label = angular_pattern_label(group)
@@ -783,7 +791,7 @@ def _compose_anno_boxes(
     # raw face levels/plates. Reserve those approved legs directly; a phantom legacy
     # height ladder must not be what happens to give them room (#1592).
     if any(feature.kind == "through_step" for feature in model.features):
-        for group in annotation_groups(model, plan_dimensions(model)):
+        for group in planned_groups:
             if not isinstance(group.feature, ThroughStepFeature) or group.view is None:
                 continue
             horizontal, vertical = VIEW_AXES[group.view]
@@ -806,7 +814,7 @@ def _compose_anno_boxes(
         if feature.kind in ("boss", "polygonal_boss", "polygonal_stock")
         and feature.frame.axis in ("x", "y")
     ]
-    for group in annotation_groups(model, plan_dimensions(model)) if axial_features else ():
+    for group in planned_groups if axial_features else ():
         feature = group.feature
         if feature.kind not in ("boss", "polygonal_boss", "polygonal_stock"):
             continue
@@ -883,7 +891,7 @@ def _compose_anno_boxes(
             and dimension.side != "left"
             for dimension in group.dims
         )
-        for group in annotation_groups(model, plan_dimensions(model))
+        for group in planned_groups
     )
     if rear_tiers := rear_locations + int(rear_height):
         tier = font_size + 2 * pad_around_text

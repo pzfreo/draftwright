@@ -12,7 +12,7 @@ from draftwright.layout_scheme import (
     pack_estimated_annotation_lanes,
     plan_annotation_scheme,
 )
-from draftwright.model import Frame, PartModel
+from draftwright.model import Frame, PartModel, build_part_model
 from draftwright.model.ir import (
     AuthoredDimension,
     ControlFrame,
@@ -98,6 +98,23 @@ def test_completed_drawing_exposes_shadow_report_without_influencing_layout():
     assert decision["scale"] == drawing.scale
     assert decision["unplanned_count"] == 1
     assert decision["corridors"]
+
+
+def test_scheme_routes_approved_automatic_envelope_dimensions():
+    scheme = plan_annotation_scheme(build_part_model(Box(100, 60, 20)))
+
+    assert scheme.corridor_counts() == {
+        ("plan", "below"): 1,
+        ("front", "right"): 1,
+        ("side", "below"): 1,
+    }
+    assert not scheme.unplanned
+    assert {demand.identity for demand in scheme.demands} == {
+        "auto:0:width.length",
+        "auto:0:height.length",
+        "auto:0:depth.length",
+    }
+    assert scheme.corridor("plan", "below")[0].model_interval == (-50.0, 50.0)
 
 
 def _demand(identity, site, *, view="front", side="above", index=0):

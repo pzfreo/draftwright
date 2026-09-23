@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from draftwright.model.ir import authored_dimension_target_view
+from draftwright.model.planner import annotation_groups, plan_dimensions
 from draftwright.view_plan import VIEW_AXES
 
 _VIEWS = frozenset({"front", "plan", "side", "rear"})
@@ -324,11 +325,90 @@ def _estimated_ink_em(feature) -> tuple[float, float]:
     return 1.0, 1.0
 
 
-def plan_annotation_scheme(model) -> AnnotationScheme:
-    """Collect explicit dimension/PMI furniture corridor demand from a ``PartModel``.
+def _automatic_route(feature, group, dimension) -> tuple[str, str] | None:
+    """Resolve a deterministic natural corridor for one approved automatic dimension."""
 
-    Geometry-derived dimensions and feature leaders remain in the existing estimators for this
-    prototype. Raw PMI is carried as ``unplanned`` rather than assigned to a guessed corridor.
+    view = dimension.view or group.view
+    side = dimension.side or group.side
+    if side in _SIDES:
+        return view, side
+    if feature.kind == "envelope":
+        return {
+            "width": ("plan", "below"),
+            "depth": ("side", "below"),
+            "height": ("front", "right"),
+        }.get(dimension.param.role)
+    if dimension.convention not in {"linear", "chain", "pitch"}:
+        return None
+    span = dimension.param.span
+    if view not in VIEW_AXES or span is None:
+        return None
+    deltas = [abs(float(span[1][index]) - float(span[0][index])) for index in range(3)]
+    projected = VIEW_AXES[view]
+    along = max(projected, key=lambda axis: deltas["xyz".index(axis)])
+    if deltas["xyz".index(along)] <= 1e-9:
+        return None
+    return view, "above" if along == projected[0] else "right"
+
+
+def _automatic_support(members, view: str, side: str) -> tuple[float, float] | None:
+    page_axis = 0 if side in {"above", "below"} else 1
+    axis = "xyz".index(VIEW_AXES[view][page_axis])
+    coordinates = [
+        float(point[axis])
+        for member in members
+        if member.param.span is not None
+        for point in member.param.span
+    ]
+    return (min(coordinates), max(coordinates)) if coordinates else None
+
+
+def _automatic_scheme_items(model, groups=None):
+    indices = {id(feature): index for index, feature in enumerate(model.features)}
+    groups = annotation_groups(model, plan_dimensions(model)) if groups is None else groups
+    for group in groups:
+        feature_index = indices.get(id(group.feature))
+        if feature_index is None:
+            feature_index = next(
+                index for index, feature in enumerate(model.features) if feature == group.feature
+            )
+        for unit in group.units:
+            members = tuple(member for member in unit.members if not member.suppressed)
+            if not members:
+                continue
+            identity = f"auto:{feature_index}:{unit.id}"
+            resolved_routes = tuple(
+                _automatic_route(group.feature, group, member) for member in members
+            )
+            routes = {route for route in resolved_routes if route is not None}
+            if None in resolved_routes or len(routes) != 1:
+                yield UnplannedAnnotation(
+                    identity,
+                    "automatic_dimension",
+                    feature_index,
+                    "automatic dimension has no single typed corridor",
+                )
+                continue
+            view, side = next(iter(routes))
+            label = " ".join(f"{member.param.value:g}" for member in members)
+            yield AnnotationDemand(
+                identity,
+                "automatic_dimension",
+                view,
+                side,
+                feature_index,
+                _site(group.feature),
+                _automatic_support(members, view, side),
+                _text_ink_em(label),
+            )
+
+
+def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
+    """Collect typed and approved automatic corridor demand from a ``PartModel``.
+
+    Linear automatic dimensions use explicit placement intent, established envelope routes, or
+    their projected support axis. Compound leaders, unresolved angles, and raw PMI are carried as
+    ``unplanned`` rather than assigned to a guessed corridor.
     """
 
     demands: list[AnnotationDemand] = []
@@ -380,5 +460,11 @@ def plan_annotation_scheme(model) -> AnnotationScheme:
                 _estimated_ink_em(feature),
             )
         )
+
+    for item in _automatic_scheme_items(model, groups):
+        if isinstance(item, AnnotationDemand):
+            demands.append(item)
+        else:
+            unplanned.append(item)
 
     return AnnotationScheme(tuple(demands), tuple(unplanned))
