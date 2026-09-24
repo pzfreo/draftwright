@@ -2568,7 +2568,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         # measurement may still carry a raw provenance feature; opaque provenance alone
         # deliberately does not participate in this optional ordering refinement.
         feature = getattr(candidate.measurement, "feature", candidate.feature)
-        if feature is not None and feature not in model.features:
+        if model is None or (feature is not None and feature not in model.features):
             feature = None
         if corridor is not None and model is not None and feature is not None:
             matches = [
