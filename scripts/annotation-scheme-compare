@@ -102,6 +102,37 @@ def _manifest(drawing) -> dict:
         _scale_blockers_from_issues,
     )
 
+    model = drawing.model()
+    feature_indices = {id(feature): index for index, feature in enumerate(model.features)}
+
+    def feature_identity(feature) -> dict:
+        index = feature_indices.get(id(feature))
+        if index is None:
+            matches = [
+                candidate_index
+                for candidate_index, candidate in enumerate(model.features)
+                if candidate == feature
+            ]
+            index = matches[0] if len(matches) == 1 else None
+        return {
+            "feature_index": index,
+            "kind": str(getattr(feature, "kind", type(feature).__name__)),
+            "source_id": str(
+                getattr(feature, "source_id", "")
+                or next(iter(getattr(feature, "source_ids", ())), "")
+            ),
+        }
+
+    def requirement_identities(identities) -> list[dict]:
+        values = [
+            {
+                "feature": feature_identity(identity.feature),
+                "parameter": str(identity.parameter),
+            }
+            for identity in identities
+        ]
+        return sorted(values, key=lambda value: json.dumps(value, sort_keys=True))
+
     annotations = {}
     for name, annotation in drawing.iter_annotations():
         annotations[name] = {
@@ -109,6 +140,12 @@ def _manifest(drawing) -> dict:
             "label": str(getattr(annotation, "label", "")),
             "view": drawing.view_of(name),
             "region": getattr(annotation, "_dw_candidate_region", None),
+            "measurements": requirement_identities(drawing.registry.measurement_of(name)),
+            "satisfactions": requirement_identities(drawing.registry.satisfaction_of(name)),
+            "owners": sorted(
+                (feature_identity(feature) for feature in drawing.registry.features_of(name)),
+                key=lambda value: json.dumps(value, sort_keys=True),
+            ),
         }
     issues = tuple(drawing.lint())
     blockers = _scale_blockers_from_issues(issues)
@@ -226,9 +263,16 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     after_annotations = after["annotations"]
 
     def semantic_counts(annotations):
+        def semantic_annotation(annotation):
+            semantic = {"type": annotation["type"], "label": annotation["label"]}
+            for field in ("measurements", "satisfactions", "owners"):
+                if field in annotation:
+                    semantic[field] = annotation[field]
+            return semantic
+
         return Counter(
             json.dumps(
-                {"type": annotation["type"], "label": annotation["label"]},
+                semantic_annotation(annotation),
                 sort_keys=True,
                 separators=(",", ":"),
             )

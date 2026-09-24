@@ -60,6 +60,36 @@ def test_compare_treats_an_equivalent_projection_as_semantic_parity():
     assert compare(_result(front), _result(plan))["parity"]["passed"] is True
 
 
+def test_compare_rejects_same_text_attached_to_a_different_feature():
+    compare = _load_script()._compare
+    common = {
+        "type": "Leader",
+        "label": "2x ø35 THRU",
+        "view": "front",
+        "region": None,
+        "measurements": [],
+        "satisfactions": [],
+    }
+    baseline = {
+        "holes": {
+            **common,
+            "owners": [{"feature_index": 3, "kind": "pattern", "source_id": ""}],
+        }
+    }
+    candidate = {
+        "holes": {
+            **common,
+            "owners": [{"feature_index": 4, "kind": "hole", "source_id": ""}],
+        }
+    }
+
+    parity = compare(_result(baseline), _result(candidate))["parity"]
+
+    assert parity["passed"] is False
+    assert parity["missing"][0]["owners"][0]["feature_index"] == 3
+    assert parity["added"][0]["owners"][0]["feature_index"] == 4
+
+
 def test_compare_rejects_semantic_content_changes_and_interior_dimensions():
     compare = _load_script()._compare
     baseline = _result(
