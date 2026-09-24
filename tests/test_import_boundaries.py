@@ -94,6 +94,8 @@ _LAYERS: dict[str, int] = {
     "feature_identity": 0,
     "fonts": 0,
     "layout": 0,
+    # Typed, render-free annotation topology consumed by compose/analysis and render ordering.
+    "layout_scheme": 0,
     # Coordinate-free document policy for feature-leader candidate regions.
     "leader_policy": 0,
     "registry": 0,

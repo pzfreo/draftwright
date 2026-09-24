@@ -2562,7 +2562,14 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         corridor = None
         if lanes is not None and key is not None and len(key) == 2:
             corridor = lanes.corridor(*key)
-        feature = resolve_feature(candidate.feature)
+        # Prefer the compiler-owned measurement identity. Reaching through an opaque
+        # FeatureRef here would let a renderer recover withheld model content merely to
+        # improve ordering, violating the compiled-plan boundary. Candidates without a
+        # measurement may still carry a raw provenance feature; opaque provenance alone
+        # deliberately does not participate in this optional ordering refinement.
+        feature = getattr(candidate.measurement, "feature", candidate.feature)
+        if feature is not None and feature not in model.features:
+            feature = None
         if corridor is not None and model is not None and feature is not None:
             matches = [
                 reservation
