@@ -15,8 +15,8 @@ from draftwright.model import Frame, PmiFeature
 
 SOURCE = "tests/fixtures/grm03_thumbwheel_drive_screw_ap242_pmi.step"
 
-#: One of the five records the emitter cannot lower on this part — a surface finish, which is a
-#: manufacturing requirement a shop must see.
+#: A surface-finish record used below to prove that a caller-supplied raw fallback remains
+#: visible to reconciliation, even though the script emitter now lowers this source itself.
 RAW_SOURCE_ID = "manufacturing_requirement:#2012"
 #: An AP242 dimension the part really does carry, used as the honest provenance claim.
 REAL_SOURCE_ID = "dimension:0:1:4:5"
@@ -181,5 +181,5 @@ def test_a_generated_script_names_its_own_source(tmp_path):
 
     drawing = runpy.run_path(script)["drawing"]
     codes = _codes(drawing)
-    assert codes["pmi_not_lowered"] == 5
+    assert "pmi_not_lowered" not in codes
     assert "pmi_unreconciled" not in codes

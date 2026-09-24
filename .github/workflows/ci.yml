@@ -450,16 +450,24 @@ jobs:
       matrix:
         include:
           - lane: ctc04
-            workers: 1
+            workers: 0
             selection: ctc04
+            keyword: ""
+            split_args: ""
+          - lane: view-selection
+            workers: 0
+            selection: not ctc04
+            keyword: test_adr0018_view_selection
             split_args: ""
           - lane: remaining-1
-            workers: 1
+            workers: 0
             selection: not ctc04
+            keyword: not test_adr0018_view_selection
             split_args: --splits 2 --group 1
           - lane: remaining-2
-            workers: 1
+            workers: 0
             selection: not ctc04
+            keyword: not test_adr0018_view_selection
             split_args: --splits 2 --group 2
     name: test-slow (${{ matrix.lane }})
     runs-on: ubuntu-latest
@@ -474,13 +482,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run scheduled tests
-        # CAD-kernel builds can exhaust a hosted runner when two xdist workers peak
-        # together. Keep every lane serial and split the non-CTC-04 selection into two
-        # disjoint pytest-split groups; the three lanes still cover the complete tier.
+        # CAD-kernel builds can exhaust a hosted runner when state from the dense view
+        # selection case is retained before another large build. Give that module a fresh,
+        # non-xdist process, then split the remaining selection across two serial processes.
         run: >-
           uv run python scripts/test-tier scheduled
           --workers "${{ matrix.workers }}"
           --selection "${{ matrix.selection }}"
+          -k "${{ matrix.keyword }}"
           ${{ matrix.split_args }}
 
   test-platform-canary:
