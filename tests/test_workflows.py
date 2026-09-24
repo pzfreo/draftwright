@@ -213,7 +213,7 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
     assert "split_args: --splits 2 --group 1" in slow_job
     assert "split_args: --splits 2 --group 2" in slow_job
     assert "python scripts/test-tier scheduled" in slow_job
-    assert "--isolate-modules" in slow_job
+    assert "--isolate-tests" in slow_job
     assert '--selection "${{ matrix.selection }}"' in slow_job
     assert '-k "${{ matrix.keyword }}"' in slow_job
     assert "${{ matrix.split_args }}" in slow_job
