@@ -41,6 +41,17 @@ def _aggregate(results: list[dict]) -> dict:
     parity = [bool(result["parity"]["passed"]) for result in results]
     selected_candidate = verdicts.get("candidate", 0)
     selected_baseline = len(results) - selected_candidate
+    # Fixed page/scale cases with zero defects already have the best possible
+    # selection key. Count them as ties, but do not put them in the denominator
+    # for a claim about improving a defective baseline.
+    affected = [
+        result
+        for result in results
+        if any(result["quality_comparison"]["baseline_key"][:5])
+    ]
+    improved_affected = sum(
+        result["quality_comparison"]["verdict"] == "candidate" for result in affected
+    )
     return {
         "cases": len(results),
         "semantic_parity": sum(parity),
@@ -49,6 +60,9 @@ def _aggregate(results: list[dict]) -> dict:
             for verdict in ("candidate", "baseline", "tie", "ineligible")
         },
         "selected": {"candidate": selected_candidate, "baseline": selected_baseline},
+        "affected_baselines": len(affected),
+        "improved_affected": improved_affected,
+        "affected_majority": bool(affected) and 2 * improved_affected > len(affected),
         "production_contender": (
             bool(results)
             # `_compare` awards "candidate" only after semantic parity and a strictly
@@ -98,6 +112,11 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--require-contender", action="store_true")
+    parser.add_argument(
+        "--require-affected-majority",
+        action="store_true",
+        help="require wins on more than half of cases whose baseline has a layout defect",
+    )
     args = parser.parse_args()
 
     corpus = _load_manifest(args.manifest)
@@ -111,7 +130,10 @@ def main() -> int:
         "results": results,
     }
     print(json.dumps(report, indent=2, sort_keys=True))
-    return int(args.require_contender and not report["summary"]["production_contender"])
+    return int(
+        (args.require_contender and not report["summary"]["production_contender"])
+        or (args.require_affected_majority and not report["summary"]["affected_majority"])
+    )
 
 
 if __name__ == "__main__":

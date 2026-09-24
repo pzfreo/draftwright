@@ -140,6 +140,23 @@ def test_parse_routes():
     parse = _load_script()._parse_routes
 
     assert parse("plan/below,side/right") == {("plan", "below"), ("side", "right")}
+    assert parse("none") == set()
+
+
+def test_uncapped_trial_can_restore_semantics_and_win():
+    script = _load_script()
+    annotation = {
+        "dim": {"type": "Dimension", "label": "10", "view": "front", "region": "exterior"}
+    }
+    baseline = _result(annotation, quality_key=(2, 0, 2, 0, 0, -0.2, 124740.0))
+    capped = script._compare(baseline, _result({}, quality_key=(0, 0, 0, 0, 0, -0.2, 124740.0)))
+    uncapped = script._compare(
+        baseline, _result(annotation, quality_key=(1, 0, 1, 0, 0, -0.2, 124740.0))
+    )
+
+    assert capped["quality_comparison"]["verdict"] == "ineligible"
+    assert script._prefer_candidate(capped, uncapped) is uncapped
+    assert script._trial_summary("legacy-depth", "none", uncapped)["semantic_parity"]
 
 
 def test_compare_selects_better_quality_only_after_semantic_parity():

@@ -222,7 +222,7 @@ def _worker(args) -> int:
     return 0
 
 
-def _run_worker(args, mode: str, output: Path) -> dict:
+def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None = None) -> dict:
     command = [
         _python(),
         str(Path(__file__).resolve()),
@@ -244,7 +244,7 @@ def _run_worker(args, mode: str, output: Path) -> dict:
         "--formats",
         args.formats,
         "--candidate-routes",
-        args.candidate_routes,
+        args.candidate_routes if candidate_routes is None else candidate_routes,
     ]
     if args.arrangement is not None:
         command.extend(("--arrangement", args.arrangement))
@@ -373,6 +373,8 @@ def _failed_candidate_comparison(baseline: dict, error: str) -> dict:
 
 
 def _parse_routes(value: str) -> set[tuple[str, str]]:
+    if value == "none":
+        return set()
     routes = set()
     for item in value.split(","):
         view, separator, side = item.partition("/")
@@ -380,6 +382,46 @@ def _parse_routes(value: str) -> set[tuple[str, str]]:
             raise ValueError(f"invalid corridor route {item!r}; expected view/side")
         routes.add((view, side))
     return routes
+
+
+def _candidate_trial(args, baseline: dict, *, routes: str, output: Path) -> dict:
+    try:
+        candidate = _run_worker(
+            args, "candidate", output, candidate_routes=routes
+        )
+    except RuntimeError as error:
+        return _failed_candidate_comparison(baseline, str(error))
+    return _compare(baseline, candidate)
+
+
+def _trial_summary(name: str, routes: str, result: dict) -> dict:
+    parity = result["parity"]
+    quality = result["quality_comparison"]
+    return {
+        "name": name,
+        "candidate_routes": routes,
+        "verdict": quality["verdict"],
+        "candidate_key": quality["candidate_key"],
+        "semantic_parity": parity["passed"],
+        "missing_annotations": len(parity["missing"]),
+        "introduced_blockers": len(parity.get("introduced_blockers", ())),
+        "candidate_error": result["candidate"].get("error"),
+    }
+
+
+def _prefer_candidate(first: dict, second: dict) -> dict:
+    """Choose the best semantically eligible trial; never reward a dropped requirement."""
+
+    rank = {"candidate": 0, "tie": 1, "baseline": 2, "ineligible": 3}
+
+    def key(result):
+        quality = result["quality_comparison"]
+        return (
+            rank[quality["verdict"]],
+            tuple(quality["candidate_key"] or (float("inf"),)),
+        )
+
+    return min((first, second), key=key)
 
 
 def main() -> int:
@@ -399,7 +441,7 @@ def main() -> int:
             "front/right,plan/right,front/left,plan/left,plan/above,front/above,"
             "front/below,plan/below,side/above,side/below,side/right,rear/right"
         ),
-        help="comma-separated view/side corridors whose legacy depths may be capped",
+        help="comma-separated view/side corridors to cap, or 'none' to retain legacy depths",
     )
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--mode", choices=("baseline", "candidate"), default="baseline")
@@ -407,14 +449,34 @@ def main() -> int:
     if args.worker:
         return _worker(args)
     baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
-    try:
-        candidate = _run_worker(
-            args, "candidate", args.output.with_name(args.output.name + "-candidate")
+    result = _candidate_trial(
+        args,
+        baseline,
+        routes=args.candidate_routes,
+        output=args.output.with_name(args.output.name + "-candidate"),
+    )
+    trials = [_trial_summary("planned", args.candidate_routes, result)]
+    selected_trial = "planned"
+    # Page and scale are fixed in this comparison. A defect-free baseline has
+    # the minimum possible key, so another build cannot improve it.
+    baseline_affected = any(result["quality_comparison"]["baseline_key"][:5])
+    if (
+        baseline_affected
+        and result["quality_comparison"]["verdict"] != "candidate"
+        and args.candidate_routes != "none"
+    ):
+        uncapped = _candidate_trial(
+            args,
+            baseline,
+            routes="none",
+            output=args.output.with_name(args.output.name + "-candidate-uncapped"),
         )
-    except RuntimeError as error:
-        result = _failed_candidate_comparison(baseline, str(error))
-    else:
-        result = _compare(baseline, candidate)
+        trials.append(_trial_summary("legacy-depth", "none", uncapped))
+        if _prefer_candidate(result, uncapped) is uncapped:
+            result = uncapped
+            selected_trial = "legacy-depth"
+    result["candidate_trials"] = trials
+    result["selected_candidate_trial"] = selected_trial
     print(json.dumps(result, indent=2, sort_keys=True))
     return int(not result["parity"]["passed"])
 
