@@ -508,14 +508,16 @@ def test_generated_script_roundtrip_is_lint_error_free(tmp_path, name, factory):
         "critique something other than what it exported"
     )
     assert src.count("sheet.build()") == 1, f"{name}: the generated script builds more than once"
-    exports = re.findall(r"^drawing\.export\((.*)\)$", src, flags=re.M)
-    assert len(exports) == 1, f"{name}: expected one drawing.export(...) line, got {exports}"
+    assert src.count("drawing.export(") == 1, f"{name}: expected one drawing export"
+    assert re.search(r"^outputs = drawing\.export\($", src, flags=re.M), (
+        f"{name}: the generated script no longer exports its named Drawing"
+    )
     # PDF is what this test then looks for on disk, so a fixture that starts requesting
     # something else must fail here rather than silently pass an existence check for a file
     # nothing wrote (#957 review made the same point about a vacuous assertion).
-    assert "formats=('pdf',)" in exports[0], (
-        f"{name}: the emitted export requests {exports[0]}, not PDF; the assertion below "
-        "would be checking for a file the script never writes"
+    assert 'formats=_replay_options["formats"]' in src
+    assert re.search(r"""^\s+"formats": \('pdf',\),$""", src, flags=re.M), (
+        f"{name}: the emitted export options do not request PDF"
     )
     src += (
         "\nimport json as _dwj\n"
