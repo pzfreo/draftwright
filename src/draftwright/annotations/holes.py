@@ -9,6 +9,7 @@ shared placement helpers come from annotations._common. Below annotate, no cycle
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable
 from functools import partial
 from typing import Any, NamedTuple
@@ -73,6 +74,7 @@ from draftwright.annotations.from_model import (
     _obround_radius_candidates,
     _pocket_label,
     _radial_candidates,
+    _sheet_leader_fallback,
     _slot_label,
     _tol_suffix,
     callout_from_spec,
@@ -88,6 +90,7 @@ from draftwright.annotations.leaders import (
     collect_feature_leader,
     feature_leader_candidates,
 )
+from draftwright.annotations.routed import RoutedLeader
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
 from draftwright.model import plan_dimensions
@@ -3128,6 +3131,34 @@ def _place_queue(
                     callout=_callout,
                 )
 
+            def _recover(
+                _raw=_raw_candidates,
+                _build_at=_build,
+                _callout=callout,
+                _box=callout_box,
+                _view=view,
+            ):
+                if _box is None:
+                    return None
+                size = (_box[2] - _box[0], _box[3] - _box[1])
+                for index, candidate in enumerate(_raw()):
+                    if index >= 4:
+                        break
+                    tip, feature = candidate.tip, candidate.feature
+
+                    def build_at(elbow, _tip=tip, _feature=feature):
+                        return _build_at(_tip, (*elbow, 0), _feature)
+
+                    def build_routed(bends, elbow, _tip=tip):
+                        return RoutedLeader(_tip, bends, elbow, "", draft, callout=_callout)
+
+                    annotation = _sheet_leader_fallback(
+                        dwg, tip, _view, build_at, build_routed, size
+                    )
+                    if annotation is not None:
+                        return annotation, feature
+                return None
+
             name = _hc_name(only, view, i, hc_used)
 
             # Pitch/BCD furniture is a separate non-leader requirement. Keep it
@@ -3245,6 +3276,11 @@ def _place_queue(
                     priority=float(dia),
                     on_place=_on_place,
                     on_drop=_on_drop,
+                    recover=(
+                        _recover
+                        if os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY") == "1"
+                        else None
+                    ),
                 ),
             )
             i += 1

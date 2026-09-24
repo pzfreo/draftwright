@@ -185,6 +185,7 @@ def _manifest(drawing) -> dict:
 def _worker(args) -> int:
     if args.mode == "candidate":
         _cap_scheme_strips(args.scale, _parse_routes(args.candidate_routes))
+        os.environ["DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"] = "1"
         if args.arrangement is not None:
             os.environ["DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT"] = args.arrangement
         if args.exterior_dimensions:
@@ -386,9 +387,7 @@ def _parse_routes(value: str) -> set[tuple[str, str]]:
 
 def _candidate_trial(args, baseline: dict, *, routes: str, output: Path) -> dict:
     try:
-        candidate = _run_worker(
-            args, "candidate", output, candidate_routes=routes
-        )
+        candidate = _run_worker(args, "candidate", output, candidate_routes=routes)
     except RuntimeError as error:
         return _failed_candidate_comparison(baseline, str(error))
     return _compare(baseline, candidate)

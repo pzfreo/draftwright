@@ -9,6 +9,7 @@ the selected annotations exactly once.  No page coordinates are public API.
 from __future__ import annotations
 
 import math
+import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -1650,6 +1651,16 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     if not jobs:
         return 0
 
+    crossing_recovery_enabled = os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY") == "1"
+
+    def recovery_for(job_index):
+        # The sheet grid is bounded per call, but dense imported parts can have
+        # dozens of hole jobs. Keep this optional search within a small inventory.
+        job = jobs[job_index]
+        if crossing_recovery_enabled and len(jobs) > 16 and job.noun == "hole":
+            return None
+        return job.recover
+
     trace = getattr(ctx, "trace", None)
     # ``feature_leader_inventory`` is the authoritative cross-pass drain event: consumers
     # and performance ratchets select it to measure the shared late solve. Immediate
@@ -2280,7 +2291,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             )
             if selected is None:
                 drop_reason = terminal_reason(fallback_rejected)
-                if job.recover is not None:
+                if recovery_for(job_index) is not None:
                     pending_recoveries.append(
                         (
                             job_index,
@@ -2359,7 +2370,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             producer_fallback,
             drop_reason,
         ) in pending_recoveries:
-            recovered = jobs[job_index].recover()
+            recovered = recovery_for(job_index)()
             if recovered is not None:
                 annotation, feature = recovered
                 place(job_index, feature, annotation, recovered=True)
@@ -2832,14 +2843,33 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
         else 0
     )
-    # Commit every joint-assignment winner before attempting recovery. A bent fallback must
-    # see the complete selected inventory, independent of producer order, or it can reserve
-    # space that the already-solved assignment owns.
+    improve_crossings = crossing_recovery_enabled
+    crossing_recoveries = {}
+    crossed_choices = {
+        job_index
+        for job_index, choice in enumerate(final_choices)
+        if improve_crossings
+        and choice is not None
+        and policy_blockers_by_job[job_index][choice]
+        and recovery_for(job_index) is not None
+    }
+    # Commit clear winners first. In the experimental path, give retained Policy B
+    # leaders one last sheet-global route against those committed winners.
     for job_index, choice in enumerate(final_choices):
-        if choice is None:
+        if choice is None or job_index in crossed_choices:
             continue
         candidate = viable_by_job[job_index][choice]
         place(job_index, candidate, materialized[job_index])
+    for job_index in sorted(crossed_choices):
+        choice = final_choices[job_index]
+        recovered = recovery_for(job_index)()
+        if recovered is not None:
+            annotation, feature = recovered
+            place(job_index, feature, annotation, recovered=True)
+            crossing_recoveries[job_index] = annotation
+        else:
+            candidate = viable_by_job[job_index][choice]
+            place(job_index, candidate, materialized[job_index])
 
     placed_count = 0
     recovery_priority = 0.0
@@ -2857,7 +2887,8 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 if viable_by_job[job_index]
                 else "no_clear_room"
             )
-            recovered = jobs[job_index].recover() if jobs[job_index].recover is not None else None
+            recover = recovery_for(job_index)
+            recovered = recover() if recover is not None else None
             if recovered is not None:
                 annotation, feature = recovered
                 place(job_index, feature, annotation, recovered=True)
@@ -2879,6 +2910,22 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             )
             continue
         candidate = viable_by_job[job_index][choice]
+        if job_index in crossing_recoveries:
+            annotation = crossing_recoveries[job_index]
+            objective_penalty -= len(policy_blockers_by_job[job_index][choice])
+            objective_cost += recovery_cost(annotation) - candidate.cost
+            record_item(
+                job_index,
+                candidate,
+                raw_count_by_job[job_index],
+                [*rejected_by_job[job_index], *assignment_blockers[job_index]],
+                obstacle_count=len(fixed[jobs[job_index].view]),
+                viable_count=len(viable_by_job[job_index]),
+                candidate_inventory=joint_inventory(job_index),
+                recovered=annotation,
+            )
+            placed_count += 1
+            continue
         record_policy_b(job_index, policy_blockers_by_job[job_index][choice])
         record_item(
             job_index,

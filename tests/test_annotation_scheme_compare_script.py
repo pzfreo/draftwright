@@ -1,7 +1,12 @@
 import importlib.machinery
 import importlib.util
+import json
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "annotation-scheme-compare"
 
@@ -218,3 +223,44 @@ def test_candidate_may_restore_additional_approved_annotations():
 
     assert result["parity"]["passed"] is True
     assert result["parity"]["added"] == [{"type": "Dimension", "label": "450"}]
+
+
+@pytest.mark.scheduled
+def test_issue915_clear_hole_route_preserves_every_annotation(tmp_path):
+    source = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--source",
+            str(source),
+            "--output",
+            str(tmp_path / "issue915"),
+            "--page",
+            "A2",
+            "--scale",
+            "0.5",
+            "--title",
+            "issue915",
+            "--number",
+            "issue915",
+            "--formats",
+            "svg",
+            "--arrangement",
+            "staggered-side",
+            "--exterior-dimensions",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert completed.returncode == 0, completed.stderr + completed.stdout[-2000:]
+    comparison = json.loads(completed.stdout)
+    assert comparison["quality_comparison"]["verdict"] == "candidate"
+    assert comparison["parity"]["passed"]
+    assert comparison["parity"]["missing"] == []
+    assert comparison["parity"]["introduced_blockers"] == []
+    assert comparison["quality_comparison"]["baseline_key"][:5] == [0, 0, 0, 0, 1]
+    assert comparison["quality_comparison"]["candidate_key"][:5] == [0, 0, 0, 0, 0]
+    assert comparison["baseline"]["page"] == comparison["candidate"]["page"]
+    assert comparison["baseline"]["scale"] == comparison["candidate"]["scale"]
