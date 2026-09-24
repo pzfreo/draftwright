@@ -55,6 +55,7 @@ from draftwright._geometry import (
 from draftwright._geometry import (
     dedup_diams as dedup_diams,
 )
+from draftwright.annotation_layout_profile import cap_planned_strips
 from draftwright.compose import (
     StripDepths,
     _build_rear_zones,
@@ -1242,15 +1243,17 @@ def _analyse(
     # scale. Seed conservatively (all faces), then re-gate at the chosen scale;
     # converges in a couple of rounds.
     def _measure_for_step_count(n_steps_i: int) -> StripDepths:
-        return _measure_strips(
-            strip_sizing_model,
-            n_steps_i,
-            bb,
-            arrow_length=_arrow_length,
-            pad_around_text=_pad_around_text,
-            bore_callout_width=bore_callout_width,
-            text_position=text_position,
-            text_orientation=text_orientation,
+        return cap_planned_strips(
+            _measure_strips(
+                strip_sizing_model,
+                n_steps_i,
+                bb,
+                arrow_length=_arrow_length,
+                pad_around_text=_pad_around_text,
+                bore_callout_width=bore_callout_width,
+                text_position=text_position,
+                text_orientation=text_orientation,
+            )
         )
 
     layout_advisories: list[tuple[str, str]] = []
@@ -1324,13 +1327,15 @@ def _analyse(
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(layout_step_zs, bb.min.Z, SCALE)[0])
-    strips = _measure_strips(
-        strip_sizing_model,
-        n_steps,
-        bb,
-        arrow_length=_arrow_length,
-        pad_around_text=_pad_around_text,
-        bore_callout_width=bore_callout_width,
+    strips = cap_planned_strips(
+        _measure_strips(
+            strip_sizing_model,
+            n_steps,
+            bb,
+            arrow_length=_arrow_length,
+            pad_around_text=_pad_around_text,
+            bore_callout_width=bore_callout_width,
+        )
     )
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view

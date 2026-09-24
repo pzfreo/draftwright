@@ -438,7 +438,7 @@ class StripDepths:
     angular: tuple[AngularReservation, ...] = ()
     pv_location_top: float = 0.0  # complete ladder depth for a facing plan/front corridor
     rv_right: float = 0.0
-    # Observational drafter-style topology. It does not alter depths or placement yet.
+    # Drafter-style topology. Normal builds observe it; selected trials can cap depths.
     scheme: AnnotationScheme | None = field(default=None, compare=False)
 
     def planned_corridor_depths(

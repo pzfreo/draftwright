@@ -654,9 +654,9 @@ class Drawing:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
         scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
             including the requested/effective scales and any required placement blockers.
-        annotation_scheme_decision: experimental JSON-friendly shadow comparison between the
-            drafter-style scheme and current corridor reservations. ``influenced_layout`` is
-            false until the scheme is deliberately promoted from observation to planning.
+        annotation_scheme_decision: JSON-friendly corridor comparison. With
+            ``annotation_layout="best"`` it also records verified layout trials and the
+            selected result; ``influenced_layout`` says whether a candidate won.
         view_decision: JSON-friendly resolution of automatic principal-view selection.
             ``chosen`` is the final principal set and ``attempts`` records a reduced candidate
             and why it was accepted or rejected.
@@ -721,8 +721,8 @@ class Drawing:
             "attempted_scales": (),
             "attempts": (),
         }
-        # Experimental shadow evidence for the drafter-style annotation scheme. The builder
-        # replaces this after analysis; it never influences layout while status is ``shadow``.
+        # The builder replaces this after analysis; the selector adds trials and a
+        # decision when the caller requests the best verified layout.
         self.annotation_scheme_decision: dict[str, object] = {
             "status": "not_evaluated",
             "influenced_layout": False,

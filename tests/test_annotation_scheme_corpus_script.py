@@ -83,3 +83,22 @@ def test_manifest_rejects_duplicate_case_ids(tmp_path):
 
     with pytest.raises(ValueError, match="unique"):
         _load_script()._load_manifest(damaged)
+
+
+def test_public_corpus_requires_the_selected_trial_to_be_verified():
+    convert = _load_script()._public_result
+    decision = {
+        "selected_trial": "columns",
+        "baseline_quality_key": [2, 0, 2, 1, 1, -1.0, 62370.0],
+        "selected_quality_key": [1, 0, 1, 1, 0, -1.0, 62370.0],
+        "trials": [{"name": "columns", "verdict": "candidate", "semantic_parity": True}],
+    }
+
+    result = convert({"layout_decision": decision})
+    assert result["quality_comparison"]["verdict"] == "candidate"
+    assert result["parity"]["passed"]
+    assert result["selected_trial"] == "columns"
+
+    decision["trials"][0]["semantic_parity"] = False
+    with pytest.raises(ValueError, match="unverified"):
+        convert({"layout_decision": decision})

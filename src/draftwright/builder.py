@@ -54,6 +54,12 @@ from draftwright._core import (
 from draftwright._geometry import BOUNDS_ROUNDOFF, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
+from draftwright.annotation_layout_profile import (
+    AnnotationLayoutProfile,
+    annotation_layout_policy,
+    current_layout_profile,
+    use_layout_profile,
+)
 from draftwright.annotations._common import (
     SolveTrace,
     _geom_box,
@@ -78,6 +84,7 @@ from draftwright.compose import (
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
+from draftwright.layout_selection import select_best_annotation_layout
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
@@ -1895,12 +1902,10 @@ def _blocker_identity(blocker) -> str:
 
 
 def _arrangement_quality(issues, blockers, *, page, scale, interior_dimensions=0) -> dict:
-    """Return a stable, JSON-friendly shadow score for one finished arrangement.
+    """Return a stable, JSON-friendly key for one finished arrangement.
 
-    The tuple is ordered as a production selector would reason: correctness and
-    readability are hard gates; compactness cannot buy back a lost requirement or
-    collision.  It is observational for now so corpus runs can validate the policy
-    before it is allowed to change automatic layout selection.
+    The tuple puts correctness and readability ahead of compactness. The layout
+    selector uses it only after separately checking semantic and sheet parity.
     """
     issues = tuple(issues)
     blockers = tuple(blockers)
@@ -2264,6 +2269,7 @@ def build_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
+    annotation_layout: Literal["baseline", "best"] = "baseline",
     _replayed_scale: float | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
@@ -2291,7 +2297,47 @@ def build_drawing(
     normal shared solve, ``"exterior"`` restores the historical exterior-only inventory,
     and ``"interior"`` requires interior candidates where the feature family has proved
     them. Explicit per-feature ``side=`` constraints remain exterior.
+
+    ``annotation_layout="best"`` evaluates an alternative on the settled sheet and
+    scale, retaining the existing layout unless finished-drawing semantic parity and
+    layout quality prove a strict gain. ``"baseline"`` uses the established layout.
     """
+    annotation_layout = annotation_layout_policy(annotation_layout)
+    if annotation_layout == "best":
+        options = locals().copy()
+        options["annotation_layout"] = "baseline"
+        with use_layout_profile(AnnotationLayoutProfile()):
+            baseline = build_drawing(**options)
+        if not auto_dims:
+            baseline.annotation_scheme_decision = {
+                **baseline.annotation_scheme_decision,
+                "status": "retained_baseline",
+                "policy": "best",
+                "reason": "automatic_annotations_disabled",
+            }
+            return baseline
+        candidate_options = {
+            **options,
+            "scale": baseline.scale,
+            "page": (baseline.page_w, baseline.page_h),
+            "scale_policy": "permissive",
+            "_replayed_scale": None,
+        }
+
+        def build_candidate(profile: AnnotationLayoutProfile) -> Drawing:
+            with use_layout_profile(profile), warnings.catch_warnings():
+                warnings.simplefilter("ignore", ScaleCompletenessWarning)
+                return build_drawing(**candidate_options)
+
+        selected = select_best_annotation_layout(baseline, build_candidate)
+        if selected is not baseline:
+            # The speculative build uses a fixed settled scale with permissive checks.
+            # Report the caller's original scale policy and resolution on the result.
+            selected.scale_decision = baseline.scale_decision
+        if selected.solve_trace is not None:
+            selected.solve_trace.write()
+        return selected
+
     from draftwright.leader_policy import leader_region_policy
 
     validate_projection(projection, projection_symbol=projection_symbol)
@@ -3184,7 +3230,12 @@ def build_drawing(
 
     requested_scale = float(scale)
     automatic_view_policy = views_are_automatic and _views is None
-    experimental_arrangement = os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT")
+    layout_profile = current_layout_profile()
+    experimental_arrangement = (
+        layout_profile.arrangement
+        if layout_profile is not None
+        else os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT")
+    )
     arrangements = None
     if experimental_arrangement is not None:
         if experimental_arrangement not in ARRANGEMENTS:
@@ -3435,6 +3486,7 @@ def make_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
+    annotation_layout: Literal["baseline", "best"] = "baseline",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -3471,6 +3523,8 @@ def make_drawing(
         leader_region: feature-leader label region policy. ``"auto"`` keeps the normal
             solver, ``"exterior"`` restores exterior-only compatibility, and
             ``"interior"`` requires interior placement where that feature family supports it.
+        annotation_layout: ``"best"`` compares finished layouts on the same sheet and scale
+            and selects a candidate only when required annotations and quality are preserved.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
@@ -3522,6 +3576,7 @@ def make_drawing(
         framed_recognition=framed_recognition,
         scale_policy=scale_policy,
         leader_region=leader_region,
+        annotation_layout=annotation_layout,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
     return _paths["svg"], _paths["dxf"]

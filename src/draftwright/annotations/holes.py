@@ -9,7 +9,6 @@ shared placement helpers come from annotations._common. Below annotate, no cycle
 from __future__ import annotations
 
 import math
-import os
 from collections.abc import Callable
 from functools import partial
 from typing import Any, NamedTuple
@@ -40,6 +39,7 @@ from draftwright._core import (
     layout_frame,
 )
 from draftwright._geometry import _leader_ink_crosses_box, plane_axes
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     CorridorCandidate,
@@ -108,8 +108,8 @@ from draftwright.model.ir import HoleFeature, PatternFeature
 _AXIS_ALIGN_COS = 0.9996
 
 
-def _profiled_callout_leader(*, callout, **kw):
-    """Build a leader and preserve callout semantics plus structured profile metadata.
+def _copy_callout_semantics(leader, callout):
+    """Keep a rendered geometric callout's claim on either leader shape.
 
     The helpers' ``Leader`` copies its native diameter/count coverage from ``HoleCallout``;
     its geometric-callout path does not copy the callout's semantic label. Profiled-bore
@@ -121,7 +121,6 @@ def _profiled_callout_leader(*, callout, **kw):
         raise _FeatureLeaderInvariantError(
             "a rendered hole callout must carry a non-empty semantic label"
         )
-    leader = Leader(callout=callout, **kw)
     leader.label = semantic_label
     leader.pdf_text_relative_specs = tuple(getattr(callout, "pdf_text_relative_specs", ()))
     leader.covers_profiles = getattr(callout, "covers_profiles", ())
@@ -135,6 +134,12 @@ def _profiled_callout_leader(*, callout, **kw):
     leader.geometry_measurements = tuple(getattr(callout, "geometry_measurements", ()))
     leader.geometry_qualifiers = tuple(getattr(callout, "geometry_qualifiers", ()))
     return leader
+
+
+def _profiled_callout_leader(*, callout, **kw):
+    """Build a normal leader with the rendered callout's semantic claim."""
+
+    return _copy_callout_semantics(Leader(callout=callout, **kw), callout)
 
 
 def add_feature_callout(
@@ -3150,7 +3155,10 @@ def _place_queue(
                         return _build_at(_tip, (*elbow, 0), _feature)
 
                     def build_routed(bends, elbow, _tip=tip):
-                        return RoutedLeader(_tip, bends, elbow, "", draft, callout=_callout)
+                        return _copy_callout_semantics(
+                            RoutedLeader(_tip, bends, elbow, "", draft, callout=_callout),
+                            _callout,
+                        )
 
                     annotation = _sheet_leader_fallback(
                         dwg, tip, _view, build_at, build_routed, size
@@ -3278,7 +3286,9 @@ def _place_queue(
                     on_drop=_on_drop,
                     recover=(
                         _recover
-                        if os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY") == "1"
+                        if layout_flag(
+                            "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
+                        )
                         else None
                     ),
                 ),

@@ -88,6 +88,13 @@ class ScalePolicy(str, Enum):
     permissive = "permissive"
 
 
+class AnnotationLayout(str, Enum):
+    """Finished-drawing annotation layout selection."""
+
+    baseline = "baseline"
+    best = "best"
+
+
 def _parse_formats(value: str) -> list[str]:
     """Parse a ``--format`` value (comma-list, with an ``all`` alias) into an
     ordered, de-duplicated list of formats. Raises on an unknown token."""
@@ -234,6 +241,11 @@ def main(
             "Feature-leader label region: auto, interior where proved, or historical exterior-only"
         ),
     ),
+    annotation_layout: AnnotationLayout = typer.Option(
+        AnnotationLayout.baseline,
+        "--annotation-layout",
+        help="Annotation layout: baseline or compare and select the best verified result",
+    ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
     ),
@@ -367,6 +379,7 @@ def main(
                 text_position=text_position,
                 text_orientation=text_orientation,
                 leader_region=leader_region.value,
+                annotation_layout=annotation_layout.value,
                 part_expr=source.seam,
                 object_candidates=source.candidates,
                 formats=tuple(formats),
@@ -404,6 +417,7 @@ def main(
                 text_position=text_position,
                 text_orientation=text_orientation,
                 leader_region=leader_region.value,
+                annotation_layout=annotation_layout.value,
                 pmi=pmi.value if pmi is not None else "off",
                 formats=tuple(formats),
                 inspect=not no_report,
@@ -449,8 +463,12 @@ def main(
                 text_position=text_position,
                 text_orientation=text_orientation,
                 leader_region=leader_region.value,
+                annotation_layout=annotation_layout.value,
                 zones=zones,
             )
+            if annotation_layout is AnnotationLayout.best:
+                chosen = dwg.annotation_scheme_decision.get("selected_trial") or "baseline"
+                typer.echo(f"Selected annotation layout: {chosen}", err=True)
             visual_paths = _emit(dwg, formats)
             for path in visual_paths:
                 print(path)

@@ -13,7 +13,6 @@ from __future__ import annotations
 import copy
 import logging
 import math
-import os
 import warnings
 
 import numpy as np
@@ -42,6 +41,7 @@ from draftwright._geometry import (
     material_field,
 )
 from draftwright._warnings import ProjectionGeometryWarning
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.progress import stage
 
 _log = logging.getLogger(__name__)
@@ -578,7 +578,9 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         factor = math.floor(needed * 0.90 * 10000) / 10000
         factor = max(factor, 1.0)  # grow branch must never shrink
         max_grow = (
-            1.5 if os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW") == "1" else _ISO_MAX_GROW
+            1.5
+            if layout_flag("iso_growth", "DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW")
+            else _ISO_MAX_GROW
         )
         factor = min(factor, max_grow)  # keep the orientation view subordinate
         if obstacles and factor > 1.0:

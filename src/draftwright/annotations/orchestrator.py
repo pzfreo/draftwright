@@ -15,7 +15,6 @@ bore set, side-drilled locations, the hole table) + the section/PMI passes.
 
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Literal
@@ -41,6 +40,7 @@ from draftwright._core import (
     layout_frame,
 )
 from draftwright.analysis import _sizing_bores
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     PlacementContext,
     _annotation_hole_features,
@@ -618,7 +618,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _compiled = compile_dimensions(_model, groups=_groups)
     _groups = annotation_groups(_model, _groups)
     if (
-        os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_SCHEME_LAYOUT") == "1"
+        layout_flag("scheme_lanes", "DRAFTWRIGHT_EXPERIMENTAL_SCHEME_LAYOUT")
         and a.layout_strips.scheme is not None
     ):
         ctx.annotation_lanes = pack_estimated_annotation_lanes(
@@ -627,7 +627,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             font_size=dwg.draft.font_size,
             padding=dwg.draft.pad_around_text,
         )
-    if os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS") == "1":
+    if layout_flag("exterior_dimensions", "DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS"):
         ctx.exterior_dimensions_only = True
     for omission in _compiled.diagnostics:
         if omission.code == "step_position_coincident_with_datum":

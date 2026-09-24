@@ -19,7 +19,6 @@ once the holes epic landed (#251).
 from __future__ import annotations
 
 import math
-import os
 import re
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
@@ -77,6 +76,7 @@ from draftwright._geometry import (
     _straight_blend_faces,
     _turned_profile_site,
 )
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     PRIORITY,
@@ -1419,7 +1419,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # The farther X stations may use the free exterior strip below the plan while
         # the nearest station keeps its established tier. Both are solver-owned strips.
         x_below = (
-            os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW") == "1"
+            layout_flag("plan_x_below", "DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW")
             and i > 0
             and a.pv_zones.above.available < a.pv_zones.above.gap + tier
             and a.pv_zones.below.available >= a.pv_zones.below.gap + tier

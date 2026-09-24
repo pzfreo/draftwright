@@ -12,6 +12,7 @@ from draftwright.annotations.from_model import (
     _pmi_leader_spec,
     _sheet_leader_fallback,
 )
+from draftwright.annotations.holes import _copy_callout_semantics
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.linting.ink_overlap import segments_of
 
@@ -80,6 +81,18 @@ def test_routed_leader_validates_routes_and_supports_all_over_symbol():
 
     leader = RoutedLeader((0, 0), (5, 0), (10, 5), "label", draft, all_over=True)
     assert tuple(leader.bend)[:2] == (5.0, 0.0)
+
+
+def test_routed_geometric_hole_callout_keeps_its_visible_semantic_label():
+    callout = Box(1, 1, 1)
+    callout.label = "3× ⌀10.7 ↧ 30.5"
+    callout.source_ids = ("pattern-a",)
+    leader = RoutedLeader((0, 0), ((5, 0),), (10, 0), "", Draft(font_size=3), callout=callout)
+
+    assert leader.label == ""
+    _copy_callout_semantics(leader, callout)
+    assert leader.label == callout.label
+    assert leader.source_ids == ("pattern-a",)
 
 
 def test_collinear_routed_leader_keeps_standard_arrow_and_label_envelope():

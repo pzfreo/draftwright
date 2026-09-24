@@ -8,8 +8,6 @@ import json
 import os
 import subprocess
 import sys
-from collections import Counter
-from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
 
@@ -19,40 +17,27 @@ _CAP_REPORT = {}
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
+from draftwright.annotation_layout_profile import (  # noqa: E402
+    AnnotationLayoutProfile,
+    cap_planned_strips,
+    use_layout_profile,
+)
+from draftwright.layout_selection import _compare, _manifest  # noqa: E402
+
 
 def _python() -> str:
     candidate = _ROOT / ".venv" / "bin" / "python"
     return str(candidate if candidate.is_file() else Path(sys.executable))
 
 
-def _cap_scheme_strips(scale: float, enabled_routes: set[tuple[str, str]]) -> None:
+def _observe_scheme_strips(scale: float) -> None:
     analysis = import_module("draftwright.analysis")
     legacy_measure = analysis._measure_strips
 
     def measured(*args, **kwargs):
         strips = legacy_measure(*args, **kwargs)
         planned = strips.planned_corridor_depths(scale)
-
-        def cap(current, *routes):
-            if not any(route in enabled_routes for route in routes):
-                return current
-            values = [planned[route] for route in routes if route in planned]
-            return min(current, max(values)) if current > 0 and values else current
-
-        capped = replace(
-            strips,
-            right=cap(strips.right, ("front", "right"), ("plan", "right")),
-            left=cap(strips.left, ("front", "left"), ("plan", "left")),
-            top=cap(strips.top, ("plan", "above")),
-            fv_top=cap(strips.fv_top, ("front", "above")),
-            fv_bottom=cap(strips.fv_bottom, ("front", "below")),
-            pv_authored_top=cap(strips.pv_authored_top, ("plan", "above")),
-            pv_bottom=cap(strips.pv_bottom, ("plan", "below")),
-            sv_top=cap(strips.sv_top, ("side", "above")),
-            sv_bottom=cap(strips.sv_bottom, ("side", "below")),
-            sv_right=cap(strips.sv_right, ("side", "right")),
-            rv_right=cap(strips.rv_right, ("rear", "right")),
-        )
+        capped = cap_planned_strips(strips)
         _CAP_REPORT.update(
             {
                 "before": {
@@ -90,133 +75,44 @@ def _cap_scheme_strips(scale: float, enabled_routes: set[tuple[str, str]]) -> No
                 "planned": {f"{view}/{side}": depth for (view, side), depth in planned.items()},
             }
         )
-        return capped
+        return strips
 
     analysis._measure_strips = measured
-
-
-def _manifest(drawing) -> dict:
-    from draftwright.builder import (
-        _arrangement_quality,
-        _blocker_identity,
-        _scale_blockers_from_issues,
-    )
-
-    model = drawing.model()
-    feature_indices = {id(feature): index for index, feature in enumerate(model.features)}
-
-    def feature_identity(feature) -> dict:
-        index = feature_indices.get(id(feature))
-        if index is None:
-            matches = [
-                candidate_index
-                for candidate_index, candidate in enumerate(model.features)
-                if candidate == feature
-            ]
-            index = matches[0] if len(matches) == 1 else None
-        return {
-            "feature_index": index,
-            "kind": str(getattr(feature, "kind", type(feature).__name__)),
-            "source_id": str(
-                getattr(feature, "source_id", "")
-                or next(iter(getattr(feature, "source_ids", ())), "")
-            ),
-        }
-
-    def requirement_identities(identities) -> list[dict]:
-        values = [
-            {
-                "feature": feature_identity(identity.feature),
-                "parameter": str(identity.parameter),
-            }
-            for identity in identities
-        ]
-        return sorted(values, key=lambda value: json.dumps(value, sort_keys=True))
-
-    annotations = {}
-    for name, annotation in drawing.iter_annotations():
-        annotations[name] = {
-            "type": type(annotation).__name__,
-            "label": str(getattr(annotation, "label", "")),
-            "view": drawing.view_of(name),
-            "region": getattr(annotation, "_dw_candidate_region", None),
-            "measurements": requirement_identities(drawing.registry.measurement_of(name)),
-            "satisfactions": requirement_identities(drawing.registry.satisfaction_of(name)),
-            "owners": sorted(
-                (feature_identity(feature) for feature in drawing.registry.features_of(name)),
-                key=lambda value: json.dumps(value, sort_keys=True),
-            ),
-        }
-    issues = tuple(drawing.lint())
-    blockers = _scale_blockers_from_issues(issues)
-    lint = drawing.lint_summary()
-    completeness = lint["quality"]["completeness"]
-    drops = {
-        code: count
-        for code, count in lint["by_code"].items()
-        if "drop" in code or "withheld" in code or code == "placement_unsatisfiable"
-    }
-    interior_dimensions = sorted(
-        name
-        for name, annotation in drawing.iter_annotations()
-        if "Dimension" in type(annotation).__name__
-        and getattr(annotation, "_dw_candidate_region", None) == "interior"
-    )
-    return {
-        "annotations": annotations,
-        "iso_bounds": drawing.view_bounds("iso"),
-        "iso_to_sheet_scale": (
-            drawing.iso_projection_scale is not None
-            and abs(drawing.iso_projection_scale / drawing.scale - 1.0) < 0.05
-        ),
-        "orthographic_bounds": {
-            view: drawing.view_bounds(view) for view in ("front", "plan", "side")
-        },
-        "interior_dimensions": interior_dimensions,
-        "arrangement_quality": _arrangement_quality(
-            issues,
-            blockers,
-            page=(drawing.page_w, drawing.page_h),
-            scale=drawing.scale,
-            interior_dimensions=len(interior_dimensions),
-        ),
-        "blocker_identities": sorted(_blocker_identity(blocker) for blocker in blockers),
-        "coverage": {
-            key: completeness.get(key)
-            for key in ("requirements", "placed", "missing", "unverifiable", "unsupported")
-        },
-        "drops": drops,
-        "lint": {"errors": lint["errors"], "warnings": lint["warnings"]},
-    }
 
 
 def _worker(args) -> int:
     if args.mode == "candidate":
         if getattr(args, "iso_growth", False):
-            os.environ["DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW"] = "1"
+            profile = AnnotationLayoutProfile(iso_growth=True)
         else:
-            _cap_scheme_strips(args.scale, _parse_routes(args.candidate_routes))
-            os.environ["DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"] = "1"
-            os.environ["DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW"] = "1"
-            if args.arrangement is not None:
-                os.environ["DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT"] = args.arrangement
-            if args.exterior_dimensions:
-                os.environ["DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS"] = "1"
+            profile = AnnotationLayoutProfile(
+                arrangement=args.arrangement,
+                corridor_scale=args.scale,
+                capped_routes=frozenset(_parse_routes(args.candidate_routes)),
+                exterior_dimensions=args.exterior_dimensions,
+                crossing_recovery=True,
+                plan_x_below=True,
+            )
+            _observe_scheme_strips(args.scale)
+    else:
+        profile = AnnotationLayoutProfile()
     from draftwright import build_drawing
 
     output = Path(args.output)
-    drawing = build_drawing(
-        Path(args.source),
-        out=str(output),
-        title=args.title,
-        number=args.number,
-        pmi="annotate",
-        page=args.page,
-        scale=args.scale,
-        scale_policy="permissive",
-        _views=("front", "plan", "side"),
-        _include_iso=True,
-    )
+    with use_layout_profile(profile):
+        drawing = build_drawing(
+            Path(args.source),
+            out=str(output),
+            title=args.title,
+            number=args.number,
+            pmi="annotate",
+            page=args.page,
+            scale=args.scale,
+            scale_policy="permissive",
+            _views=("front", "plan", "side"),
+            _include_iso=True,
+            annotation_layout="best" if args.mode == "best" else "baseline",
+        )
     paths = drawing.export(str(output), formats=tuple(args.formats.split(",")))
     print(
         json.dumps(
@@ -227,6 +123,7 @@ def _worker(args) -> int:
                 "scale": drawing.scale,
                 "views": list(drawing.views),
                 "corridor_depths": _CAP_REPORT,
+                "layout_decision": drawing.annotation_scheme_decision,
                 "manifest": _manifest(drawing),
             },
             sort_keys=True,
@@ -278,169 +175,6 @@ def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None =
     if completed.returncode:
         raise RuntimeError(f"{mode} build failed:\n{completed.stderr}")
     return json.loads(completed.stdout)
-
-
-def _compare(baseline: dict, candidate: dict) -> dict:
-    before = baseline["manifest"]
-    after = candidate["manifest"]
-    before_annotations = before["annotations"]
-    after_annotations = after["annotations"]
-
-    def semantic_annotation(annotation):
-        annotation_type = annotation["type"]
-        # Leader routing is layout, not manufacturing meaning. The candidate is allowed
-        # to replace a straight Leader with a RoutedLeader while preserving the same
-        # label, ownership, and requirement identities.
-        semantic_type = "Leader" if annotation_type.endswith("Leader") else annotation_type
-        semantic = {"type": semantic_type, "label": annotation["label"]}
-        for field in ("measurements", "satisfactions", "owners"):
-            if field in annotation:
-                # FeatureFacts is a compiler-only structural projection, never a
-                # model feature that drop()/annotations_of() can target. Candidate
-                # route choice may attach or omit it without changing ownership.
-                semantic[field] = (
-                    [owner for owner in annotation[field] if owner.get("kind") != "FeatureFacts"]
-                    if field == "owners"
-                    else annotation[field]
-                )
-        return semantic
-
-    def semantic_counts(annotations, *, omit_nts=False):
-        return Counter(
-            json.dumps(
-                semantic_annotation(annotation),
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            for annotation in annotations.values()
-            if not (
-                omit_nts
-                and annotation["type"] == "Note"
-                and annotation["label"] == "ISO VIEW (NTS)"
-            )
-        )
-
-    # A to-scale orientation view must lose its former NTS caption. The final
-    # projected scale is measured in the worker, so a missing note is excused
-    # only when the candidate still has the iso and it truly matches the sheet.
-    iso_note_obsolete = after.get("iso_to_sheet_scale", False) and "iso" in candidate.get(
-        "views", ()
-    )
-    before_semantics = semantic_counts(before_annotations, omit_nts=iso_note_obsolete)
-    after_semantics = semantic_counts(after_annotations)
-    before_interiors = semantic_counts(
-        {name: before_annotations[name] for name in before["interior_dimensions"]}
-    )
-    after_interiors = semantic_counts(
-        {name: after_annotations[name] for name in after["interior_dimensions"]}
-    )
-
-    def expand(delta):
-        return [json.loads(item) for item, count in sorted(delta.items()) for _ in range(count)]
-
-    before_blockers = Counter(before["blocker_identities"])
-    after_blockers = Counter(after["blocker_identities"])
-    introduced_blockers = sorted((after_blockers - before_blockers).elements())
-    before_coverage = before["coverage"]
-    after_coverage = after["coverage"]
-    same_sheet = baseline.get("page") == candidate.get("page") and baseline.get(
-        "scale"
-    ) == candidate.get("scale")
-    coverage_no_worse = (
-        before_coverage["requirements"] == after_coverage["requirements"]
-        and after_coverage["placed"] >= before_coverage["placed"]
-        and after_coverage["missing"] <= before_coverage["missing"]
-        and after_coverage["unsupported"] <= before_coverage["unsupported"]
-        and after_coverage["unverifiable"] <= before_coverage["unverifiable"]
-    )
-    parity = {
-        "missing": expand(before_semantics - after_semantics),
-        "added": expand(after_semantics - before_semantics),
-        "renamed_or_reordered": sorted(
-            name
-            for name in set(before_annotations) & set(after_annotations)
-            if before_annotations[name] != after_annotations[name]
-        ),
-        "coverage_equal": before["coverage"] == after["coverage"],
-        "drops_equal": before["drops"] == after["drops"],
-        "coverage_no_worse": coverage_no_worse,
-        "same_sheet": same_sheet,
-        "introduced_blockers": introduced_blockers,
-        "candidate_interior_dimensions": after["interior_dimensions"],
-        "introduced_interior_dimensions": expand(after_interiors - before_interiors),
-        "obsolete_nts_caption_removed": bool(
-            iso_note_obsolete
-            and any(
-                annotation["type"] == "Note" and annotation["label"] == "ISO VIEW (NTS)"
-                for annotation in before_annotations.values()
-            )
-            and not any(
-                annotation["type"] == "Note" and annotation["label"] == "ISO VIEW (NTS)"
-                for annotation in after_annotations.values()
-            )
-        ),
-    }
-    parity["passed"] = (
-        not any(
-            (
-                parity["missing"],
-                parity["introduced_interior_dimensions"],
-            )
-        )
-        and parity["coverage_no_worse"]
-        and parity["same_sheet"]
-        and not parity["introduced_blockers"]
-        and not (
-            iso_note_obsolete
-            and any(
-                annotation["type"] == "Note" and annotation["label"] == "ISO VIEW (NTS)"
-                for annotation in after_annotations.values()
-            )
-        )
-    )
-    baseline_key = tuple(before["arrangement_quality"]["selection_key"])
-    candidate_key = tuple(after["arrangement_quality"]["selection_key"])
-
-    def area(bounds):
-        if bounds is None:
-            return 0.0
-        return max(0.0, bounds[2] - bounds[0]) * max(0.0, bounds[3] - bounds[1])
-
-    baseline_iso_area = area(before.get("iso_bounds"))
-    iso_area_ratio = (
-        area(after.get("iso_bounds")) / baseline_iso_area if baseline_iso_area else 0.0
-    )
-    orthographic_bounds_equal = before.get("orthographic_bounds") == after.get(
-        "orthographic_bounds"
-    )
-    iso_legibility_gain = (
-        not any(baseline_key[:5])
-        and candidate_key == baseline_key
-        and orthographic_bounds_equal
-        and iso_area_ratio >= 1.10
-    )
-    if not parity["passed"]:
-        verdict = "ineligible"
-    elif candidate_key < baseline_key:
-        verdict = "candidate"
-    elif baseline_key < candidate_key:
-        verdict = "baseline"
-    elif iso_legibility_gain:
-        verdict = "candidate"
-    else:
-        verdict = "tie"
-    return {
-        "baseline": baseline,
-        "candidate": candidate,
-        "parity": parity,
-        "quality_comparison": {
-            "verdict": verdict,
-            "baseline_key": baseline_key,
-            "candidate_key": candidate_key,
-            "reason": "larger_iso" if verdict == "candidate" and iso_legibility_gain else None,
-            "iso_area_ratio": iso_area_ratio,
-        },
-    }
 
 
 def _failed_candidate_comparison(baseline: dict, error: str) -> dict:
@@ -539,7 +273,7 @@ def main() -> int:
         help="comma-separated view/side corridors to cap, or 'none' to retain legacy depths",
     )
     parser.add_argument("--worker", action="store_true")
-    parser.add_argument("--mode", choices=("baseline", "candidate"), default="baseline")
+    parser.add_argument("--mode", choices=("baseline", "candidate", "best"), default="baseline")
     parser.add_argument("--iso-growth", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.worker:

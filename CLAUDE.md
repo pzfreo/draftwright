@@ -36,6 +36,7 @@ Compact map, bottom to top:
 - **Leaf modules** — `progress.py` (headless activity and cooperative cancellation; no drawing policy), `layout.py` (the deterministic placement solvers: 1D PAVA strip
   solve, `fit_box`, balloon band flow), `registry.py` (annotation identity/pins/issues),
   `layout_scheme.py` (typed, render-free annotation topology and corridor demand planning),
+  `annotation_layout_profile.py` (build-scoped candidate options and corridor caps),
   `leader_policy.py` (typed feature-leader candidate-region policy),
   `_geometry.py` (page-plane maths + the ADR 2 (was 0014 Amdt 3) material field; the DAG's
   bottom leaf), `fonts.py` (pinned IBM Plex, ADR 5 (was 0006)), `fits.py` (ISO 286),
@@ -72,7 +73,8 @@ Compact map, bottom to top:
   `drawing.py` (the `Drawing` result object; single-owner `BuildState`), and
   `annotations/` (the render passes; `orchestrator.py` owns `_PASS_SEQUENCE`, the one
   canonical stage order; `_common.py` owns the corridor solve + late-furniture seam).
-- **`builder.py`** — build orchestration: `build_drawing`, `make_drawing`.
+- **`builder.py` / `layout_selection.py`** — build orchestration and finished-drawing
+  semantic comparison: `build_drawing`, `make_drawing`, guarded layout selection.
 - **Facades / top layer** — `make_drawing.py` + `annotate.py` (thin compat),
   `sheet.py` (the fluent `Sheet` facade, ADR 4 (was 0011)),
   `document.py` (explicit member sheets over a common source and conversion authority), `sheet_emit.py` (the `--script`

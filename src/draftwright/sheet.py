@@ -1212,6 +1212,7 @@ class Sheet:
         text_position="inline",
         text_orientation="aligned",
         leader_region="auto",
+        annotation_layout="baseline",
         zones=None,
         detail_view=None,
         pmi=None,
@@ -1230,9 +1231,11 @@ class Sheet:
         _validated_title_block_width(title_block_width)
         validate_projection(projection, projection_symbol=projection_symbol)
         _dimension_draft(text_position, text_orientation)
+        from draftwright.annotation_layout_profile import annotation_layout_policy
         from draftwright.leader_policy import leader_region_policy
 
         leader_region = leader_region_policy(leader_region).value
+        annotation_layout = annotation_layout_policy(annotation_layout)
         self._part = part
         # (token, feature) entries — identity, not position (#908). `_features` is the
         # view; handles hold tokens and resolve through it, so a reorder of the public
@@ -1315,6 +1318,7 @@ class Sheet:
             page=page,
             out=out,
             leader_region=leader_region,
+            annotation_layout=annotation_layout,
         )
         if _replayed_scale is not None:
             self._opts["_replayed_scale"] = _replayed_scale

@@ -1,9 +1,9 @@
 """Typed, render-free annotation topology for outer sheet planning.
 
-This is the observational first slice of a drafter-style layout scheme.  It records which
-semantic annotations need which view corridors before OCC annotation geometry exists.  The
-current renderer still makes every placement decision; consumers may compare this plan with
-measured view blocks without changing drawing output.
+This is the first render-free slice of a drafter-style layout scheme. It records which
+semantic annotations need which view corridors before OCC annotation geometry exists.
+Normal builds observe its estimates without changing output. The opt-in layout selector
+may cap selected corridor reservations with them; the renderer still places every mark.
 """
 
 from __future__ import annotations
@@ -299,7 +299,7 @@ def pack_estimated_annotation_lanes(
 def _identity(feature, index: int) -> str:
     return str(
         getattr(feature, "source_id", "")
-        or next(iter(getattr(feature, "source_ids", ())), "")
+        or next(iter(sorted(map(str, getattr(feature, "source_ids", ())))), "")
         or f"{getattr(feature, 'kind', type(feature).__name__)}:{index}"
     )
 

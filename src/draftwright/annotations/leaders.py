@@ -9,7 +9,6 @@ the selected annotations exactly once.  No page coordinates are public API.
 from __future__ import annotations
 
 import math
-import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -28,6 +27,7 @@ from draftwright._geometry import (
     _stroke_polygon,
     material_reentry_span,
 )
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     _geom_box,
@@ -1651,7 +1651,9 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     if not jobs:
         return 0
 
-    crossing_recovery_enabled = os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY") == "1"
+    crossing_recovery_enabled = layout_flag(
+        "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
+    )
 
     def recovery_for(job_index):
         # The sheet grid is bounded per call, but dense imported parts can have

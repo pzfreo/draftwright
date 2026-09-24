@@ -4,6 +4,12 @@ import pytest
 from build123d import Box, Cylinder
 
 from draftwright import build_drawing
+from draftwright.annotation_layout_profile import (
+    AnnotationLayoutProfile,
+    cap_planned_strips,
+    current_layout_profile,
+    use_layout_profile,
+)
 from draftwright.compose import StripDepths, _measure_strips
 from draftwright.layout_scheme import (
     AnnotationDemand,
@@ -94,6 +100,23 @@ def test_strip_measurement_carries_the_scheme_without_changing_depths():
     ]
     assert [(item.view, item.side) for item in report.over_reserved] == [("front", "left")]
     assert report.to_dict()["under_reserved"] == 2
+
+
+def test_build_scoped_scheme_reservation_caps_only_selected_corridors():
+    model = _model()
+    strips = _measure_strips(model, 0, model.bbox)
+    profile = AnnotationLayoutProfile(
+        corridor_scale=1,
+        capped_routes=frozenset({("front", "left")}),
+    )
+
+    with use_layout_profile(profile):
+        capped = cap_planned_strips(strips)
+        assert current_layout_profile() is profile
+    assert current_layout_profile() is None
+    assert capped.left == 17.0
+    assert capped.right == strips.right
+    assert strips.left == 20.0
 
 
 def test_completed_drawing_exposes_shadow_report_without_influencing_layout():
