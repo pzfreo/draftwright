@@ -452,9 +452,15 @@ jobs:
           - lane: ctc04
             workers: 1
             selection: ctc04
-          - lane: remaining
-            workers: auto
+            split_args: ""
+          - lane: remaining-1
+            workers: 1
             selection: not ctc04
+            split_args: --splits 2 --group 1
+          - lane: remaining-2
+            workers: 1
+            selection: not ctc04
+            split_args: --splits 2 --group 2
     name: test-slow (${{ matrix.lane }})
     runs-on: ubuntu-latest
     steps:
@@ -468,13 +474,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run scheduled tests
-        # CTC-04 saturates a two-core hosted runner and stays serial on its own runner.
-        # The disjoint remaining lane can use xdist without making CTC-04 exceed its
-        # per-test bound. Together the lanes still cover the complete scheduled tier.
+        # CAD-kernel builds can exhaust a hosted runner when two xdist workers peak
+        # together. Keep every lane serial and split the non-CTC-04 selection into two
+        # disjoint pytest-split groups; the three lanes still cover the complete tier.
         run: >-
-          uv run scripts/test-tier scheduled
+          uv run python scripts/test-tier scheduled
           --workers "${{ matrix.workers }}"
           --selection "${{ matrix.selection }}"
+          ${{ matrix.split_args }}
 
   test-platform-canary:
     # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the

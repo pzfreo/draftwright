@@ -203,11 +203,14 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
     assert "lane: ctc04" in slow_job
     assert "workers: 1" in slow_job
     assert "selection: ctc04" in slow_job
-    assert "lane: remaining" in slow_job
-    assert "workers: auto" in slow_job
+    assert "lane: remaining-1" in slow_job
+    assert "lane: remaining-2" in slow_job
     assert "selection: not ctc04" in slow_job
-    assert "scripts/test-tier scheduled" in slow_job
+    assert "split_args: --splits 2 --group 1" in slow_job
+    assert "split_args: --splits 2 --group 2" in slow_job
+    assert "python scripts/test-tier scheduled" in slow_job
     assert '--selection "${{ matrix.selection }}"' in slow_job
+    assert "${{ matrix.split_args }}" in slow_job
     assert "uv run pytest tests/ -m slow" not in slow_job
 
 
