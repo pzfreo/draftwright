@@ -721,8 +721,7 @@ def _assemble(
     dwg._model_declared = model is not None  # ADR 4 (was 0011) #448: gate model-driven hole render
     # A document member uses a declared model for its sealed physical inventory, but source
     # PMI within that model remains governed by the member's presentation policy (#1794).
-    dwg._document_member = a.document_member
-    dwg._document_source_annotation_ids = frozenset(hidden_source_annotations)
+    dwg.attach_document_context(a.document_member, hidden_source_annotations)
 
     # The solid this assembly projects. ADR 2 (was 0004) wants the real geometry built ONCE, but the
     # measure-and-repack loop assembles up to three times, so today it is projected up to three

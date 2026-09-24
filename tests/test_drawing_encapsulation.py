@@ -510,6 +510,10 @@ def test_build_state_has_a_single_construction_and_fill_site():
             # BuildState.attach_recognition() method at this same construction site;
             # Drawing.recognition()/recognition_evidence() are read-only.
             "_build.part_model",
+            # Imported document defaults are chosen at assembly and read by sheet
+            # furniture through named Drawing properties.
+            "_build.general_tolerance_source",
+            "_build.default_surface_finish_source",
             "_build.detail_view",
             "_build.trace",
             "_build.view_plan",

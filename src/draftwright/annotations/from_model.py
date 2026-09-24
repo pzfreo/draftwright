@@ -353,7 +353,13 @@ def _record_slot_drop(
     blocker_reason = "" if not blockers else f"; blockers: {', '.join(blockers)}"
     ctx.record_issue(
         "info",
-        f"{noun}_dim_dropped",
+        (
+            "pad_dim_dropped"
+            if noun == "pad"
+            else "pocket_dim_dropped"
+            if noun == "pocket"
+            else "slot_dim_dropped"
+        ),
         f"{noun}{idx} {kind} dim not placed "
         f"(no room beside the {view}{lane_reason}{blocker_reason})",
         measurement=measurement,

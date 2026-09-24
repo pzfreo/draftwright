@@ -926,11 +926,10 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
     def _record_detail_failure(req, message):
         if req.kind not in {"prismatic-steps", "y-turned-chain"}:
             return
-        code = "detail_unplaceable" if req.kind == "prismatic-steps" else "step_dim_withheld"
         severity = "warning" if req.kind == "prismatic-steps" else "error"
         ctx.record_issue(
             severity,
-            code,
+            "detail_unplaceable" if req.kind == "prismatic-steps" else "step_dim_withheld",
             message,
             measurement=req.measurement_ids,
             measurement_spans=req.measurement_spans,

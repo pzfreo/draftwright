@@ -40,6 +40,7 @@ def test_corpus_fixture_pins_angled_step_chamfer_ownership() -> None:
             angle=33.69,
             length=12.0,
             at=(9.014, 25.0, 18.991),
+            corner=(0.0, 25.0, 25.0),
         )
     ]
     assert len(direct_chamfers) == 2, "direct calls precede cross-family reconciliation"

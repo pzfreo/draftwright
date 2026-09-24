@@ -10,23 +10,19 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "grm04_drive_plate.step"
 def test_grm04_measured_replan_keeps_diameter_and_location_on_a_clean_sheet():
     drawing = build_drawing(_FIXTURE, title="GRM-04")
 
-    # The ISO-7200 title added by #1739 intersects side-view line-work on the former A4/5:1
-    # result. Hard settled-layout validity therefore outranks paper economy and selects the
-    # first complete, clean proposal instead of preserving that stale page expectation.
-    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
-    assert drawing.scale == 5.0
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert any(
-        item["status"] == "hard_layout_invalid" for item in drawing.scale_decision["attempts"]
-    )
-    assert drawing.scale_decision["attempts"][-1] == {
-        "scale": 5.0,
-        "status": "complete",
-        "blockers": (),
-        "reason": "page_escalation_after_hard_layout",
-        "views": ("front", "plan", "side", "iso"),
-        "page": (420.0, 297.0),
-    }
+    # The A4/2:1 sheet carries both requirements. Larger scales on that page
+    # intersect the title block or other view ink, so they are rejected.
+    assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
+    assert drawing.scale == 2.0
+    assert drawing.scale_decision["status"] == "automatic"
+    assert [
+        (item["scale"], item["status"], item.get("rejection"))
+        for item in drawing.scale_decision["attempts"]
+    ] == [
+        (2.0, "detail_reservation_conservative", None),
+        (5.0, "rejected", "structural_error"),
+        (10.0, "rejected", "structural_error"),
+    ]
 
     hole = next(
         feature

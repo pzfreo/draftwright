@@ -67,9 +67,10 @@ def test_standalone_compiler_keeps_every_body_local_turned_profile():
         (-10.0, 10.0, 30.0),
         (10.0, 30.0, 20.0),
     }
-    assert not [
-        feature for feature in model.features if feature.kind in ("envelope", "step_level")
-    ]
+    assert not [feature for feature in model.features if feature.kind == "step_level"]
+    envelopes = [feature for feature in model.features if feature.kind == "envelope"]
+    assert len(envelopes) == 1
+    assert (envelopes[0].width, envelopes[0].height, envelopes[0].depth) == (130, 40, 30)
 
 
 def test_explicit_plural_input_is_the_same_compiler_contract_as_aggregate_discovery():

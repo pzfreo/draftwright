@@ -1702,7 +1702,7 @@ def _add_title_block(dwg, a: Analysis):
         dwg.items,
         tb,
         "title_block",
-        feature=dwg._build.general_tolerance_source,
+        feature=dwg.general_tolerance_source,
     )
 
 
@@ -1788,7 +1788,7 @@ def _add_default_surface_finish(dwg, a: Analysis):
     The reserved band above the title block is sheet furniture space.  A document default
     belongs there: hanging it from model geometry would falsely narrow its scope to one face.
     """
-    requirement = dwg._build.default_surface_finish_source
+    requirement = dwg.default_surface_finish_source
     if requirement is None:
         return
 

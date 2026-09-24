@@ -247,8 +247,18 @@ def test_the_repack_loop_really_consumes_the_plan(monkeypatch):
     from draftwright import builder as builder_module
 
     fixture = "tests/fixtures/nist_ctc_03_asme1_ap203.stp"
-    drawing = build_drawing(fixture)
-    analysis = drawing._analysis
+    resolved = []
+    original_resolve = builder_module.resolve_from_analysis
+
+    def capture(analysis):
+        plan = original_resolve(analysis)
+        resolved.append((analysis, plan))
+        return plan
+
+    with monkeypatch.context() as patch:
+        patch.setattr(builder_module, "resolve_from_analysis", capture)
+        drawing = build_drawing(fixture)
+    analysis = next(analysis for analysis, plan in reversed(resolved) if plan == drawing.view_plan)
     measured = builder_module._measure_blocks(drawing, analysis)
 
     original = builder_module._view_geom

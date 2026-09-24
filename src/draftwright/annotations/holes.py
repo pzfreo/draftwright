@@ -595,7 +595,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
             (
                 None
                 if ctx.document_member
-                and dwg._analysis.pmi_mode != "annotate"
+                and dwg.pmi_mode != "annotate"
                 and getattr(getattr(feature, "thread", None), "source", "") == "ap242_pmi"
                 else getattr(feature, "thread", None)
             ),

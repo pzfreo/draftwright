@@ -845,6 +845,36 @@ class Drawing:
         return getattr(self._build.analysis, "leader_region", "auto")
 
     @property
+    def pmi_mode(self) -> str:
+        """The imported PMI presentation policy resolved for this drawing."""
+        return getattr(self._build.analysis, "pmi_mode", "off")
+
+    @property
+    def general_tolerance_source(self):
+        """The document default attached to the title-block tolerance, if any."""
+        return self._build.general_tolerance_source
+
+    @property
+    def default_surface_finish_source(self):
+        """The document-wide finish attached to sheet furniture, if any."""
+        return self._build.default_surface_finish_source
+
+    @property
+    def document_member(self) -> bool:
+        """Whether this drawing belongs to an imported document."""
+        return self._document_member
+
+    @property
+    def document_source_annotation_ids(self) -> frozenset[int]:
+        """Source PMI identifiers already owned by the imported document."""
+        return self._document_source_annotation_ids
+
+    def attach_document_context(self, member: bool, source_annotation_ids) -> None:
+        """Attach imported-document policy once, before annotation passes run."""
+        self._document_member = bool(member)
+        self._document_source_annotation_ids = frozenset(source_annotation_ids)
+
+    @property
     def recognition_frame_decision(self) -> dict[str, object]:
         """A copy of the explicit framed/raw/refusal selection outcome."""
         decision = getattr(self._build.analysis, "recognition_frame_decision", None)

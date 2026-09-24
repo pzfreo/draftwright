@@ -604,9 +604,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _model = dwg.model() if dwg.model() is not None else build_model(a)
     ctx.part_model = _model
     ctx.model_declared = dwg.model_declared
-    ctx.document_member = getattr(dwg, "_document_member", False)
+    ctx.document_member = getattr(dwg, "document_member", False)
     ctx.document_source_annotation_ids = getattr(
-        dwg, "_document_source_annotation_ids", frozenset()
+        dwg, "document_source_annotation_ids", frozenset()
     )
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
