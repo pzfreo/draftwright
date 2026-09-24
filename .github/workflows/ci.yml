@@ -236,6 +236,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_TIER: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-matrix') }}
+        shell: bash
         run: |
           tier=full
           if [[ "$PR_TIER" == "true" ]]; then
