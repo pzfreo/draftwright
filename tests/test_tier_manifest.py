@@ -112,7 +112,7 @@ def test_scheduled_selection_is_intersected_with_the_tier(monkeypatch):
     assert marker == "(slow or scheduled) and (ctc04)"
 
 
-def test_isolated_scheduled_runner_restarts_pytest_per_module(monkeypatch):
+def test_isolated_scheduled_runner_restarts_pytest_per_test(monkeypatch):
     runner = _TESTS.parent / "scripts" / "test-tier"
     namespace = runpy.run_path(str(runner))
     calls = []
@@ -132,13 +132,15 @@ def test_isolated_scheduled_runner_restarts_pytest_per_module(monkeypatch):
 
     monkeypatch.setattr(namespace["subprocess"], "run", completed)
 
-    assert namespace["main"](["scheduled", "--workers", "0", "--isolate-modules"]) == 0
+    assert namespace["main"](["scheduled", "--workers", "0", "--isolate-tests"]) == 0
     assert "--collect-only" in calls[0]
-    assert calls[1][3:5] == ["tests/test_one.py::test_a", "tests/test_one.py::test_b"]
-    assert calls[2][3:4] == ["tests/test_two.py::test_c"]
+    assert calls[1][3:4] == ["tests/test_one.py::test_a"]
+    assert calls[2][3:4] == ["tests/test_one.py::test_b"]
+    assert calls[3][3:4] == ["tests/test_two.py::test_c"]
     assert (
         calls[1][-5:]
         == calls[2][-5:]
+        == calls[3][-5:]
         == [
             "-m",
             "slow or scheduled",

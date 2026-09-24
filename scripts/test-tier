@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import pytest
@@ -42,13 +41,14 @@ def changed_paths(base: str) -> list[str]:
     return sorted(committed | staged | unstaged | untracked)
 
 
-def _run_isolated_modules(pytest_args: list[str]) -> int:
-    """Collect once, then give each selected module a fresh pytest process.
+def _run_isolated_tests(pytest_args: list[str]) -> int:
+    """Collect once, then give each selected test a fresh pytest process.
 
     OpenCascade retains substantial native state after dense real-part builds.  A serial xdist
     worker and an in-process ``pytest.main`` both retain that state across modules, eventually
     exhausting a hosted runner.  Exact node ids preserve marker, keyword, and pytest-split
-    selection while process boundaries release the kernel state.
+    selection while process boundaries release the kernel state.  Test-level boundaries are
+    intentional: the densest standards module can exhaust a hosted runner by itself.
     """
     collected = subprocess.run(
         [sys.executable, "-m", "pytest", *pytest_args, "--collect-only", "-q"],
@@ -61,25 +61,28 @@ def _run_isolated_modules(pytest_args: list[str]) -> int:
         sys.stdout.write(collected.stdout)
         return collected.returncode
 
-    by_module: dict[str, list[str]] = defaultdict(list)
+    nodeids: list[str] = []
     for line in collected.stdout.splitlines():
         nodeid = line.strip()
         if "::" not in nodeid or ".py" not in nodeid:
             continue
-        by_module[nodeid.split("::", 1)[0]].append(nodeid)
-    if not by_module:
+        nodeids.append(nodeid)
+    if not nodeids:
         sys.stdout.write(collected.stdout)
         return 5
 
     failed = False
-    for module, nodeids in by_module.items():
-        print(f"\n=== isolated scheduled module: {module} ({len(nodeids)} tests) ===", flush=True)
+    for index, nodeid in enumerate(nodeids, start=1):
+        print(
+            f"\n=== isolated scheduled test {index}/{len(nodeids)}: {nodeid} ===",
+            flush=True,
+        )
         completed = subprocess.run(
             [
                 sys.executable,
                 "-m",
                 "pytest",
-                *nodeids,
+                nodeid,
                 "-m",
                 SCHEDULED_EXPRESSION,
                 "-n",
@@ -99,9 +102,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", default="auto", help="pytest-xdist worker count")
     parser.add_argument("--selection", help="additional marker expression within the tier")
     parser.add_argument(
-        "--isolate-modules",
+        "--isolate-tests",
         action="store_true",
-        help="run each selected scheduled module in a fresh process",
+        help="run each selected scheduled test in a fresh process",
     )
     options, pytest_args = parser.parse_known_args(argv)
 
@@ -126,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
         # the fast and full feedback loops tolerate a ten-minute hang.
         common.append("--timeout=600")
     resolved = [*args, *common, *pytest_args]
-    if options.tier == "scheduled" and options.isolate_modules:
-        return _run_isolated_modules(resolved)
+    if options.tier == "scheduled" and options.isolate_tests:
+        return _run_isolated_tests(resolved)
     return pytest.main(resolved)
 
 

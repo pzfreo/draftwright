@@ -482,12 +482,12 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run scheduled tests
-        # CAD-kernel builds can exhaust a hosted runner when state from the dense view
-        # selection case is retained before another large build. Give that module a fresh,
-        # non-xdist process, then split the remaining selection across two serial processes.
+        # CAD-kernel builds retain enough native state for even one dense module to exhaust a
+        # hosted runner. Give every selected test a fresh, non-xdist process, then split the
+        # overall selection across two jobs.
         run: >-
           uv run python scripts/test-tier scheduled
-          --isolate-modules
+          --isolate-tests
           --workers "${{ matrix.workers }}"
           --selection "${{ matrix.selection }}"
           -k "${{ matrix.keyword }}"
