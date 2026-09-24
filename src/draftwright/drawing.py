@@ -789,6 +789,7 @@ class Drawing:
         self.views: dict = {}
         self.items: list = []
         self._coords: dict = {}
+        self._iso_projection_scale: float | None = None
         # Annotation identity, ownership, pins, and build issues live in the
         # registry (#138 / ADR 1 (was 0005), Step 2), reached through its own surface
         # (`in reg` / `names()` / `issues`) — the `dwg._named` &c. compat aliases
@@ -833,6 +834,15 @@ class Drawing:
     def working_part(self):
         """The coordinate-coherent compiler/projection solid (read-only)."""
         return self._working_part
+
+    @property
+    def iso_projection_scale(self) -> float | None:
+        """The scale of the final projected isometric view, if one was projected."""
+        return self._iso_projection_scale
+
+    def set_iso_projection_scale(self, scale: float) -> None:
+        """Record an isometric projection or reprojection from the projection stage."""
+        self._iso_projection_scale = float(scale)
 
     @property
     def recognition_frame(self):

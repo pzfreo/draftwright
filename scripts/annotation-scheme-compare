@@ -166,7 +166,8 @@ def _manifest(drawing) -> dict:
         "annotations": annotations,
         "iso_bounds": drawing.view_bounds("iso"),
         "iso_to_sheet_scale": (
-            abs(getattr(drawing, "_iso_projection_scale", 0.0) / drawing.scale - 1.0) < 0.05
+            drawing.iso_projection_scale is not None
+            and abs(drawing.iso_projection_scale / drawing.scale - 1.0) < 0.05
         ),
         "orthographic_bounds": {
             view: drawing.view_bounds(view) for view in ("front", "plan", "side")

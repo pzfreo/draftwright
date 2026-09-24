@@ -425,7 +425,7 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
     )
     # Shadow comparisons must distinguish a genuinely to-scale iso from an
     # accidentally omitted NTS caption after the final fit or obstacle probe.
-    dwg._iso_projection_scale = scale
+    dwg.set_iso_projection_scale(scale)
 
 
 #: Bisection steps for :func:`_largest_clear_factor`. Five halvings of a corridor at most
