@@ -6,12 +6,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import resource
 import subprocess
 import sys
 import time
 import traceback
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module.
+    resource = None
 
 _CHECKOUT_SRC = Path(__file__).resolve().parents[1] / "src"
 if _CHECKOUT_SRC.is_dir():
@@ -40,7 +44,12 @@ def _analyse_one(path: str, pmi: str) -> dict:
             "path": path,
             "status": "ok",
             "elapsed_seconds": time.perf_counter() - started,
-            "peak_rss_mib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024,
+            "peak_rss_mib": (
+                resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+                / (1024 * (1024 if sys.platform == "darwin" else 1))
+                if resource is not None
+                else None
+            ),
             "feature_count": len(model.features),
             "scale": analysis.SCALE,
             "page": [analysis.PAGE_W, analysis.PAGE_H],
