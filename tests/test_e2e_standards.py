@@ -113,17 +113,21 @@ def _assert_ctc04_layout_failure_contract(dwg):
     assert inventory["plan_incomplete"] == 1
 
     decision = dwg.scale_decision
-    assert decision["status"] == "incomplete"
+    # CTC04 also retains a hard ink overlap. Its final verdict must be invalid
+    # while the exact missing-requirement inventory remains visible below.
+    assert decision["status"] == "invalid"
+    assert "annotation_ink_overlap" in {item["code"] for item in decision["violations"]}
     assert decision["blockers"]
     blocker_codes = {blocker["code"] for blocker in decision["blockers"]}
     assert blocker_codes <= set(inventory)
     assert {attempt["reason"] for attempt in decision["attempts"]} >= {
         "scale_escalation_on_selected_page",
         "remove_optional_iso",
-        "required_outcome_dropped",
+        "hard_layout_invalid",
     }
     final_attempt = decision["attempts"][-1]
-    assert final_attempt["status"] == "incomplete"
+    assert final_attempt["status"] == "invalid"
+    assert final_attempt["reason"] == "hard_layout_invalid"
     assert final_attempt["page"] == (dwg.page_w, dwg.page_h)
     assert final_attempt["scale"] == dwg.scale
     assert set(final_attempt["views"]) == set(dwg.views)
