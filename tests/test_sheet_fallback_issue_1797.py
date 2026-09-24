@@ -82,6 +82,18 @@ def test_routed_leader_validates_routes_and_supports_all_over_symbol():
     assert tuple(leader.bend)[:2] == (5.0, 0.0)
 
 
+def test_collinear_routed_leader_keeps_standard_arrow_and_label_envelope():
+    draft = Draft(font_size=3.0)
+    standard = Leader((0, 0), (20, 0), "LABEL", draft)
+    routed = RoutedLeader((0, 0), ((10, 0),), (20, 0), "LABEL", draft)
+
+    before, after = standard.bounding_box(), routed.bounding_box()
+    assert (after.min.X, after.min.Y, after.max.X, after.max.Y) == pytest.approx(
+        (before.min.X, before.min.Y, before.max.X, before.max.Y)
+    )
+    assert routed.label_bbox == pytest.approx(standard.label_bbox)
+
+
 def test_sheet_fallback_routes_around_a_settled_leader_shaft():
     draft = Draft(font_size=3.0)
     fixed = Leader((50.0, 10.0), (50.0, 90.0), "FIXED", draft)

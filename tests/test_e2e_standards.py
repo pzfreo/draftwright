@@ -88,7 +88,13 @@ def _assert_ctc_diagnostic_contract(dwg, svg_path, dxf_path, *, expect_incomplet
             ["plan_incomplete"],
             ["overall_dim_withheld", "plan_incomplete"],
         ), f"expected the known incomplete plan, got {[(i.code, i.message) for i in errors]}"
-        assert dwg.scale_decision["status"] == "incomplete"
+        status = dwg.scale_decision["status"]
+        if status == "invalid":
+            # A retained overlap is a structural layout failure, so the automatic
+            # decision must say invalid even when requirements are also missing.
+            assert "annotation_ink_overlap" in {issue.code for issue in dwg.lint()}
+        else:
+            assert status == "incomplete"
         assert dwg.lint_summary()["passed"] is False
     else:
         assert not errors, f"lint errors: {[(i.code, i.message) for i in errors]}"

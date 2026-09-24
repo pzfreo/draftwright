@@ -1,12 +1,13 @@
 """Routed leaders for bounded sheet-global recovery (#1797)."""
 
-from build123d import Align, Edge, Location, Mode, Sketch, Text, Vector, Wire, sweep, trace
+from build123d import Align, Edge, Location, Mode, Sketch, Text, Vector, Wire, trace
 from build123d_drafting.helpers import (
-    Arrow,
     Leader,
     _Annotation,
+    _arrowhead_face,
     _circle_arcs,
     _font_path,
+    _rect_face,
     _segments,
 )
 
@@ -38,20 +39,29 @@ class RoutedLeader(Leader):
             raise ValueError("a routed leader needs bends and non-zero shaft segments")
 
         shaft_edges = tuple(Edge.make_line(left, right) for left, right in zip(route, route[1:]))
-        arrow = Arrow(
-            arrow_size=draft.arrow_length,
-            shaft_path=Wire(list(shaft_edges)),
-            shaft_width=draft.line_width,
-            head_at_start=True,
-            mode=Mode.PRIVATE,
+        shaft_path = Wire(list(shaft_edges))
+        # Arrow() fuses and cleans the whole bent shaft for every trial route. Dense
+        # fallback searches can exhaust a CI runner before one route is accepted.
+        # These individual faces have the same outer ink and avoid that OCC operation.
+        head_angle = shaft_path.tangent_angle_at(0) + 180
+        head = _arrowhead_face(draft.arrow_length, draft.head_type).moved(
+            Location(tip_v, (0, 0, 1), head_angle)
         )
+        trimmed = shaft_path.trim((draft.arrow_length / 2) / shaft_path.length, 1.0)
+        shaft_faces = []
+        for edge in trimmed.edges():
+            start, end = edge.position_at(0), edge.position_at(1)
+            face = _rect_face((start.X, start.Y), (end.X, end.Y), draft.line_width)
+            if face is not None:
+                shaft_faces.append(face)
         shelf_direction = 1.0 if elbow_v.X >= route[-2].X else -1.0
         gap = draft.pad_around_text
         shelf_end = Vector(elbow_v.X + shelf_direction * gap, elbow_v.Y, 0.0)
         shelf_edge = Edge.make_line(elbow_v, shelf_end)
-        shelf_pen = shelf_edge.perpendicular_line(draft.line_width, 0)
-        shelf = sweep(shelf_pen, shelf_edge, mode=Mode.PRIVATE)
-        faces = [*arrow.faces(), *shelf.faces()]
+        shelf = _rect_face((elbow_v.X, elbow_v.Y), (shelf_end.X, shelf_end.Y), draft.line_width)
+        faces = [head, *shaft_faces]
+        if shelf is not None:
+            faces.append(shelf)
 
         rings = []
         if all_around or all_over:
