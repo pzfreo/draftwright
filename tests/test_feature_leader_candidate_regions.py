@@ -315,6 +315,73 @@ def test_joint_sheet_recovery_runs_after_winners_and_updates_trace(fresh_drawing
     ]
 
 
+def test_candidate_recovers_retained_fixed_ink_crossing(monkeypatch, fresh_drawing, tmp_path):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    tip = (bounds[2], (bounds[1] + bounds[3]) / 2.0)
+    elbow = (tip[0] + 20.0, tip[1] + 12.0, 0.0)
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        trace=SolveTrace(tmp_path / "trace.json"),
+    )
+    analysis = SimpleNamespace(
+        margin=10.0,
+        PAGE_W=drawing.page_w,
+        PAGE_H=drawing.page_h,
+        TB_W=drawing.get_annotation("title_block").bounding_box().size.X,
+    )
+    recovered = []
+
+    def recover():
+        recovered.append(True)
+        return (
+            RoutedLeader(
+                (*tip, 0.0),
+                ((elbow[0] - 5.0, elbow[1] - 6.0),),
+                (elbow[0], elbow[1]),
+                "R1",
+                drawing.draft,
+            ),
+            None,
+        )
+
+    job = FeatureLeaderJob(
+        name="crossed",
+        view="front",
+        silhouette=bounds,
+        label="R1",
+        candidates=((tip, elbow, None),),
+        build=lambda candidate_tip, candidate_elbow, _feature: Leader(
+            (*candidate_tip, 0.0), candidate_elbow, "R1", drawing.draft
+        ),
+        measurement=(),
+        noun="fillet",
+        drop_code="fillet_dropped",
+        allow_policy_b_fixed=True,
+        recover=recover,
+    )
+    # Model one permitted Policy B fixed-ink crossing while keeping the route
+    # geometry and material checks real. The recovery must replace that choice.
+    monkeypatch.setattr(leaders, "_fixed_blockers", lambda *_args: ("fixed:test",))
+    monkeypatch.setenv("DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY", "1")
+
+    assert place_feature_leader_jobs(drawing, analysis, ctx, (job,)) == 1
+    assert recovered == [True]
+    assert isinstance(drawing.get_annotation("crossed"), RoutedLeader)
+    event = next(
+        row for row in ctx.trace.pass_events if row["label"] == "feature_leader_inventory"
+    )
+    assert event["assignment"] == "joint", event
+    assert event["objective"]["placed"] == 1
+    assert event["objective"]["penalty"] == 0
+    assert event["items"][0]["recovery"] == "sheet_recovery"
+    assert not [issue for issue in drawing.registry.issues if issue.code == "leader_ink_crossing"]
+
+
 def test_greedy_sheet_recovery_preserves_success_and_honest_failure(fresh_drawing, tmp_path):
     """The bounded-resource floor must retain the same recovery contract as the joint solve."""
 

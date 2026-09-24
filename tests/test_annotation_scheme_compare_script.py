@@ -5,6 +5,7 @@ import subprocess
 import sys
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -264,3 +265,43 @@ def test_issue915_clear_hole_route_preserves_every_annotation(tmp_path):
     assert comparison["quality_comparison"]["candidate_key"][:5] == [0, 0, 0, 0, 0]
     assert comparison["baseline"]["page"] == comparison["candidate"]["page"]
     assert comparison["baseline"]["scale"] == comparison["candidate"]["scale"]
+
+
+def test_issue915_candidate_routes_a_hole_on_the_fixed_sheet(monkeypatch, capsys, tmp_path):
+    from draftwright import analysis
+    from draftwright.annotations import holes
+
+    script = _load_script()
+    original_measure_strips = analysis._measure_strips
+    original_fallback = holes._sheet_leader_fallback
+    successful_routes = []
+
+    def observe_fallback(*args):
+        annotation = original_fallback(*args)
+        if annotation is not None:
+            successful_routes.append(annotation)
+        return annotation
+
+    monkeypatch.setattr(analysis, "_measure_strips", original_measure_strips)
+    monkeypatch.setattr(holes, "_sheet_leader_fallback", observe_fallback)
+    monkeypatch.setenv("DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY", "1")
+    monkeypatch.setenv("DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT", "staggered-side")
+    monkeypatch.setenv("DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS", "1")
+    args = SimpleNamespace(
+        mode="candidate",
+        source=Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step",
+        output=tmp_path / "candidate",
+        page="A2",
+        scale=0.5,
+        title="issue915",
+        number="issue915",
+        formats="svg",
+        candidate_routes="none",
+        arrangement="staggered-side",
+        exterior_dimensions=True,
+    )
+    assert script._worker(args) == 0
+    candidate = json.loads(capsys.readouterr().out)
+    assert successful_routes
+    assert candidate["manifest"]["coverage"]["missing"] == 0
+    assert candidate["manifest"]["arrangement_quality"]["crossings"] == 0
