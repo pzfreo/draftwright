@@ -60,6 +60,27 @@ def test_compare_treats_an_equivalent_projection_as_semantic_parity():
     assert compare(_result(front), _result(plan))["parity"]["passed"] is True
 
 
+def test_compare_treats_leader_routing_as_layout_not_semantics():
+    compare = _load_script()._compare
+    common = {
+        "label": "⌀35 THRU",
+        "view": "plan",
+        "region": "exterior",
+        "owners": [{"feature_index": 3, "kind": "hole", "source_id": ""}],
+        "measurements": [],
+        "satisfactions": [],
+    }
+
+    baseline = {"hole": {**common, "type": "RoutedLeader"}}
+    candidate = {"hole": {**common, "type": "Leader"}}
+
+    parity = compare(_result(baseline), _result(candidate))["parity"]
+
+    assert parity["passed"] is True
+    assert parity["missing"] == []
+    assert parity["added"] == []
+
+
 def test_compare_rejects_same_text_attached_to_a_different_feature():
     compare = _load_script()._compare
     common = {

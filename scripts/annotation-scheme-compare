@@ -264,7 +264,12 @@ def _compare(baseline: dict, candidate: dict) -> dict:
 
     def semantic_counts(annotations):
         def semantic_annotation(annotation):
-            semantic = {"type": annotation["type"], "label": annotation["label"]}
+            annotation_type = annotation["type"]
+            # Leader routing is layout, not manufacturing meaning. The candidate is allowed
+            # to replace a straight Leader with a RoutedLeader while preserving the same
+            # label, ownership, and requirement identities.
+            semantic_type = "Leader" if annotation_type.endswith("Leader") else annotation_type
+            semantic = {"type": semantic_type, "label": annotation["label"]}
             for field in ("measurements", "satisfactions", "owners"):
                 if field in annotation:
                     semantic[field] = annotation[field]
