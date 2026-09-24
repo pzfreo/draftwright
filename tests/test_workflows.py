@@ -138,7 +138,7 @@ def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable
     assert "BASE_SHA: ${{ github.event.pull_request.base.sha }}" in test_job
     assert "tier=full" in test_job
     assert "tier=pr" in test_job
-    assert 'uv run scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
+    assert 'uv run python scripts/test-tier "$tier" --base "$BASE_SHA"' in test_job
 
 
 def test_coverage_shards_select_changed_or_full_scope_and_use_sysmon():
@@ -188,7 +188,9 @@ def test_main_runs_static_and_slow_gates_without_repeating_fast_matrix():
 
     assert "push:\n    branches: [main]" in workflow
     assert "needs.changes.outputs.version_only" in _job(workflow, "lint")
-    assert "if: github.event_name == 'push'" in _job(workflow, "test-slow")
+    slow_job = _job(workflow, "test-slow")
+    assert "github.event_name == 'push'" in slow_job
+    assert "github.event_name == 'workflow_dispatch'" in slow_job
     # `test` also serves the weekly sweep and workflow_dispatch, so it is gated on "not a
     # merge to main" rather than on "is a pull request".
     assert "if: github.event_name != 'push'" in _job(workflow, "test")
@@ -292,13 +294,19 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
         ),
         pytest.param(
             "workflow_dispatch",
-            ("success", "success", "success", "success", "skipped", "skipped"),
+            ("success", "success", "success", "success", "success", "skipped"),
             True,
             id="manual-green",
         ),
         pytest.param(
             "workflow_dispatch",
-            ("success", "success", "success", "success", "skipped", "skipped"),
+            ("success", "success", "success", "success", "failure", "skipped"),
+            False,
+            id="manual-slow-failed",
+        ),
+        pytest.param(
+            "workflow_dispatch",
+            ("success", "success", "success", "success", "success", "skipped"),
             True,
             id="post-release-manual-green",
         ),
