@@ -1179,7 +1179,10 @@ def _repack_to_fixed_point(
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
 
     def _required_losses(candidate):
-        issues = tuple(candidate.lint(physical=False))
+        lint = getattr(candidate, "lint", None)
+        # Pure orchestration tests use lightweight drawing doubles. They have no semantic
+        # diagnostics, which is equivalent to an empty loss set for this guard.
+        issues = tuple(lint(physical=False)) if lint is not None else ()
         blockers = list(_scale_blockers_from_issues(issues))
         blockers.extend(
             {

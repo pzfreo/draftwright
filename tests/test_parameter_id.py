@@ -309,6 +309,9 @@ _SAMPLES: dict[str, ir.Feature] = {
 # Re-blessing is a deliberate act — an id moving to a different quantity breaks every
 # intent aimed at it, silently.
 _SAMPLE_BINDINGS = {
+    "DefaultSurfaceFinish": (),
+    "DocumentNote": (),
+    "GeneralTolerance": (),
     "AngleFeature": (("included.angle", 90.0),),
     "AnglePatternFeature": (
         ("included.angle.member1", 90.0),

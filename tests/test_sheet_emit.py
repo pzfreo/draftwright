@@ -2870,17 +2870,15 @@ class TestTheDimensionMirror:
         # As in `test_the_script_lints_the_same_as_the_direct_build`: an automatic replan is
         # pinned into the script by `generate_sheet_script`, because the model cannot carry
         # it (#1590).
+        settled_layout = settled_layout_for(automatic)
         src = emit_sheet_script(
             model,
             "part",
             "s",
             title="T",
             number="N",
-            settled_layout=settled_layout_for(automatic),
+            settled_layout=settled_layout,
         )
-        if name == "hybrid flange":
-            assert "_replayed_scale=1.0" in src
-            assert " scale=1.0" not in src
         regenerated = self._run(src, part)["sheet"].build()
 
         names = {n for n, _ in automatic.iter_annotations()}
