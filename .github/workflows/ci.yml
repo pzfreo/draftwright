@@ -434,13 +434,16 @@ jobs:
     # Heavy end-to-end CTC builds and the scheduled compatibility corpus run once,
     # not across the full OS/Python matrix.
     #
-    # POST-MERGE ONLY — runs on push to main, not on pull_request, so it no
-    # longer gates PR merge (#153). Rationale: since #149 pinned the fonts,
+    # POST-MERGE OR EXPLICIT MANUAL VALIDATION — runs on push to main or a
+    # workflow dispatch, never automatically on pull_request, so it does not
+    # normally gate PR merge (#153). Rationale: since #149 pinned the fonts,
     # generated layout is deterministic, so these heavy real-part standards builds
     # rarely catch anything the PR fast tier misses. They stay as a safety net on
     # main; a regression here is caught right after merge.
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.version_only != 'true'
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.changes.outputs.version_only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -574,6 +577,9 @@ jobs:
               expected_canary=success
             elif [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
               expected_coverage=success
+              if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                expected_slow=success
+              fi
             fi
           fi
           failed=0
