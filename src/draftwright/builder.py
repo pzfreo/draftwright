@@ -1177,8 +1177,26 @@ def _repack_to_fixed_point(
     reproducible=True,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
+
+    def _required_losses(candidate):
+        issues = tuple(candidate.lint(physical=False))
+        blockers = list(_scale_blockers_from_issues(issues))
+        blockers.extend(
+            {
+                "code": issue.code,
+                "measurements": tuple(
+                    _scale_requirement(mid) for mid in getattr(issue, "measurement_ids", ())
+                ),
+                "hole_requirements": (),
+                "source_ids": tuple(getattr(issue, "source_ids", ())),
+            }
+            for issue in _replannable_losses(issues)
+        )
+        return collections.Counter(map(_blocker_identity, blockers))
+
     cur_a, cur_dwg = a, dwg
     for i in range(_REPACK_MAX_ITER):
+        trace_snapshot = trace.snapshot() if trace is not None else None
         repacked = _repack(
             cur_a,
             cur_dwg,
@@ -1209,7 +1227,13 @@ def _repack_to_fixed_point(
                     i,
                 )
             return (cur_a, cur_dwg) if i else None
-        cur_a, cur_dwg = repacked
+        next_a, next_dwg = repacked
+        introduced = _required_losses(next_dwg) - _required_losses(cur_dwg)
+        if introduced:
+            if trace is not None:
+                trace.restore(trace_snapshot)
+            return (cur_a, cur_dwg) if i else None
+        cur_a, cur_dwg = next_a, next_dwg
 
     if _needs_repack(cur_dwg, cur_a):
         cur_dwg.registry.record_issue(
@@ -1755,6 +1779,17 @@ def _replannable_losses(issues) -> tuple:
         for issue in issues
         if issue.code in _REPLANNABLE_LOSS_CODES and issue.severity == "error"
     )
+
+
+def _axial_dimension_losses(issues) -> tuple:
+    """Missing explicit turned-axis lengths that a larger layout may recover.
+
+    ``lint_axial_coverage`` proves only that annotation spans cover the overall profile.  A
+    synthetic block dimension can satisfy that geometric span while omitting every individual
+    step length.  The coverage lint reports that distinct manufacturing failure as
+    ``axial_length_missing``; page/scale qualification must read it too.
+    """
+    return tuple(issue for issue in issues if issue.code == "axial_length_missing")
 
 
 def _scale_blockers_from_issues(issues) -> tuple[dict, ...]:
@@ -2569,7 +2604,9 @@ def build_drawing(
                     if hasattr(latest_analysis, "profiles")
                     else {"prof": latest_analysis.prof}
                 )
-                if lint_axial_coverage(latest_analysis.part, candidate, **profile_kw):
+                if lint_axial_coverage(
+                    latest_analysis.part, candidate, **profile_kw
+                ) or _axial_dimension_losses(issues):
                     return issues, blockers, "axial_coverage_incomplete"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"
@@ -2856,7 +2893,10 @@ def build_drawing(
         ):
             original_issues, required_blockers = _automatic_assessment(drawing)
             settled_issues = original_issues
-            if required_blockers and not _hard_layout_issues(original_issues):
+            axial_dimension_losses = _axial_dimension_losses(original_issues)
+            if (required_blockers or axial_dimension_losses) and not _hard_layout_issues(
+                original_issues
+            ):
                 _record_attempt(
                     drawing.scale,
                     "required_outcome_dropped",
@@ -2867,7 +2907,7 @@ def build_drawing(
                 recovered, recovered_issues = _try_larger_scales_on_selected_page(
                     drawing.scale,
                     reason="scale_escalation_after_required_drop",
-                    require_axial_coverage=False,
+                    require_axial_coverage=bool(axial_dimension_losses),
                 )
                 if recovered is None and page is None:
                     recovered, recovered_issues = _try_larger_standard_pages(
@@ -2875,7 +2915,7 @@ def build_drawing(
                         include_iso=_include_iso,
                         reason="page_escalation_after_required_drop",
                         fallback_views=tuple(drawing.views),
-                        require_axial_coverage=False,
+                        require_axial_coverage=bool(axial_dimension_losses),
                         allow_recovery_detail=True,
                     )
                 if recovered is not None:
@@ -2905,10 +2945,11 @@ def build_drawing(
                 if hasattr(latest_analysis, "profiles")
                 else {"prof": latest_analysis.prof}
             )
+            original_issues, original_blockers = _automatic_assessment(drawing)
             original_has_axial_gap = bool(
                 lint_axial_coverage(latest_analysis.part, drawing, **profile_kw)
+                or _axial_dimension_losses(original_issues)
             )
-            original_issues, original_blockers = _automatic_assessment(drawing)
             required_blockers = original_blockers
             settled_issues = original_issues
             recovered_on_selected_page = False
@@ -3028,6 +3069,7 @@ def build_drawing(
                         issues, blockers, rejection = _qualify_candidate(
                             without_iso,
                             require_axial_coverage=True,
+                            allow_recovery_detail=True,
                         )
                         if rejection is None:
                             _record_attempt(

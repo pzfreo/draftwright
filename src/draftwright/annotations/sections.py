@@ -923,12 +923,14 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
             candidates=DERIVED_VIEW_IDENTIFIERS,
         )
 
-    def _record_prismatic_failure(req, message):
-        if req.kind != "prismatic-steps":
+    def _record_detail_failure(req, message):
+        if req.kind not in {"prismatic-steps", "y-turned-chain"}:
             return
+        code = "detail_unplaceable" if req.kind == "prismatic-steps" else "step_dim_withheld"
+        severity = "warning" if req.kind == "prismatic-steps" else "error"
         ctx.record_issue(
-            "warning",
-            "detail_unplaceable",
+            severity,
+            code,
             message,
             measurement=req.measurement_ids,
             measurement_spans=req.measurement_spans,
@@ -939,7 +941,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
         letter = req.label or identifiers.allocate()
         if letter is None:
             _log.info("detail request '%s' dropped: derived-view identifiers exhausted", req.kind)
-            _record_prismatic_failure(
+            _record_detail_failure(
                 req,
                 f"{req.kind} detail view requested but derived-view identifiers are exhausted",
             )
@@ -980,16 +982,16 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
                 f"authored detail {letter!r} from {req.source} is infeasible on this sheet; "
                 "its target, scale, or whole-view footprint was not relaxed"
             )
-        elif not placed and req.kind == "prismatic-steps":
-            # (#630) The prismatic-steps request is queued when detail recovery is enabled
-            # (_request_prismatic_detail's gate), so a bail-out here means the requested
-            # recovery produced nothing. Say so — with an
-            # actionable remedy — rather than returning a drawing byte-identical to
-            # detail_view=False (a full-width crowded band, e.g. a shelled cover's stacked
-            # face levels, can't be enlarged legibly and still fit alongside the main views).
-            # The automatic turned-head requests (queued unconditionally by
-            # render_step_lengths) are independent of that setting; their bail-out is the
-            # normal path (the main view locates the head/block inline), so they stay silent.
+        elif not placed and req.kind in {"prismatic-steps", "y-turned-chain"}:
+            # (#630) A bail-out means the requested recovery produced nothing. Say so with
+            # the exact measurements for both an opted-in prismatic ladder and the automatic
+            # Y-turned chain, rather than returning a drawing byte-identical to the
+            # pre-detail result. The diagnostic opens automatic page/scale recovery.
+            #
+            # The prismatic request is queued only when detail recovery is enabled. Other
+            # turned-head requests may stay silent when their main-view block preserves all
+            # requirements; the Y chain cannot, because its block carries only the aggregate
+            # span and the detail owns the individual step lengths.
             # A redraw can fail one rung at a time. Those exact placement outcomes are the
             # complete account of the failed recovery; adding one request-wide issue as well
             # would charge the same missing dimensions twice in quality and completeness.
@@ -998,7 +1000,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
                 for issue in ctx.registry.issues[issue_start:]
             )
             if not exact_redraw_drops:
-                _record_prismatic_failure(
+                _record_detail_failure(
                     req,
                     f"{req.kind} detail view requested but could not be placed legibly on this "
                     "sheet (the crowded band is too wide to enlarge and still fit); dimension "

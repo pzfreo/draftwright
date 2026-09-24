@@ -6773,6 +6773,12 @@ def render_step_lengths(
                     cross_lo=axis_z - cross_half,
                     cross_hi=axis_z + cross_half,
                     kind="y-turned-chain",
+                    measurement_ids=_step_measurements(bare_rows),
+                    measurement_spans=tuple(
+                        (segment.pa, segment.pb)
+                        for segment in bare_rows
+                        for _measurement in segment.measurements
+                    ),
                 )
             )
             return _draw_step_chain(
