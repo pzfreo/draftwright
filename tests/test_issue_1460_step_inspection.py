@@ -76,6 +76,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright.builder",
         "draftwright.compose",
         "draftwright.inspection",
+        "draftwright.layout_scheme",  # pure typed annotation-scheme validation
         "draftwright.model.callout",
         "draftwright.model.declare",
         "draftwright.model.detect",

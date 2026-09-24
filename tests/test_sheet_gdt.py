@@ -6,6 +6,8 @@ geometry (feature axis → face-on view; face normal → edge-on view). `view=`/
 These tests pin the derivation (view/side/site/origin) and that a placed symbol is lint-clean.
 """
 
+import warnings
+
 import pytest
 from build123d import Box, Cylinder, Pos, Rotation
 
@@ -183,7 +185,9 @@ def test_declared_datum_does_not_warn():
     s.datum("A", _top_face(part))
     s.hole(Pos(0, 0, 0) * Cylinder(6, 20))
     s.control(0).position(0.1, to="A")
-    with pytest.warns(ScaleCompletenessWarning, match="structurally unreadable"):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         drawing = s.build()
+    assert not [warning for warning in caught if warning.category is ScaleCompletenessWarning]
     assert "datum_undeclared" not in {issue.code for issue in drawing.lint()}
     assert "gdt_dropped" not in {issue.code for issue in drawing.lint()}

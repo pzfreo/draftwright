@@ -69,6 +69,9 @@ def _plan(feature):
 # One MAXIMAL instance per feature type — every optional parameter populated, since
 # uniqueness is only stressed by a feature emitting its full parameter set.
 _SAMPLES: dict[str, ir.Feature] = {
+    "DefaultSurfaceFinish": ir.DefaultSurfaceFinish(_F, "3.2"),
+    "DocumentNote": ir.DocumentNote(_F, "MODEL NOTE", "model_representation"),
+    "GeneralTolerance": ir.GeneralTolerance(_F, "ISO 2768-m"),
     "AngleFeature": ir.AngleFeature(ir.AngularReference((0, 0, 0), (10, 0, 0), (0, 10, 0))),
     "AnglePatternFeature": ir.AnglePatternFeature(
         (
