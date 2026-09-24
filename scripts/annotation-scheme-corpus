@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Run fixed-sheet annotation-scheme comparisons over a versioned corpus."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_COMPARE = _ROOT / "scripts" / "annotation-scheme-compare"
+
+
+def _python() -> str:
+    candidate = _ROOT / ".venv" / "bin" / "python"
+    return str(candidate if candidate.is_file() else Path(sys.executable))
+
+
+def _load_manifest(path: Path) -> dict:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("format") != "draftwright-annotation-layout-corpus":
+        raise ValueError("not a draftwright annotation-layout corpus")
+    if document.get("metric_version") != 1:
+        raise ValueError("unsupported annotation-layout metric version")
+    cases = document.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("annotation-layout corpus needs at least one case")
+    ids = [case.get("id") for case in cases]
+    if any(not isinstance(case_id, str) or not case_id for case_id in ids):
+        raise ValueError("every annotation-layout case needs a non-empty id")
+    if len(ids) != len(set(ids)):
+        raise ValueError("annotation-layout case ids must be unique")
+    return document
+
+
+def _aggregate(results: list[dict]) -> dict:
+    verdicts = Counter(result["quality_comparison"]["verdict"] for result in results)
+    parity = [bool(result["parity"]["passed"]) for result in results]
+    return {
+        "cases": len(results),
+        "semantic_parity": sum(parity),
+        "verdicts": {
+            verdict: verdicts.get(verdict, 0)
+            for verdict in ("candidate", "baseline", "tie", "ineligible")
+        },
+        "production_contender": (
+            bool(results)
+            and all(parity)
+            and verdicts.get("baseline", 0) == 0
+            and verdicts.get("ineligible", 0) == 0
+            and verdicts.get("candidate", 0) > 0
+        ),
+    }
+
+
+def _run_case(case: dict, output: Path) -> dict:
+    command = [
+        _python(),
+        str(_COMPARE),
+        "--source",
+        str(_ROOT / case["source"]),
+        "--output",
+        str(output / case["id"]),
+        "--page",
+        case["page"],
+        "--scale",
+        str(case["scale"]),
+        "--title",
+        case.get("title", case["id"]),
+        "--number",
+        case.get("number", case["id"]),
+        "--formats",
+        case.get("formats", "svg"),
+    ]
+    if arrangement := case.get("arrangement"):
+        command.extend(("--arrangement", arrangement))
+    if case.get("exterior_dimensions"):
+        command.append("--exterior-dimensions")
+    if routes := case.get("candidate_routes"):
+        command.extend(("--candidate-routes", routes))
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if not completed.stdout.strip():
+        raise RuntimeError(f"{case['id']} produced no comparison report:\n{completed.stderr}")
+    result = json.loads(completed.stdout)
+    result["case_id"] = case["id"]
+    result["comparison_exit_code"] = completed.returncode
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--require-contender", action="store_true")
+    args = parser.parse_args()
+
+    corpus = _load_manifest(args.manifest)
+    args.output.mkdir(parents=True, exist_ok=True)
+    results = [_run_case(case, args.output) for case in corpus["cases"]]
+    report = {
+        "format": "draftwright-annotation-layout-corpus-result",
+        "corpus_version": corpus["corpus_version"],
+        "metric_version": corpus["metric_version"],
+        "summary": _aggregate(results),
+        "results": results,
+    }
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return int(args.require_contender and not report["summary"]["production_contender"])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

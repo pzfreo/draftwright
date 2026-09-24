@@ -276,6 +276,30 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     }
 
 
+def _failed_candidate_comparison(baseline: dict, error: str) -> dict:
+    """Keep a candidate build failure as corpus evidence instead of aborting the run."""
+    baseline_key = tuple(baseline["manifest"]["arrangement_quality"]["selection_key"])
+    return {
+        "baseline": baseline,
+        "candidate": {"mode": "candidate", "error": error},
+        "parity": {
+            "passed": False,
+            "reason": "candidate_build_failed",
+            "missing": [],
+            "added": [],
+            "renamed_or_reordered": [],
+            "coverage_equal": False,
+            "drops_equal": False,
+            "candidate_interior_dimensions": [],
+        },
+        "quality_comparison": {
+            "verdict": "ineligible",
+            "baseline_key": baseline_key,
+            "candidate_key": None,
+        },
+    }
+
+
 def _parse_routes(value: str) -> set[tuple[str, str]]:
     routes = set()
     for item in value.split(","):
@@ -311,10 +335,14 @@ def main() -> int:
     if args.worker:
         return _worker(args)
     baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
-    candidate = _run_worker(
-        args, "candidate", args.output.with_name(args.output.name + "-candidate")
-    )
-    result = _compare(baseline, candidate)
+    try:
+        candidate = _run_worker(
+            args, "candidate", args.output.with_name(args.output.name + "-candidate")
+        )
+    except RuntimeError as error:
+        result = _failed_candidate_comparison(baseline, str(error))
+    else:
+        result = _compare(baseline, candidate)
     print(json.dumps(result, indent=2, sort_keys=True))
     return int(not result["parity"]["passed"])
 

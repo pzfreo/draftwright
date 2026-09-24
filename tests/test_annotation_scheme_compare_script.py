@@ -95,3 +95,12 @@ def test_compare_makes_semantically_changed_candidate_ineligible():
     )
 
     assert compare(baseline, candidate)["quality_comparison"]["verdict"] == "ineligible"
+
+
+def test_candidate_build_failure_is_a_machine_readable_ineligible_result():
+    failed = _load_script()._failed_candidate_comparison(_result({}), "iso does not fit")
+
+    assert failed["parity"]["reason"] == "candidate_build_failed"
+    assert failed["quality_comparison"]["verdict"] == "ineligible"
+    assert failed["quality_comparison"]["candidate_key"] is None
+    assert failed["candidate"]["error"] == "iso does not fit"
