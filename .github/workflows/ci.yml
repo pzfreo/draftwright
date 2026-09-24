@@ -242,7 +242,7 @@ jobs:
           if [[ "$PR_TIER" == "true" ]]; then
             tier=pr
           fi
-          uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
+          uv run python scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
             --durations=25 \
             ${{ matrix.shard && format('--splits 2 --group {0}', matrix.shard) || '' }}
 
