@@ -55,6 +55,14 @@ def test_scheme_groups_explicit_semantics_by_view_corridor_without_coordinates()
     finish = scheme.corridor("front", "left")[0]
     assert finish.family == "finish"
     assert finish.estimated_paper_span(font_size=2.5, padding=1) == 8.25
+    assert scheme.to_dict()["unplanned"] == [
+        {
+            "identity": "dimension:raw",
+            "family": "pmi",
+            "feature_index": 4,
+            "reason": "raw PMI has no typed corridor",
+        }
+    ]
 
 
 def test_strip_measurement_carries_the_scheme_without_changing_depths():
@@ -219,6 +227,64 @@ def test_lane_packing_rejects_invalid_scale_clearance_and_spans():
     bad_site = AnnotationScheme((_demand("site", (float("inf"), 0, 0)),), ())
     with pytest.raises(ValueError, match="must be finite"):
         pack_annotation_lanes(bad_site, scale=1, span_for=lambda demand: 1)
+
+
+@pytest.mark.parametrize("method", ["estimated_paper_span", "estimated_paper_depth"])
+@pytest.mark.parametrize(
+    ("font_size", "padding", "message"),
+    [
+        (0, 0, "font size"),
+        (float("inf"), 0, "font size"),
+        (2.5, -1, "padding"),
+        (2.5, float("nan"), "padding"),
+    ],
+)
+def test_demand_estimates_reject_invalid_typography(method, font_size, padding, message):
+    with pytest.raises(ValueError, match=message):
+        getattr(_demand("invalid", (0, 0, 0)), method)(font_size, padding)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"tier": 0}, "tier"),
+        ({"tier": 1, "gap": -1}, "gap"),
+        ({"tier": 1, "spacing": float("nan")}, "spacing"),
+    ],
+)
+def test_corridor_depths_reject_invalid_spacing_inputs(kwargs, message):
+    plan = pack_annotation_lanes(
+        AnnotationScheme((_demand("one", (0, 0, 0)),), ()),
+        scale=1,
+        span_for=lambda demand: 1,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        plan.corridor_depths(**kwargs)
+
+
+@pytest.mark.parametrize(
+    ("demand", "message"),
+    [
+        (_demand("short-site", (0, 0), side="right"), "three coordinates"),
+        (_demand("text-site", ("bad", 0, 0)), "three coordinates"),
+        (
+            replace(_demand("text-support", (0, 0, 0)), model_interval=("bad", 1)),
+            "two coordinates",
+        ),
+        (
+            replace(_demand("infinite-support", (0, 0, 0)), model_interval=(0, float("inf"))),
+            "support.*finite",
+        ),
+    ],
+)
+def test_lane_packing_rejects_malformed_sites_and_supports(demand, message):
+    with pytest.raises(ValueError, match=message):
+        pack_annotation_lanes(
+            AnnotationScheme((demand,), ()),
+            scale=1,
+            span_for=lambda item: 1,
+        )
 
 
 def test_authored_dimension_support_widens_its_lane_reservation():
