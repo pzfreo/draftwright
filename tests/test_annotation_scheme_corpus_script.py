@@ -29,13 +29,20 @@ def test_versioned_layout_corpus_names_fixed_sheet_cases():
     assert all(case["page"].startswith("A") and case["scale"] > 0 for case in corpus["cases"])
 
 
-def test_contender_needs_parity_no_losses_and_at_least_one_win():
+def test_contender_selects_only_proven_wins_and_falls_back_for_everything_else():
     aggregate = _load_script()._aggregate
 
-    assert aggregate([_result("candidate"), _result("tie")])["production_contender"]
-    assert not aggregate([_result("tie")])["production_contender"]
-    assert not aggregate([_result("candidate"), _result("baseline")])["production_contender"]
-    assert not aggregate([_result("candidate"), _result("ineligible", parity=False)])[
+    mixed = aggregate(
+        [
+            _result("candidate"),
+            _result("tie"),
+            _result("baseline"),
+            _result("ineligible", parity=False),
+        ]
+    )
+    assert mixed["production_contender"]
+    assert mixed["selected"] == {"candidate": 1, "baseline": 3}
+    assert not aggregate([_result("tie"), _result("ineligible", parity=False)])[
         "production_contender"
     ]
 

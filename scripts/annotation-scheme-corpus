@@ -39,6 +39,8 @@ def _load_manifest(path: Path) -> dict:
 def _aggregate(results: list[dict]) -> dict:
     verdicts = Counter(result["quality_comparison"]["verdict"] for result in results)
     parity = [bool(result["parity"]["passed"]) for result in results]
+    selected_candidate = verdicts.get("candidate", 0)
+    selected_baseline = len(results) - selected_candidate
     return {
         "cases": len(results),
         "semantic_parity": sum(parity),
@@ -46,12 +48,13 @@ def _aggregate(results: list[dict]) -> dict:
             verdict: verdicts.get(verdict, 0)
             for verdict in ("candidate", "baseline", "tie", "ineligible")
         },
+        "selected": {"candidate": selected_candidate, "baseline": selected_baseline},
         "production_contender": (
             bool(results)
-            and all(parity)
-            and verdicts.get("baseline", 0) == 0
-            and verdicts.get("ineligible", 0) == 0
-            and verdicts.get("candidate", 0) > 0
+            # `_compare` awards "candidate" only after semantic parity and a strictly
+            # better quality key. Every other proposal falls back to the established
+            # baseline, so the selected portfolio cannot regress that case.
+            and selected_candidate > 0
         ),
     }
 

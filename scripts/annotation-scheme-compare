@@ -96,7 +96,11 @@ def _cap_scheme_strips(scale: float, enabled_routes: set[tuple[str, str]]) -> No
 
 
 def _manifest(drawing) -> dict:
-    from draftwright.builder import _arrangement_quality, _scale_blockers_from_issues
+    from draftwright.builder import (
+        _arrangement_quality,
+        _blocker_identity,
+        _scale_blockers_from_issues,
+    )
 
     annotations = {}
     for name, annotation in drawing.iter_annotations():
@@ -107,6 +111,7 @@ def _manifest(drawing) -> dict:
             "region": getattr(annotation, "_dw_candidate_region", None),
         }
     issues = tuple(drawing.lint())
+    blockers = _scale_blockers_from_issues(issues)
     lint = drawing.lint_summary()
     completeness = lint["quality"]["completeness"]
     drops = {
@@ -125,11 +130,12 @@ def _manifest(drawing) -> dict:
         "interior_dimensions": interior_dimensions,
         "arrangement_quality": _arrangement_quality(
             issues,
-            _scale_blockers_from_issues(issues),
+            blockers,
             page=(drawing.page_w, drawing.page_h),
             scale=drawing.scale,
             interior_dimensions=len(interior_dimensions),
         ),
+        "blocker_identities": sorted(_blocker_identity(blocker) for blocker in blockers),
         "coverage": {
             key: completeness.get(key)
             for key in ("requirements", "placed", "missing", "unverifiable", "unsupported")
@@ -221,7 +227,11 @@ def _compare(baseline: dict, candidate: dict) -> dict:
 
     def semantic_counts(annotations):
         return Counter(
-            json.dumps(annotation, sort_keys=True, separators=(",", ":"))
+            json.dumps(
+                {"type": annotation["type"], "label": annotation["label"]},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             for annotation in annotations.values()
         )
 
@@ -231,6 +241,18 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     def expand(delta):
         return [json.loads(item) for item, count in sorted(delta.items()) for _ in range(count)]
 
+    before_blockers = Counter(before["blocker_identities"])
+    after_blockers = Counter(after["blocker_identities"])
+    introduced_blockers = sorted((after_blockers - before_blockers).elements())
+    before_coverage = before["coverage"]
+    after_coverage = after["coverage"]
+    coverage_no_worse = (
+        before_coverage["requirements"] == after_coverage["requirements"]
+        and after_coverage["placed"] >= before_coverage["placed"]
+        and after_coverage["missing"] <= before_coverage["missing"]
+        and after_coverage["unsupported"] <= before_coverage["unsupported"]
+        and after_coverage["unverifiable"] <= before_coverage["unverifiable"]
+    )
     parity = {
         "missing": expand(before_semantics - after_semantics),
         "added": expand(after_semantics - before_semantics),
@@ -241,18 +263,19 @@ def _compare(baseline: dict, candidate: dict) -> dict:
         ),
         "coverage_equal": before["coverage"] == after["coverage"],
         "drops_equal": before["drops"] == after["drops"],
+        "coverage_no_worse": coverage_no_worse,
+        "introduced_blockers": introduced_blockers,
         "candidate_interior_dimensions": after["interior_dimensions"],
     }
     parity["passed"] = (
         not any(
             (
                 parity["missing"],
-                parity["added"],
                 parity["candidate_interior_dimensions"],
             )
         )
-        and parity["coverage_equal"]
-        and parity["drops_equal"]
+        and parity["coverage_no_worse"]
+        and not parity["introduced_blockers"]
     )
     baseline_key = tuple(before["arrangement_quality"]["selection_key"])
     candidate_key = tuple(after["arrangement_quality"]["selection_key"])

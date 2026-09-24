@@ -14,14 +14,28 @@ def _load_script():
     return module
 
 
-def _result(annotations, *, quality_key=(0, 0, 0, 0, 0, -0.2, 124740.0)):
+def _result(
+    annotations,
+    *,
+    quality_key=(0, 0, 0, 0, 0, -0.2, 124740.0),
+    blockers=(),
+    coverage=None,
+):
     return {
         "manifest": {
             "annotations": annotations,
             "interior_dimensions": [],
-            "coverage": {"requirements": 2, "placed": 2, "missing": 0},
+            "coverage": coverage
+            or {
+                "requirements": 2,
+                "placed": 2,
+                "missing": 0,
+                "unsupported": 0,
+                "unverifiable": 0,
+            },
             "drops": {},
             "arrangement_quality": {"selection_key": quality_key},
+            "blocker_identities": list(blockers),
         }
     }
 
@@ -36,6 +50,14 @@ def test_compare_treats_annotation_renumbering_as_semantic_parity():
     assert parity["passed"] is True
     assert parity["missing"] == []
     assert parity["added"] == []
+
+
+def test_compare_treats_an_equivalent_projection_as_semantic_parity():
+    compare = _load_script()._compare
+    front = {"dim": {"type": "Dimension", "label": "800", "view": "front", "region": None}}
+    plan = {"dim": {"type": "Dimension", "label": "800", "view": "plan", "region": None}}
+
+    assert compare(_result(front), _result(plan))["parity"]["passed"] is True
 
 
 def test_compare_rejects_semantic_content_changes_and_interior_dimensions():
@@ -104,3 +126,27 @@ def test_candidate_build_failure_is_a_machine_readable_ineligible_result():
     assert failed["quality_comparison"]["verdict"] == "ineligible"
     assert failed["quality_comparison"]["candidate_key"] is None
     assert failed["candidate"]["error"] == "iso does not fit"
+
+
+def test_candidate_may_remove_but_not_introduce_requirement_blockers():
+    compare = _load_script()._compare
+
+    improved = compare(_result({}, blockers=("a", "b")), _result({}, blockers=("a",)))
+    regressed = compare(_result({}, blockers=("a",)), _result({}, blockers=("a", "b")))
+
+    assert improved["parity"]["passed"] is True
+    assert regressed["parity"]["passed"] is False
+    assert regressed["parity"]["introduced_blockers"] == ["b"]
+
+
+def test_candidate_may_restore_additional_approved_annotations():
+    compare = _load_script()._compare
+    baseline = _result({})
+    candidate = _result(
+        {"dim": {"type": "Dimension", "label": "450", "view": "side", "region": None}}
+    )
+
+    result = compare(baseline, candidate)
+
+    assert result["parity"]["passed"] is True
+    assert result["parity"]["added"] == [{"type": "Dimension", "label": "450"}]
