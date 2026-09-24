@@ -372,6 +372,32 @@ def test_issue915_candidate_covers_hole_routing_on_the_fixed_sheet(monkeypatch, 
     assert candidate["manifest"]["arrangement_quality"]["crossings"] == 0
 
 
+@pytest.mark.scheduled
+def test_ctc05_public_selector_preserves_routed_hole_claims_on_a2():
+    from draftwright import build_drawing
+
+    drawing = build_drawing(
+        Path(__file__).parent / "fixtures" / "nist_ctc_05_asme1_ap242.stp",
+        page="A2",
+        scale=0.2,
+        scale_policy="permissive",
+        title="ctc05-a2-1to5",
+        number="ctc05-a2-1to5",
+        pmi="annotate",
+        _views=("front", "plan", "side"),
+        _include_iso=True,
+        annotation_layout="best",
+    )
+
+    assert drawing.annotation_scheme_decision["status"] == "candidate"
+    labels = [
+        str(annotation.label)
+        for name, annotation in drawing.iter_annotations()
+        if name.startswith("hc_")
+    ]
+    assert labels.count("3× ⌀10.7 ↧ 30.5") == 2
+
+
 def test_frame_candidate_keeps_far_x_location_on_a3(monkeypatch, capsys, tmp_path):
     from draftwright import analysis
 

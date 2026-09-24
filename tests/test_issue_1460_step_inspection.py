@@ -66,6 +66,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright._core",
         "draftwright._geometry",
         "draftwright._pmi_part21",
+        "draftwright.annotation_layout_profile",  # default profile lookup during detect
         "draftwright.analysis",
         "draftwright.angular_geometry",  # pure sizing footprints, no compiled plan
         "draftwright.progress",  # leaf activity at the existing recognition seam
