@@ -45,9 +45,7 @@ def _aggregate(results: list[dict]) -> dict:
     # selection key. Count them as ties, but do not put them in the denominator
     # for a claim about improving a defective baseline.
     affected = [
-        result
-        for result in results
-        if any(result["quality_comparison"]["baseline_key"][:5])
+        result for result in results if any(result["quality_comparison"]["baseline_key"][:5])
     ]
     improved_affected = sum(
         result["quality_comparison"]["verdict"] == "candidate" for result in affected
@@ -113,13 +111,23 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--require-contender", action="store_true")
     parser.add_argument(
+        "--require-wins",
+        type=int,
+        default=0,
+        help="require at least this many strictly improved fixed-sheet cases",
+    )
+    parser.add_argument(
         "--require-affected-majority",
         action="store_true",
         help="require wins on more than half of cases whose baseline has a layout defect",
     )
     args = parser.parse_args()
+    if args.require_wins < 0:
+        parser.error("--require-wins must be non-negative")
 
     corpus = _load_manifest(args.manifest)
+    if args.require_wins > len(corpus["cases"]):
+        parser.error("--require-wins exceeds the corpus size")
     args.output.mkdir(parents=True, exist_ok=True)
     results = [_run_case(case, args.output) for case in corpus["cases"]]
     report = {
@@ -133,6 +141,7 @@ def main() -> int:
     return int(
         (args.require_contender and not report["summary"]["production_contender"])
         or (args.require_affected_majority and not report["summary"]["affected_majority"])
+        or (report["summary"]["selected"]["candidate"] < args.require_wins)
     )
 
 

@@ -19,6 +19,7 @@ once the holes epic landed (#251).
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
@@ -1414,10 +1415,24 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # One ADR 4 (was 0016) feature-level location identity per collapsed owner; the structured
         # location facts below carry that this particular visible member is X (#883).
         _xmid = tuple(mids)
+        # On the experimental staggered layout the plan can abut the top sheet margin.
+        # The farther X stations may use the free exterior strip below the plan while
+        # the nearest station keeps its established tier. Both are solver-owned strips.
+        x_below = (
+            os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW") == "1"
+            and i > 0
+            and a.pv_zones.above.available < a.pv_zones.above.gap + tier
+            and a.pv_zones.below.available >= a.pv_zones.below.gap + tier
+        )
+        x_side = "below" if x_below else "above"
+        x_zone = a.pv_zones.below if x_below else a.pv_zones.above
+        x_offset = (
+            (lambda pos, _ry=ry: PY(_ry) - pos) if x_below else (lambda pos, _ry=ry: pos - PY(_ry))
+        )
         register_corridor(
             ctx,
-            ("plan", "above"),
-            a.pv_zones.above,
+            ("plan", x_side),
+            x_zone,
             "plan",
             "y",
             tier,
@@ -1429,14 +1444,16 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
                 label=label,
                 distance=abs(rx - datum_x),
-                build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: _dim(
-                    (PX(datum_x), PY(_ry), 0),
-                    (PX(_rx), PY(_ry), 0),
-                    "above",
-                    pos - PY(_ry),
-                    draft,
-                    label=_label,
-                    label_offset_x=_offset,
+                build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset, _side=x_side, _offset_fn=x_offset: (
+                    _dim(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        _side,
+                        _offset_fn(pos),
+                        draft,
+                        label=_label,
+                        label_offset_x=_offset,
+                    )
                 ),
                 feature=_xfeat,
                 measurement=_xmid,
@@ -1445,12 +1462,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     (feature, parameter) for feature, parameter, _point in location_facts
                 ),
                 pinned=pin_ref,
-                footprint=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                footprint=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset, _side=x_side, _offset_fn=x_offset: (
                     dim_footprint(
                         (PX(datum_x), PY(_ry), 0),
                         (PX(_rx), PY(_ry), 0),
-                        "above",
-                        pos - PY(_ry),
+                        _side,
+                        _offset_fn(pos),
                         draft,
                         _label,
                         label_offset_x=_offset,
@@ -2705,14 +2722,17 @@ def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
         provenances=provenances,
     )
     for member, provenance in zip(members, provenances):
-        yield from _radial_candidates(
+        for tip, elbow, _owner in _radial_candidates(
             dwg,
             view,
             vb,
             member,
             reach,
             provenance=provenance,
-        )
+        ):
+            # A shared callout has no single owner. Do not let the radial
+            # candidate's geometry fallback attach its FeatureFacts projection.
+            yield tip, elbow, provenance
 
 
 def place_machined_leader_jobs(

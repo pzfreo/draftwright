@@ -164,6 +164,13 @@ def _manifest(drawing) -> dict:
     )
     return {
         "annotations": annotations,
+        "iso_bounds": drawing.view_bounds("iso"),
+        "iso_to_sheet_scale": (
+            abs(getattr(drawing, "_iso_projection_scale", 0.0) / drawing.scale - 1.0) < 0.05
+        ),
+        "orthographic_bounds": {
+            view: drawing.view_bounds(view) for view in ("front", "plan", "side")
+        },
         "interior_dimensions": interior_dimensions,
         "arrangement_quality": _arrangement_quality(
             issues,
@@ -184,12 +191,16 @@ def _manifest(drawing) -> dict:
 
 def _worker(args) -> int:
     if args.mode == "candidate":
-        _cap_scheme_strips(args.scale, _parse_routes(args.candidate_routes))
-        os.environ["DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"] = "1"
-        if args.arrangement is not None:
-            os.environ["DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT"] = args.arrangement
-        if args.exterior_dimensions:
-            os.environ["DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS"] = "1"
+        if getattr(args, "iso_growth", False):
+            os.environ["DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW"] = "1"
+        else:
+            _cap_scheme_strips(args.scale, _parse_routes(args.candidate_routes))
+            os.environ["DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"] = "1"
+            os.environ["DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW"] = "1"
+            if args.arrangement is not None:
+                os.environ["DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT"] = args.arrangement
+            if args.exterior_dimensions:
+                os.environ["DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS"] = "1"
     from draftwright import build_drawing
 
     output = Path(args.output)
@@ -251,7 +262,18 @@ def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None =
         command.extend(("--arrangement", args.arrangement))
     if args.exterior_dimensions:
         command.append("--exterior-dimensions")
-    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if getattr(args, "iso_growth", False):
+        command.append("--iso-growth")
+    env = os.environ.copy()
+    for name in (
+        "DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT",
+        "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY",
+        "DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS",
+        "DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW",
+        "DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW",
+    ):
+        env.pop(name, None)
+    completed = subprocess.run(command, check=False, capture_output=True, text=True, env=env)
     if completed.returncode:
         raise RuntimeError(f"{mode} build failed:\n{completed.stderr}")
     return json.loads(completed.stdout)
@@ -263,19 +285,26 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     before_annotations = before["annotations"]
     after_annotations = after["annotations"]
 
-    def semantic_counts(annotations):
-        def semantic_annotation(annotation):
-            annotation_type = annotation["type"]
-            # Leader routing is layout, not manufacturing meaning. The candidate is allowed
-            # to replace a straight Leader with a RoutedLeader while preserving the same
-            # label, ownership, and requirement identities.
-            semantic_type = "Leader" if annotation_type.endswith("Leader") else annotation_type
-            semantic = {"type": semantic_type, "label": annotation["label"]}
-            for field in ("measurements", "satisfactions", "owners"):
-                if field in annotation:
-                    semantic[field] = annotation[field]
-            return semantic
+    def semantic_annotation(annotation):
+        annotation_type = annotation["type"]
+        # Leader routing is layout, not manufacturing meaning. The candidate is allowed
+        # to replace a straight Leader with a RoutedLeader while preserving the same
+        # label, ownership, and requirement identities.
+        semantic_type = "Leader" if annotation_type.endswith("Leader") else annotation_type
+        semantic = {"type": semantic_type, "label": annotation["label"]}
+        for field in ("measurements", "satisfactions", "owners"):
+            if field in annotation:
+                # FeatureFacts is a compiler-only structural projection, never a
+                # model feature that drop()/annotations_of() can target. Candidate
+                # route choice may attach or omit it without changing ownership.
+                semantic[field] = (
+                    [owner for owner in annotation[field] if owner.get("kind") != "FeatureFacts"]
+                    if field == "owners"
+                    else annotation[field]
+                )
+        return semantic
 
+    def semantic_counts(annotations, *, omit_nts=False):
         return Counter(
             json.dumps(
                 semantic_annotation(annotation),
@@ -283,10 +312,27 @@ def _compare(baseline: dict, candidate: dict) -> dict:
                 separators=(",", ":"),
             )
             for annotation in annotations.values()
+            if not (
+                omit_nts
+                and annotation["type"] == "Note"
+                and annotation["label"] == "ISO VIEW (NTS)"
+            )
         )
 
-    before_semantics = semantic_counts(before_annotations)
+    # A to-scale orientation view must lose its former NTS caption. The final
+    # projected scale is measured in the worker, so a missing note is excused
+    # only when the candidate still has the iso and it truly matches the sheet.
+    iso_note_obsolete = after.get("iso_to_sheet_scale", False) and "iso" in candidate.get(
+        "views", ()
+    )
+    before_semantics = semantic_counts(before_annotations, omit_nts=iso_note_obsolete)
     after_semantics = semantic_counts(after_annotations)
+    before_interiors = semantic_counts(
+        {name: before_annotations[name] for name in before["interior_dimensions"]}
+    )
+    after_interiors = semantic_counts(
+        {name: after_annotations[name] for name in after["interior_dimensions"]}
+    )
 
     def expand(delta):
         return [json.loads(item) for item, count in sorted(delta.items()) for _ in range(count)]
@@ -296,6 +342,9 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     introduced_blockers = sorted((after_blockers - before_blockers).elements())
     before_coverage = before["coverage"]
     after_coverage = after["coverage"]
+    same_sheet = baseline.get("page") == candidate.get("page") and baseline.get(
+        "scale"
+    ) == candidate.get("scale")
     coverage_no_worse = (
         before_coverage["requirements"] == after_coverage["requirements"]
         and after_coverage["placed"] >= before_coverage["placed"]
@@ -314,27 +363,69 @@ def _compare(baseline: dict, candidate: dict) -> dict:
         "coverage_equal": before["coverage"] == after["coverage"],
         "drops_equal": before["drops"] == after["drops"],
         "coverage_no_worse": coverage_no_worse,
+        "same_sheet": same_sheet,
         "introduced_blockers": introduced_blockers,
         "candidate_interior_dimensions": after["interior_dimensions"],
+        "introduced_interior_dimensions": expand(after_interiors - before_interiors),
+        "obsolete_nts_caption_removed": bool(
+            iso_note_obsolete
+            and any(
+                annotation["type"] == "Note" and annotation["label"] == "ISO VIEW (NTS)"
+                for annotation in before_annotations.values()
+            )
+            and not any(
+                annotation["type"] == "Note" and annotation["label"] == "ISO VIEW (NTS)"
+                for annotation in after_annotations.values()
+            )
+        ),
     }
     parity["passed"] = (
         not any(
             (
                 parity["missing"],
-                parity["candidate_interior_dimensions"],
+                parity["introduced_interior_dimensions"],
             )
         )
         and parity["coverage_no_worse"]
+        and parity["same_sheet"]
         and not parity["introduced_blockers"]
+        and not (
+            iso_note_obsolete
+            and any(
+                annotation["type"] == "Note" and annotation["label"] == "ISO VIEW (NTS)"
+                for annotation in after_annotations.values()
+            )
+        )
     )
     baseline_key = tuple(before["arrangement_quality"]["selection_key"])
     candidate_key = tuple(after["arrangement_quality"]["selection_key"])
+
+    def area(bounds):
+        if bounds is None:
+            return 0.0
+        return max(0.0, bounds[2] - bounds[0]) * max(0.0, bounds[3] - bounds[1])
+
+    baseline_iso_area = area(before.get("iso_bounds"))
+    iso_area_ratio = (
+        area(after.get("iso_bounds")) / baseline_iso_area if baseline_iso_area else 0.0
+    )
+    orthographic_bounds_equal = before.get("orthographic_bounds") == after.get(
+        "orthographic_bounds"
+    )
+    iso_legibility_gain = (
+        not any(baseline_key[:5])
+        and candidate_key == baseline_key
+        and orthographic_bounds_equal
+        and iso_area_ratio >= 1.10
+    )
     if not parity["passed"]:
         verdict = "ineligible"
     elif candidate_key < baseline_key:
         verdict = "candidate"
     elif baseline_key < candidate_key:
         verdict = "baseline"
+    elif iso_legibility_gain:
+        verdict = "candidate"
     else:
         verdict = "tie"
     return {
@@ -345,6 +436,8 @@ def _compare(baseline: dict, candidate: dict) -> dict:
             "verdict": verdict,
             "baseline_key": baseline_key,
             "candidate_key": candidate_key,
+            "reason": "larger_iso" if verdict == "candidate" and iso_legibility_gain else None,
+            "iso_area_ratio": iso_area_ratio,
         },
     }
 
@@ -364,6 +457,8 @@ def _failed_candidate_comparison(baseline: dict, error: str) -> dict:
             "coverage_equal": False,
             "drops_equal": False,
             "candidate_interior_dimensions": [],
+            "introduced_interior_dimensions": [],
+            "obsolete_nts_caption_removed": False,
         },
         "quality_comparison": {
             "verdict": "ineligible",
@@ -444,36 +539,70 @@ def main() -> int:
     )
     parser.add_argument("--worker", action="store_true")
     parser.add_argument("--mode", choices=("baseline", "candidate"), default="baseline")
+    parser.add_argument("--iso-growth", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.worker:
         return _worker(args)
     baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
-    result = _candidate_trial(
-        args,
-        baseline,
-        routes=args.candidate_routes,
-        output=args.output.with_name(args.output.name + "-candidate"),
-    )
-    trials = [_trial_summary("planned", args.candidate_routes, result)]
-    selected_trial = "planned"
-    # Page and scale are fixed in this comparison. A defect-free baseline has
-    # the minimum possible key, so another build cannot improve it.
-    baseline_affected = any(result["quality_comparison"]["baseline_key"][:5])
-    if (
-        baseline_affected
-        and result["quality_comparison"]["verdict"] != "candidate"
-        and args.candidate_routes != "none"
-    ):
-        uncapped = _candidate_trial(
-            args,
+    baseline_key = baseline["manifest"]["arrangement_quality"]["selection_key"]
+    if not any(baseline_key[:5]):
+        # No defect count can beat zero. Try a larger orientation view without
+        # changing the baseline arrangement, corridors, orthographic scale, or sheet.
+        iso_args = argparse.Namespace(**vars(args))
+        iso_args.arrangement = None
+        iso_args.exterior_dimensions = False
+        iso_args.iso_growth = True
+        result = _candidate_trial(
+            iso_args,
             baseline,
             routes="none",
-            output=args.output.with_name(args.output.name + "-candidate-uncapped"),
+            output=args.output.with_name(args.output.name + "-candidate-iso"),
         )
-        trials.append(_trial_summary("legacy-depth", "none", uncapped))
-        if _prefer_candidate(result, uncapped) is uncapped:
-            result = uncapped
-            selected_trial = "legacy-depth"
+        trials = [_trial_summary("iso-growth", "none", result)]
+        selected_trial = "iso-growth"
+    else:
+        result = _candidate_trial(
+            args,
+            baseline,
+            routes=args.candidate_routes,
+            output=args.output.with_name(args.output.name + "-candidate"),
+        )
+        trials = [_trial_summary("planned", args.candidate_routes, result)]
+        selected_trial = "planned"
+        if (
+            result["quality_comparison"]["verdict"] != "candidate"
+            and args.candidate_routes != "none"
+        ):
+            uncapped = _candidate_trial(
+                args,
+                baseline,
+                routes="none",
+                output=args.output.with_name(args.output.name + "-candidate-uncapped"),
+            )
+            trials.append(_trial_summary("legacy-depth", "none", uncapped))
+            if _prefer_candidate(result, uncapped) is uncapped:
+                result = uncapped
+                selected_trial = "legacy-depth"
+        if (
+            result["quality_comparison"]["verdict"] != "candidate"
+            and baseline["manifest"]["interior_dimensions"]
+            and args.arrangement == "staggered-side"
+        ):
+            # An already interior-located baseline can sometimes keep those exact
+            # marks while reducing other defects with the original view topology.
+            columns_args = argparse.Namespace(**vars(args))
+            columns_args.arrangement = "columns"
+            columns_args.exterior_dimensions = False
+            columns = _candidate_trial(
+                columns_args,
+                baseline,
+                routes="none",
+                output=args.output.with_name(args.output.name + "-candidate-columns"),
+            )
+            trials.append(_trial_summary("columns", "none", columns))
+            if _prefer_candidate(result, columns) is columns:
+                result = columns
+                selected_trial = "columns"
     result["candidate_trials"] = trials
     result["selected_candidate_trial"] = selected_trial
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import logging
 import math
+import os
 import warnings
 
 import numpy as np
@@ -422,6 +423,9 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
             camera, (0, 0, 1), la, a.ISO_X, a.ISO_Y, a.cx, a.cy, a.cz, scale
         ),
     )
+    # Shadow comparisons must distinguish a genuinely to-scale iso from an
+    # accidentally omitted NTS caption after the final fit or obstacle probe.
+    dwg._iso_projection_scale = scale
 
 
 #: Bisection steps for :func:`_largest_clear_factor`. Five halvings of a corridor at most
@@ -573,7 +577,10 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         # scale instead of growing up to the box.
         factor = math.floor(needed * 0.90 * 10000) / 10000
         factor = max(factor, 1.0)  # grow branch must never shrink
-        factor = min(factor, _ISO_MAX_GROW)  # never dwarf the dimensioned views
+        max_grow = (
+            1.5 if os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW") == "1" else _ISO_MAX_GROW
+        )
+        factor = min(factor, max_grow)  # keep the orientation view subordinate
         if obstacles and factor > 1.0:
             searched = _largest_clear_factor(dwg, a, factor, obstacles, bb)
             factor = math.floor(searched * 10000) / 10000
