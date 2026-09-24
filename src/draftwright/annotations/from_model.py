@@ -2864,8 +2864,8 @@ def place_machined_leader_jobs(
                 leader.covers_count = len(grouping_features)
             return leader
 
-        def _build(tip, elbow, _feature, *, _label=label):
-            return _decorate(
+        def _build(tip, elbow, _feature, *, _label=label, _decorate_fn=_decorate):
+            return _decorate_fn(
                 Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
             )
 
