@@ -86,6 +86,10 @@ class TestTheAlternativeArrangementIsRealGeometry:
         assert "staggered-side" in ARRANGEMENTS
         assert "staggered-side" not in AUTOMATIC_ARRANGEMENTS
 
+    def test_staggered_side_iso_factor_is_adaptive_not_authored(self):
+        assert analysis_mod._resolved_iso_scale("staggered-side", None) == (0.65, False)
+        assert analysis_mod._resolved_iso_scale("staggered-side", 0.8) == (0.8, True)
+
     def test_columns_does_not_fit_a4_and_stacked_iso_does(self):
         # The precondition the module rests on: a case where the two disagree. Without it
         # everything below would pass vacuously.

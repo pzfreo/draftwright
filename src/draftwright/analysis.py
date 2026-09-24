@@ -242,6 +242,13 @@ def _planned_iso_scale(constraints) -> float | None:
     return None
 
 
+def _resolved_iso_scale(arrangement: str, authored: float | None) -> tuple[float | None, bool]:
+    """Resolve the projection factor while retaining whether it is a hard authored value."""
+    if arrangement == "staggered-side" and authored is None:
+        return 0.65, False
+    return authored, authored is not None
+
+
 def _sizing_bores(z_cyls, z_diams, od_diam, cx, cy) -> list:
     """Concentric bore diameters on the rotation axis (the rotational furniture's bore
     set), computed from explicit locals so the sizing IR can be built *before* the
@@ -1288,10 +1295,8 @@ def _analyse(
     # orthographic dimensions.  Its ISO is orientation-only (NTS), so project it
     # smaller from the outset rather than placing annotations against a temporary
     # sheet-scale obstacle and shrinking it after those placements are settled.
-    layout_iso_scale = (
-        0.65
-        if ARRANGEMENT == "staggered-side" and planned_iso_scale is None
-        else planned_iso_scale
+    layout_iso_scale, layout_iso_scale_authored = _resolved_iso_scale(
+        ARRANGEMENT, planned_iso_scale
     )
     _validate_explicit_scale(
         scale,
@@ -1430,6 +1435,7 @@ def _analyse(
         RV_Y=_g.RV_Y,
         rv_zones=_build_rear_zones(_g, margin, PAGE_H),
         planned_iso_scale=layout_iso_scale,
+        planned_iso_scale_authored=layout_iso_scale_authored,
         view_constraints=_view_constraints,
         part=part,
         source_part=source_part,

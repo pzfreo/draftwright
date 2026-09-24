@@ -209,6 +209,21 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
         )
         return bb
     if not _bbox_within(bb, region):
+        if not getattr(a, "planned_iso_scale_authored", True):
+            ratios = [
+                available / extent
+                for extent, available in (
+                    (a.ISO_X - bb[0], a.ISO_X - region[0]),
+                    (bb[2] - a.ISO_X, region[2] - a.ISO_X),
+                    (a.ISO_Y - bb[1], a.ISO_Y - region[1]),
+                    (bb[3] - a.ISO_Y, region[3] - a.ISO_Y),
+                )
+                if extent > 0
+            ]
+            relative = math.floor(min(ratios, default=1.0) * 0.98 * 10000) / 10000
+            if relative > 0:
+                _project_iso(dwg, a, a.SCALE * a.planned_iso_scale * relative)
+                return _iso_bbox(dwg)
         source = None
         constraints = a.view_constraints
         if isinstance(constraints, ViewConstraints):
