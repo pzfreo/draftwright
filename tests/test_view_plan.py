@@ -234,48 +234,23 @@ class TestTheRepresentationChangedNothing:
         assert resolve_from_analysis(analysis) == drawing.view_plan
 
 
-@pytest.mark.slow  # a CTC fixture build, twice (#153)
-@pytest.mark.timeout(600)  # Two OCC builds exceed the global 300 s cap under xdist load (#1266).
-def test_the_repack_loop_really_consumes_the_plan():
-    """The one consumer whose re-routing the golden corpus does NOT cover.
+@pytest.mark.slow  # a full CTC fixture build (#153)
+@pytest.mark.timeout(600)
+def test_the_repack_loop_really_consumes_the_plan(monkeypatch):
+    """Measured repack blocks consume the resolved view geometry on a real CTC sheet.
 
-    `compose._view_geom` feeds only the measure-and-repack loop, and no golden fixture triggers
-    a repack — so pointing it at the view plan was, at first, a change nothing could verify:
-    emptying its result left every golden and every repack-seam test passing. That is precisely
-    the kind of change this repository has learned to distrust, so it is proven here instead.
-
-    Two claims, and both are needed:
-
-    1. the map is load-bearing at all — CTC-03 AP203 is the fixture where the repack actually
-       uses it, and its drawing changes if the map is emptied. Without this the second claim
-       would be satisfied by a function whose output nothing reads;
-    2. reading it from the plan produces the same drawing as reading it from the `Analysis`
-       fields directly. Verified against `main` at the time of writing by comparing page, scale,
-       every annotation name and label, and every view's bounds: byte-identical, 3093 bytes of
-       signature. This test re-checks the first claim, which is the half that can rot.
+    The finished drawing can remain unchanged after a changed measurement: the
+    required-content gate rejects a repack that drops annotations. Compare the
+    measured blocks directly so that safety decision cannot hide a disconnected
+    view-plan input.
     """
     from draftwright import builder as builder_module
 
     fixture = "tests/fixtures/nist_ctc_03_asme1_ap203.stp"
+    drawing = build_drawing(fixture)
+    analysis = drawing._analysis
+    measured = builder_module._measure_blocks(drawing, analysis)
 
-    def signature(drawing):
-        return (
-            round(drawing.page_w),
-            round(drawing.page_h),
-            drawing.scale,
-            tuple(sorted(drawing.registry.names())),
-            tuple(
-                (name, tuple(round(v, 4) for v in (drawing.view_bounds(name) or ())))
-                for name in sorted(drawing.views)
-            ),
-        )
-
-    real = signature(build_drawing(fixture))
-
-    # PERTURB the values, do not empty the map. An empty map raises `KeyError` inside
-    # `_measure_blocks` — which proves the function is called, not that its ANSWER is used, and
-    # the first version of this test mistook one for the other. Halving the half-extents keeps
-    # every key and every consumer working, and changes only what the repack measures.
     original = builder_module._view_geom
 
     def halved(analysis):
@@ -284,15 +259,13 @@ def test_the_repack_loop_really_consumes_the_plan():
             for name, (cx, cy, hw, hh) in original(analysis).items()
         }
 
-    builder_module._view_geom = halved
-    try:
-        perturbed = signature(build_drawing(fixture))
-    finally:
-        builder_module._view_geom = original
+    monkeypatch.setattr(builder_module, "_view_geom", halved)
+    perturbed = builder_module._measure_blocks(drawing, analysis)
 
-    assert perturbed != real, (
-        "changing the measured view geometry changes nothing on this fixture, so it no longer "
-        "exercises the repack loop and the plan's only uncovered consumer is unverified again"
+    assert perturbed != measured
+    assert any(
+        (perturbed[name].hw, perturbed[name].hh) != (measured[name].hw, measured[name].hh)
+        for name in measured
     )
 
 

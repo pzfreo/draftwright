@@ -1,5 +1,7 @@
 """Routed leaders for bounded sheet-global recovery (#1797)."""
 
+from functools import lru_cache
+
 from build123d import Align, Edge, Location, Mode, Sketch, Text, Vector, Wire, trace
 from build123d_drafting.helpers import (
     Leader,
@@ -10,6 +12,22 @@ from build123d_drafting.helpers import (
     _rect_face,
     _segments,
 )
+
+
+@lru_cache(maxsize=256)
+def _text_template(label, font_size, font, font_path, shelf_direction):
+    """Reuse unplaced glyph geometry while a fallback probes many routes for one label."""
+
+    text = Text(
+        txt=label,
+        font_size=font_size,
+        font=font,
+        font_path=font_path,
+        align=(Align.MIN if shelf_direction > 0 else Align.MAX, Align.CENTER),
+        mode=Mode.PRIVATE,
+    )
+    box = text.bounding_box()
+    return text, (box.min.X, box.min.Y, box.max.X, box.max.Y)
 
 
 class RoutedLeader(Leader):
@@ -79,23 +97,26 @@ class RoutedLeader(Leader):
             text_shape = callout.moved(
                 Location(Vector(text_x - anchor_x, elbow_v.Y - middle_y, 0.0))
             )
+            text_box = text_shape.bounding_box()
+            label_bbox = (text_box.min.X, text_box.min.Y, text_box.max.X, text_box.max.Y)
         else:
-            text_shape = Text(
-                txt=label,
-                font_size=draft.font_size,
-                font=draft.font,
-                font_path=_font_path(draft),
-                align=(Align.MIN if shelf_direction > 0 else Align.MAX, Align.CENTER),
-                mode=Mode.PRIVATE,
-            ).moved(Location(Vector(text_x, elbow_v.Y, 0.0)))
-        text_box = text_shape.bounding_box()
+            template, box = _text_template(
+                label, draft.font_size, draft.font, _font_path(draft), shelf_direction
+            )
+            text_shape = template.moved(Location(Vector(text_x, elbow_v.Y, 0.0)))
+            label_bbox = (
+                box[0] + text_x,
+                box[1] + elbow_v.Y,
+                box[2] + text_x,
+                box[3] + elbow_v.Y,
+            )
         faces.append(text_shape)
 
         _Annotation.__init__(
             self,
             Sketch(children=faces),
             label=label,
-            label_bbox=(text_box.min.X, text_box.min.Y, text_box.max.X, text_box.max.Y),
+            label_bbox=label_bbox,
             segments=_segments([*shaft_edges, shelf_edge]),
             mode=Mode.ADD,
         )
