@@ -487,6 +487,7 @@ jobs:
         # non-xdist process, then split the remaining selection across two serial processes.
         run: >-
           uv run python scripts/test-tier scheduled
+          --isolate-modules
           --workers "${{ matrix.workers }}"
           --selection "${{ matrix.selection }}"
           -k "${{ matrix.keyword }}"

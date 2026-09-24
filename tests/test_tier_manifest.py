@@ -3,6 +3,7 @@
 import os
 import runpy
 from pathlib import Path
+from types import SimpleNamespace
 
 try:
     import tomllib
@@ -109,6 +110,43 @@ def test_scheduled_selection_is_intersected_with_the_tier(monkeypatch):
     assert namespace["main"](["scheduled", "--selection", "ctc04", "--workers", "1"]) == 0
     marker = captured[captured.index("-m") + 1]
     assert marker == "(slow or scheduled) and (ctc04)"
+
+
+def test_isolated_scheduled_runner_restarts_pytest_per_module(monkeypatch):
+    runner = _TESTS.parent / "scripts" / "test-tier"
+    namespace = runpy.run_path(str(runner))
+    calls = []
+
+    def completed(command, **kwargs):
+        calls.append(command)
+        if "--collect-only" in command:
+            return SimpleNamespace(
+                returncode=0,
+                stdout=(
+                    "tests/test_one.py::test_a\n"
+                    "tests/test_one.py::test_b\n"
+                    "tests/test_two.py::test_c\n"
+                ),
+            )
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(namespace["subprocess"], "run", completed)
+
+    assert namespace["main"](["scheduled", "--workers", "0", "--isolate-modules"]) == 0
+    assert "--collect-only" in calls[0]
+    assert calls[1][3:5] == ["tests/test_one.py::test_a", "tests/test_one.py::test_b"]
+    assert calls[2][3:4] == ["tests/test_two.py::test_c"]
+    assert (
+        calls[1][-5:]
+        == calls[2][-5:]
+        == [
+            "-m",
+            "slow or scheduled",
+            "-n",
+            "0",
+            "--timeout=600",
+        ]
+    )
 
 
 def test_default_pytest_selection_matches_the_full_tier():
