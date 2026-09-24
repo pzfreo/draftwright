@@ -82,12 +82,12 @@ jobs:
           fi
           coverage_mode=skip
           if [[ "$EVENT_NAME" == "pull_request" && "$version_only" != "true" ]]; then
-            coverage_args=()
             if [[ "$FULL_MATRIX" == "true" || "$FULL_COVERAGE" == "true" ]]; then
-              coverage_args+=(--force-full)
+              coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA" \
+                --force-full)
+            else
+              coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA")
             fi
-            coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA" \
-              "${coverage_args[@]}")
           elif [[ "$EVENT_NAME" == "schedule" \
                   || ( "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" != "true" ) ]]; then
             coverage_mode=full
