@@ -388,7 +388,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         check("audited_coverage", not unresolved_counts, unresolved_counts)
 
     view_sizes = {}
-    view_extents = {}
+    view_extents: dict[str, dict[str, float | None]] = {}
     outside_page: dict[str, object] = {}
     for name in drawing.views:
         try:
