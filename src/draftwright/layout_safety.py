@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 
+from draftwright.model.planner import _authored_addresses, authored_dimension_requests
 from draftwright.reporting import ReportUnavailableError
 
 _LAYOUT_BLOCKERS = frozenset(
@@ -32,6 +33,50 @@ _UNRESOLVED_STATES = frozenset({"dropped", "missing", "unverifiable", "unsupport
 _MIN_VIEW_AREA_MM2 = 100.0
 
 
+def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
+    requests = authored_dimension_requests(model)
+    if requests is None:
+        requests = model.requested_dimensions
+    if not requests:
+        return []
+
+    claims = {
+        (id(identity.feature), str(identity.parameter))
+        for name in drawing.registry.names()
+        for identity in (
+            *drawing.registry.measurement_of(name),
+            *drawing.registry.satisfaction_of(name),
+        )
+    }
+    feature_indices = {id(feature): index for index, feature in enumerate(model.features)}
+    gaps = []
+    for request in requests:
+        feature = request.feature
+        parameters = [
+            parameter
+            for parameter in feature.parameters()
+            if _authored_addresses(request, feature, parameter)
+        ]
+        if not parameters:
+            gaps.append(
+                {
+                    "feature_index": feature_indices.get(id(feature)),
+                    "role": request.role,
+                    "reason": "request_has_no_matching_parameter",
+                }
+            )
+        for parameter in parameters:
+            if (id(feature), parameter.parameter_id) not in claims:
+                gaps.append(
+                    {
+                        "feature_index": feature_indices.get(id(feature)),
+                        "role": parameter.parameter_id,
+                        "reason": "representation_missing",
+                    }
+                )
+    return gaps
+
+
 def candidate_safety_evidence(drawing) -> dict[str, object]:
     """Observe finished candidate risks without comparing it to a baseline.
 
@@ -50,6 +95,8 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
     model = drawing.model()
     feature_count = len(model.features) if model is not None else None
     check("model_available", feature_count is not None, feature_count)
+    authored_gaps = _authored_dimension_gaps(drawing, model) if model is not None else []
+    check("authored_dimensions", model is not None and not authored_gaps, authored_gaps)
 
     try:
         report = drawing.report()
@@ -143,7 +190,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
-            "authored_annotation_parity_not_checked",
+            "authored_non_dimension_parity_not_checked",
             "generated_script_parity_not_checked",
             "leader_legibility_not_checked",
             "minimum_view_area_threshold_not_calibrated",
