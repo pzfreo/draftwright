@@ -53,6 +53,45 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     assert decision["trials"][0]["iso_area_ratio"] >= 1.10
 
 
+def test_candidate_preview_selects_before_render_without_baseline_build(monkeypatch):
+    import draftwright.builder as builder
+
+    assembled = []
+    original = builder._assemble
+
+    def observe(*args, **kwargs):
+        assembled.append(args[0])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(builder, "_assemble", observe)
+    drawing = build_drawing(
+        Box(20, 10, 5), page="A4", scale=2, annotation_layout="candidate-preview"
+    )
+
+    decision = drawing.annotation_scheme_decision
+    assert len(assembled) == 1
+    assert decision["policy"] == "candidate-preview"
+    assert decision["status"] == "candidate_preview"
+    assert decision["admission_ready"] is False
+    assert decision["pre_render_choice"]["profile"] == "legacy-depth"
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
+
+
+def test_candidate_preview_without_automatic_annotations_does_not_apply_profile():
+    drawing = build_drawing(
+        Box(20, 10, 5),
+        page="A4",
+        scale=2,
+        auto_dims=False,
+        annotation_layout="candidate-preview",
+    )
+
+    decision = drawing.annotation_scheme_decision
+    assert decision["status"] == "no_candidate_profile"
+    assert decision["influenced_layout"] is False
+    assert decision["pre_render_choice"]["profile"] is None
+
+
 def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
     from draftwright.annotations._common import annotation_ink_obstacles
 

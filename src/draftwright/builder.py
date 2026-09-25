@@ -16,6 +16,7 @@ import math
 import os
 import warnings
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -57,6 +58,7 @@ from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotation_layout_profile import (
     AnnotationLayoutProfile,
     annotation_layout_policy,
+    candidate_profile,
     current_layout_profile,
     use_layout_profile,
 )
@@ -1392,6 +1394,7 @@ def _build_drawing_once(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
+    _candidate_profile_first: bool = False,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1500,7 +1503,14 @@ def _build_drawing_once(
             "model builds its own feature objects that no request can target"
         )
 
-    def analyse(*, reuse, views):
+    def analyse(
+        *,
+        reuse,
+        views,
+        scale_override=None,
+        page_override=None,
+        arrangements_override=None,
+    ):
         return _analyse(
             step_file,
             title,
@@ -1508,8 +1518,8 @@ def _build_drawing_once(
             tolerance,
             drawn_by,
             out,
-            scale=scale,
-            page=page,
+            scale=scale if scale_override is None else scale_override,
+            page=page if page_override is None else page_override,
             pmi=pmi,
             source=source,
             model=model,
@@ -1537,7 +1547,9 @@ def _build_drawing_once(
             zones=zones,
             _reuse=reuse,
             _required_tables=_required_tables,
-            _arrangements=_arrangements,
+            _arrangements=(
+                _arrangements if arrangements_override is None else arrangements_override
+            ),
             _views=views,
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
@@ -1680,33 +1692,39 @@ def _build_drawing_once(
                     },
                 )
 
+    selected_profile = None
+    pre_render_choice = None
+    if _candidate_profile_first:
+        pre_render_choice = choose_pre_render_profile(
+            a.layout_strips,
+            a.layout_strips.annotation_scheme_shadow_report(a.SCALE),
+            page=(a.PAGE_W, a.PAGE_H),
+            views=tuple(a.planned_views or third_angle_view_names()),
+            auto_dims=auto_dims,
+        )
+        profile_name = pre_render_choice["profile"]
+        if isinstance(profile_name, str):
+            selected_profile = candidate_profile(profile_name, a.SCALE)
+            with use_layout_profile(selected_profile):
+                a = analyse(
+                    reuse=a,
+                    views=tuple(a.planned_views or third_angle_view_names()),
+                    scale_override=a.SCALE,
+                    page_override=(a.PAGE_W, a.PAGE_H),
+                    arrangements_override=(selected_profile.arrangement or a.arrangement,),
+                )
+
     # Pass 1: place + annotate from the estimated layout, then measure the real
     # per-view footprints and re-pack the blocks disjoint if a view actually
     # moves (#121, ADR 2 (was 0004) — "lay out, don't predict").  Non-ballooned parts
     # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
-    dwg = _assemble(
-        a,
-        out,
-        assembly,
-        detail_view,
-        auto_dims,
-        model=model,
-        decorations=decorations,
-        requested=requested,
-        authored=authored,
-        trace=tracer,
-        critique_recognition_cache=_critique_recognition_cache,
-        reproducible=reproducible,
-    )
-    if auto_dims:
-        repacked = _repack_to_fixed_point(
+    with use_layout_profile(selected_profile) if selected_profile else nullcontext():
+        dwg = _assemble(
             a,
-            dwg,
             out,
             assembly,
             detail_view,
-            scale=scale,
-            page=page,
+            auto_dims,
             model=model,
             decorations=decorations,
             requested=requested,
@@ -1715,14 +1733,42 @@ def _build_drawing_once(
             critique_recognition_cache=_critique_recognition_cache,
             reproducible=reproducible,
         )
-        if repacked is not None:
-            a, dwg = repacked
-    if repair:
-        # Close the loop on the greedy placement: re-place dims behind any
-        # mechanically-clear violations (overlap, wrong-side) and re-lint (#30).
-        # A no-op on a clean sheet, so default-on costs nothing when there is
-        # nothing to fix.
-        dwg.repair()
+        if auto_dims:
+            repacked = _repack_to_fixed_point(
+                a,
+                dwg,
+                out,
+                assembly,
+                detail_view,
+                scale=a.SCALE if _candidate_profile_first and scale is not None else scale,
+                page=(a.PAGE_W, a.PAGE_H)
+                if _candidate_profile_first and page is not None
+                else page,
+                model=model,
+                decorations=decorations,
+                requested=requested,
+                authored=authored,
+                trace=tracer,
+                critique_recognition_cache=_critique_recognition_cache,
+                reproducible=reproducible,
+            )
+            if repacked is not None:
+                a, dwg = repacked
+        if repair:
+            # Close the loop on the greedy placement: re-place dims behind any
+            # mechanically-clear violations (overlap, wrong-side) and re-lint (#30).
+            # A no-op on a clean sheet, so default-on costs nothing when there is
+            # nothing to fix.
+            dwg.repair()
+    if _candidate_profile_first:
+        dwg.annotation_scheme_decision = {
+            **dwg.annotation_scheme_decision,
+            "policy": "candidate-preview",
+            "status": "candidate_preview" if selected_profile else "no_candidate_profile",
+            "influenced_layout": selected_profile is not None,
+            "admission_ready": False,
+            "pre_render_choice": pre_render_choice,
+        }
     if tracer is not None:  # one JSON per build; Drawing.finalize() re-writes it (#736)
         tracer.write()
     if _analysis_sink is not None:
@@ -2325,7 +2371,7 @@ def build_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
-    annotation_layout: Literal["baseline", "best"] = "baseline",
+    annotation_layout: Literal["baseline", "best", "candidate-preview"] = "baseline",
     _replayed_scale: float | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
@@ -2356,7 +2402,9 @@ def build_drawing(
 
     ``annotation_layout="best"`` evaluates an alternative on the settled sheet and
     scale, retaining the existing layout unless finished-drawing semantic parity and
-    layout quality prove a strict gain. ``"baseline"`` uses the established layout.
+    layout quality prove a strict gain. ``"candidate-preview"`` selects a profile
+    before rendering, without a baseline comparison or safety admission; it is for
+    evaluation only. ``"baseline"`` uses the established layout.
     """
     annotation_layout = annotation_layout_policy(annotation_layout)
     if annotation_layout == "best":
@@ -2462,6 +2510,7 @@ def build_drawing(
         _include_iso=_include_iso,
         _view_constraints=_view_constraints,
         _document_input=_document_input,
+        _candidate_profile_first=annotation_layout == "candidate-preview",
     )
     analysis_base = _analysis_base
     build_attempt = 0
@@ -3546,7 +3595,7 @@ def make_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
-    annotation_layout: Literal["baseline", "best"] = "baseline",
+    annotation_layout: Literal["baseline", "best", "candidate-preview"] = "baseline",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -3585,6 +3634,8 @@ def make_drawing(
             ``"interior"`` requires interior placement where that feature family supports it.
         annotation_layout: ``"best"`` compares finished layouts on the same sheet and scale
             and selects a candidate only when required annotations and quality are preserved.
+            ``"candidate-preview"`` chooses before rendering for evaluation; it does not
+            establish semantic parity or safety admission.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.

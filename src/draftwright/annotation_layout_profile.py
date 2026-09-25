@@ -20,12 +20,16 @@ if TYPE_CHECKING:
 Route = tuple[str, str]
 
 
-def annotation_layout_policy(value: str) -> Literal["baseline", "best"]:
+def annotation_layout_policy(value: str) -> Literal["baseline", "best", "candidate-preview"]:
     if value == "baseline":
         return "baseline"
     if value == "best":
         return "best"
-    raise ValueError(f"annotation_layout must be 'baseline' or 'best', got {value!r}")
+    if value == "candidate-preview":
+        return "candidate-preview"
+    raise ValueError(
+        f"annotation_layout must be 'baseline', 'best', or 'candidate-preview', got {value!r}"
+    )
 
 
 DEFAULT_CAPPED_ROUTES: frozenset[Route] = frozenset(
