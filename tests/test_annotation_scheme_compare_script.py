@@ -517,6 +517,54 @@ def test_candidate_may_remove_but_not_introduce_requirement_blockers():
     assert regressed["parity"]["introduced_blockers"] == ["b"]
 
 
+def test_issue1829_tuner_pocket_pattern_location_cannot_disappear():
+    compare = _load_script()._compare
+    pocket_pattern = {"feature_index": 0, "kind": "pocket_pattern", "source_id": ""}
+    location = {
+        "type": "Dimension",
+        "label": "10",
+        "view": "plan",
+        "region": None,
+        "measurements": [
+            {"feature": pocket_pattern, "parameter": "location_pocket_pattern.location"}
+        ],
+        "satisfactions": [],
+        "owners": [pocket_pattern],
+    }
+
+    comparison = compare(_result({"m_locx0": location}), _result({}))
+
+    assert comparison["parity"]["passed"] is False
+    assert comparison["quality_comparison"]["verdict"] == "ineligible"
+    assert comparison["parity"]["missing"][0]["measurements"][0]["parameter"] == (
+        "location_pocket_pattern.location"
+    )
+
+
+def test_issue1829_grm03_pmi_drop_source_swap_is_not_equal_parity():
+    compare = _load_script()._compare
+
+    def pmi_drop(source_id):
+        return json.dumps(
+            {
+                "code": "pmi_dropped",
+                "hole_requirements": [],
+                "measurements": [],
+                "source_ids": [source_id],
+            },
+            sort_keys=True,
+        )
+
+    baseline = _result({}, blockers=(pmi_drop("dimension:0:1:4:9"),))
+    candidate = _result({}, blockers=(pmi_drop("dimension:0:1:4:10"),))
+
+    comparison = compare(baseline, candidate)
+
+    assert comparison["parity"]["passed"] is False
+    assert comparison["quality_comparison"]["verdict"] == "ineligible"
+    assert comparison["parity"]["introduced_blockers"] == [pmi_drop("dimension:0:1:4:10")]
+
+
 def test_candidate_may_restore_additional_approved_annotations():
     compare = _load_script()._compare
     baseline = _result({})
