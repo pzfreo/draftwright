@@ -35,6 +35,8 @@ _UNRESOLVED_STATES = frozenset({"dropped", "missing", "unverifiable", "unsupport
 _SATISFIED_RAW_REQUIREMENT_STATES = frozenset(
     {"placed", "satisfied_by_structured_note", "inapplicable"}
 )
+_SATISFIED_OCCURRENCE_DISPOSITIONS = frozenset({"represented", "absorbed"})
+_SATISFIED_OCCURRENCE_COVERAGE = frozenset({"ledger", "not-applicable"})
 _DECLARED_CARRIER_KINDS = frozenset(
     {
         "control_frame",
@@ -182,6 +184,56 @@ def _annotation_page_gaps(drawing) -> list[dict[str, object]]:
     return gaps
 
 
+def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[str, object]]:
+    """Check accepted source occurrences, not just their aggregate summary."""
+
+    occurrences = recognition.get("occurrences")
+    if not isinstance(occurrences, list):
+        return [{"reason": "occurrence_inventory_unavailable"}]
+    gaps: list[dict[str, object]] = []
+    if len(occurrences) != expected:
+        gaps.append(
+            {
+                "reason": "occurrence_count_mismatch",
+                "expected": expected,
+                "observed": len(occurrences),
+            }
+        )
+    for index, occurrence in enumerate(occurrences):
+        if not isinstance(occurrence, dict):
+            gaps.append({"index": index, "reason": "invalid_occurrence"})
+            continue
+        occurrence_id = occurrence.get("id", f"occurrence[{index}]")
+        disposition = occurrence.get("disposition")
+        if (
+            not isinstance(disposition, str)
+            or disposition not in _SATISFIED_OCCURRENCE_DISPOSITIONS
+        ):
+            gaps.append(
+                {
+                    "occurrence": occurrence_id,
+                    "reason": "adverse_disposition",
+                    "disposition": disposition,
+                }
+            )
+        requirements = occurrence.get("requirements")
+        coverage = requirements.get("coverage") if isinstance(requirements, dict) else None
+        ids = requirements.get("ids") if isinstance(requirements, dict) else None
+        if (
+            not isinstance(coverage, str)
+            or coverage not in _SATISFIED_OCCURRENCE_COVERAGE
+            or (coverage == "ledger" and (not isinstance(ids, list) or not ids))
+        ):
+            gaps.append(
+                {
+                    "occurrence": occurrence_id,
+                    "reason": "unresolved_requirement_coverage",
+                    "coverage": coverage,
+                }
+            )
+    return gaps
+
+
 def candidate_safety_evidence(drawing) -> dict[str, object]:
     """Observe finished candidate risks without comparing it to a baseline.
 
@@ -228,6 +280,8 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
             missing = int(summary.get("unexpectedly_missing", 0))
             check("recognized_ownership", missing == 0, missing)
             total = int(summary.get("total", 0))
+            occurrence_gaps = _recognition_occurrence_gaps(recognition, total)
+            check("recognized_occurrences", not occurrence_gaps, occurrence_gaps)
             check(
                 "recognized_inventory",
                 total > 0
@@ -311,7 +365,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 6,
+        "version": 7,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [

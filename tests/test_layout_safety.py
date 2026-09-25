@@ -51,11 +51,21 @@ class DrawingStub:
         return self._bounds
 
 
-def _raw_report(*, requirements=(), total=0, issues=()):
+def _raw_report(*, requirements=(), total=0, issues=(), occurrences=None):
+    if occurrences is None:
+        occurrences = [
+            {
+                "id": f"hole:{index + 1}",
+                "disposition": "represented",
+                "requirements": {"coverage": "ledger", "ids": [f"requirement:{index + 1}"]},
+            }
+            for index in range(total)
+        ]
     return {
         "schema_version": 3,
         "recognition": {
             "summary": {"total": total, "unexpectedly_missing": 0},
+            "occurrences": occurrences,
             "requirements": list(requirements),
         },
         "lint": {
@@ -122,6 +132,58 @@ def test_malformed_raw_requirement_fails_closed(requirement):
     verdict = candidate_safety_evidence(DrawingStub(report))
 
     assert "required_outcomes" in verdict["failed_checks"]
+
+
+@pytest.mark.parametrize(
+    "disposition",
+    ["unsupported", "deferred", "evidence_only", "unexpectedly_missing", "future_state", None],
+)
+def test_recognized_occurrence_disposition_fails_independently(disposition):
+    report = _raw_report(total=1, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][0]["disposition"] = disposition
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "required_outcomes" not in verdict["failed_checks"]
+    assert "recognized_occurrences" in verdict["failed_checks"]
+
+
+@pytest.mark.parametrize("coverage", ["not-projected", "deferred", "unavailable", None])
+def test_recognized_occurrence_coverage_fails_independently(coverage):
+    report = _raw_report(total=1, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][0]["requirements"]["coverage"] = coverage
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_occurrences" in verdict["failed_checks"]
+
+
+def test_recognized_occurrence_inventory_and_ledger_ids_fail_closed():
+    report = _raw_report(total=1, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"] = []
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
+    report["recognition"]["occurrences"] = [
+        {
+            "id": "hole:1",
+            "disposition": "represented",
+            "requirements": {"coverage": "ledger", "ids": []},
+        }
+    ]
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
+
+def test_absorbed_occurrence_with_a_requirement_ledger_is_not_adverse():
+    report = _raw_report(total=1, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][0]["disposition"] = "absorbed"
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_occurrences" not in verdict["failed_checks"]
 
 
 def test_accepted_geometry_without_model_or_requirements_is_not_clean():
