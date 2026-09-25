@@ -115,9 +115,14 @@ def _declared_aspect_gaps(drawing, model) -> list[dict[str, object]]:
     declaration_of = getattr(registry, "declaration_of", None)
     feature_of = getattr(registry, "feature_of", None)
     named = getattr(registry, "named", None)
-    if not all(callable(value) for value in (names, declaration_of, feature_of, named)):
+    if (
+        not callable(names)
+        or not callable(declaration_of)
+        or not callable(feature_of)
+        or not callable(named)
+    ):
         return [{"reason": "declaration_provenance_unavailable"}]
-    represented = set()
+    represented: set[int] = set()
     for name in names():
         represented.update((id(declaration_of(name)), id(feature_of(name))))
         annotation = named(name)
