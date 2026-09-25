@@ -224,6 +224,38 @@ def test_parse_routes():
     assert parse("none") == set()
 
 
+def test_candidate_preview_comparison_uses_one_candidate_trial(monkeypatch, capsys, tmp_path):
+    script = _load_script()
+    modes = []
+    baseline = _result({}, quality_key=(1, 0, 1, 0, 0, -0.2, 124740.0))
+    candidate = _result({}, quality_key=(0, 0, 0, 0, 0, -0.2, 124740.0))
+
+    def worker(_args, mode, _output):
+        modes.append(mode)
+        return baseline if mode == "baseline" else candidate
+
+    monkeypatch.setattr(script, "_run_worker", worker)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "compare",
+            "--source",
+            str(tmp_path / "part.step"),
+            "--output",
+            str(tmp_path / "out"),
+            "--mode",
+            "candidate-preview",
+        ],
+    )
+
+    assert script.main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert modes == ["baseline", "candidate-preview"]
+    assert result["selected_candidate_trial"] is None
+    assert len(result["candidate_trials"]) == 1
+
+
 def test_uncapped_trial_can_restore_semantics_and_win():
     script = _load_script()
     annotation = {

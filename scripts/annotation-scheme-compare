@@ -114,7 +114,9 @@ def _worker(args) -> int:
             scale_policy="permissive",
             _views=("front", "plan", "side"),
             _include_iso=True,
-            annotation_layout="best" if args.mode == "best" else "baseline",
+            annotation_layout=args.mode
+            if args.mode in {"best", "candidate-preview"}
+            else "baseline",
         )
     paths = drawing.export(str(output), formats=tuple(args.formats.split(",")))
     print(
@@ -180,12 +182,12 @@ def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None =
     return json.loads(completed.stdout)
 
 
-def _failed_candidate_comparison(baseline: dict, error: str) -> dict:
+def _failed_candidate_comparison(baseline: dict, error: str, *, mode="candidate") -> dict:
     """Keep a candidate build failure as corpus evidence instead of aborting the run."""
     baseline_key = tuple(baseline["manifest"]["arrangement_quality"]["selection_key"])
     return {
         "baseline": baseline,
-        "candidate": {"mode": "candidate", "error": error},
+        "candidate": {"mode": mode, "error": error},
         "parity": {
             "passed": False,
             "reason": "candidate_build_failed",
@@ -276,12 +278,37 @@ def main() -> int:
         help="comma-separated view/side corridors to cap, or 'none' to retain legacy depths",
     )
     parser.add_argument("--worker", action="store_true")
-    parser.add_argument("--mode", choices=("baseline", "candidate", "best"), default="baseline")
+    parser.add_argument(
+        "--mode",
+        choices=("baseline", "candidate", "best", "candidate-preview"),
+        default="baseline",
+    )
     parser.add_argument("--iso-growth", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.worker:
         return _worker(args)
     baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
+    if args.mode == "candidate-preview":
+        try:
+            candidate = _run_worker(
+                args,
+                "candidate-preview",
+                args.output.with_name(args.output.name + "-candidate-preview"),
+            )
+        except RuntimeError as error:
+            result = _failed_candidate_comparison(baseline, str(error), mode="candidate-preview")
+        else:
+            result = _compare(baseline, candidate)
+        result["candidate_trials"] = [_trial_summary("candidate-preview", "pre-render", result)]
+        result["selected_candidate_trial"] = None  # no after-the-fact profile selection
+        result["pre_render_profile"] = (
+            result["candidate"]
+            .get("layout_decision", {})
+            .get("pre_render_choice", {})
+            .get("profile")
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return int(not result["parity"]["passed"])
     baseline_key = baseline["manifest"]["arrangement_quality"]["selection_key"]
     if not any(baseline_key[:5]):
         # No defect count can beat zero. Try a larger orientation view without
