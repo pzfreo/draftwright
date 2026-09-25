@@ -49,7 +49,8 @@ were 46.21/278.21 s, versus baseline 39.94/274.54 s: **1.16×/1.01×**.
 Candidate peak RSS median/p95 were 537.27/877.68 MiB, versus baseline
 536.39/878.98 MiB: **1.00×/1.00×**. Baseline RSS figures here were recomputed
 from the existing per-case worker samples, not from a new CAD run. The
-[versioned v4 trial summary](1813-bounded-chooser-trial-v4.md) records the
+[per-case cost extract](1813-fixed15-cost-v4.json) preserves those samples for
+review. The [versioned v4 trial summary](1813-bounded-chooser-trial-v4.md) records the
 other values and its safety/visual limitations.
 
 This is one development host and a fixed15 mixed-case sample, with no
