@@ -438,8 +438,8 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
 _ISO_CLEAR_STEPS = 5
 
 
-def _largest_clear_factor(dwg, a, hi, obstacles, base_box) -> float:
-    """A factor in ``[1, hi]`` whose RE-PROJECTED iso clears every obstacle, as large as this
+def _largest_clear_factor(dwg, a, hi, obstacles, base_box, *, lo=1.0, region=None) -> float:
+    """A factor in ``[lo, hi]`` whose RE-PROJECTED iso clears every obstacle, as large as this
     search finds.
 
     **Measured, not predicted** — ADR 2 (was 0014 Amendment 3). Its first version computed the answer
@@ -471,10 +471,12 @@ def _largest_clear_factor(dwg, a, hi, obstacles, base_box) -> float:
     the safe direction, and not worth exact interval arithmetic over an affine model this
     function exists because a model was wrong (#1240 review r2, F5).
 
-    *base_box* is the iso bbox at sheet scale, which the caller has already measured. The
+    *base_box* is the iso bbox at *lo* times sheet scale, which the caller has already measured. The
     drawing is left projected at an arbitrary probe scale; the caller re-projects.
     """
-    if not obstacles or hi <= 1.0:
+    if hi <= lo:
+        return float(lo)
+    if not obstacles and region is None:
         return float(hi)
 
     def hits(box) -> bool:
@@ -482,27 +484,27 @@ def _largest_clear_factor(dwg, a, hi, obstacles, base_box) -> float:
 
     def clear(factor) -> bool:
         _project_iso(dwg, a, a.SCALE * factor)
-        return not hits(_iso_bbox(dwg))
+        box = _iso_bbox(dwg)
+        return (region is None or _bbox_within(box, region)) and not hits(box)
 
-    # *base_box* is the caller's already-measured f=1 bbox, so the f=1 reading costs nothing.
+    # *base_box* is the caller's already-measured f=lo bbox, so that reading costs nothing.
     # Passed in rather than read off `dwg`: reading it here would silently depend on the
     # drawing being projected at sheet scale on entry, and the first version did exactly that
     # — a caller (this file's own test) that had probed the projection first got 1.0 back for
     # every input.
-    if hits(base_box):
+    if hits(base_box) or (region is not None and not _bbox_within(base_box, region)):
         # Already overlapping before any growth: growth is not what put it there, and shrinking
         # is not this branch's job. Report no growth and leave the conflict to lint.
-        return 1.0
+        return float(lo)
     if clear(hi):
         return float(hi)
-    lo = 1.0
     for _ in range(_ISO_CLEAR_STEPS):
         mid = (lo + hi) / 2
         if clear(mid):
             lo = mid
         else:
             hi = mid
-    return lo
+    return float(lo)
 
 
 def _fit_iso_view(dwg, a: Analysis, obstacles=()):

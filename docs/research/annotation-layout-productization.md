@@ -5,8 +5,9 @@
 The candidate uses the existing annotation renderer and placement solve. A typed
 `AnnotationScheme` estimates corridor demand before rendering; a build-scoped profile
 can cap selected legacy reservations and enable the staggered side arrangement,
-exterior dimensions, bounded leader recovery, plan X routing, and horizontal
-dimension tier sharing where the rendered spans and ink are clear. The typed lane
+exterior dimensions, bounded leader recovery, plan X routing, horizontal
+dimension tier sharing where the rendered spans and ink are clear, and measured
+isometric growth into the remaining safe zone. The typed lane
 order remains a separate experimental path. This is one engine with alternative
 planning inputs, rather than a replacement renderer.
 
@@ -54,6 +55,12 @@ smaller isometric and a long leader; visual review is mixed. This corpus proves
 that a guarded selector often improves the established drawing. It does not prove
 that all selected drawings are manufacturing-ready or that the candidate alone
 is safe as the default.
+
+Some front/plan view pairs use the 20 mm minimum geometry gap, which can look
+tight after annotations occupy their bands. A uniform 5 mm increase caused
+CTC02 to lose required content and reduced the public corpus from 13 wins to
+11. More breathing room needs a per-drawing slack check rather than a global
+gap increase.
 
 An initial CTC05 selection took 101.2 seconds for baseline plus three trials;
 baseline alone took 13.9 seconds with the same build options. Trying the

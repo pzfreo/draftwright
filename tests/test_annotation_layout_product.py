@@ -42,6 +42,47 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     assert decision["trials"][0]["iso_area_ratio"] >= 1.10
 
 
+def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
+    source = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
+    drawing = build_drawing(
+        source,
+        title="CTC-01",
+        number="NIST-CTC-01",
+        pmi="annotate",
+        page="A3",
+        scale=0.2,
+        scale_policy="permissive",
+        _views=("front", "plan", "side"),
+        _include_iso=True,
+        annotation_layout="best",
+    )
+
+    assert drawing.annotation_scheme_decision["selected_trial"] == "planned"
+    left, _bottom, right, _top = drawing.view_bounds("iso")
+    assert right - left > 120.0  # the fixed 65% preview was only about 108 mm wide
+    assert not any(issue.code == "view_annotation_overlap" for issue in drawing.lint())
+
+
+def test_candidate_iso_growth_preserves_issue915_detail_view_gain():
+    source = Path(__file__).parent / "fixtures" / "issue_915_case_study_2.step"
+    drawing = build_drawing(
+        source,
+        title="issue915-a2-1to2",
+        number="issue915-a2-1to2",
+        pmi="annotate",
+        page="A2",
+        scale=0.5,
+        scale_policy="permissive",
+        _views=("front", "plan", "side"),
+        _include_iso=True,
+        annotation_layout="best",
+    )
+
+    decision = drawing.annotation_scheme_decision
+    assert decision["selected_trial"] == "legacy-depth"
+    assert decision["selected_quality_key"][:5] == (0, 0, 0, 0, 0)
+
+
 def test_best_layout_skips_speculation_without_automatic_annotations():
     selected = build_drawing(Box(20, 10, 5), auto_dims=False, annotation_layout="best")
 

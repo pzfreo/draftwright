@@ -100,8 +100,10 @@ from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import plan_dimensions
 from draftwright.progress import activity, build_operation, observed_stage, stage
 from draftwright.projection import (
+    _ISO_MAX_GROW,
     _bbox_within,
     _fit_iso_view,
+    _largest_clear_factor,
     _project_iso,
 )
 from draftwright.recognition_cache import RecognitionCache
@@ -243,6 +245,40 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
             f"authored iso scale{where} is infeasible in its composed view zone; "
             "the requested scale was not reduced"
         )
+    if not getattr(a, "planned_iso_scale_authored", True) and not any(
+        name.startswith("detail_") for name in dwg.views
+    ):
+        # Staggered-side starts the orientation view at 65% so annotations are
+        # placed against a safe initial obstacle. Once their ink is settled, use
+        # the remaining zone instead of leaving that temporary size as a cap.
+        # A detail view is defining content outside the composed iso zone, so
+        # retain its initial size as the ordinary iso fit does (#915).
+        # The probe measures each real OCC projection, including its translation,
+        # and stops at either the zone boundary or an annotation.
+        ratios = [
+            available / extent
+            for extent, available in (
+                (a.ISO_X - bb[0], a.ISO_X - region[0]),
+                (bb[2] - a.ISO_X, region[2] - a.ISO_X),
+                (a.ISO_Y - bb[1], a.ISO_Y - region[1]),
+                (bb[3] - a.ISO_Y, region[3] - a.ISO_Y),
+            )
+            if extent > 0
+        ]
+        initial = a.planned_iso_scale
+        ceiling = min(_ISO_MAX_GROW, initial * min(ratios, default=1.0) * 0.90)
+        if ceiling > initial * 1.05:
+            clear = _largest_clear_factor(
+                dwg, a, ceiling, obstacles, bb, lo=initial, region=region
+            )
+            factor = math.floor(clear * 10000) / 10000
+            # The search leaves the drawing at its last probe. Restore the
+            # intended scale even if the gain is too small to use.
+            factor = factor if factor > initial * 1.05 else initial
+            _project_iso(dwg, a, a.SCALE * factor)
+            if abs(factor - 1.0) < 1e-6:
+                return None  # no NTS caption at the actual sheet scale
+            return _iso_bbox(dwg)
     return bb
 
 
