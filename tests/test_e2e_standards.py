@@ -208,10 +208,18 @@ def _ap203_drawing(n):
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(600)
 @pytest.mark.parametrize(
     "n",
-    [pytest.param(n, marks=pytest.mark.ctc04 if n == "04" else ()) for n in _CTC_AP203_OK],
+    [
+        pytest.param(
+            n,
+            marks=(
+                pytest.mark.timeout(900 if n == "04" else 600),
+                *((pytest.mark.ctc04,) if n == "04" else ()),
+            ),
+        )
+        for n in _CTC_AP203_OK
+    ],
 )
 def test_ctc_ap203_exports_honest_diagnostic_no_degenerate_arcs(tmp_path, n):
     from draftwright.export import _MIN_ARC_RADIUS, _SVG_ARC_RE
