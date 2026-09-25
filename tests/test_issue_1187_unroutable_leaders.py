@@ -107,12 +107,16 @@ def _clear_routes(dwg, name, *, directions=64, reaches=(0.6, 0.8, 1.0, 1.3, 1.7,
                 draft=dwg.draft,
             )
             box = getattr(candidate, "label_bbox", None) or _geom_box(candidate)
-            geometry = _geom_box(candidate)
-            if box is None or geometry is None:
+            if box is None:
                 continue
             if box[0] < page[0] or box[1] < page[1] or box[2] > page[2] or box[3] > page[3]:
                 continue
             if silhouette is not None and _boxes_overlap(box, silhouette):
+                continue
+            # These cheap label checks reject most trial elbows. Only candidates that
+            # can actually fit need OpenCascade's costly full-ink bounding box.
+            geometry = _geom_box(candidate)
+            if geometry is None:
                 continue
             if _box_hits(geometry, obstacles):
                 continue
@@ -120,6 +124,10 @@ def _clear_routes(dwg, name, *, directions=64, reaches=(0.6, 0.8, 1.0, 1.3, 1.7,
     return found
 
 
+# This exhaustive CAD proof took 466 s on a hosted runner before the cheap-box
+# prefilter. Give this one test room for shared-runner variance while keeping the
+# scheduled tier's 600 s default for every other test.
+@pytest.mark.timeout(900)
 @pytest.mark.slow
 @pytest.mark.ctc04
 @pytest.mark.parametrize(
