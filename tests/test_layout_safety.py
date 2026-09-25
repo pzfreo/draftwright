@@ -62,7 +62,9 @@ def _raw_report(*, requirements=(), total=0, issues=()):
 
 
 def test_clean_candidate_needs_no_baseline_for_safety_evidence():
-    verdict = candidate_safety_evidence(DrawingStub(_raw_report()))
+    verdict = candidate_safety_evidence(
+        DrawingStub(_raw_report(total=1, requirements=({"state": "placed"},)))
+    )
 
     assert verdict["checks_passed"] is True
     assert verdict["admission_ready"] is False
@@ -94,6 +96,12 @@ def test_accepted_geometry_without_model_or_requirements_is_not_clean():
 
 def test_empty_raw_recognition_and_empty_model_cannot_claim_a_clean_inventory():
     verdict = candidate_safety_evidence(DrawingStub(_raw_report(), features=0))
+
+    assert "recognized_inventory" in verdict["failed_checks"]
+
+
+def test_synthetic_model_feature_does_not_replace_raw_recognition_evidence():
+    verdict = candidate_safety_evidence(DrawingStub(_raw_report(), features=1))
 
     assert "recognized_inventory" in verdict["failed_checks"]
 
