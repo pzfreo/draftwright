@@ -335,6 +335,7 @@ def test_unavailable_view_bounds_fail_closed(bounds):
 
     verdict = candidate_safety_evidence(drawing)
 
+    assert verdict["version"] == 9
     assert "view_page_containment" in verdict["failed_checks"]
     assert "minimum_view_area" in verdict["failed_checks"]
     detail = next(

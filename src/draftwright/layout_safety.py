@@ -420,7 +420,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 8,
+        "version": 9,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
