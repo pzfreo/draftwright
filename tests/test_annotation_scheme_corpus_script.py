@@ -114,7 +114,9 @@ def test_candidate_first_summary_keeps_rendered_candidates_separate_from_wins():
                 "layout_decision": {"safety_evidence": {"checks_passed": True}},
                 "cost": {"process_seconds": 2.0, "build_seconds": 1.0, "peak_rss_mib": 100.0},
             },
-            "baseline": {"cost": {"process_seconds": 3.0}},
+            "baseline": {
+                "cost": {"process_seconds": 3.0, "build_seconds": 2.0, "peak_rss_mib": 150.0}
+            },
         },
         {
             **_result("ineligible", parity=False),
@@ -122,7 +124,9 @@ def test_candidate_first_summary_keeps_rendered_candidates_separate_from_wins():
                 "layout_decision": {"safety_evidence": {"checks_passed": False}},
                 "cost": {"process_seconds": 4.0, "build_seconds": 3.0, "peak_rss_mib": 200.0},
             },
-            "baseline": {"cost": {"process_seconds": 5.0}},
+            "baseline": {
+                "cost": {"process_seconds": 5.0, "build_seconds": 4.0, "peak_rss_mib": 250.0}
+            },
         },
     ]
 
@@ -142,7 +146,13 @@ def test_candidate_first_summary_keeps_rendered_candidates_separate_from_wins():
         "p95_nearest_rank": 4.0,
     }
     assert summary["cost"]["baseline_process_seconds"]["median"] == 4.0
+    assert summary["cost"]["baseline_build_seconds"]["median"] == 3.0
     assert summary["cost"]["candidate_peak_rss_mib"]["p95_nearest_rank"] == 200.0
+    assert summary["cost"]["baseline_peak_rss_mib"] == {
+        "samples": 2,
+        "median": 200.0,
+        "p95_nearest_rank": 250.0,
+    }
     assert summary["cost"]["fallback_rate"] is None
 
 
