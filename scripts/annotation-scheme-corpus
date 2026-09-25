@@ -58,7 +58,8 @@ def _aggregate(results: list[dict]) -> dict:
     verdicts = Counter(result["quality_comparison"]["verdict"] for result in results)
     parity = [bool(result["parity"]["passed"]) for result in results]
     selected_candidate = verdicts.get("candidate", 0)
-    selected_baseline = len(results) - selected_candidate
+    failed_baseline = sum("error" in result.get("baseline", {}) for result in results)
+    selected_baseline = len(results) - selected_candidate - failed_baseline
     # Fixed page/scale cases with zero defects already have the best possible
     # selection key. Count them as ties, but do not put them in the denominator
     # for a claim about improving a defective baseline.
@@ -71,6 +72,7 @@ def _aggregate(results: list[dict]) -> dict:
     return {
         "cases": len(results),
         "semantic_parity": sum(parity),
+        "failed_baseline": failed_baseline,
         "verdicts": {
             verdict: verdicts.get(verdict, 0)
             for verdict in ("candidate", "baseline", "tie", "ineligible")
@@ -79,13 +81,16 @@ def _aggregate(results: list[dict]) -> dict:
         "verified_wins": selected_candidate,
         "affected_baselines": len(affected),
         "improved_affected": improved_affected,
-        "affected_majority": bool(affected) and 2 * improved_affected > len(affected),
+        "affected_majority": (
+            failed_baseline == 0 and bool(affected) and 2 * improved_affected > len(affected)
+        ),
         "production_contender": (
             bool(results)
             # `_compare` awards "candidate" only after semantic parity and a strictly
             # better quality key. Every other proposal falls back to the established
             # baseline, so the selected portfolio cannot regress that case.
             and selected_candidate > 0
+            and failed_baseline == 0
         ),
     }
 
@@ -119,7 +124,14 @@ def _aggregate_preview(results: list[dict]) -> dict:
     failed_cost = [
         result["candidate"].get("cost", {}) for result in results if "error" in result["candidate"]
     ]
-    baseline_cost = [result["baseline"].get("cost", {}) for result in results]
+    baseline_cost = [
+        result["baseline"].get("cost", {})
+        for result in results
+        if "error" not in result["baseline"]
+    ]
+    failed_baseline_cost = [
+        result["baseline"].get("cost", {}) for result in results if "error" in result["baseline"]
+    ]
     summary.update(
         {
             "rendered_candidate": len(rendered),
@@ -138,6 +150,9 @@ def _aggregate_preview(results: list[dict]) -> dict:
                 ),
                 "baseline_process_seconds": distribution(
                     observed(baseline_cost, "process_seconds")
+                ),
+                "failed_baseline_process_seconds": distribution(
+                    observed(failed_baseline_cost, "process_seconds")
                 ),
                 "candidate_build_seconds": distribution(observed(candidate_cost, "build_seconds")),
                 "baseline_build_seconds": distribution(observed(baseline_cost, "build_seconds")),
@@ -179,6 +194,7 @@ def _run_case(
     public_selector: bool = False,
     candidate_first: bool = False,
     case_report_dir: Path | None = None,
+    worker_timeout_seconds: float | None = None,
 ) -> dict:
     command = [
         _python(),
@@ -208,6 +224,8 @@ def _run_case(
         command.extend(("--worker", "--mode", "best"))
     elif candidate_first:
         command.extend(("--mode", "candidate-preview"))
+    if worker_timeout_seconds is not None:
+        command.extend(("--worker-timeout-seconds", str(worker_timeout_seconds)))
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if not completed.stdout.strip():
         raise RuntimeError(f"{case['id']} produced no comparison report:\n{completed.stderr}")
@@ -246,6 +264,11 @@ def main() -> int:
         default=1,
         help="run this many independent CAD cases in parallel (default: 1)",
     )
+    parser.add_argument(
+        "--worker-timeout-seconds",
+        type=float,
+        help="optional bound for each isolated baseline/candidate worker; timeout is a failed case",
+    )
     parser.add_argument("--require-contender", action="store_true")
     parser.add_argument(
         "--require-wins",
@@ -265,6 +288,12 @@ def main() -> int:
         parser.error("--jobs must be positive")
     if args.public_selector and args.candidate_first:
         parser.error("--public-selector and --candidate-first are mutually exclusive")
+    if args.worker_timeout_seconds is not None and (
+        not isfinite(args.worker_timeout_seconds) or args.worker_timeout_seconds <= 0
+    ):
+        parser.error("--worker-timeout-seconds must be finite and positive")
+    if args.public_selector and args.worker_timeout_seconds is not None:
+        parser.error("--worker-timeout-seconds is not supported by --public-selector")
 
     corpus = _load_manifest(args.manifest)
     if args.require_wins > len(corpus["cases"]):
@@ -279,6 +308,7 @@ def main() -> int:
                     public_selector=args.public_selector,
                     candidate_first=args.candidate_first,
                     case_report_dir=args.output / "case-reports",
+                    worker_timeout_seconds=args.worker_timeout_seconds,
                 ),
                 corpus["cases"],
             )
@@ -299,7 +329,8 @@ def main() -> int:
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     return int(
-        (args.require_contender and not report["summary"]["production_contender"])
+        (report["summary"]["semantic_parity"] != report["summary"]["cases"])
+        or (args.require_contender and not report["summary"]["production_contender"])
         or (args.require_affected_majority and not report["summary"]["affected_majority"])
         or (report["summary"]["verified_wins"] < args.require_wins)
     )
