@@ -147,7 +147,10 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
             total = int(summary.get("total", 0))
             check(
                 "recognized_inventory",
-                total > 0 and feature_count is not None and feature_count > 0 and bool(requirements),
+                total > 0
+                and feature_count is not None
+                and feature_count > 0
+                and bool(requirements),
                 {"accepted": total, "features": feature_count, "requirements": len(requirements)},
             )
         elif report.get("schema_version") == 8:
