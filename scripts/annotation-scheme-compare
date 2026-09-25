@@ -6,10 +6,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import subprocess
 import sys
+import time
 from importlib import import_module
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # Windows has no resource module.
+    resource = None
+
+try:
+    import psutil
+except ImportError:  # Script still reports timing when the dev group is absent.
+    psutil = None
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SRC = _ROOT / "src"
@@ -25,9 +37,50 @@ from draftwright.annotation_layout_profile import (  # noqa: E402
 from draftwright.layout_selection import _compare, _manifest  # noqa: E402
 
 
+class WorkerBuildError(RuntimeError):
+    def __init__(self, message: str, process_seconds: float):
+        super().__init__(message)
+        self.process_seconds = process_seconds
+
+
 def _python() -> str:
-    candidate = _ROOT / ".venv" / "bin" / "python"
-    return str(candidate if candidate.is_file() else Path(sys.executable))
+    candidates = (_ROOT / ".venv" / "bin" / "python", _ROOT / ".venv" / "Scripts" / "python.exe")
+    return str(next((path for path in candidates if path.is_file()), Path(sys.executable)))
+
+
+def _peak_rss_mib() -> float | None:
+    if resource is not None:
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return peak / (1024 * (1024 if sys.platform == "darwin" else 1))
+    if psutil is not None and sys.platform == "win32":
+        return psutil.Process().memory_info().peak_wset / (1024**2)
+    return None
+
+
+def _peak_rss_source() -> str | None:
+    if resource is not None:
+        return "resource.ru_maxrss"
+    if psutil is not None and sys.platform == "win32":
+        return "psutil.peak_wset"
+    return None
+
+
+def _machine() -> dict:
+    ram_mib = psutil.virtual_memory().total / (1024**2) if psutil is not None else None
+    if ram_mib is None and hasattr(os, "sysconf"):
+        try:
+            ram_mib = os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE") / (1024**2)
+        except (ValueError, OSError):
+            pass
+    return {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "processor": platform.processor() or None,
+        "python": platform.python_version(),
+        "logical_cpus": os.cpu_count(),
+        "physical_cores": psutil.cpu_count(logical=False) if psutil is not None else None,
+        "physical_ram_mib": ram_mib,
+    }
 
 
 def _observe_scheme_strips(scale: float) -> None:
@@ -81,6 +134,7 @@ def _observe_scheme_strips(scale: float) -> None:
 
 
 def _worker(args) -> int:
+    worker_started = time.perf_counter()
     if args.mode == "candidate":
         if getattr(args, "iso_growth", False):
             profile = AnnotationLayoutProfile(iso_growth=True)
@@ -102,6 +156,7 @@ def _worker(args) -> int:
     from draftwright import build_drawing
 
     output = Path(args.output)
+    build_started = time.perf_counter()
     with use_layout_profile(profile):
         drawing = build_drawing(
             Path(args.source),
@@ -118,7 +173,12 @@ def _worker(args) -> int:
             if args.mode in {"best", "candidate-preview"}
             else "baseline",
         )
+    build_seconds = time.perf_counter() - build_started
+    export_started = time.perf_counter()
     paths = drawing.export(str(output), formats=tuple(args.formats.split(",")))
+    export_seconds = time.perf_counter() - export_started
+    manifest = _manifest(drawing)
+    worker_seconds = time.perf_counter() - worker_started
     print(
         json.dumps(
             {
@@ -129,7 +189,15 @@ def _worker(args) -> int:
                 "views": list(drawing.views),
                 "corridor_depths": _CAP_REPORT,
                 "layout_decision": drawing.annotation_scheme_decision,
-                "manifest": _manifest(drawing),
+                "manifest": manifest,
+                "cost": {
+                    "build_seconds": build_seconds,
+                    "export_seconds": export_seconds,
+                    "worker_seconds": worker_seconds,
+                    "peak_rss_mib": _peak_rss_mib(),
+                    "peak_rss_source": _peak_rss_source(),
+                    "machine": _machine(),
+                },
             },
             sort_keys=True,
         )
@@ -176,18 +244,28 @@ def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None =
         "DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW",
     ):
         env.pop(name, None)
+    process_started = time.perf_counter()
     completed = subprocess.run(command, check=False, capture_output=True, text=True, env=env)
+    process_seconds = time.perf_counter() - process_started
     if completed.returncode:
-        raise RuntimeError(f"{mode} build failed:\n{completed.stderr}")
-    return json.loads(completed.stdout)
+        raise WorkerBuildError(f"{mode} build failed:\n{completed.stderr}", process_seconds)
+    result = json.loads(completed.stdout)
+    result.setdefault("cost", {})["process_seconds"] = process_seconds
+    return result
 
 
-def _failed_candidate_comparison(baseline: dict, error: str, *, mode="candidate") -> dict:
+def _failed_candidate_comparison(
+    baseline: dict, error: str, *, mode="candidate", process_seconds: float | None = None
+) -> dict:
     """Keep a candidate build failure as corpus evidence instead of aborting the run."""
     baseline_key = tuple(baseline["manifest"]["arrangement_quality"]["selection_key"])
     return {
         "baseline": baseline,
-        "candidate": {"mode": mode, "error": error},
+        "candidate": {
+            "mode": mode,
+            "error": error,
+            "cost": {"process_seconds": process_seconds},
+        },
         "parity": {
             "passed": False,
             "reason": "candidate_build_failed",
@@ -224,7 +302,9 @@ def _candidate_trial(args, baseline: dict, *, routes: str, output: Path) -> dict
     try:
         candidate = _run_worker(args, "candidate", output, candidate_routes=routes)
     except RuntimeError as error:
-        return _failed_candidate_comparison(baseline, str(error))
+        return _failed_candidate_comparison(
+            baseline, str(error), process_seconds=getattr(error, "process_seconds", None)
+        )
     return _compare(baseline, candidate)
 
 
@@ -296,7 +376,12 @@ def main() -> int:
                 args.output.with_name(args.output.name + "-candidate-preview"),
             )
         except RuntimeError as error:
-            result = _failed_candidate_comparison(baseline, str(error), mode="candidate-preview")
+            result = _failed_candidate_comparison(
+                baseline,
+                str(error),
+                mode="candidate-preview",
+                process_seconds=getattr(error, "process_seconds", None),
+            )
         else:
             result = _compare(baseline, candidate)
         result["candidate_trials"] = [_trial_summary("candidate-preview", "pre-render", result)]
