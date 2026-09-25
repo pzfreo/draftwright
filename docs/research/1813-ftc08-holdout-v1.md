@@ -22,6 +22,15 @@ earlier invocation failed before CAD import because the worktree selected a
 system Python without `build123d`; the corrected invocation used the installed
 venv. No successful CAD worker was rerun.
 
+To reproduce, download and extract the named NIST archive, verify both hashes,
+and use a one-case corpus manifest with `source` set to the extracted member's
+local path and the `caller` fields in the compact record. Invoke
+`<venv-python> scripts/annotation-scheme-corpus --manifest <local-manifest> --output <run-dir>
+--candidate-first --jobs 1 --worker-timeout-seconds 600`, not the worktree's
+system-Python script shebang. The absolute source path made the original
+manifest hash machine-specific; the
+archive member and caller record are the portable reproduction inputs.
+
 ## Result and visual review
 
 The candidate chose `columns` before rendering. Offline baseline/candidate
