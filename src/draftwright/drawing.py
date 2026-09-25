@@ -654,7 +654,8 @@ class Drawing:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
         scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
             including the requested/effective scales and any required placement blockers.
-        annotation_scheme_decision: JSON-friendly corridor comparison. With
+        annotation_scheme_decision: JSON-friendly corridor comparison and a versioned,
+            observational profile recommendation from pre-render demand. With
             ``annotation_layout="best"`` it also records verified layout trials and the
             selected result; ``influenced_layout`` says whether a candidate won.
         view_decision: JSON-friendly resolution of automatic principal-view selection.
