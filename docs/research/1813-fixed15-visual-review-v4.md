@@ -11,14 +11,20 @@ are recorded below for provenance.
 
 | Case | Baseline page | Candidate-preview page | Visual and gate finding |
 | --- | --- | --- | --- |
-| CTC02 | [PNG](../images/1813-v4-ctc02-baseline.png) | [PNG](../images/1813-v4-ctc02-candidate-preview.png) | Crowded GD&T below the plan and a long upper-plan leader persist. Hard violations 24→23 and crossings 4→0, but 43 required blockers remain and the iso area shrinks to **0.808×** baseline. Not an absolute safety or visually verified win. |
-| CTC04 | [PNG](../images/1813-v4-ctc04-baseline.png) | [PNG](../images/1813-v4-ctc04-candidate-preview.png) | Dense dimension ladders above the plan and crowded callouts around the lower views remain. Hard violations 12→11 and crossings 1→0, but 38 blockers, 11 candidate overlaps, and 2 interior dimensions remain. Iso area is unchanged. Not an absolute safety pass. |
-| CTC05 | [PNG](../images/1813-v4-ctc05-baseline.png) | [PNG](../images/1813-v4-ctc05-candidate-preview.png) | Candidate reduces crossings 5→1, but the lower-right orthographic view still has crowded interior dimensions/leaders. Two blockers, 5 overlaps, and 5 interior dimensions remain; iso area is unchanged. Required content was retained, but legibility is not established. |
+| CTC02 | [PNG](../images/1813-v4-ctc02-baseline.png) | [PNG](../images/1813-v4-ctc02-candidate-preview.png) | Relative gain: hard violations 24→23 and crossings 4→0. Tradeoff: the iso area shrinks to **0.808×** baseline; crowded GD&T below the plan and a long upper-plan leader persist. The candidate's 43 required blockers fail independent safety. The route gain is real, but an overall visual win is not yet established. |
+| CTC04 | [PNG](../images/1813-v4-ctc04-baseline.png) | [PNG](../images/1813-v4-ctc04-candidate-preview.png) | Relative gain: hard violations 12→11 and crossings 1→0, with unchanged iso area. Dense dimension ladders above the plan and crowded lower-view callouts persist; the candidate has 38 blockers, 11 overlaps, and 2 interior dimensions. This does not pass independent safety, even though it improves on the baseline. |
+| CTC05 | [PNG](../images/1813-v4-ctc05-baseline.png) | [PNG](../images/1813-v4-ctc05-candidate-preview.png) | Relative gain: crossings 5→1 with unchanged iso area and retained required content. The lower-right orthographic view still has crowded interior dimensions/leaders; 2 blockers, 5 overlaps, and 5 interior dimensions remain. This is an improvement, not proof of absolute legibility. |
 
 All three are strict **relative metric** wins on the same caller page/scale with
 semantic parity and no newly introduced blocker identities. Their independent
-candidate safety checks fail. The images support a narrower conclusion than a
-quality key alone: they are still dense, incomplete drawings.
+candidate safety checks fail. These are different questions: a hard CTC sheet
+can improve over its equally constrained baseline without either sheet being
+safe to manufacture from. Pre-existing blockers do not erase a relative gain;
+they also do not become acceptable just because a few crossings disappeared.
+The images support a narrower conclusion than the quality key alone: the
+candidate sheets are still dense and incomplete. CTC02's smaller iso and long
+leader specifically prevent an unqualified overall visual-win call from this
+review, while CTC04/05 have visible local gains but unresolved legibility.
 
 ## Isometric shrinkage across the fixed 15
 
