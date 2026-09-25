@@ -31,9 +31,19 @@ _LAYOUT_BLOCKERS = frozenset(
     }
 )
 _UNRESOLVED_STATES = frozenset({"dropped", "missing", "unverifiable", "unsupported"})
+_SATISFIED_RAW_REQUIREMENT_STATES = frozenset(
+    {"placed", "satisfied_by_structured_note", "inapplicable"}
+)
 _DECLARED_ASPECT_KINDS = frozenset({"control_frame", "datum_ref", "finish", "note"})
 _MIN_VIEW_AREA_MM2 = 100.0
 _PAGE_EDGE_TOLERANCE_MM = 1e-6
+
+
+def _raw_requirement_state(requirement: object) -> str:
+    if not isinstance(requirement, dict):
+        return "<invalid>"
+    state = requirement.get("state")
+    return state if isinstance(state, str) else "<invalid>"
 
 
 def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
@@ -138,10 +148,12 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
             recognition = report.get("recognition", {})
             summary = recognition.get("summary", {})
             requirements = recognition.get("requirements", ())
+            # Fail closed on suppressed or unfamiliar states as well as the
+            # known unresolved outcomes. The report schema may grow without
+            # this safety gate silently admitting a new requirement state.
+            states = map(_raw_requirement_state, requirements)
             unresolved = Counter(
-                requirement.get("state")
-                for requirement in requirements
-                if requirement.get("state") in _UNRESOLVED_STATES
+                state for state in states if state not in _SATISFIED_RAW_REQUIREMENT_STATES
             )
             check("required_outcomes", not unresolved, dict(sorted(unresolved.items())))
             missing = int(summary.get("unexpectedly_missing", 0))
@@ -228,7 +240,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 3,
+        "version": 4,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
