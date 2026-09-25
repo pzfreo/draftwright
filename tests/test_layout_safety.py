@@ -160,7 +160,17 @@ def test_recognized_occurrence_coverage_fails_independently(coverage):
 
 def test_recognized_occurrence_inventory_and_ledger_ids_fail_closed():
     report = _raw_report(total=1, requirements=({"state": "placed"},))
+    report["recognition"].pop("occurrences")
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
     report["recognition"]["occurrences"] = []
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
+    report["recognition"]["occurrences"] = [None]
     assert (
         "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
     )
