@@ -34,7 +34,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
 
     decision = selected.annotation_scheme_decision
     assert decision["policy"] == "best"
-    assert decision["pre_render_choice"]["version"] == 1
+    assert decision["pre_render_choice"]["version"] == 3
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
     assert decision["safety_evidence"]["version"] == 2
@@ -77,7 +77,7 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
     assert decision["safety_evidence"]["version"] == 2
     assert decision["safety_evidence"]["admission_ready"] is False
     assert decision["fallback_decision"] == "not_evaluated_preview"
-    assert decision["pre_render_choice"]["profile"] == "legacy-depth"
+    assert decision["pre_render_choice"]["profile"] == "iso-growth"
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
 
 
