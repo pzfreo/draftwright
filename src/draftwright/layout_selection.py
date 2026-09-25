@@ -27,9 +27,8 @@ def choose_pre_render_profile(
 ) -> dict[str, object]:
     """Recommend a layout from typed demand and settled pre-render constraints.
 
-    This conservative first version recommends the planned profile only when every
-    typed route fits its established reservation. It does not infer visual quality
-    from a finished baseline drawing.
+    This observational policy uses demand composition and corridor pressure, not
+    the quality of a finished baseline drawing. It does not safety-admit a result.
     """
 
     scheme = strips.scheme
@@ -47,12 +46,24 @@ def choose_pre_render_profile(
         profile, reason = None, "demand_view_absent"
     elif not scheme.demands and not scheme.unplanned:
         profile, reason = "iso-growth", "no_annotation_demand"
+    elif demand_count <= 4 and report.unplanned_count <= 1 and report.under_reserved:
+        profile, reason = "iso-growth", "sparse_annotation_demand"
+    elif (
+        demand_count >= 40
+        and len(report.under_reserved) >= 3
+        and 3 * report.unplanned_count >= demand_count
+    ):
+        # A dense, partly unplanned drawing should retain uncapped reservations;
+        # columns also avoid the exterior-dimension treatment of the side profile.
+        profile, reason = "columns", "dense_unplanned_corridors"
+    elif demand_count >= 20 and 4 * report.unplanned_count <= demand_count:
+        profile, reason = "planned", "typed_majority_with_corridor_pressure"
     elif scheme.unplanned or report.under_reserved:
         profile, reason = "legacy-depth", "unplanned_or_under_reserved_demand"
     else:
         profile, reason = "planned", "all_typed_corridors_fit"
     return {
-        "version": 1,
+        "version": 2,
         "profile": profile,
         "reason": reason,
         "page": [float(page[0]), float(page[1])],
