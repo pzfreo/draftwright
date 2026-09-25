@@ -1947,9 +1947,7 @@ class TestBuildDrawingPmi:
             for name in ctc01_annotated.registry.names_for_feature(label.origin)
         } == {"A", "B"}
 
-    def test_pmi_annotate_renders_each_nist_range_requirement_with_both_limits(
-        self, ctc01_annotated
-    ):
+    def test_pmi_annotate_groups_equal_symmetric_nist_range_requirements(self, ctc01_annotated):
         from draftwright.model.ir import ToleranceDecoration
 
         source_ids = {"dimension:0:1:4:25", "dimension:0:1:4:26"}
@@ -1971,7 +1969,7 @@ class TestBuildDrawingPmi:
         )
         assert all(
             any(
-                annotations[name].label == "⌀34.8 - ⌀35.2 THRU"
+                annotations[name].label == "2× ⌀35 ±0.2 THRU"
                 for name in ctc01_annotated.registry.names_for_feature(owner)
             )
             for owner, _requirement in requirements
@@ -1999,15 +1997,20 @@ class TestBuildDrawingPmi:
             assert len(callouts) == 1
             callout = callouts[0]
             source_id = requirement.source_ids[0]
-            assert callout.source_measurements == (
-                (source_id, DimensionId(owner, "bore.diameter")),
+            assert (source_id, DimensionId(owner, "bore.diameter")) in callout.source_measurements
+            assert all(
+                measurement.parameter == "bore.diameter"
+                for _source, measurement in callout.source_measurements
             )
             if source_id in {"dimension:0:1:4:23", "dimension:0:1:4:24"}:
                 assert callout.geometry_measurements == (DimensionId(owner, "bore.depth"),)
                 assert callout.geometry_qualifiers == ()
             else:
                 assert callout.geometry_measurements == ()
-                assert callout.geometry_qualifiers == ("bore.through",)
+                expected = ("bore.through",)
+                if len(callout.source_measurements) > 1:
+                    expected += ("grouping.count",)
+                assert callout.geometry_qualifiers == expected
 
     def test_pmi_annotate_reports_each_incomplete_source_record(self, ctc01_annotated):
         issues = [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_extracted"]

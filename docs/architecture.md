@@ -9,7 +9,8 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: leaf modules (`progress.py`, `layout.py`, `leader_policy.py`, `registry.py`, `fonts.py`,
+top: leaf modules (`progress.py`, `layout.py`, `layout_scheme.py` (typed render-free annotation
+topology and corridor demand planning), `leader_policy.py`, `registry.py`, `fonts.py`,
 `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,

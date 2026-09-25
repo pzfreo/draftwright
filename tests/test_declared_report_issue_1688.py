@@ -39,7 +39,7 @@ def test_declared_sheet_report_uses_final_ir_authority_and_retains_lint() -> Non
     assert "no correspondence was inferred" in report["declarations"]["reason"]
     assert report["declarations"]["feature_count"] == len(drawing.model().features)
     assert sum(report["declarations"]["by_kind"].values()) == len(drawing.model().features)
-    assert report["lint"] == drawing.lint_summary()
+    assert report["lint"] == json.loads(json.dumps(drawing.lint_summary()))
     assert "recognition" not in report
 
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))

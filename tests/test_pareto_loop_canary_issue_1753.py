@@ -149,8 +149,9 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
     assert baseline["source"]["sha256"] == _FIXTURE_SHA256
 
     # #1756 resolves this exact finding during ordinary placement. A Pareto loop must
-    # therefore not offer a stale semantic edit for it; the two unrelated slot findings
-    # remain visible and the fixed requirement denominator remains independently checked.
+    # therefore not offer a stale semantic edit for it. The compact equivalent-hole batch
+    # also removes the two historical slot/callout contacts without changing the fixed
+    # requirement denominator.
     assert not [
         row
         for row in baseline["drawing"]["layout"]["findings"]
@@ -159,10 +160,7 @@ def test_ctc01_resolved_gdt_finding_is_not_offered_to_the_pareto_loop(
     assert baseline["drawing"]["layout"]["edit_surface"] == "semantic-dsl-only"
     assert len(list((tmp_path / "baseline-trace").glob("*.trace.json"))) == 1
 
-    assert _overlaps(baseline) == [
-        (("hc_plan1", "m_slot0_width"), ("declaration:1", "declaration:9")),
-        (("hc_plan2", "m_slot0_width"), ("declaration:2", "declaration:9")),
-    ]
+    assert _overlaps(baseline) == []
 
     expected = {(row.declaration_id, row.parameter_id) for row in _EXPECTED}
     assert {

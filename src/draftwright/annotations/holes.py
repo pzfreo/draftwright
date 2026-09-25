@@ -39,6 +39,7 @@ from draftwright._core import (
     layout_frame,
 )
 from draftwright._geometry import _leader_ink_crosses_box, plane_axes
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     CorridorCandidate,
@@ -73,6 +74,7 @@ from draftwright.annotations.from_model import (
     _obround_radius_candidates,
     _pocket_label,
     _radial_candidates,
+    _sheet_leader_fallback,
     _slot_label,
     _tol_suffix,
     callout_from_spec,
@@ -87,7 +89,10 @@ from draftwright.annotations.leaders import (
     _FeatureLeaderInvariantError,
     collect_feature_leader,
     feature_leader_candidates,
+    material_penalty_units,
+    view_material,
 )
+from draftwright.annotations.routed import RoutedLeader
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
 from draftwright.model import plan_dimensions
@@ -105,8 +110,8 @@ from draftwright.model.ir import HoleFeature, PatternFeature
 _AXIS_ALIGN_COS = 0.9996
 
 
-def _profiled_callout_leader(*, callout, **kw):
-    """Build a leader and preserve callout semantics plus structured profile metadata.
+def _copy_callout_semantics(leader, callout):
+    """Keep a rendered geometric callout's claim on either leader shape.
 
     The helpers' ``Leader`` copies its native diameter/count coverage from ``HoleCallout``;
     its geometric-callout path does not copy the callout's semantic label. Profiled-bore
@@ -118,7 +123,6 @@ def _profiled_callout_leader(*, callout, **kw):
         raise _FeatureLeaderInvariantError(
             "a rendered hole callout must carry a non-empty semantic label"
         )
-    leader = Leader(callout=callout, **kw)
     leader.label = semantic_label
     leader.pdf_text_relative_specs = tuple(getattr(callout, "pdf_text_relative_specs", ()))
     leader.covers_profiles = getattr(callout, "covers_profiles", ())
@@ -132,6 +136,12 @@ def _profiled_callout_leader(*, callout, **kw):
     leader.geometry_measurements = tuple(getattr(callout, "geometry_measurements", ()))
     leader.geometry_qualifiers = tuple(getattr(callout, "geometry_qualifiers", ()))
     return leader
+
+
+def _profiled_callout_leader(*, callout, **kw):
+    """Build a normal leader with the rendered callout's semantic claim."""
+
+    return _copy_callout_semantics(Leader(callout=callout, **kw), callout)
 
 
 def add_feature_callout(
@@ -595,7 +605,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
             (
                 None
                 if ctx.document_member
-                and dwg._analysis.pmi_mode != "annotate"
+                and dwg.pmi_mode != "annotate"
                 and getattr(getattr(feature, "thread", None), "source", "") == "ap242_pmi"
                 else getattr(feature, "thread", None)
             ),
@@ -3128,6 +3138,75 @@ def _place_queue(
                     callout=_callout,
                 )
 
+            def _recover(
+                _raw=_raw_candidates,
+                _build_at=_build,
+                _callout=callout,
+                _box=callout_box,
+                _view=view,
+            ):
+                if _box is None:
+                    return None
+                size = (_box[2] - _box[0], _box[3] - _box[1])
+                for index, candidate in enumerate(_raw()):
+                    if index >= 4:
+                        break
+                    tip, feature = candidate.tip, candidate.feature
+                    if candidate.radial_target is not None:
+                        centre = candidate.radial_target.center
+                        radius = candidate.radial_target.radius
+
+                        def radial_tip(elbow, _centre=centre, _radius=radius):
+                            dx = float(elbow[0]) - _centre[0]
+                            dy = float(elbow[1]) - _centre[1]
+                            length = math.hypot(dx, dy)
+                            if length <= _radius:
+                                return _centre
+                            return (
+                                _centre[0] + dx * _radius / length,
+                                _centre[1] + dy * _radius / length,
+                            )
+
+                        field = view_material(dwg, _view)
+
+                        def clear_material(annotation, _field=field):
+                            return (
+                                material_penalty_units(annotation.tip, annotation.elbow, _field)
+                                == 0
+                            )
+
+                        def build_radial(elbow, _feature=feature):
+                            return _build_at(radial_tip(elbow), (*elbow, 0), _feature)
+
+                        annotation = _sheet_leader_fallback(
+                            dwg,
+                            centre,
+                            _view,
+                            build_radial,
+                            label_size=size,
+                            tip_for_elbow=radial_tip,
+                            accept_candidate=clear_material,
+                        )
+                        if annotation is not None:
+                            return annotation, feature
+                        continue
+
+                    def build_at(elbow, _tip=tip, _feature=feature):
+                        return _build_at(_tip, (*elbow, 0), _feature)
+
+                    def build_routed(bends, elbow, _tip=tip):
+                        return _copy_callout_semantics(
+                            RoutedLeader(_tip, bends, elbow, "", draft, callout=_callout),
+                            _callout,
+                        )
+
+                    annotation = _sheet_leader_fallback(
+                        dwg, tip, _view, build_at, build_routed, size
+                    )
+                    if annotation is not None:
+                        return annotation, feature
+                return None
+
             name = _hc_name(only, view, i, hc_used)
 
             # Pitch/BCD furniture is a separate non-leader requirement. Keep it
@@ -3245,6 +3324,13 @@ def _place_queue(
                     priority=float(dia),
                     on_place=_on_place,
                     on_drop=_on_drop,
+                    recover=(
+                        _recover
+                        if layout_flag(
+                            "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
+                        )
+                        else None
+                    ),
                 ),
             )
             i += 1

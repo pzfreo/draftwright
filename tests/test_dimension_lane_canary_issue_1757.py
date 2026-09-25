@@ -55,7 +55,7 @@ def _annotation(document: dict[str, Any], name: str) -> dict[str, Any]:
     return next(row for row in document["drawing"]["layout"]["annotations"] if row["name"] == name)
 
 
-def test_ctc01_feature_relative_lanes_remove_both_slot_width_crossings(tmp_path) -> None:
+def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> None:
     assert hashlib.sha256(_FIXTURE.read_bytes()).hexdigest() == _FIXTURE_SHA256
     generated_prefix = tmp_path / "generated"
     generated_script = Path(
@@ -96,10 +96,9 @@ def test_ctc01_feature_relative_lanes_remove_both_slot_width_crossings(tmp_path)
         for row in baseline["drawing"]["layout"]["findings"]
         if row["code"] == "annotation_ink_overlap"
     ]
-    assert baseline_overlaps == [
-        (("hc_plan1", "m_slot0_width"), ("declaration:1", "declaration:9")),
-        (("hc_plan2", "m_slot0_width"), ("declaration:2", "declaration:9")),
-    ]
+    # The shared corridor planner now clears these crossings before an authored lane is
+    # needed. Explicit lanes must preserve that result and the same semantic ownership.
+    assert baseline_overlaps == []
     assert not [
         row
         for row in candidate["drawing"]["layout"]["findings"]
@@ -141,8 +140,8 @@ def test_ctc01_feature_relative_lanes_remove_both_slot_width_crossings(tmp_path)
         candidate,
         expected_requirements=expected,
     )
-    assert comparison["pareto"]["relation"] == "dominates"
-    assert comparison["pareto"]["improved_axes"] == ["legibility"]
+    assert comparison["pareto"]["relation"] == "equivalent"
+    assert comparison["pareto"]["improved_axes"] == []
     assert comparison["pareto"]["regressed_axes"] == []
     assert comparison["axes"]["requirements"]["relation"] == "unchanged"
     assert comparison["axes"]["completeness"]["relation"] == "unchanged"

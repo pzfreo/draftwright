@@ -764,7 +764,8 @@ def candidate_is_feasible(candidate: LayoutCandidate, fits) -> Infeasible | None
 #: width at the cost of the height the title block does not use. Preference order matters:
 #: the candidate loop returns the FIRST feasible candidate, so `columns` — the arrangement
 #: every existing drawing is composed under — is only departed from when it does not fit.
-ARRANGEMENTS: tuple[str, ...] = ("columns", "stacked-iso")
+AUTOMATIC_ARRANGEMENTS: tuple[str, ...] = ("columns", "stacked-iso")
+ARRANGEMENTS: tuple[str, ...] = (*AUTOMATIC_ARRANGEMENTS, "staggered-side")
 
 
 class ScalePick(tuple):

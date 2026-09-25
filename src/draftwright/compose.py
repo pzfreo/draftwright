@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 from build123d_drafting.helpers import draft_preset, format_drawing_scale
@@ -60,6 +60,11 @@ from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
+from draftwright.layout_scheme import (
+    AnnotationScheme,
+    pack_estimated_annotation_lanes,
+    plan_annotation_scheme,
+)
 from draftwright.model.callout import bore_callout_value, hole_callout_batches, hole_callout_suffix
 from draftwright.model.ir import ThroughStepFeature, authored_dimension_target_view
 from draftwright.model.planner import (
@@ -70,6 +75,7 @@ from draftwright.model.planner import (
 )
 from draftwright.view_plan import (
     ARRANGEMENTS,
+    AUTOMATIC_ARRANGEMENTS,
     VIEW_AXES,
     LayoutCandidate,
     ScalePick,
@@ -362,6 +368,55 @@ class AngularReservation:
         return geometry.footprint(geometry.minimum_radius)
 
 
+@dataclass(frozen=True)
+class CorridorDepthComparison:
+    """Observational difference between scheme-planned and legacy reserved depth."""
+
+    view: str
+    side: str
+    planned: float
+    reserved: float
+
+    @property
+    def delta(self) -> float:
+        return self.planned - self.reserved
+
+
+@dataclass(frozen=True)
+class AnnotationSchemeShadowReport:
+    """Serializable, non-authoritative comparison collected during normal analysis."""
+
+    scale: float
+    corridors: tuple[CorridorDepthComparison, ...]
+    unplanned_count: int
+
+    @property
+    def under_reserved(self) -> tuple[CorridorDepthComparison, ...]:
+        return tuple(item for item in self.corridors if item.delta > 1e-9)
+
+    @property
+    def over_reserved(self) -> tuple[CorridorDepthComparison, ...]:
+        return tuple(item for item in self.corridors if item.delta < -1e-9)
+
+    def to_dict(self) -> dict:
+        return {
+            "scale": self.scale,
+            "unplanned_count": self.unplanned_count,
+            "corridors": [
+                {
+                    "view": item.view,
+                    "side": item.side,
+                    "planned": item.planned,
+                    "reserved": item.reserved,
+                    "delta": item.delta,
+                }
+                for item in self.corridors
+            ],
+            "under_reserved": len(self.under_reserved),
+            "over_reserved": len(self.over_reserved),
+        }
+
+
 @dataclass
 class StripDepths:
     """Annotation strip depths (page-mm) computed before view positions are fixed.
@@ -383,6 +438,82 @@ class StripDepths:
     angular: tuple[AngularReservation, ...] = ()
     pv_location_top: float = 0.0  # complete ladder depth for a facing plan/front corridor
     rv_right: float = 0.0
+    # Drafter-style topology. Normal builds observe it; selected trials can cap depths.
+    scheme: AnnotationScheme | None = field(default=None, compare=False)
+
+    def planned_corridor_depths(
+        self,
+        scale: float,
+        *,
+        font_size: float = _FONT_SIZE,
+        pad_around_text: float = 2.0,
+        gap: float = _STRIP_GAP,
+        spacing: float = _STRIP_SPACING,
+    ) -> dict[tuple[str, str], float]:
+        """Evaluate the observational scheme at one scale without changing layout."""
+
+        if self.scheme is None:
+            return {}
+        lanes = pack_estimated_annotation_lanes(
+            self.scheme,
+            scale=scale,
+            font_size=font_size,
+            padding=pad_around_text,
+            clearance=spacing,
+        )
+        return lanes.corridor_depths(
+            tier=font_size + 2 * pad_around_text,
+            gap=gap,
+            spacing=spacing,
+        )
+
+    def compare_planned_corridors(
+        self,
+        scale: float,
+        **planning_style,
+    ) -> tuple[CorridorDepthComparison, ...]:
+        """Compare scheme depth with today's reservations; never mutates layout inputs."""
+
+        halo = self.pv_halo
+        shared_side = max(_DIM_PAD, self.right, halo)
+        shared_left = max(_DIM_PAD, self.left, halo)
+        pv_below = _est_pv_below_depth()
+        pv_top = max(_DIM_PAD, self.top) + halo if halo > 0 else _DIM_PAD
+        reserved = {
+            ("front", "above"): max(_DIM_PAD - pv_below, self.fv_top),
+            ("front", "below"): max(_DIM_PAD, self.fv_bottom),
+            ("front", "left"): shared_left,
+            ("front", "right"): shared_side,
+            ("plan", "above"): max(pv_top, self.pv_authored_top),
+            ("plan", "below"): max(pv_below, halo, self.pv_bottom),
+            ("plan", "left"): shared_left,
+            ("plan", "right"): shared_side,
+            ("side", "above"): self.sv_top,
+            ("side", "below"): self.sv_bottom,
+            ("side", "right"): max(_DIM_PAD, self.sv_right),
+            ("rear", "right"): max(shared_side, self.rv_right),
+        }
+        planned = self.planned_corridor_depths(scale, **planning_style)
+        return tuple(
+            CorridorDepthComparison(
+                view,
+                side,
+                depth,
+                float(reserved.get((view, side), 0.0)),
+            )
+            for (view, side), depth in sorted(planned.items())
+        )
+
+    def annotation_scheme_shadow_report(
+        self, scale: float, **planning_style
+    ) -> AnnotationSchemeShadowReport:
+        """Return stable shadow metrics without changing the selected layout."""
+
+        return AnnotationSchemeShadowReport(
+            scale=float(scale),
+            corridors=self.compare_planned_corridors(scale, **planning_style),
+            unplanned_count=len(self.scheme.unplanned) if self.scheme is not None else 0,
+        )
 
 
 def _measure_strips(
@@ -402,7 +533,8 @@ def _measure_strips(
     their model-space extent so scale trials can evaluate their analytic boxes.
     *arrow_length* and *pad_around_text* should come from ``draft_preset(...)``.
     """
-    return _footprint_from_boxes(
+    planned_groups = annotation_groups(model, plan_dimensions(model))
+    footprint = _footprint_from_boxes(
         _compose_anno_boxes(
             model,
             n_steps,
@@ -412,8 +544,10 @@ def _measure_strips(
             pad_around_text=pad_around_text,
             text_position=text_position,
             text_orientation=text_orientation,
+            planned_groups=planned_groups,
         )
     )
+    return replace(footprint, scheme=plan_annotation_scheme(model, groups=planned_groups))
 
 
 @dataclass(frozen=True)
@@ -449,6 +583,7 @@ def _compose_anno_boxes(
     pad_around_text: float = 2.0,
     text_position: str = "inline",
     text_orientation: str = "aligned",
+    planned_groups=None,
 ) -> list[AnnoBox]:
     """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
 
@@ -459,6 +594,11 @@ def _compose_anno_boxes(
     (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
     caller measured with :func:`_est_planned_bore_callout_width`.
     """
+    planned_groups = (
+        annotation_groups(model, plan_dimensions(model))
+        if planned_groups is None
+        else planned_groups
+    )
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
@@ -528,7 +668,7 @@ def _compose_anno_boxes(
         # compose path also serves read-only inspection. Share the complete text
         # formatter so small authored tolerances reserve their actual footprint.
         # Each curved footprint grows only the sides it actually reaches.
-        for group in annotation_groups(model, plan_dimensions(model)):
+        for group in planned_groups:
             if group.feature.kind != "angle":
                 continue
             shared_label = angular_pattern_label(group)
@@ -652,7 +792,7 @@ def _compose_anno_boxes(
     # raw face levels/plates. Reserve those approved legs directly; a phantom legacy
     # height ladder must not be what happens to give them room (#1592).
     if any(feature.kind == "through_step" for feature in model.features):
-        for group in annotation_groups(model, plan_dimensions(model)):
+        for group in planned_groups:
             if not isinstance(group.feature, ThroughStepFeature) or group.view is None:
                 continue
             horizontal, vertical = VIEW_AXES[group.view]
@@ -675,7 +815,7 @@ def _compose_anno_boxes(
         if feature.kind in ("boss", "polygonal_boss", "polygonal_stock")
         and feature.frame.axis in ("x", "y")
     ]
-    for group in annotation_groups(model, plan_dimensions(model)) if axial_features else ():
+    for group in planned_groups if axial_features else ():
         feature = group.feature
         if feature.kind not in ("boss", "polygonal_boss", "polygonal_stock"):
             continue
@@ -752,7 +892,7 @@ def _compose_anno_boxes(
             and dimension.side != "left"
             for dimension in group.dims
         )
-        for group in annotation_groups(model, plan_dimensions(model))
+        for group in planned_groups
     )
     if rear_tiers := rear_locations + int(rear_height):
         tier = font_size + 2 * pad_around_text
@@ -964,6 +1104,14 @@ def choose_scale(
             layout does not fit).
     """
     title_block_width = _validated_title_block_width(title_block_width)
+    requested_arrangements = (
+        AUTOMATIC_ARRANGEMENTS if arrangements is None else tuple(arrangements)
+    )
+    if not requested_arrangements or any(
+        item not in ARRANGEMENTS for item in requested_arrangements
+    ):
+        raise ValueError(f"arrangements must contain values from {ARRANGEMENTS}")
+    requested_arrangement = requested_arrangements[0]
 
     if scale is not None and not float(scale) > 0:
         # `not x > 0` rather than `x <= 0` so NaN is refused: `nan <= 0` is False, and a NaN
@@ -1001,6 +1149,7 @@ def choose_scale(
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
+            arrangement=requested_arrangement,
         ):
             if advisories is not None:
                 advisories.append(
@@ -1016,7 +1165,7 @@ def choose_scale(
                 scale,
                 page,
             )
-        return float(scale), pw, ph, tb
+        return ScalePick(float(scale), pw, ph, tb, arrangement=requested_arrangement)
     if page is not None:
         pw, ph, tb = _parse_page(page)
         tb = title_block_width if title_block_width is not None else tb
@@ -1107,7 +1256,7 @@ def choose_scale(
     # `arrangements` restricts the fourth dimension of the choice. The requirement gate in
     # `builder` uses it to re-run a build under the preferred arrangement alone, so that a
     # candidate which lost a requirement can be compared against one that could not have.
-    allowed = ARRANGEMENTS if arrangements is None else tuple(arrangements)
+    allowed = requested_arrangements
     preferred, alternatives = allowed[0], allowed[1:]
 
     # Pass 1 — the scale. Only the preferred arrangement may decide it.
@@ -1634,6 +1783,31 @@ def _layout_geometry(
         total_content_w = ortho_row_w
         x_offset = 0.0
 
+    if arrangement == "staggered-side" and has_side:
+        # Reserve the complete side-view ladder before the ISO is fitted.  Location
+        # dimensions are nested and therefore consume one outward tier each even when
+        # their one-dimensional support intervals do not overlap.
+        side_ladder_count = 0
+        if strips is not None and strips.scheme is not None:
+            side_ladder_count = sum(
+                demand.view == "side"
+                and demand.side == "above"
+                and demand.family != "feature_leader"
+                for demand in strips.scheme.demands
+            )
+        if side_ladder_count:
+            side_ladder_count = max(6, side_ladder_count)
+            tier = _FONT_SIZE + 2 * 2.0
+            sv = replace(
+                sv,
+                top=max(
+                    sv.top,
+                    _STRIP_GAP
+                    + side_ladder_count * tier
+                    + max(0, side_ladder_count - 1) * _STRIP_SPACING,
+                ),
+            )
+
     # Anchor the FV/PV column on the SHARED left corridor (col_left), not fv.left
     # alone: when the measured plan-view left band is the deeper of the two, the
     # column must clear it or PV slides left of the centred region — and off the
@@ -1655,6 +1829,16 @@ def _layout_geometry(
         FV_X, FV_Y = origin_x, origin_y
         PV_X, PV_Y = origin_x, origin_y + principal_origins["plan"][1]
         SV_X, SV_Y = origin_x + principal_origins["side"][0], origin_y
+    if arrangement == "staggered-side" and has_side:
+        # The title block is pinned. Lift the complete orthographic row above it while
+        # preserving the front/side alignment and the plan/front projection relation.
+        title_top = tb_bottom + _TB_H + 4.0
+        aligned_y = title_top + max(fv.bottom + fv.hh, sv.bottom + sv.hh)
+        lift = max(0.0, aligned_y - FV_Y)
+        FV_Y += lift
+        SV_Y = FV_Y
+        if has_plan:
+            PV_Y += lift
     RV_X = (origin_x + principal_origins["rear"][0]) if composed_origins else 0.0
     RV_Y = origin_y if composed_origins else 0.0
     # Keep the side geometry edge separate from the packed outer footprint.  The

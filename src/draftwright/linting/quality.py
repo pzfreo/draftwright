@@ -338,6 +338,9 @@ _UNSCORED_CODES = frozenset(
         "feature_no_centermark",
         "feature_not_dimensioned",
         "feature_not_located",
+        # Successful placement through the sheet-wide recovery route. These report
+        # which solver path won; the placed annotation carries the quality outcome.
+        "gdt_sheet_fallback",
         "gdt_side_relaxed",
         "gear_correspondence_unverifiable",
         "gear_semantics_missing",
@@ -354,6 +357,7 @@ _UNSCORED_CODES = frozenset(
         "pmi_not_lowered",
         "pmi_not_rendered",
         "pmi_present_but_ignored",
+        "pmi_sheet_fallback",
         # Unverified is not false and not misplaced: no census was available, so nothing was
         # contradicted and nothing was mis-drawn (#1563). It sits with the other pmi codes
         # here rather than in fidelity, whose basis is a claim the source refutes — this one

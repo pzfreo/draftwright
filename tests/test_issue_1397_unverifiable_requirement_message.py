@@ -241,7 +241,20 @@ def test_no_module_can_both_record_the_sentinel_and_print_it_raw():
     # Unified unsupported geometry and refusal outcomes cannot claim a named measurement.
     assert "section_recess_coverage.py" in mints
     assert "section_recess_coverage.py" not in prints_raw
-    assert len(mints) == 11, mints
+    assert mints == [
+        "boss_coverage.py",
+        "groove_coverage.py",
+        "hole_coverage.py",
+        "pad_coverage.py",
+        "plate_coverage.py",
+        "pocket_coverage.py",
+        "pocket_pattern_coverage.py",
+        "polygonal_boss_coverage.py",
+        "polygonal_stock_coverage.py",
+        "section_recess_coverage.py",
+        "slot_coverage.py",
+        "turned_step_coverage.py",
+    ]
     # Oriented slots always retain the two named width/length requirements, including
     # corrupt-source outcomes; they never mint the unjoined-parameter sentinel.
     assert "oriented_slot_coverage.py" in prints_raw

@@ -119,7 +119,9 @@ _MISSING_CARRIER_CODES = frozenset(
         "turned_profile_not_spanned",
     }
 )
-_LAYOUT_RESPONSIBILITY_CODES = frozenset({"gdt_side_relaxed"})
+_LAYOUT_RESPONSIBILITY_CODES = frozenset(
+    {"gdt_sheet_fallback", "gdt_side_relaxed", "pmi_sheet_fallback"}
+)
 
 
 @dataclass

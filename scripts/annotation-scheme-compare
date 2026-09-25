@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+"""Build a fixed-sheet baseline/candidate pair and enforce semantic content parity."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from importlib import import_module
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+_CAP_REPORT = {}
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from draftwright.annotation_layout_profile import (  # noqa: E402
+    AnnotationLayoutProfile,
+    cap_planned_strips,
+    use_layout_profile,
+)
+from draftwright.layout_selection import _compare, _manifest  # noqa: E402
+
+
+def _python() -> str:
+    candidate = _ROOT / ".venv" / "bin" / "python"
+    return str(candidate if candidate.is_file() else Path(sys.executable))
+
+
+def _observe_scheme_strips(scale: float) -> None:
+    analysis = import_module("draftwright.analysis")
+    legacy_measure = analysis._measure_strips
+
+    def measured(*args, **kwargs):
+        strips = legacy_measure(*args, **kwargs)
+        planned = strips.planned_corridor_depths(scale)
+        capped = cap_planned_strips(strips)
+        _CAP_REPORT.update(
+            {
+                "before": {
+                    name: getattr(strips, name)
+                    for name in (
+                        "right",
+                        "left",
+                        "top",
+                        "fv_top",
+                        "fv_bottom",
+                        "pv_authored_top",
+                        "pv_bottom",
+                        "sv_top",
+                        "sv_bottom",
+                        "sv_right",
+                        "rv_right",
+                    )
+                },
+                "after": {
+                    name: getattr(capped, name)
+                    for name in (
+                        "right",
+                        "left",
+                        "top",
+                        "fv_top",
+                        "fv_bottom",
+                        "pv_authored_top",
+                        "pv_bottom",
+                        "sv_top",
+                        "sv_bottom",
+                        "sv_right",
+                        "rv_right",
+                    )
+                },
+                "planned": {f"{view}/{side}": depth for (view, side), depth in planned.items()},
+            }
+        )
+        return strips
+
+    analysis._measure_strips = measured
+
+
+def _worker(args) -> int:
+    if args.mode == "candidate":
+        if getattr(args, "iso_growth", False):
+            profile = AnnotationLayoutProfile(iso_growth=True)
+        else:
+            profile = AnnotationLayoutProfile(
+                arrangement=args.arrangement,
+                corridor_scale=args.scale,
+                capped_routes=frozenset(_parse_routes(args.candidate_routes)),
+                exterior_dimensions=args.exterior_dimensions,
+                crossing_recovery=True,
+                plan_x_below=True,
+                lateral_tier_reuse=True,
+                vacant_tier_compaction=args.arrangement != "columns",
+                normal_feature_leaders=args.arrangement != "columns",
+            )
+            _observe_scheme_strips(args.scale)
+    else:
+        profile = AnnotationLayoutProfile()
+    from draftwright import build_drawing
+
+    output = Path(args.output)
+    with use_layout_profile(profile):
+        drawing = build_drawing(
+            Path(args.source),
+            out=str(output),
+            title=args.title,
+            number=args.number,
+            pmi="annotate",
+            page=args.page,
+            scale=args.scale,
+            scale_policy="permissive",
+            _views=("front", "plan", "side"),
+            _include_iso=True,
+            annotation_layout="best" if args.mode == "best" else "baseline",
+        )
+    paths = drawing.export(str(output), formats=tuple(args.formats.split(",")))
+    print(
+        json.dumps(
+            {
+                "mode": args.mode,
+                "paths": {key: str(value) for key, value in paths.items()},
+                "page": [drawing.page_w, drawing.page_h],
+                "scale": drawing.scale,
+                "views": list(drawing.views),
+                "corridor_depths": _CAP_REPORT,
+                "layout_decision": drawing.annotation_scheme_decision,
+                "manifest": _manifest(drawing),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None = None) -> dict:
+    command = [
+        _python(),
+        str(Path(__file__).resolve()),
+        "--worker",
+        "--mode",
+        mode,
+        "--source",
+        str(args.source),
+        "--output",
+        str(output),
+        "--page",
+        args.page,
+        "--scale",
+        str(args.scale),
+        "--title",
+        args.title,
+        "--number",
+        args.number,
+        "--formats",
+        args.formats,
+        "--candidate-routes",
+        args.candidate_routes if candidate_routes is None else candidate_routes,
+    ]
+    if args.arrangement is not None:
+        command.extend(("--arrangement", args.arrangement))
+    if args.exterior_dimensions:
+        command.append("--exterior-dimensions")
+    if getattr(args, "iso_growth", False):
+        command.append("--iso-growth")
+    env = os.environ.copy()
+    for name in (
+        "DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT",
+        "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY",
+        "DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS",
+        "DRAFTWRIGHT_EXPERIMENTAL_ISO_GROW",
+        "DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW",
+    ):
+        env.pop(name, None)
+    completed = subprocess.run(command, check=False, capture_output=True, text=True, env=env)
+    if completed.returncode:
+        raise RuntimeError(f"{mode} build failed:\n{completed.stderr}")
+    return json.loads(completed.stdout)
+
+
+def _failed_candidate_comparison(baseline: dict, error: str) -> dict:
+    """Keep a candidate build failure as corpus evidence instead of aborting the run."""
+    baseline_key = tuple(baseline["manifest"]["arrangement_quality"]["selection_key"])
+    return {
+        "baseline": baseline,
+        "candidate": {"mode": "candidate", "error": error},
+        "parity": {
+            "passed": False,
+            "reason": "candidate_build_failed",
+            "missing": [],
+            "added": [],
+            "renamed_or_reordered": [],
+            "coverage_equal": False,
+            "drops_equal": False,
+            "candidate_interior_dimensions": [],
+            "introduced_interior_dimensions": [],
+            "obsolete_nts_caption_removed": False,
+        },
+        "quality_comparison": {
+            "verdict": "ineligible",
+            "baseline_key": baseline_key,
+            "candidate_key": None,
+        },
+    }
+
+
+def _parse_routes(value: str) -> set[tuple[str, str]]:
+    if value == "none":
+        return set()
+    routes = set()
+    for item in value.split(","):
+        view, separator, side = item.partition("/")
+        if not separator or not view or not side:
+            raise ValueError(f"invalid corridor route {item!r}; expected view/side")
+        routes.add((view, side))
+    return routes
+
+
+def _candidate_trial(args, baseline: dict, *, routes: str, output: Path) -> dict:
+    try:
+        candidate = _run_worker(args, "candidate", output, candidate_routes=routes)
+    except RuntimeError as error:
+        return _failed_candidate_comparison(baseline, str(error))
+    return _compare(baseline, candidate)
+
+
+def _trial_summary(name: str, routes: str, result: dict) -> dict:
+    parity = result["parity"]
+    quality = result["quality_comparison"]
+    return {
+        "name": name,
+        "candidate_routes": routes,
+        "verdict": quality["verdict"],
+        "candidate_key": quality["candidate_key"],
+        "semantic_parity": parity["passed"],
+        "missing_annotations": len(parity["missing"]),
+        "introduced_blockers": len(parity.get("introduced_blockers", ())),
+        "candidate_error": result["candidate"].get("error"),
+    }
+
+
+def _prefer_candidate(first: dict, second: dict) -> dict:
+    """Choose the best semantically eligible trial; never reward a dropped requirement."""
+
+    rank = {"candidate": 0, "tie": 1, "baseline": 2, "ineligible": 3}
+
+    def key(result):
+        quality = result["quality_comparison"]
+        return (
+            rank[quality["verdict"]],
+            tuple(quality["candidate_key"] or (float("inf"),)),
+        )
+
+    return min((first, second), key=key)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--page", default="A3")
+    parser.add_argument("--scale", type=float, default=0.2)
+    parser.add_argument("--title", default="CTC-01")
+    parser.add_argument("--number", default="NIST-CTC-01")
+    parser.add_argument("--formats", default="pdf,png")
+    parser.add_argument("--arrangement", choices=("columns", "stacked-iso", "staggered-side"))
+    parser.add_argument("--exterior-dimensions", action="store_true")
+    parser.add_argument(
+        "--candidate-routes",
+        default=(
+            "front/right,plan/right,front/left,plan/left,plan/above,front/above,"
+            "front/below,plan/below,side/above,side/below,side/right,rear/right"
+        ),
+        help="comma-separated view/side corridors to cap, or 'none' to retain legacy depths",
+    )
+    parser.add_argument("--worker", action="store_true")
+    parser.add_argument("--mode", choices=("baseline", "candidate", "best"), default="baseline")
+    parser.add_argument("--iso-growth", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    if args.worker:
+        return _worker(args)
+    baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
+    baseline_key = baseline["manifest"]["arrangement_quality"]["selection_key"]
+    if not any(baseline_key[:5]):
+        # No defect count can beat zero. Try a larger orientation view without
+        # changing the baseline arrangement, corridors, orthographic scale, or sheet.
+        iso_args = argparse.Namespace(**vars(args))
+        iso_args.arrangement = None
+        iso_args.exterior_dimensions = False
+        iso_args.iso_growth = True
+        result = _candidate_trial(
+            iso_args,
+            baseline,
+            routes="none",
+            output=args.output.with_name(args.output.name + "-candidate-iso"),
+        )
+        trials = [_trial_summary("iso-growth", "none", result)]
+        selected_trial = "iso-growth"
+    else:
+        result = _candidate_trial(
+            args,
+            baseline,
+            routes=args.candidate_routes,
+            output=args.output.with_name(args.output.name + "-candidate"),
+        )
+        trials = [_trial_summary("planned", args.candidate_routes, result)]
+        selected_trial = "planned"
+        if (
+            result["quality_comparison"]["verdict"] != "candidate"
+            and args.candidate_routes != "none"
+        ):
+            uncapped = _candidate_trial(
+                args,
+                baseline,
+                routes="none",
+                output=args.output.with_name(args.output.name + "-candidate-uncapped"),
+            )
+            trials.append(_trial_summary("legacy-depth", "none", uncapped))
+            if _prefer_candidate(result, uncapped) is uncapped:
+                result = uncapped
+                selected_trial = "legacy-depth"
+        if (
+            result["quality_comparison"]["verdict"] != "candidate"
+            and baseline["manifest"]["interior_dimensions"]
+            and args.arrangement == "staggered-side"
+        ):
+            # An already interior-located baseline can sometimes keep those exact
+            # marks while reducing other defects with the original view topology.
+            columns_args = argparse.Namespace(**vars(args))
+            columns_args.arrangement = "columns"
+            columns_args.exterior_dimensions = False
+            columns = _candidate_trial(
+                columns_args,
+                baseline,
+                routes="none",
+                output=args.output.with_name(args.output.name + "-candidate-columns"),
+            )
+            trials.append(_trial_summary("columns", "none", columns))
+            if _prefer_candidate(result, columns) is columns:
+                result = columns
+                selected_trial = "columns"
+    result["candidate_trials"] = trials
+    result["selected_candidate_trial"] = selected_trial
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return int(not result["parity"]["passed"])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

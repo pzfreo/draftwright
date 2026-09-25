@@ -1,0 +1,29 @@
+{
+  "format": "draftwright-annotation-layout-corpus",
+  "corpus_version": "1.0.0",
+  "metric_version": 1,
+  "cases": [
+    {
+      "id": "ctc01-a3-1to5",
+      "source": "tests/fixtures/nist_ctc_01_asme1_ap242.stp",
+      "page": "A3",
+      "scale": 0.2,
+      "title": "CTC-01",
+      "number": "NIST-CTC-01",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc02-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_02_asme1_ap242.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "CTC-02",
+      "number": "NIST-CTC-02",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    }
+  ]
+}

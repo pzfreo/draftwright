@@ -39,6 +39,7 @@ from draftwright._geometry import (  # noqa: F401
     _segment_crosses_box,
     _segments_cross_or_overlap,
 )
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations.angular import AngularDimension
 from draftwright.layout import StripCandidate, _assign_leader_candidates, plan_strip
 from draftwright.linting.ink_overlap import (
@@ -2555,7 +2556,39 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             losers.setdefault(c.dedup, []).append(c)
     for group in losers.values():
         group.sort(key=lambda c: (-c.precedence, c.name))
-    kept.sort(key=lambda c: c.order)
+
+    def _planned_order(candidate):
+        lanes = None if ctx is None else ctx.annotation_lanes
+        model = None if ctx is None else ctx.part_model
+        corridor = None
+        if lanes is not None and key is not None and len(key) == 2:
+            corridor = lanes.corridor(*key)
+        # Prefer the compiler-owned measurement identity. Reaching through an opaque
+        # FeatureRef here would let a renderer recover withheld model content merely to
+        # improve ordering, violating the compiled-plan boundary. Candidates without a
+        # measurement may still carry a raw provenance feature; opaque provenance alone
+        # deliberately does not participate in this optional ordering refinement.
+        feature = getattr(candidate.measurement, "feature", candidate.feature)
+        if model is None or (feature is not None and feature not in model.features):
+            feature = None
+        if corridor is not None and model is not None and feature is not None:
+            matches = [
+                reservation
+                for reservation in corridor.reservations
+                if model.features[reservation.demand.feature_index] is feature
+            ]
+            if matches:
+                planned = min(matches, key=lambda item: (item.lane, item.start, item.end))
+                return (
+                    candidate.order[0],
+                    0,
+                    planned.lane,
+                    planned.start,
+                    candidate.order,
+                )
+        return (candidate.order[0], 1, 0, 0.0, candidate.order)
+
+    kept.sort(key=_planned_order)
     if trace is not None:  # record who lost each dedup group (a loser never starves)
         for dk, group in losers.items():
             for loser in group:
@@ -2630,7 +2663,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         interior_jobs = getattr(ctx, "interior_dimensions", None)
         displaced = losers.get(candidate.dedup, ()) if candidate.dedup is not None else ()
         if (
-            interior_jobs is None
+            (ctx is not None and ctx.exterior_dimensions_only)
+            or interior_jobs is None
             or candidate.interior_view is None
             or candidate.interior_side is None
             or displaced
@@ -2843,6 +2877,11 @@ class PlacementContext:
     # renderer calls and finished-sheet live verbs keep their immediate behavior;
     # the orchestrator/finalize paths opt in with ``[]`` and drain once.
     feature_leaders: list | None = None
+    # Optional pre-render annotation lanes. Automatic builds attach the scheme's
+    # deterministic plan; live edits leave this unset and retain their existing order.
+    annotation_lanes: Any = None
+    # A drafter-style scheme treats exterior dimension lanes as a hard contract.
+    exterior_dimensions_only: bool = False
     # Automatic placement may reserve a dense internal section row. Only that
     # run needs the extended hole-leader resource-floor routing preference.
     dense_internal_section: bool = False
@@ -3589,6 +3628,7 @@ def place_strip_candidates(
         return accepted, rejected
 
     solved = []
+    placed_positions = {}
     for seg_lo, seg_hi in segs:
         if not todo:
             break
@@ -3616,6 +3656,7 @@ def place_strip_candidates(
                 rejected_total.append((name, build))
                 continue
             placed.append((name, dim))
+            placed_positions[name] = pos
             if tp is not None:
                 tp["placed"].append({"name": name, "pos": pos})
         todo = todo + rejected_total
@@ -3625,6 +3666,90 @@ def place_strip_candidates(
         assert len({name for name, _dim_obj in solved}) == len(solved), (
             "strip survivor names must be unique before label selection"
         )
+        # A dimension consumes a tier only where its actual horizontal footprint lies.
+        # The strip solve above gives every item a separate height; on the candidate
+        # path, let a later dimension share an inner height when its full X extent is
+        # disjoint from every occupant there. Build and check the real geometry before
+        # accepting the move: labels, witness lines, page bounds and fixed furniture
+        # all participate, while the baseline layout keeps its established result.
+        if axis == "y" and layout_flag(
+            "lateral_tier_reuse", "DRAFTWRIGHT_EXPERIMENT_LATERAL_TIER_REUSE"
+        ):
+            builds = dict(cands)
+            page = (
+                _drawing_bounds(dwg) if hasattr(dwg, "page_w") and hasattr(dwg, "page_h") else None
+            )
+            for lane_index in sorted(
+                range(len(solved)),
+                key=lambda i: abs(placed_positions[solved[i][0]] - inner),
+            ):
+                name, original = solved[lane_index]
+                if not isinstance(original, (Dimension, SafeDimension)) or (anchored or {}).get(
+                    name, False
+                ):
+                    continue
+                current = placed_positions[name]
+                # A prior corridor may have consumed the inner tier and forced
+                # this entire batch two tiers out. After the shared-height move,
+                # probe the vacant tier immediately inward as well as occupied
+                # tiers. The real-ink check below decides whether that gap is
+                # usable; a projected strip carve alone cannot know.
+                targets = set(placed_positions.values())
+                if layout_flag(
+                    "vacant_tier_compaction", "DRAFTWRIGHT_EXPERIMENT_VACANT_TIER_COMPACTION"
+                ):
+                    compact_target = current + (pad if inner > current else -pad)
+                    if lo - 1e-6 <= compact_target <= hi + 1e-6:
+                        targets.add(compact_target)
+                for target in sorted(targets, key=lambda pos: abs(pos - inner)):
+                    if abs(target - inner) >= abs(current - inner) - 1e-6:
+                        break
+                    if not layout_flag(
+                        "vacant_tier_compaction", "DRAFTWRIGHT_EXPERIMENT_VACANT_TIER_COMPACTION"
+                    ) and not any(
+                        abs(pos - target) < 1e-6
+                        for key, pos in placed_positions.items()
+                        if key != name
+                    ):
+                        continue
+                    valid = (valid_positions or {}).get(name)
+                    if valid is not None and not valid(target):
+                        continue
+                    candidate = builds[name](target)
+                    box = _geom_box(candidate)
+                    if box is None or _real_box_conflict(name, box):
+                        continue
+                    if page is not None and not (
+                        page[0] <= box[0]
+                        and page[1] <= box[1]
+                        and box[2] <= page[2]
+                        and box[3] <= page[3]
+                    ):
+                        continue
+                    occupants = [
+                        dim
+                        for key, dim in solved
+                        if key != name and abs(placed_positions[key] - target) < 1e-6
+                    ]
+                    if not all(
+                        (other_box := _geom_box(other)) is not None
+                        and (box[2] + 0.5 <= other_box[0] or other_box[2] + 0.5 <= box[0])
+                        for other in occupants
+                    ):
+                        continue
+                    if not annotation_ink_clear(
+                        dwg,
+                        candidate,
+                        view=view,
+                        additional=[dim for key, dim in solved if key != name],
+                    ):
+                        continue
+                    solved[lane_index] = (name, candidate)
+                    placed_positions[name] = target
+                    if tp is not None:
+                        next(item for item in tp["placed"] if item["name"] == name)["pos"] = target
+                        tp.setdefault("lateral_tier_reuse", []).append(name)
+                    break
         natural_solved = dict(solved)
         # Local dimensions already participate through strip occupancy, and dimensions
         # owned by another view retain their independent corridor/repair contract.  The

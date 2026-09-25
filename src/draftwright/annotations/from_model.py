@@ -75,7 +75,9 @@ from draftwright._geometry import (
     _segments_cross_or_overlap,
     _straight_blend_faces,
     _turned_profile_site,
+    material_span,
 )
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     PRIORITY,
@@ -353,7 +355,13 @@ def _record_slot_drop(
     blocker_reason = "" if not blockers else f"; blockers: {', '.join(blockers)}"
     ctx.record_issue(
         "info",
-        f"{noun}_dim_dropped",
+        (
+            "pad_dim_dropped"
+            if noun == "pad"
+            else "pocket_dim_dropped"
+            if noun == "pocket"
+            else "slot_dim_dropped"
+        ),
         f"{noun}{idx} {kind} dim not placed "
         f"(no room beside the {view}{lane_reason}{blocker_reason})",
         measurement=measurement,
@@ -601,7 +609,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
             # coordinate.  Automatic dimensions retain their established exterior path.
             if approved.lane is not None:
                 jobs = getattr(ctx, "interior_dimensions", None)
-                if jobs is None:
+                if jobs is None or ctx.exterior_dimensions_only:
                     return False
                 _candidate_name, lane_build = _cand_for(near_side, near_hi)
                 witness = perp_proj(perp_hi if near_hi else perp_lo)
@@ -1408,10 +1416,24 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         # One ADR 4 (was 0016) feature-level location identity per collapsed owner; the structured
         # location facts below carry that this particular visible member is X (#883).
         _xmid = tuple(mids)
+        # On the experimental staggered layout the plan can abut the top sheet margin.
+        # The farther X stations may use the free exterior strip below the plan while
+        # the nearest station keeps its established tier. Both are solver-owned strips.
+        x_below = (
+            layout_flag("plan_x_below", "DRAFTWRIGHT_EXPERIMENTAL_PLAN_X_BELOW")
+            and i > 0
+            and a.pv_zones.above.available < a.pv_zones.above.gap + tier
+            and a.pv_zones.below.available >= a.pv_zones.below.gap + tier
+        )
+        x_side = "below" if x_below else "above"
+        x_zone = a.pv_zones.below if x_below else a.pv_zones.above
+        x_offset = (
+            (lambda pos, _ry=ry: PY(_ry) - pos) if x_below else (lambda pos, _ry=ry: pos - PY(_ry))
+        )
         register_corridor(
             ctx,
-            ("plan", "above"),
-            a.pv_zones.above,
+            ("plan", x_side),
+            x_zone,
             "plan",
             "y",
             tier,
@@ -1423,14 +1445,16 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
                 label=label,
                 distance=abs(rx - datum_x),
-                build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: _dim(
-                    (PX(datum_x), PY(_ry), 0),
-                    (PX(_rx), PY(_ry), 0),
-                    "above",
-                    pos - PY(_ry),
-                    draft,
-                    label=_label,
-                    label_offset_x=_offset,
+                build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset, _side=x_side, _offset_fn=x_offset: (
+                    _dim(
+                        (PX(datum_x), PY(_ry), 0),
+                        (PX(_rx), PY(_ry), 0),
+                        _side,
+                        _offset_fn(pos),
+                        draft,
+                        label=_label,
+                        label_offset_x=_offset,
+                    )
                 ),
                 feature=_xfeat,
                 measurement=_xmid,
@@ -1439,12 +1463,12 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
                     (feature, parameter) for feature, parameter, _point in location_facts
                 ),
                 pinned=pin_ref,
-                footprint=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
+                footprint=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset, _side=x_side, _offset_fn=x_offset: (
                     dim_footprint(
                         (PX(datum_x), PY(_ry), 0),
                         (PX(_rx), PY(_ry), 0),
-                        "above",
-                        pos - PY(_ry),
+                        _side,
+                        _offset_fn(pos),
                         draft,
                         _label,
                         label_offset_x=_offset,
@@ -2550,6 +2574,77 @@ def _corner_escape_candidates(
             )
 
 
+def _surface_normal_candidates(dwg, view, members, sizes, reach, *, kind, provenances):
+    """Prove a visible bevel/arc tangent before offering straight normal leaders.
+
+    The physical attachment remains the compiled feature's projected site. A
+    matching projected edge supplies its local normal; the filled material field
+    chooses the outward sign. If that evidence is absent, the caller retains the
+    established corner candidates instead of guessing a surface direction.
+    """
+    placed = dwg.views.get(view)
+    if not placed or placed[0] is None:
+        return []
+    field = view_material(dwg, view)
+    edges = tuple(placed[0].edges())
+    result = []
+    for member, size, owner in zip(members, sizes, provenances, strict=True):
+        if getattr(member, "turned", False):
+            continue
+        tip = dwg.at(view, *member.frame.origin)
+        matches = []
+        for edge in edges:
+            if kind == "fillet" and edge.geom_type.name == "CIRCLE":
+                try:
+                    centre = edge.arc_center
+                    radius = float(edge.radius)
+                except Exception:  # noqa: BLE001 — an unmeasurable edge is not evidence
+                    continue
+                expected = float(size) * float(dwg.scale)
+                residual = abs(radius - expected) + abs(
+                    math.hypot(tip[0] - centre.X, tip[1] - centre.Y) - radius
+                )
+                if residual <= 0.1 and edge.distance_to((tip[0], tip[1], 0)) <= 0.05:
+                    matches.append((residual, (tip[0] - centre.X, tip[1] - centre.Y)))
+            elif kind == "chamfer" and edge.geom_type.name == "LINE":
+                vertices = edge.vertices()
+                if len(vertices) != 2:
+                    continue
+                first, second = vertices
+                dx, dy = second.X - first.X, second.Y - first.Y
+                length2 = dx * dx + dy * dy
+                if length2 <= 1e-9:
+                    continue
+                station = ((tip[0] - first.X) * dx + (tip[1] - first.Y) * dy) / length2
+                residual = math.hypot(
+                    tip[0] - first.X - station * dx,
+                    tip[1] - first.Y - station * dy,
+                )
+                expected = math.hypot(size, member.leg2) * float(dwg.scale)
+                if (
+                    0.1 <= station <= 0.9
+                    and residual <= 0.05
+                    and abs(math.sqrt(length2) - expected) <= 0.1
+                ):
+                    matches.append((residual, (-dy, dx)))
+        if not matches:
+            continue
+        _, direction = min(matches, key=lambda item: item[0])
+        length = math.hypot(*direction)
+        if length <= 1e-9:
+            continue
+        nx, ny = direction[0] / length, direction[1] / length
+        if field:
+            origin = (tip[0], tip[1])
+            positive = material_span(origin, (tip[0] + nx * reach, tip[1] + ny * reach), field)
+            negative = material_span(origin, (tip[0] - nx * reach, tip[1] - ny * reach), field)
+            if negative < positive:
+                nx, ny = -nx, -ny
+        for distance in (reach, reach * 1.5, reach * 2.0):
+            result.append((tip, (tip[0] + nx * distance, tip[1] + ny * distance, 0), owner))
+    return result
+
+
 _BLEND_POINT_TOL = 2e-3
 _BLEND_DIRECTION_TOL = 2e-6
 
@@ -2699,14 +2794,17 @@ def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
         provenances=provenances,
     )
     for member, provenance in zip(members, provenances):
-        yield from _radial_candidates(
+        for tip, elbow, _owner in _radial_candidates(
             dwg,
             view,
             vb,
             member,
             reach,
             provenance=provenance,
-        )
+        ):
+            # A shared callout has no single owner. Do not let the radial
+            # candidate's geometry fallback attach its FeatureFacts projection.
+            yield tip, elbow, provenance
 
 
 def place_machined_leader_jobs(
@@ -2724,6 +2822,7 @@ def place_machined_leader_jobs(
     source_ids_by_name=None,
     source_drop_severity="warning",
     priority=0.0,
+    straight_only_names=frozenset(),
 ) -> int:
     """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
 
@@ -2740,6 +2839,7 @@ def place_machined_leader_jobs(
     feature_jobs = []
     interior_clearance_by_view = {}
     for name, view, silhouette, label, raw_candidates, measurement in jobs:
+        straight_only = name in straight_only_names
         (
             joint_interior_anchors,
             joint_exterior_anchors,
@@ -2782,7 +2882,11 @@ def place_machined_leader_jobs(
             _analytical_geometry=_analytical_geometry,
             _interior_label_clear=interior_label_clear,
             _region_policy=effective_region_policy,
+            _straight_only=straight_only,
         ):
+            if _straight_only:
+                yield from _exterior_anchors
+                return
             spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
             interior_count = 0
             if late_inventory and _region_policy is not LeaderRegionPolicy.EXTERIOR:
@@ -2864,8 +2968,8 @@ def place_machined_leader_jobs(
                 leader.covers_count = len(grouping_features)
             return leader
 
-        def _build(tip, elbow, _feature, *, _label=label):
-            return _decorate(
+        def _build(tip, elbow, _feature, *, _label=label, _decorate_fn=_decorate):
+            return _decorate_fn(
                 Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
             )
 
@@ -3049,7 +3153,7 @@ def place_machined_leader_jobs(
                 interior_label_clear=interior_label_clear,
                 allow_policy_b_fixed=True,
                 on_drop=(_on_drop if source_ids or source_drop_severity == "source" else None),
-                recover=_recover,
+                recover=None if straight_only else _recover,
             )
         )
 
@@ -3114,6 +3218,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
 
     jobs = []
     source_ids_by_name = {}
+    straight_only_names = set()
     for gi, (_spec, members) in enumerate(sorted(collapse.items())):
         if only is not None:
             # Filter after enumerating the full collapse so a surviving group keeps the same
@@ -3142,6 +3247,35 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         if len(members) > 1:
             label = f"{len(members)}× {label}"
         name = f"m_chamfer_{axis}{gi}"
+        facts = [g.facts for g, _ in ordered]
+        provenances = [g.ref for g, _ in ordered]
+        candidates = _corner_escape_candidates(
+            dwg, view, vb, facts, reach, provenances=provenances, cylinders=a.cyls
+        )
+        if layout_flag("normal_feature_leaders", "DRAFTWRIGHT_EXPERIMENT_NORMAL_LEADERS"):
+            normal = _surface_normal_candidates(
+                dwg,
+                view,
+                facts,
+                [pd.value for _, pd in ordered],
+                reach,
+                kind="chamfer",
+                provenances=provenances,
+            )
+            if normal:
+                candidates = [
+                    *(
+                        FeatureLeaderCandidate(tip=tip, elbow=elbow, feature=owner)
+                        for tip, elbow, owner in normal
+                    ),
+                    *(
+                        FeatureLeaderCandidate(
+                            tip=tip, elbow=elbow, feature=owner, preference_penalty=50.0
+                        )
+                        for tip, elbow, owner in candidates
+                    ),
+                ]
+                straight_only_names.add(name)
         source_ids_by_name[name] = tuple(
             dict.fromkeys(
                 source_id
@@ -3155,15 +3289,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
                 view,
                 vb,
                 label + _tol_suffix(representative_pd.tolerance, draft),
-                _corner_escape_candidates(
-                    dwg,
-                    view,
-                    vb,
-                    [g.facts for g, _ in ordered],
-                    reach,
-                    provenances=[g.ref for g, _ in ordered],
-                    cylinders=a.cyls,
-                ),
+                candidates,
                 tuple(pd.id for _, pd in members),
             )
         )
@@ -3178,6 +3304,7 @@ def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
         region_policy=LeaderRegionPolicy.AUTO,
         source_ids_by_name=source_ids_by_name,
         source_drop_severity="source",
+        straight_only_names=straight_only_names,
     )
 
 
@@ -3311,6 +3438,7 @@ def _render_radius_callouts(
         # never share one n× label while receiving separate measurement credit (#1433).
         collapse.setdefault((pd.value_text, _tol_suffix(pd.tolerance, draft)), []).append((g, pd))
     jobs = []
+    straight_only_names = set()
     ordered_groups = sorted(
         collapse.items(),
         key=lambda item: (min(pd.value for _g, pd in item[1]), item[0]),
@@ -3373,22 +3501,52 @@ def _render_radius_callouts(
         vb = dwg.view_bounds(view)
         if vb is None:
             continue
+        name = f"m_{name_stem}_{axis}{gi}"
+        facts = [g.facts for g, _ in ordered]
+        provenances = [g.ref for g, _ in ordered]
+        candidates = _corner_escape_candidates(
+            dwg,
+            view,
+            vb,
+            facts,
+            reach,
+            provenances=provenances,
+            cylinders=a.cyls,
+            sites=sites,
+        )
+        if kind == "fillet" and layout_flag(
+            "normal_feature_leaders", "DRAFTWRIGHT_EXPERIMENT_NORMAL_LEADERS"
+        ):
+            normal = _surface_normal_candidates(
+                dwg,
+                view,
+                facts,
+                [pd.value for _, pd in ordered],
+                reach,
+                kind="fillet",
+                provenances=provenances,
+            )
+            if normal:
+                candidates = [
+                    *(
+                        FeatureLeaderCandidate(tip=tip, elbow=elbow, feature=owner)
+                        for tip, elbow, owner in normal
+                    ),
+                    *(
+                        FeatureLeaderCandidate(
+                            tip=tip, elbow=elbow, feature=owner, preference_penalty=50.0
+                        )
+                        for tip, elbow, owner in candidates
+                    ),
+                ]
+                straight_only_names.add(name)
         jobs.append(
             (
-                f"m_{name_stem}_{axis}{gi}",
+                name,
                 view,
                 vb,
                 callout_label,
-                _corner_escape_candidates(
-                    dwg,
-                    view,
-                    vb,
-                    [g.facts for g, _ in ordered],
-                    reach,
-                    provenances=[g.ref for g, _ in ordered],
-                    cylinders=a.cyls,
-                    sites=sites,
-                ),
+                candidates,
                 # One `n× R` callout stands for EVERY collapsed member, so it draws all of
                 # their radii — the tuple storage exists for exactly this (#1002).
                 tuple(pd.id for _, pd in members),
@@ -3403,6 +3561,7 @@ def _render_radius_callouts(
         ctx=ctx,
         joint=True,
         region_policy=LeaderRegionPolicy.AUTO,
+        straight_only_names=straight_only_names,
     )
 
 
@@ -5660,7 +5819,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                         ):
                             return  # placed above — the measurement is on the sheet
                     interior_jobs = getattr(ctx, "interior_dimensions", None)
-                    if interior_jobs is not None:
+                    if interior_jobs is not None and not ctx.exterior_dimensions_only:
 
                         def _interior_build(pos, _l=lift):
                             dim = _dim(
@@ -5746,6 +5905,16 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         # present in the resolved view plan; placement still goes through the normal strip
         # candidate solve below.
         view = extent.view or views_showing(axis, dwg.views, horizontal=True)
+        if (
+            extent.view is None
+            and role == "width"
+            and a.arrangement == "staggered-side"
+            and "front" in dwg.views
+        ):
+            # The staggered scheme gives the plan corridor to feature/slot locations.
+            # Overall X is equally observable in the front projection; route it there
+            # before placement rather than recovering it into plan-view whitespace.
+            view = "front"
         if view is None:
             # No planned view can carry it. Reported against the measurement, never dropped
             # in silence (ADR 4 (was 0016 Amdt 6)) — and this is exactly what the ADR 2 (was 0018)
@@ -6763,6 +6932,12 @@ def render_step_lengths(
                     cross_lo=axis_z - cross_half,
                     cross_hi=axis_z + cross_half,
                     kind="y-turned-chain",
+                    measurement_ids=_step_measurements(bare_rows),
+                    measurement_spans=tuple(
+                        (segment.pa, segment.pb)
+                        for segment in bare_rows
+                        for _measurement in segment.measurements
+                    ),
                 )
             )
             return _draw_step_chain(
@@ -8324,7 +8499,17 @@ def _oblique_linear_specs(a, rec, label, name, draft):
     ]
 
 
-def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=None):
+def _sheet_leader_fallback(
+    dwg,
+    tip,
+    view,
+    build,
+    routed_build=None,
+    label_size=None,
+    *,
+    tip_for_elbow=None,
+    accept_candidate=None,
+):
     """Return the nearest clear leader on a bounded drawable-sheet grid.
 
     Adjacent strips remain authoritative. This last resort exists for the distinct
@@ -8425,7 +8610,8 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
         )
 
     for elbow in positions:
-        routes: list[tuple[tuple, tuple, Any]] = [((), (tip, elbow), build)]
+        route_tip = tip_for_elbow(elbow) if tip_for_elbow is not None else tip
+        routes: list[tuple[tuple, tuple, Any]] = [((), (route_tip, elbow), build)]
         if routed_build is not None:
             nearest_xs = sorted(
                 corridor_xs,
@@ -8512,6 +8698,8 @@ def _sheet_leader_fallback(dwg, tip, view, build, routed_build=None, label_size=
                 box = _geom_box(candidate)
                 label_box = getattr(candidate, "label_bbox", None)
             except Exception:  # noqa: BLE001 — one optional global candidate fails closed
+                continue
+            if accept_candidate is not None and not accept_candidate(candidate):
                 continue
             if (
                 box is None

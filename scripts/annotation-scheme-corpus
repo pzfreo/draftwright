@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Run fixed-sheet annotation-scheme comparisons over a versioned corpus."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_COMPARE = _ROOT / "scripts" / "annotation-scheme-compare"
+
+
+def _python() -> str:
+    candidate = _ROOT / ".venv" / "bin" / "python"
+    return str(candidate if candidate.is_file() else Path(sys.executable))
+
+
+def _load_manifest(path: Path) -> dict:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    if document.get("format") != "draftwright-annotation-layout-corpus":
+        raise ValueError("not a draftwright annotation-layout corpus")
+    if document.get("metric_version") != 1:
+        raise ValueError("unsupported annotation-layout metric version")
+    cases = document.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("annotation-layout corpus needs at least one case")
+    ids = [case.get("id") for case in cases]
+    if any(not isinstance(case_id, str) or not case_id for case_id in ids):
+        raise ValueError("every annotation-layout case needs a non-empty id")
+    if len(ids) != len(set(ids)):
+        raise ValueError("annotation-layout case ids must be unique")
+    return document
+
+
+def _aggregate(results: list[dict]) -> dict:
+    verdicts = Counter(result["quality_comparison"]["verdict"] for result in results)
+    parity = [bool(result["parity"]["passed"]) for result in results]
+    selected_candidate = verdicts.get("candidate", 0)
+    selected_baseline = len(results) - selected_candidate
+    # Fixed page/scale cases with zero defects already have the best possible
+    # selection key. Count them as ties, but do not put them in the denominator
+    # for a claim about improving a defective baseline.
+    affected = [
+        result for result in results if any(result["quality_comparison"]["baseline_key"][:5])
+    ]
+    improved_affected = sum(
+        result["quality_comparison"]["verdict"] == "candidate" for result in affected
+    )
+    return {
+        "cases": len(results),
+        "semantic_parity": sum(parity),
+        "verdicts": {
+            verdict: verdicts.get(verdict, 0)
+            for verdict in ("candidate", "baseline", "tie", "ineligible")
+        },
+        "selected": {"candidate": selected_candidate, "baseline": selected_baseline},
+        "affected_baselines": len(affected),
+        "improved_affected": improved_affected,
+        "affected_majority": bool(affected) and 2 * improved_affected > len(affected),
+        "production_contender": (
+            bool(results)
+            # `_compare` awards "candidate" only after semantic parity and a strictly
+            # better quality key. Every other proposal falls back to the established
+            # baseline, so the selected portfolio cannot regress that case.
+            and selected_candidate > 0
+        ),
+    }
+
+
+def _public_result(worker: dict) -> dict:
+    """Translate one finished public-selector build into the versioned corpus verdict."""
+
+    decision = worker["layout_decision"]
+    selected = decision["selected_trial"]
+    if selected is not None:
+        trial = next(item for item in decision["trials"] if item["name"] == selected)
+        if trial["verdict"] != "candidate" or not trial["semantic_parity"]:
+            raise ValueError("public selector returned an unverified candidate")
+    return {
+        "quality_comparison": {
+            "verdict": "candidate" if selected is not None else "tie",
+            "baseline_key": decision["baseline_quality_key"],
+            "candidate_key": decision["selected_quality_key"],
+        },
+        "parity": {"passed": True, "missing": []},
+        "selected_trial": selected,
+        "public_selector": worker,
+    }
+
+
+def _run_case(case: dict, output: Path, *, public_selector: bool = False) -> dict:
+    command = [
+        _python(),
+        str(_COMPARE),
+        "--source",
+        str(_ROOT / case["source"]),
+        "--output",
+        str(output / case["id"]),
+        "--page",
+        case["page"],
+        "--scale",
+        str(case["scale"]),
+        "--title",
+        case.get("title", case["id"]),
+        "--number",
+        case.get("number", case["id"]),
+        "--formats",
+        case.get("formats", "svg"),
+    ]
+    if arrangement := case.get("arrangement"):
+        command.extend(("--arrangement", arrangement))
+    if case.get("exterior_dimensions"):
+        command.append("--exterior-dimensions")
+    if routes := case.get("candidate_routes"):
+        command.extend(("--candidate-routes", routes))
+    if public_selector:
+        command.extend(("--worker", "--mode", "best"))
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if not completed.stdout.strip():
+        raise RuntimeError(f"{case['id']} produced no comparison report:\n{completed.stderr}")
+    worker = json.loads(completed.stdout)
+    result = _public_result(worker) if public_selector else worker
+    result["case_id"] = case["id"]
+    result["comparison_exit_code"] = completed.returncode
+    return result
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--public-selector",
+        action="store_true",
+        help="exercise build_drawing(annotation_layout='best') for every case",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=1,
+        help="run this many independent CAD cases in parallel (default: 1)",
+    )
+    parser.add_argument("--require-contender", action="store_true")
+    parser.add_argument(
+        "--require-wins",
+        type=int,
+        default=0,
+        help="require at least this many strictly improved fixed-sheet cases",
+    )
+    parser.add_argument(
+        "--require-affected-majority",
+        action="store_true",
+        help="require wins on more than half of cases whose baseline has a layout defect",
+    )
+    args = parser.parse_args()
+    if args.require_wins < 0:
+        parser.error("--require-wins must be non-negative")
+    if args.jobs < 1:
+        parser.error("--jobs must be positive")
+
+    corpus = _load_manifest(args.manifest)
+    if args.require_wins > len(corpus["cases"]):
+        parser.error("--require-wins exceeds the corpus size")
+    args.output.mkdir(parents=True, exist_ok=True)
+    with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+        results = list(
+            pool.map(
+                lambda case: _run_case(case, args.output, public_selector=args.public_selector),
+                corpus["cases"],
+            )
+        )
+    report = {
+        "format": "draftwright-annotation-layout-corpus-result",
+        "corpus_version": corpus["corpus_version"],
+        "metric_version": corpus["metric_version"],
+        "selector": "public" if args.public_selector else "comparison",
+        "summary": _aggregate(results),
+        "results": results,
+    }
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return int(
+        (args.require_contender and not report["summary"]["production_contender"])
+        or (args.require_affected_majority and not report["summary"]["affected_majority"])
+        or (report["summary"]["selected"]["candidate"] < args.require_wins)
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

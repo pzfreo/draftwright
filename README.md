@@ -251,6 +251,24 @@ build_drawing(part, scale=1.0, page="A4", scale_policy="strict")
 build_drawing(part, scale=1.0, page="A4", scale_policy="permissive")
 ```
 
+### Compare annotation layouts
+
+```python
+dwg = build_drawing(part, annotation_layout="best")
+print(dwg.annotation_scheme_decision)  # selected trial and finished-drawing evidence
+```
+
+`"best"` builds the established layout first, then tries a bounded alternative on
+the **same sheet and scale**. It selects an alternative only when rendered annotation
+meaning and required coverage are preserved, no new required blocker appears, and
+the finished drawing has fewer layout defects or a substantially larger isometric
+view on an otherwise clean sheet. The established layout remains available with
+`annotation_layout="baseline"` (the current default). `Sheet`, `make_drawing()`,
+generated scripts, and the CLI (`--annotation-layout best`) accept the same policy.
+
+The comparison costs at least two drawing builds and may try up to three candidate
+variants for a crowded part. Export runs only for the selected drawing.
+
 ### Edit, critique, and self-repair
 
 Edit a `Drawing` in **domain vocabulary** — the engine places annotations

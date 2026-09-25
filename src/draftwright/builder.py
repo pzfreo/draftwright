@@ -54,6 +54,12 @@ from draftwright._core import (
 from draftwright._geometry import BOUNDS_ROUNDOFF, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
+from draftwright.annotation_layout_profile import (
+    AnnotationLayoutProfile,
+    annotation_layout_policy,
+    current_layout_profile,
+    use_layout_profile,
+)
 from draftwright.annotations._common import (
     SolveTrace,
     _geom_box,
@@ -78,6 +84,7 @@ from draftwright.compose import (
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
+from draftwright.layout_selection import select_best_annotation_layout
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
@@ -93,8 +100,10 @@ from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import plan_dimensions
 from draftwright.progress import activity, build_operation, observed_stage, stage
 from draftwright.projection import (
+    _ISO_MAX_GROW,
     _bbox_within,
     _fit_iso_view,
+    _largest_clear_factor,
     _project_iso,
 )
 from draftwright.recognition_cache import RecognitionCache
@@ -114,6 +123,7 @@ from draftwright.view_plan import (
 # footprint and pass 1 stands (the common, non-ballooned case).
 _REPACK_TOL = 0.75
 _REPACK_MAX_ITER = 3
+_ISO_GROWTH_CLEARANCE_MM = 5.0
 
 
 def _automatic_turned_principals(analysis: Analysis) -> tuple[str, ...] | None:
@@ -209,6 +219,21 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
         )
         return bb
     if not _bbox_within(bb, region):
+        if not getattr(a, "planned_iso_scale_authored", True):
+            ratios = [
+                available / extent
+                for extent, available in (
+                    (a.ISO_X - bb[0], a.ISO_X - region[0]),
+                    (bb[2] - a.ISO_X, region[2] - a.ISO_X),
+                    (a.ISO_Y - bb[1], a.ISO_Y - region[1]),
+                    (bb[3] - a.ISO_Y, region[3] - a.ISO_Y),
+                )
+                if extent > 0
+            ]
+            relative = math.floor(min(ratios, default=1.0) * 0.98 * 10000) / 10000
+            if relative > 0:
+                _project_iso(dwg, a, a.SCALE * a.planned_iso_scale * relative)
+                return _iso_bbox(dwg)
         source = None
         constraints = a.view_constraints
         if isinstance(constraints, ViewConstraints):
@@ -221,6 +246,49 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
             f"authored iso scale{where} is infeasible in its composed view zone; "
             "the requested scale was not reduced"
         )
+    if not getattr(a, "planned_iso_scale_authored", True) and not any(
+        name.startswith("detail_") for name in dwg.views
+    ):
+        # Staggered-side starts the orientation view at 65% so annotations are
+        # placed against a safe initial obstacle. Once their ink is settled, use
+        # the remaining zone instead of leaving that temporary size as a cap.
+        # A detail view is defining content outside the composed iso zone, so
+        # retain its initial size as the ordinary iso fit does (#915).
+        # The probe measures each real OCC projection, including its translation,
+        # and stops at either the zone boundary or an annotation.
+        ratios = [
+            available / extent
+            for extent, available in (
+                (a.ISO_X - bb[0], a.ISO_X - region[0]),
+                (bb[2] - a.ISO_X, region[2] - a.ISO_X),
+                (a.ISO_Y - bb[1], a.ISO_Y - region[1]),
+                (bb[3] - a.ISO_Y, region[3] - a.ISO_Y),
+            )
+            if extent > 0
+        ]
+        initial = a.planned_iso_scale
+        ceiling = min(_ISO_MAX_GROW, initial * min(ratios, default=1.0) * 0.90)
+        if ceiling > initial * 1.05:
+            # A bare non-overlap test can leave the iso almost touching a GD&T
+            # frame (0.24 mm on CTC01). Reserve visible air around annotation ink
+            # and the other view outlines before probing any larger projection.
+            growth_obstacles = [_inflate_box(box, _ISO_GROWTH_CLEARANCE_MM) for box in obstacles]
+            growth_obstacles.extend(
+                _inflate_box(dwg.view_bounds(name), _ISO_GROWTH_CLEARANCE_MM)
+                for name in dwg.views
+                if name != "iso"
+            )
+            clear = _largest_clear_factor(
+                dwg, a, ceiling, growth_obstacles, bb, lo=initial, region=region
+            )
+            factor = math.floor(clear * 10000) / 10000
+            # The search leaves the drawing at its last probe. Restore the
+            # intended scale even if the gain is too small to use.
+            factor = factor if factor > initial * 1.05 else initial
+            _project_iso(dwg, a, a.SCALE * factor)
+            if abs(factor - 1.0) < 1e-6:
+                return None  # no NTS caption at the actual sheet scale
+            return _iso_bbox(dwg)
     return bb
 
 
@@ -544,6 +612,11 @@ def _assemble(
         assembly=assembly,
         reproducible=reproducible,
     )
+    dwg.annotation_scheme_decision = {
+        "status": "shadow",
+        "influenced_layout": False,
+        **a.layout_strips.annotation_scheme_shadow_report(a.SCALE).to_dict(),
+    }
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
@@ -701,8 +774,7 @@ def _assemble(
     dwg._model_declared = model is not None  # ADR 4 (was 0011) #448: gate model-driven hole render
     # A document member uses a declared model for its sealed physical inventory, but source
     # PMI within that model remains governed by the member's presentation policy (#1794).
-    dwg._document_member = a.document_member
-    dwg._document_source_annotation_ids = frozenset(hidden_source_annotations)
+    dwg.attach_document_context(a.document_member, hidden_source_annotations)
 
     # The solid this assembly projects. ADR 2 (was 0004) wants the real geometry built ONCE, but the
     # measure-and-repack loop assembles up to three times, so today it is projected up to three
@@ -1157,8 +1229,29 @@ def _repack_to_fixed_point(
     reproducible=True,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
+
+    def _required_losses(candidate):
+        lint = getattr(candidate, "lint", None)
+        # Pure orchestration tests use lightweight drawing doubles. They have no semantic
+        # diagnostics, which is equivalent to an empty loss set for this guard.
+        issues = tuple(lint(physical=False)) if lint is not None else ()
+        blockers = list(_scale_blockers_from_issues(issues))
+        blockers.extend(
+            {
+                "code": issue.code,
+                "measurements": tuple(
+                    _scale_requirement(mid) for mid in getattr(issue, "measurement_ids", ())
+                ),
+                "hole_requirements": (),
+                "source_ids": tuple(getattr(issue, "source_ids", ())),
+            }
+            for issue in _replannable_losses(issues)
+        )
+        return collections.Counter(map(_blocker_identity, blockers))
+
     cur_a, cur_dwg = a, dwg
     for i in range(_REPACK_MAX_ITER):
+        trace_snapshot = trace.snapshot() if trace is not None else None
         repacked = _repack(
             cur_a,
             cur_dwg,
@@ -1189,7 +1282,13 @@ def _repack_to_fixed_point(
                     i,
                 )
             return (cur_a, cur_dwg) if i else None
-        cur_a, cur_dwg = repacked
+        next_a, next_dwg = repacked
+        introduced = _required_losses(next_dwg) - _required_losses(cur_dwg)
+        if introduced:
+            if trace is not None:
+                trace.restore(trace_snapshot)
+            return (cur_a, cur_dwg) if i else None
+        cur_a, cur_dwg = next_a, next_dwg
 
     if _needs_repack(cur_dwg, cur_a):
         cur_dwg.registry.record_issue(
@@ -1737,6 +1836,17 @@ def _replannable_losses(issues) -> tuple:
     )
 
 
+def _axial_dimension_losses(issues) -> tuple:
+    """Missing explicit turned-axis lengths that a larger layout may recover.
+
+    ``lint_axial_coverage`` proves only that annotation spans cover the overall profile.  A
+    synthetic block dimension can satisfy that geometric span while omitting every individual
+    step length.  The coverage lint reports that distinct manufacturing failure as
+    ``axial_length_missing``; page/scale qualification must read it too.
+    """
+    return tuple(issue for issue in issues if issue.code == "axial_length_missing")
+
+
 def _scale_blockers_from_issues(issues) -> tuple[dict, ...]:
     """Required placement failures from one already-materialised lint pass."""
     blockers = []
@@ -1835,6 +1945,49 @@ def _blocker_identity(blocker) -> str:
         sort_keys=True,
         default=str,
     )
+
+
+def _arrangement_quality(issues, blockers, *, page, scale, interior_dimensions=0) -> dict:
+    """Return a stable, JSON-friendly key for one finished arrangement.
+
+    The tuple puts correctness and readability ahead of compactness. The layout
+    selector uses it only after separately checking semantic and sheet parity.
+    """
+    issues = tuple(issues)
+    blockers = tuple(blockers)
+    hard_layout = _hard_layout_issues(issues)
+    overlap_codes = {
+        "annotation_ink_overlap",
+        "annotation_overlap",
+        "view_annotation_overlap",
+    }
+    overlaps = tuple(issue for issue in issues if issue.code in overlap_codes)
+    crossings = tuple(issue for issue in issues if issue.code.endswith("crossing"))
+    width, height = (float(value) for value in page)
+    scale = float(scale)
+    if width <= 0 or height <= 0 or scale <= 0:
+        raise ValueError("arrangement quality needs positive page dimensions and scale")
+    if interior_dimensions < 0:
+        raise ValueError("arrangement quality needs a non-negative interior dimension count")
+    key = (
+        len(hard_layout),
+        len(blockers),
+        len(overlaps),
+        int(interior_dimensions),
+        len(crossings),
+        -scale,
+        width * height,
+    )
+    return {
+        "selection_key": key,
+        "hard_layout_violations": len(hard_layout),
+        "required_outcomes_dropped": len(blockers),
+        "overlaps": len(overlaps),
+        "interior_dimensions": int(interior_dimensions),
+        "crossings": len(crossings),
+        "scale": scale,
+        "page": (width, height),
+    }
 
 
 def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
@@ -2162,6 +2315,7 @@ def build_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
+    annotation_layout: Literal["baseline", "best"] = "baseline",
     _replayed_scale: float | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
@@ -2189,7 +2343,47 @@ def build_drawing(
     normal shared solve, ``"exterior"`` restores the historical exterior-only inventory,
     and ``"interior"`` requires interior candidates where the feature family has proved
     them. Explicit per-feature ``side=`` constraints remain exterior.
+
+    ``annotation_layout="best"`` evaluates an alternative on the settled sheet and
+    scale, retaining the existing layout unless finished-drawing semantic parity and
+    layout quality prove a strict gain. ``"baseline"`` uses the established layout.
     """
+    annotation_layout = annotation_layout_policy(annotation_layout)
+    if annotation_layout == "best":
+        options = locals().copy()
+        options["annotation_layout"] = "baseline"
+        with use_layout_profile(AnnotationLayoutProfile()):
+            baseline = build_drawing(**options)
+        if not auto_dims:
+            baseline.annotation_scheme_decision = {
+                **baseline.annotation_scheme_decision,
+                "status": "retained_baseline",
+                "policy": "best",
+                "reason": "automatic_annotations_disabled",
+            }
+            return baseline
+        candidate_options = {
+            **options,
+            "scale": baseline.scale,
+            "page": (baseline.page_w, baseline.page_h),
+            "scale_policy": "permissive",
+            "_replayed_scale": None,
+        }
+
+        def build_candidate(profile: AnnotationLayoutProfile) -> Drawing:
+            with use_layout_profile(profile), warnings.catch_warnings():
+                warnings.simplefilter("ignore", ScaleCompletenessWarning)
+                return build_drawing(**candidate_options)
+
+        selected = select_best_annotation_layout(baseline, build_candidate)
+        if selected is not baseline:
+            # The speculative build uses a fixed settled scale with permissive checks.
+            # Report the caller's original scale policy and resolution on the result.
+            selected.scale_decision = baseline.scale_decision
+        if selected.solve_trace is not None:
+            selected.solve_trace.write()
+        return selected
+
     from draftwright.leader_policy import leader_region_policy
 
     validate_projection(projection, projection_symbol=projection_symbol)
@@ -2504,7 +2698,9 @@ def build_drawing(
                     if hasattr(latest_analysis, "profiles")
                     else {"prof": latest_analysis.prof}
                 )
-                if lint_axial_coverage(latest_analysis.part, candidate, **profile_kw):
+                if lint_axial_coverage(
+                    latest_analysis.part, candidate, **profile_kw
+                ) or _axial_dimension_losses(issues):
                     return issues, blockers, "axial_coverage_incomplete"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"
@@ -2791,7 +2987,10 @@ def build_drawing(
         ):
             original_issues, required_blockers = _automatic_assessment(drawing)
             settled_issues = original_issues
-            if required_blockers and not _hard_layout_issues(original_issues):
+            axial_dimension_losses = _axial_dimension_losses(original_issues)
+            if (required_blockers or axial_dimension_losses) and not _hard_layout_issues(
+                original_issues
+            ):
                 _record_attempt(
                     drawing.scale,
                     "required_outcome_dropped",
@@ -2802,7 +3001,7 @@ def build_drawing(
                 recovered, recovered_issues = _try_larger_scales_on_selected_page(
                     drawing.scale,
                     reason="scale_escalation_after_required_drop",
-                    require_axial_coverage=False,
+                    require_axial_coverage=bool(axial_dimension_losses),
                 )
                 if recovered is None and page is None:
                     recovered, recovered_issues = _try_larger_standard_pages(
@@ -2810,7 +3009,7 @@ def build_drawing(
                         include_iso=_include_iso,
                         reason="page_escalation_after_required_drop",
                         fallback_views=tuple(drawing.views),
-                        require_axial_coverage=False,
+                        require_axial_coverage=bool(axial_dimension_losses),
                         allow_recovery_detail=True,
                     )
                 if recovered is not None:
@@ -2840,10 +3039,11 @@ def build_drawing(
                 if hasattr(latest_analysis, "profiles")
                 else {"prof": latest_analysis.prof}
             )
+            original_issues, original_blockers = _automatic_assessment(drawing)
             original_has_axial_gap = bool(
                 lint_axial_coverage(latest_analysis.part, drawing, **profile_kw)
+                or _axial_dimension_losses(original_issues)
             )
-            original_issues, original_blockers = _automatic_assessment(drawing)
             required_blockers = original_blockers
             settled_issues = original_issues
             recovered_on_selected_page = False
@@ -2963,6 +3163,7 @@ def build_drawing(
                         issues, blockers, rejection = _qualify_candidate(
                             without_iso,
                             require_axial_coverage=True,
+                            allow_recovery_detail=True,
                         )
                         if rejection is None:
                             _record_attempt(
@@ -3075,8 +3276,23 @@ def build_drawing(
 
     requested_scale = float(scale)
     automatic_view_policy = views_are_automatic and _views is None
+    layout_profile = current_layout_profile()
+    experimental_arrangement = (
+        layout_profile.arrangement
+        if layout_profile is not None
+        else os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT")
+    )
+    arrangements = None
+    if experimental_arrangement is not None:
+        if experimental_arrangement not in ARRANGEMENTS:
+            raise ValueError(
+                f"experimental arrangement must be one of {ARRANGEMENTS}, "
+                f"got {experimental_arrangement!r}"
+            )
+        arrangements = (experimental_arrangement,)
     drawing = _build(
         requested_scale,
+        arrangements=arrangements,
         views=_views,
         select_automatic_views=automatic_view_policy,
     )
@@ -3316,6 +3532,7 @@ def make_drawing(
     margin_bottom: float | None = None,
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
+    annotation_layout: Literal["baseline", "best"] = "baseline",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -3352,6 +3569,8 @@ def make_drawing(
         leader_region: feature-leader label region policy. ``"auto"`` keeps the normal
             solver, ``"exterior"`` restores exterior-only compatibility, and
             ``"interior"`` requires interior placement where that feature family supports it.
+        annotation_layout: ``"best"`` compares finished layouts on the same sheet and scale
+            and selects a candidate only when required annotations and quality are preserved.
 
     Returns:
         Tuple of ``(svg_path, dxf_path)`` for the generated files.
@@ -3403,6 +3622,7 @@ def make_drawing(
         framed_recognition=framed_recognition,
         scale_policy=scale_policy,
         leader_region=leader_region,
+        annotation_layout=annotation_layout,
     ).export(formats=("svg", "dxf"))
     assert isinstance(_paths, dict)  # formats=... always returns the {format: path} dict
     return _paths["svg"], _paths["dxf"]

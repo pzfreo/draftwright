@@ -1,6 +1,7 @@
 """Turned-shaft diameter recognition, placement, and replay behavior."""
 
 import math
+from dataclasses import replace
 
 import pytest
 from _drawing_helpers import sheet_script_drawing as _sheet_script_drawing
@@ -157,11 +158,11 @@ class TestTurnedDiameters:
         # centreline locates it; generic minimum-edge offsets would redundantly
         # show half the 46 mm envelope in both X and Z (#881).
         assert dwg.view_of("centerline_side") == "side"
-        # RaisedPad v2 no longer misclassifies two rotated flange lugs as pads. With that
-        # false requirement gone, ADR 2 (was 0018) omits the redundant plan view and its furniture;
-        # the front profile plus side end view still define the Y-axis stack completely.
-        assert dwg.view_of("centerline_plan") is None
-        assert "plan" not in dwg.views
+        # The hybrid whole-part envelope retains the plan projection even though the local
+        # Y-turned stack is defined by front + side. Its centreline must follow that retained
+        # view rather than becoming orphan furniture.
+        assert dwg.view_of("centerline_plan") == "plan"
+        assert "plan" in dwg.views
         assert not any(n.startswith("dim_loc_front_") for n in dwg.annotations())
         assert not any(n.startswith("dim_loc_side_") for n in dwg.annotations())
 
@@ -345,20 +346,24 @@ class TestTurnedDiameters:
         the property the whole intent-level script rests on (ADR 4 (was 0016), "the script records
         intent").
         """
-        # The verb's actual domain: a part with NO `EnvelopeFeature`, so the height comes
-        # from the bounding-box fallback and there is nothing to name. (An enveloped model
-        # refuses this verb and uses its feature instead — see the test above; this fixture
-        # asserted the property on an enveloped plate, which is the overlap itself.)
+        # The verb's fallback domain is a declared model with NO `EnvelopeFeature`, so there
+        # is nothing to name. Detection now correctly gives this hybrid turned/prismatic part
+        # a whole-part envelope; remove it explicitly to retain coverage of the public fallback.
         part = self._issue_881_y_step_flange()
-        assert not any(f.kind == "envelope" for f in build_drawing(part).model().features)
+        detected = build_drawing(part, auto_dims=False).model()
+        model = replace(
+            detected,
+            features=[feature for feature in detected.features if feature.kind != "envelope"],
+        )
+        assert not any(feature.kind == "envelope" for feature in model.features)
 
-        silent = build_drawing(part, auto_dims=False)
+        silent = build_drawing(part, model=model, auto_dims=False)
         assert "dim_height" not in silent.annotations(), "not recorded ⇒ not drawn"
 
-        live = build_drawing(part, auto_dims=False)
+        live = build_drawing(part, model=model, auto_dims=False)
         assert live.overall_height() == ["dim_height"]
 
-        deferred = build_drawing(part, auto_dims=False)
+        deferred = build_drawing(part, model=model, auto_dims=False)
         with deferred.deferred():
             deferred.overall_height()
         assert deferred.annotations() == live.annotations(), "record-then-finalize == live"
@@ -366,15 +371,12 @@ class TestTurnedDiameters:
     def test_overall_height_round_trips_through_generated_script(self, tmp_path):
         """#889: the replay dropped the automatic overall height, silently and lint-clean.
 
-        Two different things share `render_height_ladder`, and the drain gated BOTH on the
-        step-ladder intent. The step-height LADDER is a `step_level` feature's correlated
-        rungs, so one recorded intent meaning "rebuild the whole chain" is right. The OVERALL
-        HEIGHT is envelope furniture — and on a part with no `EnvelopeFeature` it comes from
-        the compiler's bounding-box fallback, so there is NO feature for a script to record an
-        intent against. It could never be replayed, only lost.
+        Two different things share `render_height_ladder`: the correlated step-height ladder
+        and the overall envelope height. The generated Sheet script must preserve both without
+        duplicating the Y-step length chain.
 
-        The Y-axis stepped flange is the case that exposes it: `step` features but no
-        `step_level`, so no ladder intent exists to carry the overall height along.
+        The Y-axis stepped flange is the case that exposes it: local turned steps coexist with
+        a prismatic whole-part envelope and an enlarged axial-chain detail.
 
         Asserted as full annotation-set parity rather than "dim_height is present", because
         the acceptance is that replay matches the automatic drawing — and the risk on the
@@ -395,9 +397,8 @@ class TestTurnedDiameters:
                 assert (part & lug).volume == pytest.approx(400 - pi * 2**2 * 4)
         auto = build_drawing(part)
         assert not any(f.kind == "pocket" for f in auto.model().features)
-        assert not any(f.kind == "envelope" for f in auto.model().features), (
-            "the fixture must have NO envelope feature — the bbox fallback is the case "
-            "with no intent to record"
+        assert any(f.kind == "envelope" for f in auto.model().features), (
+            "a hybrid turned/prismatic part needs an explicit whole-part envelope"
         )
 
         _source, replayed = _sheet_script_drawing(part, tmp_path, "flange")
@@ -449,8 +450,8 @@ class TestTurnedDiameters:
 
         # ── from #881: the Y-step furniture lands in the right views on the replay ──
         assert replayed.view_of("centerline_side") == "side"
-        assert replayed.view_of("centerline_plan") is None
-        assert "plan" not in replayed.views
+        assert replayed.view_of("centerline_plan") == "plan"
+        assert "plan" in replayed.views
         assert not any(n.startswith(("dim_loc_front_", "dim_loc_side_")) for n in replay)
         assert {replayed.view_of(n) for n in replay if n.startswith("m_steplen")} == {"side"}
 

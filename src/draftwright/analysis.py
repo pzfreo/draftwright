@@ -55,6 +55,7 @@ from draftwright._geometry import (
 from draftwright._geometry import (
     dedup_diams as dedup_diams,
 )
+from draftwright.annotation_layout_profile import cap_planned_strips
 from draftwright.compose import (
     StripDepths,
     _build_rear_zones,
@@ -240,6 +241,13 @@ def _planned_iso_scale(constraints) -> float | None:
         if item.spec.name == "iso" and item.spec.scale_factor is not None:
             return item.spec.scale_factor
     return None
+
+
+def _resolved_iso_scale(arrangement: str, authored: float | None) -> tuple[float | None, bool]:
+    """Resolve the projection factor while retaining whether it is a hard authored value."""
+    if arrangement == "staggered-side" and authored is None:
+        return 0.65, False
+    return authored, authored is not None
 
 
 def _sizing_bores(z_cyls, z_diams, od_diam, cx, cy) -> list:
@@ -1235,15 +1243,17 @@ def _analyse(
     # scale. Seed conservatively (all faces), then re-gate at the chosen scale;
     # converges in a couple of rounds.
     def _measure_for_step_count(n_steps_i: int) -> StripDepths:
-        return _measure_strips(
-            strip_sizing_model,
-            n_steps_i,
-            bb,
-            arrow_length=_arrow_length,
-            pad_around_text=_pad_around_text,
-            bore_callout_width=bore_callout_width,
-            text_position=text_position,
-            text_orientation=text_orientation,
+        return cap_planned_strips(
+            _measure_strips(
+                strip_sizing_model,
+                n_steps_i,
+                bb,
+                arrow_length=_arrow_length,
+                pad_around_text=_pad_around_text,
+                bore_callout_width=bore_callout_width,
+                text_position=text_position,
+                text_orientation=text_orientation,
+            )
         )
 
     layout_advisories: list[tuple[str, str]] = []
@@ -1284,6 +1294,13 @@ def _analyse(
     # re-deriving would compose the sheet under a different arrangement than the one whose
     # feasibility was actually established (#1130).
     ARRANGEMENT = arrangement_of(scale_pick)
+    # The staggered-side scheme reserves the upper-right corridor for defining
+    # orthographic dimensions.  Its ISO is orientation-only (NTS), so project it
+    # smaller from the outset rather than placing annotations against a temporary
+    # sheet-scale obstacle and shrinking it after those placements are settled.
+    layout_iso_scale, layout_iso_scale_authored = _resolved_iso_scale(
+        ARRANGEMENT, planned_iso_scale
+    )
     _validate_explicit_scale(
         scale,
         SCALE,
@@ -1303,20 +1320,22 @@ def _analyse(
         advisories=layout_advisories,
         views=_views,
         include_iso=_include_iso,
-        iso_scale_factor=planned_iso_scale,
+        iso_scale_factor=layout_iso_scale,
         convention=convention,
     )
     DIM_PAD = _DIM_PAD
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(layout_step_zs, bb.min.Z, SCALE)[0])
-    strips = _measure_strips(
-        strip_sizing_model,
-        n_steps,
-        bb,
-        arrow_length=_arrow_length,
-        pad_around_text=_pad_around_text,
-        bore_callout_width=bore_callout_width,
+    strips = cap_planned_strips(
+        _measure_strips(
+            strip_sizing_model,
+            n_steps,
+            bb,
+            arrow_length=_arrow_length,
+            pad_around_text=_pad_around_text,
+            bore_callout_width=bore_callout_width,
+        )
     )
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
@@ -1339,7 +1358,7 @@ def _analyse(
         arrangement=ARRANGEMENT,
         views=_views,
         include_iso=_include_iso,
-        iso_scale_factor=planned_iso_scale,
+        iso_scale_factor=layout_iso_scale,
         convention=convention,
     )
     _apply_principal_view_pins(
@@ -1385,6 +1404,15 @@ def _analyse(
     # here (PAGE_H - margin / iso_right_limit); _auto_annotate() tightens
     # them once the iso has been projected.
     fv_zones, pv_zones, sv_zones = _build_zones(_g, margin, PAGE_H)
+    if ARRANGEMENT == "staggered-side":
+        # The aligned row spends headroom to clear the title block. Its exterior ladders
+        # retain the full label height and 1 mm of clear air rather than the legacy 2.5 mm.
+        # Scope this to the opt-in arrangement so established sheets remain byte-identical.
+        for view_zones in (fv_zones, pv_zones, sv_zones):
+            for side in ("above", "below", "left", "right"):
+                strip = getattr(view_zones, side, None)
+                if strip is not None:
+                    strip.spacing = 1.0
 
     page_label = {297: "A4", 420: "A3", 594: "A2", 841: "A1", 1189: "A0"}.get(
         int(PAGE_W), f"{PAGE_W:.0f}mm"
@@ -1411,7 +1439,8 @@ def _analyse(
         RV_X=_g.RV_X,
         RV_Y=_g.RV_Y,
         rv_zones=_build_rear_zones(_g, margin, PAGE_H),
-        planned_iso_scale=planned_iso_scale,
+        planned_iso_scale=layout_iso_scale,
+        planned_iso_scale_authored=layout_iso_scale_authored,
         view_constraints=_view_constraints,
         part=part,
         source_part=source_part,

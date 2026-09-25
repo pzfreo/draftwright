@@ -654,6 +654,9 @@ class Drawing:
         scale: drawing scale factor (e.g. ``2.0`` for 2:1).
         scale_decision: JSON-friendly resolution of an automatic or explicit scale request,
             including the requested/effective scales and any required placement blockers.
+        annotation_scheme_decision: JSON-friendly corridor comparison. With
+            ``annotation_layout="best"`` it also records verified layout trials and the
+            selected result; ``influenced_layout`` says whether a candidate won.
         view_decision: JSON-friendly resolution of automatic principal-view selection.
             ``chosen`` is the final principal set and ``attempts`` records a reduced candidate
             and why it was accepted or rejected.
@@ -718,6 +721,17 @@ class Drawing:
             "attempted_scales": (),
             "attempts": (),
         }
+        # The builder replaces this after analysis; the selector adds trials and a
+        # decision when the caller requests the best verified layout.
+        self.annotation_scheme_decision: dict[str, object] = {
+            "status": "not_evaluated",
+            "influenced_layout": False,
+            "scale": scale,
+            "unplanned_count": 0,
+            "corridors": (),
+            "under_reserved": 0,
+            "over_reserved": 0,
+        }
         # The builder replaces this neutral value after the requested/automatic view policy
         # has settled.  Always present so callers never have to infer whether the repeated
         # projection was considered from logs or from the final view count (#1262).
@@ -775,6 +789,7 @@ class Drawing:
         self.views: dict = {}
         self.items: list = []
         self._coords: dict = {}
+        self._iso_projection_scale: float | None = None
         # Annotation identity, ownership, pins, and build issues live in the
         # registry (#138 / ADR 1 (was 0005), Step 2), reached through its own surface
         # (`in reg` / `names()` / `issues`) — the `dwg._named` &c. compat aliases
@@ -821,6 +836,15 @@ class Drawing:
         return self._working_part
 
     @property
+    def iso_projection_scale(self) -> float | None:
+        """The scale of the final projected isometric view, if one was projected."""
+        return self._iso_projection_scale
+
+    def set_iso_projection_scale(self, scale: float) -> None:
+        """Record an isometric projection or reprojection from the projection stage."""
+        self._iso_projection_scale = float(scale)
+
+    @property
     def recognition_frame(self):
         """The provider caller-to-working frame, or ``None`` outside a framed build."""
         return getattr(self._build.analysis, "recognition_frame", None)
@@ -829,6 +853,36 @@ class Drawing:
     def leader_region(self) -> str:
         """The resolved feature-leader region policy for this drawing."""
         return getattr(self._build.analysis, "leader_region", "auto")
+
+    @property
+    def pmi_mode(self) -> str:
+        """The imported PMI presentation policy resolved for this drawing."""
+        return getattr(self._build.analysis, "pmi_mode", "off")
+
+    @property
+    def general_tolerance_source(self):
+        """The document default attached to the title-block tolerance, if any."""
+        return self._build.general_tolerance_source
+
+    @property
+    def default_surface_finish_source(self):
+        """The document-wide finish attached to sheet furniture, if any."""
+        return self._build.default_surface_finish_source
+
+    @property
+    def document_member(self) -> bool:
+        """Whether this drawing belongs to an imported document."""
+        return self._document_member
+
+    @property
+    def document_source_annotation_ids(self) -> frozenset[int]:
+        """Source PMI identifiers already owned by the imported document."""
+        return self._document_source_annotation_ids
+
+    def attach_document_context(self, member: bool, source_annotation_ids) -> None:
+        """Attach imported-document policy once, before annotation passes run."""
+        self._document_member = bool(member)
+        self._document_source_annotation_ids = frozenset(source_annotation_ids)
 
     @property
     def recognition_frame_decision(self) -> dict[str, object]:

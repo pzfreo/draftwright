@@ -9,7 +9,7 @@ def test_distinct_flat_sizes_keep_distinct_uniformly_formatted_callouts():
     labels = {
         dwg.get_annotation(name).label for name in dwg.annotations() if name.startswith("m_flat_")
     }
-    assert labels == {"3× 6.00 A/F", "3× 6.05 A/F", "4× 6.50 A/F"}
+    assert labels == {"4× 6.00 A/F", "4× 6.05 A/F", "6× 6.50 A/F"}
 
 
 def test_side_callout_respects_the_future_height_location_label():

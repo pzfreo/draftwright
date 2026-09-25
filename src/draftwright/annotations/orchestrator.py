@@ -40,6 +40,7 @@ from draftwright._core import (
     layout_frame,
 )
 from draftwright.analysis import _sizing_bores
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     PlacementContext,
     _annotation_hole_features,
@@ -108,6 +109,7 @@ from draftwright.annotations.sections import (
     _resolve_details,
     feature_hole_keys,
 )
+from draftwright.layout_scheme import pack_estimated_annotation_lanes
 from draftwright.model import (
     DimensionId,
     Frame,
@@ -602,9 +604,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     _model = dwg.model() if dwg.model() is not None else build_model(a)
     ctx.part_model = _model
     ctx.model_declared = dwg.model_declared
-    ctx.document_member = getattr(dwg, "_document_member", False)
+    ctx.document_member = getattr(dwg, "document_member", False)
     ctx.document_source_annotation_ids = getattr(
-        dwg, "_document_source_annotation_ids", frozenset()
+        dwg, "document_source_annotation_ids", frozenset()
     )
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
@@ -615,6 +617,18 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # derived decision — three chances to disagree about one drawing.
     _compiled = compile_dimensions(_model, groups=_groups)
     _groups = annotation_groups(_model, _groups)
+    if (
+        layout_flag("scheme_lanes", "DRAFTWRIGHT_EXPERIMENTAL_SCHEME_LAYOUT")
+        and a.layout_strips.scheme is not None
+    ):
+        ctx.annotation_lanes = pack_estimated_annotation_lanes(
+            a.layout_strips.scheme,
+            scale=a.SCALE,
+            font_size=dwg.draft.font_size,
+            padding=dwg.draft.pad_around_text,
+        )
+    if layout_flag("exterior_dimensions", "DRAFTWRIGHT_EXPERIMENTAL_EXTERIOR_DIMENSIONS"):
+        ctx.exterior_dimensions_only = True
     for omission in _compiled.diagnostics:
         if omission.code == "step_position_coincident_with_datum":
             measurement = (

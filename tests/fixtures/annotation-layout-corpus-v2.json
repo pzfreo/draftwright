@@ -1,0 +1,172 @@
+{
+  "format": "draftwright-annotation-layout-corpus",
+  "corpus_version": "2.0.0",
+  "metric_version": 1,
+  "cases": [
+    {
+      "id": "ctc01-a3-1to5",
+      "source": "tests/fixtures/nist_ctc_01_asme1_ap242.stp",
+      "page": "A3",
+      "scale": 0.2,
+      "title": "CTC-01",
+      "number": "NIST-CTC-01",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc02-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_02_asme1_ap242.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "CTC-02",
+      "number": "NIST-CTC-02",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc03-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_03_asme1_ap242.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "ctc03-a2-1to5",
+      "number": "ctc03-a2-1to5",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc04-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_04_asme1_ap242.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "ctc04-a2-1to5",
+      "number": "ctc04-a2-1to5",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc05-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_05_asme1_ap242.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "ctc05-a2-1to5",
+      "number": "ctc05-a2-1to5",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "grm04-a3-5to1",
+      "source": "tests/fixtures/grm04_drive_plate.step",
+      "page": "A3",
+      "scale": 5.0,
+      "title": "grm04-a3-5to1",
+      "number": "grm04-a3-5to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "tuner-a3-1to1",
+      "source": "tests/fixtures/tuner_jig_blind_obround_pockets.step",
+      "page": "A3",
+      "scale": 1.0,
+      "title": "tuner-a3-1to1",
+      "number": "tuner-a3-1to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "whistle-a3-1to1",
+      "source": "tests/fixtures/whistle_frame_reference.step",
+      "page": "A3",
+      "scale": 1.0,
+      "title": "whistle-a3-1to1",
+      "number": "whistle-a3-1to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "grm03-pmi-a3-5to1",
+      "source": "tests/fixtures/grm03_thumbwheel_drive_screw_ap242_pmi.step",
+      "page": "A3",
+      "scale": 5.0,
+      "title": "grm03-pmi-a3-5to1",
+      "number": "grm03-pmi-a3-5to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "issue915-a2-1to2",
+      "source": "tests/fixtures/issue_915_case_study_2.step",
+      "page": "A2",
+      "scale": 0.5,
+      "title": "issue915-a2-1to2",
+      "number": "issue915-a2-1to2",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "wheel-a3-10to1",
+      "source": "tests/fixtures/issue_1058_wheel_rh.step",
+      "page": "A3",
+      "scale": 10.0,
+      "title": "wheel-a3-10to1",
+      "number": "wheel-a3-10to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "lever-a3-5to1",
+      "source": "tests/fixtures/issue_1595_whistle_key_lever.step",
+      "page": "A3",
+      "scale": 5.0,
+      "title": "lever-a3-5to1",
+      "number": "lever-a3-5to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "frame-a3-2to1",
+      "source": "tests/fixtures/issue_1595_whistle_key_frame.step",
+      "page": "A3",
+      "scale": 2.0,
+      "title": "frame-a3-2to1",
+      "number": "frame-a3-2to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "angled-a3-2to1",
+      "source": "tests/fixtures/issue_1247_angled_blind_step.step",
+      "page": "A3",
+      "scale": 2.0,
+      "title": "angled-a3-2to1",
+      "number": "angled-a3-2to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "sloped-a3-2to1",
+      "source": "tests/fixtures/issue_909_basic_part_design_017_body.step",
+      "page": "A3",
+      "scale": 2.0,
+      "title": "sloped-a3-2to1",
+      "number": "sloped-a3-2to1",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    }
+  ]
+}

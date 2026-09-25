@@ -1441,6 +1441,9 @@ class Analysis:
     planned_iso: bool = True
     #: ``None`` lets the orientation iso auto-fit; a number is an authored exact factor.
     planned_iso_scale: float | None = None
+    #: Distinguishes a caller's exact factor from an engine-selected NTS starting factor.
+    #: Only the former is a hard constraint that settlement must never reduce.
+    planned_iso_scale_authored: bool = False
     #: Immutable ADR 2 (was 0018) authored input, retained for the resolver/diagnostics without making
     #: this low-level module depend on the view-planning leaf at runtime.
     view_constraints: object | None = None
@@ -1699,7 +1702,7 @@ def _add_title_block(dwg, a: Analysis):
         dwg.items,
         tb,
         "title_block",
-        feature=dwg._build.general_tolerance_source,
+        feature=dwg.general_tolerance_source,
     )
 
 
@@ -1785,7 +1788,7 @@ def _add_default_surface_finish(dwg, a: Analysis):
     The reserved band above the title block is sheet furniture space.  A document default
     belongs there: hanging it from model geometry would falsely narrow its scope to one face.
     """
-    requirement = dwg._build.default_surface_finish_source
+    requirement = dwg.default_surface_finish_source
     if requirement is None:
         return
 

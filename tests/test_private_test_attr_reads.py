@@ -63,6 +63,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_document_member",
         "_document_source_annotation_ids",
         "_intents",
+        "_iso_projection_scale",
         "_model_declared",
         "_registry",
         "_working_part",

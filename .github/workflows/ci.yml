@@ -82,12 +82,12 @@ jobs:
           fi
           coverage_mode=skip
           if [[ "$EVENT_NAME" == "pull_request" && "$version_only" != "true" ]]; then
-            coverage_args=()
             if [[ "$FULL_MATRIX" == "true" || "$FULL_COVERAGE" == "true" ]]; then
-              coverage_args+=(--force-full)
+              coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA" \
+                --force-full)
+            else
+              coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA")
             fi
-            coverage_mode=$(python3 scripts/coverage-mode "$BASE_SHA" "$HEAD_SHA" \
-              "${coverage_args[@]}")
           elif [[ "$EVENT_NAME" == "schedule" \
                   || ( "$EVENT_NAME" == "workflow_dispatch" && "$POST_RELEASE" != "true" ) ]]; then
             coverage_mode=full
@@ -236,12 +236,13 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_TIER: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'full-matrix') }}
+        shell: bash
         run: |
           tier=full
           if [[ "$PR_TIER" == "true" ]]; then
             tier=pr
           fi
-          uv run scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
+          uv run python scripts/test-tier "$tier" --base "$BASE_SHA" --workers auto \
             --durations=25 \
             ${{ matrix.shard && format('--splits 2 --group {0}', matrix.shard) || '' }}
 
@@ -434,23 +435,41 @@ jobs:
     # Heavy end-to-end CTC builds and the scheduled compatibility corpus run once,
     # not across the full OS/Python matrix.
     #
-    # POST-MERGE ONLY — runs on push to main, not on pull_request, so it no
-    # longer gates PR merge (#153). Rationale: since #149 pinned the fonts,
+    # POST-MERGE OR EXPLICIT MANUAL VALIDATION — runs on push to main or a
+    # workflow dispatch, never automatically on pull_request, so it does not
+    # normally gate PR merge (#153). Rationale: since #149 pinned the fonts,
     # generated layout is deterministic, so these heavy real-part standards builds
     # rarely catch anything the PR fast tier misses. They stay as a safety net on
     # main; a regression here is caught right after merge.
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.version_only != 'true'
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && needs.changes.outputs.version_only != 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
           - lane: ctc04
-            workers: 1
+            workers: 0
             selection: ctc04
-          - lane: remaining
-            workers: auto
+            timeout_seconds: 900
+            keyword: ""
+            split_args: ""
+          - lane: view-selection
+            workers: 0
             selection: not ctc04
+            keyword: test_adr0018_view_selection
+            split_args: ""
+          - lane: remaining-1
+            workers: 0
+            selection: not ctc04
+            keyword: not test_adr0018_view_selection
+            split_args: --splits 2 --group 1
+          - lane: remaining-2
+            workers: 0
+            selection: not ctc04
+            keyword: not test_adr0018_view_selection
+            split_args: --splits 2 --group 2
     name: test-slow (${{ matrix.lane }})
     runs-on: ubuntu-latest
     steps:
@@ -464,13 +483,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run scheduled tests
-        # CTC-04 saturates a two-core hosted runner and stays serial on its own runner.
-        # The disjoint remaining lane can use xdist without making CTC-04 exceed its
-        # per-test bound. Together the lanes still cover the complete scheduled tier.
+        # CAD-kernel builds retain enough native state for even one dense module to exhaust a
+        # hosted runner. Give every selected test a fresh, non-xdist process, then split the
+        # overall selection across two jobs.
         run: >-
-          uv run scripts/test-tier scheduled
+          uv run python scripts/test-tier scheduled
+          --isolate-tests
           --workers "${{ matrix.workers }}"
           --selection "${{ matrix.selection }}"
+          --scheduled-timeout "${{ matrix.timeout_seconds || 600 }}"
+          -k "${{ matrix.keyword }}"
+          ${{ matrix.split_args }}
 
   test-platform-canary:
     # One macOS and one Windows leg on every PR, restored at smoke+unit scope: the
@@ -574,6 +597,9 @@ jobs:
               expected_canary=success
             elif [[ "$EVENT_NAME" == "schedule" || "$EVENT_NAME" == "workflow_dispatch" ]]; then
               expected_coverage=success
+              if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+                expected_slow=success
+              fi
             fi
           fi
           failed=0

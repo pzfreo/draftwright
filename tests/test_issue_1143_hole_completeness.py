@@ -272,6 +272,7 @@ def test_pattern_and_central_bore_have_a_complete_recognition_owned_ledger():
         "outer_profile_angles": 0,
         "section_recesses": 0,
         "blends": 0,
+        "bosses": 0,
         "chamfers": 0,
         "channels": 0,
         "circular_blind_steps": 0,

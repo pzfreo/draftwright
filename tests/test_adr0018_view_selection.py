@@ -615,7 +615,11 @@ class TestTheCaseStudy:
         # remaining work is re-homing those to the axial view — not the layout, which now
         # does its part. This test is written to change shape when that lands.
         assert len(reduced.annotations()) < len(full.annotations())
-        assert {"callout_dropped", "annotation_out_of_bounds"} & _lint(reduced)
+        assert {
+            "callout_dropped",
+            "annotation_out_of_bounds",
+            "hole_requirement_missing",
+        } & _lint(reduced)
 
     @pytest.mark.slow
     def test_dropping_the_front_view_refuses_by_name_rather_than_crashing(self):

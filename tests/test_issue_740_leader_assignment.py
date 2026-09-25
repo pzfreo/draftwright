@@ -169,11 +169,11 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
         if item["label"] == "Y-axis step diameter_callouts"
         and any(candidate["name"] == "m_dia_y0" for candidate in item["items"])
     ]
-    # Automatic topology planning may compile more than one complete drawing.  The
-    # analytical producer contract is per compile: only its selected survivor builds
-    # OCC, and the survivor from the settled phase is the object the drawing returns.
-    assert len(constructed) == len(events)
-    assert constructed[-1] is diameter
+    # Automatic topology planning may compile rejected drawings too. The trace is rolled
+    # back to the retained semantic winner, while this monkeypatch deliberately sees every
+    # constructor call; the returned leader must be one of those real constructions.
+    assert len(constructed) >= len(events)
+    assert diameter in constructed
     event = events[-1]
     assert event["assignment"] == "greedy_stage_boundary"
     assert any(
@@ -604,7 +604,7 @@ def test_candidate_budget_fallback_restores_consumed_prefix_and_lazy_tail(monkey
     assert len(drawing.measurement_keys("m_fillet_z0")) == 3
 
 
-def test_trace_identifies_a_joint_conflict_between_fixed_clear_candidates(tmp_path):
+def test_trace_records_joint_assignment_for_fixed_clear_candidates(tmp_path):
     shaft = Cylinder(10, 60)
     grooves = [
         GrooveFeature(Frame((0.0, 0.0, 0.0), "z"), "z", 2.0, 14.0 + index * 0.1)
@@ -612,36 +612,24 @@ def test_trace_identifies_a_joint_conflict_between_fixed_clear_candidates(tmp_pa
     ]
     trace_path = tmp_path / "joint-conflict.json"
 
-    with pytest.warns(ScaleCompletenessWarning, match="groove_dropped"):
-        build_drawing(
-            shaft,
-            model=PartModel(shaft.bounding_box(), "z", grooves),
-            page="A4",
-            scale=1,
-            scale_policy="permissive",
-            trace=trace_path,
-        )
+    drawing = build_drawing(
+        shaft,
+        model=PartModel(shaft.bounding_box(), "z", grooves),
+        page="A4",
+        scale=1,
+        scale_policy="permissive",
+        trace=trace_path,
+    )
 
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     event = next(item for item in trace["pass_events"] if item["label"] == "groove_callouts")
-    dropped = [item for item in event["items"] if item["outcome"] == "dropped"]
-    # All six declarations share one physical tip. The bounded lane inventory
-    # finds two non-overlapping ray directions; the remaining four conflict with
-    # one of those exact rendered arrow/shaft footprints.
-    assert len(dropped) == 4
-    # Thirty-three candidates clear the fixed inventory; six additional
-    # fixed-ink crossings remain explicit Policy-B alternatives so semantic
-    # cardinality is still primary and any retained crossing is diagnosed.
-    assert all(item["viable_candidates"] == 39 for item in dropped)
-    assert all(item["reason"] == "assignment_conflict" for item in dropped)
-    assert all(
-        any(
-            blocker.startswith("m_groove")
-            for rejected in item["rejected"]
-            for blocker in rejected["blockers"]
-        )
-        for item in dropped
-    )
+    # The typed corridor planner gives all six declarations distinct usable rays. This used
+    # to pin four assignment-conflict drops; retaining that expectation would penalise the
+    # semantic completeness improvement the shared plan is meant to provide.
+    assert [item["outcome"] for item in event["items"]] == ["placed"] * 6
+    assert all(item["viable_candidates"] >= 39 for item in event["items"])
+    assert len([name for name in drawing.annotations() if name.startswith("m_groove")]) == 6
+    assert "groove_dropped" not in drawing.lint_summary()["by_code"]
 
 
 @pytest.mark.slow  # >=30 s inherent dense build; post-merge tier (#656)
@@ -654,6 +642,12 @@ def test_bounded_legacy_fallback_preserves_drop_diagnostic(monkeypatch, tmp_path
     monkeypatch.setattr(
         "draftwright.annotations.leaders._FEATURE_LEADER_MAX_PAIR_PROBES",
         0,
+    )
+    # Isolate the producer fallback under test. The later sheet-edge recovery can now place
+    # this sixth label, which is desirable in production but would make this budget-path
+    # diagnostic test vacuous.
+    monkeypatch.setattr(
+        "draftwright.annotations.from_model._sheet_leader_fallback", lambda *_a, **_kw: None
     )
     trace_path = tmp_path / "greedy-drop.json"
 
@@ -700,6 +694,9 @@ def test_state_budget_replays_the_producer_legacy_floor(monkeypatch, tmp_path):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(leader_placement, "_assign_leader_candidates", one_state)
+    monkeypatch.setattr(
+        "draftwright.annotations.from_model._sheet_leader_fallback", lambda *_a, **_kw: None
+    )
     trace_path = tmp_path / "state-budget-floor.json"
     with pytest.warns(ScaleCompletenessWarning, match="groove_dropped"):
         drawing = build_drawing(

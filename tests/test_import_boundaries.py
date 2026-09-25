@@ -94,6 +94,9 @@ _LAYERS: dict[str, int] = {
     "feature_identity": 0,
     "fonts": 0,
     "layout": 0,
+    # Typed, render-free annotation topology consumed by compose/analysis and render ordering.
+    "layout_scheme": 0,
+    "annotation_layout_profile": 0,
     # Coordinate-free document policy for feature-leader candidate regions.
     "leader_policy": 0,
     "registry": 0,
@@ -149,6 +152,7 @@ _LAYERS: dict[str, int] = {
     "drawing": 5,
     # 6 — build orchestration
     "builder": 6,
+    "layout_selection": 6,
     # 7 — the user-facing surfaces
     "make_drawing": 7,
     "sheet": 7,
@@ -179,6 +183,10 @@ _LAYERS: dict[str, int] = {
 # TYPE_CHECKING-only imports that point UP the DAG. No runtime dependency (the import never
 # executes), but recorded explicitly so the upward *type* reference is deliberate and reviewed.
 _TC_UPWARD_ALLOW: dict[tuple[str, str], str] = {
+    ("annotation_layout_profile", "compose"): (
+        "The leaf profile names compose.StripDepths only for the cap function's static type; "
+        "the runtime cap uses the passed object's fields and never imports compose."
+    ),
     ("_core", "compose"): (
         "_core type-annotates Analysis.layout_strips as compose.StripDepths; StripDepths is a "
         "compose (outer-layout) concept, so the reference is type-only under TYPE_CHECKING. "
