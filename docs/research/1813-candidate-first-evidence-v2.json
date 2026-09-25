@@ -1,0 +1,43 @@
+{
+  "format": "draftwright-1813-candidate-first-trial-evidence",
+  "version": 2,
+  "source_sha": "117458b35a8678df2bb3d862fb2237b5cbe3a589",
+  "manifest": "tests/fixtures/annotation-layout-corpus-v2.json",
+  "host": {
+    "system": "Linux",
+    "machine": "x86_64",
+    "python": "3.13.5",
+    "logical_cpus": 4,
+    "physical_cores": 4,
+    "physical_ram_mib": 7941.1875
+  },
+  "summary": {
+    "cases": 15,
+    "verified_wins": 8,
+    "semantic_parity": 11,
+    "verdicts": {"candidate": 8, "tie": 3, "ineligible": 4, "baseline": 0},
+    "safety_checks_passed": 1,
+    "production_selected": 0,
+    "candidate_process_seconds": {"median": 42.50214933999814, "p95_nearest_rank": 300.4717405862175},
+    "baseline_process_seconds": {"median": 35.77290900005028, "p95_nearest_rank": 285.1156775960699},
+    "candidate_peak_rss_mib": {"median": 537.51171875, "p95_nearest_rank": 884.48046875},
+    "fallback_rate": null
+  },
+  "cases": [
+    {"id": "ctc01-a3-1to5", "profile": "planned", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "ctc02-a2-1to5", "profile": "columns", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "ctc03-a2-1to5", "profile": "planned", "quality": "ineligible", "parity": false, "missing": 7, "introduced_blockers": 7, "safety": false},
+    {"id": "ctc04-a2-1to5", "profile": "columns", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "ctc05-a2-1to5", "profile": "columns", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "grm04-a3-5to1", "profile": "legacy-depth", "quality": "tie", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": true},
+    {"id": "tuner-a3-1to1", "profile": "planned", "quality": "ineligible", "parity": false, "missing": 1, "introduced_blockers": 1, "safety": false},
+    {"id": "whistle-a3-1to1", "profile": "planned", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "grm03-pmi-a3-5to1", "profile": "legacy-depth", "quality": "ineligible", "parity": false, "missing": 1, "introduced_blockers": 1, "safety": false},
+    {"id": "issue915-a2-1to2", "profile": "planned", "quality": "ineligible", "parity": false, "missing": 5, "introduced_blockers": 2, "safety": false},
+    {"id": "wheel-a3-10to1", "profile": "iso-growth", "quality": "tie", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "lever-a3-5to1", "profile": "legacy-depth", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "frame-a3-2to1", "profile": "planned", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "angled-a3-2to1", "profile": "iso-growth", "quality": "tie", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false},
+    {"id": "sloped-a3-2to1", "profile": "legacy-depth", "quality": "candidate", "parity": true, "missing": 0, "introduced_blockers": 0, "safety": false}
+  ]
+}
