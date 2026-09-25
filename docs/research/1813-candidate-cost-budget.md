@@ -28,6 +28,16 @@ If a platform or large-part result exceeds a ceiling, retain the baseline
 default and review the budget or implementation **before** any switch, with the
 reason recorded rather than relaxing a threshold after seeing a failing run.
 
+The **25%** time/RSS allowance leaves room above the observed Linux fixed15
+candidate median overhead (~16%) while still requiring a meaningful reduction
+from the opt-in paired `best` mode's cost; it is a policy ceiling, not a
+statistical confidence interval. The **5%** fallback ceiling keeps second-build
+work exceptional rather than turning the interim policy back into routine
+paired evaluation. The **75%** RAM cap reserves headroom for the interpreter,
+export, OS, and workload variance so a core-count-based job limit cannot swap a
+CI-class machine into apparent slowness. None of these choices is retroactive
+evidence of a platform pass.
+
 ## Existing Linux observation, not a budget pass
 
 The saved v4 fixed15 report from source
