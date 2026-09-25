@@ -33,7 +33,7 @@ class DrawingStub:
         self.items = list(items)
         self.box_cache = {}
         self._model = model
-        self.registry = registry or SimpleNamespace(names=lambda: ())
+        self.registry = registry or SimpleNamespace(names=lambda: ("dimension",))
 
     def model(self):
         return self._model or SimpleNamespace(
@@ -59,6 +59,7 @@ def _raw_report(*, requirements=(), total=0, issues=(), occurrences=None):
             requirement = {
                 "id": f"requirement:{index + 1}",
                 "occurrence_ids": [f"hole:{index + 1}"] if index < total else [],
+                "annotations": ["dimension"],
                 **requirement,
             }
         ledger.append(requirement)
@@ -121,6 +122,42 @@ def test_missing_requirement_and_overlap_are_independent_failures():
     assert verdict["checks_passed"] is False
     assert "required_outcomes" in verdict["failed_checks"]
     assert "lint_blockers" in verdict["failed_checks"]
+
+
+@pytest.mark.parametrize(
+    ("annotations", "reason"),
+    [
+        ([], "carrier_unattributed"),
+        (["removed"], "carrier_not_live"),
+        ([None], "invalid_carrier_name"),
+    ],
+)
+@pytest.mark.parametrize("state", ["placed", "satisfied_by_structured_note"])
+def test_credited_raw_requirement_needs_a_live_carrier(annotations, reason, state):
+    report = _raw_report(
+        total=1,
+        requirements=({"state": state, "annotations": annotations},),
+    )
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "required_outcomes" not in verdict["failed_checks"]
+    assert "recognized_carriers" in verdict["failed_checks"]
+    gaps = next(
+        check["detail"] for check in verdict["checks"] if check["name"] == "recognized_carriers"
+    )
+    assert gaps[0]["reason"] == reason
+
+
+def test_inapplicable_raw_requirement_needs_no_carrier():
+    report = _raw_report(
+        total=1,
+        requirements=({"state": "inapplicable", "annotations": []},),
+    )
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_carriers" not in verdict["failed_checks"]
 
 
 @pytest.mark.parametrize(
@@ -339,7 +376,7 @@ def test_unavailable_view_bounds_fail_closed(bounds):
 
     verdict = candidate_safety_evidence(drawing)
 
-    assert verdict["version"] == 10
+    assert verdict["version"] == 11
     assert "view_page_containment" in verdict["failed_checks"]
     assert "minimum_view_area" in verdict["failed_checks"]
     detail = next(
