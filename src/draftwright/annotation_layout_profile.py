@@ -63,6 +63,26 @@ class AnnotationLayoutProfile:
     normal_feature_leaders: bool = False
 
 
+def candidate_profile(name: str, scale: float) -> AnnotationLayoutProfile:
+    """Return one of the named layouts used by the comparative selector."""
+
+    if name == "iso-growth":
+        return AnnotationLayoutProfile(iso_growth=True)
+    if name not in {"planned", "columns", "legacy-depth"}:
+        raise ValueError(f"unknown annotation layout profile {name!r}")
+    return AnnotationLayoutProfile(
+        arrangement="columns" if name == "columns" else "staggered-side",
+        corridor_scale=scale if name == "planned" else None,
+        capped_routes=DEFAULT_CAPPED_ROUTES if name == "planned" else frozenset(),
+        exterior_dimensions=name != "columns",
+        crossing_recovery=True,
+        plan_x_below=True,
+        lateral_tier_reuse=True,
+        vacant_tier_compaction=name != "columns",
+        normal_feature_leaders=name != "columns",
+    )
+
+
 _CURRENT: ContextVar[AnnotationLayoutProfile | None] = ContextVar(
     "draftwright_annotation_layout_profile", default=None
 )

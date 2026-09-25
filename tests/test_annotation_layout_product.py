@@ -9,9 +9,15 @@ from build123d import Box, export_step
 from typer.testing import CliRunner
 
 from draftwright import Sheet, build_drawing
+from draftwright.annotation_layout_profile import candidate_profile
 from draftwright.cli import app
 from draftwright.layout_selection import select_best_annotation_layout
 from draftwright.sheet_emit import generate_sheet_script
+
+
+def test_candidate_profile_rejects_unknown_names():
+    with pytest.raises(ValueError, match="unknown annotation layout profile"):
+        candidate_profile("unknown", 1.0)
 
 
 @pytest.mark.parametrize("entry", [build_drawing, Sheet, generate_sheet_script])
