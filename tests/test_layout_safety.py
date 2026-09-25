@@ -166,3 +166,33 @@ def test_removing_an_authored_dimension_is_detected_on_a_real_sheet():
     drawing.remove(name)
 
     assert "authored_dimensions" in candidate_safety_evidence(drawing)["failed_checks"]
+
+
+def test_removing_a_declared_datum_is_detected_on_a_real_sheet():
+    part = Box(30, 20, 5)
+    sheet = Sheet(part).auto_dimensions()
+    sheet.datum("A", part.faces().sort_by()[-1])
+    drawing = sheet.build()
+
+    evidence = candidate_safety_evidence(drawing)
+    assert "declared_aspects" not in evidence["failed_checks"]
+    name = next(name for name in drawing.registry.names() if drawing.registry.declaration_of(name))
+    drawing.remove(name)
+
+    assert "declared_aspects" in candidate_safety_evidence(drawing)["failed_checks"]
+
+
+def test_equal_but_distinct_declaration_does_not_satisfy_an_authored_aspect():
+    first = SimpleNamespace(kind="finish")
+    second = SimpleNamespace(kind="finish")
+    model = SimpleNamespace(
+        features=[first], authored_dimensions=None, requested_dimensions=(), schedules=()
+    )
+    report = _raw_report()
+    report["schema_version"] = 8
+    report["declarations"] = {"feature_count": 1}
+    registry = SimpleNamespace(names=lambda: {"finish"}, declaration_of=lambda _name: second)
+
+    evidence = candidate_safety_evidence(DrawingStub(report, model=model, registry=registry))
+
+    assert "declared_aspects" in evidence["failed_checks"]
