@@ -1740,10 +1740,12 @@ def _build_drawing_once(
                 out,
                 assembly,
                 detail_view,
-                scale=a.SCALE if _candidate_profile_first and scale is not None else scale,
-                page=(a.PAGE_W, a.PAGE_H)
-                if _candidate_profile_first and page is not None
-                else page,
+                # The candidate profile was chosen against this settled sheet and
+                # scale before rendering. A measured repack may move views within
+                # them, but must not search a different sheet/scale behind the
+                # recorded choice (even when the caller requested automatic fit).
+                scale=a.SCALE if _candidate_profile_first else scale,
+                page=(a.PAGE_W, a.PAGE_H) if _candidate_profile_first else page,
                 model=model,
                 decorations=decorations,
                 requested=requested,
