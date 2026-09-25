@@ -388,6 +388,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         check("audited_coverage", not unresolved_counts, unresolved_counts)
 
     view_sizes = {}
+    view_extents = {}
     outside_page: dict[str, object] = {}
     for name in drawing.views:
         try:
@@ -397,6 +398,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         if len(bounds) != 4:
             outside_page[name] = {"reason": "view_bounds_unavailable"}
             view_sizes[name] = 0.0
+            view_extents[name] = {"width": None, "height": None}
             continue
         finite = all(math.isfinite(value) for value in bounds)
         if not finite or (
@@ -406,8 +408,14 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
             or bounds[3] > drawing.page_h + _PAGE_EDGE_TOLERANCE_MM
         ):
             outside_page[name] = [value if math.isfinite(value) else None for value in bounds]
-        area = max(0.0, bounds[2] - bounds[0]) * max(0.0, bounds[3] - bounds[1]) if finite else 0.0
+        width = max(0.0, bounds[2] - bounds[0]) if finite else None
+        height = max(0.0, bounds[3] - bounds[1]) if finite else None
+        area = width * height if width is not None and height is not None else 0.0
         view_sizes[name] = round(area, 3)
+        view_extents[name] = {
+            "width": round(width, 3) if width is not None else None,
+            "height": round(height, 3) if height is not None else None,
+        }
     too_small = {name: area for name, area in view_sizes.items() if area < _MIN_VIEW_AREA_MM2}
     check("views_present", bool(view_sizes), sorted(view_sizes))
     check("minimum_view_area", not too_small, too_small)
@@ -420,7 +428,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 9,
+        "version": 10,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
@@ -436,4 +444,5 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         "page": [float(drawing.page_w), float(drawing.page_h)],
         "scale": float(drawing.scale),
         "view_areas_mm2": view_sizes,
+        "view_extents_mm": view_extents,
     }
