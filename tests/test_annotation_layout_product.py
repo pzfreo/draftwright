@@ -8,10 +8,11 @@ import pytest
 from build123d import Box, export_step
 from typer.testing import CliRunner
 
-from draftwright import Sheet, build_drawing
+from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
 from draftwright.annotation_layout_profile import candidate_profile
 from draftwright.cli import app
 from draftwright.layout_selection import select_best_annotation_layout
+from draftwright.linting import LintIssue
 from draftwright.sheet_emit import generate_sheet_script
 
 
@@ -73,6 +74,9 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
     assert decision["policy"] == "candidate-preview"
     assert decision["status"] == "candidate_preview"
     assert decision["admission_ready"] is False
+    assert decision["safety_evidence"]["version"] == 2
+    assert decision["safety_evidence"]["admission_ready"] is False
+    assert decision["fallback_decision"] == "not_evaluated_preview"
     assert decision["pre_render_choice"]["profile"] == "legacy-depth"
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
 
@@ -90,6 +94,53 @@ def test_candidate_preview_without_automatic_annotations_does_not_apply_profile(
     assert decision["status"] == "no_candidate_profile"
     assert decision["influenced_layout"] is False
     assert decision["pre_render_choice"]["profile"] is None
+
+
+def test_candidate_preview_records_a_settled_safety_failure():
+    def add_conflict(drawing):
+        drawing.registry.record_issue(
+            LintIssue(severity="warning", code="annotation_overlap", message="test conflict")
+        )
+        return drawing
+
+    drawing = build_drawing(
+        Box(20, 10, 5),
+        page="A4",
+        scale=2,
+        annotation_layout="candidate-preview",
+        _post_build=add_conflict,
+    )
+
+    evidence = drawing.annotation_scheme_decision["safety_evidence"]
+    assert evidence["checks_passed"] is False
+    assert "lint_blockers" in evidence["failed_checks"]
+    assert drawing.annotation_scheme_decision["fallback_decision"] == "not_evaluated_preview"
+
+
+def test_candidate_preview_evaluates_safety_on_the_explicit_scale_fallback(monkeypatch):
+    import draftwright.builder as builder
+
+    blocker = {
+        "severity": "error",
+        "code": "forced_required_drop",
+        "message": "exercise the scale fallback return",
+        "measurements": (),
+        "hole_requirements": (),
+        "source_ids": (),
+    }
+    monkeypatch.setattr(
+        builder,
+        "_scale_blockers",
+        lambda drawing, *, physical=True: (blocker,) if drawing.scale == 2 else (),
+    )
+    with pytest.warns(ScaleCompletenessWarning, match="complete fallback scale"):
+        drawing = build_drawing(
+            Box(20, 10, 5), page="A4", scale=2, annotation_layout="candidate-preview"
+        )
+
+    assert drawing.scale_decision["status"] == "fallback"
+    assert drawing.scale < 2
+    assert drawing.annotation_scheme_decision["safety_evidence"]["scale"] == drawing.scale
 
 
 def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
