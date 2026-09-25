@@ -65,6 +65,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     working.)*
     *(The CLI moved out to `cli.py`; the `_cli` compat shim lives there too (#523),
     so `builder` no longer imports `cli`.)*
+  - **`layout_safety.py`** — rank-6 observational safety evidence for a finished
+    candidate, using reporting and settled view geometry without a baseline drawing.
   - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
     `--version`, shell completion, `--format`, rich help. The engine (build123d)
     is imported **lazily inside the command body** so completion/`--help`/

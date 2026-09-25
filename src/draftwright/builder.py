@@ -84,6 +84,7 @@ from draftwright.compose import (
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
+from draftwright.layout_safety import candidate_safety_evidence
 from draftwright.layout_selection import choose_pre_render_profile, select_best_annotation_layout
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
@@ -2385,6 +2386,10 @@ def build_drawing(
                 return build_drawing(**candidate_options)
 
         selected = select_best_annotation_layout(baseline, build_candidate)
+        selected.annotation_scheme_decision = {
+            **selected.annotation_scheme_decision,
+            "safety_evidence": candidate_safety_evidence(selected),
+        }
         if selected is not baseline:
             # The speculative build uses a fixed settled scale with permissive checks.
             # Report the caller's original scale policy and resolution on the result.

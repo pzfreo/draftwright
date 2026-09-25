@@ -73,8 +73,9 @@ Compact map, bottom to top:
   `drawing.py` (the `Drawing` result object; single-owner `BuildState`), and
   `annotations/` (the render passes; `orchestrator.py` owns `_PASS_SEQUENCE`, the one
   canonical stage order; `_common.py` owns the corridor solve + late-furniture seam).
-- **`builder.py` / `layout_selection.py`** — build orchestration and finished-drawing
-  semantic comparison: `build_drawing`, `make_drawing`, guarded layout selection.
+- **`builder.py` / `layout_selection.py` / `layout_safety.py`** — build orchestration,
+  finished-drawing semantic comparison, and provisional independent candidate safety
+  evidence: `build_drawing`, `make_drawing`, guarded layout selection.
 - **Facades / top layer** — `make_drawing.py` + `annotate.py` (thin compat),
   `sheet.py` (the fluent `Sheet` facade, ADR 4 (was 0011)),
   `document.py` (explicit member sheets over a common source and conversion authority), `sheet_emit.py` (the `--script`

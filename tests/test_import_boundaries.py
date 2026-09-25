@@ -153,6 +153,7 @@ _LAYERS: dict[str, int] = {
     # 6 — build orchestration
     "builder": 6,
     "layout_selection": 6,
+    "layout_safety": 6,
     # 7 — the user-facing surfaces
     "make_drawing": 7,
     "sheet": 7,
