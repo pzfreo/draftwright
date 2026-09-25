@@ -55,9 +55,18 @@ def choose_pre_render_profile(
         # A dense, partly unplanned drawing should retain uncapped reservations;
         # columns also avoid the exterior-dimension treatment of the side profile.
         profile, reason = "columns", "dense_unplanned_corridors"
-    elif demand_count >= 30 and report.unplanned_count <= 5 and under_reserved_count >= 4:
+    elif (
+        demand_count >= 30
+        and under_reserved_count >= 4
+        and (
+            report.unplanned_count <= 5
+            or (demand_count < 40 and 5 * report.unplanned_count <= demand_count)
+        )
+    ):
         # Mostly typed demand can use planned corridors when the legacy strips
-        # are already under pressure; the independent rendered gate still judges it.
+        # are already under pressure. Below the dense-case boundary, a bounded
+        # one-fifth unplanned tail can still fit; larger cases keep the stricter
+        # absolute cap. The independent rendered gate still judges the result.
         profile, reason = "planned", "typed_corridor_pressure"
     elif demand_count <= 25 and report.unplanned_count <= 5 and 0 < under_reserved_count <= 3:
         # Sparse uncertain routes keep baseline annotation placement while
@@ -68,7 +77,7 @@ def choose_pre_render_profile(
     else:
         profile, reason = "planned", "all_typed_corridors_fit"
     return {
-        "version": 3,
+        "version": 4,
         "profile": profile,
         "reason": reason,
         "page": [float(page[0]), float(page[1])],
