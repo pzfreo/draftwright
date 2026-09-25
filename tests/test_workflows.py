@@ -203,6 +203,7 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
     assert "lane: ctc04" in slow_job
     assert "workers: 1" not in slow_job
     assert "selection: ctc04" in slow_job
+    assert "timeout_seconds: 900" in slow_job
     assert "lane: view-selection" in slow_job
     assert "workers: 0" in slow_job
     assert "keyword: test_adr0018_view_selection" in slow_job
@@ -215,6 +216,7 @@ def test_post_merge_gate_runs_the_complete_scheduled_tier():
     assert "python scripts/test-tier scheduled" in slow_job
     assert "--isolate-tests" in slow_job
     assert '--selection "${{ matrix.selection }}"' in slow_job
+    assert '--scheduled-timeout "${{ matrix.timeout_seconds || 600 }}"' in slow_job
     assert '-k "${{ matrix.keyword }}"' in slow_job
     assert "${{ matrix.split_args }}" in slow_job
     assert "uv run pytest tests/ -m slow" not in slow_job

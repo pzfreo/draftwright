@@ -41,7 +41,7 @@ def changed_paths(base: str) -> list[str]:
     return sorted(committed | staged | unstaged | untracked)
 
 
-def _run_isolated_tests(pytest_args: list[str]) -> int:
+def _run_isolated_tests(pytest_args: list[str], *, timeout_seconds: int) -> int:
     """Collect once, then give each selected test a fresh pytest process.
 
     OpenCascade retains substantial native state after dense real-part builds.  A serial xdist
@@ -87,7 +87,7 @@ def _run_isolated_tests(pytest_args: list[str]) -> int:
                 SCHEDULED_EXPRESSION,
                 "-n",
                 "0",
-                "--timeout=600",
+                f"--timeout={timeout_seconds}",
             ],
             cwd=ROOT,
         )
@@ -102,11 +102,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", default="auto", help="pytest-xdist worker count")
     parser.add_argument("--selection", help="additional marker expression within the tier")
     parser.add_argument(
+        "--scheduled-timeout",
+        type=int,
+        default=600,
+        help="per-test timeout in seconds for the scheduled tier (default: 600)",
+    )
+    parser.add_argument(
         "--isolate-tests",
         action="store_true",
         help="run each selected scheduled test in a fresh process",
     )
     options, pytest_args = parser.parse_known_args(argv)
+    if options.scheduled_timeout <= 0:
+        parser.error("--scheduled-timeout must be positive")
 
     common = ["-n", options.workers, "--dist", "loadscope"]
     if options.tier == "pr":
@@ -124,13 +132,12 @@ def main(argv: list[str] | None = None) -> int:
         if options.selection:
             expression = f"({expression}) and ({options.selection})"
         args = [str(TESTS), "-m", expression]
-        # Dense STEP builds take about 320 s alone and can take longer when the
-        # scheduled workers contend for CPU. Keep this tier bounded without making
-        # the fast and full feedback loops tolerate a ten-minute hang.
-        common.append("--timeout=600")
+        # Dense STEP builds vary with hosted-runner load. The CTC04 lane gets a
+        # larger bound; other scheduled tests retain the ten-minute default.
+        common.append(f"--timeout={options.scheduled_timeout}")
     resolved = [*args, *common, *pytest_args]
     if options.tier == "scheduled" and options.isolate_tests:
-        return _run_isolated_tests(resolved)
+        return _run_isolated_tests(resolved, timeout_seconds=options.scheduled_timeout)
     return pytest.main(resolved)
 
 

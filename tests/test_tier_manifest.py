@@ -150,6 +150,15 @@ def test_isolated_scheduled_runner_restarts_pytest_per_test(monkeypatch):
         ]
     )
 
+    calls.clear()
+    assert (
+        namespace["main"](
+            ["scheduled", "--workers", "0", "--isolate-tests", "--scheduled-timeout", "900"]
+        )
+        == 0
+    )
+    assert all(command[-1] == "--timeout=900" for command in calls[1:])
+
 
 def test_default_pytest_selection_matches_the_full_tier():
     config = tomllib.loads((_TESTS.parent / "pyproject.toml").read_text(encoding="utf-8"))

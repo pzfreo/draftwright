@@ -452,6 +452,7 @@ jobs:
           - lane: ctc04
             workers: 0
             selection: ctc04
+            timeout_seconds: 900
             keyword: ""
             split_args: ""
           - lane: view-selection
@@ -490,6 +491,7 @@ jobs:
           --isolate-tests
           --workers "${{ matrix.workers }}"
           --selection "${{ matrix.selection }}"
+          --scheduled-timeout "${{ matrix.timeout_seconds || 600 }}"
           -k "${{ matrix.keyword }}"
           ${{ matrix.split_args }}
 
