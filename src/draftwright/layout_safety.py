@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections import Counter
 
+from draftwright.linting.structural import annotation_bounds
 from draftwright.model.planner import _authored_addresses, authored_dimension_requests
 from draftwright.reporting import ReportUnavailableError
 
@@ -134,6 +135,53 @@ def _declared_aspect_gaps(drawing, model) -> list[dict[str, object]]:
     ]
 
 
+def _annotation_page_gaps(drawing) -> list[dict[str, object]]:
+    """Check every non-rider annotation against the settled physical page.
+
+    The report call has already run lint, which fills the drawing's shared
+    bounding-box cache. Reusing it avoids tessellating the same ink a second
+    time; unlike a lint-code search, an unavailable box also fails closed.
+    """
+
+    items = getattr(drawing, "items", None)
+    cache = getattr(drawing, "box_cache", None)
+    if items is None or not isinstance(cache, dict):
+        return [{"reason": "annotation_bounds_unavailable"}]
+    iter_annotations = getattr(drawing, "iter_annotations", None)
+    names = (
+        {id(annotation): name for name, annotation in iter_annotations()}
+        if callable(iter_annotations)
+        else {}
+    )
+    gaps = []
+    for index, item in enumerate(items):
+        if any(
+            getattr(item, rider, False)
+            for rider in ("is_sheet_frame", "is_zone_grid", "is_zone_label")
+        ):
+            continue
+        name = names.get(id(item), f"anonymous[{index}]")
+        bounds = annotation_bounds(item, cache)
+        if bounds is None:
+            gaps.append({"annotation": name, "reason": "ink_bounds_unavailable"})
+            continue
+        finite = all(math.isfinite(value) for value in bounds)
+        if not finite or (
+            bounds[0] < -_PAGE_EDGE_TOLERANCE_MM
+            or bounds[1] < -_PAGE_EDGE_TOLERANCE_MM
+            or bounds[2] > drawing.page_w + _PAGE_EDGE_TOLERANCE_MM
+            or bounds[3] > drawing.page_h + _PAGE_EDGE_TOLERANCE_MM
+        ):
+            gaps.append(
+                {
+                    "annotation": name,
+                    "reason": "off_page_ink" if finite else "invalid_ink_bounds",
+                    "bounds": [value if math.isfinite(value) else None for value in bounds],
+                }
+            )
+    return gaps
+
+
 def candidate_safety_evidence(drawing) -> dict[str, object]:
     """Observe finished candidate risks without comparing it to a baseline.
 
@@ -258,10 +306,12 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
     # issue must not make a wholly off-sheet view look safe. Check settled view
     # geometry directly against the caller's resolved page, without changing it.
     check("view_page_containment", not outside_page, outside_page)
+    annotation_gaps = _annotation_page_gaps(drawing)
+    check("annotation_page_containment", not annotation_gaps, annotation_gaps)
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 5,
+        "version": 6,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
