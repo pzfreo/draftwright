@@ -6,8 +6,11 @@ The candidate uses the existing annotation renderer and placement solve. A typed
 `AnnotationScheme` estimates corridor demand before rendering; a build-scoped profile
 can cap selected legacy reservations and enable the staggered side arrangement,
 exterior dimensions, bounded leader recovery, plan X routing, horizontal
-dimension tier sharing where the rendered spans and ink are clear, and measured
-isometric growth into the remaining safe zone. The typed lane
+dimension tier sharing and vacant-tier compaction where the rendered ink is
+clear, verified normal leaders on bevels and arcs, radial hole recovery, and
+measured isometric growth with 5 mm clearance from neighbouring ink and view
+outlines. The dense column arrangement retains its established tier and leader
+choices after the new compaction displaced two CTC05 location dimensions. The typed lane
 order remains a separate experimental path. This is one engine with alternative
 planning inputs, rather than a replacement renderer.
 
@@ -72,7 +75,9 @@ in-process drawings a memory concern.
 ## Intended default path: candidate first
 
 The chosen product direction is one candidate build first, with a baseline build
-only when the candidate fails a standalone safety check. The two-build `"best"`
+only when the candidate fails a standalone safety check. Once offline evidence
+shows that fallback has become rare and the standalone gate catches its failures,
+remove the fallback and run one candidate build on every normal request. The two-build `"best"`
 mode remains useful as an opt-in comparison and shadow evaluation path. A
 candidate-first build should normally pay for one drawing solve; the fallback
 case pays for two. Measure that distribution rather than treating the CTC05

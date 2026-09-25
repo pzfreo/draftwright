@@ -296,6 +296,8 @@ def _candidate_profile(name: str, scale: float) -> AnnotationLayoutProfile:
         crossing_recovery=True,
         plan_x_below=True,
         lateral_tier_reuse=True,
+        vacant_tier_compaction=name != "columns",
+        normal_feature_leaders=name != "columns",
     )
 
 

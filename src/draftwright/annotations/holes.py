@@ -89,6 +89,8 @@ from draftwright.annotations.leaders import (
     _FeatureLeaderInvariantError,
     collect_feature_leader,
     feature_leader_candidates,
+    material_penalty_units,
+    view_material,
 )
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.layout import StripCandidate, plan_strip
@@ -3150,6 +3152,44 @@ def _place_queue(
                     if index >= 4:
                         break
                     tip, feature = candidate.tip, candidate.feature
+                    if candidate.radial_target is not None:
+                        centre = candidate.radial_target.center
+                        radius = candidate.radial_target.radius
+
+                        def radial_tip(elbow, _centre=centre, _radius=radius):
+                            dx = float(elbow[0]) - _centre[0]
+                            dy = float(elbow[1]) - _centre[1]
+                            length = math.hypot(dx, dy)
+                            if length <= _radius:
+                                return _centre
+                            return (
+                                _centre[0] + dx * _radius / length,
+                                _centre[1] + dy * _radius / length,
+                            )
+
+                        field = view_material(dwg, _view)
+
+                        def clear_material(annotation, _field=field):
+                            return (
+                                material_penalty_units(annotation.tip, annotation.elbow, _field)
+                                == 0
+                            )
+
+                        def build_radial(elbow, _feature=feature):
+                            return _build_at(radial_tip(elbow), (*elbow, 0), _feature)
+
+                        annotation = _sheet_leader_fallback(
+                            dwg,
+                            centre,
+                            _view,
+                            build_radial,
+                            label_size=size,
+                            tip_for_elbow=radial_tip,
+                            accept_candidate=clear_material,
+                        )
+                        if annotation is not None:
+                            return annotation, feature
+                        continue
 
                     def build_at(elbow, _tip=tip, _feature=feature):
                         return _build_at(_tip, (*elbow, 0), _feature)

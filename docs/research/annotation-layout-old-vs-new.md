@@ -8,8 +8,8 @@ comparison.
 | | Established layout | New candidate layout |
 | --- | --- | --- |
 | Planning | Reserves fairly generous strips around each view before placing dimensions and callouts. | Estimates the space annotations need, then uses selected tighter strips and a different arrangement of the views. After annotations settle, the isometric can grow into space that its real outline and the annotation ink leave clear. |
-| Dimensions | Generally gives each dimension its own tier in a strip. Some dimensions may end up inside a view when exterior space is tight. | Prefers exterior dimensions, can route some plan dimensions to the opposite side, and lets dimensions with separate sideways spans share a tier when their actual lines and labels remain clear. |
-| Callouts | Places leaders through the established solve. | Uses the same solve, with an extra bounded attempt to recover a leader that would otherwise be dropped. |
+| Dimensions | Generally gives each dimension its own tier in a strip. Some dimensions may end up inside a view when exterior space is tight. | Prefers exterior dimensions, can route some plan dimensions to the opposite side, lets separate sideways spans share a tier, and closes a vacant tier when the measured ink clears. The dense column arrangement keeps its established tier behavior. |
+| Callouts | Places leaders through the established solve. | Uses the same solve, with an extra bounded attempt to recover a leader that would otherwise be dropped. Where the edge and layout allow it, chamfer and radius leaders are normal to the edge; a recovered circular-hole leader stays radial. |
 | Failure | Reports dropped or conflicting annotations through lint. | Reports the same problems. The public `best` option keeps the established drawing if a candidate loses required content or fails the quality checks. |
 
 The visible result is often more usable space for the views and fewer dimensions
@@ -17,9 +17,10 @@ inside the part. On CTC01, the candidate restores a required 180 mm hole-locatio
 dimension, reduces required blockers from three to two, moves the 800 mm and
 50 mm dimensions outside the view, and removes two dimension crossings. Its
 `55` and `100` dimensions can now share a height because they occupy separate
-horizontal spans; the overlapping `75` dimension remains on another height.
-CTC01 stays on A3 at 1:5. Its isometric view is smaller, so that change is a
-real tradeoff rather than a free gain.
+horizontal spans; the overlapping `75` dimension remains one tier above them.
+CTC01 stays on A3 at 1:5. Its isometric view grows into measured free space,
+with 5 mm reserved from nearby frames and other view outlines. Its hole, C5,
+and R50 leaders now meet their circular or bevel edges normally.
 
 Some front and plan views still sit at the 20 mm minimum geometry gap. There
 is annotation padding inside that space, but it can look tight. Adding 5 mm to

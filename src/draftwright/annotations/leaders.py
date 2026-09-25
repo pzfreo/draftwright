@@ -130,6 +130,7 @@ class FeatureLeaderCandidate:
     feature: Any
     region: LeaderCandidateRegion = LeaderCandidateRegion.EXTERIOR
     radial_target: RadialLeaderTarget | None = None
+    preference_penalty: float = 0.0
 
 
 _INTERIOR_RAY_ANGLES = (
@@ -644,6 +645,8 @@ def _measure(raw_index, raw, job: FeatureLeaderJob, draft) -> _MeasuredLeaderCan
         cost = sum(
             math.hypot(second[0] - first[0], second[1] - first[1]) for first, second in segments
         ) or math.hypot(elbow2[0] - tip2[0], elbow2[1] - tip2[1])
+        if isinstance(raw, FeatureLeaderCandidate):
+            cost += float(raw.preference_penalty)
         if cost < 0 or not math.isfinite(cost * _FLOW_COST_SCALE):
             raise ValueError("leader candidate cost exceeds the layout fixed-point range")
         primary = _leader_ink_polygons(

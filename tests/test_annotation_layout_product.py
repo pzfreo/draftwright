@@ -43,6 +43,8 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
 
 
 def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
+    from draftwright.annotations._common import annotation_ink_obstacles
+
     source = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap242.stp"
     drawing = build_drawing(
         source,
@@ -60,6 +62,48 @@ def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
     assert drawing.annotation_scheme_decision["selected_trial"] == "planned"
     left, _bottom, right, _top = drawing.view_bounds("iso")
     assert right - left > 120.0  # the fixed 65% preview was only about 108 mm wide
+    iso = drawing.view_bounds("iso")
+    adjacent_frames = [
+        box
+        for name, box in annotation_ink_obstacles(drawing, named=True)
+        if name.startswith("m_gdt") and iso[0] < box[2] and box[0] < iso[2]
+    ]
+    assert adjacent_frames
+    assert all(iso[1] - box[3] >= 4.5 for box in adjacent_frames)
+    y55 = sum(drawing.get_annotation("m_slot0_pos").label_bbox[i] for i in (1, 3)) / 2
+    y75 = sum(drawing.get_annotation("m_locx0").label_bbox[i] for i in (1, 3)) / 2
+    assert 7.5 <= y75 - y55 <= 8.5  # no unused tier between overlapping left dimensions
+    hole = drawing.get_annotation("hc_plan4")
+    hole_centre = drawing.at("plan", *hole.source_features[0].frame.origin)
+    hole_radius = (hole.tip[0] - hole_centre[0], hole.tip[1] - hole_centre[1])
+    hole_shaft = (hole.elbow[0] - hole.tip[0], hole.elbow[1] - hole.tip[1])
+    assert abs(hole_radius[0] * hole_shaft[1] - hole_radius[1] * hole_shaft[0]) < 0.1
+    chamfer = drawing.get_annotation("m_chamfer_y0")
+    chamfer_shaft = (
+        chamfer.elbow[0] - chamfer.tip[0],
+        chamfer.elbow[1] - chamfer.tip[1],
+    )
+    assert abs(chamfer_shaft[0] + chamfer_shaft[1]) < 0.1
+    fillet = drawing.get_annotation("m_fillet_z0")
+    fillet_arc = min(
+        (
+            edge
+            for edge in drawing.views["plan"][0].edges()
+            if edge.geom_type.name == "CIRCLE" and abs(edge.radius - 10.0) < 0.1
+        ),
+        key=lambda edge: abs(
+            ((fillet.tip[0] - edge.arc_center.X) ** 2 + (fillet.tip[1] - edge.arc_center.Y) ** 2)
+            ** 0.5
+            - edge.radius
+        ),
+    )
+    fillet_radius = (
+        fillet.tip[0] - fillet_arc.arc_center.X,
+        fillet.tip[1] - fillet_arc.arc_center.Y,
+    )
+    fillet_shaft = (fillet.elbow[0] - fillet.tip[0], fillet.elbow[1] - fillet.tip[1])
+    assert abs(fillet_radius[0] * fillet_shaft[1] - fillet_radius[1] * fillet_shaft[0]) < 0.1
+    assert not any(issue.code == "leader_crosses_silhouette" for issue in drawing.lint())
     assert not any(issue.code == "view_annotation_overlap" for issue in drawing.lint())
 
 

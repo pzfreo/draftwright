@@ -3689,12 +3689,24 @@ def place_strip_candidates(
                 ):
                     continue
                 current = placed_positions[name]
-                for target in sorted(
-                    set(placed_positions.values()), key=lambda pos: abs(pos - inner)
+                # A prior corridor may have consumed the inner tier and forced
+                # this entire batch two tiers out. After the shared-height move,
+                # probe the vacant tier immediately inward as well as occupied
+                # tiers. The real-ink check below decides whether that gap is
+                # usable; a projected strip carve alone cannot know.
+                targets = set(placed_positions.values())
+                if layout_flag(
+                    "vacant_tier_compaction", "DRAFTWRIGHT_EXPERIMENT_VACANT_TIER_COMPACTION"
                 ):
+                    compact_target = current + (pad if inner > current else -pad)
+                    if lo - 1e-6 <= compact_target <= hi + 1e-6:
+                        targets.add(compact_target)
+                for target in sorted(targets, key=lambda pos: abs(pos - inner)):
                     if abs(target - inner) >= abs(current - inner) - 1e-6:
                         break
-                    if not any(
+                    if not layout_flag(
+                        "vacant_tier_compaction", "DRAFTWRIGHT_EXPERIMENT_VACANT_TIER_COMPACTION"
+                    ) and not any(
                         abs(pos - target) < 1e-6
                         for key, pos in placed_positions.items()
                         if key != name

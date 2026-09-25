@@ -123,6 +123,7 @@ from draftwright.view_plan import (
 # footprint and pass 1 stands (the common, non-ballooned case).
 _REPACK_TOL = 0.75
 _REPACK_MAX_ITER = 3
+_ISO_GROWTH_CLEARANCE_MM = 5.0
 
 
 def _automatic_turned_principals(analysis: Analysis) -> tuple[str, ...] | None:
@@ -268,8 +269,17 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
         initial = a.planned_iso_scale
         ceiling = min(_ISO_MAX_GROW, initial * min(ratios, default=1.0) * 0.90)
         if ceiling > initial * 1.05:
+            # A bare non-overlap test can leave the iso almost touching a GD&T
+            # frame (0.24 mm on CTC01). Reserve visible air around annotation ink
+            # and the other view outlines before probing any larger projection.
+            growth_obstacles = [_inflate_box(box, _ISO_GROWTH_CLEARANCE_MM) for box in obstacles]
+            growth_obstacles.extend(
+                _inflate_box(dwg.view_bounds(name), _ISO_GROWTH_CLEARANCE_MM)
+                for name in dwg.views
+                if name != "iso"
+            )
             clear = _largest_clear_factor(
-                dwg, a, ceiling, obstacles, bb, lo=initial, region=region
+                dwg, a, ceiling, growth_obstacles, bb, lo=initial, region=region
             )
             factor = math.floor(clear * 10000) / 10000
             # The search leaves the drawing at its last probe. Restore the

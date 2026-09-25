@@ -93,6 +93,8 @@ def _worker(args) -> int:
                 crossing_recovery=True,
                 plan_x_below=True,
                 lateral_tier_reuse=True,
+                vacant_tier_compaction=args.arrangement != "columns",
+                normal_feature_leaders=args.arrangement != "columns",
             )
             _observe_scheme_strips(args.scale)
     else:

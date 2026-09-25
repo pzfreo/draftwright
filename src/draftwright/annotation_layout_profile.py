@@ -59,6 +59,8 @@ class AnnotationLayoutProfile:
     iso_growth: bool = False
     scheme_lanes: bool = False
     lateral_tier_reuse: bool = False
+    vacant_tier_compaction: bool = False
+    normal_feature_leaders: bool = False
 
 
 _CURRENT: ContextVar[AnnotationLayoutProfile | None] = ContextVar(
