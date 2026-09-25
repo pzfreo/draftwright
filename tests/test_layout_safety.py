@@ -257,6 +257,20 @@ def test_occurrence_link_requires_a_requirement_ledger_inventory():
     )
 
 
+@pytest.mark.parametrize("identities", [[None], ["hole:1", "hole:1"]])
+def test_occurrence_link_requires_unique_nonempty_occurrence_ids(identities):
+    report = _raw_report(
+        total=len(identities),
+        requirements=({"state": "placed", "occurrence_ids": ["hole:1"]},),
+    )
+    for occurrence, identity in zip(report["recognition"]["occurrences"], identities):
+        occurrence["id"] = identity
+
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
+
 def test_accepted_geometry_without_model_or_requirements_is_not_clean():
     verdict = candidate_safety_evidence(DrawingStub(_raw_report(total=1), features=0))
 

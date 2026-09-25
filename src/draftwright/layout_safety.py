@@ -211,11 +211,18 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
                 "observed": len(occurrences),
             }
         )
+    seen_occurrences: set[str] = set()
     for index, occurrence in enumerate(occurrences):
         if not isinstance(occurrence, dict):
             gaps.append({"index": index, "reason": "invalid_occurrence"})
             continue
-        occurrence_id = occurrence.get("id", f"occurrence[{index}]")
+        occurrence_id = occurrence.get("id")
+        if not isinstance(occurrence_id, str) or not occurrence_id:
+            gaps.append({"index": index, "reason": "invalid_occurrence_id"})
+            occurrence_id = f"occurrence[{index}]"
+        elif occurrence_id in seen_occurrences:
+            gaps.append({"occurrence": occurrence_id, "reason": "duplicate_occurrence_id"})
+        seen_occurrences.add(occurrence_id)
         disposition = occurrence.get("disposition")
         if (
             not isinstance(disposition, str)
