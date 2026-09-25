@@ -58,6 +58,7 @@ class AnnotationLayoutProfile:
     plan_x_below: bool = False
     iso_growth: bool = False
     scheme_lanes: bool = False
+    lateral_tier_reuse: bool = False
 
 
 _CURRENT: ContextVar[AnnotationLayoutProfile | None] = ContextVar(

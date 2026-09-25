@@ -5,7 +5,8 @@
 The candidate uses the existing annotation renderer and placement solve. A typed
 `AnnotationScheme` estimates corridor demand before rendering; a build-scoped profile
 can cap selected legacy reservations and enable the staggered side arrangement,
-exterior dimensions, bounded leader recovery, and plan X routing. The typed lane
+exterior dimensions, bounded leader recovery, plan X routing, and horizontal
+dimension tier sharing where the rendered spans and ink are clear. The typed lane
 order remains a separate experimental path. This is one engine with alternative
 planning inputs, rather than a replacement renderer.
 

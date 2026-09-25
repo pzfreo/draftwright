@@ -295,6 +295,7 @@ def _candidate_profile(name: str, scale: float) -> AnnotationLayoutProfile:
         exterior_dimensions=name != "columns",
         crossing_recovery=True,
         plan_x_below=True,
+        lateral_tier_reuse=True,
     )
 
 

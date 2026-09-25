@@ -92,6 +92,7 @@ def _worker(args) -> int:
                 exterior_dimensions=args.exterior_dimensions,
                 crossing_recovery=True,
                 plan_x_below=True,
+                lateral_tier_reuse=True,
             )
             _observe_scheme_strips(args.scale)
     else:

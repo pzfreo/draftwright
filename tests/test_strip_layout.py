@@ -639,6 +639,59 @@ def test_place_strip_candidates_reserves_outermost_label_within_bounds():
     assert len(left) == 1, "the unplaceable candidate must be returned, not dropped silently"
 
 
+def test_candidate_reuses_horizontal_tier_only_for_disjoint_dimensions():
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import Strip, _dim
+    from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
+    from draftwright.annotations._common import place_strip_candidates
+
+    class _Dwg:
+        def __init__(self):
+            self.draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+            self.added = []
+
+        def iter_annotations(self):
+            return list(self.added)
+
+        def view_of(self, _name):
+            return "plan"
+
+        def place(self, obj, name, view=None, feature=None, measurement=None):
+            self.added.append((name, obj))
+
+    strip = Strip(anchor=0.0, outer_limit=50.0, direction=1.0, gap=8.0, spacing=3.0)
+
+    def run(reuse):
+        dwg = _Dwg()
+        candidates = [
+            (
+                "left_a",
+                lambda pos: _dim((0, 0, 0), (10, 0, 0), "above", pos, dwg.draft, label="10"),
+            ),
+            (
+                "right",
+                lambda pos: _dim((40, 0, 0), (60, 0, 0), "above", pos, dwg.draft, label="20"),
+            ),
+            (
+                "left_b",
+                lambda pos: _dim((0, 0, 0), (15, 0, 0), "above", pos, dwg.draft, label="15"),
+            ),
+        ]
+        with use_layout_profile(AnnotationLayoutProfile(lateral_tier_reuse=reuse)):
+            left = place_strip_candidates(
+                dwg, strip, "plan", "y", candidates, tier=5.0, force=True, ctx=dwg
+            )
+        assert left == []
+        return {name: dim._dw_spec.distance for name, dim in dwg.added}
+
+    baseline = run(False)
+    candidate = run(True)
+    assert len(set(baseline.values())) == 3
+    assert candidate["right"] == candidate["left_a"]
+    assert candidate["left_b"] != candidate["left_a"]
+
+
 def test_place_strip_candidates_forwards_present_declaration_only():
     """The optional declaration axis reaches placement without widening legacy calls."""
     from draftwright._core import Strip

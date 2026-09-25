@@ -39,6 +39,7 @@ from draftwright._geometry import (  # noqa: F401
     _segment_crosses_box,
     _segments_cross_or_overlap,
 )
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations.angular import AngularDimension
 from draftwright.layout import StripCandidate, _assign_leader_candidates, plan_strip
 from draftwright.linting.ink_overlap import (
@@ -3627,6 +3628,7 @@ def place_strip_candidates(
         return accepted, rejected
 
     solved = []
+    placed_positions = {}
     for seg_lo, seg_hi in segs:
         if not todo:
             break
@@ -3654,6 +3656,7 @@ def place_strip_candidates(
                 rejected_total.append((name, build))
                 continue
             placed.append((name, dim))
+            placed_positions[name] = pos
             if tp is not None:
                 tp["placed"].append({"name": name, "pos": pos})
         todo = todo + rejected_total
@@ -3663,6 +3666,78 @@ def place_strip_candidates(
         assert len({name for name, _dim_obj in solved}) == len(solved), (
             "strip survivor names must be unique before label selection"
         )
+        # A dimension consumes a tier only where its actual horizontal footprint lies.
+        # The strip solve above gives every item a separate height; on the candidate
+        # path, let a later dimension share an inner height when its full X extent is
+        # disjoint from every occupant there. Build and check the real geometry before
+        # accepting the move: labels, witness lines, page bounds and fixed furniture
+        # all participate, while the baseline layout keeps its established result.
+        if axis == "y" and layout_flag(
+            "lateral_tier_reuse", "DRAFTWRIGHT_EXPERIMENT_LATERAL_TIER_REUSE"
+        ):
+            builds = dict(cands)
+            page = (
+                _drawing_bounds(dwg) if hasattr(dwg, "page_w") and hasattr(dwg, "page_h") else None
+            )
+            for lane_index in sorted(
+                range(len(solved)),
+                key=lambda i: abs(placed_positions[solved[i][0]] - inner),
+            ):
+                name, original = solved[lane_index]
+                if not isinstance(original, (Dimension, SafeDimension)) or (anchored or {}).get(
+                    name, False
+                ):
+                    continue
+                current = placed_positions[name]
+                for target in sorted(
+                    set(placed_positions.values()), key=lambda pos: abs(pos - inner)
+                ):
+                    if abs(target - inner) >= abs(current - inner) - 1e-6:
+                        break
+                    if not any(
+                        abs(pos - target) < 1e-6
+                        for key, pos in placed_positions.items()
+                        if key != name
+                    ):
+                        continue
+                    valid = (valid_positions or {}).get(name)
+                    if valid is not None and not valid(target):
+                        continue
+                    candidate = builds[name](target)
+                    box = _geom_box(candidate)
+                    if box is None or _real_box_conflict(name, box):
+                        continue
+                    if page is not None and not (
+                        page[0] <= box[0]
+                        and page[1] <= box[1]
+                        and box[2] <= page[2]
+                        and box[3] <= page[3]
+                    ):
+                        continue
+                    occupants = [
+                        dim
+                        for key, dim in solved
+                        if key != name and abs(placed_positions[key] - target) < 1e-6
+                    ]
+                    if not all(
+                        (other_box := _geom_box(other)) is not None
+                        and (box[2] + 0.5 <= other_box[0] or other_box[2] + 0.5 <= box[0])
+                        for other in occupants
+                    ):
+                        continue
+                    if not annotation_ink_clear(
+                        dwg,
+                        candidate,
+                        view=view,
+                        additional=[dim for key, dim in solved if key != name],
+                    ):
+                        continue
+                    solved[lane_index] = (name, candidate)
+                    placed_positions[name] = target
+                    if tp is not None:
+                        next(item for item in tp["placed"] if item["name"] == name)["pos"] = target
+                        tp.setdefault("lateral_tier_reuse", []).append(name)
+                    break
         natural_solved = dict(solved)
         # Local dimensions already participate through strip occupancy, and dimensions
         # owned by another view retain their independent corridor/repair contract.  The
