@@ -20,10 +20,10 @@ while a thumbnail is not. Where the pages do not support a clear judgment, the
 case stays *unverified* rather than being called a loss or a win.
 
 The saved v4 report gives 12 metric wins, 3 ties, 15/15 semantic parity, and
-zero introduced required-blocker identities. Under the rule above, **nine
-cases have case-level relative visual-win evidence**; three CTC cases remain
+zero introduced required-blocker identities. Under the rule above, **ten
+cases have case-level relative visual-win evidence**; two CTC cases remain
 unverified. This is a review ledger, **not** a passed 12/15 rollout gate: it
-combines historical and targeted source heads, and the three unresolved cases
+combines historical and targeted source heads, and the two unresolved cases
 still need layout/visual resolution. The independent candidate safety, wider
 real/user corpus, supported-platform cost, fallback, and exact-head full/slow
 gates also remain open.
@@ -34,7 +34,7 @@ gates also remain open.
 | CTC02 A2 1:5 | [baseline](../images/1813-v4-ctc02-baseline.png) / [v4 candidate](../images/1813-v4-ctc02-candidate-preview.png) | **Unverified.** Crossings 4→0 and the iso remains substantial despite 0.808× area, but the long upper-plan leader and crowded GD&T remain; 43 required blocker identities persist. This is a real relative metric gain, not yet an unqualified page-level visual gain. |
 | CTC03 A2 1:5 | [baseline](../images/ctc03-a2-1to5-baseline.png) / [v4 candidate](../images/ctc03-a2-1to5-candidate-preview.png) | **Relative win, with residual crowding.** At the same page and scale, the lower GD&T/dimension ladder is visibly spread across the front and side margins rather than concentrated under the front view; crossings fall 5→0 and overlaps 31→29. The long imported tolerance strings remain hard to read in both pages, so this does not pass independent safety. Iso area and requirements are unchanged. A separate columns trial is weaker and not substituted here (#1847). |
 | CTC04 A2 1:5 | [baseline](../images/1813-v4-ctc04-baseline.png) / [v4 candidate](../images/1813-v4-ctc04-candidate-preview.png) | **Unverified.** One hard violation and one crossing disappear (12→11, 1→0), but at full-page size the pages are nearly indistinguishable and the dense top ladder remains. The gain is not denied; its visual significance is not yet proven. |
-| CTC05 A2 1:5 | [baseline](../images/1813-v4-ctc05-baseline.png) / [v4 candidate](../images/1813-v4-ctc05-candidate-preview.png) | **Unverified.** Crossings 5→1, but a callout moves above the crowded side view with a long leader through it. It is not clear that this route is more readable overall; existing required blockers remain. |
+| CTC05 A2 1:5 | [baseline](../images/1813-v4-ctc05-baseline.png) / [v4 candidate](../images/1813-v4-ctc05-candidate-preview.png) | **Relative win, with a tradeoff.** At the same page and scale, crossings fall 5→1 without losing required content or introducing required blocker identities; the user reviewed both PDFs and judged the candidate better overall. One callout moves above the side view on a long leader, so this is not an independent safety pass and that route can still be improved. |
 | GRM04 A3 5:1 | [baseline](../images/grm04-a3-5to1-baseline.png) / [v4 candidate](../images/grm04-a3-5to1-candidate-preview.png) | **Win.** Same clear dimensions and ownership, with a visibly larger and still clear iso (1.331× area). |
 | Tuner A3 1:1 | [baseline](../images/tuner-a3-1to1-baseline.png) / [v4 candidate](../images/tuner-a3-1to1-candidate-preview.png) | **Win.** The iso grows 1.331× without crowding the orthographic dimensions or losing the pocket-pattern location. Both sheets retain an independently reported `step_dim_withheld`; that does not erase the relative gain or pass safety. |
 | Whistle A3 1:1 | [baseline](../images/1813-v4-whistle-baseline.png) / [#1846 planned candidate](../images/1813-whistle-planned-preview.png) | **Win after targeted fix.** The v4 legacy-depth iso was a thumbnail (0.465×); the changed-source pre-render `planned` choice restores it to 1.120× baseline while retaining the hard-violation/crossing gain and semantic parity. The central ladders remain dense. [Evidence](1813-whistle-medium-demand-choice.md). |
@@ -58,6 +58,6 @@ reviewed here has SHA-256
 #1846's whistle candidate provenance is in its linked evidence note. These
 case-level repairs were checked against the saved baseline, **not** by rerunning
 the baseline or all 15 cases. Before #1813's 12/15 visual gate can be claimed,
-the three unverified CTC pages need a clear visual decision or layout repair and
+the two unverified CTC pages need a clear visual decision or layout repair and
 the actual candidate-first path must be checked together at one final source
 head, with the independent admission and rollout gates evaluated separately.
