@@ -254,6 +254,30 @@ def test_removing_a_declared_datum_is_detected_on_a_real_sheet():
     assert "declared_aspects" in candidate_safety_evidence(drawing)["failed_checks"]
 
 
+def test_document_wide_declarations_require_their_live_carriers():
+    sheet = Sheet(Box(30, 20, 5))
+    sheet.authored_dimensions()
+    sheet.general_tolerance("ISO 2768-m")
+    sheet.default_surface_finish("3.2")
+    sheet.document_note("DATUM SCHEME A", kind="datum_scheme")
+    drawing = sheet.build()
+
+    def missing_kinds():
+        evidence = candidate_safety_evidence(drawing)
+        gaps = next(
+            check["detail"] for check in evidence["checks"] if check["name"] == "declared_aspects"
+        )
+        return {gap["kind"] for gap in gaps}
+
+    assert missing_kinds() == set()
+    drawing.remove("title_block")
+    assert missing_kinds() == {"general_tolerance"}
+    drawing.remove("default_surface_finish")
+    assert missing_kinds() == {"general_tolerance", "default_surface_finish"}
+    drawing.remove("general_notes")
+    assert missing_kinds() == {"general_tolerance", "default_surface_finish", "document_note"}
+
+
 def test_equal_but_distinct_declaration_does_not_satisfy_an_authored_aspect():
     first = SimpleNamespace(kind="finish")
     second = SimpleNamespace(kind="finish")
@@ -263,8 +287,43 @@ def test_equal_but_distinct_declaration_does_not_satisfy_an_authored_aspect():
     report = _raw_report()
     report["schema_version"] = 8
     report["declarations"] = {"feature_count": 1}
-    registry = SimpleNamespace(names=lambda: {"finish"}, declaration_of=lambda _name: second)
+    registry = SimpleNamespace(
+        names=lambda: {"finish"},
+        declaration_of=lambda _name: second,
+        feature_of=lambda _name: None,
+        named=lambda _name: object(),
+    )
 
     evidence = candidate_safety_evidence(DrawingStub(report, model=model, registry=registry))
 
     assert "declared_aspects" in evidence["failed_checks"]
+    gap = next(
+        check["detail"] for check in evidence["checks"] if check["name"] == "declared_aspects"
+    )
+    assert gap == [{"feature_index": 0, "kind": "finish", "reason": "representation_missing"}]
+
+
+def test_equal_but_distinct_table_owner_does_not_satisfy_a_document_note():
+    first = SimpleNamespace(kind="document_note")
+    second = SimpleNamespace(kind="document_note")
+    model = SimpleNamespace(
+        features=[first], authored_dimensions=None, requested_dimensions=(), schedules=()
+    )
+    report = _raw_report()
+    report["schema_version"] = 8
+    report["declarations"] = {"feature_count": 1}
+    registry = SimpleNamespace(
+        names=lambda: {"general_notes"},
+        declaration_of=lambda _name: None,
+        feature_of=lambda _name: None,
+        named=lambda _name: SimpleNamespace(source_features=(second,)),
+    )
+
+    evidence = candidate_safety_evidence(DrawingStub(report, model=model, registry=registry))
+
+    gap = next(
+        check["detail"] for check in evidence["checks"] if check["name"] == "declared_aspects"
+    )
+    assert gap == [
+        {"feature_index": 0, "kind": "document_note", "reason": "representation_missing"}
+    ]

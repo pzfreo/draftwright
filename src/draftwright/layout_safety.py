@@ -34,7 +34,17 @@ _UNRESOLVED_STATES = frozenset({"dropped", "missing", "unverifiable", "unsupport
 _SATISFIED_RAW_REQUIREMENT_STATES = frozenset(
     {"placed", "satisfied_by_structured_note", "inapplicable"}
 )
-_DECLARED_ASPECT_KINDS = frozenset({"control_frame", "datum_ref", "finish", "note"})
+_DECLARED_CARRIER_KINDS = frozenset(
+    {
+        "control_frame",
+        "datum_ref",
+        "finish",
+        "note",
+        "general_tolerance",
+        "default_surface_finish",
+        "document_note",
+    }
+)
 _MIN_VIEW_AREA_MM2 = 100.0
 _PAGE_EDGE_TOLERANCE_MM = 1e-6
 
@@ -91,21 +101,27 @@ def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
 
 
 def _declared_aspect_gaps(drawing, model) -> list[dict[str, object]]:
-    """Match each authored aspect to live ink by exact declaration provenance."""
+    """Match authored aspects and document carriers to live ink by identity."""
 
     aspects = [
         (index, feature)
         for index, feature in enumerate(model.features)
-        if getattr(feature, "kind", None) in _DECLARED_ASPECT_KINDS
+        if getattr(feature, "kind", None) in _DECLARED_CARRIER_KINDS
     ]
     if not aspects:
         return []
     registry = getattr(drawing, "registry", None)
     names = getattr(registry, "names", None)
     declaration_of = getattr(registry, "declaration_of", None)
-    if not callable(names) or not callable(declaration_of):
+    feature_of = getattr(registry, "feature_of", None)
+    named = getattr(registry, "named", None)
+    if not all(callable(value) for value in (names, declaration_of, feature_of, named)):
         return [{"reason": "declaration_provenance_unavailable"}]
-    represented = {id(declaration_of(name)) for name in names()}
+    represented = set()
+    for name in names():
+        represented.update((id(declaration_of(name)), id(feature_of(name))))
+        annotation = named(name)
+        represented.update(id(feature) for feature in getattr(annotation, "source_features", ()))
     return [
         {"feature_index": index, "kind": feature.kind, "reason": "representation_missing"}
         for index, feature in aspects
@@ -118,10 +134,10 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     The report supplies recognition/declared obligations and independent lint;
     the live drawing supplies settled page, scale, and view geometry. Missing
-    evidence is a failed check, never an empty successful inventory. This first
-    slice is observational: declared GD&T provenance is checked, but other
-    non-dimensional and generated-script parity, plus leader legibility, remain
-    incomplete. It must not admit a production candidate.
+    evidence is a failed check, never an empty successful inventory. Declared
+    GD&T and document-wide carriers are checked, but other non-dimensional and
+    generated-script parity, plus leader legibility, remain incomplete. It must
+    not admit a production candidate.
     """
 
     checks: list[dict[str, object]] = []
@@ -240,7 +256,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 4,
+        "version": 5,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
