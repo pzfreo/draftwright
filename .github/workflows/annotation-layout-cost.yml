@@ -2,15 +2,19 @@ name: Annotation layout cost evidence
 
 on:
   workflow_dispatch:
+  pull_request:
+    types: [labeled]
 
-# This is deliberately manual: the 15 fixed-sheet CAD cases are expensive on
-# macOS and Windows. It records costs; it is not a substitute for the semantic
-# and safety gates or a claim that the preview is ready as the default.
+# This runs only by manual dispatch or when a maintainer adds the
+# annotation-layout-cost label to a PR. The 15 fixed-sheet CAD cases are
+# expensive on macOS and Windows; ordinary PR updates must not rerun them.
+# Cost evidence is not a substitute for semantic or safety admission.
 permissions:
   contents: read
 
 jobs:
   candidate-first-cost:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'annotation-layout-cost'
     strategy:
       fail-fast: false
       matrix:
@@ -21,6 +25,9 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
+          # A pull_request event normally checks out its synthetic merge commit.
+          # Cost evidence must identify the exact stacked source head instead.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
@@ -33,11 +40,16 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import subprocess
           from pathlib import Path
 
           Path("layout-cost-provenance.json").write_text(json.dumps({
-              "source_sha": os.environ["GITHUB_SHA"],
+              "source_sha": subprocess.check_output(
+                  ["git", "rev-parse", "HEAD"], text=True
+              ).strip(),
               "source_ref": os.environ["GITHUB_REF"],
+              "event_sha": os.environ["GITHUB_SHA"],
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
               "run_id": os.environ["GITHUB_RUN_ID"],
               "runner_os": os.environ["RUNNER_OS"],
           }, indent=2) + "\n", encoding="utf-8")
@@ -45,7 +57,7 @@ jobs:
       - name: Measure candidate-first and offline baseline workers
         shell: bash
         run: |
-          echo "source_sha=$GITHUB_SHA"
+          echo "source_sha=$(git rev-parse HEAD)"
           uv run --no-sync python scripts/annotation-scheme-corpus \
             --manifest tests/fixtures/annotation-layout-corpus-v2.json \
             --output layout-cost-cases --candidate-first --jobs 1 \
