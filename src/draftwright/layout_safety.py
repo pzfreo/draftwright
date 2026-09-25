@@ -7,6 +7,7 @@ from collections import Counter
 
 from draftwright.linting.structural import annotation_bounds
 from draftwright.model.planner import _authored_addresses, authored_dimension_requests
+from draftwright.recogniser_policy import ownerless_occurrence_policy
 from draftwright.reporting import ReportUnavailableError
 
 _LAYOUT_BLOCKERS = frozenset(
@@ -261,7 +262,36 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
             gaps.append({"occurrence": occurrence_id, "reason": "duplicate_occurrence_id"})
         seen_occurrences.add(occurrence_id)
         disposition = occurrence.get("disposition")
-        if (
+        requirements = occurrence.get("requirements")
+        coverage = requirements.get("coverage") if isinstance(requirements, dict) else None
+        ids = requirements.get("ids") if isinstance(requirements, dict) else None
+        if disposition == "evidence_only":
+            # Published evidence families are shared recognition substrate, not
+            # drawable obligations. Only the exact ownerless policy can waive ink.
+            family = occurrence.get("family")
+            policy = ownerless_occurrence_policy(family) if type(family) is str else None
+            valid_evidence_only = (
+                policy is not None
+                and policy.disposition == "evidence_only"
+                and occurrence.get("reason_code") == policy.reason_code
+                and occurrence.get("owners") == []
+                and occurrence.get("tracking") is None
+                and coverage == "not-applicable"
+                and ids == []
+                and all(
+                    isinstance(row.get("occurrence_ids"), list)
+                    and occurrence_id not in row["occurrence_ids"]
+                    for row in ledger.values()
+                )
+            )
+            if not valid_evidence_only:
+                gaps.append(
+                    {
+                        "occurrence": occurrence_id,
+                        "reason": "unverified_evidence_only",
+                    }
+                )
+        elif (
             not isinstance(disposition, str)
             or disposition not in _SATISFIED_OCCURRENCE_DISPOSITIONS
         ):
@@ -272,9 +302,6 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
                     "disposition": disposition,
                 }
             )
-        requirements = occurrence.get("requirements")
-        coverage = requirements.get("coverage") if isinstance(requirements, dict) else None
-        ids = requirements.get("ids") if isinstance(requirements, dict) else None
         if (
             not isinstance(coverage, str)
             or coverage not in _SATISFIED_OCCURRENCE_COVERAGE
@@ -467,7 +494,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 11,
+        "version": 12,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
