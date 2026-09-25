@@ -25,10 +25,10 @@ baseline can gain a larger isometric view if its orthographic bounds and other
 quality measures are unchanged. Failed or inferior proposals retain baseline.
 `Drawing.annotation_scheme_decision` records the trials and the chosen layout.
 
-The default remains `"baseline"` in this PR. A full default switch would make
-every build perform at least two drawing solves; a crowded part can use four.
-Only the selected drawing is exported. Builds are scoped with a `ContextVar`,
-so process environment switches are not part of the public API.
+The default remains `"baseline"` in this PR. The opt-in `"best"` mode is a
+comparative gate: it needs at least two drawing solves and can need four on a
+crowded part. Only the selected drawing is exported. Builds are scoped with a
+`ContextVar`, so process environment switches are not part of the public API.
 The established build still enforces the caller's `scale_policy` before any
 comparison. A declared script that already fails under `"fallback"` at an
 explicit scale needs a feasible scale or an explicit `"permissive"` policy;
@@ -61,18 +61,54 @@ interior dimensions coexist reduced the final selector to 36.6 seconds and
 one candidate trial. Large native CAD models still make simultaneous
 in-process drawings a memory concern.
 
+## Intended default path: candidate first
+
+The chosen product direction is one candidate build first, with a baseline build
+only when the candidate fails a standalone safety check. The two-build `"best"`
+mode remains useful as an opt-in comparison and shadow evaluation path. A
+candidate-first build should normally pay for one drawing solve; the fallback
+case pays for two. Measure that distribution rather than treating the CTC05
+two-build timing as the default-path cost.
+
+This path needs a profile decision before a finished baseline exists. The 15
+current selections comprise five `planned`, three `columns`, three
+`legacy-depth`, two `iso-growth`, and two retained baselines. The present
+selector uses baseline quality and interior dimensions to choose among those
+profiles. A candidate-first policy must choose from typed annotation demand,
+view planning, fixed page/scale, and other pre-render facts. It cannot rely on
+the finished baseline's quality key. Sheet and scale resolution should be
+shared between candidate and fallback, so fallback does not silently change
+the caller's scale policy or gain room from a larger sheet.
+
+The candidate-only safety check must use independent obligations: recognized
+and authored feature coverage, required annotation outcomes, lint blockers,
+off-sheet ink, overlap, crossing and leader legibility limits, and a minimum
+view-size test. A failed candidate triggers the established build under the
+same caller policy, with the reason recorded. The fallback can itself have
+unresolved requirements; CTC02 and CTC04 show why an absolute zero-defect
+threshold would reject some relative gains without producing a complete
+fallback. Define that behavior explicitly and test it. Without running both
+drawings, the engine cannot prove a relative improvement or semantic parity to
+baseline on that individual call; paired offline and sampled shadow runs must
+continue to measure those regressions.
+
 ## Gates for a default switch
 
-1. Check the public selector on the versioned corpus and a broader set of user
-   parts, including drawings with no recognized features, authored views, and
-   failures. Preserve same-sheet and same-scale parity on every selection.
-2. Add legibility evidence for long routed leaders and isometric shrinkage, then
-   review borderline wins such as CTC02 visually.
-3. Reduce repeated recognition, projection, and placement work, and measure
-   build time and peak memory across typical and large parts on each supported
-   platform. The default must have an explicit cost budget.
-4. Expand typed scheme coverage until unplanned annotation families are rare,
+1. Implement and version the pre-render profile chooser and candidate-only
+   safety verdict. Record the chosen profile, gate results, fallback reason,
+   and resolved page/scale in the machine-readable drawing report.
+2. Run that actual candidate-first policy on the fixed-sheet 15-part corpus
+   and a broader user-part corpus. Use paired builds offline to prove at least
+   12 of 15 verified gains, no semantic loss, and safe fallback on failed,
+   sparse, authored, and recognition-gap drawings. The present `"best"` result
+   does not establish that candidate-first result.
+3. Add legibility evidence for long routed leaders, isometric shrinkage, and
+   minimum view size; visually review borderline cases such as CTC02.
+4. Measure candidate-only build time, fallback frequency, total latency, and
+   peak memory across typical and large parts on every supported platform.
+   Reuse recognition and projection where possible and set a cost budget.
+5. Expand typed scheme coverage until unplanned annotation families are rare,
    and prove the lane-order path against the finished renderer and lint.
-5. Include the selection decision in the versioned machine-readable report,
-   document rollout and rollback, then change the API, Sheet, and CLI defaults
-   together after the full and slow suites pass at that exact head.
+   Roll out with shadow comparisons and a reversible policy switch, then
+   change the API, Sheet, and CLI defaults together after exact-head full and
+   slow CI passes.
