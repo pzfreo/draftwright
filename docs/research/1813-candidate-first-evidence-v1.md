@@ -38,8 +38,9 @@ this exact one would add no information.
 
 The manually dispatched `Annotation layout cost evidence` workflow runs the same
 fixed-sheet candidate-first corpus with one CAD worker at a time on Linux, macOS,
-and Windows. Its per-platform artifact keeps the JSON report (including machine,
-process/build time, peak RSS, median, and nearest-rank p95 data) and the SVGs for
+and Windows. Its per-platform artifact keeps source-SHA/run provenance, the JSON
+report (including machine, process/build time, peak RSS, median, and nearest-rank
+p95 data), and the SVGs for
 review. Once the workflow is on `main`, dispatch it on the candidate branch only
 after a meaningful layout change;
 the run is intentionally not part of ordinary PR CI. The report alone establishes
