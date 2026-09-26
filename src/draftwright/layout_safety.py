@@ -59,6 +59,43 @@ def _raw_requirement_state(requirement: object) -> str:
     return state if isinstance(state, str) else "<invalid>"
 
 
+def _recognized_carrier_gaps(requirements: object, registry: object) -> list[dict[str, object]]:
+    """Require credited recognition outcomes to name live annotation carriers."""
+
+    names = getattr(registry, "names", None)
+    if not isinstance(requirements, list) or not callable(names):
+        return [{"reason": "carrier_inventory_unavailable"}]
+    live_names = set(names())
+    gaps: list[dict[str, object]] = []
+    for index, requirement in enumerate(requirements):
+        if not isinstance(requirement, dict):
+            continue  # required_outcomes checks malformed rows separately.
+        state = requirement.get("state")
+        if not isinstance(state, str) or state not in {
+            "placed",
+            "satisfied_by_structured_note",
+        }:
+            continue
+        requirement_id = requirement.get("id", f"requirement[{index}]")
+        carriers = requirement.get("annotations")
+        if not isinstance(carriers, list) or not carriers:
+            gaps.append({"requirement": requirement_id, "reason": "carrier_unattributed"})
+            continue
+        if any(not isinstance(name, str) or not name for name in carriers):
+            gaps.append({"requirement": requirement_id, "reason": "invalid_carrier_name"})
+            continue
+        missing = sorted(set(carriers) - live_names)
+        if missing:
+            gaps.append(
+                {
+                    "requirement": requirement_id,
+                    "reason": "carrier_not_live",
+                    "annotations": missing,
+                }
+            )
+    return gaps
+
+
 def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
     requests = authored_dimension_requests(model)
     if requests is None:
@@ -321,6 +358,8 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
                 state for state in states if state not in _SATISFIED_RAW_REQUIREMENT_STATES
             )
             check("required_outcomes", not unresolved, dict(sorted(unresolved.items())))
+            carrier_gaps = _recognized_carrier_gaps(requirements, drawing.registry)
+            check("recognized_carriers", not carrier_gaps, carrier_gaps)
             missing = int(summary.get("unexpectedly_missing", 0))
             check("recognized_ownership", missing == 0, missing)
             total = int(summary.get("total", 0))
@@ -428,7 +467,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 10,
+        "version": 11,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
