@@ -1,0 +1,73 @@
+{
+  "format": "draftwright-annotation-layout-corpus",
+  "corpus_version": "holdout-1.0.0",
+  "metric_version": 1,
+  "cases": [
+    {
+      "id": "ctc01-ap203-a3-1to5",
+      "source": "tests/fixtures/nist_ctc_01_asme1_ap203.stp",
+      "page": "A3",
+      "scale": 0.2,
+      "title": "CTC-01 AP203",
+      "number": "NIST-CTC-01-AP203",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc02-ap203-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_02_asme1_ap203.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "CTC-02 AP203",
+      "number": "NIST-CTC-02-AP203",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "ctc04-ap203-a2-1to5",
+      "source": "tests/fixtures/nist_ctc_04_asme1_ap203.stp",
+      "page": "A2",
+      "scale": 0.2,
+      "title": "CTC-04 AP203",
+      "number": "NIST-CTC-04-AP203",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "grm03-no-pmi-a3-5to1",
+      "source": "tests/fixtures/grm03_thumbwheel_drive_screw.step",
+      "page": "A3",
+      "scale": 5.0,
+      "title": "GRM03 NO PMI",
+      "number": "GRM03-NO-PMI",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "single-cylinder-a3-1to1",
+      "source": "tests/fixtures/ap242_single_cylinder_diameter.step",
+      "page": "A3",
+      "scale": 1.0,
+      "title": "SINGLE CYLINDER",
+      "number": "SINGLE-CYLINDER",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    },
+    {
+      "id": "flat-across-cylinder-a3-1to1",
+      "source": "tests/fixtures/if_step_flat_across_cylinder.step",
+      "page": "A3",
+      "scale": 1.0,
+      "title": "FLAT ACROSS CYLINDER",
+      "number": "FLAT-ACROSS-CYLINDER",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    }
+  ]
+}
