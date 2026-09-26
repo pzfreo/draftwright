@@ -9,6 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from draftwright.layout_selection import _lint_witnesses
+from draftwright.linting.issues import LintIssue
+
 SCRIPT = Path(__file__).parents[1] / "scripts" / "annotation-scheme-compare"
 
 
@@ -44,6 +47,50 @@ def _result(
             "blocker_identities": list(blockers),
         }
     }
+
+
+def test_lint_witnesses_retain_annotation_pairs_without_prose_or_unlocated_noise():
+    issues = (
+        LintIssue(
+            "warning",
+            "unstable prose",
+            code="annotation_overlap",
+            view="front",
+            annotation_name="dim_b",
+            related_annotation_names=("dim_a",),
+            location=(12.5, 20.0),
+        ),
+        LintIssue("warning", "not located", code="location_ref_dropped"),
+        LintIssue("error", "off page", code="view_out_of_bounds", view="plan"),
+    )
+
+    witnesses = _lint_witnesses(issues)
+
+    assert len(witnesses) == 2
+    assert witnesses[0] == {
+        "code": "annotation_overlap",
+        "severity": "warning",
+        "view": "front",
+        "annotation_name": "dim_b",
+        "related_annotation_names": ["dim_a"],
+        "location": [12.5, 20.0],
+    }
+    assert witnesses[1]["code"] == "view_out_of_bounds"
+    assert witnesses[1]["view"] == "plan"
+    assert "message" not in witnesses[0]
+
+
+def test_lint_witnesses_are_diagnostic_only_for_comparison():
+    compare = _load_script()._compare
+    baseline = _result({})
+    candidate = _result({})
+    baseline["manifest"]["lint_witnesses"] = [{"code": "annotation_overlap"}]
+    candidate["manifest"]["lint_witnesses"] = []
+
+    comparison = compare(baseline, candidate)
+
+    assert comparison["parity"]["passed"] is True
+    assert comparison["quality_comparison"]["verdict"] == "tie"
 
 
 def test_compare_treats_annotation_renumbering_as_semantic_parity():

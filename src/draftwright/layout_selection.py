@@ -92,6 +92,36 @@ def drawing_record(drawing) -> dict:
     }
 
 
+def _lint_witnesses(issues) -> list[dict]:
+    """Retain located/named lint evidence for offline layout diagnosis.
+
+    A score or blocker count cannot identify the annotation pair that collided.
+    Keep only structured witnesses, not mutable prose or process-local objects;
+    comparison still uses its existing quality and semantic fields.
+    """
+
+    witnesses = []
+    for issue in issues:
+        if not (
+            issue.annotation_name
+            or issue.related_annotation_names
+            or issue.view
+            or issue.location is not None
+        ):
+            continue
+        witnesses.append(
+            {
+                "code": issue.code,
+                "severity": issue.severity,
+                "view": issue.view,
+                "annotation_name": issue.annotation_name,
+                "related_annotation_names": sorted(issue.related_annotation_names),
+                "location": list(issue.location) if issue.location is not None else None,
+            }
+        )
+    return sorted(witnesses, key=lambda item: json.dumps(item, sort_keys=True))
+
+
 def _manifest(drawing) -> dict:
     from draftwright.builder import (
         _arrangement_quality,
@@ -178,6 +208,7 @@ def _manifest(drawing) -> dict:
             interior_dimensions=len(interior_dimensions),
         ),
         "blocker_identities": sorted(_blocker_identity(blocker) for blocker in blockers),
+        "lint_witnesses": _lint_witnesses(issues),
         "coverage": {
             key: completeness.get(key)
             for key in ("requirements", "placed", "missing", "unverifiable", "unsupported")
