@@ -55,6 +55,9 @@ other values and its safety/visual limitations.
 
 This is one development host and a fixed15 mixed-case sample, with no
 fallback path. It cannot establish macOS/Windows, large/user-part, or interim
-fallback budgets. The manual three-platform cost workflow added in #1825 is
-not dispatchable until that workflow reaches the default branch. No default
-switch or fallback removal is authorized by this document.
+fallback budgets. The three-platform cost workflow added in #1825 can be
+opted into on a stacked PR by adding the `annotation-layout-cost` label;
+manual dispatch remains unavailable until the workflow reaches the default
+branch. The PR run checks out and records the exact source head rather than
+mistaking GitHub's synthetic merge commit for that head. No default switch or
+fallback removal is authorized by this document.
