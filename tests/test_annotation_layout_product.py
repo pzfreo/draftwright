@@ -96,6 +96,33 @@ def test_candidate_preview_without_automatic_annotations_does_not_apply_profile(
     assert decision["pre_render_choice"]["profile"] is None
 
 
+def test_candidate_preview_keeps_auto_resolved_constraints_through_repack(monkeypatch):
+    import draftwright.builder as builder
+
+    original = builder._repack_to_fixed_point
+    original_assemble = builder._assemble
+    repack_constraints = []
+    assembled = []
+
+    def observe(analysis, *args, **kwargs):
+        repack_constraints.append((kwargs["scale"], kwargs["page"]))
+        return original(analysis, *args, **kwargs)
+
+    def observe_assemble(*args, **kwargs):
+        assembled.append(args[0])
+        return original_assemble(*args, **kwargs)
+
+    monkeypatch.setattr(builder, "_repack_to_fixed_point", observe)
+    monkeypatch.setattr(builder, "_assemble", observe_assemble)
+    drawing = build_drawing(Box(20, 10, 5), annotation_layout="candidate-preview")
+
+    settled = (drawing.scale, (drawing.page_w, drawing.page_h))
+    assert len(assembled) == 1
+    assert repack_constraints == [settled]
+    choice = drawing.annotation_scheme_decision["pre_render_choice"]
+    assert (choice["scale"], tuple(choice["page"])) == settled
+
+
 def test_candidate_preview_records_a_settled_safety_failure():
     def add_conflict(drawing):
         drawing.registry.record_issue(
