@@ -1,5 +1,11 @@
 # Annotation layout productization assessment
 
+This assessment records the original API names. The current planning algorithms
+are `estimated-strips` (formerly `baseline`) and `demand-guided` (formerly
+`candidate-preview`); `compare` (formerly `best`) builds alternatives and selects
+one. The original names remain accepted aliases. Rollout policy is tracked in
+issue #1813, which supersedes this document's earlier fallback proposal.
+
 ## What the candidate currently is
 
 The candidate uses the existing annotation renderer and placement solve. A typed

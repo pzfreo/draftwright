@@ -2368,7 +2368,7 @@ def emit_sheet_script(
     text_position: str = "inline",
     text_orientation: str = "aligned",
     leader_region: str = "auto",
-    annotation_layout: str = "baseline",
+    annotation_layout: str = "estimated-strips",
     object_ref: bool = False,
     object_candidates: Mapping[str, Shape] | None = None,
     source_part: Shape | None = None,
@@ -2635,7 +2635,7 @@ def emit_sheet_script(
         ctor.append(f"text_orientation={text_orientation!r}")
     if leader_region != "auto":
         ctor.append(f"leader_region={leader_region!r}")
-    if annotation_layout != "baseline":
+    if annotation_layout != "estimated-strips":
         ctor.append(f"annotation_layout={annotation_layout!r}")
     from draftwright.model.declare import _envelope_from_bbox
 
@@ -2971,7 +2971,7 @@ def generate_sheet_script(
     text_position: str = "inline",
     text_orientation: str = "aligned",
     leader_region: str = "auto",
-    annotation_layout: str = "baseline",
+    annotation_layout: str = "estimated-strips",
     pmi: Literal["off", "report", "annotate"] = "off",
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,

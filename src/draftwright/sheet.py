@@ -1212,7 +1212,7 @@ class Sheet:
         text_position="inline",
         text_orientation="aligned",
         leader_region="auto",
-        annotation_layout="baseline",
+        annotation_layout="estimated-strips",
         zones=None,
         detail_view=None,
         pmi=None,
