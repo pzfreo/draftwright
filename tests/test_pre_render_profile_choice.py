@@ -36,7 +36,7 @@ def test_fully_planned_demand_chooses_capped_profile():
         auto_dims=True,
     )
 
-    assert choice["version"] == 3
+    assert choice["version"] == 4
     assert choice["profile"] == "planned"
     assert choice["page"] == [297.0, 210.0]
     assert choice["scale"] == 1.0
@@ -134,6 +134,59 @@ def test_typed_corridor_pressure_chooses_planned_without_large_unplanned_tail():
 
     assert choice["profile"] == "planned"
     assert choice["reason"] == "typed_corridor_pressure"
+
+
+def test_medium_typed_pressure_allows_a_bounded_unplanned_fraction():
+    strips = _strips(unplanned=True)
+    demand = strips.scheme.demands[0]
+    gap = strips.scheme.unplanned[0]
+    strips.scheme = AnnotationScheme((demand,) * 38, (gap,) * 7)
+    shadow = AnnotationSchemeShadowReport(
+        1.0,
+        tuple(
+            CorridorDepthComparison("front", side, 12.0, 10.0)
+            for side in ("left", "right", "above", "below")
+        ),
+        7,
+    )
+
+    choice = choose_pre_render_profile(
+        strips, shadow, page=(420.0, 297.0), views=("front",), auto_dims=True
+    )
+
+    assert choice["profile"] == "planned"
+    assert choice["reason"] == "typed_corridor_pressure"
+
+    strips.scheme = AnnotationScheme((demand,) * 38, (gap,) * 8)
+    above_limit = choose_pre_render_profile(
+        strips,
+        AnnotationSchemeShadowReport(1.0, shadow.corridors, 8),
+        page=(420.0, 297.0),
+        views=("front",),
+        auto_dims=True,
+    )
+    assert above_limit["profile"] == "legacy-depth"
+
+
+def test_large_typed_pressure_retains_absolute_unplanned_cap():
+    strips = _strips(unplanned=True)
+    demand = strips.scheme.demands[0]
+    strips.scheme = AnnotationScheme((demand,) * 62, (strips.scheme.unplanned[0],) * 11)
+    shadow = AnnotationSchemeShadowReport(
+        1.0,
+        tuple(
+            CorridorDepthComparison("front", side, 12.0, 10.0)
+            for side in ("left", "right", "above", "below")
+        ),
+        11,
+    )
+
+    choice = choose_pre_render_profile(
+        strips, shadow, page=(420.0, 297.0), views=("front",), auto_dims=True
+    )
+
+    assert choice["profile"] == "legacy-depth"
+    assert choice["reason"] == "unplanned_or_under_reserved_demand"
 
 
 def test_bounded_sparse_demand_keeps_annotation_layout_and_grows_iso():

@@ -34,7 +34,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
 
     decision = selected.annotation_scheme_decision
     assert decision["policy"] == "best"
-    assert decision["pre_render_choice"]["version"] == 3
+    assert decision["pre_render_choice"]["version"] == 4
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
     assert decision["safety_evidence"]["version"] == 3
