@@ -1547,7 +1547,7 @@ def _coalesce_aligned_linear_pitch_dims(dwg, a: Analysis, *, ctx) -> None:
             dwg.remove(name)
         identity["measurement"] = tuple(measurements)
         ctx.registry.reapply(chosen_name, identity)
-        chosen.source_features = tuple(owners)
+        setattr(chosen, "source_features", tuple(owners))
 
 
 def _add_grid_pitch_dims(
