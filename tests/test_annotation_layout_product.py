@@ -253,6 +253,13 @@ def test_candidate_iso_growth_preserves_issue915_detail_view_gain():
     decision = drawing.annotation_scheme_decision
     assert decision["selected_trial"] == "legacy-depth"
     assert decision["selected_quality_key"][:5] == (0, 0, 0, 0, 0)
+    assert "detail_a" in drawing.views
+    assert "detail_marker_A" in drawing.annotations()
+    assert "detail_caption_A" in drawing.annotations()
+    assert len([n for n in drawing.annotations() if n.startswith("dim_detail_a_step")]) == 5
+    # The temporary staggered-side seed is 65% of the sheet scale. DETAIL A
+    # may cap growth at sheet scale, but must not freeze that undersized seed.
+    assert drawing.coords("iso")._scale == pytest.approx(drawing.scale)
 
 
 def test_best_layout_skips_speculation_without_automatic_annotations():

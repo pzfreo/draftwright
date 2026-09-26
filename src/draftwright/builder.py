@@ -249,14 +249,13 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
             f"authored iso scale{where} is infeasible in its composed view zone; "
             "the requested scale was not reduced"
         )
-    if not getattr(a, "planned_iso_scale_authored", True) and not any(
-        name.startswith("detail_") for name in dwg.views
-    ):
+    if not getattr(a, "planned_iso_scale_authored", True):
         # Staggered-side starts the orientation view at 65% so annotations are
         # placed against a safe initial obstacle. Once their ink is settled, use
         # the remaining zone instead of leaving that temporary size as a cap.
-        # A detail view is defining content outside the composed iso zone, so
-        # retain its initial size as the ordinary iso fit does (#915).
+        # A detail view is defining content outside the composed iso zone. It
+        # limits growth to sheet scale and participates in the obstacle search;
+        # it must not freeze the temporary 65% seed as the delivered size.
         # The probe measures each real OCC projection, including its translation,
         # and stops at either the zone boundary or an annotation.
         ratios = [
@@ -270,7 +269,11 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
             if extent > 0
         ]
         initial = a.planned_iso_scale
-        ceiling = min(_ISO_MAX_GROW, initial * min(ratios, default=1.0) * 0.90)
+        has_detail = any(name.startswith("detail_") for name in dwg.views)
+        ceiling = min(
+            1.0 if has_detail else _ISO_MAX_GROW,
+            initial * min(ratios, default=1.0) * 0.90,
+        )
         if ceiling > initial * 1.05:
             # A bare non-overlap test can leave the iso almost touching a GD&T
             # frame (0.24 mm on CTC01). Reserve visible air around annotation ink
