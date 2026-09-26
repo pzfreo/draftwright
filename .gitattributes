@@ -1,3 +1,5 @@
 # CAD evidence is hashed byte-for-byte; checkout must preserve it on every platform.
 *.step -text
 *.stp -text
+# Keep this byte-identical NIST AP242 source reviewable by hash, not a 52k-line CRLF diff.
+tests/fixtures/nist_ftc_09_asme1_ap242-e1.stp -diff

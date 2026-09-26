@@ -30,3 +30,15 @@ def test_the_whistle_key_fixture_pair_retains_its_source_identity_issue_1655(nam
     part = import_step(str(source))
     assert part.is_valid
     assert len(part.solids()) == 1
+
+
+def test_nist_ftc09_ap242_holdout_retains_upstream_source_identity():
+    """FTC-09 is independent public CAD, not a CTC format variant or generated shape."""
+    source = FIXTURES / "nist_ftc_09_asme1_ap242-e1.stp"
+
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == (
+        "f1215fe15a78085a9fa78dd81714caf774b59071be92580b04ebfdc19f52a1bd"
+    )
+    part = import_step(str(source))
+    assert part.is_valid
+    assert len(part.solids()) == 1

@@ -1,0 +1,18 @@
+{
+  "format": "draftwright-annotation-layout-corpus",
+  "corpus_version": "ftc09-holdout-1.0.0",
+  "metric_version": 1,
+  "cases": [
+    {
+      "id": "ftc09-ap242-a2-1to1",
+      "source": "tests/fixtures/nist_ftc_09_asme1_ap242-e1.stp",
+      "page": "A2",
+      "scale": 1.0,
+      "title": "NIST FTC-09 AP242",
+      "number": "NIST-FTC-09-AP242",
+      "arrangement": "staggered-side",
+      "exterior_dimensions": true,
+      "formats": "svg"
+    }
+  ]
+}
