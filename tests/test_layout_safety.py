@@ -2,6 +2,9 @@
 
 from types import SimpleNamespace
 
+from build123d import Box, Cylinder
+
+from draftwright import Sheet
 from draftwright.layout_safety import candidate_safety_evidence
 from draftwright.reporting import ReportUnavailableError
 
@@ -12,13 +15,28 @@ class DrawingStub:
     scale = 1.0
     views = {"front": object()}
 
-    def __init__(self, report, *, features=1, bounds=(0.0, 0.0, 20.0, 20.0)):
+    def __init__(
+        self,
+        report,
+        *,
+        features=1,
+        bounds=(0.0, 0.0, 20.0, 20.0),
+        model=None,
+        registry=None,
+    ):
         self._report = report
         self._features = features
         self._bounds = bounds
+        self._model = model
+        self.registry = registry or SimpleNamespace(names=lambda: ())
 
     def model(self):
-        return SimpleNamespace(features=[object()] * self._features)
+        return self._model or SimpleNamespace(
+            features=[object()] * self._features,
+            authored_dimensions=None,
+            requested_dimensions=(),
+            schedules=(),
+        )
 
     def report(self):
         if isinstance(self._report, Exception):
@@ -106,3 +124,45 @@ def test_missing_lint_evidence_is_a_failed_check():
     verdict = candidate_safety_evidence(DrawingStub(report))
 
     assert "lint_evidence" in verdict["failed_checks"]
+
+
+def test_authored_dimension_requires_a_matching_rendered_claim():
+    parameter = SimpleNamespace(parameter_id="bore.diameter", role="bore", discriminator=None)
+    feature = SimpleNamespace(parameters=lambda: (parameter,))
+    request = SimpleNamespace(feature=feature, role="bore.diameter", discriminator=None)
+    model = SimpleNamespace(
+        features=[feature],
+        authored_dimensions=(request,),
+        requested_dimensions=(),
+        schedules=(),
+    )
+    registry = SimpleNamespace(
+        names=lambda: {"diameter"},
+        measurement_of=lambda _name: (),
+        satisfaction_of=lambda _name: (),
+    )
+    drawing = DrawingStub(_raw_report(), model=model, registry=registry)
+
+    missing = candidate_safety_evidence(drawing)
+    assert "authored_dimensions" in missing["failed_checks"]
+
+    registry.measurement_of = lambda _name: (
+        SimpleNamespace(feature=feature, parameter="bore.diameter"),
+    )
+    present = candidate_safety_evidence(drawing)
+    assert "authored_dimensions" not in present["failed_checks"]
+
+
+def test_removing_an_authored_dimension_is_detected_on_a_real_sheet():
+    part = Box(30, 20, 5) - Cylinder(2, 10)
+    sheet = Sheet(part)
+    hole = sheet.hole(diameter=4, at=(0, 0, 2.5), axis="z", depth=5)
+    sheet.authored_dimensions()
+    sheet.dimension(hole, "bore.diameter")
+    drawing = sheet.build()
+
+    assert "authored_dimensions" not in candidate_safety_evidence(drawing)["failed_checks"]
+    name = next(name for name in drawing.registry.names() if drawing.registry.measurement_of(name))
+    drawing.remove(name)
+
+    assert "authored_dimensions" in candidate_safety_evidence(drawing)["failed_checks"]
