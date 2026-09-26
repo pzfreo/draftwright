@@ -37,7 +37,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     assert decision["pre_render_choice"]["version"] == 4
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
-    assert decision["safety_evidence"]["version"] == 5
+    assert decision["safety_evidence"]["version"] == 6
     assert decision["safety_evidence"]["admission_ready"] is False
     assert decision["selected_trial"] == "iso-growth"
     assert (selected.page_w, selected.page_h, selected.scale) == (
@@ -74,7 +74,7 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
     assert decision["policy"] == "candidate-preview"
     assert decision["status"] == "candidate_preview"
     assert decision["admission_ready"] is False
-    assert decision["safety_evidence"]["version"] == 5
+    assert decision["safety_evidence"]["version"] == 6
     assert decision["safety_evidence"]["admission_ready"] is False
     assert decision["fallback_decision"] == "not_evaluated_preview"
     assert decision["pre_render_choice"]["profile"] == "iso-growth"

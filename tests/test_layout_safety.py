@@ -22,12 +22,15 @@ class DrawingStub:
         *,
         features=1,
         bounds=(0.0, 0.0, 20.0, 20.0),
+        items=(),
         model=None,
         registry=None,
     ):
         self._report = report
         self._features = features
         self._bounds = bounds
+        self.items = list(items)
+        self.box_cache = {}
         self._model = model
         self.registry = registry or SimpleNamespace(names=lambda: ())
 
@@ -177,6 +180,56 @@ def test_view_page_containment_tolerates_submicron_rounding_at_edge():
     )
 
     assert "view_page_containment" not in candidate_safety_evidence(drawing)["failed_checks"]
+
+
+class InkStub:
+    def __init__(self, bounds=None):
+        self.bounds = bounds
+        self.calls = 0
+
+    def bounding_box(self):
+        self.calls += 1
+        if self.bounds is None:
+            raise ValueError("ink is unmeasurable")
+        x0, y0, x1, y1 = self.bounds
+        return SimpleNamespace(min=SimpleNamespace(X=x0, Y=y0), max=SimpleNamespace(X=x1, Y=y1))
+
+
+@pytest.mark.parametrize(
+    ("bounds", "reason"),
+    [
+        ((290.0, 10.0, 305.0, 20.0), "off_page_ink"),
+        ((float("nan"), 10.0, 20.0, 20.0), "invalid_ink_bounds"),
+        (None, "ink_bounds_unavailable"),
+    ],
+)
+def test_annotation_page_containment_fails_with_clean_lint(bounds, reason):
+    drawing = DrawingStub(
+        _raw_report(total=1, requirements=({"state": "placed"},)), items=(InkStub(bounds),)
+    )
+
+    verdict = candidate_safety_evidence(drawing)
+
+    assert "lint_blockers" not in verdict["failed_checks"]
+    assert "annotation_page_containment" in verdict["failed_checks"]
+    detail = next(
+        check["detail"]
+        for check in verdict["checks"]
+        if check["name"] == "annotation_page_containment"
+    )
+    assert detail[0]["annotation"] == "anonymous[0]"
+    assert detail[0]["reason"] == reason
+
+
+def test_annotation_page_containment_uses_shared_box_cache():
+    ink = InkStub((10.0, 10.0, 20.0, 20.0))
+    drawing = DrawingStub(_raw_report(total=1, requirements=({"state": "placed"},)), items=(ink,))
+    drawing.box_cache[id(ink)] = (ink, None, (10.0, 10.0, 20.0, 20.0))
+
+    verdict = candidate_safety_evidence(drawing)
+
+    assert "annotation_page_containment" not in verdict["failed_checks"]
+    assert ink.calls == 0
 
 
 def test_declared_inventory_mismatch_is_recorded():
