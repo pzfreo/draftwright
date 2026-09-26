@@ -1489,6 +1489,71 @@ def _furnish_uncalled_patterns(dwg, a: Analysis, view_of_axis, plan, *, ctx, fur
         )
 
 
+def _coalesce_aligned_linear_pitch_dims(dwg, a: Analysis, *, ctx) -> None:
+    """Show one pitch for parallel hole rows with identical projected stations.
+
+    Separate recognised patterns can own the same ordinate chain (CTC04 has two
+    pairs of three-hole rows).  Both approved measurements still belong to the
+    surviving mark; only redundant ink is removed.  Do this after placement so
+    a row that could not place a dimension cannot erase one that did.
+    """
+    groups: dict[tuple, list[tuple[str, object, float]]] = {}
+    for name, annotation in tuple(dwg.iter_annotations()):
+        if not name.startswith("dim_pitch_"):
+            continue
+        feature = ctx.registry.feature_of(name)
+        if not isinstance(feature, PatternFeature) or feature.pattern != "linear":
+            continue
+        members = feature.members
+        if len(members) < 2:
+            continue
+        view = ctx.registry.view_of(name)
+        if view is None or annotation.label_bbox is None:
+            continue
+        projected = [layout_frame(a).project(view, member) for member in members]
+        p1, p2 = projected[0], projected[-1]
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+        if abs(dx) < 1e-6 and abs(dy) > 1e-6:
+            if any(abs(point[0] - p1[0]) > 1e-3 for point in projected):
+                continue
+            axis = "vertical"
+            stations = tuple(sorted(round(point[1], 3) for point in projected))
+            transverse = p1[0]
+            label_transverse = (annotation.label_bbox[0] + annotation.label_bbox[2]) / 2
+        elif abs(dy) < 1e-6 and abs(dx) > 1e-6:
+            if any(abs(point[1] - p1[1]) > 1e-3 for point in projected):
+                continue
+            axis = "horizontal"
+            stations = tuple(sorted(round(point[0], 3) for point in projected))
+            transverse = p1[1]
+            label_transverse = (annotation.label_bbox[1] + annotation.label_bbox[3]) / 2
+        else:
+            continue  # rotated rows need their own explicit witness geometry
+        key = (view, axis, stations, annotation.label)
+        groups.setdefault(key, []).append((name, annotation, abs(label_transverse - transverse)))
+
+    for rows in groups.values():
+        if len(rows) < 2:
+            continue
+        # Keep the mark with the shortest witness reach; the other may have
+        # fallen back to the opposite side only because this pitch occupied its strip.
+        chosen_name, chosen, _ = min(rows, key=lambda row: row[2])
+        identity = ctx.registry.identity_of(chosen_name)
+        measurements = list(ctx.registry.measurement_of(chosen_name))
+        owners = list(getattr(chosen, "source_features", ()))
+        for name, _annotation, _ in rows:
+            if name == chosen_name:
+                continue
+            measurements.extend(ctx.registry.measurement_of(name))
+            owner = ctx.registry.feature_of(name)
+            if owner is not None:
+                owners.append(owner)
+            dwg.remove(name)
+        identity["measurement"] = tuple(measurements)
+        ctx.registry.reapply(chosen_name, identity)
+        setattr(chosen, "source_features", tuple(owners))
+
+
 def _add_grid_pitch_dims(
     dwg,
     a: Analysis,

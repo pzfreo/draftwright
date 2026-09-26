@@ -96,6 +96,7 @@ from draftwright.annotations.from_model import (
 )
 from draftwright.annotations.holes import (
     _annotate_holes,
+    _coalesce_aligned_linear_pitch_dims,
     _locate_off_axis_holes,
     build_view_of_axis,
     render_pocket_patterns,
@@ -1073,6 +1074,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "projection_symbol": _s_projection_symbol,
         }
     )
+    # Preserve every downstream solve's obstacle set, then remove only genuinely
+    # redundant placed pitch ink. Early removal changes unrelated balloon choices.
+    _coalesce_aligned_linear_pitch_dims(dwg, a, ctx=ctx)
     retract_resolved_withholdings(dwg, ctx, _runtime_plan)
     if ctx.trace is not None:  # snapshot the run's escalations into the trace (#736)
         ctx.trace.record_escalations(ctx.escalations)

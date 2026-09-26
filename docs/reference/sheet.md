@@ -182,6 +182,13 @@ growing toward 12 mm when the selected sheet has spare room. Its facing strips
 cannot spend that gutter. `estimated-strips` retains its established shared
 corridors; this change does not silently alter that layout's sheet selection.
 
+For separate linear hole patterns whose pitch marks have the same projected
+stations and printed value in one view, the renderer keeps one dimension rather
+than repeating the same pitch beside parallel rows. That mark retains the
+measurement identities and feature ownership of every covered pattern. Rotated
+or nonmatching rows remain separate; an unplaced pitch is still reported rather
+than silently treated as covered.
+
 ### Acceptable recovered leaders
 
 A sheet-wide recovery is a last resort, not permission to send a callout around the

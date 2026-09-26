@@ -3215,6 +3215,7 @@ class Drawing:
         )
         from draftwright.annotations.holes import (
             _annotate_holes,
+            _coalesce_aligned_linear_pitch_dims,
             _locate_off_axis_holes,
             build_view_of_axis,
             render_pocket_patterns,
@@ -3799,6 +3800,8 @@ class Drawing:
                 "tabulate": _s_tabulate,
             }
         )
+        if a is not None:
+            _coalesce_aligned_linear_pitch_dims(self, a, ctx=ctx)
         # The same close-out the auto pass runs. A withholding is recorded by the pass that
         # could not place the mark and must be withdrawn if a later stage drew it — and the
         # declared route runs its own copy of the stage list, so leaving the retraction on the
