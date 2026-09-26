@@ -84,7 +84,7 @@ from draftwright.compose import (
     _view_geom,
 )
 from draftwright.drawing import Drawing, feature_key
-from draftwright.layout_selection import select_best_annotation_layout
+from draftwright.layout_selection import choose_pre_render_profile, select_best_annotation_layout
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
@@ -596,6 +596,14 @@ def _assemble(
     if (a.text_position, a.text_orientation) != ("inline", "aligned"):
         _dimension_head_bounds(draft.arrow_length, draft.head_type)
 
+    scheme_shadow = a.layout_strips.annotation_scheme_shadow_report(a.SCALE)
+    pre_render_choice = choose_pre_render_profile(
+        a.layout_strips,
+        scheme_shadow,
+        page=(a.PAGE_W, a.PAGE_H),
+        views=tuple(a.planned_views or third_angle_view_names()),
+        auto_dims=auto_dims,
+    )
     dwg = Drawing(
         scale=a.SCALE,
         page_w=a.PAGE_W,
@@ -615,7 +623,8 @@ def _assemble(
     dwg.annotation_scheme_decision = {
         "status": "shadow",
         "influenced_layout": False,
-        **a.layout_strips.annotation_scheme_shadow_report(a.SCALE).to_dict(),
+        **scheme_shadow.to_dict(),
+        "pre_render_choice": pre_render_choice,
     }
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
     # work even in manual mode (#398). _auto_annotate reads this attached model rather

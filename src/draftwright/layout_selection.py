@@ -13,7 +13,56 @@ from draftwright.annotation_layout_profile import (
 )
 
 if TYPE_CHECKING:
+    from draftwright.compose import AnnotationSchemeShadowReport, StripDepths
     from draftwright.drawing import Drawing
+
+
+def choose_pre_render_profile(
+    strips: StripDepths,
+    report: AnnotationSchemeShadowReport,
+    *,
+    page: tuple[float, float],
+    views: tuple[str, ...],
+    auto_dims: bool,
+) -> dict[str, object]:
+    """Recommend a layout from typed demand and settled pre-render constraints.
+
+    This conservative first version recommends the planned profile only when every
+    typed route fits its established reservation. It does not infer visual quality
+    from a finished baseline drawing.
+    """
+
+    scheme = strips.scheme
+    demand_count = len(scheme.demands) if scheme is not None else 0
+    missing_views = (
+        sorted({demand.view for demand in scheme.demands} - set(views))
+        if scheme is not None
+        else []
+    )
+    if not auto_dims:
+        profile, reason = None, "automatic_annotations_disabled"
+    elif scheme is None:
+        profile, reason = None, "typed_scheme_unavailable"
+    elif missing_views:
+        profile, reason = None, "demand_view_absent"
+    elif not scheme.demands and not scheme.unplanned:
+        profile, reason = "iso-growth", "no_annotation_demand"
+    elif scheme.unplanned or report.under_reserved:
+        profile, reason = "legacy-depth", "unplanned_or_under_reserved_demand"
+    else:
+        profile, reason = "planned", "all_typed_corridors_fit"
+    return {
+        "version": 1,
+        "profile": profile,
+        "reason": reason,
+        "page": [float(page[0]), float(page[1])],
+        "scale": report.scale,
+        "views": list(views),
+        "demand_count": demand_count,
+        "unplanned_count": report.unplanned_count,
+        "under_reserved": len(report.under_reserved),
+        "missing_views": missing_views,
+    }
 
 
 def drawing_record(drawing) -> dict:
