@@ -1924,6 +1924,42 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
     return True
 
 
+def annotation_text_ink_clear(dwg, candidate, *, view=None) -> bool:
+    """Protect labels in both directions without treating every shaft crossing as text damage.
+
+    The immediate dense-hole callout path retains its Policy-B shaft fallback, but
+    cannot let a later leader label be struck by an already-placed pitch witness
+    (or let its own shaft cross settled text). This uses the same exact segment and
+    label metadata as the shared ink predicate; no AABB of an entire dimension is
+    used as a proxy for its sparse rendered ink.
+    """
+    try:
+        label = getattr(candidate, "label_bbox", None)
+        segments = segments_of(candidate)
+    except Exception:  # noqa: BLE001 — unreadable candidate ink cannot prove text clear
+        return False
+    for name, annotation in dwg.iter_annotations():
+        owner = dwg.view_of(name)
+        if view is not None and owner is not None and owner != view:
+            continue
+        try:
+            fixed_label = getattr(annotation, "label_bbox", None)
+            fixed_segments = segments_of(annotation)
+        except Exception:  # noqa: BLE001 — unreadable fixed ink cannot prove text clear
+            return False
+        if label is not None and fixed_label is not None and _boxes_overlap(label, fixed_label):
+            return False
+        if fixed_label is not None and any(
+            _segment_clips_box(start, end, fixed_label, pad=0.0) for start, end in segments
+        ):
+            return False
+        if label is not None and any(
+            _segment_clips_box(start, end, label, pad=0.0) for start, end in fixed_segments
+        ):
+            return False
+    return True
+
+
 def view_label_clearance(dwg, view):
     """A label guard over the same projected edges the structural critic reads.
 

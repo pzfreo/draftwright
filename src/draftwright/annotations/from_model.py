@@ -7456,6 +7456,7 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
                 # …and when it IS physically full, they outrank ordinary auto dims rather
                 # than tying with them at 0 and losing on the generated key (#894).
                 priority=_PRINCIPAL_CHAIN_PRIORITY,
+                require_clear_ink=name.startswith("dim_step_"),
                 feature=step
                 if name != "dim_height"
                 else overall.ref
@@ -7520,6 +7521,7 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
                 on_place=lambda nm: None,
                 on_drop=_drop_left,
                 force=True,
+                require_clear_ink=True,
                 feature=step,
                 measurement=rung.id,  # #1002
                 footprint=lambda pos, zbase=zbase, ztop=ztop, label=label: dim_footprint(
@@ -8857,6 +8859,7 @@ def _place_corridor_option(
         else None,
         priorities={spec["name"]: priority},
         anchored={spec["name"]: anchored},
+        require_clear_ink={spec["name"]},
         trace=trace,
         trace_label="pmi_fallback",
     )
@@ -8919,6 +8922,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
             on_drop=_drop,
             priority=_PMI_CORRIDOR_PRIORITY,
             force=True,
+            require_clear_ink=True,
             feature=rec,
             natural=primary.get("natural"),
             footprint=primary.get("footprint"),

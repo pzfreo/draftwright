@@ -53,6 +53,7 @@ from draftwright.annotations._common import (
     _with_hole_location_coverage,
     annotation_ink_clear,
     annotation_obstacle_boxes,
+    annotation_text_ink_clear,
     box_within_page_and_clear,
     carve_free_position,
     carve_free_segments,
@@ -1768,16 +1769,20 @@ def _place_pitch_dim(
             return cleared
         return unshifted
 
-    def _place(off, side_vec=side):
+    def _place(off, side_vec=side, dim=None):
         page_box = _analysis_margins(a).bounds(a.PAGE_W, a.PAGE_H)
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
+        candidate = _clear_and_validate(off, side_vec, page_box, obstacles, dim)
+        if not annotation_ink_clear(dwg, candidate, view=view):
+            return False
         ctx.place(
-            _clear_and_validate(off, side_vec, page_box, obstacles),
+            candidate,
             name,
             view=view,
             feature=resolve_feature(feature),
             measurement=measurement,
         )
+        return True
 
     # Place onto the zone strip for the chosen side (#374): each side is its own strip, so the
     # obstacle-aware carve stacks this dim clear of placed content — where an arbitrary-direction
@@ -1818,8 +1823,7 @@ def _place_pitch_dim(
     if strip is not None:
         tier = max(10.0, dwg.draft.font_size * 3.0)
         pos = carve_free_position(dwg, strip, view, axis, tier, perp)
-        if pos is not None:
-            _place(sgn * (pos - witness), side)
+        if pos is not None and _place(sgn * (pos - witness), side):
             return
 
     # Fallback: diagonal side / absent strip / full strip. This cannot cleanly occupy an
@@ -1833,6 +1837,7 @@ def _place_pitch_dim(
     obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
     for side_vec, reach_i in fallback_sides:
         base = reach_i + 8
+        ink_probes = 0
         for k in range(int(limit / step) + 1):
             offset = base + k * step
             line_x = mid[0] + side_vec[0] * (offset + 6)
@@ -1872,7 +1877,10 @@ def _place_pitch_dim(
             # rotated arrangement look blocked. Existing hole/slot patterns retain their
             # conservative whole-ink gate until their later-stage consumers participate in the
             # same solve; relaxing those here can admit a pitch that a later callout crosses.
+            if not exact_label_gate and ink_probes >= 8:
+                break
             probe = _make(offset, side_vec)
+            ink_probes += 1
             if exact_label_gate:
                 real_boxes = annotation_obstacle_boxes(dwg, probe)
                 if (
@@ -1898,14 +1906,10 @@ def _place_pitch_dim(
                     or _box_hits(real, obstacles)
                 ):
                     continue
-            ctx.place(
-                _clear_and_validate(offset, side_vec, page_box, obstacles, probe),
-                name,
-                view=view,
-                feature=resolve_feature(feature),
-                measurement=measurement,
-            )
-            return
+            if _place(offset, side_vec, probe):
+                return
+            # A long witness can cross the same settled callout at every outward
+            # tier. The eight-build cap above bounds this exact-ink search.
     _log.info("Pitch dimension for the %s× %s array skipped (no room)", n, pitch_text)
     if drop_code is not None:
         noun = {
@@ -3321,6 +3325,10 @@ def _place_queue(
                         else None
                     ),
                     allow_policy_b_fixed=True,
+                    # A shaft-to-shaft crossing may remain a Policy-B fallback,
+                    # but no compatibility floor may put a pitch witness through
+                    # this callout's text (or vice versa).
+                    require_clear_label_ink=True,
                     priority=float(dia),
                     on_place=_on_place,
                     on_drop=_on_drop,
@@ -3338,6 +3346,7 @@ def _place_queue(
 
     placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
     crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
+    text_dropped: list = []  # a label cannot be kept under a pitch witness
     for target in targets:
         tid = id(target)
         s = source_by_target[tid]
@@ -3346,7 +3355,9 @@ def _place_queue(
             continue
         y = final_y[tid]
         leader, tip, elbow = _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, a.SCALE)
-        if _leader_hits(leader, tip, elbow, side, occupied, draft):
+        if not annotation_text_ink_clear(dwg, leader, view=view):
+            text_dropped.append(s)
+        elif _leader_hits(leader, tip, elbow, side, occupied, draft):
             crossing.append((s, y, leader))
         else:
             placed.append((s, y, leader))
@@ -3368,6 +3379,17 @@ def _place_queue(
                 s[3],
                 callout=s[2],
             )
+    for s in text_dropped:
+        _record_callout_drop(
+            ctx,
+            dwg,
+            view,
+            s[1],
+            "no legible room: settled annotation ink crosses the callout text",
+            s[3],
+            callout=s[2],
+            outcome_stage="placement",
+        )
     if crossing:
         _log.info(
             "plan/side %s strip: %d bore callout(s) placed despite crossing an "

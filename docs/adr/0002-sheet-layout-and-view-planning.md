@@ -66,9 +66,13 @@ dependency runs one way: requirements determine views.
 10. **Same-batch dimension ink is visible before commit**, resolved by a bounded strictly-improving
     local solve inside Emit — not a second placement engine. A GD&T frame then checks its full
     glyph and leader against settled and same-batch ink in that shared corridor: a clear tier
-    wins, lower-priority same-batch automatic ink may yield through its normal drop path, and an infeasible
-    authored frame relocates or reports a named drop rather than knowingly overprinting.
-    `test_issue_1334_prevent_ink.py`, `test_gdt_ink_shared.py`.
+    wins, lower-priority same-batch automatic ink may yield through its normal drop path, and
+    an infeasible authored frame relocates or reports a named drop rather than knowingly
+    overprinting. Pitch, step-height, and imported PMI dimensions likewise check their
+    finished ink against settled annotations; late and immediate hole callouts protect
+    text while retaining the established shaft-only Policy-B fallback. A bounded failed
+    search reports the missing annotation rather than claiming illegible ink as placed.
+    `test_issue_1334_prevent_ink.py`, `test_gdt_ink_shared.py`, `test_remaining_ink_overlaps.py`.
 11. **One view vocabulary; request and result are distinct states.** `ViewSpec` values;
     `ViewConstraints` is the authored request; `ResolvedViewPlan` is immutable, attached once to
     `BuildState`, and read-only on `Drawing`. `test_view_plan.py`, `test_issue_1260_view_constraints.py`.
