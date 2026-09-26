@@ -145,6 +145,45 @@ def test_immediate_callout_gate_distinguishes_text_from_shaft_crossing(owner_vie
     assert _common.annotation_text_ink_clear(drawing, shaft_only)
 
 
+@pytest.mark.parametrize(
+    ("candidate_label", "candidate_segment"),
+    [
+        ((20.0, 20.0, 30.0, 24.0), ((50.0, 50.0), (60.0, 50.0))),
+        ((50.0, 50.0, 60.0, 54.0), ((15.0, 22.0), (35.0, 22.0))),
+    ],
+)
+def test_immediate_callout_rejects_cross_view_label_or_shaft_on_text(
+    candidate_label, candidate_segment
+):
+    fixed = SimpleNamespace(
+        label_bbox=(20.0, 20.0, 30.0, 24.0),
+        segments=(((70.0, 70.0), (80.0, 70.0)),),
+    )
+    drawing = SimpleNamespace(
+        iter_annotations=lambda: iter((("foreign_view", fixed),)),
+        view_of=lambda _name: "front",
+    )
+    candidate = SimpleNamespace(label_bbox=candidate_label, segments=(candidate_segment,))
+
+    assert not _common.annotation_text_ink_clear(drawing, candidate)
+
+
+def test_immediate_callout_fails_closed_on_unreadable_ink_metadata():
+    class Unreadable:
+        @property
+        def label_bbox(self):
+            raise ValueError("no label geometry")
+
+    clear = SimpleNamespace(
+        label_bbox=(50.0, 50.0, 60.0, 54.0),
+        segments=(((45.0, 45.0), (55.0, 45.0)),),
+    )
+    drawing = SimpleNamespace(iter_annotations=lambda: iter((("fixed", Unreadable()),)))
+
+    assert not _common.annotation_text_ink_clear(drawing, clear)
+    assert not _common.annotation_text_ink_clear(drawing, Unreadable())
+
+
 def test_dense_hole_callout_reports_text_collision_instead_of_placing(monkeypatch):
     monkeypatch.setattr(holes, "_TABULATE_MIN_HOLES", 1)
     monkeypatch.setattr(holes, "annotation_text_ink_clear", lambda _drawing, _leader: False)
