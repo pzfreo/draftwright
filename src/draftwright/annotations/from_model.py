@@ -8633,7 +8633,7 @@ def _sheet_leader_fallback(
             or any(
                 _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
                 for start, end in route_segments
-                for fixed_start, fixed_end in settled_segments
+                for fixed_start, fixed_end in settled_non_crossable_segments
             )
         )
 
@@ -8750,7 +8750,7 @@ def _sheet_leader_fallback(
                 or any(
                     _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
                     for start, end in segments_of(candidate)
-                    for fixed_start, fixed_end in settled_segments
+                    for fixed_start, fixed_end in settled_non_crossable_segments
                 )
                 or any(
                     _segment_clips_box(start, end, view_box, pad=0.0)

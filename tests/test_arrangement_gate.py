@@ -42,7 +42,7 @@ ONLY_PREFERRED = (ARRANGEMENTS[0],)
 
 def _chamfered():
     """The `chamfered` golden's part — the corpus's smallest arrangement-sensitive case."""
-    plate = Box(90, 40, 20)
+    plate = Box(90, 60, 20)
     edge = plate.edges().filter_by(Axis.Z).sort_by(lambda e: e.center().X + e.center().Y)[-1]
     return chamfer(edge, 12)
 
@@ -64,7 +64,7 @@ def _centered_rebate():
     return Box(80, 60, 30) - Pos(0, 0, 7.5) * Box(80, 20, 15)
 
 
-def _geom(arrangement, page=A4, size=(90.0, 40.0, 20.0), n_steps=0):
+def _geom(arrangement, page=A4, size=(90.0, 60.0, 20.0), n_steps=0):
     page_w, page_h, tb_w = page
     return _layout_geometry(
         *size, 1.0, page_w, page_h, tb_w, None, n_steps, arrangement=arrangement
@@ -130,9 +130,9 @@ class TestTheDecisionIsMadeOnceAndCarried:
         assert arrangement_of((1.0, 420.0, 297.0, 150.0)) == ARRANGEMENTS[0]
 
     def test_choose_scale_reports_the_arrangement_it_proved(self):
-        assert arrangement_of(choose_scale(90.0, 40.0, 20.0)) == "stacked-iso"
+        assert arrangement_of(choose_scale(90.0, 60.0, 20.0)) == "stacked-iso"
         assert (
-            arrangement_of(choose_scale(90.0, 40.0, 20.0, arrangements=ONLY_PREFERRED))
+            arrangement_of(choose_scale(90.0, 60.0, 20.0, arrangements=ONLY_PREFERRED))
             == (ARRANGEMENTS[0])
         )
 
@@ -154,7 +154,7 @@ class TestTheDecisionIsMadeOnceAndCarried:
         drawing = build_drawing(_chamfered())
         assert drawing.arrangement_decision["chosen"] == "stacked-iso"
         assert (drawing.page_w, drawing.page_h) == A4[:2]
-        assert choose_scale(90.0, 40.0, 20.0, arrangements=ONLY_PREFERRED)[1:3] == A3[:2]
+        assert choose_scale(90.0, 60.0, 20.0, arrangements=ONLY_PREFERRED)[1:3] == A3[:2]
 
     @pytest.mark.xfail(
         reason=(
@@ -266,8 +266,8 @@ class TestPackingMayNotBidUpLegibility:
     """The arrangement compacts a chosen scale; it never chooses one."""
 
     def test_the_alternative_wins_a_sheet_at_the_same_scale(self):
-        preferred = choose_scale(90.0, 40.0, 20.0, arrangements=ONLY_PREFERRED)
-        chosen = choose_scale(90.0, 40.0, 20.0)
+        preferred = choose_scale(90.0, 60.0, 20.0, arrangements=ONLY_PREFERRED)
+        chosen = choose_scale(90.0, 60.0, 20.0)
         assert preferred[1:3] == A3[:2] and chosen[1:3] == A4[:2]
         assert chosen[0] == preferred[0], "the arrangement must not change the scale"
 

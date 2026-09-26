@@ -58,6 +58,7 @@ from draftwright._core import (
 )
 from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
+from draftwright.annotation_layout_profile import layout_flag
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
 from draftwright.layout_scheme import (
@@ -485,7 +486,12 @@ class StripDepths:
         pv_below = _est_pv_below_depth()
         pv_top = max(_DIM_PAD, self.top) + halo if halo > 0 else _DIM_PAD
         reserved = {
-            ("front", "above"): max(pv_below, self.fv_top),
+            ("front", "above"): max(
+                pv_below
+                if layout_flag("view_gutters", "DRAFTWRIGHT_EXPERIMENT_VIEW_GUTTERS")
+                else _DIM_PAD - pv_below,
+                self.fv_top,
+            ),
             ("front", "below"): max(_DIM_PAD, self.fv_bottom),
             ("front", "left"): shared_left,
             ("front", "right"): shared_side,
@@ -1491,7 +1497,12 @@ def _compose_view_blocks(
         "front": ViewBlock(
             fv_hw,
             fv_hh,
-            top=max(pv_below, strips.fv_top if strips else 0.0),
+            top=max(
+                pv_below
+                if layout_flag("view_gutters", "DRAFTWRIGHT_EXPERIMENT_VIEW_GUTTERS")
+                else DIM_PAD - pv_below,
+                strips.fv_top if strips else 0.0,
+            ),
             right=gap_fv_sv,
             bottom=max(DIM_PAD, strips.fv_bottom if strips else 0.0),
             left=gap_left,
@@ -1629,8 +1640,9 @@ def _layout_geometry(
     has_side = views is None or "side" in views
     has_rear = views is not None and "rear" in views
     has_column = has_front or has_plan
-    vertical_gutter = _VIEW_GUTTER if has_front and has_plan else 0.0
-    side_gutter = _VIEW_GUTTER if has_column and has_side else 0.0
+    view_gutters = layout_flag("view_gutters", "DRAFTWRIGHT_EXPERIMENT_VIEW_GUTTERS")
+    vertical_gutter = _VIEW_GUTTER if view_gutters and has_front and has_plan else 0.0
+    side_gutter = _VIEW_GUTTER if view_gutters and has_column and has_side else 0.0
     _present = [b for b, present in ((fv, has_front), (pv, has_plan)) if present]
 
     col_left = max((b.left for b in _present), default=0.0)
@@ -1640,7 +1652,7 @@ def _layout_geometry(
     # safety floor when the sheet is crowded.  This happens before both the
     # estimator and measured layout paths, so scale selection sees the same
     # policy as final placement.  The preferred gap never demands a larger page.
-    if has_front and has_plan:
+    if view_gutters and has_front and has_plan:
         stack_without_gutter = fv.bottom + 2 * fv.hh + fv.top + pv.bottom + 2 * pv.hh + pv.top
         vertical_slack = page_h - top - bottom - stack_without_gutter - vertical_gutter
         extra_vertical = min(
@@ -1659,7 +1671,7 @@ def _layout_geometry(
             max_column_h = page_h - top - bottom - 2 * (title_top - bottom - DIM_PAD)
             extra_vertical = min(extra_vertical, max(0.0, max_column_h - min_column_h))
         vertical_gutter += extra_vertical
-    if has_column and has_side:
+    if view_gutters and has_column and has_side:
         iso_budget = (
             bbox_max
             * scale
@@ -1774,7 +1786,7 @@ def _layout_geometry(
         + col_right
         + (x_size * scale if has_column else 0.0)
         + (y_size * scale if has_side else 0.0)
-        + (sv.left if has_side and has_column else 0.0)
+        + (sv.left if view_gutters and has_side and has_column else 0.0)
         + side_gutter
         + max(2 * DIM_PAD, (sv.right + DIM_PAD) if has_side else 0.0, section_right_band)
     )
@@ -2061,6 +2073,7 @@ def _layout_geometry(
 
     return SimpleNamespace(
         convention=convention,
+        view_gutters=view_gutters,
         planned_views=tuple(
             name
             for name, present in (
@@ -2158,6 +2171,7 @@ def _build_zones(g, margin, page_h):
     pv_bottom_edge = PV_Y - pv_hh
     sv_top_edge = SV_Y + fv_hh  # side view has the same Z height as front
     # Facing strips stop at their own footprints; the inter-view gutter stays blank.
+    protected_gutter = getattr(g, "view_gutters", False)
 
     if getattr(g, "convention", "third") == "first":
         has_front = "front" in g.planned_views
@@ -2193,13 +2207,21 @@ def _build_zones(g, margin, page_h):
     fv_zones = ViewZones(
         right=Strip(
             fv_right_edge,
-            g.front_side_wall if "side" in g.planned_views else g.outer_right_wall,
+            (g.front_side_wall if protected_gutter else SV_X - sv_hw)
+            if "side" in g.planned_views
+            else g.outer_right_wall,
             direction=1,
         ),
         left=Strip(fv_left_edge, margins.left, direction=-1),
         above=Strip(
             fv_top_edge,
-            g.front_plan_above_wall if "plan" in g.planned_views else page_h - margins.top,
+            (
+                g.front_plan_above_wall
+                if protected_gutter
+                else pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth())
+            )
+            if "plan" in g.planned_views
+            else page_h - margins.top,
             direction=1,
         ),
         below=Strip(fv_bottom_edge, margins.bottom, direction=-1),
@@ -2212,14 +2234,18 @@ def _build_zones(g, margin, page_h):
         # callout, so well-estimated labels will always fit within this bound.
         right=Strip(
             pv_right_edge,
-            g.front_side_wall if "side" in g.planned_views else g.outer_right_wall,
+            (g.front_side_wall if protected_gutter else SV_X - sv_hw)
+            if "side" in g.planned_views
+            else g.outer_right_wall,
             direction=1,
         ),
         left=Strip(pv_left_edge, margins.left, direction=-1),
         above=Strip(pv_top_edge, page_h - margins.top, direction=1),
         below=Strip(
             pv_bottom_edge,
-            g.plan_front_below_wall if "front" in g.planned_views else margins.bottom,
+            (g.plan_front_below_wall if protected_gutter else fv_top_edge)
+            if "front" in g.planned_views
+            else margins.bottom,
             direction=-1,
         ),
     )

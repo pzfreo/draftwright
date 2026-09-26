@@ -100,6 +100,10 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         ("from_model", "_pmi_dim_spec"),
         ("from_model", "_pmi_leader_spec"),
         ("from_model", "_sheet_leader_fallback"),
+        # The CTC04 U-route is a precise geometric counterexample: a pure route
+        # predicate test pins the no-backtracking/locality rule without paying for
+        # a whole imported STEP build or relying on accidental candidate order.
+        ("from_model", "_leader_route_is_readable"),
         ("holes", "_legible_locations"),
         # _leader_hits (#367) composes the pure rendered-ink primitive with the real
         # Leader label footprint. Its sub-millimetre arrow/shaft counterexamples cannot

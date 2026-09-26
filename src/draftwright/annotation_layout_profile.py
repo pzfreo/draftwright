@@ -70,6 +70,7 @@ class AnnotationLayoutProfile:
     lateral_tier_reuse: bool = False
     vacant_tier_compaction: bool = False
     normal_feature_leaders: bool = False
+    view_gutters: bool = False
 
 
 def candidate_profile(name: str, scale: float) -> AnnotationLayoutProfile:
@@ -89,6 +90,7 @@ def candidate_profile(name: str, scale: float) -> AnnotationLayoutProfile:
         lateral_tier_reuse=True,
         vacant_tier_compaction=name != "columns",
         normal_feature_leaders=name != "columns",
+        view_gutters=True,
     )
 
 

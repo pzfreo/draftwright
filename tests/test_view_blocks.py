@@ -20,7 +20,7 @@ class TestComposeViewBlocks:
         assert blocks["front"].hh == pytest.approx(20.0)
         assert blocks["front"].right == pytest.approx(_est_right_strip_depth(3))
         assert blocks["front"].left == pytest.approx(_DIM_PAD)
-        assert blocks["front"].top == pytest.approx(_est_pv_below_depth())
+        assert blocks["front"].top == pytest.approx(_DIM_PAD - _est_pv_below_depth())
         assert blocks["plan"].bottom == pytest.approx(_est_pv_below_depth())
         assert blocks["side"].right == pytest.approx(_DIM_PAD)
 
@@ -147,6 +147,7 @@ class TestComposeViewBlocks:
 
 @pytest.mark.parametrize("convention", ["first", "third"])
 def test_principal_views_keep_blank_gutters_outside_measured_annotation_bands(convention):
+    from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
     from draftwright.compose import (
         _VIEW_GUTTER,
         _VIEW_GUTTER_PREFERRED,
@@ -160,18 +161,19 @@ def test_principal_views_keep_blank_gutters_outside_measured_annotation_bands(co
         "plan": ViewBlock(25, 17.5, top=33, right=36, bottom=39, left=42),
         "side": ViewBlock(17.5, 6, top=45, right=48, bottom=51, left=54),
     }
-    g = _layout_geometry(
-        50,
-        35,
-        12,
-        1,
-        594,
-        420,
-        150,
-        None,
-        blocks=blocks,
-        convention=convention,
-    )
+    with use_layout_profile(AnnotationLayoutProfile(view_gutters=True)):
+        g = _layout_geometry(
+            50,
+            35,
+            12,
+            1,
+            594,
+            420,
+            150,
+            None,
+            blocks=blocks,
+            convention=convention,
+        )
     assert g.fits
     assert _VIEW_GUTTER <= g.vertical_gutter <= _VIEW_GUTTER_PREFERRED
     assert _VIEW_GUTTER <= g.side_gutter <= _VIEW_GUTTER_PREFERRED
@@ -195,13 +197,29 @@ def test_principal_views_keep_blank_gutters_outside_measured_annotation_bands(co
 
 
 def test_optional_gutter_uses_slack_without_losing_title_block_clearance():
+    from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
     from draftwright.compose import _VIEW_GUTTER, _VIEW_GUTTER_PREFERRED, _layout_geometry
 
-    small = _layout_geometry(90, 45, 20, 1, 297, 210, 120, None, 0, arrangement="stacked-iso")
-    roomy = _layout_geometry(90, 60, 20, 1, 594, 420, 150, None, 0, arrangement="stacked-iso")
+    with use_layout_profile(AnnotationLayoutProfile(view_gutters=True)):
+        small = _layout_geometry(90, 45, 20, 1, 297, 210, 120, None, 0, arrangement="stacked-iso")
+        roomy = _layout_geometry(90, 60, 20, 1, 594, 420, 150, None, 0, arrangement="stacked-iso")
 
     assert small.auto_fits
     assert small.auto_clears_tb
     assert _VIEW_GUTTER <= small.vertical_gutter < _VIEW_GUTTER_PREFERRED
     assert roomy.vertical_gutter == pytest.approx(_VIEW_GUTTER_PREFERRED)
     assert roomy.side_gutter == pytest.approx(_VIEW_GUTTER_PREFERRED)
+
+
+def test_named_candidate_profiles_enable_gutters_without_changing_estimated_strips():
+    from draftwright.annotation_layout_profile import candidate_profile, use_layout_profile
+    from draftwright.compose import _layout_geometry
+
+    args = (60.0, 40.0, 20.0, 1.0, 594.0, 420.0, 150.0, None, 0)
+    baseline = _layout_geometry(*args)
+    with use_layout_profile(candidate_profile("planned", 1.0)):
+        candidate = _layout_geometry(*args)
+
+    assert baseline.vertical_gutter == baseline.side_gutter == 0.0
+    assert candidate.vertical_gutter > 0.0
+    assert candidate.side_gutter > 0.0

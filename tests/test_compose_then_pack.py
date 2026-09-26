@@ -329,9 +329,7 @@ class TestComposeThenPackRepack:
         from draftwright.compose import ViewBlock, _layout_geometry
 
         x_size, y_size, z_size = 5.0, 90.0, 100.0
-        # Include the protected inter-view gutter while keeping the no-steps
-        # candidate just inside the page and the stepped one outside it.
-        scale, page_w, page_h, tb_w = 1.0, 430.0, 297.0, 150.0
+        scale, page_w, page_h, tb_w = 1.0, 420.0, 297.0, 150.0
         blocks = {
             "front": ViewBlock(x_size * scale / 2, z_size * scale / 2),
             "plan": ViewBlock(x_size * scale / 2, y_size * scale / 2),
