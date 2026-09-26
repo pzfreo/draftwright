@@ -20,7 +20,7 @@ class TestComposeViewBlocks:
         assert blocks["front"].hh == pytest.approx(20.0)
         assert blocks["front"].right == pytest.approx(_est_right_strip_depth(3))
         assert blocks["front"].left == pytest.approx(_DIM_PAD)
-        assert blocks["front"].top == pytest.approx(_DIM_PAD - _est_pv_below_depth())
+        assert blocks["front"].top == pytest.approx(_est_pv_below_depth())
         assert blocks["plan"].bottom == pytest.approx(_est_pv_below_depth())
         assert blocks["side"].right == pytest.approx(_DIM_PAD)
 
@@ -197,7 +197,7 @@ def test_principal_views_keep_blank_gutters_outside_measured_annotation_bands(co
 def test_optional_gutter_uses_slack_without_losing_title_block_clearance():
     from draftwright.compose import _VIEW_GUTTER, _VIEW_GUTTER_PREFERRED, _layout_geometry
 
-    small = _layout_geometry(90, 60, 20, 1, 297, 210, 120, None, 0, arrangement="stacked-iso")
+    small = _layout_geometry(90, 45, 20, 1, 297, 210, 120, None, 0, arrangement="stacked-iso")
     roomy = _layout_geometry(90, 60, 20, 1, 594, 420, 150, None, 0, arrangement="stacked-iso")
 
     assert small.auto_fits

@@ -8502,6 +8502,29 @@ def _oblique_linear_specs(a, rec, label, name, draft):
     ]
 
 
+def _leader_route_is_readable(route, owner_bounds) -> bool:
+    """House drafting policy for a recovered feature leader's shaft.
+
+    A leader may have one routing elbow before its normal short text shelf, but
+    cannot double back or travel farther than its own view's scale warrants.
+    These limits are our legibility policy, not an ISO-prescribed distance.
+    """
+    if owner_bounds is None or not 2 <= len(route) <= 3:
+        return False
+    diagonal = math.hypot(owner_bounds[2] - owner_bounds[0], owner_bounds[3] - owner_bounds[1])
+    max_leg = max(30.0, diagonal)
+    legs = tuple(zip(route, route[1:]))
+    if any(math.hypot(b[0] - a[0], b[1] - a[1]) > max_leg for a, b in legs):
+        return False
+    if sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in legs) > 2 * max_leg:
+        return False
+    for axis in (0, 1):
+        deltas = [b[axis] - a[axis] for a, b in legs]
+        if any(delta > 1e-6 for delta in deltas) and any(delta < -1e-6 for delta in deltas):
+            return False
+    return True
+
+
 def _sheet_leader_fallback(
     dwg,
     tip,
@@ -8534,6 +8557,7 @@ def _sheet_leader_fallback(
         for name in getattr(dwg, "views", {})
         if (bounds := dwg.view_bounds(name)) is not None
     ]
+    owner_bounds = dwg.view_bounds(view)
     settled_labels = []
     settled_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
     settled_non_crossable_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
@@ -8595,7 +8619,8 @@ def _sheet_leader_fallback(
     def _route_blocked(route):
         route_segments = tuple(zip(route, route[1:]))
         return (
-            any(
+            not _leader_route_is_readable(route, owner_bounds)
+            or any(
                 _segment_clips_box(start, end, view_box, pad=0.0)
                 for start, end in route_segments
                 for view_box in other_view_boxes
@@ -8608,7 +8633,7 @@ def _sheet_leader_fallback(
             or any(
                 _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
                 for start, end in route_segments
-                for fixed_start, fixed_end in settled_non_crossable_segments
+                for fixed_start, fixed_end in settled_segments
             )
         )
 
@@ -8725,7 +8750,7 @@ def _sheet_leader_fallback(
                 or any(
                     _segments_cross_or_overlap(start, end, fixed_start, fixed_end)
                     for start, end in segments_of(candidate)
-                    for fixed_start, fixed_end in settled_non_crossable_segments
+                    for fixed_start, fixed_end in settled_segments
                 )
                 or any(
                     _segment_clips_box(start, end, view_box, pad=0.0)

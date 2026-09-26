@@ -485,7 +485,7 @@ class StripDepths:
         pv_below = _est_pv_below_depth()
         pv_top = max(_DIM_PAD, self.top) + halo if halo > 0 else _DIM_PAD
         reserved = {
-            ("front", "above"): max(_DIM_PAD - pv_below, self.fv_top),
+            ("front", "above"): max(pv_below, self.fv_top),
             ("front", "below"): max(_DIM_PAD, self.fv_bottom),
             ("front", "left"): shared_left,
             ("front", "right"): shared_side,
@@ -1467,7 +1467,7 @@ def _compose_view_blocks(
 
     # The front and plan views form a vertical column sharing the left/right
     # corridors (max of the two); the side view shares the FV↔SV corridor; the
-    # front↔plan gap is the abutting pair (fv.top + pv.bottom). When the plan
+    # front↔plan gap contains both facing bands and a blank gutter. When the plan
     # view is ballooned (halo > 0), its halo becomes explicit per-side bands so
     # the ballooned plan view is positioned as a unit (#111/#112).
     halo = strips.pv_halo if strips else 0.0
@@ -1491,7 +1491,7 @@ def _compose_view_blocks(
         "front": ViewBlock(
             fv_hw,
             fv_hh,
-            top=max(DIM_PAD - pv_below, strips.fv_top if strips else 0.0),
+            top=max(pv_below, strips.fv_top if strips else 0.0),
             right=gap_fv_sv,
             bottom=max(DIM_PAD, strips.fv_bottom if strips else 0.0),
             left=gap_left,

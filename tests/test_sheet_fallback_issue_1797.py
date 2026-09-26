@@ -8,12 +8,23 @@ from build123d_drafting import Leader
 
 from draftwright._geometry import _segments_cross_or_overlap
 from draftwright.annotations.from_model import (
+    _leader_route_is_readable,
     _pmi_dim_spec,
     _pmi_leader_spec,
     _sheet_leader_fallback,
 )
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.linting.ink_overlap import segments_of
+
+
+def test_recovered_leader_must_be_local_and_never_double_back():
+    view = (10.0, 10.0, 110.0, 60.0)
+    assert _leader_route_is_readable(((20, 20), (60, 40)), view)
+    assert _leader_route_is_readable(((20, 20), (40, 20), (60, 40)), view)
+    # The CTC04 4×R13 failure was a U-shaped page-spanning detour.
+    assert not _leader_route_is_readable(((20, 20), (500, 20), (500, 40), (25, 40)), view)
+    assert not _leader_route_is_readable(((20, 20), (60, 20), (30, 40)), view)
+    assert not _leader_route_is_readable(((20, 20), (60, 20), (60, 40), (80, 40)), view)
 
 
 def test_diameter_dimension_may_fall_back_to_a_routed_surface_leader():
