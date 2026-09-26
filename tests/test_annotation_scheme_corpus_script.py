@@ -86,6 +86,17 @@ def test_manifest_rejects_duplicate_case_ids(tmp_path):
         _load_script()._load_manifest(damaged)
 
 
+@pytest.mark.parametrize("case_id", ["../outside", "CON", "COM1.foo", "trailing."])
+def test_manifest_rejects_unsafe_case_report_name(tmp_path, case_id):
+    document = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    document["cases"][0]["id"] = case_id
+    damaged = tmp_path / "corpus.json"
+    damaged.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="safe file names"):
+        _load_script()._load_manifest(damaged)
+
+
 def test_public_corpus_requires_the_selected_trial_to_be_verified():
     convert = _load_script()._public_result
     decision = {
@@ -175,10 +186,17 @@ def test_candidate_first_case_dispatches_the_preview_comparison(monkeypatch, tmp
 
     monkeypatch.setattr(script.subprocess, "run", run)
     case = _load_script()._load_manifest(MANIFEST)["cases"][0]
-    result = script._run_case(case, tmp_path, candidate_first=True)
+    case_report_dir = tmp_path / "case-reports"
+    result = script._run_case(
+        case, tmp_path, candidate_first=True, case_report_dir=case_report_dir
+    )
 
     assert commands[0][-2:] == ["--mode", "candidate-preview"]
     assert result["case_id"] == case["id"]
+    assert (
+        json.loads((case_report_dir / f"{case['id']}.json").read_text(encoding="utf-8")) == result
+    )
+    assert list(case_report_dir.glob("*.tmp")) == []
 
 
 def test_candidate_first_summary_keeps_failed_worker_latency_separate():
