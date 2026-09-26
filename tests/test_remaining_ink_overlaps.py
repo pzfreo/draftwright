@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 from build123d import Box, Cylinder, Draft
 
 from draftwright import build_drawing
@@ -81,13 +82,13 @@ def _place_pitch(drawing, analysis, context):
 def test_pitch_tries_bounded_clear_ink_alternative(monkeypatch):
     checks = []
 
-    def ink_clear(_drawing, _candidate, *, view):
-        checks.append(view)
+    def ink_clear(_drawing, _candidate):
+        checks.append(True)
         return len(checks) == 3
 
     drawing, analysis, context, placed, issues = _pitch_fixture(monkeypatch, ink_clear=ink_clear)
     _place_pitch(drawing, analysis, context)
-    assert checks == ["plan", "plan", "plan"]
+    assert len(checks) == 3
     assert [name for name, _dim in placed] == ["test_pitch"]
     assert issues == []
 
@@ -95,8 +96,8 @@ def test_pitch_tries_bounded_clear_ink_alternative(monkeypatch):
 def test_pitch_reports_drop_when_no_ink_clear_alternative(monkeypatch):
     checks = []
 
-    def ink_clear(_drawing, _candidate, *, view):
-        checks.append(view)
+    def ink_clear(_drawing, _candidate):
+        checks.append(True)
         return False
 
     drawing, analysis, context, placed, issues = _pitch_fixture(monkeypatch, ink_clear=ink_clear)
@@ -106,7 +107,8 @@ def test_pitch_reports_drop_when_no_ink_clear_alternative(monkeypatch):
     assert 1 <= len(checks) <= 17  # one strip probe plus eight per fallback side
 
 
-def test_pitch_does_not_print_through_settled_callout_text(monkeypatch):
+@pytest.mark.parametrize("owner_view", ["plan", "front"])
+def test_pitch_does_not_print_through_settled_callout_text(monkeypatch, owner_view):
     drawing, analysis, context, placed, issues = _pitch_fixture(
         monkeypatch, ink_clear=_common.annotation_ink_clear
     )
@@ -115,20 +117,21 @@ def test_pitch_does_not_print_through_settled_callout_text(monkeypatch):
         segments=(((40.0, 10.0), (50.0, 10.0)),),
     )
     drawing.iter_annotations = lambda: iter((("callout", callout),))
-    drawing.view_of = lambda _name: "plan"
+    drawing.view_of = lambda _name: owner_view
     _place_pitch(drawing, analysis, context)
     assert placed == []
     assert issues == ["hole_pattern_dim_dropped"]
 
 
-def test_immediate_callout_gate_distinguishes_text_from_shaft_crossing():
+@pytest.mark.parametrize("owner_view", ["plan", "front"])
+def test_immediate_callout_gate_distinguishes_text_from_shaft_crossing(owner_view):
     fixed = SimpleNamespace(
         label_bbox=(60.0, 60.0, 70.0, 64.0),
         segments=(((15.0, 18.0), (35.0, 18.0)),),
     )
     drawing = SimpleNamespace(
         iter_annotations=lambda: iter((("pitch", fixed),)),
-        view_of=lambda _name: "plan",
+        view_of=lambda _name: owner_view,
     )
     label_hit = SimpleNamespace(
         label_bbox=(20.0, 16.0, 30.0, 20.0),
@@ -138,15 +141,13 @@ def test_immediate_callout_gate_distinguishes_text_from_shaft_crossing():
         label_bbox=(40.0, 30.0, 50.0, 34.0),
         segments=(((25.0, 10.0), (25.0, 25.0)),),
     )
-    assert not _common.annotation_text_ink_clear(drawing, label_hit, view="plan")
-    assert _common.annotation_text_ink_clear(drawing, shaft_only, view="plan")
+    assert not _common.annotation_text_ink_clear(drawing, label_hit)
+    assert _common.annotation_text_ink_clear(drawing, shaft_only)
 
 
 def test_dense_hole_callout_reports_text_collision_instead_of_placing(monkeypatch):
     monkeypatch.setattr(holes, "_TABULATE_MIN_HOLES", 1)
-    monkeypatch.setattr(
-        holes, "annotation_text_ink_clear", lambda _drawing, _leader, *, view: False
-    )
+    monkeypatch.setattr(holes, "annotation_text_ink_clear", lambda _drawing, _leader: False)
     drawing = build_drawing(Box(60, 40, 10) - Cylinder(4, 10))
     assert any(
         issue.code == "callout_dropped" and "settled annotation ink" in issue.message
