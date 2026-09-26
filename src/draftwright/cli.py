@@ -89,10 +89,11 @@ class ScalePolicy(str, Enum):
 
 
 class AnnotationLayout(str, Enum):
-    """Finished-drawing annotation layout selection."""
+    """Annotation layout selection."""
 
     baseline = "baseline"
     best = "best"
+    candidate_preview = "candidate-preview"
 
 
 def _parse_formats(value: str) -> list[str]:
@@ -469,6 +470,13 @@ def main(
             if annotation_layout is AnnotationLayout.best:
                 chosen = dwg.annotation_scheme_decision.get("selected_trial") or "baseline"
                 typer.echo(f"Selected annotation layout: {chosen}", err=True)
+            elif annotation_layout is AnnotationLayout.candidate_preview:
+                choice = dwg.annotation_scheme_decision.get("pre_render_choice", {})
+                profile = choice.get("profile") if isinstance(choice, dict) else None
+                typer.echo(
+                    f"Preview annotation layout: {profile or 'baseline'} (not safety-admitted)",
+                    err=True,
+                )
             visual_paths = _emit(dwg, formats)
             for path in visual_paths:
                 print(path)
