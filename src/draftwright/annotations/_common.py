@@ -2453,6 +2453,13 @@ class CorridorCandidate:
     # Bounded curved-ink alternatives, checked against actual ink after the
     # conservative strip solve. They preserve the approved content and sector.
     compact_candidates: object | None = None
+    # Whole-ink alternatives for a required candidate that still conflicts after the
+    # shared batch's dimension-label repair and ordinary compaction. The same strip
+    # placement stage checks these against settled and same-batch ink; an infeasible
+    # item returns to its normal on_drop/fallthrough path rather than printing a
+    # known collision. GD&T uses this seam; other annotation families can join it.
+    ink_repair_candidates: object | None = None
+    require_clear_ink: bool = False
     # Optional whole-annotation fallback inside the owning view.  The normal
     # corridor solve remains first and unchanged; only a genuine strip failure
     # contributes this candidate to the shared interior-dimension solve.
@@ -2749,6 +2756,11 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical (#602)
     valid_positions = {c.name: c.valid_position for c in kept if c.valid_position is not None}
     compactions = {c.name: c.compact_candidates for c in kept if c.compact_candidates is not None}
+    ink_repairs = {
+        c.name: c.ink_repair_candidates for c in kept if c.ink_repair_candidates is not None
+    }
+    ink_required = {c.name for c in kept if c.require_clear_ink}
+    ink_displaced: set[str] = set()
     left = {
         n
         for n, _ in place_strip_candidates(
@@ -2771,11 +2783,18 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             footprints=foots,
             valid_positions=valid_positions,
             compact_candidates=compactions,
+            ink_repair_candidates=ink_repairs,
+            require_clear_ink=ink_required,
+            ink_displaced=ink_displaced,
             corner_reserves=corner_reserves,
             trace=trace,
         )
     }
-    force_pairs = [(c.name, c.build) for c in kept if c.name in left and c.force]
+    force_pairs = [
+        (c.name, c.build)
+        for c in kept
+        if c.name in left and c.force and c.name not in ink_displaced
+    ]
     still = (
         {
             n
@@ -2791,6 +2810,8 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 footprints=foots,
                 valid_positions=valid_positions,
                 compact_candidates=compactions,
+                ink_repair_candidates=ink_repairs,
+                require_clear_ink=ink_required,
                 corner_reserves=corner_reserves,
                 features=feats,
                 measurements=meas,
@@ -2807,7 +2828,9 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         else set()
     )
     for c in kept:
-        placed = c.name not in left or (c.force and c.name not in still)
+        placed = c.name not in left or (
+            c.force and c.name not in still and c.name not in ink_displaced
+        )
         if placed:
             c.on_place(c.name)  # placed in the corridor-respecting pass or the force pass
             if trace is not None:
@@ -3335,6 +3358,9 @@ def place_strip_candidates(
     footprints=None,
     valid_positions=None,
     compact_candidates=None,
+    ink_repair_candidates=None,
+    require_clear_ink=(),
+    ink_displaced=None,
     corner_reserves=(),
     trace=None,
     trace_label=None,
@@ -3372,6 +3398,12 @@ def place_strip_candidates(
     mode in :func:`plan_strip`. This preserves the old segment-edge natural for every
     caller that does not pass them, while letting authored pinned candidates express the
     page coordinate they asked for inside the same shared solve.
+
+    *require_clear_ink* names candidates whose entire ink must clear both settled and
+    same-batch annotations before commit. *ink_repair_candidates* supplies bounded
+    feature-relative alternatives for those names; a still-conflicting candidate is
+    returned to its normal drop/fallthrough path. *ink_displaced* records lower-priority
+    siblings yielded to required ink so a force retry cannot restore the conflict.
 
     ``force=True`` skips that corridor check — the caller's last resort when no view took
     the dim cleanly: keep it on its natural view and accept the (same-feature) leader
@@ -3847,6 +3879,88 @@ def place_strip_candidates(
                 )
                 tp.setdefault(trace_field, []).append(name)
             break
+    # A force-kept GD&T frame must not bypass the exact-ink decision merely because
+    # its strip tier fitted. First let the dimension batch repair its own labels;
+    # then test the *whole* frame and leader against committed ink and its siblings.
+    # Try bounded alternatives through the same candidate build/validation seam.
+    # A remaining conflict returns to on_drop, which can relocate the declaration
+    # or report its named unmet obligation. No raw position escapes to the API.
+    builds_by_name = dict(cands) if require_clear_ink else {}
+    for name in sorted(
+        require_clear_ink,
+        key=lambda item: (-(priorities or {}).get(item, 0.0), item),
+    ):
+        index = next((i for i, (key, _item) in enumerate(solved) if key == name), None)
+        if index is None:
+            continue
+        original = solved[index][1]
+        others = [item for key, item in solved if key != name]
+        if annotation_ink_clear(dwg, original, additional=others):
+            continue
+        replacement = None
+        if not (anchored or {}).get(name, False):
+            alternatives = (ink_repair_candidates or {}).get(name)
+            if alternatives is not None:
+                for candidate in alternatives(original):
+                    box = _geom_box(candidate)
+                    page = _drawing_bounds(dwg)
+                    if (
+                        box is None
+                        or box[0] < page[0]
+                        or box[1] < page[1]
+                        or box[2] > page[2]
+                        or box[3] > page[3]
+                        or _real_box_conflict(name, box)
+                        or not annotation_ink_clear(dwg, candidate, additional=others)
+                    ):
+                        continue
+                    replacement = candidate
+                    break
+        if replacement is None:
+            # An authored frame outranks ordinary automatic ink, but not a pin or
+            # mandatory dimension. If its original position clears settled ink,
+            # yield only lower-priority same-batch conflicts before yielding the
+            # frame itself. The displaced candidates retain their normal on_drop
+            # handlers and may recover elsewhere; a force pass must not undo this
+            # exact-ink decision by putting them back on top of the frame.
+            conflicts = (
+                [
+                    key
+                    for key, item in solved
+                    if key != name and not annotation_ink_clear(dwg, original, additional=(item,))
+                ]
+                if annotation_ink_clear(dwg, original)
+                else []
+            )
+            if conflicts and all(
+                (priorities or {}).get(key, 0.0) < (priorities or {}).get(name, 0.0)
+                and not (anchored or {}).get(key, False)
+                for key in conflicts
+            ):
+                displaced = set(conflicts)
+                remaining = [item for key, item in solved if key != name and key not in displaced]
+                if annotation_ink_clear(dwg, original, additional=remaining):
+                    solved = [(key, item) for key, item in solved if key not in displaced]
+                    todo.extend(
+                        (key, builds_by_name[key]) for key, _build in cands if key in displaced
+                    )
+                    if ink_displaced is not None:
+                        ink_displaced.update(displaced)
+                    if tp is not None:
+                        tp["placed"] = [
+                            item for item in tp["placed"] if item["name"] not in displaced
+                        ]
+                        tp.setdefault("ink_displaced", []).extend(sorted(displaced))
+                    continue
+            solved.pop(index)
+            todo.append((name, builds_by_name[name]))
+            if tp is not None:
+                tp["placed"] = [item for item in tp["placed"] if item["name"] != name]
+                tp.setdefault("ink_rejected", []).append(name)
+        else:
+            solved[index] = (name, replacement)
+            if tp is not None:
+                tp.setdefault("ink_repaired", []).append(name)
     for name, dim in solved:
         # Record feature provenance (ADR 5 (was 0010)): the drain-time seam for corridor-placed
         # dims — `features` maps this batch's names to their source IR feature.

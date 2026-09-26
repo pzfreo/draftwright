@@ -92,6 +92,7 @@ from draftwright.annotations._common import (
     _with_hole_center_coverage,
     _with_hole_location_coverage,
     analytical_leader_lands_clear,
+    annotation_ink_clear,
     carve_free_position,
     dim_footprint,
     dimension_candidate_geometry,
@@ -9880,6 +9881,29 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     return
                 yield _build(pos)
 
+        def _ink_repair_candidates(
+            original,
+            _build=_build,
+            _strip=strip,
+            _size=size,
+            _horizontal=horizontal,
+        ):
+            """Bounded outward tiers for a frame whose complete ink still conflicts.
+
+            Inward exact-ink contraction has already run. This is the same
+            corridor's remaining feature-relative space, not a raw page position.
+            The shared placer checks each rebuilt frame and shaft against dimensions,
+            leaders, other frames, page bounds, and fixed furniture before commit.
+            """
+            original_pos = original.elbow[1 if _horizontal else 0]
+            extent = _size[1 if _horizontal else 0]
+            outward_extent = extent / 2.0 if _horizontal else extent
+            outer = _strip.outer_limit - _strip.direction * outward_extent
+            available = (outer - original_pos) * _strip.direction
+            step = max(tier + _strip.spacing, 1.0)
+            for index in range(1, min(9, int(available // step) + 1)):
+                yield _build(original_pos + _strip.direction * index * step)
+
         def _drop(
             nm,
             _v=item.view,
@@ -9949,7 +9973,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     if pos is None:
                         continue
                     dim = _bld(pos, _hz=hz)
-                    if _box_hits(_anno_box(dim), (_tb,)):  # would overlap the title block — skip
+                    if _box_hits(_anno_box(dim), (_tb,)) or not annotation_ink_clear(
+                        dwg, dim
+                    ):  # no real-ink/title-block collision on a relaxed side
                         continue
                     ctx.place(
                         dim,
@@ -9992,7 +10018,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 ctx.record_issue(
                     "warning",
                     "pmi_dropped" if _source else "gdt_dropped",
-                    f"{nm} not placed (no room in any {_v} strip)",
+                    f"{nm} not placed (no legible room in any {_v} strip or sheet fallback)",
                     source=_source,
                     outcome_stage="placement",
                 )
@@ -10025,6 +10051,8 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 declaration=item,
                 size=size,
                 compact_candidates=_compact_candidates,
+                ink_repair_candidates=_ink_repair_candidates,
+                require_clear_ink=True,
                 # Even a force-kept frame must not stack into the title block (#481 review) —
                 # place_strip_candidates rejects a placement hitting this box, then on_drop's
                 # fallthrough tries the other side.
