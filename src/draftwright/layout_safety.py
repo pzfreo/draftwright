@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 
 from draftwright.model.planner import _authored_addresses, authored_dimension_requests
@@ -32,6 +33,7 @@ _LAYOUT_BLOCKERS = frozenset(
 _UNRESOLVED_STATES = frozenset({"dropped", "missing", "unverifiable", "unsupported"})
 _DECLARED_ASPECT_KINDS = frozenset({"control_frame", "datum_ref", "finish", "note"})
 _MIN_VIEW_AREA_MM2 = 100.0
+_PAGE_EDGE_TOLERANCE_MM = 1e-6
 
 
 def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
@@ -203,17 +205,30 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         check("audited_coverage", not unresolved_counts, unresolved_counts)
 
     view_sizes = {}
+    outside_page = {}
     for name in drawing.views:
-        bounds = drawing.view_bounds(name)
-        area = max(0.0, bounds[2] - bounds[0]) * max(0.0, bounds[3] - bounds[1])
+        bounds = tuple(float(value) for value in drawing.view_bounds(name))
+        finite = all(math.isfinite(value) for value in bounds)
+        if not finite or (
+            bounds[0] < -_PAGE_EDGE_TOLERANCE_MM
+            or bounds[1] < -_PAGE_EDGE_TOLERANCE_MM
+            or bounds[2] > drawing.page_w + _PAGE_EDGE_TOLERANCE_MM
+            or bounds[3] > drawing.page_h + _PAGE_EDGE_TOLERANCE_MM
+        ):
+            outside_page[name] = [value if math.isfinite(value) else None for value in bounds]
+        area = max(0.0, bounds[2] - bounds[0]) * max(0.0, bounds[3] - bounds[1]) if finite else 0.0
         view_sizes[name] = round(area, 3)
     too_small = {name: area for name, area in view_sizes.items() if area < _MIN_VIEW_AREA_MM2}
     check("views_present", bool(view_sizes), sorted(view_sizes))
     check("minimum_view_area", not too_small, too_small)
+    # The report's lint is still required, but a missing or misclassified lint
+    # issue must not make a wholly off-sheet view look safe. Check settled view
+    # geometry directly against the caller's resolved page, without changing it.
+    check("view_page_containment", not outside_page, outside_page)
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 2,
+        "version": 3,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [

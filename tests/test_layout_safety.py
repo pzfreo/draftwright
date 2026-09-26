@@ -2,6 +2,7 @@
 
 from types import SimpleNamespace
 
+import pytest
 from build123d import Box, Cylinder
 
 from draftwright import Sheet
@@ -113,6 +114,37 @@ def test_unavailable_report_and_tiny_view_fail_closed():
 
     assert "report_available" in verdict["failed_checks"]
     assert "minimum_view_area" in verdict["failed_checks"]
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        (0.0, 205.0, 20.0, 225.0),
+        (-5.0, 0.0, 20.0, 20.0),
+        (280.0, 0.0, 310.0, 20.0),
+        (float("nan"), 0.0, 20.0, 20.0),
+    ],
+)
+def test_off_page_view_fails_independently_of_clean_lint(bounds):
+    drawing = DrawingStub(_raw_report(total=1, requirements=({"state": "placed"},)), bounds=bounds)
+
+    verdict = candidate_safety_evidence(drawing)
+
+    assert "lint_blockers" not in verdict["failed_checks"]
+    assert "view_page_containment" in verdict["failed_checks"]
+    detail = next(
+        check["detail"] for check in verdict["checks"] if check["name"] == "view_page_containment"
+    )
+    assert "front" in detail
+
+
+def test_view_page_containment_tolerates_submicron_rounding_at_edge():
+    drawing = DrawingStub(
+        _raw_report(total=1, requirements=({"state": "placed"},)),
+        bounds=(0.0, 0.0, 297.0000005, 20.0),
+    )
+
+    assert "view_page_containment" not in candidate_safety_evidence(drawing)["failed_checks"]
 
 
 def test_declared_inventory_mismatch_is_recorded():
