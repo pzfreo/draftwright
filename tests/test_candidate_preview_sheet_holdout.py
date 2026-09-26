@@ -34,7 +34,7 @@ def test_candidate_preview_preserves_authored_sheet_obligations():
         for name, annotation in baseline_record["manifest"]["annotations"].items()
     )
     assert candidate.report()["schema_version"] == 8
-    assert candidate.annotation_scheme_decision["policy"] == "candidate-preview"
+    assert candidate.annotation_scheme_decision["policy"] == "demand-guided"
     assert candidate.annotation_scheme_decision["safety_evidence"]["admission_ready"] is False
     assert comparison["parity"]["passed"], comparison["parity"]
 
@@ -64,5 +64,5 @@ def test_generated_sheet_script_replays_candidate_preview_semantics(tmp_path):
 
     assert baseline.model().features
     assert baseline_record["manifest"]["annotations"]
-    assert candidate.annotation_scheme_decision["policy"] == "candidate-preview"
+    assert candidate.annotation_scheme_decision["policy"] == "demand-guided"
     assert comparison["parity"]["passed"], comparison["parity"]

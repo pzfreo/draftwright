@@ -443,7 +443,7 @@ def select_best_annotation_layout(
         **selected.annotation_scheme_decision,
         "status": "candidate" if selected_trial else "retained_baseline",
         "influenced_layout": selected_trial is not None,
-        "policy": "best",
+        "policy": "compare",
         "selected_trial": selected_trial,
         "baseline_quality_key": baseline_key,
         "selected_quality_key": selected_key,

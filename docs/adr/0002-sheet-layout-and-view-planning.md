@@ -100,9 +100,9 @@ dependency runs one way: requirements determine views.
     proven projected whitespace, and an infeasible retry reports the original drop unchanged.
     `test_feature_leader_candidate_regions.py`, `test_interior_label_placement.py`.
 18. **An alternative annotation layout earns selection on a finished drawing.** The opt-in
-    `annotation_layout="best"` policy holds the settled page and scale fixed, checks
-    rendered annotation meaning and required coverage against baseline, rejects new
-    requirement blockers or interior dimensions, and accepts only a strict measured
+    `annotation_layout="compare"` policy (formerly `"best"`) holds the settled page and
+    scale fixed, checks rendered meaning and required coverage against estimated-strips,
+    rejects new requirement blockers or interior dimensions, and accepts only a strict measured
     improvement. An ineligible or failed candidate cannot replace the established drawing.
     `test_annotation_layout_product.py`, `test_annotation_scheme_compare_script.py`.
 

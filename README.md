@@ -251,20 +251,27 @@ build_drawing(part, scale=1.0, page="A4", scale_policy="strict")
 build_drawing(part, scale=1.0, page="A4", scale_policy="permissive")
 ```
 
-### Compare annotation layouts
+### Choose an annotation planning algorithm
 
 ```python
-dwg = build_drawing(part, annotation_layout="best")
+dwg = build_drawing(part, annotation_layout="estimated-strips")  # original planning
+dwg = build_drawing(part, annotation_layout="demand-guided")    # one-build alternative
+dwg = build_drawing(part, annotation_layout="compare")          # multi-build comparison
 print(dwg.annotation_scheme_decision)  # selected trial and finished-drawing evidence
 ```
 
-`"best"` builds the established layout first, then tries a bounded alternative on
+Both planning algorithms use the same annotation placement solver. `estimated-strips`
+reserves annotation corridors from feature-based estimates; `demand-guided` uses typed
+annotation demand to choose a planning profile before rendering. The current default
+is `estimated-strips`.
+
+`compare` builds the estimated-strips layout first, then tries a bounded alternative on
 the **same sheet and scale**. It selects an alternative only when rendered annotation
 meaning and required coverage are preserved, no new required blocker appears, and
 the finished drawing has fewer layout defects or a substantially larger isometric
-view on an otherwise clean sheet. The established layout remains available with
-`annotation_layout="baseline"` (the current default). `Sheet`, `make_drawing()`,
-generated scripts, and the CLI (`--annotation-layout best`) accept the same policy.
+view on an otherwise clean sheet. `Sheet`, `make_drawing()`, generated scripts, and the
+CLI (for example `--annotation-layout demand-guided`) accept the same names. The
+former spellings `baseline`, `candidate-preview`, and `best` remain accepted aliases.
 
 The comparison costs at least two drawing builds and may try up to three candidate
 variants for a crowded part. Export runs only for the selected drawing.

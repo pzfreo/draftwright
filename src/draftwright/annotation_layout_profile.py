@@ -20,15 +20,20 @@ if TYPE_CHECKING:
 Route = tuple[str, str]
 
 
-def annotation_layout_policy(value: str) -> Literal["baseline", "best", "candidate-preview"]:
-    if value == "baseline":
-        return "baseline"
-    if value == "best":
-        return "best"
-    if value == "candidate-preview":
-        return "candidate-preview"
+def annotation_layout_policy(
+    value: str,
+) -> Literal["estimated-strips", "demand-guided", "compare"]:
+    """Normalize public layout names, retaining the original spellings as aliases."""
+
+    if value in {"estimated-strips", "baseline"}:
+        return "estimated-strips"
+    if value in {"demand-guided", "candidate-preview"}:
+        return "demand-guided"
+    if value in {"compare", "best"}:
+        return "compare"
     raise ValueError(
-        f"annotation_layout must be 'baseline', 'best', or 'candidate-preview', got {value!r}"
+        "annotation_layout must be 'estimated-strips', 'demand-guided', or 'compare' "
+        f"(legacy aliases: 'baseline', 'candidate-preview', 'best'), got {value!r}"
     )
 
 

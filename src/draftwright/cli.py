@@ -89,8 +89,12 @@ class ScalePolicy(str, Enum):
 
 
 class AnnotationLayout(str, Enum):
-    """Annotation layout selection."""
+    """Planning algorithm or explicit multi-build comparison."""
 
+    estimated_strips = "estimated-strips"
+    demand_guided = "demand-guided"
+    compare = "compare"
+    # Accepted for existing scripts and command lines.
     baseline = "baseline"
     best = "best"
     candidate_preview = "candidate-preview"
@@ -243,9 +247,12 @@ def main(
         ),
     ),
     annotation_layout: AnnotationLayout = typer.Option(
-        AnnotationLayout.baseline,
+        AnnotationLayout.estimated_strips,
         "--annotation-layout",
-        help="Annotation layout: baseline or compare and select the best verified result",
+        help=(
+            "Planning algorithm: estimated-strips or demand-guided; compare builds "
+            "alternatives and selects one. Old names remain accepted."
+        ),
     ),
     zones: bool = typer.Option(
         False, "--zones", help="Draw the ISO 5457 zone-grid border ruler (implies --frame)"
@@ -467,14 +474,17 @@ def main(
                 annotation_layout=annotation_layout.value,
                 zones=zones,
             )
-            if annotation_layout is AnnotationLayout.best:
-                chosen = dwg.annotation_scheme_decision.get("selected_trial") or "baseline"
+            if annotation_layout in {AnnotationLayout.compare, AnnotationLayout.best}:
+                chosen = dwg.annotation_scheme_decision.get("selected_trial") or "estimated-strips"
                 typer.echo(f"Selected annotation layout: {chosen}", err=True)
-            elif annotation_layout is AnnotationLayout.candidate_preview:
+            elif annotation_layout in {
+                AnnotationLayout.demand_guided,
+                AnnotationLayout.candidate_preview,
+            }:
                 choice = dwg.annotation_scheme_decision.get("pre_render_choice", {})
                 profile = choice.get("profile") if isinstance(choice, dict) else None
                 typer.echo(
-                    f"Preview annotation layout: {profile or 'baseline'} (not safety-admitted)",
+                    f"Demand-guided annotation layout: {profile or 'estimated-strips'}",
                     err=True,
                 )
             visual_paths = _emit(dwg, formats)

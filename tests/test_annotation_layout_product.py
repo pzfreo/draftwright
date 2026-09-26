@@ -9,7 +9,7 @@ from build123d import Box, export_step
 from typer.testing import CliRunner
 
 from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
-from draftwright.annotation_layout_profile import candidate_profile
+from draftwright.annotation_layout_profile import annotation_layout_policy, candidate_profile
 from draftwright.cli import app
 from draftwright.layout_selection import select_best_annotation_layout
 from draftwright.linting import LintIssue
@@ -19,6 +19,21 @@ from draftwright.sheet_emit import generate_sheet_script
 def test_candidate_profile_rejects_unknown_names():
     with pytest.raises(ValueError, match="unknown annotation layout profile"):
         candidate_profile("unknown", 1.0)
+
+
+@pytest.mark.parametrize(
+    ("name", "canonical"),
+    [
+        ("estimated-strips", "estimated-strips"),
+        ("baseline", "estimated-strips"),
+        ("demand-guided", "demand-guided"),
+        ("candidate-preview", "demand-guided"),
+        ("compare", "compare"),
+        ("best", "compare"),
+    ],
+)
+def test_layout_names_and_compatibility_aliases(name, canonical):
+    assert annotation_layout_policy(name) == canonical
 
 
 @pytest.mark.parametrize("entry", [build_drawing, Sheet, generate_sheet_script])
@@ -33,7 +48,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     selected = build_drawing(part, page="A4", scale=2, annotation_layout="best")
 
     decision = selected.annotation_scheme_decision
-    assert decision["policy"] == "best"
+    assert decision["policy"] == "compare"
     assert decision["pre_render_choice"]["version"] == 4
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
@@ -66,19 +81,17 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
         return original(*args, **kwargs)
 
     monkeypatch.setattr(builder, "_assemble", observe)
-    drawing = build_drawing(
-        Box(20, 10, 5), page="A4", scale=2, annotation_layout="candidate-preview"
-    )
+    drawing = build_drawing(Box(20, 10, 5), page="A4", scale=2, annotation_layout="demand-guided")
 
     decision = drawing.annotation_scheme_decision
     assert len(assembled) == 1
-    assert decision["policy"] == "candidate-preview"
-    assert decision["status"] == "candidate_preview"
+    assert decision["policy"] == "demand-guided"
+    assert decision["status"] == "demand_guided"
     assert decision["admission_ready"] is False
     assert decision["safety_evidence"]["version"] == 12
     assert decision["safety_evidence"]["admission_ready"] is False
     assert "recognized_occurrences" not in decision["safety_evidence"]["failed_checks"]
-    assert decision["fallback_decision"] == "not_evaluated_preview"
+    assert decision["fallback_decision"] == "not_evaluated"
     assert decision["pre_render_choice"]["profile"] == "iso-growth"
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
 
@@ -93,7 +106,7 @@ def test_candidate_preview_without_automatic_annotations_does_not_apply_profile(
     )
 
     decision = drawing.annotation_scheme_decision
-    assert decision["status"] == "no_candidate_profile"
+    assert decision["status"] == "no_demand_profile"
     assert decision["influenced_layout"] is False
     assert decision["pre_render_choice"]["profile"] is None
 
@@ -143,7 +156,7 @@ def test_candidate_preview_records_a_settled_safety_failure():
     evidence = drawing.annotation_scheme_decision["safety_evidence"]
     assert evidence["checks_passed"] is False
     assert "lint_blockers" in evidence["failed_checks"]
-    assert drawing.annotation_scheme_decision["fallback_decision"] == "not_evaluated_preview"
+    assert drawing.annotation_scheme_decision["fallback_decision"] == "not_evaluated"
 
 
 def test_candidate_preview_evaluates_safety_on_the_explicit_scale_fallback(monkeypatch):
@@ -402,8 +415,8 @@ def test_trial_order_prioritizes_hard_defects_or_required_content(
 
 
 def test_sheet_and_generated_script_forward_layout_policy(tmp_path):
-    sheet = Sheet(Box(20, 10, 5), annotation_layout="best")
-    assert sheet._opts["annotation_layout"] == "best"
+    sheet = Sheet(Box(20, 10, 5), annotation_layout="compare")
+    assert sheet._opts["annotation_layout"] == "compare"
 
     script = Path(
         generate_sheet_script(
@@ -411,28 +424,44 @@ def test_sheet_and_generated_script_forward_layout_policy(tmp_path):
             out=str(tmp_path / "box"),
             page="A4",
             scale=2,
-            annotation_layout="best",
+            annotation_layout="compare",
             formats=(),
             inspect=False,
         )
     ).read_text(encoding="utf-8")
-    assert "annotation_layout='best'" in script
+    assert "annotation_layout='compare'" in script
+
+
+@pytest.mark.parametrize(
+    ("name", "canonical"),
+    [
+        ("estimated-strips", "estimated-strips"),
+        ("baseline", "estimated-strips"),
+        ("demand-guided", "demand-guided"),
+        ("candidate-preview", "demand-guided"),
+        ("compare", "compare"),
+        ("best", "compare"),
+    ],
+)
+def test_sheet_normalizes_layout_names(name, canonical):
+    sheet = Sheet(Box(20, 10, 5), annotation_layout=name)
+    assert sheet._opts["annotation_layout"] == canonical
 
 
 def test_generated_step_script_replays_the_layout_selection(tmp_path):
     source = tmp_path / "box.step"
     export_step(Box(20, 10, 5), source)
-    direct = build_drawing(str(source), annotation_layout="best")
+    direct = build_drawing(str(source), annotation_layout="compare")
     script = generate_sheet_script(
         str(source),
         out=str(tmp_path / "box"),
-        annotation_layout="best",
+        annotation_layout="compare",
         formats=(),
         inspect=False,
     )
 
     drawing = run_path(script)["drawing"]
-    assert drawing.annotation_scheme_decision["policy"] == "best"
+    assert drawing.annotation_scheme_decision["policy"] == "compare"
     assert drawing.annotation_scheme_decision["status"] == "candidate"
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (
         direct.page_w,
@@ -441,7 +470,11 @@ def test_generated_step_script_replays_the_layout_selection(tmp_path):
     )
 
 
-def test_cli_forwards_layout_policy_to_a_rendered_build(monkeypatch):
+@pytest.mark.parametrize(
+    "name",
+    ["estimated-strips", "demand-guided", "compare", "baseline", "candidate-preview", "best"],
+)
+def test_cli_forwards_layout_policy_to_a_rendered_build(monkeypatch, name):
     import draftwright.builder as builder
 
     forwarded = []
@@ -460,9 +493,33 @@ def test_cli_forwards_layout_policy_to_a_rendered_build(monkeypatch):
     monkeypatch.setattr(builder, "build_drawing", capture)
     result = CliRunner().invoke(
         app,
-        ["part.step", "--annotation-layout", "best", "--format", "svg", "--no-report"],
+        ["part.step", "--annotation-layout", name, "--format", "svg", "--no-report"],
     )
 
     assert result.exit_code == 0, result.output
-    assert forwarded[0]["annotation_layout"] == "best"
-    assert "Selected annotation layout: columns" in result.output
+    assert forwarded[0]["annotation_layout"] == name
+    if name in {"compare", "best"}:
+        assert "Selected annotation layout: columns" in result.output
+
+
+def test_cli_defaults_to_original_planning_algorithm(monkeypatch):
+    import draftwright.builder as builder
+
+    forwarded = []
+
+    class Drawing:
+        out = "out"
+        annotation_scheme_decision = {}
+
+        def export(self, *, formats):
+            return {name: f"out.{name}" for name in formats}
+
+    def capture(*_args, **kwargs):
+        forwarded.append(kwargs)
+        return Drawing()
+
+    monkeypatch.setattr(builder, "build_drawing", capture)
+    result = CliRunner().invoke(app, ["part.step", "--format", "svg", "--no-report"])
+
+    assert result.exit_code == 0, result.output
+    assert forwarded[0]["annotation_layout"] == "estimated-strips"
