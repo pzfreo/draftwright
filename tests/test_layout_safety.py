@@ -1,5 +1,6 @@
 """Independent candidate safety checks retain failures without a baseline."""
 
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -103,6 +104,7 @@ def test_clean_candidate_needs_no_baseline_for_safety_evidence():
     assert verdict["admission_ready"] is False
     assert verdict["failed_checks"] == []
     assert verdict["page"] == [297.0, 210.0]
+    assert verdict["view_extents_mm"] == {"front": {"width": 20.0, "height": 20.0}}
 
 
 def test_missing_requirement_and_overlap_are_independent_failures():
@@ -318,6 +320,8 @@ def test_off_page_view_fails_independently_of_clean_lint(bounds):
         check["detail"] for check in verdict["checks"] if check["name"] == "view_page_containment"
     )
     assert "front" in detail
+    if not all(math.isfinite(value) for value in bounds):
+        assert verdict["view_extents_mm"]["front"] == {"width": None, "height": None}
 
 
 def test_view_page_containment_tolerates_submicron_rounding_at_edge():
@@ -335,13 +339,14 @@ def test_unavailable_view_bounds_fail_closed(bounds):
 
     verdict = candidate_safety_evidence(drawing)
 
-    assert verdict["version"] == 9
+    assert verdict["version"] == 10
     assert "view_page_containment" in verdict["failed_checks"]
     assert "minimum_view_area" in verdict["failed_checks"]
     detail = next(
         check["detail"] for check in verdict["checks"] if check["name"] == "view_page_containment"
     )
     assert detail["front"] == {"reason": "view_bounds_unavailable"}
+    assert verdict["view_extents_mm"]["front"] == {"width": None, "height": None}
 
 
 class InkStub:
