@@ -329,6 +329,21 @@ def test_view_page_containment_tolerates_submicron_rounding_at_edge():
     assert "view_page_containment" not in candidate_safety_evidence(drawing)["failed_checks"]
 
 
+@pytest.mark.parametrize("bounds", [None, (), (0.0, 0.0, 20.0), (0.0, 0.0, "bad", 20.0)])
+def test_unavailable_view_bounds_fail_closed(bounds):
+    drawing = DrawingStub(_raw_report(total=1, requirements=({"state": "placed"},)), bounds=bounds)
+
+    verdict = candidate_safety_evidence(drawing)
+
+    assert verdict["version"] == 9
+    assert "view_page_containment" in verdict["failed_checks"]
+    assert "minimum_view_area" in verdict["failed_checks"]
+    detail = next(
+        check["detail"] for check in verdict["checks"] if check["name"] == "view_page_containment"
+    )
+    assert detail["front"] == {"reason": "view_bounds_unavailable"}
+
+
 class InkStub:
     def __init__(self, bounds=None):
         self.bounds = bounds

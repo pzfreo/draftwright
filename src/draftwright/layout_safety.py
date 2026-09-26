@@ -388,9 +388,16 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         check("audited_coverage", not unresolved_counts, unresolved_counts)
 
     view_sizes = {}
-    outside_page = {}
+    outside_page: dict[str, object] = {}
     for name in drawing.views:
-        bounds = tuple(float(value) for value in drawing.view_bounds(name))
+        try:
+            bounds = tuple(float(value) for value in drawing.view_bounds(name))
+        except (TypeError, ValueError, OverflowError):
+            bounds = ()
+        if len(bounds) != 4:
+            outside_page[name] = {"reason": "view_bounds_unavailable"}
+            view_sizes[name] = 0.0
+            continue
         finite = all(math.isfinite(value) for value in bounds)
         if not finite or (
             bounds[0] < -_PAGE_EDGE_TOLERANCE_MM
@@ -413,7 +420,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 8,
+        "version": 9,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
