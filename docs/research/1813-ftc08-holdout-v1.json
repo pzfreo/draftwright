@@ -1,0 +1,37 @@
+{
+  "format": "draftwright-candidate-first-holdout-extract",
+  "version": 1,
+  "source_commit": "c5d87adf78c6b39b53d1654ff5bf1b98370d0152",
+  "full_report_sha256": "878da76d30143a3729c09e0aa94fff53e4355c6540aae10960a1e06f395a1dbd",
+  "source_archive_sha256": "8fa78429e6d8d9b0d7681d223b6aa9ec98c3772185c55b1a0e3679b21c181911",
+  "source_member": "NIST-PMI-STEP-Files/nist_ftc_08_asme1_ap242-e2.stp",
+  "source_member_sha256": "7b9283b4288d152fd181d76c39285d7c79fbba34fda1e14a41ac4a983f6d68b3",
+  "manifest_sha256": "772298bef0d1696a35f87a429bef870b0ee5c5471f44150ee3d6630763bf7e21",
+  "case_id": "ftc08-ap242-a2-1to1",
+  "caller": {"page": "A2", "scale": 1.0, "title": "NIST FTC-08 AP242", "number": "NIST-FTC-08-AP242", "arrangement": "staggered-side", "exterior_dimensions": true, "formats": "svg"},
+  "worker_timeout_seconds": 600,
+  "comparison_exit_code": 0,
+  "pre_render_profile": "columns",
+  "verdict": "tie",
+  "semantic_parity": true,
+  "same_sheet": true,
+  "missing_annotations": 0,
+  "introduced_required_blockers": 0,
+  "new_interior_dimensions": 0,
+  "baseline_and_candidate_svg_sha256": "0ec606d2a8495448955c692e64ea290197df583e9ca01c1c0909e072a4416968",
+  "quality_key_both": [6, 20, 4, 6, 5, -1.0, 249480.0],
+  "coverage_both": {"requirements": 131, "placed": 100, "missing": 0, "dropped": 24, "unsupported": 2, "unverifiable": 5},
+  "side_view_bounds_mm_both": [436.94718096874993, 30.000000000000004, 659.65438116875, 78.27877743362406],
+  "page_mm": [594.0, 420.0],
+  "candidate_safety": {
+    "checks_passed": false,
+    "admission_ready": false,
+    "failed_checks": ["required_outcomes", "recognized_occurrences", "lint_blockers", "audited_coverage", "view_page_containment", "annotation_page_containment"]
+  },
+  "cost": {
+    "baseline_process_seconds": 240.40891336393543,
+    "candidate_process_seconds": 211.89383240998723,
+    "baseline_peak_rss_mib": 657.47265625,
+    "candidate_peak_rss_mib": 655.15625
+  }
+}
