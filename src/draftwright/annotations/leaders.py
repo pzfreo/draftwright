@@ -382,6 +382,7 @@ class FeatureLeaderJob:
     ) = None
     interior_label_clear: Callable[[tuple[float, float, float, float]], bool] | None = None
     allow_policy_b_fixed: bool = False
+    require_clear_label_ink: bool = False
     priority: float = 0.0
     on_place: Callable[[Any], None] | None = None
     on_drop: Callable[[str], None] | None = None
@@ -964,6 +965,18 @@ def _candidate_hits_component(
     )
 
 
+def _candidate_text_hits_component(candidate, component) -> bool:
+    """Text damage is never an acceptable Policy-B shaft crossing."""
+    if component.name.endswith(":label") and component.box is not None:
+        return _ink_hits_box(candidate, component.box)
+    label = candidate.label_box
+    if label is None:
+        return False
+    if component.box is not None:
+        return _boxes_overlap(label, component.box)
+    return any(_convex_polygon_overlaps_box(polygon, label) for polygon in component.polygons)
+
+
 def _assign_by_view(
     job_views,
     costs_by_job,
@@ -1173,12 +1186,19 @@ def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
             blockers.append("page")
         if view_blocker := _view_region_blocker(candidate, job):
             blockers.append(view_blocker)
-    fixed_blockers = tuple(
-        component.name
+    fixed_hits = tuple(
+        component
         for component in fixed_components
         if _candidate_hits_component(candidate, component)
     )
+    fixed_blockers = tuple(component.name for component in fixed_hits)
     blockers.extend(fixed_blockers)
+    if job.require_clear_label_ink:
+        blockers.extend(
+            f"label_ink:{component.name}"
+            for component in fixed_hits
+            if _candidate_text_hits_component(candidate, component)
+        )
     if fixed_blockers and candidate.region is LeaderCandidateRegion.INTERIOR:
         blockers.append(f"view:{job.view}:interior_annotation_ink")
     return tuple(dict.fromkeys(blockers))
@@ -1191,7 +1211,7 @@ def _hard_fixed_blockers(blockers) -> tuple[str, ...]:
         blocker
         for blocker in blockers
         if blocker in {"page", "unmeasurable_label", "geometry_validation"}
-        or blocker.startswith(("view:", "title_block"))
+        or blocker.startswith(("view:", "title_block", "label_ink:"))
     )
 
 

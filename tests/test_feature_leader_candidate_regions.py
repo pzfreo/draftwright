@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +17,7 @@ from draftwright.annotations.leaders import (
     RadialLeaderTarget,
     _fixed_blockers,
     _FixedInkComponent,
+    _hard_fixed_blockers,
     _measure,
     _MeasuredLeaderCandidate,
     _ray_exit_distance,
@@ -120,6 +122,31 @@ def test_interior_candidate_cannot_relax_fixed_annotation_ink():
     )
 
     assert blockers == ("dimension:segment", "view:plan:interior_annotation_ink")
+
+
+def test_hole_callout_text_crossing_is_hard_but_shaft_crossing_stays_policy_b():
+    job = replace(_job(clearance=lambda _box: True), require_clear_label_ink=True)
+    page = (-10.0, -10.0, 130.0, 70.0)
+    crossing_text = _FixedInkComponent("pitch:segment:0", box=(108.0, 18.0, 109.0, 26.0))
+    label = (105.0, 20.0, 115.0, 24.0)
+    candidate = _candidate(region=LeaderCandidateRegion.EXTERIOR, label=label)
+    blockers = _fixed_blockers(candidate, job, page, (crossing_text,))
+    assert blockers == ("pitch:segment:0", "label_ink:pitch:segment:0")
+    assert _hard_fixed_blockers(blockers) == ("label_ink:pitch:segment:0",)
+
+    shaft_only = replace(
+        candidate,
+        label_box=(105.0, 30.0, 115.0, 34.0),
+        ink_polygons=(((105.0, 20.0), (110.0, 20.0), (110.0, 21.0), (105.0, 21.0)),),
+    )
+    blockers = _fixed_blockers(shaft_only, job, page, (crossing_text,))
+    assert blockers == ("pitch:segment:0",)
+    assert _hard_fixed_blockers(blockers) == ()
+
+    fixed_text = _FixedInkComponent("pmi:label", box=(108.0, 19.0, 109.0, 22.0))
+    blockers = _fixed_blockers(shaft_only, job, page, (fixed_text,))
+    assert blockers == ("pmi:label", "label_ink:pmi:label")
+    assert _hard_fixed_blockers(blockers) == ("label_ink:pmi:label",)
 
 
 def test_exterior_candidate_retains_established_view_policy():
