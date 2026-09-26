@@ -105,6 +105,21 @@ drawings, the engine cannot prove a relative improvement or semantic parity to
 baseline on that individual call; paired offline and sampled shadow runs must
 continue to measure those regressions.
 
+### Offline cost evidence
+
+The candidate-first corpus worker records build, export, whole-worker, and isolated-process
+wall time for each case, plus peak resident memory and host OS, architecture, Python version,
+logical CPU/physical core counts, and physical RAM. The corpus summary reports sample counts, median, and
+nearest-rank p95 separately for candidate process/build time, baseline process time, and
+candidate peak memory. A failed candidate retains its process time in a separate distribution.
+Linux/macOS use `resource.ru_maxrss`; Windows uses `psutil`'s peak working set. The isolated
+process time includes interpreter startup and report transfer; build time does not. Comparisons
+must use the same fixed page/scale, export formats, and host class, and must record the runner's
+concurrency because concurrent CAD processes compete for memory and CPU. In preview mode the
+fallback rate is `null`, not zero: automatic fallback has not been implemented or measured.
+These measurements are evidence inputs, not a production budget or admission verdict; numerical
+latency and memory budgets still need to be set before changing defaults.
+
 ## Gates for a default switch
 
 1. Implement and version the pre-render profile chooser and candidate-only

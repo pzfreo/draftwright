@@ -9,15 +9,17 @@ import subprocess
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from math import ceil, isfinite
 from pathlib import Path
+from statistics import median
 
 _ROOT = Path(__file__).resolve().parents[1]
 _COMPARE = _ROOT / "scripts" / "annotation-scheme-compare"
 
 
 def _python() -> str:
-    candidate = _ROOT / ".venv" / "bin" / "python"
-    return str(candidate if candidate.is_file() else Path(sys.executable))
+    candidates = (_ROOT / ".venv" / "bin" / "python", _ROOT / ".venv" / "Scripts" / "python.exe")
+    return str(next((path for path in candidates if path.is_file()), Path(sys.executable)))
 
 
 def _load_manifest(path: Path) -> dict:
@@ -81,6 +83,28 @@ def _aggregate_preview(results: list[dict]) -> dict:
     safety = [
         result["candidate"]["layout_decision"].get("safety_evidence", {}) for result in rendered
     ]
+
+    def distribution(values: list[float]) -> dict:
+        ordered = sorted(values)
+        return {
+            "samples": len(ordered),
+            "median": median(ordered) if ordered else None,
+            "p95_nearest_rank": ordered[ceil(0.95 * len(ordered)) - 1] if ordered else None,
+        }
+
+    def observed(costs: list[dict], key: str) -> list[float]:
+        values = []
+        for cost in costs:
+            value = cost.get(key)
+            if isinstance(value, int | float) and not isinstance(value, bool) and isfinite(value):
+                values.append(float(value))
+        return values
+
+    candidate_cost = [result["candidate"].get("cost", {}) for result in rendered]
+    failed_cost = [
+        result["candidate"].get("cost", {}) for result in results if "error" in result["candidate"]
+    ]
+    baseline_cost = [result["baseline"].get("cost", {}) for result in results]
     summary.update(
         {
             "rendered_candidate": len(rendered),
@@ -90,6 +114,21 @@ def _aggregate_preview(results: list[dict]) -> dict:
             and bool(safety),
             "production_contender": False,
             "reason": "candidate_preview_not_safety_admitted",
+            "cost": {
+                "candidate_process_seconds": distribution(
+                    observed(candidate_cost, "process_seconds")
+                ),
+                "failed_candidate_process_seconds": distribution(
+                    observed(failed_cost, "process_seconds")
+                ),
+                "baseline_process_seconds": distribution(
+                    observed(baseline_cost, "process_seconds")
+                ),
+                "candidate_build_seconds": distribution(observed(candidate_cost, "build_seconds")),
+                "candidate_peak_rss_mib": distribution(observed(candidate_cost, "peak_rss_mib")),
+                "fallback_rate": None,
+                "fallback_reason": "candidate-preview does not perform automatic fallback",
+            },
         }
     )
     return summary

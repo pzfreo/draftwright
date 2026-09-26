@@ -110,11 +110,19 @@ def test_candidate_first_summary_keeps_rendered_candidates_separate_from_wins():
     results = [
         {
             **_result("candidate"),
-            "candidate": {"layout_decision": {"safety_evidence": {"checks_passed": True}}},
+            "candidate": {
+                "layout_decision": {"safety_evidence": {"checks_passed": True}},
+                "cost": {"process_seconds": 2.0, "build_seconds": 1.0, "peak_rss_mib": 100.0},
+            },
+            "baseline": {"cost": {"process_seconds": 3.0}},
         },
         {
             **_result("ineligible", parity=False),
-            "candidate": {"layout_decision": {"safety_evidence": {"checks_passed": False}}},
+            "candidate": {
+                "layout_decision": {"safety_evidence": {"checks_passed": False}},
+                "cost": {"process_seconds": 4.0, "build_seconds": 3.0, "peak_rss_mib": 200.0},
+            },
+            "baseline": {"cost": {"process_seconds": 5.0}},
         },
     ]
 
@@ -128,6 +136,14 @@ def test_candidate_first_summary_keeps_rendered_candidates_separate_from_wins():
     assert summary["safety_checks_passed"] == 1
     assert summary["safety_admission_ready"] is False
     assert summary["production_contender"] is False
+    assert summary["cost"]["candidate_process_seconds"] == {
+        "samples": 2,
+        "median": 3.0,
+        "p95_nearest_rank": 4.0,
+    }
+    assert summary["cost"]["baseline_process_seconds"]["median"] == 4.0
+    assert summary["cost"]["candidate_peak_rss_mib"]["p95_nearest_rank"] == 200.0
+    assert summary["cost"]["fallback_rate"] is None
 
 
 def test_candidate_first_case_dispatches_the_preview_comparison(monkeypatch, tmp_path):
@@ -153,3 +169,17 @@ def test_candidate_first_case_dispatches_the_preview_comparison(monkeypatch, tmp
 
     assert commands[0][-2:] == ["--mode", "candidate-preview"]
     assert result["case_id"] == case["id"]
+
+
+def test_candidate_first_summary_keeps_failed_worker_latency_separate():
+    result = {
+        **_result("ineligible", parity=False),
+        "candidate": {"error": "build failed", "cost": {"process_seconds": 6.0}},
+        "baseline": {"cost": {"process_seconds": 4.0}},
+    }
+
+    summary = _load_script()._aggregate_preview([result])
+
+    assert summary["rendered_candidate"] == 0
+    assert summary["cost"]["candidate_process_seconds"]["samples"] == 0
+    assert summary["cost"]["failed_candidate_process_seconds"]["median"] == 6.0

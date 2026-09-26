@@ -184,6 +184,8 @@ dev = [
     "pytest-split>=0.8",
     "pytest-timeout>=2",
     "pytest-xdist>=3",
+    # Offline layout-cost workers need peak working-set and host RAM on Windows.
+    "psutil>=5.9",
     "ruff>=0.4",
     "tomli>=2; python_version < '3.11'",
 ]

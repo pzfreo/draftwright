@@ -224,6 +224,71 @@ def test_parse_routes():
     assert parse("none") == set()
 
 
+def test_isolated_worker_emits_cost_and_machine_evidence(monkeypatch, capsys, tmp_path):
+    import draftwright
+
+    script = _load_script()
+    drawing = SimpleNamespace(
+        page_w=297.0,
+        page_h=210.0,
+        scale=1.0,
+        views={"front": object()},
+        annotation_scheme_decision={},
+        export=lambda *_args, **_kwargs: {"svg": tmp_path / "part.svg"},
+    )
+    monkeypatch.setattr(draftwright, "build_drawing", lambda *_args, **_kwargs: drawing)
+    monkeypatch.setattr(script, "_manifest", lambda _drawing: {})
+    args = SimpleNamespace(
+        mode="baseline",
+        source=tmp_path / "part.step",
+        output=tmp_path / "part",
+        page="A4",
+        scale=1.0,
+        title="part",
+        number="part",
+        formats="svg",
+    )
+
+    assert script._worker(args) == 0
+    cost = json.loads(capsys.readouterr().out)["cost"]
+    assert 0 <= cost["build_seconds"] <= cost["worker_seconds"]
+    assert 0 <= cost["export_seconds"] <= cost["worker_seconds"]
+    assert cost["machine"]["logical_cpus"] is not None
+    assert "physical_cores" in cost["machine"]
+    assert cost["machine"]["python"]
+
+
+def test_windows_peak_working_set_is_reported_without_resource(monkeypatch):
+    script = _load_script()
+    monkeypatch.setattr(script, "resource", None)
+    monkeypatch.setattr(script.sys, "platform", "win32")
+    monkeypatch.setattr(
+        script,
+        "psutil",
+        SimpleNamespace(
+            Process=lambda: SimpleNamespace(
+                memory_info=lambda: SimpleNamespace(peak_wset=256 * 1024**2)
+            ),
+            virtual_memory=lambda: SimpleNamespace(total=8 * 1024**3),
+            cpu_count=lambda logical: 4 if not logical else 8,
+        ),
+    )
+
+    assert script._peak_rss_mib() == 256.0
+    assert script._peak_rss_source() == "psutil.peak_wset"
+    assert script._machine()["physical_ram_mib"] == 8192.0
+    assert script._machine()["physical_cores"] == 4
+
+
+def test_failed_candidate_retains_isolated_process_latency():
+    result = _load_script()._failed_candidate_comparison(
+        _result({}), "cannot fit", mode="candidate-preview", process_seconds=12.5
+    )
+
+    assert result["candidate"]["cost"]["process_seconds"] == 12.5
+    assert result["parity"]["passed"] is False
+
+
 def test_candidate_preview_comparison_uses_one_candidate_trial(monkeypatch, capsys, tmp_path):
     script = _load_script()
     modes = []
