@@ -657,7 +657,8 @@ class Drawing:
         annotation_scheme_decision: JSON-friendly corridor comparison and a versioned,
             observational profile recommendation from pre-render demand. With
             ``annotation_layout="best"`` it also records verified layout trials and the
-            selected result; ``influenced_layout`` says whether a candidate won.
+            selected result plus provisional safety evidence; ``influenced_layout`` says
+            whether a candidate won. Provisional evidence is not an admission gate.
         view_decision: JSON-friendly resolution of automatic principal-view selection.
             ``chosen`` is the final principal set and ``attempts`` records a reduced candidate
             and why it was accepted or rejected.
