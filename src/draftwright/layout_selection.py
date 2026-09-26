@@ -27,13 +27,13 @@ def choose_pre_render_profile(
 ) -> dict[str, object]:
     """Recommend a layout from typed demand and settled pre-render constraints.
 
-    This conservative first version recommends the planned profile only when every
-    typed route fits its established reservation. It does not infer visual quality
-    from a finished baseline drawing.
+    This observational policy uses demand composition and corridor pressure, not
+    the quality of a finished baseline drawing. It does not safety-admit a result.
     """
 
     scheme = strips.scheme
     demand_count = len(scheme.demands) if scheme is not None else 0
+    under_reserved_count = len(report.under_reserved)
     missing_views = (
         sorted({demand.view for demand in scheme.demands} - set(views))
         if scheme is not None
@@ -47,12 +47,28 @@ def choose_pre_render_profile(
         profile, reason = None, "demand_view_absent"
     elif not scheme.demands and not scheme.unplanned:
         profile, reason = "iso-growth", "no_annotation_demand"
+    elif (
+        demand_count >= 40
+        and under_reserved_count >= 3
+        and 3 * report.unplanned_count >= demand_count
+    ):
+        # A dense, partly unplanned drawing should retain uncapped reservations;
+        # columns also avoid the exterior-dimension treatment of the side profile.
+        profile, reason = "columns", "dense_unplanned_corridors"
+    elif demand_count >= 30 and report.unplanned_count <= 5 and under_reserved_count >= 4:
+        # Mostly typed demand can use planned corridors when the legacy strips
+        # are already under pressure; the independent rendered gate still judges it.
+        profile, reason = "planned", "typed_corridor_pressure"
+    elif demand_count <= 25 and report.unplanned_count <= 5 and 0 < under_reserved_count <= 3:
+        # Sparse uncertain routes keep baseline annotation placement while
+        # granting the isometric view any sheet slack it can safely consume.
+        profile, reason = "iso-growth", "bounded_sparse_demand"
     elif scheme.unplanned or report.under_reserved:
         profile, reason = "legacy-depth", "unplanned_or_under_reserved_demand"
     else:
         profile, reason = "planned", "all_typed_corridors_fit"
     return {
-        "version": 1,
+        "version": 3,
         "profile": profile,
         "reason": reason,
         "page": [float(page[0]), float(page[1])],
@@ -60,7 +76,7 @@ def choose_pre_render_profile(
         "views": list(views),
         "demand_count": demand_count,
         "unplanned_count": report.unplanned_count,
-        "under_reserved": len(report.under_reserved),
+        "under_reserved": under_reserved_count,
         "missing_views": missing_views,
     }
 

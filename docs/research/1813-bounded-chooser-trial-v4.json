@@ -1,0 +1,39 @@
+{
+  "format": "draftwright-candidate-first-evidence",
+  "version": 1,
+  "source_commit": "4ab713e52834b5852416bbbdad428c62a9b28605",
+  "corpus_version": "2.0.0",
+  "metric_version": 1,
+  "selector": "candidate-first",
+  "summary": {
+    "cases": 15,
+    "verified_wins": 12,
+    "semantic_parity": 15,
+    "verdicts": {"candidate": 12, "tie": 3, "baseline": 0, "ineligible": 0},
+    "safety_checks_passed": 1,
+    "safety_admission_ready": false,
+    "production_selected": 0,
+    "candidate_process_seconds": {"median": 46.21473209792748, "p95_nearest_rank": 278.2087035088334},
+    "baseline_process_seconds": {"median": 39.94223369797692, "p95_nearest_rank": 274.5404175729491},
+    "candidate_peak_rss_mib": {"median": 537.26953125, "p95_nearest_rank": 877.67578125},
+    "fallback_rate": null
+  },
+  "fields": ["case_id", "profile", "verdict", "parity", "same_sheet", "missing", "introduced_blockers", "new_interior_dimensions", "iso_area_ratio", "safety_checks_passed"],
+  "results": [
+    ["ctc01-a3-1to5", "legacy-depth", "candidate", true, true, 0, 0, 0, 0.56, false],
+    ["ctc02-a2-1to5", "columns", "candidate", true, true, 0, 0, 0, 0.81, false],
+    ["ctc03-a2-1to5", "legacy-depth", "candidate", true, true, 0, 0, 0, 1.00, false],
+    ["ctc04-a2-1to5", "columns", "candidate", true, true, 0, 0, 0, 1.00, false],
+    ["ctc05-a2-1to5", "columns", "candidate", true, true, 0, 0, 0, 1.00, false],
+    ["grm04-a3-5to1", "iso-growth", "candidate", true, true, 0, 0, 0, 1.33, true],
+    ["tuner-a3-1to1", "iso-growth", "candidate", true, true, 0, 0, 0, 1.33, false],
+    ["whistle-a3-1to1", "legacy-depth", "candidate", true, true, 0, 0, 0, 0.46, false],
+    ["grm03-pmi-a3-5to1", "iso-growth", "tie", true, true, 0, 0, 0, 1.00, false],
+    ["issue915-a2-1to2", "legacy-depth", "candidate", true, true, 0, 0, 0, 0.42, false],
+    ["wheel-a3-10to1", "iso-growth", "tie", true, true, 0, 0, 0, 1.00, false],
+    ["lever-a3-5to1", "legacy-depth", "candidate", true, true, 0, 0, 0, 0.42, false],
+    ["frame-a3-2to1", "planned", "candidate", true, true, 0, 0, 0, 0.69, false],
+    ["angled-a3-2to1", "iso-growth", "tie", true, true, 0, 0, 0, 1.00, false],
+    ["sloped-a3-2to1", "legacy-depth", "candidate", true, true, 0, 0, 0, 0.68, false]
+  ]
+}
