@@ -718,7 +718,6 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Any hole/pattern member (declared holes render even where detection missed them).
         if feature_keys:
             _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys, ctx=ctx, plan=_compiled)
-            _coalesce_aligned_linear_pitch_dims(dwg, a, ctx=ctx)
 
     def _s_locations():
         # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
@@ -1075,6 +1074,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             "projection_symbol": _s_projection_symbol,
         }
     )
+    # Preserve every downstream solve's obstacle set, then remove only genuinely
+    # redundant placed pitch ink. Early removal changes unrelated balloon choices.
+    _coalesce_aligned_linear_pitch_dims(dwg, a, ctx=ctx)
     retract_resolved_withholdings(dwg, ctx, _runtime_plan)
     if ctx.trace is not None:  # snapshot the run's escalations into the trace (#736)
         ctx.trace.record_escalations(ctx.escalations)

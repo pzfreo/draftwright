@@ -3372,10 +3372,6 @@ class Drawing:
                     only=r.only_callout,
                     place_furniture=False,
                 )
-            if a is not None:
-                # Replayed furniture precedes this stage. Consolidate its shared
-                # pitch stations before later dimensions consume corridor room.
-                _coalesce_aligned_linear_pitch_dims(self, a, ctx=ctx)
             _report_authored_omissions(r.only_callout, before_callouts)
             # Drop the placed callout intents NOW — before the fallible later stages — so
             # a raise there can't re-route (and, via first-free hc_ naming, duplicate)
@@ -3804,6 +3800,8 @@ class Drawing:
                 "tabulate": _s_tabulate,
             }
         )
+        if a is not None:
+            _coalesce_aligned_linear_pitch_dims(self, a, ctx=ctx)
         # The same close-out the auto pass runs. A withholding is recorded by the pass that
         # could not place the mark and must be withdrawn if a later stage drew it — and the
         # declared route runs its own copy of the stage list, so leaving the retraction on the

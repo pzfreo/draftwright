@@ -141,12 +141,12 @@ class TestHolePatternCallouts:
     def test_parallel_rows_with_identical_stations_share_one_pitch_and_both_measurements(self):
         from draftwright.model.ir import Frame, HoleFeature, PatternFeature
 
-        part = Box(100, 100, 10)
+        part = Box(100, 100, 20)
         patterns = []
         for x in (-20, 20):
             members = tuple((x, y, 0) for y in (-20, 0, 20))
             for px, py, _ in members:
-                part -= Pos(px, py, 0) * Cylinder(3, 10)
+                part -= Pos(px, py, 0) * Cylinder(3, 20)
             member = HoleFeature(Frame(members[0], "z"), 6.0, depth=None, through=True)
             patterns.append(
                 PatternFeature(
