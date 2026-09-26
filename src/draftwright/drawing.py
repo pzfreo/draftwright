@@ -3215,6 +3215,7 @@ class Drawing:
         )
         from draftwright.annotations.holes import (
             _annotate_holes,
+            _coalesce_aligned_linear_pitch_dims,
             _locate_off_axis_holes,
             build_view_of_axis,
             render_pocket_patterns,
@@ -3371,6 +3372,10 @@ class Drawing:
                     only=r.only_callout,
                     place_furniture=False,
                 )
+            if a is not None:
+                # Replayed furniture precedes this stage. Consolidate its shared
+                # pitch stations before later dimensions consume corridor room.
+                _coalesce_aligned_linear_pitch_dims(self, a, ctx=ctx)
             _report_authored_omissions(r.only_callout, before_callouts)
             # Drop the placed callout intents NOW — before the fallible later stages — so
             # a raise there can't re-route (and, via first-free hc_ naming, duplicate)

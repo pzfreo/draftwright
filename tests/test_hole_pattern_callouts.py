@@ -127,10 +127,41 @@ class TestHolePatternCallouts:
         dwg = build_drawing(self._perimeter_part())
         named = dict(dwg.iter_annotations())
         pitch = [n for n in named if n.startswith("dim_pitch_")]
-        # each recognised edge row (5 holes, pitch 25) gets its own pitch dim
-        assert len(pitch) >= 2, f"expected the edge rows dimensioned, got {pitch}"
-        assert any(named[n].label == "4× 25" for n in pitch)
+        # Both recognised edge rows have the same projected stations, so one
+        # dimension carries both approved pitch measurements.
+        shared = [n for n in pitch if named[n].label == "4× 25"]
+        assert len(shared) == 1, f"expected one shared edge pitch, got {pitch}"
+        assert len(dwg._registry.measurement_of(shared[0])) == 2
         # the rows are not exploded into a per-hole table / balloons
         assert not [n for n in named if n.startswith("balloon")]
         assert not [n for n in named if "table" in n]
         assert "feature_not_dimensioned" not in {i.code for i in dwg.lint()}
+
+    @pytest.mark.timeout(120)
+    def test_parallel_rows_with_identical_stations_share_one_pitch_and_both_measurements(self):
+        from draftwright.model.ir import Frame, HoleFeature, PatternFeature
+
+        part = Box(100, 100, 10)
+        patterns = []
+        for x in (-20, 20):
+            members = tuple((x, y, 0) for y in (-20, 0, 20))
+            for px, py, _ in members:
+                part -= Pos(px, py, 0) * Cylinder(3, 10)
+            member = HoleFeature(Frame(members[0], "z"), 6.0, depth=None, through=True)
+            patterns.append(
+                PatternFeature(
+                    Frame(members[0], "z"),
+                    "linear",
+                    3,
+                    member,
+                    members=members,
+                    pitch=20,
+                    direction=(0, 1, 0),
+                )
+            )
+        drawing = build_drawing(part, model=patterns, page="A3", scale=0.5)
+        pitch = [name for name in drawing.annotations() if name.startswith("dim_pitch_plan")]
+        assert len(pitch) == 1
+        assert drawing.get_annotation(pitch[0]).label == "2× 20"
+        assert len(drawing._registry.measurement_of(pitch[0])) == 2
+        assert all(pitch[0] in drawing.annotations_of(feature) for feature in patterns)

@@ -96,6 +96,7 @@ from draftwright.annotations.from_model import (
 )
 from draftwright.annotations.holes import (
     _annotate_holes,
+    _coalesce_aligned_linear_pitch_dims,
     _locate_off_axis_holes,
     build_view_of_axis,
     render_pocket_patterns,
@@ -717,6 +718,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # Any hole/pattern member (declared holes render even where detection missed them).
         if feature_keys:
             _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys, ctx=ctx, plan=_compiled)
+            _coalesce_aligned_linear_pitch_dims(dwg, a, ctx=ctx)
 
     def _s_locations():
         # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
