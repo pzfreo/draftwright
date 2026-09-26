@@ -289,6 +289,91 @@ def test_failed_candidate_retains_isolated_process_latency():
     assert result["parity"]["passed"] is False
 
 
+def test_isolated_worker_timeout_is_a_typed_failure(monkeypatch, tmp_path):
+    script = _load_script()
+    args = SimpleNamespace(
+        source=tmp_path / "part.step",
+        page="A4",
+        scale=1.0,
+        title="part",
+        number="part",
+        formats="svg",
+        candidate_routes="none",
+        arrangement=None,
+        exterior_dimensions=False,
+        iso_growth=False,
+        worker_timeout_seconds=0.25,
+    )
+
+    def timeout(_command, **kwargs):
+        assert kwargs["timeout"] == 0.25
+        raise subprocess.TimeoutExpired("worker", 0.25)
+
+    monkeypatch.setattr(script.subprocess, "run", timeout)
+    with pytest.raises(script.WorkerBuildError, match="time bound") as caught:
+        script._run_worker(args, "baseline", tmp_path / "baseline")
+    assert caught.value.timed_out
+    assert caught.value.process_seconds >= 0
+
+
+@pytest.mark.parametrize(
+    "pair_mode,unattempted_mode",
+    [("candidate-preview", "candidate-preview"), ("baseline", "candidate")],
+)
+def test_baseline_timeout_is_ineligible_and_never_attempts_candidate(
+    monkeypatch, capsys, tmp_path, pair_mode, unattempted_mode
+):
+    script = _load_script()
+    modes = []
+
+    def worker(_args, mode, _output):
+        modes.append(mode)
+        raise script.WorkerBuildError("baseline timed out", 600.0, timed_out=True)
+
+    monkeypatch.setattr(script, "_run_worker", worker)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "compare",
+            "--source",
+            str(tmp_path / "part.step"),
+            "--output",
+            str(tmp_path / "out"),
+            "--mode",
+            pair_mode,
+            "--worker-timeout-seconds",
+            "600",
+        ],
+    )
+
+    assert script.main() == 1
+    result = json.loads(capsys.readouterr().out)
+    assert modes == ["baseline"]
+    assert result["baseline"]["error_kind"] == "timeout"
+    assert result["baseline"]["cost"]["process_seconds"] == 600.0
+    assert result["candidate"]["error"] == "not_attempted_after_baseline_failure"
+    assert result["candidate"]["mode"] == unattempted_mode
+    assert result["quality_comparison"]["verdict"] == "ineligible"
+    assert result["parity"]["reason"] == "baseline_build_failed"
+
+
+def test_candidate_timeout_is_ineligible_even_with_a_good_baseline():
+    script = _load_script()
+    result = script._failed_candidate_comparison(
+        _result({}),
+        "candidate timed out",
+        mode="candidate-preview",
+        process_seconds=60.0,
+        timed_out=True,
+    )
+
+    assert result["baseline"]["manifest"]
+    assert result["candidate"]["error_kind"] == "timeout"
+    assert result["candidate"]["cost"]["process_seconds"] == 60.0
+    assert not result["parity"]["passed"]
+
+
 def test_candidate_preview_comparison_uses_one_candidate_trial(monkeypatch, capsys, tmp_path):
     script = _load_script()
     modes = []

@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -188,10 +189,19 @@ def test_candidate_first_case_dispatches_the_preview_comparison(monkeypatch, tmp
     case = _load_script()._load_manifest(MANIFEST)["cases"][0]
     case_report_dir = tmp_path / "case-reports"
     result = script._run_case(
-        case, tmp_path, candidate_first=True, case_report_dir=case_report_dir
+        case,
+        tmp_path,
+        candidate_first=True,
+        case_report_dir=case_report_dir,
+        worker_timeout_seconds=600.0,
     )
 
-    assert commands[0][-2:] == ["--mode", "candidate-preview"]
+    assert commands[0][-4:] == [
+        "--mode",
+        "candidate-preview",
+        "--worker-timeout-seconds",
+        "600.0",
+    ]
     assert result["case_id"] == case["id"]
     assert (
         json.loads((case_report_dir / f"{case['id']}.json").read_text(encoding="utf-8")) == result
@@ -211,3 +221,82 @@ def test_candidate_first_summary_keeps_failed_worker_latency_separate():
     assert summary["rendered_candidate"] == 0
     assert summary["cost"]["candidate_process_seconds"]["samples"] == 0
     assert summary["cost"]["failed_candidate_process_seconds"]["median"] == 6.0
+
+
+def test_timed_out_baseline_is_not_counted_as_selected_or_successful_cost():
+    script = _load_script()
+    failed = script._aggregate_preview(
+        [
+            {
+                **_result("ineligible", parity=False, affected=False),
+                "baseline": {"error": "timeout", "cost": {"process_seconds": 600.0}},
+                "candidate": {"error": "not_attempted_after_baseline_failure"},
+            }
+        ]
+    )
+
+    assert failed["failed_baseline"] == 1
+    assert failed["selected"] == {"candidate": 0, "baseline": 0}
+    assert failed["semantic_parity"] == 0
+    assert failed["cost"]["baseline_process_seconds"]["samples"] == 0
+    assert failed["cost"]["failed_baseline_process_seconds"]["median"] == 600.0
+    assert not failed["affected_majority"]
+    assert not failed["production_contender"]
+
+
+def test_failed_baseline_case_is_persisted_even_with_nonzero_compare_exit(monkeypatch, tmp_path):
+    script = _load_script()
+    failure = {
+        **_result("ineligible", parity=False, affected=False),
+        "baseline": {"error": "timeout", "cost": {"process_seconds": 600.0}},
+        "candidate": {"error": "not_attempted_after_baseline_failure"},
+    }
+    monkeypatch.setattr(
+        script.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stdout=json.dumps(failure), stderr="", returncode=1
+        ),
+    )
+    case = _load_script()._load_manifest(MANIFEST)["cases"][0]
+    report_dir = tmp_path / "case-reports"
+
+    result = script._run_case(case, tmp_path, candidate_first=True, case_report_dir=report_dir)
+
+    assert result["comparison_exit_code"] == 1
+    assert json.loads((report_dir / f"{case['id']}.json").read_text(encoding="utf-8")) == result
+
+
+def test_corpus_exits_nonzero_for_a_baseline_timeout_without_optional_gates(
+    monkeypatch, capsys, tmp_path
+):
+    script = _load_script()
+
+    def failed_case(case, *_args, **_kwargs):
+        return {
+            **_result("ineligible", parity=False, affected=False),
+            "case_id": case["id"],
+            "baseline": {"error": "timeout", "cost": {"process_seconds": 600.0}},
+            "candidate": {"error": "not_attempted_after_baseline_failure"},
+        }
+
+    monkeypatch.setattr(script, "_run_case", failed_case)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "corpus",
+            "--manifest",
+            str(MANIFEST),
+            "--output",
+            str(tmp_path),
+            "--candidate-first",
+            "--worker-timeout-seconds",
+            "600",
+        ],
+    )
+
+    assert script.main() == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["summary"]["failed_baseline"] == len(report["results"])
+    assert report["summary"]["selected"] == {"candidate": 0, "baseline": 0}

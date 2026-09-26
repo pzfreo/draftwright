@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import platform
 import subprocess
@@ -38,9 +39,10 @@ from draftwright.layout_selection import _compare, _manifest  # noqa: E402
 
 
 class WorkerBuildError(RuntimeError):
-    def __init__(self, message: str, process_seconds: float):
+    def __init__(self, message: str, process_seconds: float, *, timed_out: bool = False):
         super().__init__(message)
         self.process_seconds = process_seconds
+        self.timed_out = timed_out
 
 
 def _python() -> str:
@@ -245,7 +247,18 @@ def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None =
     ):
         env.pop(name, None)
     process_started = time.perf_counter()
-    completed = subprocess.run(command, check=False, capture_output=True, text=True, env=env)
+    timeout = getattr(args, "worker_timeout_seconds", None)
+    try:
+        completed = subprocess.run(
+            command, check=False, capture_output=True, text=True, env=env, timeout=timeout
+        )
+    except subprocess.TimeoutExpired as error:
+        process_seconds = time.perf_counter() - process_started
+        raise WorkerBuildError(
+            f"{mode} worker exceeded the {timeout:g}s time bound",
+            process_seconds,
+            timed_out=True,
+        ) from error
     process_seconds = time.perf_counter() - process_started
     if completed.returncode:
         raise WorkerBuildError(f"{mode} build failed:\n{completed.stderr}", process_seconds)
@@ -255,7 +268,12 @@ def _run_worker(args, mode: str, output: Path, *, candidate_routes: str | None =
 
 
 def _failed_candidate_comparison(
-    baseline: dict, error: str, *, mode="candidate", process_seconds: float | None = None
+    baseline: dict,
+    error: str,
+    *,
+    mode="candidate",
+    process_seconds: float | None = None,
+    timed_out: bool = False,
 ) -> dict:
     """Keep a candidate build failure as corpus evidence instead of aborting the run."""
     baseline_key = tuple(baseline["manifest"]["arrangement_quality"]["selection_key"])
@@ -264,6 +282,7 @@ def _failed_candidate_comparison(
         "candidate": {
             "mode": mode,
             "error": error,
+            "error_kind": "timeout" if timed_out else "build_failed",
             "cost": {"process_seconds": process_seconds},
         },
         "parity": {
@@ -286,6 +305,25 @@ def _failed_candidate_comparison(
     }
 
 
+def _failed_baseline_comparison(error: WorkerBuildError, *, mode: str) -> dict:
+    """A baseline failure cannot justify a candidate win or a fallback selection."""
+
+    return {
+        "baseline": {
+            "mode": "baseline",
+            "error": str(error),
+            "error_kind": "timeout" if error.timed_out else "build_failed",
+            "cost": {"process_seconds": error.process_seconds},
+        },
+        "candidate": {"mode": mode, "error": "not_attempted_after_baseline_failure"},
+        "parity": {"passed": False, "reason": "baseline_build_failed", "missing": [], "added": []},
+        "quality_comparison": {"verdict": "ineligible", "baseline_key": [], "candidate_key": None},
+        "candidate_trials": [],
+        "selected_candidate_trial": None,
+        "pre_render_profile": None,
+    }
+
+
 def _parse_routes(value: str) -> set[tuple[str, str]]:
     if value == "none":
         return set()
@@ -303,7 +341,10 @@ def _candidate_trial(args, baseline: dict, *, routes: str, output: Path) -> dict
         candidate = _run_worker(args, "candidate", output, candidate_routes=routes)
     except RuntimeError as error:
         return _failed_candidate_comparison(
-            baseline, str(error), process_seconds=getattr(error, "process_seconds", None)
+            baseline,
+            str(error),
+            process_seconds=getattr(error, "process_seconds", None),
+            timed_out=getattr(error, "timed_out", False),
         )
     return _compare(baseline, candidate)
 
@@ -364,10 +405,36 @@ def main() -> int:
         default="baseline",
     )
     parser.add_argument("--iso-growth", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--worker-timeout-seconds",
+        type=float,
+        help="optional bound for each isolated baseline/candidate worker (not a quality pass)",
+    )
     args = parser.parse_args()
+    if args.worker_timeout_seconds is not None and (
+        not math.isfinite(args.worker_timeout_seconds) or args.worker_timeout_seconds <= 0
+    ):
+        parser.error("--worker-timeout-seconds must be finite and positive")
     if args.worker:
+        if args.worker_timeout_seconds is not None:
+            parser.error("--worker-timeout-seconds only applies to a paired comparison")
         return _worker(args)
-    baseline = _run_worker(args, "baseline", args.output.with_name(args.output.name + "-baseline"))
+    try:
+        baseline = _run_worker(
+            args, "baseline", args.output.with_name(args.output.name + "-baseline")
+        )
+    except WorkerBuildError as error:
+        print(
+            json.dumps(
+                _failed_baseline_comparison(
+                    error,
+                    mode="candidate-preview" if args.mode == "candidate-preview" else "candidate",
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 1
     if args.mode == "candidate-preview":
         try:
             candidate = _run_worker(
@@ -381,6 +448,7 @@ def main() -> int:
                 str(error),
                 mode="candidate-preview",
                 process_seconds=getattr(error, "process_seconds", None),
+                timed_out=getattr(error, "timed_out", False),
             )
         else:
             result = _compare(baseline, candidate)
