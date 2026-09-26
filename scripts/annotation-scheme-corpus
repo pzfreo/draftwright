@@ -59,6 +59,7 @@ def _aggregate(results: list[dict]) -> dict:
             for verdict in ("candidate", "baseline", "tie", "ineligible")
         },
         "selected": {"candidate": selected_candidate, "baseline": selected_baseline},
+        "verified_wins": selected_candidate,
         "affected_baselines": len(affected),
         "improved_affected": improved_affected,
         "affected_majority": bool(affected) and 2 * improved_affected > len(affected),
@@ -70,6 +71,28 @@ def _aggregate(results: list[dict]) -> dict:
             and selected_candidate > 0
         ),
     }
+
+
+def _aggregate_preview(results: list[dict]) -> dict:
+    """Keep candidate-first rendering distinct from a verified best-mode selection."""
+
+    summary = _aggregate(results)
+    rendered = [result for result in results if "error" not in result["candidate"]]
+    safety = [
+        result["candidate"]["layout_decision"].get("safety_evidence", {}) for result in rendered
+    ]
+    summary.update(
+        {
+            "rendered_candidate": len(rendered),
+            "production_selected": 0,
+            "safety_checks_passed": sum(bool(item.get("checks_passed")) for item in safety),
+            "safety_admission_ready": all(item.get("admission_ready") is True for item in safety)
+            and bool(safety),
+            "production_contender": False,
+            "reason": "candidate_preview_not_safety_admitted",
+        }
+    )
+    return summary
 
 
 def _public_result(worker: dict) -> dict:
@@ -93,7 +116,9 @@ def _public_result(worker: dict) -> dict:
     }
 
 
-def _run_case(case: dict, output: Path, *, public_selector: bool = False) -> dict:
+def _run_case(
+    case: dict, output: Path, *, public_selector: bool = False, candidate_first: bool = False
+) -> dict:
     command = [
         _python(),
         str(_COMPARE),
@@ -120,6 +145,8 @@ def _run_case(case: dict, output: Path, *, public_selector: bool = False) -> dic
         command.extend(("--candidate-routes", routes))
     if public_selector:
         command.extend(("--worker", "--mode", "best"))
+    elif candidate_first:
+        command.extend(("--mode", "candidate-preview"))
     completed = subprocess.run(command, capture_output=True, text=True, check=False)
     if not completed.stdout.strip():
         raise RuntimeError(f"{case['id']} produced no comparison report:\n{completed.stderr}")
@@ -138,6 +165,11 @@ def main() -> int:
         "--public-selector",
         action="store_true",
         help="exercise build_drawing(annotation_layout='best') for every case",
+    )
+    parser.add_argument(
+        "--candidate-first",
+        action="store_true",
+        help="compare one-build candidate-preview results with baseline offline",
     )
     parser.add_argument(
         "--jobs",
@@ -162,6 +194,8 @@ def main() -> int:
         parser.error("--require-wins must be non-negative")
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.public_selector and args.candidate_first:
+        parser.error("--public-selector and --candidate-first are mutually exclusive")
 
     corpus = _load_manifest(args.manifest)
     if args.require_wins > len(corpus["cases"]):
@@ -170,7 +204,12 @@ def main() -> int:
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         results = list(
             pool.map(
-                lambda case: _run_case(case, args.output, public_selector=args.public_selector),
+                lambda case: _run_case(
+                    case,
+                    args.output,
+                    public_selector=args.public_selector,
+                    candidate_first=args.candidate_first,
+                ),
                 corpus["cases"],
             )
         )
@@ -178,15 +217,21 @@ def main() -> int:
         "format": "draftwright-annotation-layout-corpus-result",
         "corpus_version": corpus["corpus_version"],
         "metric_version": corpus["metric_version"],
-        "selector": "public" if args.public_selector else "comparison",
-        "summary": _aggregate(results),
+        "selector": (
+            "candidate-first"
+            if args.candidate_first
+            else "public"
+            if args.public_selector
+            else "comparison"
+        ),
+        "summary": _aggregate_preview(results) if args.candidate_first else _aggregate(results),
         "results": results,
     }
     print(json.dumps(report, indent=2, sort_keys=True))
     return int(
         (args.require_contender and not report["summary"]["production_contender"])
         or (args.require_affected_majority and not report["summary"]["affected_majority"])
-        or (report["summary"]["selected"]["candidate"] < args.require_wins)
+        or (report["summary"]["verified_wins"] < args.require_wins)
     )
 
 
