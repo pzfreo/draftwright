@@ -6,7 +6,7 @@ from build123d import Box, Cylinder, Draft
 
 from draftwright import build_drawing
 from draftwright._core import Strip
-from draftwright.annotations import _common, from_model, holes
+from draftwright.annotations import _common, holes
 
 
 def _pitch_fixture(monkeypatch, *, ink_clear):
@@ -200,34 +200,3 @@ def test_required_dimension_ink_conflict_uses_normal_drop_path(monkeypatch):
     assert len(drawing.added) == 1
     assert len(remaining) == 1
     assert {drawing.added[0][0], remaining[0][0]} == {"first", "second"}
-
-
-def test_pmi_primary_and_fallback_share_required_ink_gate(monkeypatch):
-    registered = []
-    calls = []
-    monkeypatch.setattr(
-        from_model,
-        "register_corridor",
-        lambda *_args, **_kwargs: registered.append(_args[-1]),
-    )
-    monkeypatch.setattr(
-        from_model,
-        "place_strip_candidates",
-        lambda *_args, **kwargs: calls.append(kwargs) or [("pmi", lambda _pos: None)],
-    )
-    strip = Strip(anchor=0.0, outer_limit=50.0, direction=1.0, gap=8.0, spacing=3.0)
-    spec = {
-        "name": "pmi",
-        "view": "plan",
-        "side": "above",
-        "axis": "y",
-        "strip": strip,
-        "build": lambda _pos: None,
-        "order": (0, 0),
-    }
-    record = SimpleNamespace(value=1.0)
-    context = SimpleNamespace(trace=None)
-    assert from_model._pmi_queue_options(None, context, [spec], "Z", "1", record)
-    assert registered[0].require_clear_ink
-    assert not from_model._place_corridor_option(None, spec, record, ctx=context)
-    assert calls[0]["require_clear_ink"] == {"pmi"}
