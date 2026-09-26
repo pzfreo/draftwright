@@ -2446,6 +2446,15 @@ def build_drawing(
             selected.solve_trace.write()
         return selected
 
+    def finish_annotation_layout(drawing: Drawing) -> Drawing:
+        if annotation_layout == "candidate-preview":
+            drawing.annotation_scheme_decision = {
+                **drawing.annotation_scheme_decision,
+                "safety_evidence": candidate_safety_evidence(drawing),
+                "fallback_decision": "not_evaluated_preview",
+            }
+        return drawing
+
     from draftwright.leader_policy import leader_region_policy
 
     validate_projection(projection, projection_symbol=projection_symbol)
@@ -3335,7 +3344,7 @@ def build_drawing(
             # DRAFTWRIGHT_TRACE always describes the drawing the caller receives
             # (#736 — the same reason a successful finalize re-writes).
             drawing.solve_trace.write()
-        return _complete_automatic_plan(drawing, issues=settled_issues)
+        return finish_annotation_layout(_complete_automatic_plan(drawing, issues=settled_issues))
 
     requested_scale = float(scale)
     automatic_view_policy = views_are_automatic and _views is None
@@ -3423,7 +3432,7 @@ def build_drawing(
             attempted=(requested_scale,),
             attempts=(_scale_attempt(requested_scale, "complete"),),
         )
-        return drawing
+        return finish_annotation_layout(drawing)
 
     if scale_policy == "permissive":
         drawing.scale_decision = _scale_decision(
@@ -3442,7 +3451,7 @@ def build_drawing(
             ScaleCompletenessWarning,
             stacklevel=3,  # Skip the public operation observer wrapper too.
         )
-        return drawing
+        return finish_annotation_layout(drawing)
 
     if scale_policy == "strict":
         raise ScaleIncompatibilityError(
@@ -3520,7 +3529,7 @@ def build_drawing(
             ScaleCompletenessWarning,
             stacklevel=3,  # Skip the public operation observer wrapper too.
         )
-        return fallback
+        return finish_annotation_layout(fallback)
 
     raise ScaleIncompatibilityError(
         _scale_decision(
