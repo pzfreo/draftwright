@@ -89,6 +89,38 @@ def test_missing_requirement_and_overlap_are_independent_failures():
     assert "lint_blockers" in verdict["failed_checks"]
 
 
+@pytest.mark.parametrize(
+    ("state", "accepted"),
+    [
+        ("placed", True),
+        ("satisfied_by_structured_note", True),
+        ("inapplicable", True),
+        ("suppressed", False),
+        ("dropped", False),
+        ("missing", False),
+        ("unverifiable", False),
+        ("unsupported", False),
+        ("future_state", False),
+        (None, False),
+    ],
+)
+def test_raw_requirement_states_fail_closed(state, accepted):
+    report = _raw_report(total=1, requirements=({"state": state},))
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert ("required_outcomes" not in verdict["failed_checks"]) is accepted
+
+
+@pytest.mark.parametrize("requirement", [None, {}, {"state": []}])
+def test_malformed_raw_requirement_fails_closed(requirement):
+    report = _raw_report(total=1, requirements=(requirement,))
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "required_outcomes" in verdict["failed_checks"]
+
+
 def test_accepted_geometry_without_model_or_requirements_is_not_clean():
     verdict = candidate_safety_evidence(DrawingStub(_raw_report(total=1), features=0))
 
