@@ -1,0 +1,66 @@
+name: Annotation layout cost evidence
+
+on:
+  workflow_dispatch:
+
+# This is deliberately manual: the 15 fixed-sheet CAD cases are expensive on
+# macOS and Windows. It records costs; it is not a substitute for the semantic
+# and safety gates or a claim that the preview is ready as the default.
+permissions:
+  contents: read
+
+jobs:
+  candidate-first-cost:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install pinned development dependencies
+        run: uv sync --group dev --locked
+      - name: Measure candidate-first and offline baseline workers
+        shell: bash
+        run: |
+          echo "source_sha=$GITHUB_SHA"
+          uv run --no-sync python scripts/annotation-scheme-corpus \
+            --manifest tests/fixtures/annotation-layout-corpus-v2.json \
+            --output layout-cost-cases --candidate-first --jobs 1 \
+            > layout-cost-report.json
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary = json.loads(Path("layout-cost-report.json").read_text(encoding="utf-8"))["summary"]
+          Path("layout-cost-provenance.json").write_text(json.dumps({
+              "source_sha": os.environ["GITHUB_SHA"],
+              "source_ref": os.environ["GITHUB_REF"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "runner_os": os.environ["RUNNER_OS"],
+          }, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps({
+              "wins": summary["verified_wins"],
+              "parity": summary["semantic_parity"],
+              "candidate_cost": summary["cost"],
+          }, indent=2))
+          PY
+      - name: Keep the machine- and case-level evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: annotation-layout-cost-${{ matrix.os }}
+          path: |
+            layout-cost-report.json
+            layout-cost-provenance.json
+            layout-cost-cases/*.svg
+          if-no-files-found: warn
+          retention-days: 30

@@ -35,3 +35,13 @@ relevant preview facts. This run did not collect the newer process-time/peak-mem
 did not review borderline PDFs visually, and cannot establish a production budget or
 default-switch readiness. The next evidence run must use a changed chooser; repeating
 this exact one would add no information.
+
+The manually dispatched `Annotation layout cost evidence` workflow runs the same
+fixed-sheet candidate-first corpus with one CAD worker at a time on Linux, macOS,
+and Windows. Its per-platform artifact keeps source-SHA/run provenance, the JSON
+report (including machine, process/build time, peak RSS, median, and nearest-rank
+p95 data), and the SVGs for
+review. Once the workflow is on `main`, dispatch it on the candidate branch only
+after a meaningful layout change;
+the run is intentionally not part of ordinary PR CI. The report alone establishes
+neither a numerical production budget nor a successful safety gate.
