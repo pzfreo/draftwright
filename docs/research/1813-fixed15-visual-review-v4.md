@@ -1,5 +1,10 @@
 # #1813 fixed-sheet visual review: bounded chooser v4
 
+For the case-by-case relative-visual rubric across all 12 metric wins, including
+the later issue915/lever/whistle repairs, see the
+[fixed-sheet visual ledger](1813-fixed15-relative-visual-ledger.md). It does not
+claim that the composite evidence is a current-head 15-case gate pass.
+
 This reviews **existing** candidate-first outputs from source
 `4ab713e52834b5852416bbbdad428c62a9b28605` and the versioned
 [v4 metric summary](1813-bounded-chooser-trial-v4.json). No drawing was rebuilt.
