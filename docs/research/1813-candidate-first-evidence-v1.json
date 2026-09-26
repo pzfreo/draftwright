@@ -1,0 +1,575 @@
+{
+  "cases": [
+    {
+      "baseline_key": [
+        0,
+        3,
+        0,
+        2,
+        2,
+        -0.2,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        2,
+        0,
+        0,
+        0,
+        -0.2,
+        124740.0
+      ],
+      "demand_count": 62,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "ctc01-a3-1to5",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "candidate",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 5,
+      "unplanned_count": 11
+    },
+    {
+      "baseline_key": [
+        24,
+        43,
+        24,
+        1,
+        4,
+        -0.2,
+        249480.0
+      ],
+      "candidate_key": [
+        19,
+        40,
+        19,
+        0,
+        1,
+        -0.2,
+        249480.0
+      ],
+      "demand_count": 111,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "ctc02-a2-1to5",
+      "introduced_blockers": 4,
+      "missing_annotations": 6,
+      "parity": false,
+      "profile": "legacy-depth",
+      "quality": "ineligible",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 4,
+      "unplanned_count": 76
+    },
+    {
+      "baseline_key": [
+        31,
+        1,
+        31,
+        0,
+        5,
+        -0.2,
+        249480.0
+      ],
+      "candidate_key": [
+        29,
+        1,
+        29,
+        0,
+        0,
+        -0.2,
+        249480.0
+      ],
+      "demand_count": 59,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "ctc03-a2-1to5",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "candidate",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 5,
+      "unplanned_count": 12
+    },
+    {
+      "baseline_key": [
+        12,
+        38,
+        12,
+        2,
+        1,
+        -0.2,
+        249480.0
+      ],
+      "candidate_key": [
+        11,
+        34,
+        11,
+        0,
+        0,
+        -0.2,
+        249480.0
+      ],
+      "demand_count": 95,
+      "failed_checks": [
+        "required_outcomes",
+        "recognized_ownership",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "ctc04-a2-1to5",
+      "introduced_blockers": 5,
+      "missing_annotations": 5,
+      "parity": false,
+      "profile": "legacy-depth",
+      "quality": "ineligible",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 3,
+      "unplanned_count": 33
+    },
+    {
+      "baseline_key": [
+        5,
+        2,
+        5,
+        5,
+        5,
+        -0.2,
+        249480.0
+      ],
+      "candidate_key": [
+        6,
+        4,
+        6,
+        0,
+        2,
+        -0.2,
+        249480.0
+      ],
+      "demand_count": 52,
+      "failed_checks": [
+        "required_outcomes",
+        "recognized_ownership",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "ctc05-a2-1to5",
+      "introduced_blockers": 2,
+      "missing_annotations": 2,
+      "parity": false,
+      "profile": "legacy-depth",
+      "quality": "ineligible",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 5,
+      "unplanned_count": 21
+    },
+    {
+      "baseline_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -5.0,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -5.0,
+        124740.0
+      ],
+      "demand_count": 8,
+      "failed_checks": [],
+      "id": "grm04-a3-5to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "tie",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": true,
+      "under_reserved": 3,
+      "unplanned_count": 4
+    },
+    {
+      "baseline_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -1.0,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        -1.0,
+        124740.0
+      ],
+      "demand_count": 24,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "tuner-a3-1to1",
+      "introduced_blockers": 1,
+      "missing_annotations": 1,
+      "parity": false,
+      "profile": "legacy-depth",
+      "quality": "ineligible",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 3,
+      "unplanned_count": 2
+    },
+    {
+      "baseline_key": [
+        1,
+        0,
+        1,
+        0,
+        2,
+        -1.0,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        -1.0,
+        124740.0
+      ],
+      "demand_count": 38,
+      "failed_checks": [
+        "required_outcomes",
+        "recognized_ownership",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "whistle-a3-1to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "candidate",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 5,
+      "unplanned_count": 7
+    },
+    {
+      "baseline_key": [
+        4,
+        3,
+        2,
+        0,
+        1,
+        -5.0,
+        124740.0
+      ],
+      "candidate_key": [
+        3,
+        3,
+        1,
+        0,
+        0,
+        -5.0,
+        124740.0
+      ],
+      "demand_count": 16,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "grm03-pmi-a3-5to1",
+      "introduced_blockers": 1,
+      "missing_annotations": 1,
+      "parity": false,
+      "profile": "legacy-depth",
+      "quality": "ineligible",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 2,
+      "unplanned_count": 5
+    },
+    {
+      "baseline_key": [
+        0,
+        0,
+        0,
+        0,
+        1,
+        -0.5,
+        249480.0
+      ],
+      "candidate_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -0.5,
+        249480.0
+      ],
+      "demand_count": 28,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "issue915-a2-1to2",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "candidate",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 2,
+      "unplanned_count": 2
+    },
+    {
+      "baseline_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -10.0,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -10.0,
+        124740.0
+      ],
+      "demand_count": 4,
+      "failed_checks": [
+        "recognized_inventory"
+      ],
+      "id": "wheel-a3-10to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "tie",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 1,
+      "unplanned_count": 1
+    },
+    {
+      "baseline_key": [
+        1,
+        0,
+        1,
+        0,
+        1,
+        -5.0,
+        124740.0
+      ],
+      "candidate_key": [
+        1,
+        0,
+        1,
+        0,
+        0,
+        -5.0,
+        124740.0
+      ],
+      "demand_count": 8,
+      "failed_checks": [
+        "lint_blockers"
+      ],
+      "id": "lever-a3-5to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "candidate",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 4,
+      "unplanned_count": 2
+    },
+    {
+      "baseline_key": [
+        1,
+        3,
+        1,
+        0,
+        2,
+        -2.0,
+        124740.0
+      ],
+      "candidate_key": [
+        5,
+        1,
+        0,
+        0,
+        1,
+        -2.0,
+        124740.0
+      ],
+      "demand_count": 38,
+      "failed_checks": [
+        "required_outcomes",
+        "recognized_ownership",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "frame-a3-2to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "baseline",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 4,
+      "unplanned_count": 5
+    },
+    {
+      "baseline_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -2.0,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        -2.0,
+        124740.0
+      ],
+      "demand_count": 4,
+      "failed_checks": [
+        "required_outcomes",
+        "lint_blockers",
+        "audited_coverage"
+      ],
+      "id": "angled-a3-2to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": false,
+      "profile": "legacy-depth",
+      "quality": "ineligible",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 2,
+      "unplanned_count": 0
+    },
+    {
+      "baseline_key": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        -2.0,
+        124740.0
+      ],
+      "candidate_key": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        -2.0,
+        124740.0
+      ],
+      "demand_count": 4,
+      "failed_checks": [
+        "lint_blockers"
+      ],
+      "id": "sloped-a3-2to1",
+      "introduced_blockers": 0,
+      "missing_annotations": 0,
+      "parity": true,
+      "profile": "legacy-depth",
+      "quality": "candidate",
+      "reason": "unplanned_or_under_reserved_demand",
+      "safety_checks_passed": false,
+      "under_reserved": 1,
+      "unplanned_count": 6
+    }
+  ],
+  "evidence_version": 1,
+  "format": "draftwright-candidate-first-evidence",
+  "jobs": 2,
+  "manifest": "tests/fixtures/annotation-layout-corpus-v2.json",
+  "mode": "candidate-preview-offline-comparison",
+  "platform": {
+    "kernel": "6.8.0-139-generic",
+    "logical_cpus": 4,
+    "machine": "x86_64",
+    "physical_ram_mib": 7941.1875,
+    "system": "Linux"
+  },
+  "source_sha": "c37ed57a9d691033b0732cc115ecac44de57957f",
+  "summary": {
+    "affected_baselines": 11,
+    "affected_majority": true,
+    "cases": 15,
+    "improved_affected": 6,
+    "production_contender": false,
+    "production_selected": 0,
+    "reason": "candidate_preview_not_safety_admitted",
+    "rendered_candidate": 15,
+    "safety_admission_ready": false,
+    "safety_checks_passed": 1,
+    "selected": {
+      "baseline": 9,
+      "candidate": 6
+    },
+    "semantic_parity": 9,
+    "verdicts": {
+      "baseline": 1,
+      "candidate": 6,
+      "ineligible": 6,
+      "tie": 2
+    },
+    "verified_wins": 6
+  }
+}
