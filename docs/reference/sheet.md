@@ -176,6 +176,34 @@ retains a non-default selection in its `Sheet(...)` constructor. A feature carry
 stronger than the drawing-wide preference. The policy affects feature leaders only—not linear
 dimensions, free notes, tables, or view placement—and never supplies coordinates.
 
+The `demand-guided` annotation layout additionally reserves a blank 6 mm gutter
+between the front/plan annotation bands and between the column and side view,
+growing toward 12 mm when the selected sheet has spare room. Its facing strips
+cannot spend that gutter. `estimated-strips` retains its established shared
+corridors; this change does not silently alter that layout's sheet selection.
+
+### Acceptable recovered leaders
+
+A sheet-wide recovery is a last resort, not permission to send a callout around the
+page. Draftwright accepts a recovered feature leader only when:
+
+- its tip remains attached to the proved feature in its owning view;
+- its label stays on the sheet and outside projected views and settled
+  annotation text;
+- its shaft stays out of other views and does not cross settled annotation text
+  or non-crossable strokes; ordinary dimension-line crossings retain the
+  existing documented crossing policy;
+- it has at most one routing bend before the normal label shelf, never doubles
+  back, and stays local (each leg no longer than the owning view's diagonal, the
+  complete route no longer than twice that diagonal; a 30 mm floor keeps very
+  small views usable).
+
+If no candidate passes, the callout drops with a lint finding. The length and
+bend limits are Draftwright readability rules, **not** ISO- or ASME-prescribed
+numbers. They prevent a callout such as CTC04's 4×R13 from taking a long U-shaped
+detour into the next view. Ordinary feature leaders are still solved jointly;
+these additional limits govern the sheet-wide recovery path.
+
 ## Through-hole wording
 
 The optional argument to a hole handle's `through()` controls its printed indicator:

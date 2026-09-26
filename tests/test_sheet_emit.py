@@ -4636,13 +4636,16 @@ def test_the_object_reference_doc_example_actually_runs(tmp_path):
     findings = sorted(
         line.split()[1]
         for line in r.stdout.splitlines()
-        if line.startswith(("info ", "warning ", "error "))
+        if line.startswith(("warning ", "error "))
     )
     assert findings == [
         "axial_length_missing",
         "diameter_leader_target_unverifiable",
         "hole_requirement_unverifiable",
     ], findings
+    assert {line.split()[1] for line in r.stdout.splitlines() if line.startswith("info ")} <= {
+        "gdt_side_relaxed"
+    }
     assert not any(line.startswith("error ") for line in r.stdout.splitlines()), r.stdout
 
     # Everything the "What you should see" section promises, pinned against the real run.

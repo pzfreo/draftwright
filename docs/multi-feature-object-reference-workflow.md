@@ -211,7 +211,9 @@ Measured from the snippet above on 2026-09-10 (draftwright 0.4.x, `Sheet.build()
   [Why `sheet.hole(features.tap)` works](#why-sheethofeatures-tap-works) below.
 
   The third follows the same missing hole join: the declared tap leader's physical target
-  cannot be certified. None is an `error`. `plan_incomplete` is what an error looks like.
+  cannot be certified. On some platforms an additional `info gdt_side_relaxed` note
+  reports a legible alternate GD&T placement, not a missing requirement. None is an
+  `error`. `plan_incomplete` is what an error looks like.
 
 ## Why `sheet.hole(features.tap)` works
 
