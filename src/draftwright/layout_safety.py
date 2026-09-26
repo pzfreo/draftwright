@@ -30,6 +30,7 @@ _LAYOUT_BLOCKERS = frozenset(
     }
 )
 _UNRESOLVED_STATES = frozenset({"dropped", "missing", "unverifiable", "unsupported"})
+_DECLARED_ASPECT_KINDS = frozenset({"control_frame", "datum_ref", "finish", "note"})
 _MIN_VIEW_AREA_MM2 = 100.0
 
 
@@ -77,14 +78,38 @@ def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
     return gaps
 
 
+def _declared_aspect_gaps(drawing, model) -> list[dict[str, object]]:
+    """Match each authored aspect to live ink by exact declaration provenance."""
+
+    aspects = [
+        (index, feature)
+        for index, feature in enumerate(model.features)
+        if getattr(feature, "kind", None) in _DECLARED_ASPECT_KINDS
+    ]
+    if not aspects:
+        return []
+    registry = getattr(drawing, "registry", None)
+    names = getattr(registry, "names", None)
+    declaration_of = getattr(registry, "declaration_of", None)
+    if not callable(names) or not callable(declaration_of):
+        return [{"reason": "declaration_provenance_unavailable"}]
+    represented = {id(declaration_of(name)) for name in names()}
+    return [
+        {"feature_index": index, "kind": feature.kind, "reason": "representation_missing"}
+        for index, feature in aspects
+        if id(feature) not in represented
+    ]
+
+
 def candidate_safety_evidence(drawing) -> dict[str, object]:
     """Observe finished candidate risks without comparing it to a baseline.
 
     The report supplies recognition/declared obligations and independent lint;
     the live drawing supplies settled page, scale, and view geometry. Missing
     evidence is a failed check, never an empty successful inventory. This first
-    slice is observational until authored and generated-script parity and leader
-    legibility are checked; it must not be used to admit a production candidate.
+    slice is observational: declared GD&T provenance is checked, but other
+    non-dimensional and generated-script parity, plus leader legibility, remain
+    incomplete. It must not admit a production candidate.
     """
 
     checks: list[dict[str, object]] = []
@@ -136,6 +161,8 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
                 feature_count is not None and declared_count == feature_count,
                 {"expected": feature_count, "reported": declared_count},
             )
+            aspect_gaps = _declared_aspect_gaps(drawing, model) if model is not None else []
+            check("declared_aspects", model is not None and not aspect_gaps, aspect_gaps)
         else:
             check("report_schema", False, report.get("schema_version"))
 
@@ -186,11 +213,12 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 1,
+        "version": 2,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
-            "authored_non_dimension_parity_not_checked",
+            "authored_non_dimension_parity_incomplete",
+            "automatic_pmi_aspect_parity_not_checked",
             "generated_script_parity_not_checked",
             "leader_legibility_not_checked",
             "minimum_view_area_threshold_not_calibrated",

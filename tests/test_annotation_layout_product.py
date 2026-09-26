@@ -36,7 +36,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     assert decision["pre_render_choice"]["version"] == 1
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
-    assert decision["safety_evidence"]["version"] == 1
+    assert decision["safety_evidence"]["version"] == 2
     assert decision["safety_evidence"]["admission_ready"] is False
     assert decision["selected_trial"] == "iso-growth"
     assert (selected.page_w, selected.page_h, selected.scale) == (
