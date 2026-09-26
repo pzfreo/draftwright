@@ -49,6 +49,19 @@ class _Drawing:
         self.added.append((name, item))
 
 
+class _Trace:
+    def __init__(self):
+        self.passes = []
+
+    def begin_pass(self, **_kwargs):
+        record = {"placed": [], "rejected": []}
+        self.passes.append(record)
+        return record
+
+    def end_pass(self, _record):
+        pass
+
+
 def _dimension(pos):
     # The horizontal dimension stroke crosses the frame's natural glyph, not
     # its own distant label. Moving the frame outward leaves a permissible
@@ -79,6 +92,7 @@ def _solve(
     committed=(),
     outer_limit=50.0,
     dimension_priority=0.0,
+    trace=None,
 ):
     monkeypatch.setattr(_common, "strip_obstacles", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(_common, "pending_title_block_box", lambda _drawing: None)
@@ -103,6 +117,7 @@ def _solve(
             {"frame": lambda original: (_frame(original.pos + 8.0),)} if repair else {}
         ),
         require_clear_ink={"frame"} if required else (),
+        trace=trace,
     )
     return drawing, remaining
 
@@ -225,3 +240,24 @@ def test_force_pass_cannot_restore_dimension_displaced_by_frame_ink(monkeypatch)
 
     assert [name for name, _item in drawing.added] == ["frame"]
     assert dropped == ["dimension"]
+
+
+def test_ink_trace_records_repair_displacement_and_rejection(monkeypatch):
+    repaired = _Trace()
+    _solve(monkeypatch, repair=True, trace=repaired)
+    assert repaired.passes[0]["ink_repaired"] == ["frame"]
+
+    displaced = _Trace()
+    _solve(monkeypatch, repair=False, trace=displaced)
+    assert displaced.passes[0]["ink_displaced"] == ["dimension"]
+    assert [item["name"] for item in displaced.passes[0]["placed"]] == ["frame"]
+
+    rejected = _Trace()
+    _solve(
+        monkeypatch,
+        repair=False,
+        dimension_priority=_common.PRIORITY.MANDATORY,
+        trace=rejected,
+    )
+    assert rejected.passes[0]["ink_rejected"] == ["frame"]
+    assert [item["name"] for item in rejected.passes[0]["placed"]] == ["dimension"]
