@@ -1773,7 +1773,9 @@ def _place_pitch_dim(
         page_box = _analysis_margins(a).bounds(a.PAGE_W, a.PAGE_H)
         obstacles = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         candidate = _clear_and_validate(off, side_vec, page_box, obstacles, dim)
-        if not annotation_ink_clear(dwg, candidate, view=view):
+        # View ownership is provenance, not a page-space ink boundary: an
+        # outboard annotation from another view may cross this pitch witness.
+        if not annotation_ink_clear(dwg, candidate):
             return False
         ctx.place(
             candidate,
@@ -3355,7 +3357,9 @@ def _place_queue(
             continue
         y = final_y[tid]
         leader, tip, elbow = _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, a.SCALE)
-        if not annotation_text_ink_clear(dwg, leader, view=view):
+        # Check the whole settled sheet; a foreign-view witness can enter this
+        # column and the Policy-B fallback below must not cross its text.
+        if not annotation_text_ink_clear(dwg, leader):
             text_dropped.append(s)
         elif _leader_hits(leader, tip, elbow, side, occupied, draft):
             crossing.append((s, y, leader))
