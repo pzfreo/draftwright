@@ -1924,7 +1924,7 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
     return True
 
 
-def annotation_text_ink_clear(dwg, candidate, *, view=None) -> bool:
+def annotation_text_ink_clear(dwg, candidate) -> bool:
     """Protect labels in both directions without treating every shaft crossing as text damage.
 
     The immediate dense-hole callout path retains its Policy-B shaft fallback, but
@@ -1938,10 +1938,7 @@ def annotation_text_ink_clear(dwg, candidate, *, view=None) -> bool:
         segments = segments_of(candidate)
     except Exception:  # noqa: BLE001 — unreadable candidate ink cannot prove text clear
         return False
-    for name, annotation in dwg.iter_annotations():
-        owner = dwg.view_of(name)
-        if view is not None and owner is not None and owner != view:
-            continue
+    for _name, annotation in dwg.iter_annotations():
         try:
             fixed_label = getattr(annotation, "label_bbox", None)
             fixed_segments = segments_of(annotation)
