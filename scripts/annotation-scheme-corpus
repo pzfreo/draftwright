@@ -125,7 +125,9 @@ def _aggregate_preview(results: list[dict]) -> dict:
                     observed(baseline_cost, "process_seconds")
                 ),
                 "candidate_build_seconds": distribution(observed(candidate_cost, "build_seconds")),
+                "baseline_build_seconds": distribution(observed(baseline_cost, "build_seconds")),
                 "candidate_peak_rss_mib": distribution(observed(candidate_cost, "peak_rss_mib")),
+                "baseline_peak_rss_mib": distribution(observed(baseline_cost, "peak_rss_mib")),
                 "fallback_rate": None,
                 "fallback_reason": "candidate-preview does not perform automatic fallback",
             },
