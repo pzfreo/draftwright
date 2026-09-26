@@ -102,7 +102,9 @@ class TestComposeViewBlocks:
         )
 
         fv, pv = blocks["front"], blocks["plan"]
-        block_stack_h = fv.bottom + 2 * fv.hh + fv.top + pv.bottom + 2 * pv.hh + pv.top
+        block_stack_h = (
+            fv.bottom + 2 * fv.hh + fv.top + g.vertical_gutter + pv.bottom + 2 * pv.hh + pv.top
+        )
         expected_y_offset = max(0.0, (page_h - 2 * _MARGIN - block_stack_h) / 2)
         actual_y_offset = g.FV_Y - _MARGIN - fv.bottom - fv.hh
 
@@ -110,7 +112,11 @@ class TestComposeViewBlocks:
 
     def test_estimator_vertical_stack_centres_ballooned_plan_block(self):
         from draftwright._core import _MARGIN
-        from draftwright.compose import StripDepths, _compose_view_blocks, _layout_geometry
+        from draftwright.compose import (
+            StripDepths,
+            _compose_view_blocks,
+            _layout_geometry,
+        )
 
         page_h = 297.0
         strips = StripDepths(right=10.0, left=12.0, top=20.0, pv_halo=30.0)
@@ -129,9 +135,73 @@ class TestComposeViewBlocks:
         )
 
         fv, pv = blocks["front"], blocks["plan"]
-        block_stack_h = fv.bottom + 2 * fv.hh + fv.top + pv.bottom + 2 * pv.hh + pv.top
+        block_stack_h = (
+            fv.bottom + 2 * fv.hh + fv.top + g.vertical_gutter + pv.bottom + 2 * pv.hh + pv.top
+        )
         expected_y_offset = max(0.0, (page_h - 2 * _MARGIN - block_stack_h) / 2)
         actual_y_offset = g.FV_Y - _MARGIN - fv.bottom - fv.hh
 
         assert pv.bottom > 20.0
         assert actual_y_offset == pytest.approx(expected_y_offset)
+
+
+@pytest.mark.parametrize("convention", ["first", "third"])
+def test_principal_views_keep_blank_gutters_outside_measured_annotation_bands(convention):
+    from draftwright.compose import (
+        _VIEW_GUTTER,
+        _VIEW_GUTTER_PREFERRED,
+        ViewBlock,
+        _build_zones,
+        _layout_geometry,
+    )
+
+    blocks = {
+        "front": ViewBlock(25, 6, top=21, right=24, bottom=27, left=30),
+        "plan": ViewBlock(25, 17.5, top=33, right=36, bottom=39, left=42),
+        "side": ViewBlock(17.5, 6, top=45, right=48, bottom=51, left=54),
+    }
+    g = _layout_geometry(
+        50,
+        35,
+        12,
+        1,
+        594,
+        420,
+        150,
+        None,
+        blocks=blocks,
+        convention=convention,
+    )
+    assert g.fits
+    assert _VIEW_GUTTER <= g.vertical_gutter <= _VIEW_GUTTER_PREFERRED
+    assert _VIEW_GUTTER <= g.side_gutter <= _VIEW_GUTTER_PREFERRED
+    front = blocks["front"].footprint(g.FV_X, g.FV_Y)
+    plan = blocks["plan"].footprint(g.PV_X, g.PV_Y)
+    side = blocks["side"].footprint(g.SV_X, g.SV_Y)
+    fv_zones, pv_zones, _ = _build_zones(g, 10.0, 420.0)
+
+    if convention == "third":
+        assert plan[1] - front[3] == pytest.approx(g.vertical_gutter)
+        assert side[0] - max(front[2], plan[2]) == pytest.approx(g.side_gutter)
+        assert fv_zones.above.outer_limit == pytest.approx(front[3])
+        assert pv_zones.below.outer_limit == pytest.approx(plan[1])
+        assert fv_zones.right.outer_limit == pytest.approx(max(front[2], plan[2]))
+        assert pv_zones.right.outer_limit == pytest.approx(max(front[2], plan[2]))
+    else:
+        assert front[1] - plan[3] == pytest.approx(g.vertical_gutter)
+        assert min(front[0], plan[0]) - side[2] == pytest.approx(g.side_gutter)
+        assert fv_zones.below.outer_limit == pytest.approx(front[1])
+        assert pv_zones.above.outer_limit == pytest.approx(plan[3])
+
+
+def test_optional_gutter_uses_slack_without_losing_title_block_clearance():
+    from draftwright.compose import _VIEW_GUTTER, _VIEW_GUTTER_PREFERRED, _layout_geometry
+
+    small = _layout_geometry(90, 60, 20, 1, 297, 210, 120, None, 0, arrangement="stacked-iso")
+    roomy = _layout_geometry(90, 60, 20, 1, 594, 420, 150, None, 0, arrangement="stacked-iso")
+
+    assert small.auto_fits
+    assert small.auto_clears_tb
+    assert _VIEW_GUTTER <= small.vertical_gutter < _VIEW_GUTTER_PREFERRED
+    assert roomy.vertical_gutter == pytest.approx(_VIEW_GUTTER_PREFERRED)
+    assert roomy.side_gutter == pytest.approx(_VIEW_GUTTER_PREFERRED)

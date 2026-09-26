@@ -86,6 +86,11 @@ from draftwright.view_plan import (
 
 _log = logging.getLogger(__name__)
 
+# Empty paper between the *reserved annotation footprints* of neighbouring
+# principal views.  A strip is allowed to use its own band, not this gutter.
+_VIEW_GUTTER = 6.0
+_VIEW_GUTTER_PREFERRED = 12.0
+
 
 def _est_right_strip_depth(n_steps: int, n_extra: int = 0) -> float:
     """Depth needed to the right of the front view.
@@ -1612,12 +1617,11 @@ def _layout_geometry(
         fv, pv, sv, rv = est_fv, est_pv, est_sv, est_rv
     # Per-side corridor depths from the (possibly measured) blocks. The front and
     # plan views stack vertically (same X, different Y) so they SHARE the left and
-    # right corridors — the deeper of the two facing bands. The side view ABUTS
-    # the column, so its gap is that column band PLUS its own facing band (sum) —
-    # disjoint by construction (#121). Byte-identical for the estimator path,
-    # where fv/pv bands are equal and sv.left == 0.
+    # right corridors — the deeper of the two facing bands. The side view faces
+    # the column, so its gap is that column band PLUS its own facing band (sum).
+    # Keep an additional blank gutter outside those bands on both axes.
     # ADR 2 (was 0018): which principal views this sheet actually carries. `views=None` is the
-    # third-angle three, so every existing caller is byte-identical. The column is the
+    # third-angle three. The column is the
     # stacked front/plan pair — it exists while EITHER is planned, and is x-wide either way,
     # since both project the x extent across the page (`view_plan.VIEW_AXES`).
     has_front = views is None or "front" in views
@@ -1625,10 +1629,62 @@ def _layout_geometry(
     has_side = views is None or "side" in views
     has_rear = views is not None and "rear" in views
     has_column = has_front or has_plan
+    vertical_gutter = _VIEW_GUTTER if has_front and has_plan else 0.0
+    side_gutter = _VIEW_GUTTER if has_column and has_side else 0.0
     _present = [b for b, present in ((fv, has_front), (pv, has_plan)) if present]
 
     col_left = max((b.left for b in _present), default=0.0)
     col_right = max((b.right for b in _present), default=0.0)
+
+    # Spend spare page room on calmer view separation, but keep the six-mm
+    # safety floor when the sheet is crowded.  This happens before both the
+    # estimator and measured layout paths, so scale selection sees the same
+    # policy as final placement.  The preferred gap never demands a larger page.
+    if has_front and has_plan:
+        stack_without_gutter = fv.bottom + 2 * fv.hh + fv.top + pv.bottom + 2 * pv.hh + pv.top
+        vertical_slack = page_h - top - bottom - stack_without_gutter - vertical_gutter
+        extra_vertical = min(
+            _VIEW_GUTTER_PREFERRED - _VIEW_GUTTER,
+            max(0.0, vertical_slack - 2.0),
+        )
+        # The title block occupies the bottom-right column unless the whole
+        # orthographic row clears its top.  Even a few millimetres of optional
+        # vertical spacing can flip that decision and force a larger sheet.
+        # Preserve the minimum-gutter verdict; only consume slack above it.
+        min_column_h = stack_without_gutter + vertical_gutter
+        side_h = sv.bottom + 2 * sv.hh + sv.top if has_side else 0.0
+        min_y_offset = max(0.0, (page_h - top - bottom - max(min_column_h, side_h)) / 2)
+        title_top = (bottom if title_block_margins is None else tb_bottom) + _TB_H
+        if min_y_offset + bottom + DIM_PAD >= title_top:
+            max_column_h = page_h - top - bottom - 2 * (title_top - bottom - DIM_PAD)
+            extra_vertical = min(extra_vertical, max(0.0, max_column_h - min_column_h))
+        vertical_gutter += extra_vertical
+    if has_column and has_side:
+        iso_budget = (
+            bbox_max
+            * scale
+            * (
+                math.sqrt(2.0) * iso_scale_factor
+                if iso_scale_factor is not None
+                else _ISO_WIDTH_BUDGET
+            )
+            if include_iso and arrangement != "stacked-iso"
+            else 0.0
+        )
+        row_without_gutter = (
+            col_left
+            + x_size * scale
+            + col_right
+            + sv.left
+            + y_size * scale
+            + max(2 * DIM_PAD, sv.right + DIM_PAD)
+            + iso_budget
+        )
+        horizontal_slack = page_w - left - right - tb_w - row_without_gutter - side_gutter
+        side_gutter += min(
+            _VIEW_GUTTER_PREFERRED - _VIEW_GUTTER,
+            max(0.0, horizontal_slack - 2.0),
+        )
 
     if convention not in {"first", "third"}:
         raise ValueError(f"unknown projection convention {convention!r}")
@@ -1641,14 +1697,14 @@ def _layout_geometry(
     # Relative projection origins come from the convention and the facing annotation
     # bands. Pack these complete blocks before building geometry; never move rendered views.
     relative_plan_y = (
-        -(fv.hh + fv.bottom + pv.top + pv.hh)
+        -(fv.hh + fv.bottom + vertical_gutter + pv.top + pv.hh)
         if first_angle
-        else fv.hh + fv.top + pv.bottom + pv.hh
+        else fv.hh + fv.top + vertical_gutter + pv.bottom + pv.hh
     )
     relative_side_x = (
-        -(fv.hw + col_left + sv.right + sv.hw)
+        -(fv.hw + col_left + side_gutter + sv.right + sv.hw)
         if first_angle
-        else fv.hw + col_right + sv.left + sv.hw
+        else fv.hw + col_right + side_gutter + sv.left + sv.hw
     )
     principal_origins = {
         "front": (0.0, 0.0),
@@ -1679,11 +1735,11 @@ def _layout_geometry(
         if present
     ]
 
-    # FV↔PV vertical gap = fv.top + pv.bottom (abutting → sum). Estimated and
+    # FV↔PV vertical gap = fv.top + blank gutter + pv.bottom. Estimated and
     # measured paths now use the same block footprint semantics: if the plan
     # view carries a bottom halo, that band is part of the stacked block layout
     # rather than a special-case lift outside the ViewBlock model (#112).
-    base_gap = fv.top + pv.bottom
+    base_gap = fv.top + vertical_gutter + pv.bottom
     # Reserving space for a view the sheet does not carry is what made dropping one cost
     # nothing — the drawing lost a view and stayed on the same paper, the opposite of the
     # point. Every term below is conditioned on the view being present, not just the plan:
@@ -1718,6 +1774,8 @@ def _layout_geometry(
         + col_right
         + (x_size * scale if has_column else 0.0)
         + (y_size * scale if has_side else 0.0)
+        + (sv.left if has_side and has_column else 0.0)
+        + side_gutter
         + max(2 * DIM_PAD, (sv.right + DIM_PAD) if has_side else 0.0, section_right_band)
     )
     if composed_origins:
@@ -1816,12 +1874,10 @@ def _layout_geometry(
     FV_X = left + x_offset + col_left + fv.hw
     FV_Y = y_offset + bottom + fv.bottom + fv.hh
     PV_X = FV_X
-    # PV abuts the front-view block: gap = front top band + plan bottom band.
-    PV_Y = FV_Y + fv.hh + (fv.top + pv.bottom) + pv.hh
-    # SV abuts the FV/PV column: gap = column right band + SV's own left band
-    # (disjoint sum). Byte-identical to the old max(fv.right, sv.left) on the
-    # estimator path (fv.right == pv.right == col_right, sv.left == 0).
-    SV_X = FV_X + fv.hw + col_right + sv.left + sv.hw
+    # PV follows the front-view block after both bands and the blank gutter.
+    PV_Y = FV_Y + fv.hh + (fv.top + vertical_gutter + pv.bottom) + pv.hh
+    # SV follows the FV/PV column after both bands and the blank gutter.
+    SV_X = FV_X + fv.hw + col_right + side_gutter + sv.left + sv.hw
     SV_Y = FV_Y
     if composed_origins:
         origin_x = left + x_offset - min(b[0] for b in principal_boxes)
@@ -2017,6 +2073,12 @@ def _layout_geometry(
         ),
         outer_right_wall=outer_right_wall,
         front_plan_wall=FV_Y - fv.hh - fv.bottom,
+        plan_front_wall=PV_Y + pv.hh + pv.top,
+        front_plan_above_wall=FV_Y + fv.hh + fv.top,
+        plan_front_below_wall=PV_Y - pv.hh - pv.bottom,
+        front_side_wall=FV_X + fv.hw + col_right,
+        vertical_gutter=vertical_gutter,
+        side_gutter=side_gutter,
         x_offset=x_offset,
         fv_hw=fv_hw,
         fv_hh=fv_hh,
@@ -2093,10 +2155,9 @@ def _build_zones(g, margin, page_h):
     pv_right_edge = PV_X + fv_hw  # plan has the same X half-width as front
     pv_left_edge = PV_X - fv_hw
     pv_top_edge = PV_Y + pv_hh
-    pv_bottom_edge = PV_Y - pv_hh  # = fv_top_edge + DIM_PAD
+    pv_bottom_edge = PV_Y - pv_hh
     sv_top_edge = SV_Y + fv_hh  # side view has the same Z height as front
-    # Outer limit for fv/pv right strips: must not enter the side view.
-    sv_left_edge = SV_X - sv_hw  # = fv_right_edge + gap_fv_sv
+    # Facing strips stop at their own footprints; the inter-view gutter stays blank.
 
     if getattr(g, "convention", "third") == "first":
         has_front = "front" in g.planned_views
@@ -2115,7 +2176,9 @@ def _build_zones(g, margin, page_h):
             right=Strip(pv_right_edge, g.outer_right_wall, direction=1),
             left=Strip(pv_left_edge, column_left_wall, direction=-1),
             above=Strip(
-                pv_top_edge, g.front_plan_wall if has_front else page_h - margins.top, direction=1
+                pv_top_edge,
+                g.plan_front_wall if has_front else page_h - margins.top,
+                direction=1,
             ),
             below=Strip(pv_bottom_edge, margins.bottom, direction=-1),
         )
@@ -2128,12 +2191,17 @@ def _build_zones(g, margin, page_h):
         return fv_zones, pv_zones, sv_zones
 
     fv_zones = ViewZones(
-        right=Strip(fv_right_edge, sv_left_edge, direction=1),
+        right=Strip(
+            fv_right_edge,
+            g.front_side_wall if "side" in g.planned_views else g.outer_right_wall,
+            direction=1,
+        ),
         left=Strip(fv_left_edge, margins.left, direction=-1),
-        # Stop the front-view 'above' strip short of pv_bottom_edge by the
-        # slack the pv_below slot leaves in the gap, derived (not re-typed) so
-        # it tracks _DIM_PAD and the slot constants.
-        above=Strip(fv_top_edge, pv_bottom_edge - (_DIM_PAD - _est_pv_below_depth()), direction=1),
+        above=Strip(
+            fv_top_edge,
+            g.front_plan_above_wall if "plan" in g.planned_views else page_h - margins.top,
+            direction=1,
+        ),
         below=Strip(fv_bottom_edge, margins.bottom, direction=-1),
     )
     pv_zones = ViewZones(
@@ -2142,12 +2210,18 @@ def _build_zones(g, margin, page_h):
         # preventing labels from crossing m_locy extension lines in the side
         # view.  gap_fv_sv is sized by _measure_strips to accommodate the widest
         # callout, so well-estimated labels will always fit within this bound.
-        right=Strip(pv_right_edge, sv_left_edge, direction=1),
+        right=Strip(
+            pv_right_edge,
+            g.front_side_wall if "side" in g.planned_views else g.outer_right_wall,
+            direction=1,
+        ),
         left=Strip(pv_left_edge, margins.left, direction=-1),
         above=Strip(pv_top_edge, page_h - margins.top, direction=1),
-        # gap_fv_pv = _DIM_PAD; pv_below needs _est_pv_below_depth() mm,
-        # leaving (_DIM_PAD - _est_pv_below_depth()) mm slack (assert above).
-        below=Strip(pv_bottom_edge, fv_top_edge, direction=-1),
+        below=Strip(
+            pv_bottom_edge,
+            g.plan_front_below_wall if "front" in g.planned_views else margins.bottom,
+            direction=-1,
+        ),
     )
     sv_bottom_edge = SV_Y - fv_hh  # same as fv_bottom_edge; side and front share Z height
     sv_zones = ViewZones(
