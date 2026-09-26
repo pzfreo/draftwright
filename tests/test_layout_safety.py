@@ -52,21 +52,40 @@ class DrawingStub:
 
 
 def _raw_report(*, requirements=(), total=0, issues=(), occurrences=None):
-    if occurrences is None:
-        occurrences = [
-            {
-                "id": f"hole:{index + 1}",
-                "disposition": "represented",
-                "requirements": {"coverage": "ledger", "ids": [f"requirement:{index + 1}"]},
+    ledger = []
+    for index, requirement in enumerate(requirements):
+        if isinstance(requirement, dict):
+            requirement = {
+                "id": f"requirement:{index + 1}",
+                "occurrence_ids": [f"hole:{index + 1}"] if index < total else [],
+                **requirement,
             }
-            for index in range(total)
-        ]
+        ledger.append(requirement)
+    if occurrences is None:
+        occurrences = []
+        for index in range(total):
+            occurrence_id = f"hole:{index + 1}"
+            linked = [
+                row["id"]
+                for row in ledger
+                if isinstance(row, dict) and occurrence_id in row["occurrence_ids"]
+            ]
+            occurrences.append(
+                {
+                    "id": occurrence_id,
+                    "disposition": "represented",
+                    "requirements": {
+                        "coverage": "ledger" if linked else "not-applicable",
+                        "ids": linked,
+                    },
+                }
+            )
     return {
         "schema_version": 3,
         "recognition": {
             "summary": {"total": total, "unexpectedly_missing": 0},
             "occurrences": occurrences,
-            "requirements": list(requirements),
+            "requirements": ledger,
         },
         "lint": {
             "issues": list(issues),
@@ -194,6 +213,62 @@ def test_absorbed_occurrence_with_a_requirement_ledger_is_not_adverse():
     verdict = candidate_safety_evidence(DrawingStub(report))
 
     assert "recognized_occurrences" not in verdict["failed_checks"]
+
+
+def test_occurrence_with_unknown_requirement_id_fails_even_when_aggregate_is_placed():
+    report = _raw_report(
+        total=1,
+        requirements=({"id": "requirement:1", "state": "placed", "occurrence_ids": ["hole:1"]},),
+    )
+    report["recognition"]["occurrences"][0]["requirements"]["ids"] = ["requirement:missing"]
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "required_outcomes" not in verdict["failed_checks"]
+    assert "recognized_occurrences" in verdict["failed_checks"]
+
+
+def test_occurrence_link_requires_a_unique_bidirectional_requirement():
+    report = _raw_report(total=1, requirements=({"state": "placed"},))
+    requirement = report["recognition"]["requirements"][0]
+    requirement["occurrence_ids"] = []
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
+    requirement["occurrence_ids"] = ["hole:1"]
+    report["recognition"]["requirements"].append(dict(requirement))
+    verdict = candidate_safety_evidence(DrawingStub(report))
+    assert "recognized_occurrences" in verdict["failed_checks"]
+    assert any(
+        item["detail"]
+        and any(gap.get("reason") == "duplicate_requirement_id" for gap in item["detail"])
+        for item in verdict["checks"]
+        if item["name"] == "recognized_occurrences"
+    )
+
+
+def test_occurrence_link_requires_a_requirement_ledger_inventory():
+    report = _raw_report(total=1, requirements=({"state": "placed"},))
+    report["recognition"]["requirements"] = None
+
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
+
+
+@pytest.mark.parametrize("identities", [[None], ["hole:1", "hole:1"]])
+def test_occurrence_link_requires_unique_nonempty_occurrence_ids(identities):
+    report = _raw_report(
+        total=len(identities),
+        requirements=({"state": "placed", "occurrence_ids": ["hole:1"]},),
+    )
+    for occurrence, identity in zip(report["recognition"]["occurrences"], identities):
+        occurrence["id"] = identity
+
+    assert (
+        "recognized_occurrences" in candidate_safety_evidence(DrawingStub(report))["failed_checks"]
+    )
 
 
 def test_accepted_geometry_without_model_or_requirements_is_not_clean():

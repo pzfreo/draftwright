@@ -37,8 +37,9 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     assert decision["pre_render_choice"]["version"] == 4
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
-    assert decision["safety_evidence"]["version"] == 7
+    assert decision["safety_evidence"]["version"] == 8
     assert decision["safety_evidence"]["admission_ready"] is False
+    assert "recognized_occurrences" not in decision["safety_evidence"]["failed_checks"]
     assert decision["selected_trial"] == "iso-growth"
     assert (selected.page_w, selected.page_h, selected.scale) == (
         baseline.page_w,
@@ -74,8 +75,9 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
     assert decision["policy"] == "candidate-preview"
     assert decision["status"] == "candidate_preview"
     assert decision["admission_ready"] is False
-    assert decision["safety_evidence"]["version"] == 7
+    assert decision["safety_evidence"]["version"] == 8
     assert decision["safety_evidence"]["admission_ready"] is False
+    assert "recognized_occurrences" not in decision["safety_evidence"]["failed_checks"]
     assert decision["fallback_decision"] == "not_evaluated_preview"
     assert decision["pre_render_choice"]["profile"] == "iso-growth"
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)

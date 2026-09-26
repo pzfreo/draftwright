@@ -191,6 +191,18 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
     if not isinstance(occurrences, list):
         return [{"reason": "occurrence_inventory_unavailable"}]
     gaps: list[dict[str, object]] = []
+    requirements = recognition.get("requirements")
+    if not isinstance(requirements, list):
+        return [{"reason": "requirement_ledger_unavailable"}]
+    ledger: dict[str, dict] = {}
+    for index, requirement in enumerate(requirements):
+        requirement_id = requirement.get("id") if isinstance(requirement, dict) else None
+        if not isinstance(requirement_id, str) or not requirement_id:
+            gaps.append({"index": index, "reason": "invalid_requirement_id"})
+        elif requirement_id in ledger:
+            gaps.append({"requirement": requirement_id, "reason": "duplicate_requirement_id"})
+        else:
+            ledger[requirement_id] = requirement
     if len(occurrences) != expected:
         gaps.append(
             {
@@ -199,11 +211,18 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
                 "observed": len(occurrences),
             }
         )
+    seen_occurrences: set[str] = set()
     for index, occurrence in enumerate(occurrences):
         if not isinstance(occurrence, dict):
             gaps.append({"index": index, "reason": "invalid_occurrence"})
             continue
-        occurrence_id = occurrence.get("id", f"occurrence[{index}]")
+        occurrence_id = occurrence.get("id")
+        if not isinstance(occurrence_id, str) or not occurrence_id:
+            gaps.append({"index": index, "reason": "invalid_occurrence_id"})
+            occurrence_id = f"occurrence[{index}]"
+        elif occurrence_id in seen_occurrences:
+            gaps.append({"occurrence": occurrence_id, "reason": "duplicate_occurrence_id"})
+        seen_occurrences.add(occurrence_id)
         disposition = occurrence.get("disposition")
         if (
             not isinstance(disposition, str)
@@ -223,6 +242,7 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
             not isinstance(coverage, str)
             or coverage not in _SATISFIED_OCCURRENCE_COVERAGE
             or (coverage == "ledger" and (not isinstance(ids, list) or not ids))
+            or (coverage == "not-applicable" and ids != [])
         ):
             gaps.append(
                 {
@@ -231,6 +251,25 @@ def _recognition_occurrence_gaps(recognition: dict, expected: int) -> list[dict[
                     "coverage": coverage,
                 }
             )
+        if coverage == "ledger" and isinstance(ids, list):
+            for requirement_id in ids:
+                requirement = (
+                    ledger.get(requirement_id) if isinstance(requirement_id, str) else None
+                )
+                sources = requirement.get("occurrence_ids") if requirement is not None else None
+                if (
+                    not isinstance(requirement_id, str)
+                    or not requirement_id
+                    or not isinstance(sources, list)
+                    or occurrence_id not in sources
+                ):
+                    gaps.append(
+                        {
+                            "occurrence": occurrence_id,
+                            "requirement": requirement_id,
+                            "reason": "requirement_link_missing",
+                        }
+                    )
     return gaps
 
 
@@ -268,11 +307,16 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
         if report.get("schema_version") == 3:
             recognition = report.get("recognition", {})
             summary = recognition.get("summary", {})
-            requirements = recognition.get("requirements", ())
+            requirements = recognition.get("requirements")
+            requirement_rows = requirements if isinstance(requirements, list) else []
             # Fail closed on suppressed or unfamiliar states as well as the
             # known unresolved outcomes. The report schema may grow without
             # this safety gate silently admitting a new requirement state.
-            states = map(_raw_requirement_state, requirements)
+            states = (
+                map(_raw_requirement_state, requirement_rows)
+                if isinstance(requirements, list)
+                else ("<invalid>",)
+            )
             unresolved = Counter(
                 state for state in states if state not in _SATISFIED_RAW_REQUIREMENT_STATES
             )
@@ -287,8 +331,12 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
                 total > 0
                 and feature_count is not None
                 and feature_count > 0
-                and bool(requirements),
-                {"accepted": total, "features": feature_count, "requirements": len(requirements)},
+                and bool(requirement_rows),
+                {
+                    "accepted": total,
+                    "features": feature_count,
+                    "requirements": len(requirement_rows),
+                },
             )
         elif report.get("schema_version") == 8:
             declarations = report.get("declarations", {})
@@ -365,7 +413,7 @@ def candidate_safety_evidence(drawing) -> dict[str, object]:
 
     failed = [item["name"] for item in checks if not item["passed"]]
     return {
-        "version": 7,
+        "version": 8,
         "checks_passed": not failed,
         "admission_ready": False,
         "limitations": [
