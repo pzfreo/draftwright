@@ -1510,22 +1510,26 @@ def _coalesce_aligned_linear_pitch_dims(dwg, a: Analysis, *, ctx) -> None:
         view = ctx.registry.view_of(name)
         if view is None or annotation.label_bbox is None:
             continue
-        p1 = layout_frame(a).project(view, members[0])
-        p2 = layout_frame(a).project(view, members[-1])
+        projected = [layout_frame(a).project(view, member) for member in members]
+        p1, p2 = projected[0], projected[-1]
         dx, dy = p2[0] - p1[0], p2[1] - p1[1]
         if abs(dx) < 1e-6 and abs(dy) > 1e-6:
+            if any(abs(point[0] - p1[0]) > 1e-3 for point in projected):
+                continue
             axis = "vertical"
-            stations = (min(p1[1], p2[1]), max(p1[1], p2[1]))
+            stations = tuple(sorted(round(point[1], 3) for point in projected))
             transverse = p1[0]
             label_transverse = (annotation.label_bbox[0] + annotation.label_bbox[2]) / 2
         elif abs(dy) < 1e-6 and abs(dx) > 1e-6:
+            if any(abs(point[1] - p1[1]) > 1e-3 for point in projected):
+                continue
             axis = "horizontal"
-            stations = (min(p1[0], p2[0]), max(p1[0], p2[0]))
+            stations = tuple(sorted(round(point[0], 3) for point in projected))
             transverse = p1[1]
             label_transverse = (annotation.label_bbox[1] + annotation.label_bbox[3]) / 2
         else:
             continue  # rotated rows need their own explicit witness geometry
-        key = (view, axis, *(round(value, 3) for value in stations), annotation.label)
+        key = (view, axis, stations, annotation.label)
         groups.setdefault(key, []).append((name, annotation, abs(label_transverse - transverse)))
 
     for rows in groups.values():
