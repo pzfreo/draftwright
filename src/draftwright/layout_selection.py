@@ -8,8 +8,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from draftwright.annotation_layout_profile import (
-    DEFAULT_CAPPED_ROUTES,
     AnnotationLayoutProfile,
+    candidate_profile,
 )
 
 if TYPE_CHECKING:
@@ -285,22 +285,6 @@ def _compare(baseline: dict, candidate: dict) -> dict:
     }
 
 
-def _candidate_profile(name: str, scale: float) -> AnnotationLayoutProfile:
-    if name == "iso-growth":
-        return AnnotationLayoutProfile(iso_growth=True)
-    return AnnotationLayoutProfile(
-        arrangement="columns" if name == "columns" else "staggered-side",
-        corridor_scale=scale if name == "planned" else None,
-        capped_routes=DEFAULT_CAPPED_ROUTES if name == "planned" else frozenset(),
-        exterior_dimensions=name != "columns",
-        crossing_recovery=True,
-        plan_x_below=True,
-        lateral_tier_reuse=True,
-        vacant_tier_compaction=name != "columns",
-        normal_feature_leaders=name != "columns",
-    )
-
-
 def select_best_annotation_layout(
     baseline: Drawing,
     build_candidate: Callable[[AnnotationLayoutProfile], Drawing],
@@ -329,7 +313,7 @@ def select_best_annotation_layout(
     trials: list[dict[str, object]] = []
     for name in names:
         try:
-            candidate = build_candidate(_candidate_profile(name, baseline.scale))
+            candidate = build_candidate(candidate_profile(name, baseline.scale))
         except Exception as error:
             trials.append({"name": name, "verdict": "build_failed", "error": str(error)})
             continue
