@@ -206,6 +206,96 @@ def test_recognized_occurrence_disposition_fails_independently(disposition):
     assert "recognized_occurrences" in verdict["failed_checks"]
 
 
+@pytest.mark.parametrize(
+    ("family", "reason"),
+    [
+        ("step_levels", "step_level_projection_evidence"),
+        ("risers", "riser_projection_evidence"),
+        ("repeating_radial_profiles", "geometry_only_critique"),
+    ],
+)
+def test_published_evidence_only_occurrence_has_no_independent_ink_obligation(family, reason):
+    report = _raw_report(total=2, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][1] = {
+        "id": "step_levels:1",
+        "family": family,
+        "disposition": "evidence_only",
+        "reason_code": reason,
+        "tracking": None,
+        "owners": [],
+        "requirements": {"coverage": "not-applicable", "ids": []},
+    }
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_occurrences" not in verdict["failed_checks"]
+    assert verdict["checks_passed"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("family", "unknown_family"),
+        ("reason_code", "unverified_reason"),
+        ("owners", ["invented_owner"]),
+        ("tracking", "unexpected_ticket"),
+        ("requirements", {"coverage": "ledger", "ids": ["requirement:1"]}),
+    ],
+)
+def test_evidence_only_occurrence_must_match_published_ownerless_policy(field, value):
+    report = _raw_report(total=2, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][1] = {
+        "id": "step_levels:1",
+        "family": "step_levels",
+        "disposition": "evidence_only",
+        "reason_code": "step_level_projection_evidence",
+        "tracking": None,
+        "owners": [],
+        "requirements": {"coverage": "not-applicable", "ids": []},
+        field: value,
+    }
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_occurrences" in verdict["failed_checks"]
+
+
+def test_evidence_only_occurrence_cannot_be_credited_by_a_requirement():
+    report = _raw_report(total=2, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][1] = {
+        "id": "step_levels:1",
+        "family": "step_levels",
+        "disposition": "evidence_only",
+        "reason_code": "step_level_projection_evidence",
+        "tracking": None,
+        "owners": [],
+        "requirements": {"coverage": "not-applicable", "ids": []},
+    }
+    report["recognition"]["requirements"][0]["occurrence_ids"].append("step_levels:1")
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_occurrences" in verdict["failed_checks"]
+
+
+def test_evidence_only_occurrence_requires_valid_requirement_links():
+    report = _raw_report(total=2, requirements=({"state": "placed"},))
+    report["recognition"]["occurrences"][1] = {
+        "id": "step_levels:1",
+        "family": "step_levels",
+        "disposition": "evidence_only",
+        "reason_code": "step_level_projection_evidence",
+        "tracking": None,
+        "owners": [],
+        "requirements": {"coverage": "not-applicable", "ids": []},
+    }
+    report["recognition"]["requirements"][0]["occurrence_ids"] = "step_levels:1"
+
+    verdict = candidate_safety_evidence(DrawingStub(report))
+
+    assert "recognized_occurrences" in verdict["failed_checks"]
+
+
 @pytest.mark.parametrize("coverage", ["not-projected", "deferred", "unavailable", None])
 def test_recognized_occurrence_coverage_fails_independently(coverage):
     report = _raw_report(total=1, requirements=({"state": "placed"},))
@@ -376,7 +466,7 @@ def test_unavailable_view_bounds_fail_closed(bounds):
 
     verdict = candidate_safety_evidence(drawing)
 
-    assert verdict["version"] == 11
+    assert verdict["version"] == 12
     assert "view_page_containment" in verdict["failed_checks"]
     assert "minimum_view_area" in verdict["failed_checks"]
     detail = next(
