@@ -86,15 +86,26 @@ checks.
    reasons as well as visual legibility. Reuse saved baseline evidence where the
    placement code has not changed; do not demand a perfect one-page CTC result.
 
-## Extra sheets are a separate document-model decision
+## Extra sheets reuse the explicit document boundary
 
-ADR 2 currently leaves multi-sheet output out of scope until a document model
-exists. An explicit sheet-count/page policy and drawing-set identity must be
-designed before a second sheet becomes a representation option. The document
-model must own sheet numbers, common revision/title data, cross-sheet references,
-and coverage across the set. Views, controlled annotations, datum references,
-tables, and notes move as coherent groups; a table cannot be orphaned from its
-feature tags. A caller-fixed one-sheet drawing remains one sheet and reports
-incompleteness if required content cannot fit. This requires an ADR amendment
-and its own tests before implementation; it is not a late overflow action in
-the one-sheet solver.
+`Document`/`DocumentResult` already provide explicitly authored sheets over one
+sealed physical inventory, one raw recognition acquisition, and a live
+cross-sheet requirement evaluation (`document.py`, `reporting.py`,
+`test_document_build.py`, `test_document_report.py`). This is a real document
+model and coverage authority, not something to recreate in the layout solver.
+It does **not** yet make automatic multi-sheet output a one-sheet overflow
+fallback: `Document.build()` compiles the caller's named `Sheet` members in
+sequence, while `DocumentResult` has report/write-report but no drawing-set
+export, sheet-number policy, common title/revision identity, or automatic
+assignment of dependent views and annotations.
+
+Before a second sheet becomes an automatic representation option, add an
+explicit sheet-count/page policy and a joint assignment plan above member
+`Sheet.build()` calls. The plan must keep views, controlled annotations, datum
+references, tables, notes, and their feature tags in coherent groups; use the
+existing cross-sheet requirement evaluation as the final authority. Numbered
+pages, common revision/title data, and cross-sheet references need one drawing-
+set identity and export contract. A caller-fixed one-sheet drawing stays one
+sheet and reports incompleteness if required content cannot fit. ADR 2 needs
+an amendment for this new automatic planner, with tests; it is not a late
+overflow action inside the one-sheet solver.
