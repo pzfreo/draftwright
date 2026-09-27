@@ -7,7 +7,7 @@ from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader, draft_preset
 
 from draftwright import Sheet
-from draftwright.annotations import from_model, leaders
+from draftwright.annotations import from_model, holes, leaders
 from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
@@ -956,6 +956,9 @@ def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render
     for x, y, z in members:
         solid -= Pos(x, y, z) * Cylinder(3, 8, align=align)
     monkeypatch.setattr(leaders, "_materialize", lambda _dwg, _job, _candidate: None)
+    # The sheet-level fallback is a second valid render path. Disable both so
+    # the test reaches the final drop/rollback transaction at every trial scale.
+    monkeypatch.setattr(holes, "_sheet_leader_fallback", lambda *_args, **_kwargs: None)
 
     drawing = _pattern_sheet(
         kind="bolt_circle",
