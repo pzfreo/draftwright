@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from draftwright import builder
+from draftwright.projection import _clear_iso_translation
 
 
 def test_planned_iso_grows_toward_sheet_scale_with_detail_as_obstacle(monkeypatch):
@@ -37,6 +38,7 @@ def test_planned_iso_grows_toward_sheet_scale_with_detail_as_obstacle(monkeypatc
     )
     monkeypatch.setattr(builder, "_iso_bbox", iso_bbox)
     monkeypatch.setattr(builder, "_largest_clear_factor", clear_factor)
+    monkeypatch.setattr(builder, "_clear_iso_translation", lambda *_args: None)
     monkeypatch.setattr(builder, "_project_iso", project)
 
     assert builder._settle_iso_view(drawing, analysis, obstacles=((11, 11, 12, 12),)) is None
@@ -48,3 +50,11 @@ def test_planned_iso_grows_toward_sheet_scale_with_detail_as_obstacle(monkeypatc
         (6.0, 6.0, 17.0, 17.0),  # annotation ink, with 5 mm clearance
         (7.0, 7.0, 21.0, 21.0),  # detail view, with the same clearance
     ]
+
+
+def test_measured_iso_footprint_moves_to_nearest_free_space():
+    box = (2.0, 2.0, 22.0, 22.0)
+    region = (0.0, 0.0, 50.0, 50.0)
+
+    assert _clear_iso_translation(box, region, [(0.0, 0.0, 50.0, 25.0)]) == (0.0, 23.0)
+    assert _clear_iso_translation(box, region, [region]) is None

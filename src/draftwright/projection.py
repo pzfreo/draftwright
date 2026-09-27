@@ -33,6 +33,7 @@ from OCP.gp import gp_Pnt
 from draftwright._core import (
     Analysis,
     _iso_bbox,
+    _largest_empty_rect,
 )
 from draftwright._geometry import (
     MaterialField,
@@ -505,6 +506,30 @@ def _largest_clear_factor(dwg, a, hi, obstacles, base_box, *, lo=1.0, region=Non
         else:
             hi = mid
     return float(lo)
+
+
+def _clear_iso_translation(box, region, obstacles) -> tuple[float, float] | None:
+    """Minimum shift within the largest measured free region for a projected iso.
+
+    The existing empty-rectangle search owns obstacle geometry. It is asked for
+    this view's *actual* projected aspect, not a square estimate; the result is
+    then verified against every obstacle before any view is moved.
+    """
+
+    width, height = box[2] - box[0], box[3] - box[1]
+    if not (width > 0 and height > 0):
+        return None
+    free = _largest_empty_rect(region, obstacles, target_size=(width, height), warn=False)
+    if free[2] - free[0] < width or free[3] - free[1] < height:
+        return None
+    left = min(max(box[0], free[0]), free[2] - width)
+    bottom = min(max(box[1], free[1]), free[3] - height)
+    shifted = (left, bottom, left + width, bottom + height)
+    if not _bbox_within(shifted, region) or any(
+        _boxes_overlap(shifted, obstacle) for obstacle in obstacles
+    ):
+        return None
+    return left - box[0], bottom - box[1]
 
 
 def _fit_iso_view(dwg, a: Analysis, obstacles=()):
