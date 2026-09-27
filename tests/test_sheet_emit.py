@@ -268,7 +268,9 @@ class TestEmit:
 
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
-        assert "sheet = Sheet(part, title='T', number='N', annotation_layout='demand-guided')" in src
+        assert (
+            "sheet = Sheet(part, title='T', number='N', annotation_layout='demand-guided')" in src
+        )
         assert "sheet.hole(diameter=8" in src  # the ⌀8 holes
         assert "sheet.envelope()" in src  # #976: the whole-part envelope emits the verb
         assert src.rstrip().endswith("drawing.export('drawing', formats=('pdf',))")
