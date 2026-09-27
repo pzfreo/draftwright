@@ -1447,9 +1447,13 @@ def test_chamfer_requirement_with_changed_source_bounds_fails_closed():
 @pytest.mark.slow
 def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
-    drawing = build_drawing(GRM03, pmi="annotate", annotation_layout="best")
+    drawing = build_drawing(GRM03, pmi="annotate")
 
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 1.0)
     assert {"front", "side", "detail_a"} <= set(drawing.views)
+    assert drawing.get_annotation("detail_caption_A").label == (
+        "DETAIL A — PARTIAL PROFILE — SCALE 10:1"
+    )
     assert drawing.scale_decision["status"] != "invalid"
 
     expected_manufacturing = {

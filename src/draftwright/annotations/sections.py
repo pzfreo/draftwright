@@ -699,6 +699,13 @@ def _render_detail(
             if detail_scale >= req.scale_needed:
                 break
         min_detail_scale = max(req.scale_needed, a.SCALE * 1.2 + 1e-6)
+        if req.kind == "turned-head" and 10.0 < min_detail_scale <= 15.0 and a.SCALE <= 5.0:
+            # Try a preferred absolute enlargement when its dimensions can be
+            # drawn at that scale; the original text-spacing estimate is a
+            # conservative target rather than a physical lower bound. More
+            # crowded heads retain their larger requested scale.
+            detail_scale = 10.0
+            min_detail_scale = 10.0
     if not math.isfinite(min_detail_scale):
         _log.info("Detail %s skipped (non-finite scale required)", letter)
         return False
@@ -758,6 +765,7 @@ def _render_detail(
     else:
         view_w, view_h = cb.max.X - cb.min.X, cb.max.Z - cb.min.Z
     cap_h = 8.0
+    caption_gap = min(a.DIM_PAD, 6.0) if req.kind == "turned-head" else a.DIM_PAD
 
     def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
         return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
@@ -765,7 +773,7 @@ def _render_detail(
     min_pad_right, min_pad_top = _pads(min_detail_scale)
     min_footprint = (
         view_w * min_detail_scale + min_pad_right,
-        view_h * min_detail_scale + min_pad_top + a.DIM_PAD + cap_h,
+        view_h * min_detail_scale + min_pad_top + caption_gap + cap_h,
     )
 
     # Placement: best empty rectangle for this footprint, avoiding placed views
@@ -796,7 +804,7 @@ def _render_detail(
 
     def _fits(s):
         pr, pt = _pads(s)
-        return view_w * s + pr <= rect_w and view_h * s + pt + a.DIM_PAD + cap_h <= rect_h
+        return view_w * s + pr <= rect_w and view_h * s + pt + caption_gap + cap_h <= rect_h
 
     # Fit continuously enough not to jump over a viable scale.  Subtracting a
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
@@ -811,7 +819,14 @@ def _render_detail(
     if not _fits(detail_scale) and detail_scale > min_detail_scale:
         detail_scale = min_detail_scale
     if detail_scale < min_detail_scale or not _fits(detail_scale):
-        _log.info("Detail %s skipped (no room)", letter)
+        _log.info(
+            "Detail %s skipped (no room: minimum footprint %.1f×%.1f mm; "
+            "largest available rectangle %.1f×%.1f mm)",
+            letter,
+            *min_footprint,
+            rect_w,
+            rect_h,
+        )
         return False
     pad_right, pad_top = _pads(detail_scale)
 
@@ -900,7 +915,9 @@ def _render_detail(
     dvb = dwg.views[view_name][0].bounding_box()
     ctx.place(
         Note(
-            f"DETAIL {letter} — SCALE {format_drawing_scale(detail_scale)}",
+            f"DETAIL {letter}"
+            + (" — PARTIAL PROFILE" if req.kind == "turned-head" else "")
+            + f" — SCALE {format_drawing_scale(detail_scale)}",
             ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
             dwg.draft,
         ),
