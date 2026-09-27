@@ -666,7 +666,14 @@ def test_ctc05_public_selector_preserves_routed_hole_claims_on_a2():
         annotation_layout="best",
     )
 
-    assert drawing.annotation_scheme_decision["status"] == "candidate"
+    decision = drawing.annotation_scheme_decision
+    # A candidate may improve the visual score while losing annotations.
+    # The selector must retain the baseline in that case; this contract is about the
+    # two routed hole claims, not about a particular trial winning forever.
+    assert decision["status"] in {"candidate", "retained_baseline"}
+    if decision["status"] == "retained_baseline":
+        assert decision["trials"]
+        assert all(trial["verdict"] != "candidate" for trial in decision["trials"])
     labels = [
         str(annotation.label)
         for name, annotation in drawing.iter_annotations()

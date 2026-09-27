@@ -1445,17 +1445,29 @@ def test_chamfer_requirement_with_changed_source_bounds_fails_closed():
 
 
 @pytest.mark.slow
-def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
+def test_exact_grm03_reports_source_owned_manufacturing_outcomes_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
 
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (594.0, 420.0, 2.0)
-    assert set(drawing.views) == {"front", "plan", "side", "iso", "detail_a"}
-    assert drawing.view_decision["status"] == "retained_after_rejection"
-    assert drawing.view_decision["chosen"] == ("front", "plan", "side")
-    # The hard-validity verdict makes the long-standing ink collisions explicit instead
-    # of allowing the otherwise complete manufacturing record to report success.
-    assert drawing.scale_decision["status"] == "invalid"
+    assert set(drawing.views) == {"front", "side", "iso", "detail_a"}
+    assert drawing.view_decision["status"] == "reduced"
+    assert drawing.view_decision["chosen"] == ("front", "side")
+    # The text-ink guard now drops the four short axial PMI dimensions instead of
+    # drawing them across settled labels. The reduced view set loses one fewer
+    # source record than the full set, and the missing records must remain explicit.
+    dropped_axial = {f"dimension:0:1:4:{index}" for index in range(6, 10)}
+    assert drawing.scale_decision["status"] == "incomplete"
+    assert {
+        source_id
+        for blocker in drawing.scale_decision["blockers"]
+        for source_id in blocker["source_ids"]
+    } == dropped_axial
+    assert {
+        source_id
+        for blocker in drawing.view_decision["attempts"][0]["blockers"]
+        for source_id in blocker["source_ids"]
+    } == dropped_axial
     attempts = drawing.scale_decision["attempts"]
     assert attempts[0]["status"] == "detail_reservation_conservative"
     assert {
@@ -1522,22 +1534,33 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
             for name, annotation in drawing.annotations_of(owner).items()
             if getattr(annotation, "label", "") == expected_label
         ]
-        assert matches == [expected_name]
-        assert drawing.registry.feature_of(expected_name) == owner
+        assert matches == ([] if source_id in dropped_axial else [expected_name])
+        if matches:
+            assert drawing.registry.feature_of(expected_name) == owner
 
     issues = drawing.lint()
     forbidden = {
         "label_vs_measured",
         "pmi_not_rendered",
         "axial_length_missing",
+        "annotation_ink_overlap",
         "annotation_overlap",
         "annotation_out_of_bounds",
+        "view_annotation_overlap",
         "view_overlap",
     }
+    assert {issue.code for issue in issues if issue.severity == "error"} == {"plan_incomplete"}
+    assert not [issue for issue in issues if issue.code in forbidden]
+    assert {
+        source_id
+        for issue in issues
+        if issue.code == "pmi_dropped"
+        for source_id in issue.source_ids
+    } == dropped_axial
     assert not [
         issue
         for issue in issues
-        if issue.severity == "error" or issue.code in forbidden or issue.code.endswith("_dropped")
+        if issue.code.endswith("_dropped") and issue.code != "pmi_dropped"
     ]
     assert all(
         issue.severity == "info" for issue in issues if issue.code == "feature_leader_crossing"
