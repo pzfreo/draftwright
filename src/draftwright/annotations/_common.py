@@ -2032,11 +2032,11 @@ def prevent_dimension_label_ink(
     a bounded set of analytically-derived label centres, rebuilding the selected survivors
     through their ``_dw_spec``.  No full lint scan and no CAD boolean participates.
 
-    The label *centre* stays within half a millimetre of its measured span (rather than
-    requiring the whole label to fit inside it).  That distinction matters for short
-    dimensions: their text is wider than the measured span by construction, yet a small
-    shift can keep a shared witness out of the digits without making the label read as its
-    neighbour's.  If the bounded choices cannot improve the batch, the natural deterministic
+    The label *centre* normally stays within half a millimetre of its measured span
+    (rather than requiring the whole label to fit inside it). For a short dimension
+    whose text is wider than the span, conventional outside-label positions are also
+    tried; this can clear a foreign witness through the span midpoint. If the bounded
+    choices cannot improve the batch, the natural deterministic
     placement survives and the normal ``annotation_ink_overlap`` lint remains explicit
     evidence of the infeasible fallback.  Names in *immutable* are never shifted (pins win).
     When ``perpendicular_step`` is supplied, a conflicting dimension may also move one
@@ -2308,11 +2308,18 @@ def prevent_dimension_label_ink(
         axis, other, spec = info
         current_centre = (label[axis] + label[axis + 2]) / 2.0
         half = (label[axis + 2] - label[axis]) / 2.0
-        # The centre remains attached to its own measured span.  A half-millimetre
-        # overhang admits the minimum clear position for text wider than a short span.
+        # The centre normally remains attached to its measured span. For a short
+        # dimension whose text is wider than that span, allow the conventional
+        # outside-label positions beside its witness lines as well: an unrelated
+        # dimension may have a witness at the span midpoint, making every centred
+        # position illegible even though there is clear space just outside.
         lo, hi = sorted((float(spec.p1[axis]), float(spec.p2[axis])))
-        lo -= MIN_CROSSING_MM
-        hi += MIN_CROSSING_MM
+        if 2.0 * half > hi - lo:
+            lo -= half + _LABEL_INK_CLEARANCE_MM
+            hi += half + _LABEL_INK_CLEARANCE_MM
+        else:
+            lo -= MIN_CROSSING_MM
+            hi += MIN_CROSSING_MM
         if page is not None:
             lo = max(lo, float(page[axis]) + half)
             hi = min(hi, float(page[axis + 2]) - half)
