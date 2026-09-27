@@ -71,12 +71,15 @@ def test_a_declared_build_recognises_nothing():
     """
     _, sheet = _declared_plate_sheet()
     with recognition_consumer_calls() as counts:
-        sheet.build()
+        drawing = sheet.build()
 
     assert dict(counts) == {}, (
         f"a declared build recognised {dict(counts)}. ADR 4 (was 0011) says a caller-supplied model "
         "skips detection — every one of these scanned a solid whose features the caller had "
         "already stated."
+    )
+    assert drawing.annotation_scheme_decision["safety_evidence"]["status"] == (
+        "deferred_until_physical_critique"
     )
 
 

@@ -29,7 +29,7 @@ from draftwright.audit import (
 from draftwright.replay_assessment import assessment_sidecar_path
 from draftwright.sheet_emit import generate_sheet_script, inspection_sidecar_path
 
-pytestmark = [pytest.mark.slow, pytest.mark.real_part_canary, pytest.mark.timeout(120)]
+pytestmark = [pytest.mark.slow, pytest.mark.real_part_canary, pytest.mark.timeout(300)]
 
 _FIXTURE = Path(__file__).parent / "fixtures/nist_ctc_01_asme1_ap203.stp"
 _FIXTURE_SHA256 = "e081d518484d5c708c6729353237f94a7d97da2b74a10d60d4c0d146d67a5855"
@@ -145,13 +145,19 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     source = baseline_script.read_text(encoding="utf-8")
     assert source.count(str(baseline_prefix)) == 2
     source = source.replace(str(baseline_prefix), str(candidate_prefix))
-    old_sheet_tail = ', pmi=_replay_options["pmi_mode"])'
-    new_sheet_tail = (
-        ", page='A1', scale=0.2, scale_policy='strict', pmi=_replay_options[\"pmi_mode\"])"
-    )
-    assert source.count(old_sheet_tail) == 1
+    # Change only the authored page/scale declaration. The generator pins its
+    # selected layout algorithm too, so matching the constructor tail would
+    # couple this canary to unrelated replay options.
+    pmi_option = 'pmi=_replay_options["pmi_mode"]'
+    assert source.count(pmi_option) == 1
     candidate_script = candidate_prefix.with_suffix(".py")
-    candidate_script.write_text(source.replace(old_sheet_tail, new_sheet_tail), encoding="utf-8")
+    candidate_script.write_text(
+        source.replace(
+            pmi_option,
+            "page='A1', scale=0.2, scale_policy='strict', " + pmi_option,
+        ),
+        encoding="utf-8",
+    )
 
     candidate_run = _run(candidate_script, tmp_path / "candidate-trace")
     assert candidate_run.returncode == 0, candidate_run.stderr

@@ -106,6 +106,11 @@ The independent checker must report what it cannot establish; its current
 candidate. See [ADR 5](../adr/0005-trust-and-honest-failure.md) for honest
 failure and the [#1813 epic](https://github.com/pzfreo/draftwright/issues/1813)
 for the current completion criteria.
+For a declared `model=` or `Sheet` build, the build-time safety observation is
+explicitly deferred: producing the physical report at that point would force
+raw recognition before the caller requests critique or export, contrary to
+ADR 4's declared-build boundary. The drawing's later report/lint remains the
+independent coverage authority; a deferred observation is never a pass.
 
 ### Offline cost evidence
 

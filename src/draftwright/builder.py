@@ -2529,9 +2529,25 @@ def build_drawing(
 
     def finish_annotation_layout(drawing: Drawing) -> Drawing:
         if annotation_layout == "demand-guided":
+            # A declared build deliberately leaves raw recognition lazy until physical
+            # critique/export. Computing the full safety report here would scan the
+            # solid during build and break that public boundary (ADR 4).
+            if model is not None:
+                safety_evidence = {
+                    "version": 12,
+                    "checks_passed": False,
+                    "admission_ready": False,
+                    "failed_checks": ["physical_critique_deferred"],
+                    "checks": [],
+                    "page": [float(drawing.page_w), float(drawing.page_h)],
+                    "scale": float(drawing.scale),
+                    "status": "deferred_until_physical_critique",
+                }
+            else:
+                safety_evidence = candidate_safety_evidence(drawing)
             drawing.annotation_scheme_decision = {
                 **drawing.annotation_scheme_decision,
-                "safety_evidence": candidate_safety_evidence(drawing),
+                "safety_evidence": safety_evidence,
                 "fallback_decision": "not_evaluated",
             }
         return drawing
