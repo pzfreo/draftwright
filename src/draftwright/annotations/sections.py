@@ -707,23 +707,28 @@ def _detail_axial_crop_error(req: DetailRequest) -> str | None:
     return None
 
 
-def _detail_profile_crop_error(req: DetailRequest) -> str | None:
-    """Check each declared shoulder edge survives a partial radial crop."""
+def _detail_secondary_crop_error(req: DetailRequest) -> str | None:
+    """Check required visible support survives an automatic secondary crop."""
 
-    if req.kind != "turned-head" or req.cross_axis is None:
+    if req.kind not in {"turned-head", "prismatic-steps"} or req.cross_axis is None:
         return None
+    crop_kind = "radial" if req.kind == "turned-head" else "secondary"
     if req.cross_axis not in {"x", "y", "z"} or req.cross_axis == req.axis:
-        return "invalid radial detail crop axis"
+        return f"invalid {crop_kind} detail crop axis"
     if req.cross_lo is None or req.cross_hi is None:
-        return "partial radial detail crop has no complete bounds"
+        return f"partial {crop_kind} detail crop has no complete bounds"
     if (
         not math.isfinite(req.cross_lo)
         or not math.isfinite(req.cross_hi)
         or req.cross_lo >= req.cross_hi
     ):
-        return "invalid radial detail crop bounds"
+        return f"invalid {crop_kind} detail crop bounds"
     if not req.profile_support_points:
-        return "partial radial detail crop has no controlled profile support"
+        return (
+            "partial radial detail crop has no controlled profile support"
+            if req.kind == "turned-head"
+            else "partial secondary detail crop has no physical support"
+        )
     index = "xyz".index(req.cross_axis)
     for station, point in enumerate(req.profile_support_points, start=1):
         if len(point) != 3 or any(not math.isfinite(value) for value in point):
@@ -770,7 +775,7 @@ def _render_detail(
         req.failure_reason = "non-finite detail scale required"
         _log.info("Detail %s skipped (non-finite scale required)", letter)
         return False
-    req.failure_reason = _detail_axial_crop_error(req) or _detail_profile_crop_error(req)
+    req.failure_reason = _detail_axial_crop_error(req) or _detail_secondary_crop_error(req)
     if req.failure_reason is not None:
         _log.info("Detail %s refused (%s)", letter, req.failure_reason)
         return False
@@ -1368,5 +1373,8 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
             kind="prismatic-steps",
             measurement_ids=tuple(rung.id for rung in rungs if rung.id is not None),
             measurement_spans=tuple(rung.span for rung in rungs if rung.id is not None),
+            profile_support_points=(
+                tuple(rung.span[1] for rung in supported) if x_stations else ()
+            ),
         )
     )
