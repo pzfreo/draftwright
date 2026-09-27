@@ -247,7 +247,7 @@ def main(
         ),
     ),
     annotation_layout: AnnotationLayout = typer.Option(
-        AnnotationLayout.estimated_strips,
+        AnnotationLayout.demand_guided,
         "--annotation-layout",
         help=(
             "Planning algorithm: estimated-strips or demand-guided; compare builds "

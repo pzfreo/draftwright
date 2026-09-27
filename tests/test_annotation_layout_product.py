@@ -1,5 +1,6 @@
 """Public, build-scoped selection of the verified annotation layout."""
 
+from inspect import signature
 from pathlib import Path
 from runpy import run_path
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ import pytest
 from build123d import Box, export_step
 from typer.testing import CliRunner
 
-from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
+from draftwright import ScaleCompletenessWarning, Sheet, build_drawing, make_drawing
 from draftwright.annotation_layout_profile import (
     annotation_layout_policy,
     candidate_profile,
@@ -77,7 +78,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
     assert decision["trials"][0]["iso_area_ratio"] >= 1.10
 
 
-def test_candidate_preview_selects_before_render_without_baseline_build(monkeypatch):
+def test_default_selects_candidate_before_render_without_baseline_build(monkeypatch):
     import draftwright.builder as builder
 
     assembled = []
@@ -88,7 +89,7 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
         return original(*args, **kwargs)
 
     monkeypatch.setattr(builder, "_assemble", observe)
-    drawing = build_drawing(Box(20, 10, 5), page="A4", scale=2, annotation_layout="demand-guided")
+    drawing = build_drawing(Box(20, 10, 5), page="A4", scale=2)
 
     decision = drawing.annotation_scheme_decision
     assert len(assembled) == 1
@@ -511,6 +512,24 @@ def test_sheet_and_generated_script_forward_layout_policy(tmp_path):
     assert "annotation_layout='compare'" in script
 
 
+def test_default_front_doors_and_generated_script_choose_demand_guided(tmp_path):
+    assert signature(make_drawing).parameters["annotation_layout"].default == "demand-guided"
+    assert Sheet(Box(20, 10, 5))._opts["annotation_layout"] == "demand-guided"
+
+    source = tmp_path / "default.step"
+    export_step(Box(20, 10, 5), source)
+    script_path = generate_sheet_script(
+        str(source),
+        out=str(tmp_path / "default"),
+        formats=(),
+        inspect=False,
+    )
+    script = Path(script_path).read_text(encoding="utf-8")
+    assert "annotation_layout='demand-guided'" in script
+    drawing = run_path(script_path)["drawing"]
+    assert drawing.annotation_scheme_decision["policy"] == "demand-guided"
+
+
 @pytest.mark.parametrize(
     ("name", "canonical"),
     [
@@ -581,7 +600,7 @@ def test_cli_forwards_layout_policy_to_a_rendered_build(monkeypatch, name):
         assert "Selected annotation layout: columns" in result.output
 
 
-def test_cli_defaults_to_original_planning_algorithm(monkeypatch):
+def test_cli_defaults_to_demand_guided_planning(monkeypatch):
     import draftwright.builder as builder
 
     forwarded = []
@@ -601,4 +620,4 @@ def test_cli_defaults_to_original_planning_algorithm(monkeypatch):
     result = CliRunner().invoke(app, ["part.step", "--format", "svg", "--no-report"])
 
     assert result.exit_code == 0, result.output
-    assert forwarded[0]["annotation_layout"] == "estimated-strips"
+    assert forwarded[0]["annotation_layout"] == "demand-guided"
