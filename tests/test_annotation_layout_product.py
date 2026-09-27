@@ -9,9 +9,16 @@ from build123d import Box, export_step
 from typer.testing import CliRunner
 
 from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
-from draftwright.annotation_layout_profile import annotation_layout_policy, candidate_profile
+from draftwright.annotation_layout_profile import (
+    annotation_layout_policy,
+    candidate_profile,
+    current_layout_profile,
+)
 from draftwright.cli import app
-from draftwright.layout_selection import select_best_annotation_layout
+from draftwright.layout_selection import (
+    pre_render_view_page_overflow,
+    select_best_annotation_layout,
+)
 from draftwright.linting import LintIssue
 from draftwright.sheet_emit import generate_sheet_script
 
@@ -49,7 +56,7 @@ def test_best_layout_selects_verified_larger_iso_on_same_sheet_and_scale():
 
     decision = selected.annotation_scheme_decision
     assert decision["policy"] == "compare"
-    assert decision["pre_render_choice"]["version"] == 4
+    assert decision["pre_render_choice"]["version"] == 5
     assert decision["pre_render_choice"]["page"] == [selected.page_w, selected.page_h]
     assert decision["pre_render_choice"]["scale"] == selected.scale
     assert decision["safety_evidence"]["version"] == 12
@@ -101,6 +108,71 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
         entry["status"] == "represented" for entry in decision["carrier_evidence"]["demands"]
     )
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
+
+
+def test_pre_render_view_overflow_measures_only_planned_principal_geometry():
+    analysis = SimpleNamespace(
+        FV_X=50.0,
+        FV_Y=50.0,
+        PV_X=50.0,
+        PV_Y=108.0,
+        SV_X=98.0,
+        SV_Y=50.0,
+        fv_hw=20.0,
+        fv_hh=30.0,
+        pv_hh=5.0,
+        sv_hw=5.0,
+        PAGE_W=100.0,
+        PAGE_H=110.0,
+        planned_views=("front", "plan"),
+    )
+
+    assert pre_render_view_page_overflow(analysis) == {"plan": 3.0}
+    analysis.planned_views = ("front", "plan", "side")
+    assert pre_render_view_page_overflow(analysis) == {"plan": 3.0, "side": 3.0}
+
+
+def test_candidate_preview_chooses_one_build_without_gutters_when_views_are_off_page(
+    monkeypatch,
+):
+    import draftwright.builder as builder
+
+    original_choice = builder.choose_pre_render_profile
+    original_assemble = builder._assemble
+    assembly_profiles = []
+
+    def dense_choice(*args, **kwargs):
+        return {**original_choice(*args, **kwargs), "profile": "columns"}
+
+    def observe(*args, **kwargs):
+        assembly_profiles.append(current_layout_profile())
+        return original_assemble(*args, **kwargs)
+
+    monkeypatch.setattr(builder, "choose_pre_render_profile", dense_choice)
+    monkeypatch.setattr(builder, "_assemble", observe)
+    drawing = build_drawing(
+        Box(190, 5, 279),
+        page="A3",
+        scale=1,
+        scale_policy="permissive",
+        annotation_layout="candidate-preview",
+    )
+
+    choice = drawing.annotation_scheme_decision["pre_render_choice"]
+    # Measured repacking may reassemble this same drawing, but every pass must
+    # use the profile selected before rendering; no baseline profile is built.
+    assert assembly_profiles
+    assert all(profile == candidate_profile("iso-growth", 1) for profile in assembly_profiles)
+    assert choice["proposed_profile"] == "columns"
+    assert choice["profile"] == "iso-growth"
+    assert choice["reason"] == "protected_gutters_worsen_off_page_views"
+    assert (
+        choice["selected_view_overflow_mm"]["plan"] < choice["proposed_view_overflow_mm"]["plan"]
+    )
+    assert (
+        "view_page_containment"
+        in drawing.annotation_scheme_decision["safety_evidence"]["failed_checks"]
+    )
 
 
 def test_candidate_preview_without_automatic_annotations_does_not_apply_profile():

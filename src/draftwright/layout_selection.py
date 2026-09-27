@@ -13,6 +13,7 @@ from draftwright.annotation_layout_profile import (
 )
 
 if TYPE_CHECKING:
+    from draftwright._core import Analysis
     from draftwright.compose import AnnotationSchemeShadowReport, StripDepths
     from draftwright.drawing import Drawing
     from draftwright.layout_scheme import AnnotationScheme
@@ -78,7 +79,7 @@ def choose_pre_render_profile(
     else:
         profile, reason = "planned", "all_typed_corridors_fit"
     return {
-        "version": 4,
+        "version": 5,
         "profile": profile,
         "reason": reason,
         "page": [float(page[0]), float(page[1])],
@@ -89,6 +90,51 @@ def choose_pre_render_profile(
         "under_reserved": under_reserved_count,
         "missing_views": missing_views,
     }
+
+
+def pre_render_view_page_overflow(analysis: Analysis) -> dict[str, float]:
+    """Measure principal-view geometry outside the caller's fixed page before render.
+
+    This is a profile-choice signal, not a completeness verdict: annotation ink and
+    requirements still need the independent finished-drawing checks.  The settled
+    analysis already owns these projected centres and extents, so no drawing or
+    baseline solve is needed to find a view the candidate has pushed off-paper.
+    """
+
+    boxes = {
+        "front": (
+            analysis.FV_X - analysis.fv_hw,
+            analysis.FV_Y - analysis.fv_hh,
+            analysis.FV_X + analysis.fv_hw,
+            analysis.FV_Y + analysis.fv_hh,
+        ),
+        "plan": (
+            analysis.PV_X - analysis.fv_hw,
+            analysis.PV_Y - analysis.pv_hh,
+            analysis.PV_X + analysis.fv_hw,
+            analysis.PV_Y + analysis.pv_hh,
+        ),
+        "side": (
+            analysis.SV_X - analysis.sv_hw,
+            analysis.SV_Y - analysis.fv_hh,
+            analysis.SV_X + analysis.sv_hw,
+            analysis.SV_Y + analysis.fv_hh,
+        ),
+    }
+    overflow = {}
+    for view in analysis.planned_views or ("front", "plan", "side"):
+        if view not in boxes:
+            continue
+        x0, y0, x1, y1 = boxes[view]
+        outside = (
+            max(0.0, -x0)
+            + max(0.0, -y0)
+            + max(0.0, x1 - analysis.PAGE_W)
+            + max(0.0, y1 - analysis.PAGE_H)
+        )
+        if outside > 1e-6:
+            overflow[view] = outside
+    return overflow
 
 
 def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> dict[str, object]:
