@@ -707,6 +707,34 @@ def _detail_axial_crop_error(req: DetailRequest) -> str | None:
     return None
 
 
+def _detail_profile_crop_error(req: DetailRequest) -> str | None:
+    """Check each declared shoulder edge survives a partial radial crop."""
+
+    if req.kind != "turned-head" or req.cross_axis is None:
+        return None
+    if req.cross_axis not in {"x", "y", "z"} or req.cross_axis == req.axis:
+        return "invalid radial detail crop axis"
+    if req.cross_lo is None or req.cross_hi is None:
+        return "partial radial detail crop has no complete bounds"
+    if (
+        not math.isfinite(req.cross_lo)
+        or not math.isfinite(req.cross_hi)
+        or req.cross_lo >= req.cross_hi
+    ):
+        return "invalid radial detail crop bounds"
+    if not req.profile_support_points:
+        return "partial radial detail crop has no controlled profile support"
+    index = "xyz".index(req.cross_axis)
+    for station, point in enumerate(req.profile_support_points, start=1):
+        if len(point) != 3 or any(not math.isfinite(value) for value in point):
+            return f"profile support {station} has no finite model-space point"
+        if not req.cross_lo - 1e-6 <= point[index] <= req.cross_hi + 1e-6:
+            return (
+                f"profile support {station} lies outside the {req.cross_axis.upper()} detail crop"
+            )
+    return None
+
+
 def _render_detail(
     dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx
 ) -> bool:
@@ -742,7 +770,7 @@ def _render_detail(
         req.failure_reason = "non-finite detail scale required"
         _log.info("Detail %s skipped (non-finite scale required)", letter)
         return False
-    req.failure_reason = _detail_axial_crop_error(req)
+    req.failure_reason = _detail_axial_crop_error(req) or _detail_profile_crop_error(req)
     if req.failure_reason is not None:
         _log.info("Detail %s refused (%s)", letter, req.failure_reason)
         return False

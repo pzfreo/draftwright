@@ -108,6 +108,34 @@ class TestDetailView:
         assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
         assert req.failure_reason == "measurement witness 1 has no complete model-space span"
 
+    def test_turned_head_partial_crop_requires_every_controlled_profile_edge(self):
+        from types import SimpleNamespace
+
+        from draftwright._core import DetailRequest
+        from draftwright.annotations.sections import _render_detail
+
+        req = DetailRequest(
+            axis="x",
+            lo=0.0,
+            hi=2.0,
+            scale_needed=10.0,
+            redraw=lambda *_args: 1,
+            kind="turned-head",
+            cross_axis="z",
+            cross_lo=4.0,
+            cross_hi=8.0,
+            profile_support_points=((0.0, 0.0, 5.0), (1.0, 0.0, 7.0)),
+        )
+        req.cross_lo = 6.0
+        assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
+        assert req.failure_reason == "profile support 1 lies outside the Z detail crop"
+        req.cross_lo = 4.0
+        req.profile_support_points = ()
+        assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
+        assert req.failure_reason == (
+            "partial radial detail crop has no controlled profile support"
+        )
+
     def test_crowded_shoulders_get_a_detail_view_automatically(self):
         from draftwright._core import _legible_steps
 

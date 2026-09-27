@@ -7040,22 +7040,40 @@ def render_step_lengths(
                 # silhouette. Retain a narrow band immediately below the smallest
                 # head radius, so every involved outside edge remains visible. The
                 # full mirrored diameter makes a 20:1 detail unnecessarily tall.
+                profile_steps: list[StepFeature] = []
                 if cross_bounds is not None:
-                    head_steps = [
-                        measurement.feature
+                    possible_steps = [
+                        next(
+                            (
+                                measurement.feature
+                                for measurement in segment.measurements
+                                if isinstance(measurement.feature, StepFeature)
+                            ),
+                            None,
+                        )
                         for segment in ra
-                        for measurement in segment.measurements
-                        if isinstance(measurement.feature, StepFeature)
                     ]
-                    if head_steps:
-                        axis_centre = head_steps[0].frame.origin[cross_index]
+                    if possible_steps and all(step is not None for step in possible_steps):
+                        profile_steps = [step for step in possible_steps if step is not None]
+                        axis_centre = profile_steps[0].frame.origin[cross_index]
                         cross_lo = (
-                            axis_centre + min(step.diameter for step in head_steps) / 2 * 0.9
+                            axis_centre + min(step.diameter for step in profile_steps) / 2 * 0.9
                         )
                         cross_bounds = (min(cross_lo, cross_bounds[1] - 0.1), cross_bounds[1])
                     else:
-                        axis_centre = (cross_bounds[0] + cross_bounds[1]) / 2
-                        cross_bounds = (axis_centre, cross_bounds[1])
+                        # Without exact controlled step edges there is no proof that
+                        # a partial radial silhouette preserves every shoulder.
+                        cross_bounds = None
+                profile_support_points = []
+                if cross_bounds is not None:
+                    for segment, step in zip(ra, profile_steps, strict=True):
+                        rim = step.frame.origin[cross_index] + step.diameter / 2
+                        for endpoint in (segment.pa, segment.pb):
+                            support = list(endpoint)
+                            support[cross_index] = rim
+                            profile_support_points.append(
+                                (float(support[0]), float(support[1]), float(support[2]))
+                            )
                 ctx.detail_requests.append(
                     DetailRequest(
                         axis="x",
@@ -7079,6 +7097,7 @@ def render_step_lengths(
                             for segment in ra
                             for _measurement in segment.measurements
                         ),
+                        profile_support_points=tuple(profile_support_points),
                     )
                 )
             head = {i for run in heads for i in run}
