@@ -763,6 +763,9 @@ _STATE_WITHOUT_FEATURE_REFS = frozenset(
         # Generated-script provenance is a boolean; feature references remain
         # in the ordinary declared inventory and authored dimension entries.
         "_replayed_recognition",
+        # Generated-script principal-view names carry no feature object or
+        # order-sensitive feature index; replayed scale lives in `_opts`.
+        "_replayed_views",
         "_principal_view_source",
         "_derived_view_source",
         "_principal_view_source_at",

@@ -64,7 +64,8 @@ def test_iso_view_grow_capped_at_max():
     from draftwright.projection import _ISO_MAX_GROW
 
     # Small part forced onto a big sheet → large empty rectangle → would over-grow.
-    dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1")
+    # This checks the historical 1.3× cap; demand-guided intentionally permits 1.5×.
+    dwg = build_drawing(Box(40, 30, 20), scale=1, page="A1", annotation_layout="estimated-strips")
     iso_scale = dwg.coords("iso")._scale
     sheet_scale = dwg.scale
     assert iso_scale <= _ISO_MAX_GROW * sheet_scale + 1e-6

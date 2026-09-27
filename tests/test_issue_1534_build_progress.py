@@ -211,7 +211,18 @@ def test_cli_progress_is_pipe_safe_and_stdout_contains_only_paths(
     monkeypatch.setattr(builder, "build_drawing", build)
     source = tmp_path / "part.step"
     source.write_text("stub; intercepted before CAD")
-    result = CliRunner().invoke(app, [str(source), "--format", "svg", "--no-report", *options])
+    result = CliRunner().invoke(
+        app,
+        [
+            str(source),
+            "--annotation-layout",
+            "estimated-strips",
+            "--format",
+            "svg",
+            "--no-report",
+            *options,
+        ],
+    )
     assert result.exit_code == 0, result.output
     assert result.stdout == "result.svg\n"
     assert ("recognition: started" in result.stderr) is visible

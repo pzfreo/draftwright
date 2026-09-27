@@ -9,6 +9,9 @@ from typer.testing import CliRunner
 
 from draftwright.cli import app
 
+# These CLI tests stub the drawing's export/report seam, not its layout decision.
+_LAYOUT = ("--annotation-layout", "estimated-strips")
+
 
 class _Drawing:
     def __init__(self, out: Path) -> None:
@@ -48,7 +51,7 @@ def test_direct_cli_report_default_and_explicit_opt_out(
 
     result = CliRunner().invoke(
         app,
-        ["source.step", "--out", str(output), "--format", "pdf,dxf", *extra],
+        ["source.step", *_LAYOUT, "--out", str(output), "--format", "pdf,dxf", *extra],
     )
 
     assert result.exit_code == 0, result.output
@@ -74,7 +77,7 @@ def test_report_is_not_attempted_when_visual_export_fails(
     drawing = _FailingDrawing(tmp_path / "part")
     monkeypatch.setattr(builder, "build_drawing", lambda **_kwargs: drawing)
 
-    result = CliRunner().invoke(app, ["source.step", "--out", drawing.out])
+    result = CliRunner().invoke(app, ["source.step", *_LAYOUT, "--out", drawing.out])
 
     assert result.exit_code == 1
     assert isinstance(result.exception, OSError)
@@ -93,7 +96,7 @@ def test_report_uses_the_visual_exports_normalized_stem(
 
     result = CliRunner().invoke(
         app,
-        ["source.step", "--out", str(requested_output), "--format", "pdf"],
+        ["source.step", *_LAYOUT, "--out", str(requested_output), "--format", "pdf"],
     )
 
     expected_stem = tmp_path / "part"
@@ -121,7 +124,7 @@ def test_report_failure_propagates_after_printing_visuals_but_not_a_report_path(
     drawing = _FailingReportDrawing(tmp_path / "part")
     monkeypatch.setattr(builder, "build_drawing", lambda **_kwargs: drawing)
 
-    result = CliRunner().invoke(app, ["source.step", "--out", drawing.out])
+    result = CliRunner().invoke(app, ["source.step", *_LAYOUT, "--out", drawing.out])
 
     assert result.exit_code == 1
     assert isinstance(result.exception, OSError)
