@@ -494,7 +494,11 @@ class SolveTrace:
       (chamfer/fillet/flat/pocket/groove/boss ø) and the turned diameter row/column
       and step-length set-solves. Each entry carries ``seq``/``phase``, a pass
       ``label``, and ``items`` — one outcome dict per attempted annotation
-      (``placed`` with its position, or ``dropped`` with a reason). The #733 gap:
+      (``placed`` with its position, or ``dropped`` with a reason). The
+      ``hole_table_replacement`` event records the transactional choice between
+      retained feature annotations and a complete table with keyed balloons;
+      ``coverage_authority=false`` leaves the semantic verdict to coverage lint.
+      The #733 gap:
       pre-#734 these callouts were the drain-time occupants; post-drain, their own
       story must still be in the trace.
 
