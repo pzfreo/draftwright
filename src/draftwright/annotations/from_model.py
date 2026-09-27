@@ -6668,7 +6668,6 @@ def render_step_lengths(
     rows: list[tuple[str, _StepChainSegment]] = []
     step_origins = []
     step_geometry = []
-    step_profiles = []
     for g in plan.of_kind("step"):
         if g.facts.frame.axis not in ("x", "y", "z"):
             continue
@@ -6692,7 +6691,6 @@ def render_step_lengths(
             )
         )
         step_origins.append(g.facts.frame.origin)
-        step_profiles.append(g.facts.profile)
         diameter = g.dim(kind="diameter")
         step_geometry.append(
             (
@@ -7022,16 +7020,21 @@ def render_step_lengths(
                         dwg, view, hsegs, f"dim_{view}_steplen", detail_scale, ctx=ctx
                     )
 
-                profile_key = next((key for key in step_profiles if key is not None), None)
                 cross_axis: Literal["x", "y", "z"] = "z" if view == "front" else "y"
                 cross_index = "xyz".index(cross_axis)
+                # Derive the visible radial envelope from the same step geometry that
+                # both detected and declared builds carry. Provider-only profile bounds
+                # disappear from an emitted Sheet script, which otherwise redraws a
+                # full-height detail while the automatic drawing shows a partial one.
+                radial_extents = [
+                    (frame.origin[cross_index] - radius, frame.origin[cross_index] + radius)
+                    for frame, _span, radius in step_geometry
+                    if radius is not None
+                ]
                 cross_bounds = (
-                    None
-                    if profile_key is None
-                    else (
-                        float(profile_key.body_bounds[2 * cross_index]),
-                        float(profile_key.body_bounds[2 * cross_index + 1]),
-                    )
+                    (min(lo for lo, _hi in radial_extents), max(hi for _lo, hi in radial_extents))
+                    if len(radial_extents) == len(step_geometry)
+                    else None
                 )
                 # The axial shoulders are fully described by the upper radial
                 # silhouette. Retain a narrow band immediately below the smallest

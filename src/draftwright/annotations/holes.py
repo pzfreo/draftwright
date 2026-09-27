@@ -2432,7 +2432,7 @@ class _StripCtx(NamedTuple):
     to_page: Callable[[Any], Any]
     view_cx: float
     view_cy: float
-    draft: object
+    draft: Any
 
 
 def _seg_order(ny, segs):
