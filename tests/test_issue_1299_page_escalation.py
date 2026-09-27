@@ -8,13 +8,17 @@ import pytest
 from build123d import Align, Cylinder, Pos, Rotation
 
 import draftwright.builder as builder
-from draftwright import build_drawing
 from draftwright.linting import LintIssue
 from draftwright.model.ir import Frame, StepFeature
 from draftwright.model.planner import DimensionId
 
 GRM03 = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 GRM03_SHA256 = "4b6462b9cc9f0d419250933bd77fb305f9cfebb7ec2b3f377008732876010a21"
+
+
+def build_estimated_strips(*args, **kwargs):
+    """Exercise the historical retry ladder, not the demand-guided default."""
+    return builder.build_drawing(*args, annotation_layout="estimated-strips", **kwargs)
 
 
 def _five_step_grm_profile():
@@ -36,50 +40,19 @@ def _five_step_grm_profile():
     return Rotation(0, 90, 0) * shaft
 
 
-def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
-    # #1338: larger scales on the selected sheet are still the first recovery lever. With
-    # external text clearance included in view blocks (#1262), this synthetic detected model's
-    # overall-height dimension no longer fits beside the end view on A4. At 10:1 the
-    # drawing is also outside the page, so hard validity rejects it before its incomplete
-    # shoulder chain is considered. Both scales fail before the workflow spends the ISO
-    # and advances to A3.
-    drawing = build_drawing(_five_step_grm_profile(), pmi="off")
+def test_crowded_head_uses_a_detail_before_spending_the_sheet():
+    # The current crop guard keeps the short head stations in an enlarged detail,
+    # allowing the complete drawing to remain on A4. The 2.5 main-view dimension
+    # locates the whole head; its separate 0.5 and 2 lengths are in detail_a.
+    drawing = build_estimated_strips(_five_step_grm_profile(), pmi="off")
 
-    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
-    assert drawing.scale == 5.0
-    assert "iso" not in drawing.views
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert [
-        (
-            attempt["page"],
-            attempt["status"],
-            attempt["reason"],
-            attempt.get("rejection"),
-        )
-        for attempt in drawing.scale_decision["attempts"]
-    ] == [
-        ((297.0, 210.0), "axial_coverage_incomplete", "remove_optional_iso", None),
-        (
-            (297.0, 210.0),
-            "rejected",
-            "scale_escalation_on_selected_page",
-            "structural_error",
-        ),
-        (
-            (297.0, 210.0),
-            "rejected",
-            "scale_escalation_on_selected_page",
-            "structural_error",
-        ),
-        ((297.0, 210.0), "rejected", "remove_optional_iso", "axial_coverage_incomplete"),
-        ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
-    ]
-    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0, 10.0, 2.0, 5.0)
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
+    assert {"iso", "detail_a"} <= drawing.views.keys()
+    assert drawing.scale_decision["status"] == "automatic"
+    assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
     assert {
-        drawing.get_annotation(name).label
-        for name in drawing.annotations()
-        if name.startswith("m_steplen")
-    } == {"3.2", "0.5", "2", "3", "20"}
+        drawing.get_annotation(name).label for name in drawing.annotations() if "steplen" in name
+    } == {"3.2", "2.5", "0.5", "2", "3", "20"}
     assert not [
         issue
         for issue in drawing.lint()
@@ -146,7 +119,7 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
         lambda _part, drawing, *, prof: ("gap",) if "iso" in drawing.views else (),
     )
 
-    drawing = builder.build_drawing(object())
+    drawing = build_estimated_strips(object())
 
     fixed_page_calls = [
         call for call in calls if not call["include_iso"] and call["page"] == (297.0, 210.0)
@@ -225,7 +198,7 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
     monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
 
-    drawing = builder.build_drawing(object())
+    drawing = build_estimated_strips(object())
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
     assert "iso" not in drawing.views
@@ -305,7 +278,7 @@ def test_required_drop_without_iso_still_uses_bounded_scale_and_page_recovery(mo
 
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
 
-    drawing = builder.build_drawing(object(), _include_iso=False)
+    drawing = build_estimated_strips(object(), _include_iso=False)
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
     assert tuple(drawing.views) == ("front",)
@@ -384,7 +357,7 @@ def test_hard_layout_precedes_completeness_in_automatic_page_scale_verdict(monke
 
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
 
-    drawing = builder.build_drawing(object(), auto_dims=False, _include_iso=False)
+    drawing = build_estimated_strips(object(), auto_dims=False, _include_iso=False)
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
     assert drawing.scale == 5.0
@@ -449,7 +422,7 @@ def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(mo
 
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
 
-    drawing = builder.build_drawing(object(), auto_dims=False, _include_iso=False)
+    drawing = build_estimated_strips(object(), auto_dims=False, _include_iso=False)
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
     assert calls == [
@@ -533,7 +506,7 @@ def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch)
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
     monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
 
-    drawing = builder.build_drawing(object())
+    drawing = build_estimated_strips(object())
 
     assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
     assert "iso" not in drawing.views
@@ -630,7 +603,7 @@ def test_recovery_does_not_trade_a_required_drop_for_unreadable_ink(
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
     monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
 
-    drawing = builder.build_drawing(object())
+    drawing = build_estimated_strips(object())
 
     attempts = [
         (attempt["status"], attempt["reason"], attempt.get("rejection"))
@@ -706,7 +679,7 @@ def test_geometry_drop_recovery_does_not_borrow_a_typed_owners_source(monkeypatc
     monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
 
     with pytest.warns(builder.ScaleCompletenessWarning):
-        drawing = builder.build_drawing(object())
+        drawing = build_estimated_strips(object())
 
     assert calls[0] is True
     assert False in calls
@@ -773,7 +746,7 @@ def test_complete_detail_drawing_stays_on_its_original_page(monkeypatch):
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
     monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
 
-    drawing = builder.build_drawing(object())
+    drawing = build_estimated_strips(object())
 
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
     assert "detail_a" in drawing.views
@@ -851,7 +824,7 @@ def test_detail_and_source_recovery_reuse_the_same_upscale_candidates(monkeypatc
     monkeypatch.setattr(builder, "_build_drawing_once", fake_one_pass)
     monkeypatch.setattr(builder, "lint_axial_coverage", lambda *_args, **_kwargs: ())
 
-    builder.build_drawing(object(), page="A4")
+    build_estimated_strips(object(), page="A4")
 
     # The detail-reservation and optional-ISO gates both assess 5:1 and 10:1 on A4,
     # but the geometry for each scale is assembled only once.
@@ -905,7 +878,7 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
         lambda _part, drawing, *, prof: ("gap",) if drawing.page_w == 297.0 else (),
     )
 
-    drawing = builder.build_drawing(object())
+    drawing = build_estimated_strips(object())
 
     assert (drawing.page_w, drawing.page_h) == (594.0, 420.0)
     assert [
@@ -937,33 +910,29 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
 
     monkeypatch.setattr(builder, "_build_drawing_once", unexpected_one_pass)
     with pytest.raises(ValueError, match="invalid declared model"):
-        builder.build_drawing(object())
+        build_estimated_strips(object())
 
 
 def test_explicit_a4_remains_fixed_instead_of_escalating():
-    drawing = build_drawing(_five_step_grm_profile(), page="A4", pmi="off")
+    drawing = build_estimated_strips(_five_step_grm_profile(), page="A4", pmi="off")
 
-    # The subject: pinning the sheet pins the SHEET. Every attempt is on A4; none spends a
-    # larger page, however incomplete the result.
+    # Pinning the sheet pins the sheet; both the main locator and detailed head
+    # dimensions remain on A4 without a page escalation.
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
 
-    # The initial A4/5:1 proposal cannot carry the ISO without structural overlap.
-    # Removing that optional view leaves a clean 5:1 sheet with every axial station.
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert drawing.scale == 5.0
-    assert "iso" not in drawing.views
+    assert drawing.scale_decision["status"] == "automatic"
+    assert drawing.scale == 2.0
+    assert {"iso", "detail_a"} <= drawing.views.keys()
     assert not drawing.lint()
     assert {
-        drawing.get_annotation(name).label
-        for name in drawing.annotations()
-        if name.startswith("m_steplen")
-    } == {"3.2", "0.5", "2", "3", "20"}
+        drawing.get_annotation(name).label for name in drawing.annotations() if "steplen" in name
+    } == {"3.2", "2.5", "0.5", "2", "3", "20"}
 
 
 def test_exact_grm03_recovers_all_axial_stations_on_a4_with_pmi_off():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
-    drawing = build_drawing(GRM03, pmi="off")
+    drawing = build_estimated_strips(GRM03, pmi="off")
 
     # #1338: was A3 without the ISO; the same stations are covered on A4 with it.
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
