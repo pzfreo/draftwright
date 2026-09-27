@@ -1,6 +1,7 @@
 """Shared source membership and per-sheet builds retain one conversion authority."""
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from build123d import Box, Cylinder, export_step
@@ -9,6 +10,7 @@ from draftwright import (
     BuildCancelled,
     Document,
     DocumentBuildError,
+    ReportUnavailableError,
     Sheet,
     observe_build,
 )
@@ -119,6 +121,80 @@ def test_members_and_live_reports_reuse_one_exact_recognition(source, monkeypatc
         != "placed"
     )
     assert len(calls) == 1
+
+
+def test_authored_set_has_stable_page_identity_and_export(source, tmp_path):
+    document = Document.from_part(source)
+    hole = next(feature for feature in document.features if feature.kind == "hole")
+    authored_member(document, "dimensions").dimension(hole, "bore.diameter")
+    authored_member(document, "locations").dimension(hole, "location")
+
+    result = document.build()
+    report = result.report()
+    assert [sheet["id"] for sheet in report["sheets"]] == ["sheet:1", "sheet:2"]
+    assert [sheet["options"]["sheet"] for sheet in report["sheets"]] == ["1/2", "2/2"]
+    assert {sheet["options"]["number"] for sheet in report["sheets"]} == {"DWG-001"}
+    assert all(sheet["options"].get("revision", "A") == "A" for sheet in report["sheets"])
+    assert [
+        next(
+            text
+            for name, annotation in drawing.iter_annotations()
+            if name == "title_block"
+            for text, *_rest in annotation.pdf_text_specs
+            if text in {"1/2", "2/2"}
+        )
+        for drawing in result.sheets.values()
+    ] == ["1/2", "2/2"]
+
+    paths = result.export(tmp_path / "part", formats=("svg",))
+    assert list(paths) == ["dimensions", "locations"]
+    assert Path(paths["dimensions"]["svg"]).name == "part-sheet-01-of-02.svg"
+    assert Path(paths["locations"]["svg"]).name == "part-sheet-02-of-02.svg"
+    assert all(Path(member["svg"]).is_file() for member in paths.values())
+
+    features = result.sheets["locations"].model().features
+    index = next(index for index, feature in enumerate(features) if feature.kind == "hole")
+    features[index] = replace(features[index])
+    with pytest.raises(ReportUnavailableError, match="document sheet"):
+        result.export(tmp_path / "invalid", formats=("svg",))
+    assert not list(tmp_path.glob("invalid-sheet-*"))
+
+
+def test_document_refuses_conflicting_title_block_identity_before_build(source):
+    document = Document.from_part(source)
+    document.sheet("one", number="N", revision="A")
+    document.sheet("two", number="N", revision="B")
+    with pytest.raises(ValueError, match="one drawing number and revision"):
+        document.build()
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "message"),
+    [
+        ("DETAIL", None, "all custom page labels or none"),
+        ("DETAIL", "DETAIL", "page labels must be distinct"),
+    ],
+)
+def test_document_refuses_ambiguous_custom_page_labels(source, first, second, message):
+    document = Document.from_part(source)
+    document.sheet("one", sheet=first)
+    document.sheet("two", sheet=second)
+    with pytest.raises(ValueError, match=message):
+        document.build()
+
+
+def test_document_keeps_distinct_authored_page_labels(source):
+    document = Document.from_part(source)
+    for name, label in (("one", " A "), ("two", "B")):
+        sheet = document.sheet(name, sheet=label, detail_view=False)
+        sheet.authored_dimensions().authored_views()
+        for view in ("front", "plan", "side"):
+            sheet.view(view)
+    result = document.build()
+    assert [sheet["options"]["sheet"] for sheet in result.report()["sheets"]] == [
+        "A",
+        "B",
+    ]
 
 
 def test_document_seals_one_derived_envelope_for_every_member(round_source):

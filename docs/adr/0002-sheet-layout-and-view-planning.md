@@ -171,9 +171,11 @@ did not waive them.
   `DocumentResult` boundary now provides one recognition authority, sealed
   physical membership, and cross-sheet requirement evaluation for caller-
   authored member sheets (`test_document_build.py`, `test_document_report.py`).
-  It does not choose sheet count, assign dependent views/annotations, number
-  pages, or export a drawing set. Those planning and identity decisions require
-  a separate amendment before automatic extra sheets may be selected (#1866).
+  Authored members share a checked drawing number/revision, receive stable
+  ordinal page labels when none were supplied, and can export as a numbered
+  set. This does not choose sheet count or jointly assign dependent views,
+  annotations, tables, and references. Those automatic planning decisions
+  require a separate amendment before extra sheets may be selected (#1866).
 - Bounding what one dropped annotation may buy in scale and sheet (#1336); whether an unrouted
   leader or a too-short rung should escalate to a detail (#1236); candidate richness versus solve
   reach (#1188).

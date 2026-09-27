@@ -95,9 +95,9 @@ cross-sheet requirement evaluation (`document.py`, `reporting.py`,
 model and coverage authority, not something to recreate in the layout solver.
 It does **not** yet make automatic multi-sheet output a one-sheet overflow
 fallback: `Document.build()` compiles the caller's named `Sheet` members in
-sequence, while `DocumentResult` has report/write-report but no drawing-set
-export, sheet-number policy, common title/revision identity, or automatic
-assignment of dependent views and annotations.
+sequence. Explicit authored sets now validate a common drawing number/revision,
+default numbered page labels, and export numbered member files, but still have
+no automatic assignment of dependent views and annotations.
 
 Before a second sheet becomes an automatic representation option, add an
 explicit sheet-count/page policy and a joint assignment plan above member
@@ -105,7 +105,7 @@ explicit sheet-count/page policy and a joint assignment plan above member
 references, tables, notes, and their feature tags in coherent groups; use the
 existing cross-sheet requirement evaluation as the final authority. Numbered
 pages, common revision/title data, and cross-sheet references need one drawing-
-set identity and export contract. A caller-fixed one-sheet drawing stays one
+set cross-reference contract. A caller-fixed one-sheet drawing stays one
 sheet and reports incompleteness if required content cannot fit. ADR 2 needs
 an amendment for this new automatic planner, with tests; it is not a late
 overflow action inside the one-sheet solver.

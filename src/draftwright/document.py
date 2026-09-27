@@ -112,6 +112,32 @@ class DocumentResult:
         """Atomically write the strict document report without exporting drawing ink."""
         return write_json_document(self.report(), path)
 
+    def export(self, out, *, formats=("pdf",), dpi: int = 150, reproducible=None):
+        """Export each authored sheet with a stable drawing-set filename.
+
+        The mapping is keyed by the caller's sheet names, in document order.
+        Validate every live member against the sealed source before writing any
+        file; a member edited onto foreign physical geometry cannot produce a
+        misleading partial set. Like `Drawing.export`, individual file writes
+        are not a multi-file atomic transaction.
+        """
+        stem = Path(out)
+        if not stem.name or stem.suffix.lower() in {".svg", ".dxf", ".pdf", ".png"}:
+            raise ValueError("document export needs a filename stem without a format suffix")
+        formats = (formats,) if isinstance(formats, str) else tuple(formats)
+        self._project_members()
+        count = len(self._sheets)
+        digits = max(2, len(str(count)))
+        return {
+            name: drawing.export(
+                str(stem.with_name(f"{stem.name}-sheet-{index:0{digits}d}-of-{count:0{digits}d}")),
+                formats=formats,
+                dpi=dpi,
+                reproducible=reproducible,
+            )
+            for index, (name, drawing) in enumerate(self._sheets.items(), start=1)
+        }
+
 
 class Document:
     """Author explicit sheets against an immutable common physical-feature membership."""
@@ -179,6 +205,32 @@ class Document:
                 members.append((name, snapshot, snapshot._document_recipe()))
             except Exception as exc:
                 raise DocumentBuildError(name, exc) from exc
+        identities = {
+            (snapshot._opts["number"], snapshot._opts.get("revision", "A"))
+            for _name, snapshot, _recipe in members
+        }
+        if len(identities) != 1:
+            raise ValueError("document sheets must share one drawing number and revision")
+        count = len(members)
+        if count > 1:
+            labels = [snapshot._opts.get("sheet") for _name, snapshot, _recipe in members]
+            if any(label is not None and not isinstance(label, str) for label in labels):
+                raise ValueError("document page labels must be text")
+            custom = [isinstance(label, str) and bool(label.strip()) for label in labels]
+            if any(custom) and not all(custom):
+                raise ValueError("document sheets need either all custom page labels or none")
+            if all(custom):
+                if len({label.strip() for label in labels}) != count:
+                    raise ValueError("document page labels must be distinct")
+                for (_name, snapshot, _recipe), label in zip(members, labels, strict=True):
+                    snapshot._opts["sheet"] = label.strip()
+            else:
+                for index, (_name, snapshot, _recipe) in enumerate(members, start=1):
+                    snapshot._opts["sheet"] = f"{index}/{count}"
+        # Capture the actual numbered member options, not the pre-numbering recipes.
+        members = [
+            (name, snapshot, snapshot._document_recipe()) for name, snapshot, _recipe in members
+        ]
         drawings = {}
         for name, sheet, _recipe in members:
             try:
