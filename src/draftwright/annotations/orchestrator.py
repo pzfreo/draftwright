@@ -1727,24 +1727,10 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     # success from a later name search. The independent coverage report remains the
     # authority on whether every underlying physical requirement was satisfied.
     if tabulate_scattered and ctx.trace is not None:
-        event = ctx.trace.pass_event(
-            "hole_table_replacement",
-            view="plan",
-            candidate="hole_table_plan",
-            alternatives=["feature_annotations", "hole_table_with_balloons"],
-            outcome="committed" if table_placed else "restored",
+        ctx.trace.record_hole_table_decision(
+            committed=table_placed,
             reason="required_balloons_placed" if table_placed else table_failure_reason,
-            attempted_replacements=sorted(replaced),
+            replaced=replaced,
             table_rows=len(holes),
             keyed_rows=len(scattered_specs) if table_placed else 0,
-            coverage_authority=False,
         )
-        if event is not None:
-            event["items"] = [
-                {
-                    "name": name,
-                    "outcome": "replaced" if table_placed else "retained",
-                    "reason": "table_with_keyed_row" if table_placed else table_failure_reason,
-                }
-                for name in sorted(replaced)
-            ]

@@ -715,6 +715,41 @@ class SolveTrace:
         return rec
 
     @_never_aborts
+    def record_hole_table_decision(
+        self, *, committed, reason, replaced, table_rows, keyed_rows
+    ) -> None:
+        """Record one complete table-versus-feature-ink transaction safely.
+
+        Build the event and its item inventory inside the recorder guard. A trace
+        failure must never turn a valid drawing into a failed build.
+        """
+        names = sorted(replaced)
+        self.pass_events.append(
+            {
+                "seq": self._next_seq(),
+                "phase": self._phase,
+                "label": "hole_table_replacement",
+                "view": "plan",
+                "candidate": "hole_table_plan",
+                "alternatives": ["feature_annotations", "hole_table_with_balloons"],
+                "outcome": "committed" if committed else "restored",
+                "reason": reason,
+                "attempted_replacements": names,
+                "table_rows": table_rows,
+                "keyed_rows": keyed_rows,
+                "coverage_authority": False,
+                "items": [
+                    {
+                        "name": name,
+                        "outcome": "replaced" if committed else "retained",
+                        "reason": "table_with_keyed_row" if committed else reason,
+                    }
+                    for name in names
+                ],
+            }
+        )
+
+    @_never_aborts
     def record_outcome(self, name, outcome, **extra) -> None:
         """Record a candidate's solve-level outcome; a ``placed`` outcome is enriched
         with its position and a reason-less ``dropped`` with the last recorded

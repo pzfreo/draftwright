@@ -108,6 +108,38 @@ class TestTraceRecording:
         assert dwg.solve_trace.snapshot() is None
         dwg.solve_trace.restore(None)
 
+    def test_hole_table_decision_is_guarded_as_one_record(self, tmp_path, caplog, monkeypatch):
+        from draftwright.annotations._common import SolveTrace
+
+        trace = SolveTrace(tmp_path / "table.trace.json")
+        trace.record_hole_table_decision(
+            committed=True,
+            reason="required_balloons_placed",
+            replaced={"m_locx0": object(), "hc_plan0": object()},
+            table_rows=2,
+            keyed_rows=2,
+        )
+        event = trace.pass_events[0]
+        assert event["attempted_replacements"] == ["hc_plan0", "m_locx0"]
+        assert [item["outcome"] for item in event["items"]] == ["replaced", "replaced"]
+        assert event["coverage_authority"] is False
+
+        def fail_sequence():
+            raise RuntimeError("injected table decision recorder failure")
+
+        monkeypatch.setattr(trace, "_next_seq", fail_sequence)
+        with caplog.at_level(logging.WARNING, logger="draftwright.annotations._common"):
+            trace.record_hole_table_decision(
+                committed=False,
+                reason="table_not_placed",
+                replaced={"hc_plan0": object()},
+                table_rows=2,
+                keyed_rows=0,
+            )
+        assert trace._broken
+        assert trace.pass_events == [event]
+        assert sum("recorder failed" in row.getMessage() for row in caplog.records) == 1
+
     def test_unwritable_trace_path_never_aborts_the_build(self, tmp_path, caplog):
         # Recording-only: an unwritable path degrades to a warning — the build (and
         # any export after it) must complete untouched.
