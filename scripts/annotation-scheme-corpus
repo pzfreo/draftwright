@@ -54,6 +54,24 @@ def _load_manifest(path: Path) -> dict:
     return document
 
 
+def _select_cases(corpus: dict, requested: list[str]) -> tuple[list[dict], dict]:
+    """Select named cases in manifest order without implying a full-corpus result."""
+
+    cases = corpus["cases"]
+    available = {case["id"] for case in cases}
+    if len(requested) != len(set(requested)):
+        raise ValueError("--case IDs must not repeat")
+    unknown = sorted(set(requested) - available)
+    if unknown:
+        raise ValueError(f"unknown --case ID(s): {', '.join(unknown)}")
+    selected = [case for case in cases if not requested or case["id"] in requested]
+    return selected, {
+        "case_ids": [case["id"] for case in selected],
+        "manifest_cases": len(cases),
+        "partial": len(selected) != len(cases),
+    }
+
+
 def _aggregate(results: list[dict]) -> dict:
     verdicts = Counter(result["quality_comparison"]["verdict"] for result in results)
     parity = [bool(result["parity"]["passed"]) for result in results]
@@ -249,6 +267,13 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
+        "--case",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="run only this manifest case (repeatable); report remains a diagnostic subset",
+    )
+    parser.add_argument(
         "--public-selector",
         action="store_true",
         help="exercise build_drawing(annotation_layout='best') for every case",
@@ -296,7 +321,15 @@ def main() -> int:
         parser.error("--worker-timeout-seconds is not supported by --public-selector")
 
     corpus = _load_manifest(args.manifest)
-    if args.require_wins > len(corpus["cases"]):
+    try:
+        cases, selection = _select_cases(corpus, args.case)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if selection["partial"] and (
+        args.require_contender or args.require_affected_majority or args.require_wins
+    ):
+        parser.error("corpus-level gates require every manifest case; omit --case")
+    if args.require_wins > len(cases):
         parser.error("--require-wins exceeds the corpus size")
     args.output.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
@@ -310,13 +343,14 @@ def main() -> int:
                     case_report_dir=args.output / "case-reports",
                     worker_timeout_seconds=args.worker_timeout_seconds,
                 ),
-                corpus["cases"],
+                cases,
             )
         )
     report = {
         "format": "draftwright-annotation-layout-corpus-result",
         "corpus_version": corpus["corpus_version"],
         "metric_version": corpus["metric_version"],
+        "selection": selection,
         "selector": (
             "candidate-first"
             if args.candidate_first
@@ -327,6 +361,14 @@ def main() -> int:
         "summary": _aggregate_preview(results) if args.candidate_first else _aggregate(results),
         "results": results,
     }
+    report["summary"]["cohort_gate_eligible"] = not selection["partial"]
+    if selection["partial"]:
+        # Case-level evidence is useful, but a selected subset cannot satisfy a
+        # fixed-corpus production or safety gate by changing the denominator.
+        report["summary"]["production_contender"] = False
+        report["summary"]["affected_majority"] = False
+        if "safety_admission_ready" in report["summary"]:
+            report["summary"]["safety_admission_ready"] = False
     print(json.dumps(report, indent=2, sort_keys=True))
     return int(
         (report["summary"]["semantic_parity"] != report["summary"]["cases"])
