@@ -489,11 +489,12 @@ class SolveTrace:
       dropped-with-reason / deduped / promoted / deferred-to-post-drain).
     * ``pass_events`` — everything placed OUTSIDE a corridor solve: the standalone
       strip passes (slot fallthroughs, front hole callouts, off-axis locations,
-      PMI fallbacks) and the *immediate*
-      placers — the post-drain machined-feature leader callouts
-      (chamfer/fillet/flat/pocket/groove/boss ø) and the turned diameter row/column
-      and step-length set-solves. Each entry carries ``seq``/``phase``, a pass
-      ``label``, and ``items`` — one outcome dict per attempted annotation
+      PMI fallbacks) and the *immediate* placers — the post-drain machined-feature
+      leader callouts (chamfer/fillet/flat/pocket/groove/boss ø) and the turned
+      diameter row/column and step-length set-solves. The
+      ``interior_dimension_assignment`` event also records viable candidates,
+      rejection categories, and final placed or dropped outcomes. Each entry carries
+      ``seq``/``phase``, a pass ``label``, and ``items`` — one outcome dict per annotation
       (``placed`` with its position, or ``dropped`` with a reason). The
       ``hole_table_replacement`` event records the transactional choice between
       retained feature annotations and a complete table with keyed balloons;
@@ -699,11 +700,12 @@ class SolveTrace:
 
     @_never_aborts
     def pass_event(self, label, **fields) -> dict:
-        """Open a ``pass_events`` record for an *immediate* placer (the #733 gap: the
-        post-drain machined-feature callouts and the turned diameter/step-length
-        set-solves place outside any strip solve, but their story must be in the
-        trace too). Returns the record; the caller appends one outcome dict per
-        attempted annotation to ``rec["items"]``."""
+        """Open a ``pass_events`` record for an out-of-corridor placement decision.
+
+        This covers immediate placers (the #733 gap) and the joint interior-dimension
+        assignment. The caller appends one outcome dict per attempted annotation to
+        ``rec["items"]``.
+        """
         rec = {
             "seq": self._next_seq(),
             "phase": self._phase,
@@ -3148,13 +3150,22 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
     admits candidates only when their label is wholly interior or wholly exterior, and
     requires the complete annotation to clear fixed ink. The generic exact assignment
     then arbitrates pairwise conflicts; a job with no survivor calls its original drop
-    handler unchanged.
+    handler unchanged. When tracing is enabled, the same stage records candidate
+    positions and rejection categories without running a second placement solve.
     """
 
     jobs = getattr(ctx, "interior_dimensions", None)
     if not jobs:
         return
     ctx.interior_dimensions = []
+    trace_event = (
+        ctx.trace.pass_event("interior_dimension_assignment", assignment="joint")
+        if ctx.trace is not None
+        else None
+    )
+    trace_rejections: dict[int, set[str]] | None = (
+        {id(job): set() for job in jobs} if trace_event is not None else None
+    )
     page = _drawing_bounds(dwg)
     candidates_by_job: list[tuple[InteriorDimensionCandidate, ...]] = []
     costs_by_job: list[tuple[float, ...]] = []
@@ -3162,6 +3173,38 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
     def reject(job, reason: str) -> None:
         if job.rejection_reasons is not None and reason not in job.rejection_reasons:
             job.rejection_reasons.append(reason)
+        if trace_rejections is not None:
+            trace_rejections[id(job)].add(reason)
+
+    def record(job, job_candidates, job_costs, choice, outcome, reason=None) -> None:
+        if trace_event is None:
+            return
+        assert trace_rejections is not None
+        trace_event["items"].append(
+            {
+                "name": job.name,
+                "outcome": outcome,
+                "reason": reason,
+                "priority": job.priority,
+                "rejections": sorted(trace_rejections[id(job)]),
+                "candidate_inventory": [
+                    {
+                        "view": job.view,
+                        "region": candidate.region.value,
+                        "position": candidate.position,
+                        "cost": cost,
+                        "outcome": (
+                            ("selected" if outcome == "placed" else "failed_commit")
+                            if index == choice
+                            else "available"
+                        ),
+                    }
+                    for index, (candidate, cost) in enumerate(
+                        zip(job_candidates, job_costs, strict=True)
+                    )
+                ],
+            }
+        )
 
     for job in jobs:
         bounds = dwg.view_bounds(job.view)
@@ -3294,12 +3337,20 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
         conflicts,
         priorities=[job.priority for job in jobs],
     )
-    for job, job_candidates, choice in zip(
-        jobs, candidates_by_job, assignment.choices, strict=True
+    for job, job_candidates, job_costs, choice in zip(
+        jobs, candidates_by_job, costs_by_job, assignment.choices, strict=True
     ):
         if choice is None:
             if job.explicit_position is not None and job_candidates:
                 reject(job, "candidate_assignment_conflict")
+            record(
+                job,
+                job_candidates,
+                job_costs,
+                choice,
+                "dropped",
+                "assignment_conflict" if job_candidates else "no_clear_candidate",
+            )
             job.on_drop(job.name)
             continue
         dimension = job_candidates[choice].annotation
@@ -3312,6 +3363,9 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                 selected_label_clear = view_label_clearance(dwg, job.view)
             except Exception:  # noqa: BLE001 — optional fallback must fail closed
                 reject(job, "candidate_rebuild_failed")
+                record(
+                    job, job_candidates, job_costs, choice, "dropped", "candidate_rebuild_failed"
+                )
                 job.on_drop(job.name)
                 continue
             selected_region = job_candidates[choice].region
@@ -3346,6 +3400,14 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                 or not annotation_ink_clear(dwg, dimension)
             ):
                 reject(job, "candidate_changed_during_commit")
+                record(
+                    job,
+                    job_candidates,
+                    job_costs,
+                    choice,
+                    "dropped",
+                    "candidate_changed_during_commit",
+                )
                 job.on_drop(job.name)
                 continue
         dimension._dw_candidate_region = job_candidates[choice].region.value
@@ -3356,6 +3418,7 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
             feature=job.feature,
             measurement=job.measurement,
         )
+        record(job, job_candidates, job_costs, choice, "placed")
         job.on_place(job.name)
 
 
