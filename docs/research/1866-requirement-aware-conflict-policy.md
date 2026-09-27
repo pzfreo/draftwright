@@ -64,9 +64,10 @@ ink or caller constraint. Do not enlarge a fixed sheet, relax an explicit
 scale, silently rerender with the other algorithm, or call a clean lint result
 complete when the recognized inventory is missing.
 
-This ordering is Draftwright product policy. ISO 129-1, ISO 1101, ASME Y14.5,
-and ASME Y14.2 constrain the content and presentation of annotations; they do
-not define a universal global drop order.
+This ordering is Draftwright product policy, not a claim of conformance with
+ISO 129-1, ISO 1101, ASME Y14.5, or ASME Y14.2. Standards-relevant content,
+presentation, and interpretation of each surviving annotation require separate
+checks.
 
 ## Implementation and review sequence
 
