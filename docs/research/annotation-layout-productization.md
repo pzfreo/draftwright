@@ -28,8 +28,8 @@ closed before the scheme alone controls all annotation lanes.
 
 `annotation_layout="compare"` (formerly `"best"`) is available through
 `build_drawing`, `make_drawing`, `Sheet`, generated scripts, and
-`--annotation-layout compare` in the CLI. It first
-settles the existing drawing. Candidate trials use that exact page and scale, and
+`--annotation-layout compare` in the CLI. It first settles the existing drawing.
+Candidate trials use that exact page and scale, and
 the selector accepts the first strict improvement only after checking the
 finished drawing for semantic annotation parity, no loss of required coverage,
 no new required blocker, and no newly introduced interior dimension. A clean
@@ -39,8 +39,9 @@ quality measures are unchanged. Failed or inferior proposals retain baseline.
 
 The default remains `"estimated-strips"` (formerly `"baseline"`). The opt-in
 `"compare"` mode is a comparative gate: it needs at least two drawing solves
-and can need four on a crowded part. Only the selected drawing is exported. Builds are scoped with a
-`ContextVar`, so process environment switches are not part of the public API.
+and can need four on a crowded part. Only the selected drawing is exported.
+Builds are scoped with a `ContextVar`, so process environment switches are not
+part of the public API.
 The established build still enforces the caller's `scale_policy` before any
 comparison. A declared script that already fails under `"fallback"` at an
 explicit scale needs a feasible scale or an explicit `"permissive"` policy;
@@ -84,11 +85,13 @@ in-process drawings a memory concern.
 ## Intended default path: candidate first
 
 The agreed #1813 direction is one candidate build on an ordinary request, with
-an explicit baseline mode and the two-build `"best"` mode retained for offline
-comparison. The pre-render chooser now selects a profile from typed demand and
+an explicit established-layout mode and the multi-build `"compare"` mode
+retained for offline comparison. The pre-render chooser now selects a profile
+from typed demand and
 settled page/scale before the candidate is drawn; the current
 `"demand-guided"` mode (formerly `"candidate-preview"`) is observational and
-does **not** change the public default. Its independent completeness checks report unmet requirements even
+does **not** change the public default. Its independent completeness checks
+report unmet requirements even
 when baseline would have the same defect. Such a shared limitation is not a
 candidate-specific regression and does not trigger a baseline rerender.
 
