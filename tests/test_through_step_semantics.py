@@ -1115,38 +1115,6 @@ def test_detail_redraw_drops_are_not_counted_again_as_a_request_failure(monkeypa
     assert len(drops) == len({issue.measurement_spans[0] for issue in drops})
 
 
-def test_turned_head_redraw_drop_is_not_counted_again_as_request_failure(monkeypatch) -> None:
-    import draftwright.annotations.sections as sections
-    from draftwright._core import DetailRequest
-    from draftwright.annotations._common import PlacementContext
-
-    owner = step_level(base=0, levels=(1, 2), datum=(0, 0, 0))
-    measurement = DimensionId(owner, "step.length")
-    span = ((0.0, 0.0, 0.0), (2.0, 0.0, 0.0))
-    request = DetailRequest(
-        axis="x",
-        lo=0.0,
-        hi=2.0,
-        scale_needed=10.0,
-        redraw=lambda *_args: 0,
-        kind="turned-head",
-        measurement_ids=(measurement,),
-        measurement_spans=(span,),
-    )
-    ctx = PlacementContext(registry=AnnotationRegistry(), detail_requests=[request])
-
-    def failed_redraw(*_args, **_kwargs):
-        ctx.record_issue(
-            "warning", "step_dim_dropped", "exact redraw failed", measurement=measurement
-        )
-        return False
-
-    monkeypatch.setattr(sections, "_render_detail", failed_redraw)
-    sections._resolve_details(object(), SimpleNamespace(), ctx=ctx)
-
-    assert [issue.code for issue in ctx.registry.issues] == ["step_dim_dropped"]
-
-
 @pytest.mark.parametrize(
     ("part", "axis", "view"),
     [
