@@ -8,6 +8,7 @@ from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import HoleCallout, draft_preset
 
 from draftwright import Sheet, build_drawing
+from draftwright._core import _text_width, _wrap_callout_text
 from draftwright.annotations.from_model import callout_from_spec
 from draftwright.fits import fit_class
 from draftwright.linting import lint_drawing, lint_feature_coverage
@@ -42,6 +43,20 @@ def _spec(**overrides):
     }
     spec.update(overrides)
     return spec
+
+
+def test_long_manufacturing_suffix_wraps_without_losing_its_source_label():
+    suffix = "M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT"
+    draft = draft_preset(decimal_precision=1)
+    callout = callout_from_spec(_spec(suffix=suffix), draft, None)
+
+    assert callout.label == f"⌀8 THRU {suffix}"
+    assert callout.callout_height > draft.font_size
+    assert callout.callout_width < _text_width(suffix, draft.font_size)
+    assert len([spec for spec in callout.pdf_text_relative_specs if "THREAD" in spec[0]]) == 1
+    wrapped = _wrap_callout_text(suffix, draft.font_size)
+    assert " ".join(wrapped.split()) == suffix
+    assert all(_text_width(line, draft.font_size) <= 48.0 for line in wrapped.splitlines())
 
 
 @pytest.mark.parametrize(

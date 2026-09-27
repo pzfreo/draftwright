@@ -2317,14 +2317,13 @@ def _settled_reference_build(*args, **kwargs):
 
 
 def settled_layout_for(drawing) -> dict | None:
-    """The layout an automatic build REPLANNED onto, for :func:`emit_sheet_script` to pin.
+    """A measured automatic layout that a declared script cannot safely re-derive.
 
-    ``None`` when the build took its first plan, which is the common case and needs no
-    pinning: a declared script re-planning the same way from the same model reaches the same
-    sheet. It is the replan that a model cannot reproduce — the automatic path measures a
-    built sheet, finds a required mark has nowhere to go, and drops the optional pictorial or
-    spends a larger page. A declared build never enters that ladder (ADR 4: a declared script
-    does what it is told), so the resolved page and view set have to be written down. The
+    ``None`` when the first plan was accepted, which is the common case and needs no
+    pinning. A scale/page replan or a reduced-view candidate rejected after measuring ink
+    is not a decision a declared script can reproduce from its model alone: the latter may
+    otherwise re-select the very view set the automatic build rejected. The resolved page
+    and view set have to be written down. The
     automatically selected scale is replayed through a private constraint: spelling its numeric
     result as an authored ``scale=`` request changes the compose policy even when the number
     agrees, while discarding it can select another standard scale on the settled page.
@@ -2333,12 +2332,16 @@ def settled_layout_for(drawing) -> dict | None:
     :func:`generate_sheet_script`, and the round-trip parity tests that assert a generated
     script draws and lints exactly what the automatic build did.
     """
-    if drawing.scale_decision.get("status") != "automatic_replanned":
+    if (
+        drawing.scale_decision.get("status") != "automatic_replanned"
+        and drawing.view_decision.get("status") != "retained_after_rejection"
+    ):
         return None
     return {
         "scale": drawing.scale,
         "page": (drawing.page_w, drawing.page_h),
         "views": tuple(drawing.views),
+        "pin_views": drawing.view_decision.get("status") == "retained_after_rejection",
     }
 
 
@@ -2596,6 +2599,11 @@ def emit_sheet_script(
         emitted_page = settled_layout["page"]
     if emitted_page is not None:
         ctor.append(f"page={emitted_page!r}")
+    if settled_layout is not None and settled_layout.get("pin_views", False):
+        replayed_views = tuple(
+            name for name in settled_layout["views"] if name in {"front", "plan", "side", "iso"}
+        )
+        ctor.append(f"_replayed_views={replayed_views!r}")
     # The AP242 seam (#1563). A generated script builds from an in-memory solid, which carries
     # no AP242 document, so without naming its source the re-run reconciles nothing — the raw
     # `sheet.add(PmiFeature(...))` fallbacks below would sit unexamined and their deletion would
@@ -2755,6 +2763,7 @@ def emit_sheet_script(
     elif (
         principal_views
         and principal_views != ("front", "plan", "side", "iso")
+        and not (settled_layout is not None and settled_layout.get("pin_views", False))
         and _mirrors_dimensions(model)
     ):
         lines += [
@@ -3077,9 +3086,12 @@ def generate_sheet_script(
                 )
         settled_layout = None
         # Generated scripts mirror dimensions as an authored set, and a declared build does
-        # what it is told — it never enters the automatic recovery ladder. So any replan the
-        # automatic path performs has to be BAKED IN here, against the same immutable STEP
+        # what it is told — it never enters the automatic recovery ladder. So a measured
+        # automatic decision has to be BAKED IN here, against the same immutable STEP
         # snapshot as recognition, or the script draws a different sheet from the part.
+        # Build through the same automatic front door as the direct drawing: supplying the
+        # detected model here changes view-selection/annotation ownership and can falsely
+        # accept a reduced view that the direct build rejected (GRM03).
         #
         # This used to run only for the two families whose replan could be PREDICTED from the
         # model (an orientation correction, a step_level ladder). #1590 adds a third trigger
@@ -3123,7 +3135,6 @@ def generate_sheet_script(
                 leader_region=leader_region,
                 annotation_layout=annotation_layout,
                 pmi=pmi,
-                model=model,
             )
             settled_layout = None if settled is None else settled_layout_for(settled)
         script = emit_sheet_script(

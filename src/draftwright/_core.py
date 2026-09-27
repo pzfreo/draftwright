@@ -550,6 +550,37 @@ def _text_size(
     return (bb.size.X, bb.size.Y)
 
 
+_LONG_CALLOUT_LINE_MM = 48.0
+
+
+def _wrap_callout_text(
+    text: str, font_size: float, *, max_width: float = _LONG_CALLOUT_LINE_MM
+) -> str:
+    """Break a long manufacturing sentence into measured, intact words.
+
+    This is one typography policy for both compose-time width reservation and
+    rendered leaders. Short labels are unchanged. A single overlong word stays
+    intact, so the planner cannot pretend it will fit by clipping it.
+    """
+    if not text or _text_width(text, font_size) <= max_width:
+        return text
+    lines: list[str] = []
+    line = ""
+    for word in text.split():
+        candidate = f"{line} {word}" if line else word
+        if line and _text_width(candidate, font_size) > max_width:
+            lines.append(line)
+            line = word
+        else:
+            line = candidate
+        if line.endswith(";") and _text_width(line, font_size) >= max_width * 0.5:
+            lines.append(line)
+            line = ""
+    if line:
+        lines.append(line)
+    return "\n".join(lines)
+
+
 @functools.lru_cache(maxsize=32)
 def _text_line_spacing_em(
     font_size: float,

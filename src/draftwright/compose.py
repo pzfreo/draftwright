@@ -54,6 +54,7 @@ from draftwright._core import (
     _text_width,
     _tol_suffix,
     _validated_title_block_width,
+    _wrap_callout_text,
     _wrap_rows,
 )
 from draftwright._geometry import _END_ON, _fmt_angle
@@ -347,7 +348,7 @@ def _est_planned_bore_callout_width(
                     )
                 )
         if suffix is not None:
-            token_w.append(_text_width(suffix, font_size))
+            token_w.append(_text_size(_wrap_callout_text(suffix, font_size), font_size)[0])
 
         n = len(token_w)
         max_w = max(max_w, sum(token_w) + max(n - 1, 0) * gap + pad_around_text)

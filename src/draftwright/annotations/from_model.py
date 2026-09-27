@@ -66,6 +66,7 @@ from draftwright._core import (
     _text_size,
     _title_block_box,
     _tol_suffix,
+    _wrap_callout_text,
     layout_frame,
 )
 from draftwright._geometry import (
@@ -158,6 +159,7 @@ from draftwright.model.ir import (
     PatternFeature,
     PocketFeature,
     SlotFeature,
+    StepFeature,
     ThreadRequirement,
     _linear_projection_view,
     authored_dimension_target_view,
@@ -200,6 +202,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
     csink_dia = ft(spec.get("csink_dia"), "csink_dia_tol", "csink_dia_decimals")
     csink_angle = ft(spec.get("csink_angle"), "csink_angle_tol", "csink_angle_decimals")
     suffix = hole_callout_suffix(spec, lambda tolerance: _tol_suffix(tolerance, draft))
+    visible_suffix = _wrap_callout_text(suffix, draft.font_size) if suffix else None
     callout = HoleCallout(
         dia,
         count=count,
@@ -213,7 +216,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         # "90.0°" and, worse, mismatches the width estimators' `_fmt` (they'd under-reserve).
         # `.get()`: hand-built specs (tolerance/fit tests) omit csk keys.
         csink_angle=csink_angle,
-        suffix=suffix,
+        suffix=visible_suffix,
         draft=draft,
     )
     # Retain token-level text positions from the exact layout recipe used by
@@ -239,8 +242,8 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         visible_tokens.extend((("sym", "countersink"), ("sym", "diameter"), ("text", csink_dia)))
         if csink_angle is not None:
             visible_tokens.append(("text", f"× {csink_angle}°"))
-    if suffix:
-        visible_tokens.append(("text", suffix))
+    if visible_suffix:
+        visible_tokens.append(("text", visible_suffix))
 
     font_path = getattr(draft, "font_path", DEFAULT_FONT_PATH)
     font_name = getattr(draft, "font", "Arial")
@@ -266,11 +269,25 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
                 )
             x += sym_w + gap
         else:
-            token_specs.append(
-                (value, x, 0.0, h, font_path, font_name, "REGULAR", "left", "middle")
+            lines = value.splitlines()
+            spacing = h * _text_line_spacing_em(h, font_path, font_name)
+            token_specs.extend(
+                (
+                    line,
+                    x,
+                    ((len(lines) - 1) / 2.0 - index) * spacing,
+                    h,
+                    font_path,
+                    font_name,
+                    "REGULAR",
+                    "left",
+                    "middle",
+                )
+                for index, line in enumerate(lines)
             )
             x += _text_size(value, h, font_path, font_name)[0] + gap
     cb = callout.bounding_box()
+    callout.callout_height = cb.size.Y
     ccx, ccy = (cb.min.X + cb.max.X) / 2.0, (cb.min.Y + cb.max.Y) / 2.0
     callout.pdf_text_relative_specs = tuple(
         (value, px - ccx, py - ccy, size, path, name, style, h_align, v_align)
@@ -2841,6 +2858,7 @@ def place_machined_leader_jobs(
     interior_clearance_by_view = {}
     for name, view, silhouette, label, raw_candidates, measurement in jobs:
         straight_only = name in straight_only_names
+        visible_label = _wrap_callout_text(str(label), dwg.draft.font_size)
         (
             joint_interior_anchors,
             joint_exterior_anchors,
@@ -2849,7 +2867,7 @@ def place_machined_leader_jobs(
             recovery_anchors,
         ) = tee(iter(raw_candidates), 5)
         label_width, label_height = _text_size(
-            str(label),
+            visible_label,
             float(dwg.draft.font_size),
             getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
             getattr(dwg.draft, "font", "Arial"),
@@ -2957,7 +2975,12 @@ def place_machined_leader_jobs(
             *,
             _source_features=source_features,
             _measurement=measurement,
+            _semantic_label=label,
+            _visible_label=visible_label,
         ):
+            if _semantic_label != _visible_label:
+                leader.label = _semantic_label
+                leader.pdf_text = _visible_label
             leader.source_features = _source_features
             grouping_features = {
                 id(identity.feature): identity.feature
@@ -2969,7 +2992,7 @@ def place_machined_leader_jobs(
                 leader.covers_count = len(grouping_features)
             return leader
 
-        def _build(tip, elbow, _feature, *, _label=label, _decorate_fn=_decorate):
+        def _build(tip, elbow, _feature, *, _label=visible_label, _decorate_fn=_decorate):
             return _decorate_fn(
                 Leader(tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft)
             )
@@ -2977,7 +3000,7 @@ def place_machined_leader_jobs(
         def _recover(
             _anchors=recovery_anchors,
             _view=view,
-            _label=label,
+            _label=visible_label,
             _label_size=(label_width, label_height),
             _build_fn=_build,
             _decorate_fn=_decorate,
@@ -6645,7 +6668,6 @@ def render_step_lengths(
     rows: list[tuple[str, _StepChainSegment]] = []
     step_origins = []
     step_geometry = []
-    step_profiles = []
     for g in plan.of_kind("step"):
         if g.facts.frame.axis not in ("x", "y", "z"):
             continue
@@ -6669,7 +6691,6 @@ def render_step_lengths(
             )
         )
         step_origins.append(g.facts.frame.origin)
-        step_profiles.append(g.facts.profile)
         diameter = g.dim(kind="diameter")
         step_geometry.append(
             (
@@ -6999,17 +7020,42 @@ def render_step_lengths(
                         dwg, view, hsegs, f"dim_{view}_steplen", detail_scale, ctx=ctx
                     )
 
-                profile_key = next((key for key in step_profiles if key is not None), None)
                 cross_axis: Literal["x", "y", "z"] = "z" if view == "front" else "y"
                 cross_index = "xyz".index(cross_axis)
+                # Derive the visible radial envelope from the same step geometry that
+                # both detected and declared builds carry. Provider-only profile bounds
+                # disappear from an emitted Sheet script, which otherwise redraws a
+                # full-height detail while the automatic drawing shows a partial one.
+                radial_extents = [
+                    (frame.origin[cross_index] - radius, frame.origin[cross_index] + radius)
+                    for frame, _span, radius in step_geometry
+                    if radius is not None
+                ]
                 cross_bounds = (
-                    None
-                    if profile_key is None
-                    else (
-                        float(profile_key.body_bounds[2 * cross_index]),
-                        float(profile_key.body_bounds[2 * cross_index + 1]),
-                    )
+                    (min(lo for lo, _hi in radial_extents), max(hi for _lo, hi in radial_extents))
+                    if len(radial_extents) == len(step_geometry)
+                    else None
                 )
+                # The axial shoulders are fully described by the upper radial
+                # silhouette. Retain a narrow band immediately below the smallest
+                # head radius, so every involved outside edge remains visible. The
+                # full mirrored diameter makes a 20:1 detail unnecessarily tall.
+                if cross_bounds is not None:
+                    head_steps = [
+                        measurement.feature
+                        for segment in ra
+                        for measurement in segment.measurements
+                        if isinstance(measurement.feature, StepFeature)
+                    ]
+                    if head_steps:
+                        axis_centre = head_steps[0].frame.origin[cross_index]
+                        cross_lo = (
+                            axis_centre + min(step.diameter for step in head_steps) / 2 * 0.9
+                        )
+                        cross_bounds = (min(cross_lo, cross_bounds[1] - 0.1), cross_bounds[1])
+                    else:
+                        axis_centre = (cross_bounds[0] + cross_bounds[1]) / 2
+                        cross_bounds = (axis_centre, cross_bounds[1])
                 ctx.detail_requests.append(
                     DetailRequest(
                         axis="x",

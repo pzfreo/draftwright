@@ -2432,7 +2432,7 @@ class _StripCtx(NamedTuple):
     to_page: Callable[[Any], Any]
     view_cx: float
     view_cy: float
-    draft: object
+    draft: Any
 
 
 def _seg_order(ny, segs):
@@ -2487,7 +2487,10 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
             StripCandidate(
                 key=f"{key_prefix_local}{j:04d}",
                 anchor=(ctx.edge, _snap(s[4])),
-                size=(s[2].callout_width, ctx.min_gap),
+                size=(
+                    s[2].callout_width,
+                    max(ctx.min_gap, s[2].callout_height + 2 * ctx.draft.pad_around_text),
+                ),
                 priority=s[1],
                 anchored=_is_central(s, ctx.a, ctx.to_page, ctx.view_cx, ctx.view_cy, ctx.draft),
             )
@@ -2504,7 +2507,10 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
         return StripCandidate(
             key=f"{key_prefix_local}{j:04d}",
             anchor=(ctx.edge, s[4]),
-            size=(s[2].callout_width, ctx.min_gap),
+            size=(
+                s[2].callout_width,
+                max(ctx.min_gap, s[2].callout_height + 2 * ctx.draft.pad_around_text),
+            ),
             priority=s[1],  # bore diameter — largest wins over-capacity (D3)
             anchored=_is_central(s, ctx.a, ctx.to_page, ctx.view_cx, ctx.view_cy, ctx.draft),
         )

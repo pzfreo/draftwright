@@ -1219,6 +1219,7 @@ class Sheet:
         source=None,
         _replayed_recognition=False,
         _replayed_scale=None,
+        _replayed_views=None,
     ):
         from draftwright._core import _sheet_option_margins, _validated_title_block_width
 
@@ -1246,6 +1247,15 @@ class Sheet:
         self._layout_overrides: list[LayoutOverride] = []
         self._document_input: DocumentInput | None = None
         self._replayed_recognition = bool(_replayed_recognition)
+        if _replayed_views is not None:
+            _replayed_views = tuple(_replayed_views)
+            if (
+                not _replayed_views
+                or any(name not in (*third_angle_view_names(), "iso") for name in _replayed_views)
+                or len(set(_replayed_views)) != len(_replayed_views)
+            ):
+                raise ValueError("_replayed_views must be a unique automatic principal view set")
+        self._replayed_views = _replayed_views
         if _replayed_scale is not None:
             _replayed_scale = float(_replayed_scale)
             if not math.isfinite(_replayed_scale) or _replayed_scale <= 0:
@@ -2795,6 +2805,11 @@ class Sheet:
 
     def add_view(self, name) -> _View:
         """Require one additional principal/orientation view in an automatic set."""
+        if self._replayed_views is not None:
+            raise ValueError(
+                "add_view() conflicts with the generated script's settled _replayed_views; "
+                "remove _replayed_views from Sheet(...) to replan after editing the view set"
+            )
         if self._principal_view_source == "authored":
             raise ValueError("add_view() augments auto_views(); use view() inside an authored set")
         name, kind = self._principal_view_name(name)
@@ -3753,6 +3768,11 @@ class Sheet:
         # as declaring it after.
         self._check_dimension_source()
         principal_views, include_iso = self._view_build_request()
+        if self._replayed_views is not None:
+            if self._principal_view_source == "authored":
+                raise ValueError("_replayed_views cannot be combined with authored_views()")
+            principal_views = tuple(name for name in self._replayed_views if name != "iso")
+            include_iso = "iso" in self._replayed_views
         section_request, automatic_details = self._derived_build_request()
         constraints = self.view_constraints
         required_tables = tuple(
