@@ -49,3 +49,50 @@ were 203.70/210.33 seconds, build times 176.44/180.17 seconds, and peak worker R
 661.29/593.88 MiB. These are **single samples**; any nearest-rank p95 printed by
 the runner for this one-case corpus is the same sample, not a meaningful latency
 budget. Supported-platform cost budgets remain open.
+
+## Current-source supported-platform check (2026-09-27)
+
+The [single opt-in FTC-09 run 36332797155](https://github.com/pzfreo/draftwright/actions/runs/36332797155)
+checked out source head `b5a9ced9c75c803d5a62763d8a13d258fec2e81e` on
+Linux, macOS, and Windows. This is the candidate-first placement fix from #1879
+plus PR #1878's opt-in cost workflow, **not** a new default. The caller still
+fixed A2 at 1:1. Each platform completed one candidate-preview and one
+*offline* baseline worker; all three comparison jobs exited successfully.
+The candidate selected `iso-growth` before rendering because the proposed
+`columns` profile moved the already off-page plan view a further 6 mm beyond
+the sheet. This is a relative carrier-preservation repair, not a claim that the
+plan fits.
+
+On each platform, the candidate and baseline had the same quality key
+`[6, 68, 0, 0, 8, -1.0, 249480.0]`, the same fixed page and scale, equal
+coverage and drops, no missing or added annotation identities, and no
+introduced blocker identities. Their SVGs were byte-identical *within each
+platform* (the byte hashes differ across platforms). The verdict is a **tie**,
+not a visual win or an independent safety pass. The candidate safety checker
+failed the same eight checks on all three: `required_outcomes`,
+`recognized_carriers`, `recognized_ownership`, `recognized_occurrences`,
+`lint_blockers`, `audited_coverage`, `view_page_containment`, and
+`annotation_page_containment`.
+
+| Runner | Baseline / candidate process time (s) | Time ratio | Baseline / candidate peak RSS (MiB) | RSS ratio |
+| --- | ---: | ---: | ---: | ---: |
+| Linux (4 logical CPUs, 15,990 MiB RAM) | 129.74 / 126.46 | 0.975× | 666.25 / 646.64 | 0.971× |
+| macOS (3 logical CPUs, 7,168 MiB RAM) | 157.80 / 119.93 | 0.760× | 700.28 / 718.81 | 1.026× |
+| Windows (4 logical CPUs, 16,379 MiB RAM) | 134.76 / 126.49 | 0.939× | 586.55 / 563.14 | 0.960× |
+
+These are **one sample per platform**; the runner's median and nearest-rank
+p95 are identical by construction and cannot establish representative
+latency/RSS budgets. This public PMI-rich file is not user-supplied large CAD.
+There is no candidate-preview fallback, so its `null` fallback rate is not
+zero; concurrency/RAM and fallback-inclusive total-latency gates remain open.
+The baseline exists only in this offline evidence run.
+
+The run artifacts record the same source SHA and FTC-09 cohort on every runner.
+Linux/macOS record manifest SHA-256
+`9012b99e4b6719f0357d5eeee61c1c8c17f33502aa10ca86bfec86f9615c4efa`;
+Windows records `ac16a90308c522a3f18c76f5a66ed9e07f8a4042cc528f1c43e1ad84ede6a70f`
+because its checkout converted that same committed JSON to CRLF. Reproducing
+the LF→CRLF conversion gives the Windows hash exactly. PR #1878 follow-up
+`bf11fd3d` changes only the provenance step to hash the committed Git blob,
+which is platform-independent. The completed CAD workers were **not rerun**
+for that provenance-only correction; cite `b5a9ced9` for their measurements.
