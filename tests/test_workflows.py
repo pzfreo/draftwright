@@ -150,7 +150,8 @@ def test_annotation_cost_real_part_cohort_is_explicit_and_does_not_rerun_fixed15
     assert "fixed15) manifest=tests/fixtures/annotation-layout-corpus-v2.json" in job
     assert "ftc09) manifest=tests/fixtures/annotation-layout-holdout-ftc09-v1.json" in job
     assert '--manifest "$LAYOUT_COST_MANIFEST"' in job
-    assert '"manifest_sha256": sha256(manifest.read_bytes()).hexdigest()' in job
+    assert '["git", "show", f"HEAD:{manifest.as_posix()}"]' in job
+    assert '"manifest_sha256": sha256(manifest_blob).hexdigest()' in job
     assert "annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-${{ matrix.os }}" in job
 
 

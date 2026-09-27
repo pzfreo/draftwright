@@ -74,6 +74,11 @@ jobs:
           from pathlib import Path
 
           manifest = Path(os.environ["LAYOUT_COST_MANIFEST"])
+          # Windows checkout may rewrite text line endings. Hash the committed
+          # manifest blob so provenance is comparable across all three runners.
+          manifest_blob = subprocess.check_output(
+              ["git", "show", f"HEAD:{manifest.as_posix()}"]
+          )
           Path("layout-cost-provenance.json").write_text(json.dumps({
               "source_sha": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True
@@ -85,7 +90,7 @@ jobs:
               "runner_os": os.environ["RUNNER_OS"],
               "cohort": os.environ["LAYOUT_COST_COHORT"],
               "manifest": str(manifest),
-              "manifest_sha256": sha256(manifest.read_bytes()).hexdigest(),
+              "manifest_sha256": sha256(manifest_blob).hexdigest(),
           }, indent=2) + "\n", encoding="utf-8")
           PY
       - name: Measure candidate-first and offline baseline workers
