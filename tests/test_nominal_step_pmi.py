@@ -57,8 +57,10 @@ def test_step_length_does_not_coalesce_on_value_alone_or_ambiguous_geometry():
     step, source = _step(), _source()
     for features in (
         (step, _source(2, 22)),
+        (_step(0, 21), source),
         (step, step, source),
         (step, replace(source, ref_pts=((0, 1, 0), (20, 1, 0)))),
+        (step, replace(source, dominant_axis="Y")),
         (step, replace(source, upper_tol=0.1)),
         (step, replace(source, label="20 REF")),
         (step, replace(source, value=20.00001)),
@@ -66,6 +68,21 @@ def test_step_length_does_not_coalesce_on_value_alone_or_ambiguous_geometry():
         lowered = lower_ap242_nominal_step_lengths(_model(*features))
         assert lowered.features == list(features)
         assert lowered.decorations == {}
+
+
+def test_matching_step_sources_merge_and_conflicting_authority_stays_standalone():
+    step, source = _step(), _source()
+    key = (step, "nominal_requirement", "step.length")
+    prior = NominalRequirement(20, "ap242_pmi", ("dimension:prior",))
+    model = _model(step, source)
+    merged = lower_ap242_nominal_step_lengths(replace(model, decorations={key: prior}))
+    assert merged.features == [step]
+    assert merged.decorations[key].source_ids == ("dimension:prior", "dimension:step-length")
+
+    conflicting = NominalRequirement(21, "ap242_pmi", ("dimension:prior",))
+    retained = lower_ap242_nominal_step_lengths(replace(model, decorations={key: conflicting}))
+    assert retained.features == [step, source]
+    assert retained.decorations[key] == conflicting
 
 
 def test_grm03_source_lengths_correlate_with_exact_steps():
