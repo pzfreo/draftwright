@@ -1,11 +1,12 @@
 """One real-part proof that assessed DSL edits cannot claim unsupported improvement.
 
 The NIST CTC-01 STEP is recognised once while generating the editable script, then that
-script is built twice: as generated and after one sanctioned ``Sheet`` layout edit.  The
-automatic planner now resolves the historical overlap itself, so the larger-sheet edit
-must remain a no-op rather than receiving stale improvement credit. All negative policy
-checks below mutate the two resulting JSON documents in memory; they do not pay for
-additional CAD builds.
+script is built twice: as generated and after one sanctioned ``Sheet`` layout edit.
+This canary pins the historical estimated-strips planner: its A2-to-A1 page edit has
+a reviewed, already-resolved overlap. The demand-guided default may choose a
+different page, which would change the experiment rather than test stale credit.
+All negative policy checks below mutate the two resulting JSON documents in
+memory; they do not pay for additional CAD builds.
 """
 
 from __future__ import annotations
@@ -127,6 +128,7 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
             out=str(baseline_prefix),
             title="CTC-01 AGENT CANARY",
             formats=("svg",),
+            annotation_layout="estimated-strips",
         )
     )
     inspection_path = Path(inspection_sidecar_path(str(baseline_script)))
@@ -143,6 +145,7 @@ def test_ctc01_agent_edit_cannot_claim_an_already_resolved_overlap(tmp_path) -> 
     # old A4 overlap. Path changes merely keep the two replay artifacts separate and are
     # not drawing semantics.
     source = baseline_script.read_text(encoding="utf-8")
+    assert "annotation_layout='estimated-strips'" in source
     assert source.count(str(baseline_prefix)) == 2
     source = source.replace(str(baseline_prefix), str(candidate_prefix))
     # Change only the authored page/scale declaration. The generator pins its
