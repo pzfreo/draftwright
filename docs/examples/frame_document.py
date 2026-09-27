@@ -85,8 +85,9 @@ def declare_document(source):
         raise ValueError("this recipe requires the pinned datum-aligned frame STEP")
     package = Document.from_part(source)
     selected = operations(package)
+    # One drawing set has one title-block number; Document.build() assigns 1/2 and 2/2.
     general = package.sheet("general", number="WK-TI-001", **OPTIONS)
-    features = package.sheet("features", number="WK-TI-002", **OPTIONS)
+    features = package.sheet("features", number="WK-TI-001", **OPTIONS)
     for sheet in (general, features):
         sheet.authored_dimensions().authored_views()
         for view in ("front", "plan", "side"):

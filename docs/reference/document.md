@@ -28,8 +28,8 @@ report = result.report()
 print(report["assessment"])
 Path("out").mkdir(exist_ok=True)
 result.write_report("out/document.json")
-for name, drawing in result.sheets.items():
-    drawing.export(f"out/{name}", formats=("pdf", "svg"))
+paths = result.export("out/part", formats=("pdf", "svg"))
+# paths["general"]["pdf"] -> out/part-sheet-01-of-02.pdf
 ```
 
 This example selects envelope measurements and hole diameters. Other recognized requirements,
@@ -45,6 +45,12 @@ single-sheet authoring is unchanged.
 A build snapshots every member's declarations before building the first member. A failure names
 the member through `DocumentBuildError.sheet_name`; cancellation names it in
 `BuildCancelled.diagnostic["sheet"]`. Neither returns a complete partial package.
+Members must share a drawing number and revision. By default a multi-sheet set
+prints `1/2`, `2/2`, and so on in its title blocks; callers may instead supply
+distinct `sheet=` labels on every member. `DocumentResult.export()` verifies
+the sealed physical membership before writing, then returns a name-keyed map of
+numbered output paths. File writes are not atomic as a set. It does not choose
+sheet count or move content between sheets.
 
 ## Read the document report
 
