@@ -572,6 +572,86 @@ def test_authored_dimension_requires_a_matching_rendered_claim():
     assert "authored_dimensions" not in present["failed_checks"]
 
 
+def test_authored_hole_location_uses_compiled_components_not_static_parameters(monkeypatch):
+    feature = SimpleNamespace(parameters=lambda: ())
+    requests = (
+        SimpleNamespace(feature=feature, role="location", member=0, discriminator="x"),
+        SimpleNamespace(feature=feature, role="location", member=0, discriminator="y"),
+    )
+    model = SimpleNamespace(
+        features=[feature], authored_dimensions=requests, requested_dimensions=(), schedules=()
+    )
+    locations = tuple(
+        SimpleNamespace(
+            id=SimpleNamespace(feature=feature, parameter=f"location.member.0.{axis}"),
+            location_member=0,
+            discriminator=axis,
+            is_location_measurement=True,
+        )
+        for axis in "xy"
+    )
+    from draftwright.model import compiled
+
+    monkeypatch.setattr(
+        compiled,
+        "compile_dimensions",
+        lambda _model: SimpleNamespace(
+            locations=locations[:1],
+            schedules=(SimpleNamespace(rows=((SimpleNamespace(measurement=locations[1]),),)),),
+        ),
+    )
+    live = {"location.member.0.x", "location.member.0.y"}
+    registry = SimpleNamespace(
+        names=lambda: live,
+        measurement_of=lambda name: (SimpleNamespace(feature=feature, parameter=name),),
+        satisfaction_of=lambda _name: (),
+    )
+    drawing = DrawingStub(_raw_report(), model=model, registry=registry)
+
+    assert "authored_dimensions" not in candidate_safety_evidence(drawing)["failed_checks"]
+    live.remove("location.member.0.y")
+    evidence = candidate_safety_evidence(drawing)
+    assert "authored_dimensions" in evidence["failed_checks"]
+    check = next(item for item in evidence["checks"] if item["name"] == "authored_dimensions")
+    assert check["detail"] == [
+        {"feature_index": 0, "role": "location.member.0.y", "reason": "representation_missing"}
+    ]
+
+    # Another member's live marks cannot satisfy this request, even when the
+    # visible axis and label would be the same.
+    other_member = SimpleNamespace(
+        id=SimpleNamespace(feature=feature, parameter="location.member.1.x"),
+        location_member=1,
+        discriminator="x",
+    )
+    monkeypatch.setattr(
+        compiled,
+        "compile_dimensions",
+        lambda _model: SimpleNamespace(locations=(other_member,), schedules=()),
+    )
+    check = next(
+        item
+        for item in candidate_safety_evidence(drawing)["checks"]
+        if item["name"] == "authored_dimensions"
+    )
+    assert check["detail"] == [
+        {
+            "feature_index": 0,
+            "role": "location",
+            "axis": "x",
+            "member": 0,
+            "reason": "request_has_no_approved_location",
+        },
+        {
+            "feature_index": 0,
+            "role": "location",
+            "axis": "y",
+            "member": 0,
+            "reason": "request_has_no_approved_location",
+        },
+    ]
+
+
 def test_removing_an_authored_dimension_is_detected_on_a_real_sheet():
     part = Box(30, 20, 5) - Cylinder(2, 10)
     sheet = Sheet(part)
