@@ -396,13 +396,17 @@ def test_the_page_spanning_riders_do_not_neutralise_the_iso_fit(options):
     All four configurations must agree: the riders are furniture, not obstacles.
     """
     part = Box(40, 30, 8) - Pos(-10, 5, 0) * Cylinder(3, 20) - Pos(10, -5, 0) * Cylinder(3, 20)
+    # Keep the candidate covered for automatic annotations. The generated-script
+    # path has no automatic demand/profile and must be compared with that same
+    # historical layout on both sides of the rider comparison.
+    layout = "estimated-strips" if options.get("auto_dims") is False else "demand-guided"
     plain = build_drawing(
         part,
         title="T",
         number="N",
         scale=1.0,
         scale_policy="permissive",
-        annotation_layout="estimated-strips",
+        annotation_layout=layout,
     )
     plain_iso = _iso_bbox(plain)
     # The precondition: this part's iso GROWS, so a veto is observable at all.
@@ -410,9 +414,7 @@ def test_the_page_spanning_riders_do_not_neutralise_the_iso_fit(options):
         "precondition: the fixture's iso no longer grows, so no configuration can lose the fit"
     )
 
-    drawing = build_drawing(
-        part, title="T", number="N", annotation_layout="estimated-strips", **options
-    )
+    drawing = build_drawing(part, title="T", number="N", annotation_layout=layout, **options)
     iso = _iso_bbox(drawing)
     # SIZE, not position: a frame legitimately shifts the layout (measured: the framed iso sits
     # 3 mm lower). What the riders must not do is change how far the fit GROWS.
