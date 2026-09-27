@@ -113,9 +113,63 @@ def _authored_dimension_gaps(drawing, model) -> list[dict[str, object]]:
         )
     }
     feature_indices = {id(feature): index for index, feature in enumerate(model.features)}
+    location_plan = None
     gaps = []
     for request in requests:
         feature = request.feature
+        if request.role == "location":
+            # Locations are compiled from a datum and have no static feature
+            # parameter. Ask the same compiler that approved the rendered mark;
+            # treating `feature.parameters()` as the vocabulary falsely rejects
+            # every valid authored hole-location request (#1831).
+            if location_plan is None:
+                from draftwright.model.compiled import compile_dimensions
+
+                compiled = compile_dimensions(model)
+                location_plan = (
+                    *compiled.locations,
+                    *(
+                        cell.measurement
+                        for schedule in compiled.schedules
+                        for row in schedule.rows
+                        for cell in row
+                        if cell.measurement is not None
+                        and cell.measurement.is_location_measurement
+                    ),
+                )
+            target_parameters = sorted(
+                {
+                    item.id.parameter
+                    for item in location_plan
+                    if item.id is not None
+                    and item.id.feature is feature
+                    and (request.member is None or item.location_member == request.member)
+                    and (
+                        request.discriminator is None
+                        or item.discriminator == request.discriminator
+                    )
+                }
+            )
+            if not target_parameters:
+                gaps.append(
+                    {
+                        "feature_index": feature_indices.get(id(feature)),
+                        "role": request.role,
+                        "axis": request.discriminator,
+                        "member": request.member,
+                        "reason": "request_has_no_approved_location",
+                    }
+                )
+            for target_parameter_id in target_parameters:
+                if (id(feature), target_parameter_id) not in claims:
+                    gaps.append(
+                        {
+                            "feature_index": feature_indices.get(id(feature)),
+                            "role": target_parameter_id,
+                            "reason": "representation_missing",
+                        }
+                    )
+            continue
         parameters = [
             parameter
             for parameter in feature.parameters()
