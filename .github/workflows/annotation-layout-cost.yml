@@ -61,6 +61,7 @@ jobs:
           uv run --no-sync python scripts/annotation-scheme-corpus \
             --manifest tests/fixtures/annotation-layout-corpus-v2.json \
             --output layout-cost-cases --candidate-first --jobs 1 \
+            --worker-timeout-seconds 900 \
             > layout-cost-report.json
           python - <<'PY'
           import json
