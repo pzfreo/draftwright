@@ -1095,6 +1095,9 @@ class DetailRequest:
         kind:         short label for logging.
         measurement_ids/measurement_spans: exact compiler-owned requirements the detail
                       is recovering. Empty for purely geometric/authored details.
+        profile_support_points: model-space points on the controlled outer profile that
+                      a partial radial crop must retain. These certify geometry, not
+                      dimensional witness endpoints (which may lie on the centreline).
     """
 
     axis: str
@@ -1123,6 +1126,7 @@ class DetailRequest:
     source: object | None = None
     measurement_ids: tuple = ()
     measurement_spans: tuple = ()
+    profile_support_points: tuple[tuple[float, float, float], ...] = ()
     #: Render-time refusal retained so the owner can report the real constraint,
     #: rather than mislabelling an invalid crop as a page-fit failure.
     failure_reason: str | None = None
