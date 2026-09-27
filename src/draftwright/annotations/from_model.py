@@ -5939,6 +5939,22 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             # Overall X is equally observable in the front projection; route it there
             # before placement rather than recovering it into plan-view whitespace.
             view = "front"
+        elif extent.view is None and role == "width" and view == "plan" and "front" in dwg.views:
+            # A demand-guided plan can reserve precisely the gap and label depth
+            # below the plan view, leaving no actual tier for a mandatory width.
+            # The same model-space X span is visible in front. Route it there
+            # before the shared corridor solve if that view has a real tier;
+            # neither a later drop nor an interior retry can create strip depth.
+            def _one_tier_fits(strip):
+                if strip is None:
+                    return False
+                lo, hi, _inner = strip_free_span(strip)
+                return hi - lo > slot + 1e-6
+
+            if not _one_tier_fits(frame.zones("plan").below) and _one_tier_fits(
+                frame.zones("front").below
+            ):
+                view = "front"
         if view is None:
             # No planned view can carry it. Reported against the measurement, never dropped
             # in silence (ADR 4 (was 0016 Amdt 6)) — and this is exactly what the ADR 2 (was 0018)
