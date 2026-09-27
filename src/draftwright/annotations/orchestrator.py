@@ -1276,6 +1276,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     table_location_replacement_features: set = set()
     replaced = {}
     table_transaction_snap = None
+    table_failure_reason = None
 
     # Automatic/finalize escalation uses deterministic internal names. A sanctioned
     # public edit may already own one of them; replacing that object would destroy user
@@ -1424,6 +1425,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
                 reason="table_not_placed",
             )
             ctx.record_issue("warning", "table_dropped", "hole table did not fit the sheet")
+            table_failure_reason = "table_not_placed"
         else:
             table_features = tuple(dict.fromkeys(h.feature for h in holes))
             scattered_specs = [(tag, 0, h) for tag, h in zip(scattered_tags, holes, strict=True)]
@@ -1518,6 +1520,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
                 "balloon_dropped",
                 "one or more required hole-table balloons could not be placed",
             )
+            table_failure_reason = "required_balloon_not_placed"
             table_placed = False
             table = None
             table_success_features = set()
@@ -1718,3 +1721,16 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         if issue_features and issue_features <= table_callout_replacement_features:
             resolved_issue_ids.add(id(issue))
     ctx.drop_issues_where("callout_dropped", lambda issue: id(issue) in resolved_issue_ids)
+
+    # A table may replace feature ink only as a complete, keyed transaction. Record
+    # that decision at the same seam that commits or restores it, not by inferring
+    # success from a later name search. The independent coverage report remains the
+    # authority on whether every underlying physical requirement was satisfied.
+    if tabulate_scattered and ctx.trace is not None:
+        ctx.trace.record_hole_table_decision(
+            committed=table_placed,
+            reason="required_balloons_placed" if table_placed else table_failure_reason,
+            replaced=replaced,
+            table_rows=len(holes),
+            keyed_rows=len(scattered_specs) if table_placed else 0,
+        )

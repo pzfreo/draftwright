@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import itertools
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 
@@ -104,14 +105,28 @@ def _crossing_perimeter_plate():
 
 
 @pytest.mark.parametrize("projection", ["first", "third"])
-def test_dense_table_survives_both_projection_conventions(projection):
-    drawing = build_drawing(_dense_perimeter_plate(), page="A3", projection=projection)
+def test_dense_table_survives_both_projection_conventions(projection, tmp_path):
+    trace_path = tmp_path / f"{projection}.trace.json"
+    drawing = build_drawing(
+        _dense_perimeter_plate(), page="A3", projection=projection, trace=trace_path
+    )
     holes = [feature for feature in drawing.model().features if feature.kind == "hole"]
     assert len(holes) == len(_CROSSING_FREE_PERIMETER_POSITIONS) == 16
     assert "hole_table_plan" in drawing.annotations()
     balloons = [name for name in drawing.annotations() if name.startswith("balloon_plan_")]
     assert len(balloons) == 16
     assert not [issue for issue in drawing.lint() if issue.severity in {"warning", "error"}]
+    decisions = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "hole_table_replacement"
+    ]
+    assert len(decisions) == 1
+    assert decisions[0]["outcome"] == "committed"
+    assert decisions[0]["reason"] == "required_balloons_placed"
+    assert decisions[0]["table_rows"] == decisions[0]["keyed_rows"] == 16
+    assert decisions[0]["coverage_authority"] is False
+    assert all(item["outcome"] == "replaced" for item in decisions[0]["items"])
 
 
 def _dense_plate_with_counterbore():
@@ -1183,7 +1198,9 @@ def test_public_hole_table_does_not_expose_an_uncomposable_replacement_option():
     assert "replace_callouts" not in inspect.signature(Drawing.add_hole_table).parameters
 
 
-def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch, rollback_plate):
+def test_automatic_initial_table_failure_restores_every_fallback(
+    monkeypatch, rollback_plate, tmp_path
+):
     import draftwright.annotations.orchestrator as orchestrator
     import draftwright.drawing as drawing_module
 
@@ -1198,7 +1215,8 @@ def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch, ro
     }
     monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
 
-    drawing = build_drawing(part, page="A3")
+    trace_path = tmp_path / "rollback.trace.json"
+    drawing = build_drawing(part, page="A3", trace=trace_path)
 
     assert "hole_table_plan" not in drawing.annotations()
     assert tuple(drawing.annotations()) == tuple(baseline.annotations())
@@ -1216,6 +1234,16 @@ def test_automatic_initial_table_failure_restores_every_fallback(monkeypatch, ro
         for outcome in _outcomes(drawing)
         if outcome.state == "placed"
     }
+    decisions = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "hole_table_replacement"
+    ]
+    assert len(decisions) == 1
+    assert decisions[0]["outcome"] == "restored"
+    assert decisions[0]["reason"] == "table_not_placed"
+    assert decisions[0]["keyed_rows"] == 0
+    assert all(item["outcome"] == "retained" for item in decisions[0]["items"])
 
 
 def test_real_constrained_a4_failure_keeps_valid_fallback_coverage():
