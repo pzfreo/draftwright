@@ -1,5 +1,7 @@
 """The profile recommendation uses only pre-render scheme and sheet facts."""
 
+from dataclasses import replace
+
 from draftwright.compose import (
     AnnotationSchemeShadowReport,
     CorridorDepthComparison,
@@ -40,6 +42,62 @@ def test_fully_planned_demand_chooses_capped_profile():
     assert choice["profile"] == "planned"
     assert choice["page"] == [297.0, 210.0]
     assert choice["scale"] == 1.0
+
+
+def test_sparse_authored_corridor_keeps_uncapped_strips():
+    strips = _strips()
+    demand = replace(strips.scheme.demands[0], family="authored_dimension")
+    strips.scheme = AnnotationScheme((demand,), ())
+    choice = choose_pre_render_profile(
+        strips,
+        strips.annotation_scheme_shadow_report(1.0),
+        page=(297.0, 210.0),
+        views=("front",),
+        auto_dims=True,
+    )
+
+    assert choice["profile"] == "iso-growth"
+    assert choice["reason"] == "sparse_authored_corridor"
+
+
+def test_sparse_authored_corridor_with_unplanned_demand_keeps_legacy_depth():
+    strips = _strips(unplanned=True)
+    demand = replace(strips.scheme.demands[0], family="authored_dimension")
+    strips.scheme = AnnotationScheme((demand,), strips.scheme.unplanned)
+    choice = choose_pre_render_profile(
+        strips,
+        strips.annotation_scheme_shadow_report(1.0),
+        page=(297.0, 210.0),
+        views=("front",),
+        auto_dims=True,
+    )
+
+    assert choice["profile"] == "legacy-depth"
+    assert choice["reason"] == "unplanned_or_under_reserved_demand"
+
+
+def test_default_sparse_authored_measurement_keeps_its_requested_corridor():
+    from build123d import Box
+
+    from draftwright import Sheet
+
+    sheet = Sheet(Box(40, 20, 10)).authored_dimensions()
+    sheet.measured_dimension(
+        kind="linear",
+        value=10,
+        label="10",
+        dominant_axis="Z",
+        ref_bbox=(-10, -5, 0, 10, 5, 10),
+        ref_pts=[(0, 0, 0), (0, 0, 10)],
+        view="front",
+        side="left",
+    )
+    drawing = sheet.build()
+
+    assert drawing.annotation_scheme_decision["pre_render_choice"]["profile"] == "iso-growth"
+    mark = drawing.get_annotation("pmi_z_0")
+    assert mark is not None and mark._dw_spec.side == "left"
+    assert not [issue for issue in drawing.lint() if issue.code == "pmi_dropped"]
 
 
 def test_unplanned_demand_keeps_legacy_depth():

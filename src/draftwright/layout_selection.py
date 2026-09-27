@@ -70,6 +70,17 @@ def choose_pre_render_profile(
         # one-fifth unplanned tail can still fit; larger cases keep the stricter
         # absolute cap. The independent rendered gate still judges the result.
         profile, reason = "planned", "typed_corridor_pressure"
+    elif (
+        demand_count <= 25
+        and report.unplanned_count == 0
+        and under_reserved_count == 0
+        and any(demand.family == "authored_dimension" for demand in scheme.demands)
+    ):
+        # A sparse authored measurement has a caller-selected view and corridor.
+        # Repacking that corridor for a planned-depth gain with no measured pressure
+        # can displace the required mark even though the original strip fits it.
+        # Keep those strips while allowing the ISO to use free space.
+        profile, reason = "iso-growth", "sparse_authored_corridor"
     elif demand_count <= 25 and report.unplanned_count <= 5 and 0 < under_reserved_count <= 3:
         # Sparse uncertain routes keep baseline annotation placement while
         # granting the isometric view any sheet slack it can safely consume.
