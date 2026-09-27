@@ -3163,7 +3163,9 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
         if ctx.trace is not None
         else None
     )
-    trace_rejections = {id(job): set() for job in jobs} if trace_event is not None else None
+    trace_rejections: dict[int, set[str]] | None = (
+        {id(job): set() for job in jobs} if trace_event is not None else None
+    )
     page = _drawing_bounds(dwg)
     candidates_by_job: list[tuple[InteriorDimensionCandidate, ...]] = []
     costs_by_job: list[tuple[float, ...]] = []
@@ -3177,6 +3179,7 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
     def record(job, job_candidates, job_costs, choice, outcome, reason=None) -> None:
         if trace_event is None:
             return
+        assert trace_rejections is not None
         trace_event["items"].append(
             {
                 "name": job.name,
