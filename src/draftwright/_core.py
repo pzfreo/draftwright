@@ -1074,9 +1074,9 @@ class DetailRequest:
                       :class:`ViewCoordinates`, mapped via ``coords.pp``) and returns the count
                       placed (0 → the detailer drops the detail without committing a view, #840).
                       Called on the SCRATCH-projected coords before the view is committed, so a
-                      zero result needs no rollback; the main view always carries the located
-                      head/block inline regardless, so a placement failure loses no coverage
-                      (lint reports the un-located interior instead).
+                      zero result needs no rollback; the main view may carry only a synthetic
+                      head/block, so the resolver must report any exact detail-owned
+                      measurements that cannot be placed.
         pad_top:      page-mm band reserved above the detail view (a horizontal
                       chain); reserved in the fit + placement.
         pads:         optional ``pads(detail_scale) -> (pad_right, pad_top)`` for a

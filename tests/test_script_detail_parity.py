@@ -182,6 +182,29 @@ def test_generated_script_matches_direct_turned_head_detail(tmp_path):
     assert _detail_signature(scripted) == _detail_signature(direct)
 
 
+def test_unplaceable_turned_head_reports_the_exact_step_lengths(monkeypatch):
+    """A synthetic main-view head block cannot stand in for its lost exact lengths."""
+    import draftwright.annotations.sections as sections
+
+    monkeypatch.setattr(sections, "_render_detail", lambda *_args, **_kwargs: False)
+    part = Rotation(0, 90, 0) * _turned_shaft([(4, 1.5), (6, 2.0), (4, 2.5), (3, 25.0)])
+
+    drawing = build_drawing(part, page="A2", scale=2, scale_policy="permissive")
+
+    issues = [
+        issue
+        for issue in drawing.registry.issues
+        if issue.code == "step_dim_withheld" and "turned-head detail" in issue.message
+    ]
+    assert len(issues) == 1
+    (issue,) = issues
+    assert len(issue.measurement_ids) == len(issue.measurement_spans) > 0
+    assert all(identity.feature.kind == "step" for identity in issue.measurement_ids)
+    assert all(identity.parameter.endswith(".length") for identity in issue.measurement_ids)
+    assert "detail_a" not in drawing.views
+    assert drawing.lint_summary()["by_code"].get("step_dim_withheld", 0) >= 1
+
+
 @pytest.mark.timeout(240)
 def test_generated_script_matches_direct_side_drilled_locations(tmp_path):
     """Compare actual location annotations, not only the emitter's gap comment."""
