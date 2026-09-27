@@ -52,7 +52,7 @@ from draftwright._core import (
     _tb_width,
     _title_block_box,
 )
-from draftwright._geometry import BOUNDS_ROUNDOFF, _scale_world
+from draftwright._geometry import BOUNDS_ROUNDOFF, _boxes_overlap, _scale_world
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotation_layout_profile import (
@@ -105,6 +105,7 @@ from draftwright.progress import activity, build_operation, observed_stage, stag
 from draftwright.projection import (
     _ISO_MAX_GROW,
     _bbox_within,
+    _clear_iso_translation,
     _fit_iso_view,
     _largest_clear_factor,
     _project_iso,
@@ -284,6 +285,24 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
                 for name in dwg.views
                 if name != "iso"
             )
+            if has_detail:
+                # A defining detail may block growth at the *composed* iso centre
+                # while another part of the same free zone can hold a sheet-scale
+                # orientation view. Try that measured footprint before accepting a
+                # smaller NTS view. Never move the detail or relax its clearance.
+                _project_iso(dwg, a, a.SCALE)
+                target_box = _iso_bbox(dwg)
+                shift = _clear_iso_translation(target_box, region, growth_obstacles)
+                if shift is not None:
+                    moved = replace(a, ISO_X=a.ISO_X + shift[0], ISO_Y=a.ISO_Y + shift[1])
+                    _project_iso(dwg, moved, a.SCALE)
+                    settled = _iso_bbox(dwg)
+                    if _bbox_within(settled, region) and not any(
+                        _boxes_overlap(settled, obstacle) for obstacle in growth_obstacles
+                    ):
+                        dwg._analysis = moved  # future finalize/refit uses the settled centre
+                        return None
+                _project_iso(dwg, a, a.SCALE * initial)
             clear = _largest_clear_factor(
                 dwg, a, ceiling, growth_obstacles, bb, lo=initial, region=region
             )
