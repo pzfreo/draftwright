@@ -6278,16 +6278,37 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
     lo, hi = sorted(point[ai] for point in length.span)
     context = max(1.0, (hi - lo) / 2)
     diameter = group.dim(kind="diameter")
+    profile_support_points: tuple[tuple[float, float, float], ...]
     if diameter is not None:
         rim = group.facts.frame.origin[ci] + diameter.value / 2
         cross_lo, cross_hi = rim - context, rim + context
+
+        # A partial secondary crop may keep a dimension's centreline witnesses
+        # while cutting away the shoulder they describe. Carry the physical
+        # rim at both measured stations into the shared detail crop guard.
+        def at_rim(point: tuple[float, float, float]) -> tuple[float, float, float]:
+            return (
+                float(rim if ci == 0 else point[0]),
+                float(rim if ci == 1 else point[1]),
+                float(rim if ci == 2 else point[2]),
+            )
+
+        render_span = (
+            at_rim(length.span[0]),
+            at_rim(length.span[1]),
+        )
+        profile_support_points = render_span
     else:
-        # Suppression removes diameter content. The crop may still use the
-        # part bounds as context, but it cannot manufacture an omitted label.
-        cross_lo, cross_hi = tuple(a.bb.min)[ci], tuple(a.bb.max)[ci]
+        # Without a controlled diameter there is no exact outer-rim support
+        # for a partial crop. Retain the full secondary extent instead.
+        cross_lo = cross_hi = None
+        profile_support_points = ()
+        render_span = length.span
+    # The displayed length must attach to the retained physical edge, not the
+    # centreline that the partial secondary crop deliberately omits.
     segment = _StepChainSegment(
-        length.span[0],
-        length.span[1],
+        render_span[0],
+        render_span[1],
         length.value,
         length.tolerance,
         length.measurement_ids,
@@ -6320,7 +6341,7 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
             redraw=redraw,
             pads=lambda _scale: (band, 0.0) if axis == in_plane[view][1] else (0.0, band),
             source_view=view,
-            cross_axis=cross,
+            cross_axis=cross if diameter is not None else None,
             cross_lo=cross_lo,
             cross_hi=cross_hi,
             kind="authored-step",
@@ -6330,6 +6351,7 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
             source=source,
             measurement_ids=length.measurement_ids,
             measurement_spans=(length.span,),
+            profile_support_points=profile_support_points,
         )
     )
     return True

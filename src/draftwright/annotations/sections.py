@@ -710,7 +710,10 @@ def _detail_axial_crop_error(req: DetailRequest) -> str | None:
 def _detail_secondary_crop_error(req: DetailRequest) -> str | None:
     """Check required visible support survives an automatic secondary crop."""
 
-    if req.kind not in {"turned-head", "prismatic-steps"} or req.cross_axis is None:
+    if (
+        req.kind not in {"turned-head", "prismatic-steps", "authored-step"}
+        or req.cross_axis is None
+    ):
         return None
     crop_kind = "radial" if req.kind == "turned-head" else "secondary"
     if req.cross_axis not in {"x", "y", "z"} or req.cross_axis == req.axis:
