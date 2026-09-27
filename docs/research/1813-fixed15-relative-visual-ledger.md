@@ -22,11 +22,12 @@ case stays *unverified* rather than being called a loss or a win.
 The saved v4 report gives 12 metric wins, 3 ties, 15/15 semantic parity, and
 zero introduced required-blocker identities. Under the rule above, **ten
 cases have case-level relative visual-win evidence**; two CTC cases remain
-unverified. This is a review ledger, **not** a passed 12/15 rollout gate: it
-combines historical and targeted source heads, and the two unresolved cases
-still need layout/visual resolution. The independent candidate safety, wider
-real/user corpus, supported-platform cost, fallback, and exact-head full/slow
-gates also remain open.
+unverified as wins. This is a review ledger, **not** a passed current 10/15
+rollout gate: it combines historical and targeted source heads. Under #1813's
+later clarification, CTC02 and CTC04 need a documented *non-regression*, not
+an additional win or absolute one-page success. Honest completeness reporting,
+the wider real/user corpus, accepted cost scope, and exact-head full/slow CI
+must be evaluated separately. Shared crowding is not a candidate-only blocker.
 
 | Fixed-sheet case | Reviewed baseline / candidate page | Relative visual finding |
 | --- | --- | --- |
@@ -57,7 +58,8 @@ reviewed here has SHA-256
 `7f1676f4a5c9bf796854c430ddbbbe3ed9c364a80c07de3a45eb5df359072b59`.
 #1846's whistle candidate provenance is in its linked evidence note. These
 case-level repairs were checked against the saved baseline, **not** by rerunning
-the baseline or all 15 cases. Before #1813's 12/15 visual gate can be claimed,
-the two unverified CTC pages need a clear visual decision or layout repair and
-the actual candidate-first path must be checked together at one final source
-head, with the independent admission and rollout gates evaluated separately.
+the baseline or all 15 cases. Before #1813's current 10/15 visual gate can be
+claimed, the actual candidate-first path must be checked together at one final
+source head, including a non-regression judgment for CTC02/CTC04 and explicit
+reporting of their absolute limitations. A shared absolute failure must not be
+turned into a candidate-only adoption gate or an automatic baseline rerender.
