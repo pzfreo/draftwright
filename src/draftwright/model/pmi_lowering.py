@@ -636,6 +636,76 @@ def lower_ap242_nominal_diameters(model: PartModel) -> PartModel:
     )
 
 
+def lower_ap242_nominal_step_lengths(model: PartModel) -> PartModel:
+    """Co-own an exact, untoleranced source length with its canonical step dimension.
+
+    A matching value alone is insufficient: two shoulders may have the same length.
+    Both authored witness points must coincide with the recognised step's endpoints,
+    and there must be exactly one owner. Unmatched records stay standalone PMI.
+    """
+    steps = tuple(feature for feature in model.features if isinstance(feature, StepFeature))
+    if not steps:
+        return model
+    decorations = dict(model.decorations)
+    consumed: set[int] = set()
+    for index, dimension in enumerate(model.features):
+        if not (
+            isinstance(dimension, AuthoredDimension)
+            and dimension.source == "ap242_pmi"
+            and dimension.dimension_kind == "linear"
+            and dimension.source_id
+            and not dimension.lowering_blockers
+            and not dimension.rendering_blockers
+            and dimension.lower_tol is None
+            and dimension.upper_tol is None
+            and dimension.lower_bound is None
+            and dimension.upper_bound is None
+            and re.fullmatch(r"\s*\d+(?:\.\d+)?\s*", dimension.label)
+            and len(dimension.ref_pts) == 2
+            and abs(float(dimension.label) - dimension.value) <= 1e-6
+        ):
+            continue
+        matches = []
+        for step in steps:
+            if step.span is None or dimension.dominant_axis != step.frame.axis.upper():
+                continue
+            if abs(dimension.value - step.length) > 1e-6:
+                continue
+            if all(
+                all(abs(a - b) <= 0.01 for a, b in zip(point, endpoint, strict=True))
+                for point, endpoint in zip(dimension.ref_pts, step.span, strict=True)
+            ) or all(
+                all(abs(a - b) <= 0.01 for a, b in zip(point, endpoint, strict=True))
+                for point, endpoint in zip(dimension.ref_pts, reversed(step.span), strict=True)
+            ):
+                matches.append(step)
+        if len(matches) != 1:
+            continue
+        key = (matches[0], "nominal_requirement", "step.length")
+        existing = decorations.get(key)
+        if existing is None:
+            decorations[key] = NominalRequirement(
+                dimension.value, "ap242_pmi", _source_ids(dimension)
+            )
+        elif isinstance(existing, NominalRequirement) and existing.agrees_with(dimension.value):
+            decorations[key] = replace(
+                existing,
+                source_ids=tuple(dict.fromkeys((*existing.source_ids, dimension.source_id))),
+            )
+        else:
+            continue
+        consumed.add(index)
+    if not consumed:
+        return model
+    return replace(
+        model,
+        features=[
+            feature for index, feature in enumerate(model.features) if index not in consumed
+        ],
+        decorations=decorations,
+    )
+
+
 _EXTERNAL_THREAD = re.compile(
     r"^(?P<designation>M(?P<nominal>\d+(?:\.\d+)?)\s*x\s*"
     r"(?P<pitch>\d+(?:\.\d+)?)-(?P<class>[A-Za-z0-9]+)\s+"
@@ -1193,8 +1263,10 @@ def lower_ap242_dimensions(
     model: PartModel, *, feature_remap: FeatureRemap | None = None
 ) -> PartModel:
     """Run every geometry-correlated AP242 lowering at the IR waist."""
-    dimensions = lower_ap242_nominal_diameters(
-        lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
+    dimensions = lower_ap242_nominal_step_lengths(
+        lower_ap242_nominal_diameters(
+            lower_ap242_hole_tolerances(model, feature_remap=feature_remap)
+        )
     )
     manufacturing = lower_ap242_manufacturing_requirements(dimensions, feature_remap=feature_remap)
     chamfers = lower_ap242_chamfer_requirements(manufacturing, feature_remap=feature_remap)
