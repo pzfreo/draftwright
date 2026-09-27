@@ -99,5 +99,5 @@ def test_detail_constrained_iso_relocates_at_sheet_scale(monkeypatch):
 
     assert builder._settle_iso_view(drawing, analysis, obstacles=((11, 11, 12, 12),)) is None
     assert scale == pytest.approx(1.0)
-    assert drawing._analysis.ISO_Y != analysis.ISO_Y
+    assert drawing.centre != (analysis.ISO_X, analysis.ISO_Y)
     assert not _boxes_overlap(iso_bbox(drawing), (7.0, 7.0, 21.0, 21.0))
