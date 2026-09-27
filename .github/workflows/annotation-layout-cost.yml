@@ -2,19 +2,26 @@ name: Annotation layout cost evidence
 
 on:
   workflow_dispatch:
+    inputs:
+      cohort:
+        description: Cost cohort (fixed15 is the existing default)
+        type: choice
+        options: [fixed15, ftc09]
+        default: fixed15
   pull_request:
     types: [labeled]
 
 # This runs only by manual dispatch or when a maintainer adds the
-# annotation-layout-cost label to a PR. The 15 fixed-sheet CAD cases are
-# expensive on macOS and Windows; ordinary PR updates must not rerun them.
+# annotation-layout-cost or annotation-layout-cost-ftc09 label to a PR.
+# The CAD cases are expensive on macOS and Windows; ordinary PR updates must
+# not rerun them. FTC-09 is a distinct public real part, not large user CAD.
 # Cost evidence is not a substitute for semantic or safety admission.
 permissions:
   contents: read
 
 jobs:
   candidate-first-cost:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'annotation-layout-cost'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'annotation-layout-cost' || github.event.label.name == 'annotation-layout-cost-ftc09'
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +41,28 @@ jobs:
           python-version: "3.12"
       - name: Install pinned development dependencies
         run: uv sync --group dev --locked
+      - name: Select allowlisted cost cohort
+        id: cohort
+        shell: bash
+        env:
+          REQUESTED_COHORT: ${{ inputs.cohort }}
+          PR_LABEL: ${{ github.event.label.name }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            cohort="$REQUESTED_COHORT"
+          elif [ "$PR_LABEL" = annotation-layout-cost-ftc09 ]; then
+            cohort=ftc09
+          else
+            cohort=fixed15
+          fi
+          case "$cohort" in
+            fixed15) manifest=tests/fixtures/annotation-layout-corpus-v2.json ;;
+            ftc09) manifest=tests/fixtures/annotation-layout-holdout-ftc09-v1.json ;;
+            *) echo "Unsupported cost cohort: $cohort" >&2; exit 2 ;;
+          esac
+          printf 'cohort=%s\n' "$cohort" >> "$GITHUB_OUTPUT"
+          printf 'LAYOUT_COST_COHORT=%s\n' "$cohort" >> "$GITHUB_ENV"
+          printf 'LAYOUT_COST_MANIFEST=%s\n' "$manifest" >> "$GITHUB_ENV"
       - name: Record source provenance before CAD work
         shell: bash
         run: |
@@ -41,8 +70,10 @@ jobs:
           import json
           import os
           import subprocess
+          from hashlib import sha256
           from pathlib import Path
 
+          manifest = Path(os.environ["LAYOUT_COST_MANIFEST"])
           Path("layout-cost-provenance.json").write_text(json.dumps({
               "source_sha": subprocess.check_output(
                   ["git", "rev-parse", "HEAD"], text=True
@@ -52,14 +83,17 @@ jobs:
               "event_name": os.environ["GITHUB_EVENT_NAME"],
               "run_id": os.environ["GITHUB_RUN_ID"],
               "runner_os": os.environ["RUNNER_OS"],
+              "cohort": os.environ["LAYOUT_COST_COHORT"],
+              "manifest": str(manifest),
+              "manifest_sha256": sha256(manifest.read_bytes()).hexdigest(),
           }, indent=2) + "\n", encoding="utf-8")
           PY
       - name: Measure candidate-first and offline baseline workers
         shell: bash
         run: |
-          echo "source_sha=$(git rev-parse HEAD)"
+          echo "source_sha=$(git rev-parse HEAD) cohort=$LAYOUT_COST_COHORT"
           uv run --no-sync python scripts/annotation-scheme-corpus \
-            --manifest tests/fixtures/annotation-layout-corpus-v2.json \
+            --manifest "$LAYOUT_COST_MANIFEST" \
             --output layout-cost-cases --candidate-first --jobs 1 \
             --worker-timeout-seconds 900 \
             > layout-cost-report.json
@@ -78,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: annotation-layout-cost-${{ matrix.os }}
+          name: annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-${{ matrix.os }}
           path: |
             layout-cost-report.json
             layout-cost-provenance.json

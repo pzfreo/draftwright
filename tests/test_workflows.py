@@ -141,6 +141,19 @@ def test_opt_in_annotation_cost_run_bounds_each_isolated_worker():
     assert "--worker-timeout-seconds 900" in job
 
 
+def test_annotation_cost_real_part_cohort_is_explicit_and_does_not_rerun_fixed15():
+    workflow = _workflow("annotation-layout-cost.yml")
+    job = _job(workflow, "candidate-first-cost")
+
+    assert "annotation-layout-cost-ftc09" in job
+    assert "REQUESTED_COHORT: ${{ inputs.cohort }}" in job
+    assert "fixed15) manifest=tests/fixtures/annotation-layout-corpus-v2.json" in job
+    assert "ftc09) manifest=tests/fixtures/annotation-layout-holdout-ftc09-v1.json" in job
+    assert '--manifest "$LAYOUT_COST_MANIFEST"' in job
+    assert '"manifest_sha256": sha256(manifest.read_bytes()).hexdigest()' in job
+    assert "annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-${{ matrix.os }}" in job
+
+
 def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable():
     test_job = _job(_workflow("ci.yml"), "test")
 
