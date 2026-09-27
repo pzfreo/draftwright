@@ -1582,6 +1582,9 @@ def _build_drawing_once(
             _view_constraints=_view_constraints,
             _framed_recognition=framed_recognition,
             _document_input=_document_input,
+            _scale_from_prior_analysis=(
+                scale_override is not None and reuse is not None and scale_override == reuse.SCALE
+            ),
         )
 
     with stage("analysis"):
