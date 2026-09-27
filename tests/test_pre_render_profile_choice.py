@@ -36,7 +36,7 @@ def test_fully_planned_demand_chooses_capped_profile():
         auto_dims=True,
     )
 
-    assert choice["version"] == 4
+    assert choice["version"] == 5
     assert choice["profile"] == "planned"
     assert choice["page"] == [297.0, 210.0]
     assert choice["scale"] == 1.0

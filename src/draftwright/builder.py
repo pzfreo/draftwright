@@ -90,6 +90,7 @@ from draftwright.layout_safety import candidate_safety_evidence
 from draftwright.layout_selection import (
     annotation_demand_carrier_evidence,
     choose_pre_render_profile,
+    pre_render_view_page_overflow,
     select_best_annotation_layout,
 )
 from draftwright.linting import LintIssue
@@ -1739,6 +1740,46 @@ def _build_drawing_once(
                     page_override=(a.PAGE_W, a.PAGE_H),
                     arrangements_override=(selected_profile.arrangement or a.arrangement,),
                 )
+            # The protected-gutter profile can worsen a caller-fixed, already
+            # overfull sheet by pushing principal views beyond its physical page.
+            # Compare only cheap pre-render geometry.  If the established
+            # conservative profile reduces at least one per-view overflow and
+            # increases none, select it *before* building the one drawing.
+            # This is neither a finished-baseline comparison nor a safety
+            # admission. FTC09's plan moved 6 mm farther out, withholding a
+            # width and PMI carrier that the conservative profile preserves.
+            overflow = pre_render_view_page_overflow(a)
+            if selected_profile.view_gutters and overflow:
+                conservative_profile = candidate_profile("iso-growth", a.SCALE)
+                with use_layout_profile(conservative_profile):
+                    conservative_analysis = analyse(
+                        reuse=a,
+                        views=tuple(a.planned_views or third_angle_view_names()),
+                        scale_override=a.SCALE,
+                        page_override=(a.PAGE_W, a.PAGE_H),
+                        arrangements_override=(conservative_profile.arrangement or a.arrangement,),
+                    )
+                conservative_overflow = pre_render_view_page_overflow(conservative_analysis)
+                views_to_compare = set(overflow) | set(conservative_overflow)
+                no_worse = all(
+                    conservative_overflow.get(view, 0.0) <= overflow.get(view, 0.0) + 1e-6
+                    for view in views_to_compare
+                )
+                strictly_better = any(
+                    conservative_overflow.get(view, 0.0) < overflow.get(view, 0.0) - 1e-6
+                    for view in views_to_compare
+                )
+                if no_worse and strictly_better:
+                    selected_profile = conservative_profile
+                    a = conservative_analysis
+                    pre_render_choice = {
+                        **pre_render_choice,
+                        "proposed_profile": profile_name,
+                        "profile": "iso-growth",
+                        "reason": "protected_gutters_worsen_off_page_views",
+                        "proposed_view_overflow_mm": overflow,
+                        "selected_view_overflow_mm": conservative_overflow,
+                    }
 
     # Pass 1: place + annotate from the estimated layout, then measure the real
     # per-view footprints and re-pack the blocks disjoint if a view actually
