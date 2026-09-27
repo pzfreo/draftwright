@@ -352,10 +352,7 @@ def _manifest(drawing) -> dict:
     return {
         "annotations": annotations,
         "iso_bounds": drawing.view_bounds("iso"),
-        "iso_to_sheet_scale": (
-            drawing.iso_projection_scale is not None
-            and abs(drawing.iso_projection_scale / drawing.scale - 1.0) < 0.05
-        ),
+        "iso_to_sheet_scale": _iso_to_sheet_scale(drawing),
         "orthographic_bounds": {
             view: drawing.view_bounds(view) for view in ("front", "plan", "side")
         },
@@ -376,6 +373,13 @@ def _manifest(drawing) -> dict:
         "drops": drops,
         "lint": {"errors": lint["errors"], "warnings": lint["warnings"]},
     }
+
+
+def _iso_to_sheet_scale(drawing) -> bool:
+    """Only an actually sheet-scale projection makes an NTS caption obsolete."""
+
+    projected = drawing.iso_projection_scale
+    return projected is not None and abs(projected / drawing.scale - 1.0) < 1e-6
 
 
 def _compare(baseline: dict, candidate: dict) -> dict:
