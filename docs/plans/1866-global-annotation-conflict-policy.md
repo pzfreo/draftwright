@@ -13,7 +13,8 @@ intent, and ADR 5 independent evidence and honest failure.
 | Ranked strip solve, bounded ink alternatives and trace | `layout.py`, `annotations/_common.py` | Whether another representation preserves a displaced requirement. |
 | Routed leaders, shared GD&T ink and feature schedules/tables | `annotations/` | Whether a table or another view should replace competing inline ink across the drawing. |
 | View, scale, page and detail planning | `builder.py`, `compose.py`, `annotations/sections.py` | Whether the whole requirement set is better served by a permitted second sheet. |
-| Recognition/declared provenance, drops, lint and document reporting | `reporting.py`, `linting/`, `document.py` | Why the planner preferred one feasible representation over another. |
+| Exact annotation ownership, measurement/satisfaction and table-cell identities | `registry.py`, `reporting.py`, `document_evidence.py` | Which alternative carrier was eligible *before* rendering, and why it won. |
+| Recognition/declared provenance, drops and independent lint | `reporting.py`, `linting/`, `document.py` | A pre-render choice trace; their existing post-render coverage remains authoritative. |
 
 `Document` already supports *authored* sheets sharing one source authority; it
 does not automatically partition a part. The local priority rungs (AUTO,
@@ -26,9 +27,9 @@ claim, or a clean sheet can still be missing a required measurement.
 The policy operates on one normalized obligation set: automatic builds retain
 recognition-owned requirement identities; authored `Sheet` builds use declared
 intent identities and provenance rather than pretending they have a raw
-recognition requirement ledger. Each obligation has an identity, owner, origin
-(authored/imported/automatic),
-required or optional disposition, declared `priority`/`pin`, and eligible
+recognition requirement ledger. Each obligation has an identity, owner,
+origin (authored/imported/automatic), required or optional disposition,
+declared `priority`/`pin`, and eligible
 representations. A representation names exactly the requirements it satisfies,
 its feature and datum references, eligible views/sheets, and the typed placement
 candidates it would submit to the *existing* solve. A table row may replace a
@@ -36,6 +37,11 @@ callout only when its feature identifier and all of that callout's required
 claims survive. There is one canonical carrier per requirement unless an
 explicitly justified cross-reference or intentional repeated statement is
 recorded. No conclusion is inferred from an annotation's display name.
+The existing registry's feature, measurement, satisfaction and exact table-cell
+identities, together with report/document carrier attribution, are the
+post-render evidence seam. Reuse them; only eligible *pre-render alternatives*
+and the reason for choosing one are missing. Do not create a second coverage
+ledger or change lint to trust planner-selected carriers.
 
 For the caller's fixed constraints, compare complete plans in this order:
 
@@ -111,8 +117,9 @@ omission,” “required but unplaced,” and “not recognised/unsupported.” 
 lint on a sparse page cannot be reported as complete.
 
 Implementation should be reviewed in small slices, each with the unchanged
-mechanism as a regression floor: (1) typed requirement-to-carrier coverage and
-trace; (2) same-batch and cross-view conflict decisions using the shared solve;
+mechanism as a regression floor: (1) pre-render carrier-option and choice trace
+using the existing registry/report identities; (2) same-batch and cross-view
+conflict decisions using the shared solve;
 (3) table/detail alternatives; (4) permitted two-sheet planning and document
 identity. Focused tests need an authored pin that cannot fit, equivalent
 callout-to-table coverage, two competing required obligations, and a crowded
