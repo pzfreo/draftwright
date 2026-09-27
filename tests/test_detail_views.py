@@ -172,6 +172,74 @@ class TestDetailView:
         assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
         assert req.failure_reason == reason
 
+    def test_authored_step_secondary_crop_keeps_controlled_outer_rim(self, monkeypatch):
+        from types import SimpleNamespace
+
+        import draftwright.annotations.from_model as from_model
+        from draftwright.annotations.sections import _render_detail
+        from draftwright.model.compiled import ApprovedDimension, FeatureRef
+        from draftwright.model.ir import Frame, StepFeature
+
+        feature = StepFeature(Frame((0.0, 0.0, 0.0), "x"), 2.0, 10.0, ((0, 0, 0), (2, 0, 0)))
+        length = ApprovedDimension(None, "2", 2.0, feature.span, kind="length")
+        diameter = ApprovedDimension(None, "10", 10.0, None, kind="diameter")
+        approved = {"length": length, "diameter": diameter}
+        group = SimpleNamespace(
+            ref=FeatureRef(feature),
+            facts=SimpleNamespace(frame=feature.frame),
+            view="front",
+            dim=lambda *, kind: approved.get(kind),
+        )
+        plan = SimpleNamespace(of_kind=lambda *_kinds: (group,))
+        drawing = SimpleNamespace(
+            draft=SimpleNamespace(font_size=3.0, pad_around_text=1.0, arrow_length=2.0)
+        )
+        analysis = SimpleNamespace(SCALE=1.0)
+        ctx = SimpleNamespace(detail_requests=[])
+
+        assert from_model.queue_step_detail(
+            drawing,
+            plan,
+            feature,
+            analysis,
+            ctx=ctx,
+            view_name="DETAIL B",
+            label="B",
+            factor=2.0,
+            source="test",
+        )
+        request = ctx.detail_requests.pop()
+        assert request.cross_axis == "z"
+        assert request.profile_support_points == ((0.0, 0.0, 5.0), (2.0, 0.0, 5.0))
+        rendered = []
+        monkeypatch.setattr(
+            from_model,
+            "_draw_step_chain",
+            lambda _dwg, _view, segments, *_args, **_kwargs: rendered.extend(segments) or 1,
+        )
+        request.redraw(drawing, "detail_b", SimpleNamespace(pp=lambda *point: point), 2.0)
+        assert (rendered[0].pa, rendered[0].pb) == request.profile_support_points
+        request.cross_lo = 5.1
+        assert not _render_detail(None, analysis, request, "detail_b", "B", ctx=None)
+        assert request.failure_reason == "profile support 1 lies outside the Z detail crop"
+
+        # If the diameter was withheld, an authored length has no certified
+        # outer edge for a partial crop; retain the full secondary extent.
+        approved.pop("diameter")
+        assert from_model.queue_step_detail(
+            drawing,
+            plan,
+            feature,
+            analysis,
+            ctx=ctx,
+            view_name="DETAIL C",
+            label="C",
+            factor=2.0,
+            source="test",
+        )
+        full = ctx.detail_requests.pop()
+        assert (full.cross_axis, full.cross_lo, full.cross_hi) == (None, None, None)
+
     def test_crowded_shoulders_get_a_detail_view_automatically(self):
         from draftwright._core import _legible_steps
 
