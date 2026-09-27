@@ -486,13 +486,11 @@ class StripDepths:
         shared_left = max(_DIM_PAD, self.left, halo)
         pv_below = _est_pv_below_depth()
         pv_top = max(_DIM_PAD, self.top) + halo if halo > 0 else _DIM_PAD
+        # Facing annotation bands are demand-backed; the blank view gutter is
+        # added separately. Do not spend a second plan-below band above an empty
+        # front view, or a crowded plan can lose required location dimensions.
         reserved = {
-            ("front", "above"): max(
-                pv_below
-                if layout_flag("view_gutters", "DRAFTWRIGHT_EXPERIMENT_VIEW_GUTTERS")
-                else _DIM_PAD - pv_below,
-                self.fv_top,
-            ),
+            ("front", "above"): max(_DIM_PAD - pv_below, self.fv_top),
             ("front", "below"): max(_DIM_PAD, self.fv_bottom),
             ("front", "left"): shared_left,
             ("front", "right"): shared_side,
@@ -1498,12 +1496,9 @@ def _compose_view_blocks(
         "front": ViewBlock(
             fv_hw,
             fv_hh,
-            top=max(
-                pv_below
-                if layout_flag("view_gutters", "DRAFTWRIGHT_EXPERIMENT_VIEW_GUTTERS")
-                else DIM_PAD - pv_below,
-                strips.fv_top if strips else 0.0,
-            ),
+            # The measured front band and the separately packed gutter must not
+            # both reserve the plan-below depth (#1813 CTC01).
+            top=max(DIM_PAD - pv_below, strips.fv_top if strips else 0.0),
             right=gap_fv_sv,
             bottom=max(DIM_PAD, strips.fv_bottom if strips else 0.0),
             left=gap_left,

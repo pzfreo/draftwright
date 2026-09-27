@@ -198,10 +198,26 @@ def test_principal_views_keep_blank_gutters_outside_measured_annotation_bands(co
 
 def test_optional_gutter_uses_slack_without_losing_title_block_clearance():
     from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
-    from draftwright.compose import _VIEW_GUTTER, _VIEW_GUTTER_PREFERRED, _layout_geometry
+    from draftwright.compose import (
+        _VIEW_GUTTER,
+        _VIEW_GUTTER_PREFERRED,
+        StripDepths,
+        _layout_geometry,
+    )
 
     with use_layout_profile(AnnotationLayoutProfile(view_gutters=True)):
-        small = _layout_geometry(90, 45, 20, 1, 297, 210, 120, None, 0, arrangement="stacked-iso")
+        small = _layout_geometry(
+            90,
+            45,
+            20,
+            1,
+            297,
+            210,
+            120,
+            StripDepths(right=20, left=20, fv_top=18),
+            0,
+            arrangement="stacked-iso",
+        )
         roomy = _layout_geometry(90, 60, 20, 1, 594, 420, 150, None, 0, arrangement="stacked-iso")
 
     assert small.auto_fits
@@ -209,6 +225,19 @@ def test_optional_gutter_uses_slack_without_losing_title_block_clearance():
     assert _VIEW_GUTTER <= small.vertical_gutter < _VIEW_GUTTER_PREFERRED
     assert roomy.vertical_gutter == pytest.approx(_VIEW_GUTTER_PREFERRED)
     assert roomy.side_gutter == pytest.approx(_VIEW_GUTTER_PREFERRED)
+
+
+def test_gutter_does_not_reserve_an_empty_front_above_band():
+    from draftwright._core import _DIM_PAD
+    from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
+    from draftwright.compose import StripDepths, _compose_view_blocks, _est_pv_below_depth
+
+    with use_layout_profile(AnnotationLayoutProfile(view_gutters=True)):
+        empty = _compose_view_blocks(60, 40, 20, 1, StripDepths(right=20, left=20))
+        occupied = _compose_view_blocks(60, 40, 20, 1, StripDepths(right=20, left=20, fv_top=18))
+
+    assert empty["front"].top == pytest.approx(_DIM_PAD - _est_pv_below_depth())
+    assert occupied["front"].top == pytest.approx(18)
 
 
 def test_named_candidate_profiles_enable_gutters_without_changing_estimated_strips():
