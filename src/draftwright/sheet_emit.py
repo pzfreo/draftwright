@@ -760,6 +760,7 @@ def _feature_line(
     origin_ref: str | None = None,
     object_ref: str | None = None,
     exact_parameter: str | None = None,
+    exact_step_length: bool = False,
     profile_group: str | None = None,
 ) -> str:
     """The declaration for one feature.
@@ -930,7 +931,7 @@ def _feature_line(
         return (
             "sheet.step("
             f"diameter={_parameter_n(f.diameter, 'step.diameter', exact_parameter)}, "
-            f"length={_n(f.length)}, "
+            f"length={_authored_n(f.length) if exact_step_length else _n(f.length)}, "
             # Public shoulder stations are at 0.001 mm, so an odd-thousandth span has a
             # half-thousandth midpoint.  Preserve that coupled fact: independently rounding
             # ``length`` and ``at`` would reconstruct both endpoints 0.0005 mm away.
@@ -1910,6 +1911,12 @@ def _feature_block(
         for f in run:
             profile_group = profile_group_by_feature.get(id(f))
             profile_kw = {} if profile_group is None else {"profile_group": profile_group}
+            step_length_nominal = (
+                (decorations or {}).get((f, "nominal_requirement", "step.length"))
+                if f.kind == "step"
+                else None
+            )
+            exact_step_length = isinstance(step_length_nominal, NominalRequirement)
             gdt_with_origin = f.kind in ("control_frame", "datum_ref", "note")
             origin_ref = names.get(id(f.origin)) if gdt_with_origin else None
             if (
@@ -1948,13 +1955,18 @@ def _feature_block(
             # generated-script rounding quantum, so a close source cylinder can be a valid
             # ordinary convenience reference yet disagree with the lossless imported value.
             # Keep the numeric declaration for exact-owned parameters (#1296 review).
-            object_ref = None if exact_parameter is not None else (object_refs or {}).get(id(f))
+            object_ref = (
+                None
+                if exact_parameter is not None or exact_step_length
+                else (object_refs or {}).get(id(f))
+            )
             if gdt_with_origin:
                 if exact_parameter is None:
                     line = _feature_line(
                         f,
                         part_envelope,
                         origin_ref=origin_ref,
+                        exact_step_length=exact_step_length,
                         **profile_kw,
                     )
                 else:
@@ -1963,6 +1975,7 @@ def _feature_block(
                         part_envelope,
                         origin_ref=origin_ref,
                         exact_parameter=exact_parameter,
+                        exact_step_length=exact_step_length,
                         **profile_kw,
                     )
             elif object_ref is not None:
@@ -1971,6 +1984,7 @@ def _feature_block(
                         f,
                         part_envelope,
                         object_ref=object_ref,
+                        exact_step_length=exact_step_length,
                         **profile_kw,
                     )
                 else:
@@ -1979,6 +1993,7 @@ def _feature_block(
                         part_envelope,
                         object_ref=object_ref,
                         exact_parameter=exact_parameter,
+                        exact_step_length=exact_step_length,
                         **profile_kw,
                     )
             elif exact_parameter is not None:
@@ -1986,10 +2001,13 @@ def _feature_block(
                     f,
                     part_envelope,
                     exact_parameter=exact_parameter,
+                    exact_step_length=exact_step_length,
                     **profile_kw,
                 )
             else:
-                line = _feature_line(f, part_envelope, **profile_kw)
+                line = _feature_line(
+                    f, part_envelope, exact_step_length=exact_step_length, **profile_kw
+                )
             diameter_role = {
                 "hole": "bore",
                 "pattern": "bore",
@@ -2097,6 +2115,12 @@ def _feature_block(
                 on_target = nominal_parameter
                 on = f", on={on_target!r}" if f.kind in ("step", "pattern", "rotational") else ""
                 line += f".requirement({_authored_n(nominal.value)}{on}, {provenance})"
+            if isinstance(step_length_nominal, NominalRequirement):
+                line += (
+                    f".requirement({_authored_n(step_length_nominal.value)}, "
+                    f"on='step.length', source={step_length_nominal.source!r}, "
+                    f"source_ids={step_length_nominal.source_ids!r})"
+                )
             name = _binding(f, line, counts)
             if name is not None:
                 metadata = (declaration_metadata or {}).get(id(f))

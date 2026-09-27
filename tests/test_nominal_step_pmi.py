@@ -98,3 +98,44 @@ def test_grm03_source_lengths_correlate_with_exact_steps():
     assert not [
         feature for feature in analysis.model.features if isinstance(feature, AuthoredDimension)
     ]
+
+
+def test_sheet_script_replays_both_step_nominal_sources_without_rounding():
+    from draftwright.sheet_emit import emit_sheet_script
+
+    step = _step(0.0, 20.0000004)
+    diameter = replace(step, diameter=3.0000004)
+    model = replace(
+        _model(diameter),
+        decorations={
+            (diameter, "nominal_requirement", "step.diameter"): NominalRequirement(
+                diameter.diameter, "ap242_pmi", ("dimension:diameter",)
+            ),
+            (diameter, "nominal_requirement", "step.length"): NominalRequirement(
+                diameter.length, "ap242_pmi", ("dimension:length",)
+            ),
+        },
+    )
+    source = emit_sheet_script(
+        model,
+        "from build123d import Box\npart = Box(30, 10, 10)",
+        "step",
+        title="STEP",
+        number="S-1",
+        formats=(),
+    )
+    assert "length=20.0000004" in source
+    assert "diameter=3.0000004" in source
+    assert "on='step.length', source='ap242_pmi'" in source
+    namespace = {}
+    exec(compile(source.split("# ── Build")[0], "<step script>", "exec"), namespace)
+    replayed = namespace["sheet"].model()
+    claims = {
+        parameter: requirement.source_ids
+        for (_feature, kind, parameter), requirement in replayed.decorations.items()
+        if kind == "nominal_requirement"
+    }
+    assert claims == {
+        "step.diameter": ("dimension:diameter",),
+        "step.length": ("dimension:length",),
+    }
