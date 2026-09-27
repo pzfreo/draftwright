@@ -87,6 +87,85 @@ def test_manifest_rejects_duplicate_case_ids(tmp_path):
         _load_script()._load_manifest(damaged)
 
 
+def test_case_selection_is_exact_ordered_and_explicitly_partial():
+    script = _load_script()
+    corpus = script._load_manifest(EXPANDED_MANIFEST)
+    ids = [case["id"] for case in corpus["cases"]]
+
+    selected, selection = script._select_cases(corpus, [ids[5], ids[1]])
+    assert [case["id"] for case in selected] == [ids[1], ids[5]]
+    assert selection == {
+        "case_ids": [ids[1], ids[5]],
+        "manifest_cases": 15,
+        "partial": True,
+    }
+    assert script._select_cases(corpus, [])[1]["partial"] is False
+    with pytest.raises(ValueError, match="unknown --case"):
+        script._select_cases(corpus, ["not-in-manifest"])
+    with pytest.raises(ValueError, match="must not repeat"):
+        script._select_cases(corpus, [ids[0], ids[0]])
+
+
+def test_case_selector_dispatches_only_requested_worker_and_marks_subset(
+    monkeypatch, tmp_path, capsys
+):
+    script = _load_script()
+    seen = []
+
+    def run(case, *_args, **_kwargs):
+        seen.append(case["id"])
+        return {**_result("candidate"), "case_id": case["id"]}
+
+    monkeypatch.setattr(script, "_run_case", run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--manifest",
+            str(MANIFEST),
+            "--output",
+            str(tmp_path / "subset"),
+            "--case",
+            "ctc02-a2-1to5",
+        ],
+    )
+
+    assert script.main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert seen == ["ctc02-a2-1to5"]
+    assert report["selection"] == {
+        "case_ids": seen,
+        "manifest_cases": 2,
+        "partial": True,
+    }
+    assert report["summary"]["cases"] == 1
+    assert report["summary"]["cohort_gate_eligible"] is False
+    assert report["summary"]["production_contender"] is False
+    assert report["summary"]["affected_majority"] is False
+
+
+def test_case_subset_cannot_claim_a_full_corpus_gate(monkeypatch, tmp_path):
+    script = _load_script()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--manifest",
+            str(MANIFEST),
+            "--output",
+            str(tmp_path / "subset"),
+            "--case",
+            "ctc02-a2-1to5",
+            "--require-wins",
+            "1",
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        script.main()
+
+
 @pytest.mark.parametrize("case_id", ["../outside", "CON", "COM1.foo", "trailing."])
 def test_manifest_rejects_unsafe_case_report_name(tmp_path, case_id):
     document = json.loads(MANIFEST.read_text(encoding="utf-8"))
