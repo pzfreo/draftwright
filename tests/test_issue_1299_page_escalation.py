@@ -40,50 +40,19 @@ def _five_step_grm_profile():
     return Rotation(0, 90, 0) * shaft
 
 
-def test_incomplete_same_page_tries_larger_scales_before_spending_the_sheet():
-    # #1338: larger scales on the selected sheet are still the first recovery lever. With
-    # external text clearance included in view blocks (#1262), this synthetic detected model's
-    # overall-height dimension no longer fits beside the end view on A4. At 10:1 the
-    # drawing is also outside the page, so hard validity rejects it before its incomplete
-    # shoulder chain is considered. Both scales fail before the workflow spends the ISO
-    # and advances to A3.
+def test_crowded_head_uses_a_detail_before_spending_the_sheet():
+    # The current crop guard keeps the short head stations in an enlarged detail,
+    # allowing the complete drawing to remain on A4. The 2.5 main-view dimension
+    # locates the whole head; its separate 0.5 and 2 lengths are in detail_a.
     drawing = build_estimated_strips(_five_step_grm_profile(), pmi="off")
 
-    assert (drawing.page_w, drawing.page_h) == (420.0, 297.0)
-    assert drawing.scale == 5.0
-    assert "iso" not in drawing.views
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert [
-        (
-            attempt["page"],
-            attempt["status"],
-            attempt["reason"],
-            attempt.get("rejection"),
-        )
-        for attempt in drawing.scale_decision["attempts"]
-    ] == [
-        ((297.0, 210.0), "axial_coverage_incomplete", "remove_optional_iso", None),
-        (
-            (297.0, 210.0),
-            "rejected",
-            "scale_escalation_on_selected_page",
-            "structural_error",
-        ),
-        (
-            (297.0, 210.0),
-            "rejected",
-            "scale_escalation_on_selected_page",
-            "structural_error",
-        ),
-        ((297.0, 210.0), "rejected", "remove_optional_iso", "axial_coverage_incomplete"),
-        ((420.0, 297.0), "complete", "page_escalation_after_optional_iso", None),
-    ]
-    assert drawing.scale_decision["attempted_scales"] == (2.0, 5.0, 10.0, 2.0, 5.0)
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
+    assert {"iso", "detail_a"} <= drawing.views.keys()
+    assert drawing.scale_decision["status"] == "automatic"
+    assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
     assert {
-        drawing.get_annotation(name).label
-        for name in drawing.annotations()
-        if name.startswith("m_steplen")
-    } == {"3.2", "0.5", "2", "3", "20"}
+        drawing.get_annotation(name).label for name in drawing.annotations() if "steplen" in name
+    } == {"3.2", "2.5", "0.5", "2", "3", "20"}
     assert not [
         issue
         for issue in drawing.lint()
@@ -947,22 +916,18 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
 def test_explicit_a4_remains_fixed_instead_of_escalating():
     drawing = build_estimated_strips(_five_step_grm_profile(), page="A4", pmi="off")
 
-    # The subject: pinning the sheet pins the SHEET. Every attempt is on A4; none spends a
-    # larger page, however incomplete the result.
+    # Pinning the sheet pins the sheet; both the main locator and detailed head
+    # dimensions remain on A4 without a page escalation.
     assert (drawing.page_w, drawing.page_h) == (297.0, 210.0)
     assert all(attempt["page"] == (297.0, 210.0) for attempt in drawing.scale_decision["attempts"])
 
-    # The initial A4/5:1 proposal cannot carry the ISO without structural overlap.
-    # Removing that optional view leaves a clean 5:1 sheet with every axial station.
-    assert drawing.scale_decision["status"] == "automatic_replanned"
-    assert drawing.scale == 5.0
-    assert "iso" not in drawing.views
+    assert drawing.scale_decision["status"] == "automatic"
+    assert drawing.scale == 2.0
+    assert {"iso", "detail_a"} <= drawing.views.keys()
     assert not drawing.lint()
     assert {
-        drawing.get_annotation(name).label
-        for name in drawing.annotations()
-        if name.startswith("m_steplen")
-    } == {"3.2", "0.5", "2", "3", "20"}
+        drawing.get_annotation(name).label for name in drawing.annotations() if "steplen" in name
+    } == {"3.2", "2.5", "0.5", "2", "3", "20"}
 
 
 def test_exact_grm03_recovers_all_axial_stations_on_a4_with_pmi_off():
