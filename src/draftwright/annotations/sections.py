@@ -840,12 +840,30 @@ def _render_detail(
     cap_h = 8.0
     caption_gap = min(a.DIM_PAD, 6.0) if req.kind == "turned-head" else a.DIM_PAD
 
+    def _caption_text(s):
+        return (
+            f"DETAIL {letter}"
+            + (" — PARTIAL PROFILE" if req.kind == "turned-head" else "")
+            + f" — SCALE {format_drawing_scale(s)}"
+        )
+
+    def _horizontal_extents(s):
+        """Space needed on each side of the view centre, including its caption."""
+        pad_right, _ = _pads(s)
+        half_view = view_w * s / 2
+        caption_box = _anno_box(Note(_caption_text(s), (0, 0), dwg.draft))
+        return (
+            max(half_view, -caption_box[0]),
+            max(half_view + pad_right, caption_box[2]),
+        )
+
     def _pads(s):  # annotation bands may depend on the scale (the prismatic ladder)
         return req.pads(s) if req.pads is not None else (0.0, req.pad_top)
 
-    min_pad_right, min_pad_top = _pads(min_detail_scale)
+    _, min_pad_top = _pads(min_detail_scale)
+    min_left, min_right = _horizontal_extents(min_detail_scale)
     min_footprint = (
-        view_w * min_detail_scale + min_pad_right,
+        min_left + min_right,
         view_h * min_detail_scale + min_pad_top + caption_gap + cap_h,
     )
 
@@ -876,8 +894,9 @@ def _render_detail(
     rect_w, rect_h = rx1 - rx0, ry1 - ry0
 
     def _fits(s):
-        pr, pt = _pads(s)
-        return view_w * s + pr <= rect_w and view_h * s + pt + caption_gap + cap_h <= rect_h
+        _, pt = _pads(s)
+        left, right = _horizontal_extents(s)
+        return left + right <= rect_w and view_h * s + pt + caption_gap + cap_h <= rect_h
 
     # Fit continuously enough not to jump over a viable scale.  Subtracting a
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
@@ -901,11 +920,12 @@ def _render_detail(
             rect_h,
         )
         return False
-    pad_right, pad_top = _pads(detail_scale)
+    _, pad_top = _pads(detail_scale)
+    left, right = _horizontal_extents(detail_scale)
 
-    # Centre the whole footprint: bias left by the right pad, and offset for the
-    # asymmetric top pad (annotations above) vs the caption (below).
-    DX = (rx0 + rx1) / 2 - pad_right / 2
+    # Centre the measured union of view, right annotation pad, and caption;
+    # offset vertically for the top pad (annotations) vs the caption below.
+    DX = (rx0 + rx1) / 2 - (right - left) / 2
     DY = (ry0 + ry1) / 2 - (pad_top - cap_h) / 2
 
     # Preserve the request's orthographic direction at detail scale around the
@@ -988,9 +1008,7 @@ def _render_detail(
     dvb = dwg.views[view_name][0].bounding_box()
     ctx.place(
         Note(
-            f"DETAIL {letter}"
-            + (" — PARTIAL PROFILE" if req.kind == "turned-head" else "")
-            + f" — SCALE {format_drawing_scale(detail_scale)}",
+            _caption_text(detail_scale),
             ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
             dwg.draft,
         ),
