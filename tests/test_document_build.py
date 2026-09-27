@@ -270,14 +270,17 @@ def test_member_pmi_policy_projects_one_common_acquisition(pmi_source):
     suppressed = document.sheet("dimensions", pmi="off")
 
     annotation_kinds = {
-        "authored_dimension",
         "datum_ref",
         "default_surface_finish",
         "document_note",
         "general_tolerance",
     }
-    assert annotation_kinds <= {feature.kind for feature in annotated.features}
-    assert annotation_kinds.isdisjoint(feature.kind for feature in suppressed.features)
+    source_kinds = {feature.kind for feature in pmi_source.source_annotations()}
+    annotated_kinds = {feature.kind for feature in annotated.features}
+    suppressed_kinds = {feature.kind for feature in suppressed.features}
+    assert annotation_kinds <= source_kinds
+    assert source_kinds <= annotated_kinds
+    assert source_kinds.isdisjoint(suppressed_kinds)
     assert tuple(document.features) == tuple(suppressed.features)
     assert annotated._opts["pmi"] == "annotate"
     assert suppressed._opts["pmi"] == "off"
