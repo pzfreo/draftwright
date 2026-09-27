@@ -973,6 +973,11 @@ def test_a_source_without_a_solid_body_warns_and_still_generates(
     assert "No inspection sidecar written" in caplog.text
 
 
+def test_zero_thickness_geometry_refuses_an_explicit_scale_without_division() -> None:
+    with pytest.raises(ValueError, match="drawing geometry degenerates"):
+        builder_module.build_drawing(Line((0, 0, 0), (10, 0, 0)), scale=1, page="A4")
+
+
 def test_a_build123d_object_source_generates_a_script_but_no_document(
     tmp_path, monkeypatch
 ) -> None:
