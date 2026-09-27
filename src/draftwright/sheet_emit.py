@@ -3134,6 +3134,7 @@ def generate_sheet_script(
         if scale is None:
             settled = _settled_reference_build(
                 detection_source,
+                _analysis_base=analysis,
                 title=title,
                 number=number,
                 tolerance=tolerance,

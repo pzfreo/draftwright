@@ -728,6 +728,11 @@ def _validate_explicit_scale(
     if scale is None:
         return
     min_dim = min(x_size, y_size, z_size)
+    if min_dim <= 0:
+        raise ValueError(
+            "drawing geometry degenerates: the part has no three-dimensional extent "
+            "and no scale can produce a solid drawing"
+        )
     min_view = min_dim * SCALE
     if min_view < _MIN_RENDER_MM:
         safe = _MIN_RENDER_MM / min_dim
