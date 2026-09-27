@@ -2805,6 +2805,11 @@ class Sheet:
 
     def add_view(self, name) -> _View:
         """Require one additional principal/orientation view in an automatic set."""
+        if self._replayed_views is not None:
+            raise ValueError(
+                "add_view() conflicts with the generated script's settled _replayed_views; "
+                "remove _replayed_views from Sheet(...) to replan after editing the view set"
+            )
         if self._principal_view_source == "authored":
             raise ValueError("add_view() augments auto_views(); use view() inside an authored set")
         name, kind = self._principal_view_name(name)

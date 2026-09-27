@@ -2031,6 +2031,14 @@ def _drawing_from_generated_script(step_path, tmp_path, monkeypatch):
     return captured["dwg"]
 
 
+def test_settled_view_replay_rejects_added_view_instead_of_ignoring_it():
+    from draftwright import Sheet
+
+    sheet = Sheet(Box(10, 10, 10), _replayed_views=("front", "plan", "side", "iso"))
+    with pytest.raises(ValueError, match="remove _replayed_views"):
+        sheet.add_view("rear")
+
+
 class TestRoundTripParity:
     """#472: the generated sheet script must reproduce the direct build's annotation set — the
     invariant that makes the default `--script` (sheet) trustworthy. Turned/rotational parts were
