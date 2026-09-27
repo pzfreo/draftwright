@@ -2371,7 +2371,7 @@ def emit_sheet_script(
     text_position: str = "inline",
     text_orientation: str = "aligned",
     leader_region: str = "auto",
-    annotation_layout: str = "estimated-strips",
+    annotation_layout: str = "demand-guided",
     object_ref: bool = False,
     object_candidates: Mapping[str, Shape] | None = None,
     source_part: Shape | None = None,
@@ -2394,7 +2394,8 @@ def emit_sheet_script(
     *part_expr* is the Python that binds ``part`` (a STEP ``import_step`` or a ``part = …``
     seam); *stem* is the output basename the script exports to. The title-block / layout aspects
     (``drawn_by``/``tolerance``/``scale``/``page``, #474) are emitted into the ``Sheet(...)``
-    constructor only when non-default, so a plain drawing keeps a clean one-line constructor.
+    constructor only when non-default. The layout algorithm is always explicit so a saved
+    script keeps its chosen mode across later default changes.
     The script ends with the explicit lifecycle ``drawing = sheet.build()`` then
     ``drawing.export(...)`` (#968), so the finalized :class:`~draftwright.drawing.Drawing` has a
     name an editor can lint or inspect without rewriting the tail or building twice. *formats*
@@ -2643,8 +2644,9 @@ def emit_sheet_script(
         ctor.append(f"text_orientation={text_orientation!r}")
     if leader_region != "auto":
         ctor.append(f"leader_region={leader_region!r}")
-    if annotation_layout != "estimated-strips":
-        ctor.append(f"annotation_layout={annotation_layout!r}")
+    # Pin even the current default in a generated declaration. A saved script
+    # should replay its chosen algorithm if a later release changes the default.
+    ctor.append(f"annotation_layout={annotation_layout!r}")
     from draftwright.model.declare import _envelope_from_bbox
 
     object_refs = _object_references(model.features, source_part, object_candidates)
@@ -2980,7 +2982,7 @@ def generate_sheet_script(
     text_position: str = "inline",
     text_orientation: str = "aligned",
     leader_region: str = "auto",
-    annotation_layout: str = "estimated-strips",
+    annotation_layout: str = "demand-guided",
     pmi: Literal["off", "report", "annotate"] = "off",
     part_expr: str | None = None,
     object_candidates: Mapping[str, Shape] | None = None,

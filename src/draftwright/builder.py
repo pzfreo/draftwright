@@ -2267,9 +2267,9 @@ def _preserve_requirements_under_arrangement(drawing, chosen, build, blockers_fo
     #
     # The rule is therefore one-sided, and deliberately so: the alternative may not introduce
     # any blocker the preferred result did not already have. It is free to preserve MORE, and
-    # it does not have to beat the default on volume — the default is the baseline every
-    # drawing had before this choice existed, so an alternative earns its place by costing
-    # nothing, not by costing less.
+    # it does not have to beat the historical arrangement on volume — that arrangement
+    # was the comparison floor before this local choice existed, so an alternative
+    # earns its place by costing nothing, not by costing less.
     introduced = collections.Counter(map(_blocker_identity, blockers)) - collections.Counter(
         map(_blocker_identity, preferred_blockers)
     )
@@ -2450,7 +2450,7 @@ def build_drawing(
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
     annotation_layout: Literal[
         "estimated-strips", "demand-guided", "compare", "baseline", "candidate-preview", "best"
-    ] = "estimated-strips",
+    ] = "demand-guided",
     _replayed_scale: float | None = None,
 ) -> Drawing:
     """Build a drawing, protecting required annotations under an explicit scale.
@@ -2481,10 +2481,11 @@ def build_drawing(
 
     ``annotation_layout="compare"`` evaluates an alternative on the settled sheet and
     scale, retaining the existing layout unless finished-drawing semantic parity and
-    layout quality prove a strict gain. ``"demand-guided"`` selects a profile
-    before rendering in one build, without a comparison. ``"estimated-strips"``
-    uses the original feature-estimated reservations. The original spellings
-    ``"best"``, ``"candidate-preview"``, and ``"baseline"`` remain accepted aliases.
+    layout quality prove a strict gain. The default ``"demand-guided"`` selects
+    a profile before rendering in one build, without a comparison.
+    ``"estimated-strips"`` uses the original feature-estimated reservations.
+    The original spellings ``"best"``, ``"candidate-preview"``, and ``"baseline"``
+    remain accepted aliases.
     """
     annotation_layout = annotation_layout_policy(annotation_layout)
     if annotation_layout == "compare":
@@ -2528,9 +2529,25 @@ def build_drawing(
 
     def finish_annotation_layout(drawing: Drawing) -> Drawing:
         if annotation_layout == "demand-guided":
+            # A declared build deliberately leaves raw recognition lazy until physical
+            # critique/export. Computing the full safety report here would scan the
+            # solid during build and break that public boundary (ADR 4).
+            if model is not None:
+                safety_evidence = {
+                    "version": 12,
+                    "checks_passed": False,
+                    "admission_ready": False,
+                    "failed_checks": ["physical_critique_deferred"],
+                    "checks": [],
+                    "page": [float(drawing.page_w), float(drawing.page_h)],
+                    "scale": float(drawing.scale),
+                    "status": "deferred_until_physical_critique",
+                }
+            else:
+                safety_evidence = candidate_safety_evidence(drawing)
             drawing.annotation_scheme_decision = {
                 **drawing.annotation_scheme_decision,
-                "safety_evidence": candidate_safety_evidence(drawing),
+                "safety_evidence": safety_evidence,
                 "fallback_decision": "not_evaluated",
             }
         return drawing
@@ -3686,7 +3703,7 @@ def make_drawing(
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
     annotation_layout: Literal[
         "estimated-strips", "demand-guided", "compare", "baseline", "candidate-preview", "best"
-    ] = "estimated-strips",
+    ] = "demand-guided",
 ) -> tuple[str, str]:
     """Generate a 4-view technical drawing from a STEP file or build123d object.
 
@@ -3725,8 +3742,8 @@ def make_drawing(
             ``"interior"`` requires interior placement where that feature family supports it.
         annotation_layout: ``"compare"`` compares finished layouts on the same sheet and scale
             and selects a candidate only when required annotations and quality are preserved.
-            ``"demand-guided"`` chooses before rendering in one build; it does not
-            establish per-drawing parity to the original layout. ``"estimated-strips"``
+            The default ``"demand-guided"`` chooses before rendering in one build; it
+            does not establish per-drawing parity to the original layout. ``"estimated-strips"``
             uses the original planning policy. The former names remain aliases.
 
     Returns:

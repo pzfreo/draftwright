@@ -77,6 +77,7 @@ def test_cli_inherits_automatic_detail_default(monkeypatch):
 
     class _Drawing:
         out = "out"
+        annotation_scheme_decision = {"pre_render_choice": {}}
 
         def export(self, *, formats):
             return {name: f"out.{name}" for name in formats}

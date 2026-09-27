@@ -77,11 +77,23 @@ artifacts, not from another CAD run.
 All fixed15 ratios are within the predeclared 1.25× time/RSS ceilings on
 this source head. Each runner reported 12 offline metric wins, 3 ties, 15/15
 semantic parity, **zero production selections**, and 0/15 independent safety
-checks passed. This is neither a current-head cost pass nor a rollout pass:
-large/user CAD on all platforms, production concurrency/RAM, measured interim
-fallback frequency, and fallback-inclusive latency remain missing. The
-candidate-preview path has no automatic fallback; its `null` fallback rate is
-not zero. No default switch or fallback removal is authorized.
+checks passed. This is neither a current-head cost pass nor a complete
+large/user-part and concurrency study. The candidate-preview path has no
+automatic fallback; its `null` fallback rate is not zero.
+
+## Accepted evidence limit for the reversible default switch
+
+The [#1832 closure](https://github.com/pzfreo/draftwright/issues/1832)
+accepted the remaining sampling risk as a scope decision, **not** as a claim
+that every budget row above passed. The saved fixed15 Linux/macOS/Windows
+cohorts are under the 1.25× time/RSS ceilings, and the opt-in large FTC09
+three-platform sample was favourable; that large-case observation is one
+sample and configured concurrency was not benchmarked. No automatic baseline
+fallback is being introduced, so interim fallback rate and inclusive latency
+are inapplicable rather than zero. Preserve the explicit established-layout
+mode, report the missing evidence, and treat a measured candidate-specific
+cost regression as a focused rollout bug under #1813. This decision does not
+weaken semantic parity, honest failure, or exact-head CI requirements.
 
 Future opt-in workflow runs bound each isolated CAD worker to 900 seconds.
 The saved fixed15 run's longest candidate worker was 279.30 seconds on macOS;

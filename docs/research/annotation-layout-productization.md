@@ -37,7 +37,8 @@ baseline can gain a larger isometric view if its orthographic bounds and other
 quality measures are unchanged. Failed or inferior proposals retain baseline.
 `Drawing.annotation_scheme_decision` records the trials and the chosen layout.
 
-The default remains `"estimated-strips"` (formerly `"baseline"`). The opt-in
+The default is `"demand-guided"`; `"estimated-strips"` (formerly `"baseline"`)
+remains an explicit compatibility and comparison choice. The opt-in
 `"compare"` mode is a comparative gate: it needs at least two drawing solves
 and can need four on a crowded part. Only the selected drawing is exported.
 Builds are scoped with a `ContextVar`, so process environment switches are not
@@ -82,18 +83,17 @@ interior dimensions coexist reduced the final selector to 36.6 seconds and
 one candidate trial. Large native CAD models still make simultaneous
 in-process drawings a memory concern.
 
-## Intended default path: candidate first
+## Default path: candidate first
 
-The agreed #1813 direction is one candidate build on an ordinary request, with
+The #1813 default path is one candidate build on an ordinary request, with
 an explicit established-layout mode and the multi-build `"compare"` mode
-retained for offline comparison. The pre-render chooser now selects a profile
-from typed demand and
-settled page/scale before the candidate is drawn; the current
-`"demand-guided"` mode (formerly `"candidate-preview"`) is observational and
-does **not** change the public default. Its independent completeness checks
-report unmet requirements even
-when baseline would have the same defect. Such a shared limitation is not a
-candidate-specific regression and does not trigger a baseline rerender.
+retained for offline comparison. The pre-render chooser selects a profile
+from typed demand and settled page/scale before the candidate is drawn; the
+`"demand-guided"` mode (formerly `"candidate-preview"`) remains a single-build
+path. Its independent completeness checks report unmet requirements even
+when the established layout would have the same defect. Such a shared
+limitation is not a candidate-specific regression and does not trigger an
+established-layout rerender.
 
 An automatic fallback is **not** a prerequisite for the default switch. Any
 temporary exception needs offline evidence that baseline actually recovers a
@@ -106,6 +106,11 @@ The independent checker must report what it cannot establish; its current
 candidate. See [ADR 5](../adr/0005-trust-and-honest-failure.md) for honest
 failure and the [#1813 epic](https://github.com/pzfreo/draftwright/issues/1813)
 for the current completion criteria.
+For a declared `model=` or `Sheet` build, the build-time safety observation is
+explicitly deferred: producing the physical report at that point would force
+raw recognition before the caller requests critique or export, contrary to
+ADR 4's declared-build boundary. The drawing's later report/lint remains the
+independent coverage authority; a deferred observation is never a pass.
 
 ### Offline cost evidence
 
@@ -120,12 +125,25 @@ must use the same fixed page/scale, export formats, and host class, and must rec
 concurrency because concurrent CAD processes compete for memory and CPU. In preview mode the
 fallback rate is `null`, not zero: automatic fallback has not been implemented or measured.
 These measurements are evidence inputs, not an admission verdict. The
-[pre-rollout numerical budget](1813-candidate-cost-budget.md) is now set; its
-supported-platform, large-part and concurrency gates remain open. If no
+[pre-rollout numerical budget](1813-candidate-cost-budget.md) records the
+supported-platform results and the accepted limits of the large-part and
+concurrency sample. If no
 temporary fallback is introduced, fallback frequency is not a required
 production measurement.
 
-## Gates for a default switch
+## Original rollout checklist and accepted limits
+
+The checklist below records the intended evidence breadth, not a claim that
+every item was completed. The agreed closures of
+[#1831](https://github.com/pzfreo/draftwright/issues/1831),
+[#1832](https://github.com/pzfreo/draftwright/issues/1832),
+[#1844](https://github.com/pzfreo/draftwright/issues/1844), and
+[#1847](https://github.com/pzfreo/draftwright/issues/1847) explicitly accept
+remaining holdout, cost-sampling, and hard-part legibility limits rather than
+marking their original checklists passed. Shared incomplete drawings remain
+honestly reported under both algorithms; a concrete candidate-specific
+regression is a focused bug. #1813 retains the reversible rollout and
+observation work, including exact-head full and slow CI for the default change.
 
 1. Finish and validate the versioned pre-render chooser and independent
    completeness evidence. Record the chosen profile, failed checks, limitations,

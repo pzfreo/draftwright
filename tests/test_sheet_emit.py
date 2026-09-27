@@ -268,7 +268,9 @@ class TestEmit:
 
     def test_emits_one_declarative_line_per_feature(self):
         src = _script_for(_plate())
-        assert "sheet = Sheet(part, title='T', number='N')" in src
+        assert (
+            "sheet = Sheet(part, title='T', number='N', annotation_layout='demand-guided')" in src
+        )
         assert "sheet.hole(diameter=8" in src  # the ⌀8 holes
         assert "sheet.envelope()" in src  # #976: the whole-part envelope emits the verb
         assert src.rstrip().endswith("drawing.export('drawing', formats=('pdf',))")
@@ -758,10 +760,12 @@ class TestEmit:
         assert "page='A3'" in ctor
 
     def test_default_aspects_stay_off_the_constructor(self):
-        # unset aspects never appear — including tolerance, whose default is None since
-        # #1157, so an unauthored general tolerance leaves no trace for a re-run to revive.
+        # Unset aspects never appear — including tolerance, whose default is None since
+        # #1157. The chosen layout algorithm is intentionally pinned for replay.
         ctor = next(ln for ln in _script_for(_plate()).splitlines() if "Sheet(part" in ln)
-        assert ctor == "sheet = Sheet(part, title='T', number='N')"
+        assert ctor == (
+            "sheet = Sheet(part, title='T', number='N', annotation_layout='demand-guided')"
+        )
 
     def test_count_group_hole_carries_its_members(self):
         # a count>1 hole MUST emit members= with every position — without them the render
@@ -1748,6 +1752,7 @@ class TestCli:
 
         class DrawingStub:
             out = str(tmp_path / "out")
+            annotation_scheme_decision = {"pre_render_choice": {}}
 
             def export(self, *, formats):
                 return {name: str(tmp_path / f"out.{name}") for name in formats}

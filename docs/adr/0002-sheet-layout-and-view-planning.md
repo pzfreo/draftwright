@@ -113,6 +113,15 @@ dependency runs one way: requirements determine views.
     rejects new requirement blockers or interior dimensions, and accepts only a strict measured
     improvement. An ineligible or failed candidate cannot replace the established drawing.
     `test_annotation_layout_product.py`, `test_annotation_scheme_compare_script.py`.
+19. **The normal annotation layout is one demand-guided build.** It chooses a
+    profile from pre-render demand and the settled caller constraints; it does
+    not construct an estimated-strips drawing for each request or silently
+    rerender one after a failed completeness check. `estimated-strips` remains
+    an explicit compatibility choice, and `compare` remains opt-in. The API,
+    `Sheet`, generated scripts, and CLI share that default; generated scripts
+    spell out their chosen mode. Independent unmet-requirement reporting still
+    applies to either algorithm. `test_annotation_layout_product.py`,
+    `test_layout_safety.py`.
 
 **Unguarded.** That the optimiser never shrinks text to fit is a stated rule of 0018 with no
 dedicated mutation guard. Automatic principal-view selection has no guard because it is not built.
