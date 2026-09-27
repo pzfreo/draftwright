@@ -127,6 +127,21 @@ def test_same_batch_dimension_ink_selects_clear_label_candidates():
     ]
 
 
+def test_short_size_label_can_clear_a_position_witness_at_its_midpoint():
+    draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+    size = _dim((20.0, 0.0, 0.0), (23.2, 0.0, 0.0), "above", 10.0, draft, label="3.2")
+    position = _dim((10.0, 0.0, 0.0), (21.6, 0.0, 0.0), "above", 30.0, draft, label="11.6")
+    natural = [("size", size), ("position", position)]
+    assert _stage1_crossings(natural)
+
+    placed = prevent_dimension_label_ink(natural, page=(0.0, 0.0, 100.0, 100.0))
+
+    assert _stage1_crossings(placed) == []
+    assert placed[0][1]._dw_spec.p1 == size._dw_spec.p1
+    assert placed[0][1]._dw_spec.p2 == size._dw_spec.p2
+    assert placed[0][1]._dw_spec.kwargs.get("label_offset_x") is not None
+
+
 def test_immutable_label_keeps_deterministic_linted_fallback():
     natural = _short_chain()
 
