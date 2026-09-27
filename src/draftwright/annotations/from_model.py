@@ -6278,24 +6278,34 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
     lo, hi = sorted(point[ai] for point in length.span)
     context = max(1.0, (hi - lo) / 2)
     diameter = group.dim(kind="diameter")
+    profile_support_points: tuple[tuple[float, float, float], ...]
     if diameter is not None:
         rim = group.facts.frame.origin[ci] + diameter.value / 2
         cross_lo, cross_hi = rim - context, rim + context
+
         # A partial secondary crop may keep a dimension's centreline witnesses
         # while cutting away the shoulder they describe. Carry the physical
         # rim at both measured stations into the shared detail crop guard.
-        profile_support_points = tuple(
-            tuple(float(rim if index == ci else value) for index, value in enumerate(point))
-            for point in length.span
+        def at_rim(point: tuple[float, float, float]) -> tuple[float, float, float]:
+            return (
+                float(rim if ci == 0 else point[0]),
+                float(rim if ci == 1 else point[1]),
+                float(rim if ci == 2 else point[2]),
+            )
+
+        render_span = (
+            at_rim(length.span[0]),
+            at_rim(length.span[1]),
         )
+        profile_support_points = render_span
     else:
         # Without a controlled diameter there is no exact outer-rim support
         # for a partial crop. Retain the full secondary extent instead.
         cross_lo = cross_hi = None
         profile_support_points = ()
+        render_span = length.span
     # The displayed length must attach to the retained physical edge, not the
     # centreline that the partial secondary crop deliberately omits.
-    render_span = profile_support_points if diameter is not None else length.span
     segment = _StepChainSegment(
         render_span[0],
         render_span[1],
