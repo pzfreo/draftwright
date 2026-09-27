@@ -2663,8 +2663,10 @@ class TestAuthoredSetRoundTrips:
             mp.setattr(
                 sheet_emit,
                 "_feature_line",
-                lambda f, part_envelope=None: (
-                    "# envelope — no declarative verb" if f is env else real(f, part_envelope)
+                lambda f, part_envelope=None, **kwargs: (
+                    "# envelope — no declarative verb"
+                    if f is env
+                    else real(f, part_envelope, **kwargs)
                 ),
             )
             with pytest.raises(ValueError, match="has no declarative verb"):

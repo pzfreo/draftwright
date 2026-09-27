@@ -234,12 +234,12 @@ def _nominal_requirement(value, *, source, source_ids):
     return NominalRequirement(value=value, source=source, source_ids=source_ids)
 
 
-_NOMINAL_DIAMETER_PARAMETER = {
-    "step": "step.diameter",
-    "boss": "boss.diameter",
-    "hole": "bore.diameter",
-    "pattern": "bore.diameter",
-    "rotational": "od.diameter",
+_NOMINAL_REQUIREMENT_PARAMETERS = {
+    "step": {"step.diameter", "step.length"},
+    "boss": {"boss.diameter"},
+    "hole": {"bore.diameter"},
+    "pattern": {"bore.diameter"},
+    "rotational": {"od.diameter"},
 }
 
 
@@ -253,10 +253,10 @@ def _requirement_parameter(feature, target: str):
     if len(parameters) != 1:
         raise ValueError(f"requirement(): {target!r} does not name exactly one parameter")
     parameter = parameters[0]
-    if parameter.parameter_id != _NOMINAL_DIAMETER_PARAMETER.get(feature.kind):
+    if parameter.parameter_id not in _NOMINAL_REQUIREMENT_PARAMETERS.get(feature.kind, ()):
         raise ValueError(
-            "requirement() supports only the canonical imported diameter owner of a "
-            "step, boss, hole, pattern, or rotational feature"
+            "requirement() supports only canonical imported step length or diameter "
+            "owners and the diameter owners of boss, hole, pattern, or rotational features"
         )
     return parameter
 
@@ -683,7 +683,7 @@ class _Dim(_Nameable):
         source: str,
         source_ids: tuple[str, ...],
     ) -> _Dim:
-        """Claim a canonical diameter for external semantic source identities."""
+        """Claim a canonical nominal parameter for external source identities."""
         target = on or self._kind
         parameter = _requirement_parameter(self._sheet._features[self._i], target)
         self._sheet._tolerances[(self._token, "nominal_requirement", parameter.parameter_id)] = (
