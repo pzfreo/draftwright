@@ -93,6 +93,13 @@ def test_candidate_preview_selects_before_render_without_baseline_build(monkeypa
     assert "recognized_occurrences" not in decision["safety_evidence"]["failed_checks"]
     assert decision["fallback_decision"] == "not_evaluated"
     assert decision["pre_render_choice"]["profile"] == "iso-growth"
+    assert decision["carrier_evidence"]["version"] == 1
+    assert decision["carrier_evidence"]["coverage_authority"] is False
+    assert decision["carrier_evidence"]["demands"]
+    assert all(entry["measurements"] for entry in decision["carrier_evidence"]["demands"])
+    assert any(
+        entry["status"] == "represented" for entry in decision["carrier_evidence"]["demands"]
+    )
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
 
 
