@@ -743,6 +743,19 @@ def _detail_secondary_crop_error(req: DetailRequest) -> str | None:
     return None
 
 
+def _detail_caption(req: DetailRequest, letter: str, scale: float, bb) -> str:
+    """Identify a genuinely truncated profile independently of detail family."""
+    partial_profile = False
+    if req.cross_axis is not None and req.cross_lo is not None and req.cross_hi is not None:
+        axis = req.cross_axis.upper()
+        partial_profile = (
+            req.cross_lo > getattr(bb.min, axis) + 1e-6
+            or req.cross_hi < getattr(bb.max, axis) - 1e-6
+        )
+    qualifier = " — PARTIAL PROFILE" if partial_profile else ""
+    return f"DETAIL {letter}{qualifier} — SCALE {format_drawing_scale(scale)}"
+
+
 def _render_detail(
     dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx
 ) -> bool:
@@ -841,11 +854,7 @@ def _render_detail(
     caption_gap = min(a.DIM_PAD, 6.0) if req.kind == "turned-head" else a.DIM_PAD
 
     def _caption_text(s):
-        return (
-            f"DETAIL {letter}"
-            + (" — PARTIAL PROFILE" if req.kind == "turned-head" else "")
-            + f" — SCALE {format_drawing_scale(s)}"
-        )
+        return _detail_caption(req, letter, s, a.bb)
 
     def _horizontal_extents(s):
         """Space needed on each side of the view centre, including its caption."""

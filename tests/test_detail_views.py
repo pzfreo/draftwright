@@ -15,6 +15,43 @@ class TestDetailView:
         return _crowded_shoulder_part() - Pos(0, 0, 12) * Cylinder(2.5, 20)
 
     @pytest.mark.parametrize(
+        ("kind", "cross_bounds", "partial"),
+        [
+            ("turned-head", (4.0, 10.0), True),
+            ("turned-head", None, False),
+            ("prismatic-steps", (4.0, 10.0), True),
+            ("authored-step", (0.0, 10.0), False),
+        ],
+    )
+    def test_detail_caption_identifies_actual_secondary_crop(self, kind, cross_bounds, partial):
+        from types import SimpleNamespace
+
+        from draftwright._core import DetailRequest
+        from draftwright.annotations.sections import _detail_caption
+
+        req = DetailRequest(
+            axis="x",
+            lo=0.0,
+            hi=1.0,
+            scale_needed=10.0,
+            redraw=lambda *_args: 1,
+            kind=kind,
+            cross_axis="z" if cross_bounds is not None else None,
+            cross_lo=None if cross_bounds is None else cross_bounds[0],
+            cross_hi=None if cross_bounds is None else cross_bounds[1],
+        )
+        bounds = SimpleNamespace(
+            min=SimpleNamespace(Z=0.0),
+            max=SimpleNamespace(Z=10.0),
+        )
+
+        caption = _detail_caption(req, "A", 10.0, bounds)
+
+        assert caption == (
+            "DETAIL A — PARTIAL PROFILE — SCALE 10:1" if partial else "DETAIL A — SCALE 10:1"
+        )
+
+    @pytest.mark.parametrize(
         ("override", "expected"), [({}, True), ({"detail_view": False}, False)]
     )
     def test_make_drawing_forwards_default_and_explicit_opt_out(
@@ -567,6 +604,7 @@ class TestDetailView:
         assert off.lint_summary()["by_code"].get("detail_unplaceable", 0) == 0
         assert on.lint_summary()["by_code"].get("detail_unplaceable", 0) == 0
         assert "detail_a" in on.views
+        assert "PARTIAL PROFILE" in on.get_annotation("detail_caption_A").label
         assert [
             annotation.label
             for name, annotation in on.iter_annotations()
