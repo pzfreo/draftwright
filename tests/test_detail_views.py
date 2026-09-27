@@ -60,6 +60,54 @@ class TestDetailView:
             ctx=None,
         )
 
+    def test_detail_crop_refuses_lost_primary_measurement_witness_before_geometry_work(self):
+        from types import SimpleNamespace
+
+        from draftwright._core import DetailRequest
+        from draftwright.annotations.sections import _render_detail
+
+        req = DetailRequest(
+            axis="x",
+            lo=2.0,
+            hi=4.0,
+            crop_lo=1.0,
+            crop_hi=5.0,
+            scale_needed=2.0,
+            redraw=lambda *_args: 1,
+            kind="turned-head",
+            measurement_ids=("step.length",),
+            measurement_spans=(((1.5, 0.0, 0.0), (4.5, 0.0, 0.0)),),
+        )
+        req.measurement_spans = ()
+        assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
+        assert req.failure_reason == "source-owned measurement witness spans are unavailable"
+        req.measurement_spans = (((1.5, 0.0, 0.0), (4.5, 0.0, 0.0)),)
+        req.crop_hi = 4.0
+        assert not _render_detail(
+            None,
+            SimpleNamespace(SCALE=1.0),
+            req,
+            "detail_a",
+            "A",
+            ctx=None,
+        )
+        assert req.failure_reason == "measurement witness 1 lies outside the X detail crop"
+
+        # The same public render boundary refuses malformed crop facts before
+        # projection, not only the ordinary over-tight witness case.
+        req.crop_hi = 5.0
+        req.axis = "q"
+        assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
+        assert req.failure_reason == "invalid primary detail crop axis"
+        req.axis = "x"
+        req.crop_lo = req.crop_hi
+        assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
+        assert req.failure_reason == "invalid primary detail crop bounds"
+        req.crop_lo = 1.0
+        req.measurement_spans = (((1.5, 0.0), (4.5, 0.0)),)
+        assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
+        assert req.failure_reason == "measurement witness 1 has no complete model-space span"
+
     def test_crowded_shoulders_get_a_detail_view_automatically(self):
         from draftwright._core import _legible_steps
 

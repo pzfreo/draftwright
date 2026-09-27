@@ -676,6 +676,37 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
         annotation.is_provisional_layout_reservation = True
 
 
+def _detail_axial_crop_error(req: DetailRequest) -> str | None:
+    """Refuse a crop that cuts away an exact dimensional witness station.
+
+    The primary band must contain both endpoints of every recovered measurement.
+    A partial profile may intentionally show an equivalent radial silhouette, so
+    its cross-axis band needs separate semantic support proof (#1872); do not
+    pretend that this axial check certifies the entire cropped geometry.
+    """
+
+    if req.axis not in {"x", "y", "z"}:
+        return "invalid primary detail crop axis"
+    axis = "xyz".index(req.axis)
+    lower = req.lo if req.crop_lo is None else req.crop_lo
+    upper = req.hi if req.crop_hi is None else req.crop_hi
+    if not math.isfinite(lower) or not math.isfinite(upper) or lower >= upper:
+        return "invalid primary detail crop bounds"
+    if req.measurement_ids and not req.measurement_spans:
+        return "source-owned measurement witness spans are unavailable"
+    for index, span in enumerate(req.measurement_spans):
+        if len(span) != 2 or any(len(point) != 3 for point in span):
+            return f"measurement witness {index + 1} has no complete model-space span"
+        for point in span:
+            coordinate = float(point[axis])
+            if not math.isfinite(coordinate) or not lower - 1e-6 <= coordinate <= upper + 1e-6:
+                return (
+                    f"measurement witness {index + 1} lies outside the "
+                    f"{req.axis.upper()} detail crop"
+                )
+    return None
+
+
 def _render_detail(
     dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx
 ) -> bool:
@@ -687,6 +718,7 @@ def _render_detail(
     placed detail view. Every risky boolean/projection is wrapped and returns
     ``False`` (drawing unchanged) rather than aborting; ``True`` when the detail is
     placed. Mirrors :func:`_add_section_view`'s skip-with-log discipline."""
+    req.failure_reason = None
     # Detail scale: smallest standard multiple in [2, 5, 10] of sheet scale that
     # makes the region legible (>= the requested scale), always >= 2x.
     if req.scale_factor is not None:
@@ -707,7 +739,12 @@ def _render_detail(
             detail_scale = 10.0
             min_detail_scale = 10.0
     if not math.isfinite(min_detail_scale):
+        req.failure_reason = "non-finite detail scale required"
         _log.info("Detail %s skipped (non-finite scale required)", letter)
+        return False
+    req.failure_reason = _detail_axial_crop_error(req)
+    if req.failure_reason is not None:
+        _log.info("Detail %s refused (%s)", letter, req.failure_reason)
         return False
     if req.source_view not in dwg.views:
         if req.keep_without_annotations or req.view_name is not None:
@@ -965,7 +1002,9 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
         issue_start = len(ctx.registry.issues)
         placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
         hname = (
-            _overall_height_name(dwg, a) if not placed and req.kind == "prismatic-steps" else None
+            _overall_height_name(dwg, a)
+            if not placed and req.failure_reason is None and req.kind == "prismatic-steps"
+            else None
         )
         if hname is not None:
             # (#636) The user's explicit detail request outranks the overall-height
@@ -995,7 +1034,10 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
         if not placed and (req.keep_without_annotations or req.view_name is not None):
             raise ValueError(
                 f"authored detail {letter!r} from {req.source} is infeasible on this sheet; "
-                "its target, scale, or whole-view footprint was not relaxed"
+                + (
+                    req.failure_reason
+                    or "its target, scale, or whole-view footprint was not relaxed"
+                )
             )
         elif not placed and req.kind in {"prismatic-steps", "y-turned-chain", "turned-head"}:
             # (#630) A bail-out means the requested recovery produced nothing. Say so with
@@ -1016,9 +1058,13 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
             if not exact_redraw_drops:
                 _record_detail_failure(
                     req,
-                    f"{req.kind} detail view requested but could not be placed legibly on this "
-                    "sheet (the crowded band is too wide to enlarge and still fit); dimension "
-                    "the feature manually or move it onto its own sheet",
+                    (
+                        f"{req.kind} detail view refused: {req.failure_reason}"
+                        if req.failure_reason is not None
+                        else f"{req.kind} detail view requested but could not be placed legibly "
+                        "on this sheet (the crowded band is too wide to enlarge and still fit); "
+                        "dimension the feature manually or move it onto its own sheet"
+                    ),
                 )
         if not placed and automatic_identifier:
             identifiers.release(letter)
