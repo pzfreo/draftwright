@@ -1123,6 +1123,9 @@ class DetailRequest:
     source: object | None = None
     measurement_ids: tuple = ()
     measurement_spans: tuple = ()
+    #: Render-time refusal retained so the owner can report the real constraint,
+    #: rather than mislabelling an invalid crop as a page-fit failure.
+    failure_reason: str | None = None
 
 
 @dataclass(frozen=True)
