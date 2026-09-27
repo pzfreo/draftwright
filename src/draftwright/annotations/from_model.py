@@ -5948,12 +5948,8 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             def _one_tier_fits(strip):
                 if strip is None:
                     return False
-                lo, hi, inner = strip_free_span(strip)
-                if inner == lo:
-                    hi -= slot
-                else:
-                    lo += slot
-                return hi - lo > 1e-6
+                lo, hi, _inner = strip_free_span(strip)
+                return hi - lo > slot + 1e-6
 
             if not _one_tier_fits(frame.zones("plan").below) and _one_tier_fits(
                 frame.zones("front").below

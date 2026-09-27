@@ -15,6 +15,7 @@ _GAP = 10.0
     ("plan_depth", "authored_view", "expected_view"),
     [
         (_GAP + _SLOT_DIM_WIDTH, None, "front"),
+        (None, None, "front"),
         (_GAP + _SLOT_DIM_WIDTH + 4, None, "plan"),
         (_GAP + _SLOT_DIM_WIDTH, "plan", "plan"),
     ],
@@ -32,7 +33,9 @@ def test_width_routes_only_when_plan_has_no_tier_and_view_is_not_authored(
         )
 
     zones = {
-        "plan": SimpleNamespace(below=below(plan_depth), above=None),
+        "plan": SimpleNamespace(
+            below=None if plan_depth is None else below(plan_depth), above=None
+        ),
         "front": SimpleNamespace(below=below(60.0), above=None),
     }
     monkeypatch.setattr(
