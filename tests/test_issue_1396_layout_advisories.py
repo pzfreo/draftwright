@@ -129,6 +129,13 @@ def test_computed_scale_reaches_public_declared_lint():
     assert "scale_fallback_applied" in _codes(drawing)
 
 
+def test_caller_pinned_sub_render_scale_is_still_rejected():
+    from draftwright import build_drawing
+
+    with pytest.raises(ValueError, match="drawing geometry degenerates below"):
+        build_drawing(Box(20, 20, 20), scale=0.001, annotation_layout="demand-guided")
+
+
 @pytest.mark.parametrize("warn_advisory", [False, True])
 @pytest.mark.parametrize("collect_advisories", [False, True])
 def test_warning_delivery_and_diagnostic_collection_are_independent(

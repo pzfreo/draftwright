@@ -820,6 +820,7 @@ def _analyse(
     _view_constraints=None,
     _framed_recognition: bool = False,
     _document_input=None,
+    _scale_from_prior_analysis: bool = False,
     margin_left: float | None = None,
     margin_right: float | None = None,
     margin_top: float | None = None,
@@ -1294,6 +1295,17 @@ def _analyse(
         lambda scale_i: len(_legible_steps(layout_step_zs, bb.min.Z, scale_i)[0]),
     )
     SCALE, PAGE_W, PAGE_H, TB_W = scale_pick
+    if _scale_from_prior_analysis and _reuse is not None and SCALE == _reuse.SCALE:
+        # A fixed-scale recomposition cannot rediscover why the prior automatic
+        # analysis chose that exact scale (or re-emit its caller-scale warning).
+        # Retain those scale diagnostics; page-fit diagnostics are recomputed for
+        # the newly selected arrangement instead.
+        layout_advisories.extend(
+            (code, message)
+            for code, message in _reuse.layout_advisories
+            if code in {"scale_fallback_applied", "legibility_floor_breached"}
+            and code not in {current for current, _ in layout_advisories}
+        )
     # The fourth dimension of the ADR 2 (was 0018 §5) choice, carried from `choose_scale` rather than
     # re-derived here: this call sees MEASURED strip depths where selection saw estimates, so
     # re-deriving would compose the sheet under a different arrangement than the one whose
@@ -1306,8 +1318,12 @@ def _analyse(
     layout_iso_scale, layout_iso_scale_authored = _resolved_iso_scale(
         ARRANGEMENT, planned_iso_scale
     )
+    # Candidate profile recomposition pins the scale selected (and, if authored,
+    # already validated) by the first analysis so it cannot search another sheet.
+    # This is not a new caller request: an automatic fallback may legitimately be
+    # below the hard floor that applies to newly authored scales.
     _validate_explicit_scale(
-        scale,
+        None if _scale_from_prior_analysis else scale,
         SCALE,
         x_size,
         y_size,
