@@ -1,5 +1,6 @@
 """A detail may cap isometric growth, but must not freeze its temporary seed."""
 
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -101,3 +102,20 @@ def test_detail_constrained_iso_relocates_at_sheet_scale(monkeypatch):
     assert scale == pytest.approx(1.0)
     assert drawing.centre != (analysis.ISO_X, analysis.ISO_Y)
     assert not _boxes_overlap(iso_bbox(drawing), (7.0, 7.0, 21.0, 21.0))
+    assert not hasattr(drawing, "_analysis")
+
+
+def test_deferred_iso_centre_is_a_local_analysis_copy():
+    from draftwright.drawing import _analysis_with_iso_centre
+
+    @dataclass(frozen=True)
+    class AnalysisStub:
+        ISO_X: float
+        ISO_Y: float
+
+    original = AnalysisStub(10.0, 20.0)
+    assert _analysis_with_iso_centre(original, 10.0, 20.0) is original
+
+    moved = _analysis_with_iso_centre(original, 15.0, 23.0)
+    assert (moved.ISO_X, moved.ISO_Y) == (15.0, 23.0)
+    assert (original.ISO_X, original.ISO_Y) == (10.0, 20.0)

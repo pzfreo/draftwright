@@ -305,7 +305,6 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
                     if _bbox_within(settled, region) and not any(
                         _boxes_overlap(settled, obstacle) for obstacle in growth_obstacles
                     ):
-                        dwg._analysis = moved  # future finalize/refit uses the settled centre
                         return None
                 _project_iso(dwg, a, a.SCALE * initial)
             clear = _largest_clear_factor(

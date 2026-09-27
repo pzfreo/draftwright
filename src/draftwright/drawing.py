@@ -17,7 +17,7 @@ import tempfile
 import warnings
 from collections.abc import Mapping
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from dataclasses import field as dataclasses_field
 from itertools import permutations
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
@@ -640,6 +640,13 @@ class ViewNotPlanned(KeyError):
 
     def __str__(self) -> str:
         return self.args[0] if self.args else ""
+
+
+def _analysis_with_iso_centre(a: Analysis, x: float, y: float) -> Analysis:
+    """Use the projected ISO centre for one drain without replacing build state."""
+    if abs(x - a.ISO_X) <= 1e-6 and abs(y - a.ISO_Y) <= 1e-6:
+        return a
+    return replace(a, ISO_X=x, ISO_Y=y)
 
 
 class Drawing:
@@ -3128,6 +3135,13 @@ class Drawing:
         section_snap = dict(self.section_decision)
 
         model, a = self._part_model, self._analysis
+        if a is not None and "iso" in self.views and "iso" in self._coords:
+            # ISO growth may relocate the projected view after the immutable Analysis
+            # was attached at the single build-state fill site. Deferred refits need
+            # the actual centre, which the view coordinates already own; derive a
+            # local analysis instead of replacing Drawing's private build state.
+            iso_x, iso_y, _ = self.at("iso", a.cx, a.cy, a.cz)
+            a = _analysis_with_iso_centre(a, iso_x, iso_y)
         routable = model is not None and a is not None
         r = self._classify_intents(model, a, routable)
 
