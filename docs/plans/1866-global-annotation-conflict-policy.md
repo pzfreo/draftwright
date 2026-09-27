@@ -70,11 +70,20 @@ silently dropped. The result names both source identities, attempted
 representations, blocker ink/constraint, and the unsatisfied outcomes. The
 same applies to an infeasible pin. Lint still judges the *placed* drawing
 independently; the planner's own coverage claim is not lint's denominator.
+For a useful best-effort drawing when no complete plan exists, maximize the
+number of fulfilled required identities, then compare their declared
+priorities and the legibility/tie rules above. No annotation type supplies a
+hidden importance score. That drawing remains
+explicitly **incomplete**; best-effort rank cannot turn it into a candidate
+win or production admission.
 
 ## Conditional multi-sheet option
 
 A second sheet is considered **only** when the caller permits it, and before
-discarding required content. It is a coherent representation choice, not a
+discarding required content. The proposed planning input defaults to a
+one-sheet maximum; an explicit caller policy may permit two and constrain
+each sheet's page and scale. A fixed one-sheet or fixed page/scale request is
+never relaxed. The second sheet is a coherent representation choice, not a
 late overflow bin. Plan views together with dependent dimensions, callouts,
 tables, notes, datum references, cutting-plane/detail markers, and sheet
 identity. Prefer a primary geometry/datum/overall-control sheet and a
