@@ -119,7 +119,17 @@ def test_cli_forwards_the_region_policy_to_a_rendered_build(monkeypatch):
     monkeypatch.setattr(builder, "build_drawing", capture)
     result = CliRunner().invoke(
         app,
-        ["part.step", "--leader-region", "exterior", "--format", "svg", "--no-report"],
+        # The stub has no layout-decision report; this test covers option forwarding.
+        [
+            "part.step",
+            "--annotation-layout",
+            "estimated-strips",
+            "--leader-region",
+            "exterior",
+            "--format",
+            "svg",
+            "--no-report",
+        ],
     )
 
     assert result.exit_code == 0, result.output
