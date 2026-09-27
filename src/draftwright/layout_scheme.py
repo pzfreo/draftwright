@@ -37,6 +37,9 @@ class AnnotationDemand:
     # Exact addressable measurements proposed by this pre-render request. An empty
     # tuple means attribution is unavailable, not that the request is optional.
     measurements: tuple[DimensionId, ...] = ()
+    # One imported PMI item can own several exact source occurrences (notably
+    # repeated datum references). Keep every source ID, not just ``identity``.
+    source_ids: tuple[str, ...] = ()
 
     def estimated_paper_span(self, font_size: float, padding: float = 0.0) -> float:
         """Estimate along-corridor ink in page mm without constructing render geometry."""
@@ -68,6 +71,7 @@ class UnplannedAnnotation:
     feature_index: int
     reason: str
     measurements: tuple[DimensionId, ...] = ()
+    source_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -108,6 +112,7 @@ class AnnotationScheme:
                         {"feature_index": demand.feature_index, "parameter": item.parameter}
                         for item in demand.measurements
                     ],
+                    "source_ids": list(demand.source_ids),
                 }
                 for demand in self.demands
             ],
@@ -121,6 +126,7 @@ class AnnotationScheme:
                         {"feature_index": item.feature_index, "parameter": identity.parameter}
                         for identity in item.measurements
                     ],
+                    "source_ids": list(item.source_ids),
                 }
                 for item in self.unplanned
             ],
@@ -314,6 +320,14 @@ def _identity(feature, index: int) -> str:
         or next(iter(sorted(map(str, getattr(feature, "source_ids", ())))), "")
         or f"{getattr(feature, 'kind', type(feature).__name__)}:{index}"
     )
+
+
+def _source_ids(feature) -> tuple[str, ...]:
+    """Every declared source occurrence, with stable order and no inferred IDs."""
+
+    singular = getattr(feature, "source_id", None)
+    plural = getattr(feature, "source_ids", ()) or ()
+    return tuple(sorted({str(value) for value in (singular, *plural) if value}))
 
 
 def _site(feature) -> tuple[float, float, float]:
@@ -594,6 +608,7 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
     for index, feature in enumerate(model.features):
         kind = getattr(feature, "kind", "")
         identity = _identity(feature, index)
+        source_ids = _source_ids(feature)
         view = getattr(feature, "view", None)
         side = getattr(feature, "side", None)
         family = kind
@@ -609,12 +624,16 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
             )
             if side is None:
                 unplanned.append(
-                    UnplannedAnnotation(identity, family, index, "no explicit corridor side")
+                    UnplannedAnnotation(
+                        identity, family, index, "no explicit corridor side", source_ids=source_ids
+                    )
                 )
                 continue
         elif kind == "pmi":
             unplanned.append(
-                UnplannedAnnotation(identity, family, index, "raw PMI has no typed corridor")
+                UnplannedAnnotation(
+                    identity, family, index, "raw PMI has no typed corridor", source_ids=source_ids
+                )
             )
             continue
         elif kind not in {"control_frame", "datum_ref", "finish", "note"}:
@@ -622,7 +641,13 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
 
         if view not in _VIEWS or side not in _SIDES:
             unplanned.append(
-                UnplannedAnnotation(identity, family, index, "invalid or absent view-side route")
+                UnplannedAnnotation(
+                    identity,
+                    family,
+                    index,
+                    "invalid or absent view-side route",
+                    source_ids=source_ids,
+                )
             )
             continue
         support = _support_interval(feature, view, side) if kind == "authored_dimension" else None
@@ -636,6 +661,7 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
                 _site(feature),
                 support,
                 _estimated_ink_em(feature),
+                source_ids=source_ids,
             )
         )
 

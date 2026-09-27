@@ -141,13 +141,34 @@ def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> di
     """Join pre-render measurement requests to *live* exact carrier provenance.
 
     This is an observation, not a coverage verdict: a source-only request with no
-    addressable measurement is explicitly unattributed, and a missing glyph may
-    be a valid model-level suppression. The independent requirement report/lint
+    addressable measurement can be linked to its live source owner without
+    claiming that the source requirement was satisfied. A missing glyph may be
+    a valid model-level suppression. The independent requirement report/lint
     remains the authority on whether a drawing is complete.
     """
 
     by_measurement: dict[object, list[dict[str, object]]] = {}
+    by_source: dict[str, list[dict[str, object]]] = {}
     for name in sorted(registry.names()):
+        # PMI frames and datums often have no addressable DimensionId. Their
+        # registered IR feature/declaration still carries the original source
+        # identity. Link only that owner provenance, never text or a display name;
+        # this is a trace of live ink, not an independent coverage judgment.
+        owners = (*registry.features_of(name), registry.declaration_of(name))
+        source_ids: set[str] = set()
+        for owner in owners:
+            if owner is None:
+                continue
+            source_id = getattr(owner, "source_id", None)
+            if source_id:
+                source_ids.add(str(source_id))
+            source_ids.update(
+                str(value) for value in (getattr(owner, "source_ids", ()) or ()) if value
+            )
+        for source_id in sorted(source_ids):
+            by_source.setdefault(source_id, []).append(
+                {"name": name, "kind": "source_owner", "view": registry.view_of(name)}
+            )
         cells = registry.cells_of(name)
         measurements = registry.measurement_of(name)
         # measurement_of() appends cell claims after direct glyph claims; slicing
@@ -179,8 +200,18 @@ def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> di
             for measurement, identity in zip(measurements, item.measurements, strict=True)
         ]
         found = sum(bool(entry["carriers"]) for entry in represented)
+        sources = [
+            {"source_id": source_id, "carriers": by_source.get(source_id, [])}
+            for source_id in item.source_ids
+        ]
         if not represented:
-            status = "unattributed"
+            carried = sum(bool(source["carriers"]) for source in sources)
+            if sources and carried == len(sources):
+                status = "source_carried_unverified"
+            elif carried:
+                status = "source_partially_carried_unverified"
+            else:
+                status = "unattributed"
         elif found == len(represented):
             status = "represented"
         elif found:
@@ -194,6 +225,8 @@ def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> di
             "status": status,
             "measurements": represented,
         }
+        if sources:
+            evidence["sources"] = sources
         if hasattr(item, "view"):
             evidence.update({"view": item.view, "side": item.side})
         else:
@@ -201,7 +234,7 @@ def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> di
         return evidence
 
     return {
-        "version": 1,
+        "version": 2,
         "coverage_authority": False,
         "demands": [row(item) for item in scheme.demands],
         "unplanned": [row(item) for item in scheme.unplanned],

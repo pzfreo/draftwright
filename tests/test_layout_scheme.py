@@ -72,6 +72,7 @@ def test_scheme_groups_explicit_semantics_by_view_corridor_without_coordinates()
             "feature_index": 4,
             "reason": "raw PMI has no typed corridor",
             "measurements": [],
+            "source_ids": ["dimension:raw"],
         }
     ]
 
@@ -254,9 +255,81 @@ def test_source_only_demand_is_unattributed_not_falsely_satisfied():
             "feature_index": 4,
             "status": "unattributed",
             "measurements": [],
+            "sources": [{"source_id": "dimension:raw", "carriers": []}],
             "unplanned_reason": "raw PMI has no typed corridor",
         }
     ]
+
+
+def test_source_only_pmi_demand_traces_live_owner_without_claiming_coverage():
+    model = _model()
+    scheme = plan_annotation_scheme(model)
+    registry = AnnotationRegistry()
+    registry.add(object(), "wrong_datum", "front", feature=model.features[1])
+    # The real GD&T renderer owns the controlled feature and separately records
+    # the declared PMI item; its source identity lives on that declaration.
+    registry.add(object(), "gdt_frame", "front", declaration=model.features[0])
+
+    evidence = annotation_demand_carrier_evidence(scheme, registry)
+    (gdt,) = [row for row in evidence["demands"] if row["identity"] == "gdt:1"]
+    assert evidence["coverage_authority"] is False
+    assert gdt["status"] == "source_carried_unverified"
+    assert gdt["measurements"] == []
+    assert gdt["sources"] == [
+        {
+            "source_id": "gdt:1",
+            "carriers": [{"name": "gdt_frame", "kind": "source_owner", "view": "front"}],
+        }
+    ]
+    (datum,) = [row for row in evidence["demands"] if row["identity"] == "datum:1"]
+    assert datum["sources"][0]["carriers"] == [
+        {"name": "wrong_datum", "kind": "source_owner", "view": "front"}
+    ]
+    json.dumps(evidence)
+
+    registry.remove("gdt_frame")
+    (missing,) = [
+        row
+        for row in annotation_demand_carrier_evidence(scheme, registry)["demands"]
+        if row["identity"] == "gdt:1"
+    ]
+    assert missing["status"] == "unattributed"
+    assert missing["sources"] == [{"source_id": "gdt:1", "carriers": []}]
+
+
+def test_multi_occurrence_datum_trace_keeps_every_source_identity():
+    model = _model()
+    datum = replace(model.features[1], source_id="", source_ids=("datum:2", "datum:1"))
+    model.features[1] = datum
+    scheme = plan_annotation_scheme(model)
+    (demand,) = [item for item in scheme.demands if item.family == "datum_ref"]
+    assert demand.source_ids == ("datum:1", "datum:2")
+
+    registry = AnnotationRegistry()
+    registry.add(object(), "datum", "front", declaration=datum)
+    (row,) = [
+        item
+        for item in annotation_demand_carrier_evidence(scheme, registry)["demands"]
+        if item["family"] == "datum_ref"
+    ]
+    assert row["status"] == "source_carried_unverified"
+    assert [source["source_id"] for source in row["sources"]] == ["datum:1", "datum:2"]
+    assert all(source["carriers"][0]["name"] == "datum" for source in row["sources"])
+
+    registry.remove("datum")
+    registry.add(
+        object(),
+        "partial_datum",
+        "front",
+        declaration=replace(datum, source_id="datum:1", source_ids=()),
+    )
+    (partial,) = [
+        item
+        for item in annotation_demand_carrier_evidence(scheme, registry)["demands"]
+        if item["family"] == "datum_ref"
+    ]
+    assert partial["status"] == "source_partially_carried_unverified"
+    assert [bool(source["carriers"]) for source in partial["sources"]] == [True, False]
 
 
 def test_scheme_does_not_route_compound_leader_to_missing_side_left_strip():
