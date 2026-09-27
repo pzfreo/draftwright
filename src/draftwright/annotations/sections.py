@@ -929,9 +929,8 @@ def _render_detail(
 def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
     """Resolve every queued :class:`DetailRequest` (#307) through the one generic
     detailer, lettering DETAIL A/B/… On a placement bail-out nothing is drawn for that
-    request — the main view already carries the located head/block inline, so lint
-    reports any un-located interior rather than coverage being silently lost. Clears
-    the queue."""
+    request — the main view may carry only a synthetic head/block, so an automatic
+    request that owns exact step lengths records their absence. Clears the queue."""
     reqs = list(ctx.detail_requests)
     ctx.detail_requests = []
     if identifiers is None:
@@ -941,7 +940,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
         )
 
     def _record_detail_failure(req, message):
-        if req.kind not in {"prismatic-steps", "y-turned-chain"}:
+        if req.kind not in {"prismatic-steps", "y-turned-chain", "turned-head"}:
             return
         severity = "warning" if req.kind == "prismatic-steps" else "error"
         ctx.record_issue(
@@ -998,21 +997,20 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
                 f"authored detail {letter!r} from {req.source} is infeasible on this sheet; "
                 "its target, scale, or whole-view footprint was not relaxed"
             )
-        elif not placed and req.kind in {"prismatic-steps", "y-turned-chain"}:
+        elif not placed and req.kind in {"prismatic-steps", "y-turned-chain", "turned-head"}:
             # (#630) A bail-out means the requested recovery produced nothing. Say so with
-            # the exact measurements for both an opted-in prismatic ladder and the automatic
-            # Y-turned chain, rather than returning a drawing byte-identical to the
-            # pre-detail result. The diagnostic opens automatic page/scale recovery.
+            # the exact measurements for an opted-in prismatic ladder or either
+            # automatic turned chain, rather than returning a drawing byte-identical
+            # to the pre-detail result. The diagnostic opens page/scale recovery.
             #
-            # The prismatic request is queued only when detail recovery is enabled. Other
-            # turned-head requests may stay silent when their main-view block preserves all
-            # requirements; the Y chain cannot, because its block carries only the aggregate
-            # span and the detail owns the individual step lengths.
+            # Prismatic recovery remains a legibility warning; the X/Y turned
+            # chains' main-view blocks carry only an aggregate span, so their
+            # details own the individual required step lengths.
             # A redraw can fail one rung at a time. Those exact placement outcomes are the
             # complete account of the failed recovery; adding one request-wide issue as well
             # would charge the same missing dimensions twice in quality and completeness.
             exact_redraw_drops = any(
-                issue.code == "detail_step_dim_dropped"
+                issue.code in {"detail_step_dim_dropped", "step_dim_dropped"}
                 for issue in ctx.registry.issues[issue_start:]
             )
             if not exact_redraw_drops:

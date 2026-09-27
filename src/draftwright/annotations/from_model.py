@@ -7070,6 +7070,15 @@ def render_step_lengths(
                         cross_lo=None if cross_bounds is None else cross_bounds[0],
                         cross_hi=None if cross_bounds is None else cross_bounds[1],
                         kind="turned-head",
+                        # The main view carries only a synthetic head block; these
+                        # exact step lengths belong to the detail. Keep their
+                        # compiler identities available if that detail cannot fit.
+                        measurement_ids=_step_measurements(ra),
+                        measurement_spans=tuple(
+                            (segment.pa, segment.pb)
+                            for segment in ra
+                            for _measurement in segment.measurements
+                        ),
                     )
                 )
             head = {i for run in heads for i in run}
