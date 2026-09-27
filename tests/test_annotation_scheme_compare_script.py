@@ -9,10 +9,19 @@ from types import SimpleNamespace
 
 import pytest
 
-from draftwright.layout_selection import _lint_witnesses
+from draftwright.layout_selection import _iso_to_sheet_scale, _lint_witnesses
 from draftwright.linting.issues import LintIssue
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "annotation-scheme-compare"
+
+
+@pytest.mark.parametrize(
+    "projected, expected",
+    [(None, False), (0.2, True), (0.206, False), (0.194, False)],
+)
+def test_iso_nts_parity_requires_actual_sheet_scale(projected, expected):
+    drawing = SimpleNamespace(scale=0.2, iso_projection_scale=projected)
+    assert _iso_to_sheet_scale(drawing) is expected
 
 
 def _load_script():
