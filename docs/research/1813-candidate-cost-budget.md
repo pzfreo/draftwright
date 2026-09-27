@@ -53,11 +53,39 @@ from the existing per-case worker samples, not from a new CAD run. The
 review. The [versioned v4 trial summary](1813-bounded-chooser-trial-v4.md) records the
 other values and its safety/visual limitations.
 
-This is one development host and a fixed15 mixed-case sample, with no
-fallback path. It cannot establish macOS/Windows, large/user-part, or interim
-fallback budgets. The three-platform cost workflow added in #1825 can be
-opted into on a stacked PR by adding the `annotation-layout-cost` label;
-manual dispatch remains unavailable until the workflow reaches the default
-branch. The PR run checks out and records the exact source head rather than
-mistaking GitHub's synthetic merge commit for that head. No default switch or
-fallback removal is authorized by this document.
+This was one development host and a fixed15 mixed-case sample, with no
+fallback path. It does not establish supported-platform, large/user-part, or
+interim fallback budgets.
+
+## Supported-platform fixed15 observation, not a full cost pass
+
+The single opt-in [three-platform run 36198994169](https://github.com/pzfreo/draftwright/actions/runs/36198994169)
+checked out source head `0ba17cc22050346ad8b9c7ecaeea950d5cbe9592` on every
+runner (the recorded PR event SHA was a different synthetic merge commit).
+Each platform completed 15 candidate-preview and 15 **offline** baseline
+workers, one CAD worker at a time, with no worker failures. The table shows
+candidate / baseline median and nearest-rank p95; times are seconds and RSS
+is MiB. These values were read from the run's three `layout-cost-report.json`
+artifacts, not from another CAD run.
+
+| Runner (logical CPUs / RAM MiB) | Process median | Process p95 | Peak RSS median | Peak RSS p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Linux (4 / 15,990) | 17.85 / 16.78 (1.064×) | 144.30 / 133.86 (1.078×) | 536.14 / 537.44 (0.998×) | 884.87 / 884.42 (1.001×) |
+| macOS (3 / 7,168) | 62.59 / 61.51 (1.018×) | 279.30 / 272.04 (1.027×) | 569.63 / 570.95 (0.998×) | 968.52 / 850.66 (1.139×) |
+| Windows (4 / 16,379) | 29.14 / 28.83 (1.011×) | 243.99 / 214.26 (1.139×) | 453.87 / 456.27 (0.995×) | 748.09 / 799.63 (0.936×) |
+
+All fixed15 ratios are within the predeclared 1.25× time/RSS ceilings on
+this source head. Each runner reported 12 offline metric wins, 3 ties, 15/15
+semantic parity, **zero production selections**, and 0/15 independent safety
+checks passed. This is neither a current-head cost pass nor a rollout pass:
+large/user CAD on all platforms, production concurrency/RAM, measured interim
+fallback frequency, and fallback-inclusive latency remain missing. The
+candidate-preview path has no automatic fallback; its `null` fallback rate is
+not zero. No default switch or fallback removal is authorized.
+
+Future opt-in workflow runs bound each isolated CAD worker to 900 seconds.
+The saved fixed15 run's longest candidate worker was 279.30 seconds on macOS;
+the limit allows over three times that time without waiting indefinitely on
+a pathological part. A timeout is a failed, censored case in the saved
+report, never a latency-budget pass. This operational limit does not replace
+the missing evidence above.

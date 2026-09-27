@@ -131,6 +131,16 @@ def test_the_full_matrix_stays_reachable_without_editing_the_workflow():
     assert "full-matrix" in test_job  # opt in on a single pull request
 
 
+def test_opt_in_annotation_cost_run_bounds_each_isolated_worker():
+    workflow = _workflow("annotation-layout-cost.yml")
+    job = _job(workflow, "candidate-first-cost")
+
+    assert "workflow_dispatch:" in workflow
+    assert "github.event.label.name == 'annotation-layout-cost'" in job
+    assert "--candidate-first --jobs 1" in job
+    assert "--worker-timeout-seconds 900" in job
+
+
 def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable():
     test_job = _job(_workflow("ci.yml"), "test")
 
