@@ -11,6 +11,7 @@ intent, and ADR 5 independent evidence and honest failure.
 | Existing mechanism | Current owner | What it cannot decide alone |
 | --- | --- | --- |
 | Ranked strip solve, bounded ink alternatives and trace | `layout.py`, `annotations/_common.py` | Whether another representation preserves a displaced requirement. |
+| Pre-render typed corridor demands, unplanned inventory and profile choice | `layout_scheme.py`, `layout_selection.py` | Alternative carriers and exact requirement identity for each demand. |
 | Routed leaders, shared GD&T ink and feature schedules/tables | `annotations/` | Whether a table or another view should replace competing inline ink across the drawing. |
 | View, scale, page and detail planning | `builder.py`, `compose.py`, `annotations/sections.py` | Whether the whole requirement set is better served by a permitted second sheet. |
 | Exact annotation ownership, measurement/satisfaction and table-cell identities | `registry.py`, `reporting.py`, `document_evidence.py` | Which alternative carrier was eligible *before* rendering, and why it won. |
@@ -37,11 +38,13 @@ callout only when its feature identifier and all of that callout's required
 claims survive. There is one canonical carrier per requirement unless an
 explicitly justified cross-reference or intentional repeated statement is
 recorded. No conclusion is inferred from an annotation's display name.
-The existing registry's feature, measurement, satisfaction and exact table-cell
-identities, together with report/document carrier attribution, are the
-post-render evidence seam. Reuse them; only eligible *pre-render alternatives*
-and the reason for choosing one are missing. Do not create a second coverage
-ledger or change lint to trust planner-selected carriers.
+The existing `AnnotationScheme` already records typed and unplanned pre-render
+corridor demand. The registry's feature, measurement, satisfaction and exact
+table-cell identities, together with report/document carrier attribution, are
+the post-render evidence seam. Reuse both: what is missing is a link from each
+pre-render demand to its exact obligations, eligible alternative carriers, and
+the reason for choosing one. Do not create a second coverage ledger or change
+lint to trust planner-selected carriers.
 
 For the caller's fixed constraints, compare complete plans in this order:
 
