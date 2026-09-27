@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from draftwright.model.ir import authored_dimension_target_view
-from draftwright.model.planner import annotation_groups, plan_dimensions
+from draftwright.model.planner import DimensionId, annotation_groups, plan_dimensions
 from draftwright.view_plan import VIEW_AXES
 
 _VIEWS = frozenset({"front", "plan", "side", "rear"})
@@ -34,6 +34,9 @@ class AnnotationDemand:
     model_interval: tuple[float, float] | None = None
     estimated_ink_em: tuple[float, float] = (1.0, 1.0)
     dedicated_lane: bool = True
+    # Exact addressable measurements proposed by this pre-render request. An empty
+    # tuple means attribution is unavailable, not that the request is optional.
+    measurements: tuple[DimensionId, ...] = ()
 
     def estimated_paper_span(self, font_size: float, padding: float = 0.0) -> float:
         """Estimate along-corridor ink in page mm without constructing render geometry."""
@@ -64,6 +67,7 @@ class UnplannedAnnotation:
     family: str
     feature_index: int
     reason: str
+    measurements: tuple[DimensionId, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,10 @@ class AnnotationScheme:
                     ),
                     "estimated_ink_em": list(demand.estimated_ink_em),
                     "dedicated_lane": demand.dedicated_lane,
+                    "measurements": [
+                        {"feature_index": demand.feature_index, "parameter": item.parameter}
+                        for item in demand.measurements
+                    ],
                 }
                 for demand in self.demands
             ],
@@ -109,6 +117,10 @@ class AnnotationScheme:
                     "family": item.family,
                     "feature_index": item.feature_index,
                     "reason": item.reason,
+                    "measurements": [
+                        {"feature_index": item.feature_index, "parameter": identity.parameter}
+                        for identity in item.measurements
+                    ],
                 }
                 for item in self.unplanned
             ],
@@ -447,7 +459,15 @@ def _compound_leader_route(model, group, members, corridor_loads) -> tuple[str, 
 
 
 def _automatic_demand(
-    identity, family, feature_index, feature, members, route, *, dedicated_lane=True
+    identity,
+    family,
+    feature_index,
+    feature,
+    members,
+    route,
+    *,
+    dedicated_lane=True,
+    measurements=(),
 ):
     view, side = route
     label = " ".join(f"{member.param.value:g}" for member in members)
@@ -467,6 +487,7 @@ def _automatic_demand(
         _automatic_support(members, view, side),
         ink,
         dedicated_lane,
+        measurements,
     )
 
 
@@ -488,6 +509,14 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
         )
         if leader_members:
             identity = f"auto:{feature_index}:feature_leader"
+            leader_measurements = tuple(
+                DimensionId(group.feature, unit.id)
+                for unit in group.units
+                if any(
+                    not member.suppressed and member.convention == "leader"
+                    for member in unit.members
+                )
+            )
             route = _compound_leader_route(model, group, leader_members, corridor_loads)
             if route is None:
                 yield UnplannedAnnotation(
@@ -495,6 +524,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     "feature_leader",
                     feature_index,
                     "compound feature leader has no single typed corridor",
+                    leader_measurements,
                 )
             else:
                 explicitly_exterior = any(
@@ -508,6 +538,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     leader_members,
                     route,
                     dedicated_lane=explicitly_exterior,
+                    measurements=leader_measurements,
                 )
                 corridor_loads[(demand.view, demand.side)] = (
                     corridor_loads.get((demand.view, demand.side), 0) + 1
@@ -532,6 +563,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     "automatic_dimension",
                     feature_index,
                     "automatic dimension has no single typed corridor",
+                    (DimensionId(group.feature, unit.id),),
                 )
                 continue
             view, side = next(iter(routes))
@@ -542,6 +574,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                 group.feature,
                 members,
                 (view, side),
+                measurements=(DimensionId(group.feature, unit.id),),
             )
             corridor_loads[(view, side)] = corridor_loads.get((view, side), 0) + 1
             yield demand

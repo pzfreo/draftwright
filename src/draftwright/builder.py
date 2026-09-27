@@ -87,7 +87,11 @@ from draftwright.compose import (
 )
 from draftwright.drawing import Drawing, feature_key
 from draftwright.layout_safety import candidate_safety_evidence
-from draftwright.layout_selection import choose_pre_render_profile, select_best_annotation_layout
+from draftwright.layout_selection import (
+    annotation_demand_carrier_evidence,
+    choose_pre_render_profile,
+    select_best_annotation_layout,
+)
 from draftwright.linting import LintIssue
 from draftwright.linting.coverage import lint_axial_coverage
 from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
@@ -1784,6 +1788,14 @@ def _build_drawing_once(
             # A no-op on a clean sheet, so default-on costs nothing when there is
             # nothing to fix.
             dwg.repair()
+    # Reconcile after the final repack/repair, against live registry identities.
+    # This is diagnostic evidence only; it cannot substitute for requirement lint.
+    scheme = a.layout_strips.scheme
+    if auto_dims and scheme is not None:
+        dwg.annotation_scheme_decision = {
+            **dwg.annotation_scheme_decision,
+            "carrier_evidence": annotation_demand_carrier_evidence(scheme, dwg.registry),
+        }
     if _candidate_profile_first:
         dwg.annotation_scheme_decision = {
             **dwg.annotation_scheme_decision,

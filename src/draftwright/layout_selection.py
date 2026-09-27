@@ -15,6 +15,7 @@ from draftwright.annotation_layout_profile import (
 if TYPE_CHECKING:
     from draftwright.compose import AnnotationSchemeShadowReport, StripDepths
     from draftwright.drawing import Drawing
+    from draftwright.layout_scheme import AnnotationScheme
 
 
 def choose_pre_render_profile(
@@ -87,6 +88,77 @@ def choose_pre_render_profile(
         "unplanned_count": report.unplanned_count,
         "under_reserved": under_reserved_count,
         "missing_views": missing_views,
+    }
+
+
+def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> dict[str, object]:
+    """Join pre-render measurement requests to *live* exact carrier provenance.
+
+    This is an observation, not a coverage verdict: a source-only request with no
+    addressable measurement is explicitly unattributed, and a missing glyph may
+    be a valid model-level suppression. The independent requirement report/lint
+    remains the authority on whether a drawing is complete.
+    """
+
+    by_measurement: dict[object, list[dict[str, object]]] = {}
+    for name in sorted(registry.names()):
+        cells = registry.cells_of(name)
+        measurements = registry.measurement_of(name)
+        # measurement_of() appends cell claims after direct glyph claims; slicing
+        # retains both when the same measurement intentionally appears in each.
+        for identity in measurements[: len(measurements) - len(cells)]:
+            by_measurement.setdefault(identity, []).append({"name": name, "kind": "measurement"})
+        for cell in cells:
+            by_measurement.setdefault(cell.measurement, []).append(
+                {
+                    "name": name,
+                    "kind": "table_cell",
+                    "schedule": cell.schedule,
+                    "row": cell.row,
+                    "column": cell.column,
+                }
+            )
+        for identity in registry.satisfaction_of(name):
+            by_measurement.setdefault(identity, []).append(
+                {"name": name, "kind": "structured_note"}
+            )
+
+    def row(item) -> dict[str, object]:
+        measurements = [
+            {"feature_index": item.feature_index, "parameter": identity.parameter}
+            for identity in item.measurements
+        ]
+        represented = [
+            {**measurement, "carriers": by_measurement.get(identity, [])}
+            for measurement, identity in zip(measurements, item.measurements, strict=True)
+        ]
+        found = sum(bool(entry["carriers"]) for entry in represented)
+        if not represented:
+            status = "unattributed"
+        elif found == len(represented):
+            status = "represented"
+        elif found:
+            status = "partially_represented"
+        else:
+            status = "unrepresented"
+        evidence = {
+            "identity": item.identity,
+            "family": item.family,
+            "feature_index": item.feature_index,
+            "status": status,
+            "measurements": represented,
+        }
+        if hasattr(item, "view"):
+            evidence.update({"view": item.view, "side": item.side})
+        else:
+            evidence["unplanned_reason"] = item.reason
+        return evidence
+
+    return {
+        "version": 1,
+        "coverage_authority": False,
+        "demands": [row(item) for item in scheme.demands],
+        "unplanned": [row(item) for item in scheme.unplanned],
     }
 
 

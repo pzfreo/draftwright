@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 
 import pytest
@@ -18,7 +19,8 @@ from draftwright.layout_scheme import (
     pack_estimated_annotation_lanes,
     plan_annotation_scheme,
 )
-from draftwright.model import Frame, PartModel, build_part_model
+from draftwright.layout_selection import annotation_demand_carrier_evidence
+from draftwright.model import Frame, HoleFeature, PartModel, build_part_model
 from draftwright.model.ir import (
     AuthoredDimension,
     ControlFrame,
@@ -27,6 +29,8 @@ from draftwright.model.ir import (
     Note,
     PmiFeature,
 )
+from draftwright.model.planner import DimensionId
+from draftwright.registry import AnnotationRegistry, MeasurementCell
 
 
 def _model():
@@ -67,6 +71,7 @@ def test_scheme_groups_explicit_semantics_by_view_corridor_without_coordinates()
             "family": "pmi",
             "feature_index": 4,
             "reason": "raw PMI has no typed corridor",
+            "measurements": [],
         }
     ]
 
@@ -129,6 +134,7 @@ def test_completed_drawing_exposes_shadow_report_without_influencing_layout():
     assert decision["scale"] == drawing.scale
     assert decision["unplanned_count"] == 1
     assert decision["corridors"]
+    assert "carrier_evidence" not in decision  # manual drawing did not render automatic demand
 
 
 def test_scheme_routes_approved_automatic_envelope_dimensions():
@@ -146,10 +152,14 @@ def test_scheme_routes_approved_automatic_envelope_dimensions():
         "auto:0:depth.length",
     }
     assert scheme.corridor("plan", "below")[0].model_interval == (-50.0, 50.0)
+    assert scheme.to_dict()["demands"][0]["measurements"] == [
+        {"feature_index": 0, "parameter": "width.length"}
+    ]
 
 
 def test_scheme_collapses_compound_feature_leader_to_one_natural_route():
-    scheme = plan_annotation_scheme(build_part_model(Cylinder(10, 30)))
+    model = build_part_model(Cylinder(10, 30))
+    scheme = plan_annotation_scheme(model)
 
     leaders = [demand for demand in scheme.demands if demand.family == "feature_leader"]
     assert len(leaders) == 1
@@ -157,11 +167,96 @@ def test_scheme_collapses_compound_feature_leader_to_one_natural_route():
     assert (leaders[0].view, leaders[0].side) == ("plan", "right")
     assert leaders[0].model_interval is None
     assert leaders[0].dedicated_lane is False
+    assert leaders[0].measurements
+    assert all(identity.feature is model.features[0] for identity in leaders[0].measurements)
     lane_plan = pack_estimated_annotation_lanes(scheme, scale=1, font_size=2.5, padding=1)
     leader_corridor = lane_plan.corridor("plan", "right")
     assert leader_corridor is not None
     assert leader_corridor.lane_count == 0
     assert leader_corridor.shared_depth == pytest.approx(20.1)
+
+
+def test_compound_hole_demand_tracks_every_addressable_measurement():
+    hole = HoleFeature(Frame((0, 0, 0), "z"), 6, 10, False, cbore=(10, 2))
+    model = PartModel(Box(20, 20, 15).bounding_box(), "z", [hole])
+
+    scheme = plan_annotation_scheme(model)
+    leader = next(demand for demand in scheme.demands if demand.family == "feature_leader")
+
+    assert {identity.parameter for identity in leader.measurements} == {
+        "bore.diameter",
+        "bore.depth",
+        "counterbore.diameter",
+        "counterbore.depth",
+    }
+    assert all(identity.feature is hole for identity in leader.measurements)
+
+
+def test_demand_carrier_evidence_uses_exact_live_measurements_and_table_cells():
+    model = _model()
+    first = DimensionId(model.features[0], "bore.diameter")
+    second = DimensionId(model.features[0], "bore.depth")
+    unrelated = DimensionId(model.features[1], "bore.depth")
+    demand = AnnotationDemand(
+        "compound",
+        "feature_leader",
+        "front",
+        "above",
+        0,
+        (10, 20, 0),
+        measurements=(first, second),
+    )
+    scheme = AnnotationScheme((demand,), ())
+    registry = AnnotationRegistry()
+    registry.add(object(), "wrong_feature", "front", measurement=unrelated)
+    registry.add(object(), "callout", "front", measurement=first)
+    registry.add(object(), "note", "front", satisfaction=first)
+
+    partial = annotation_demand_carrier_evidence(scheme, registry)["demands"][0]
+    assert partial["status"] == "partially_represented"
+    assert partial["measurements"][0]["carriers"] == [
+        {"name": "callout", "kind": "measurement"},
+        {"name": "note", "kind": "structured_note"},
+    ]
+    assert partial["measurements"][1]["carriers"] == []
+
+    registry.add(
+        object(),
+        "schedule",
+        None,
+        measurement=second,
+        cells=(MeasurementCell("holes", 1, 2, second),),
+    )
+    represented = annotation_demand_carrier_evidence(scheme, registry)["demands"][0]
+    json.dumps(represented)  # build decisions/report consumers require JSON-safe evidence
+    assert represented["status"] == "represented"
+    assert represented["measurements"][1]["carriers"] == [
+        {"name": "schedule", "kind": "measurement"},
+        {"name": "schedule", "kind": "table_cell", "schedule": "holes", "row": 1, "column": 2},
+    ]
+    registry.remove("callout")
+    registry.remove("note")
+    registry.remove("schedule")
+    assert annotation_demand_carrier_evidence(scheme, registry)["demands"][0]["status"] == (
+        "unrepresented"
+    )
+
+
+def test_source_only_demand_is_unattributed_not_falsely_satisfied():
+    scheme = plan_annotation_scheme(_model())
+    evidence = annotation_demand_carrier_evidence(scheme, AnnotationRegistry())
+
+    assert all(row["status"] == "unattributed" for row in evidence["demands"])
+    assert evidence["unplanned"] == [
+        {
+            "identity": "dimension:raw",
+            "family": "pmi",
+            "feature_index": 4,
+            "status": "unattributed",
+            "measurements": [],
+            "unplanned_reason": "raw PMI has no typed corridor",
+        }
+    ]
 
 
 def test_scheme_does_not_route_compound_leader_to_missing_side_left_strip():
