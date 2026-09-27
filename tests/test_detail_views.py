@@ -432,6 +432,58 @@ class TestDetailView:
         request = ctx.detail_requests[0]
         assert (request.cross_axis, request.cross_lo, request.cross_hi) == (None, None, None)
 
+    def test_prismatic_secondary_crop_retains_every_physical_witness(self):
+        """A second detail family uses exact support, not a turned-head-only rule."""
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import Escalation, PlacementContext
+        from draftwright.annotations.sections import _render_detail, _request_prismatic_detail
+        from draftwright.model.compiled import (
+            ApprovedDimension,
+            ApprovedLadder,
+            RenderableDimensionPlan,
+        )
+
+        rungs = tuple(
+            ApprovedDimension(
+                id=None,
+                value_text=str(z),
+                value=z,
+                span=((x, 0.0, 0.0), (x, 0.0, z)),
+                rendered_label=str(z),
+                support_bounds=(-20.0, -10.0, x, 10.0),
+            )
+            for z, x in ((1.0, 10.0), (2.0, 20.0), (3.0, 30.0))
+        )
+        plan = RenderableDimensionPlan(ladders=(ApprovedLadder("step_height", rungs),))
+        analysis = SimpleNamespace(
+            bb=SimpleNamespace(
+                min=SimpleNamespace(X=-50.0, Z=0.0),
+                max=SimpleNamespace(X=50.0, Z=4.0),
+            ),
+            SCALE=1.0,
+        )
+        ctx = PlacementContext(
+            escalations=[
+                Escalation(
+                    kind="step",
+                    view="front",
+                    feature=None,
+                    reason="illegible",
+                    targets=rungs,
+                )
+            ]
+        )
+
+        _request_prismatic_detail(None, analysis, ctx=ctx, plan=plan)
+        assert len(ctx.detail_requests) == 1
+        request = ctx.detail_requests[0]
+        assert request.cross_axis == "x"
+        assert request.profile_support_points == tuple(rung.span[1] for rung in rungs)
+        request.cross_lo = 15.0  # excludes the first physical face witness
+        assert not _render_detail(None, analysis, request, "detail_a", "A", ctx=None)
+        assert request.failure_reason == "profile support 1 lies outside the X detail crop"
+
     def test_face_support_recovers_a_shelled_covers_crowded_levels(self):
         # The two levels span most of the cover, but each has a real right-edge witness
         # station. Retaining that correspondence makes a narrow wall detail truthful and
