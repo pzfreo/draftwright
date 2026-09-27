@@ -26,9 +26,10 @@ closed before the scheme alone controls all annotation lanes.
 
 ## Mergeable product slice
 
-`annotation_layout="best"` is available through `build_drawing`, `make_drawing`,
-`Sheet`, generated scripts, and `--annotation-layout best` in the CLI. It first
-settles the existing drawing. Candidate trials use that exact page and scale, and
+`annotation_layout="compare"` (formerly `"best"`) is available through
+`build_drawing`, `make_drawing`, `Sheet`, generated scripts, and
+`--annotation-layout compare` in the CLI. It first settles the existing drawing.
+Candidate trials use that exact page and scale, and
 the selector accepts the first strict improvement only after checking the
 finished drawing for semantic annotation parity, no loss of required coverage,
 no new required blocker, and no newly introduced interior dimension. A clean
@@ -36,10 +37,11 @@ baseline can gain a larger isometric view if its orthographic bounds and other
 quality measures are unchanged. Failed or inferior proposals retain baseline.
 `Drawing.annotation_scheme_decision` records the trials and the chosen layout.
 
-The default remains `"baseline"` in this PR. The opt-in `"best"` mode is a
-comparative gate: it needs at least two drawing solves and can need four on a
-crowded part. Only the selected drawing is exported. Builds are scoped with a
-`ContextVar`, so process environment switches are not part of the public API.
+The default remains `"estimated-strips"` (formerly `"baseline"`). The opt-in
+`"compare"` mode is a comparative gate: it needs at least two drawing solves
+and can need four on a crowded part. Only the selected drawing is exported.
+Builds are scoped with a `ContextVar`, so process environment switches are not
+part of the public API.
 The established build still enforces the caller's `scale_policy` before any
 comparison. A declared script that already fails under `"fallback"` at an
 explicit scale needs a feasible scale or an explicit `"permissive"` policy;
@@ -54,8 +56,10 @@ metric puts hard layout defects, required blockers, overlap, interior dimensions
 and crossings ahead of compactness. It credits a larger isometric view only on
 an otherwise clean sheet.
 The same 15 cases run through public `build_drawing(annotation_layout="best")`
-also pass the 12-win gate with 13 wins, two ties, and semantic parity on every
-selection. A generated CTC01 `Sheet` script using the corpus's explicit
+also passed the historical 12-win metric gate with 13 wins, two ties, and
+semantic parity on every selection. This predates #1813's current requirement
+for 10 visually verified candidate-first improvements. A generated CTC01 `Sheet`
+script using the corpus's explicit
 `"permissive"` scale policy reproduces the selected quality key.
 
 The result is relative. CTC02 still has 43 required blockers after its measured
@@ -80,36 +84,28 @@ in-process drawings a memory concern.
 
 ## Intended default path: candidate first
 
-The chosen product direction is one candidate build first, with a baseline build
-only when the candidate fails a standalone safety check. Once offline evidence
-shows that fallback has become rare and the standalone gate catches its failures,
-remove the fallback and run one candidate build on every normal request. The two-build `"best"`
-mode remains useful as an opt-in comparison and shadow evaluation path. A
-candidate-first build should normally pay for one drawing solve; the fallback
-case pays for two. Measure that distribution rather than treating the CTC05
-two-build timing as the default-path cost.
+The agreed #1813 direction is one candidate build on an ordinary request, with
+an explicit established-layout mode and the multi-build `"compare"` mode
+retained for offline comparison. The pre-render chooser now selects a profile
+from typed demand and
+settled page/scale before the candidate is drawn; the current
+`"demand-guided"` mode (formerly `"candidate-preview"`) is observational and
+does **not** change the public default. Its independent completeness checks
+report unmet requirements even
+when baseline would have the same defect. Such a shared limitation is not a
+candidate-specific regression and does not trigger a baseline rerender.
 
-This path needs a profile decision before a finished baseline exists. The 15
-current selections comprise five `planned`, three `columns`, three
-`legacy-depth`, two `iso-growth`, and two retained baselines. The present
-selector uses baseline quality and interior dimensions to choose among those
-profiles. A candidate-first policy must choose from typed annotation demand,
-view planning, fixed page/scale, and other pre-render facts. It cannot rely on
-the finished baseline's quality key. Sheet and scale resolution should be
-shared between candidate and fallback, so fallback does not silently change
-the caller's scale policy or gain room from a larger sheet.
-
-The candidate-only safety check must use independent obligations: recognized
-and authored feature coverage, required annotation outcomes, lint blockers,
-off-sheet ink, overlap, crossing and leader legibility limits, and a minimum
-view-size test. A failed candidate triggers the established build under the
-same caller policy, with the reason recorded. The fallback can itself have
-unresolved requirements; CTC02 and CTC04 show why an absolute zero-defect
-threshold would reject some relative gains without producing a complete
-fallback. Define that behavior explicitly and test it. Without running both
-drawings, the engine cannot prove a relative improvement or semantic parity to
-baseline on that individual call; paired offline and sampled shadow runs must
-continue to measure those regressions.
+An automatic fallback is **not** a prerequisite for the default switch. Any
+temporary exception needs offline evidence that baseline actually recovers a
+candidate-specific failure under the same caller page, scale and policy. The
+normal path must ultimately remain one build with no automatic fallback. A
+single build cannot prove its relative parity to an unbuilt baseline, so
+fixed-sheet paired and sampled shadow evidence remain separate rollout gates.
+The independent checker must report what it cannot establish; its current
+`admission_ready=false` is not a verdict that a shared CTC defect should reject
+candidate. See [ADR 5](../adr/0005-trust-and-honest-failure.md) for honest
+failure and the [#1813 epic](https://github.com/pzfreo/draftwright/issues/1813)
+for the current completion criteria.
 
 ### Offline cost evidence
 
@@ -123,26 +119,33 @@ process time includes interpreter startup and report transfer; build time does n
 must use the same fixed page/scale, export formats, and host class, and must record the runner's
 concurrency because concurrent CAD processes compete for memory and CPU. In preview mode the
 fallback rate is `null`, not zero: automatic fallback has not been implemented or measured.
-These measurements are evidence inputs, not a production budget or admission verdict; numerical
-latency and memory budgets still need to be set before changing defaults.
+These measurements are evidence inputs, not an admission verdict. The
+[pre-rollout numerical budget](1813-candidate-cost-budget.md) is now set; its
+supported-platform, large-part and concurrency gates remain open. If no
+temporary fallback is introduced, fallback frequency is not a required
+production measurement.
 
 ## Gates for a default switch
 
-1. Implement and version the pre-render profile chooser and candidate-only
-   safety verdict. Record the chosen profile, gate results, fallback reason,
-   and resolved page/scale in the machine-readable drawing report.
+1. Finish and validate the versioned pre-render chooser and independent
+   completeness evidence. Record the chosen profile, failed checks, limitations,
+   and resolved page/scale in the machine-readable drawing report for either
+   algorithm. A shared defect is reported, not treated as a candidate regression.
 2. Run that actual candidate-first policy on the fixed-sheet 15-part corpus
-   and a broader user-part corpus. Use paired builds offline to prove at least
-   12 of 15 verified gains, no semantic loss, and safe fallback on failed,
-   sparse, authored, and recognition-gap drawings. The present `"best"` result
-   does not establish that candidate-first result.
+   and a broader user-part corpus. Use paired builds **offline** to prove at
+   least **10 of 15 clear, visually verified improvements**, no material visual
+   regressions, no selected semantic loss, and no introduced required blockers.
+   CTC02/CTC04 may be explicit non-regressions rather than forced wins. Test
+   failed, sparse, authored, and recognition-gap drawings under the same honest
+   completeness policy; the present `"best"` result is not candidate-first proof.
 3. Add legibility evidence for long routed leaders, isometric shrinkage, and
    minimum view size; visually review borderline cases such as CTC02.
-4. Measure candidate-only build time, fallback frequency, total latency, and
-   peak memory across typical and large parts on every supported platform.
-   Reuse recognition and projection where possible and set a cost budget.
+4. Measure candidate-only end-to-end latency and peak memory across typical
+   and large parts on every supported platform against the already-declared
+   [cost budget](1813-candidate-cost-budget.md). Measure fallback frequency
+   and fallback-inclusive latency only if a justified temporary fallback exists.
 5. Expand typed scheme coverage until unplanned annotation families are rare,
    and prove the lane-order path against the finished renderer and lint.
    Roll out with shadow comparisons and a reversible policy switch, then
-   change the API, Sheet, and CLI defaults together after exact-head full and
-   slow CI passes.
+   change the API, Sheet, generated scripts, and CLI defaults together after
+   exact-head full and slow CI passes. Keep normal requests one-build.
