@@ -127,7 +127,12 @@ def test_build_scoped_scheme_reservation_caps_only_selected_corridors():
 
 def test_completed_drawing_exposes_shadow_report_without_influencing_layout():
     model = _model()
-    drawing = build_drawing(Box(100, 60, 20), model=model, auto_dims=False)
+    drawing = build_drawing(
+        Box(100, 60, 20),
+        model=model,
+        auto_dims=False,
+        annotation_layout="estimated-strips",
+    )
 
     decision = drawing.annotation_scheme_decision
     assert decision["status"] == "shadow"
