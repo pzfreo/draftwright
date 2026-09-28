@@ -130,7 +130,7 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    "model": 0,  # IR waist plus private validation leaves; leaf imports guarded below too
+    "model": 0,  # IR waist, foundational records and private validation leaves
     # 1 — the shared drawing/layout primitives
     "_core": 1,
     "build_options": 1,

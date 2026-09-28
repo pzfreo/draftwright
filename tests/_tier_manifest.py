@@ -38,6 +38,10 @@ CONTRACT_GROUPS = {
         ("src/draftwright/model/oriented_slot_geometry.py",),
         ("test_issue_1432_oriented_slot_semantics.py",),
     ),
+    "ir_foundation": ContractGroup(
+        ("src/draftwright/model/ir_foundation.py",),
+        ("test_issue_1298_manufacturing_requirements.py",),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (

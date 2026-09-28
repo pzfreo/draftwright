@@ -14,8 +14,8 @@ envelope, step lengths, height ladder, PMI, GD&T, …), the hole/section passes
 `plan_sections`), and page/scale sizing (Amendment 8). Coverage lint alone
 reads recognised geometry, by design (ground truth, not the plan).
 
-- :mod:`.ir` — the IR: `DimParameter`, `Datum`, `Frame`, the `Feature` protocol,
-  the concrete feature types, and `PartModel`.
+- :mod:`.ir_foundation` — foundational values, the `Feature` protocol, and common
+  feature records; :mod:`.ir` — stable record imports, remaining features, and `PartModel`.
 - :mod:`.detect` — `build_part_model`: run the detectors, collect features.
 - :mod:`.planner` — `plan_dimensions`: convention rules over `DimParameter`s.
 """

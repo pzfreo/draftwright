@@ -35,7 +35,8 @@ in step; do not restate the module list here.
 In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
 geometry maths, registry, measurement support with pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist with its
-dimension-intent and oriented-slot geometry validation (ADR 1) → **1**
+foundational record owner, dimension-intent and oriented-slot geometry validation
+(ADR 1) → **1**
 `_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
 `_pmi_linear_geometry`, `pmi`,
@@ -121,7 +122,7 @@ checks. Target is 100% passing. Tiers (#153):
 
 - **`uv run pytest -m unit`** (~30 s, most of it interpreter/OCC import) — the pure-logic
   inner loop: zero OCC geometry, enforced by a conftest hook (#656). Membership is the
-  `_UNIT_MODULES` list in `tests/conftest.py`; grow it there.
+  `UNIT_MODULES` list in `tests/_unit_manifest.py`; grow it there.
 - **`uv run pytest -m smoke`** (~30 s) — curated build-light subset for a quick
   local "did I break something obvious" check.
 - **`uv run pytest`** — full fast tier (`-m 'not slow'`; nearly every test does a
