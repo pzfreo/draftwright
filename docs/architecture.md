@@ -10,13 +10,14 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
 top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (including
 semantic survival order), `layout_scheme.py` (typed render-free annotation
-topology and corridor demand planning), `leader_policy.py`, `registry.py`, `fonts.py`,
+topology and corridor demand planning), `registry.py`, `fonts.py`,
 `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
-`_core.py` (beside the stable rank-1 `obligations.py` import path) → stage modules
+`_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
+`obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `pdf_text.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
@@ -45,9 +46,10 @@ IR-waist leaf it is guarded as). The `_LAZY_UPWARD_EXEMPT` sanctioned-cycle-brea
 mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
 below); a new upward lazy import must earn an entry with a rationale. The remaining
 lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
-lazy-load) are *downward*, not cycle-breakers. The one type-only upward reference
-(`_core`→`compose.StripDepths`, under `TYPE_CHECKING`) is an explicit allowlist
-entry. Keep `_LAYERS` and this section in step.
+lazy-load) are *downward*, not cycle-breakers. Two type-only upward references
+(`_core`→`compose.StripDepths` and `annotation_layout_profile`→`compose.StripDepths`,
+both under `TYPE_CHECKING`) are explicit allowlist entries. Rank-0 modules cannot
+use this exemption. Keep `_LAYERS` and this section in step.
 
 `evaluation/` owns the versioned, independently-authored STEP-analysis benchmark and its
 scoring model. It is a top-layer consumer of the recognition contract; production recognition,
@@ -195,9 +197,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   measurement authority stay with the compiler. Sits *below* the domain API.
 - **`obligations.py`** — stable rank-1 import path for `layout.py`'s semantic
   survival order. Engine consumers import the owner directly.
-- **`leader_policy.py`** — the typed, coordinate-free document policy that filters
-  feature-leader candidate regions without granting placement coordinates or inventing
-  interior eligibility for a producer.
+- **`leader_policy.py`** — stable rank-1 import path for the feature-leader region policy
+  owned by `annotation_layout_profile.py`.
 - **`_geometry.py`** — model-neutral geometry primitives (`_xyz`, `HoleRef`,
   `_axis_letter`, `_END_ON`) plus the #700 shared page-plane maths (`_fmt`,
   `_boxes_overlap`, the two segment/box tests) and `plane_axes` — the one
@@ -272,9 +273,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in
   Draftwright's drafting vocabulary (pocket, channel and hex fields) and the exact inventory
   pattern joins, shared by detection and independent completeness lint.
-- **`annotation_layout_profile.py`** — build-scoped options for the alternative annotation
+- **`annotation_layout_profile.py`** — rank-1 build-scoped options for the alternative annotation
   layout (candidate options and corridor caps), so a candidate is built without mutating
-  process state.
+  process state. It also owns the typed, coordinate-free document policy that filters
+  feature-leader candidate regions without granting coordinates or inventing eligibility.
 - **`view_plan.py`** — the ADR 2 planning vocabulary for *which views a drawing requests and
   resolves*; a drawing-independent leaf.
 - **`audit.py`** — compares finished drawings and captured measurement claims

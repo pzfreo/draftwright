@@ -98,9 +98,9 @@ _LAYERS: dict[str, int] = {
     "obligations": 1,
     # Typed, render-free annotation topology consumed by compose/analysis and render ordering.
     "layout_scheme": 0,
-    "annotation_layout_profile": 0,
-    # Coordinate-free document policy for feature-leader candidate regions.
-    "leader_policy": 0,
+    "annotation_layout_profile": 1,
+    # Stable import path; annotation_layout_profile owns the coordinate-free policy.
+    "leader_policy": 1,
     "registry": 0,
     "progress": 0,
     # ADR 2 (was 0018)'s view representation: describes views, imports nothing that draws them.
@@ -194,7 +194,7 @@ _LAYERS: dict[str, int] = {
 # executes), but recorded explicitly so the upward *type* reference is deliberate and reviewed.
 _TC_UPWARD_ALLOW: dict[tuple[str, str], str] = {
     ("annotation_layout_profile", "compose"): (
-        "The leaf profile names compose.StripDepths only for the cap function's static type; "
+        "The policy profile names compose.StripDepths only for the cap function's static type; "
         "the runtime cap uses the passed object's fields and never imports compose."
     ),
     ("_core", "compose"): (
@@ -420,6 +420,9 @@ def test_no_module_level_import_cycles():
 
 def test_type_checking_upward_refs_are_allowlisted():
     """A TYPE_CHECKING import pointing up the DAG must be an explicit, reasoned exception."""
+    assert all(
+        _LAYERS[source] > 0 for source, _target in (*_TC_UPWARD_ALLOW, *_LAZY_UPWARD_EXEMPT)
+    ), "Rank-0 modules must not use upward import exemptions"
     offenders: list[str] = []
     for path in _all_sources():
         sm = _submodule(_module_full(path))
