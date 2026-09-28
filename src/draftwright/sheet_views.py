@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import inspect
 import math
+import sys
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 from draftwright._warnings import SoftDeprecationWarning
 from draftwright.sheet_features import _FeatureView
@@ -21,9 +27,6 @@ from draftwright.view_plan import (
     derived_view_identifier,
     third_angle_view_names,
 )
-
-if TYPE_CHECKING:
-    from draftwright.sheet import Sheet
 
 _SOURCE_CHOICES = ("automatic", "authored")
 _FACADE_FILES = {__file__, str(Path(__file__).with_name("sheet.py"))}
@@ -234,7 +237,7 @@ class _SheetViewMethods:
         dimensions: Literal["automatic", "authored"],
         principal_views: Literal["automatic", "authored"],
         derived_views: Literal["automatic", "authored"],
-    ) -> Sheet:
+    ) -> Self:
         """Adopt a detected baseline with explicit, independently chosen sources.
 
         This is the public transition from :meth:`from_part`'s detected features and implicit
@@ -325,9 +328,9 @@ class _SheetViewMethods:
         self._derived_view_source = derived_views
         self._principal_view_source_at = self._principal_view_source_at or source
         self._derived_view_source_at = self._derived_view_source_at or source
-        return cast("Sheet", self)
+        return self
 
-    def authored_views(self) -> Sheet:
+    def authored_views(self) -> Self:
         """Declare that subsequent :meth:`view` lines are the complete principal set.
 
         Calling this with no ``view(...)`` lines makes the empty authored set explicit.  It
@@ -342,9 +345,9 @@ class _SheetViewMethods:
             )
         self._principal_view_source = "authored"
         self._principal_view_source_at = self._principal_view_source_at or _constraint_source()
-        return cast("Sheet", self)
+        return self
 
-    def auto_views(self) -> Sheet:
+    def auto_views(self) -> Self:
         """Select automatic principal and derived views, optionally augmented by add verbs."""
         if self._principal_view_source == "authored" or self._derived_view_source == "authored":
             raise ValueError(
@@ -362,7 +365,7 @@ class _SheetViewMethods:
         source = _constraint_source()
         self._principal_view_source_at = self._principal_view_source_at or source
         self._derived_view_source_at = self._derived_view_source_at or source
-        return cast("Sheet", self)
+        return self
 
     def view(self, name) -> _View:
         """Add one view to the complete authored principal/orientation set."""
@@ -476,7 +479,7 @@ class _SheetViewMethods:
             source=_constraint_source(),
         )
 
-    def section(self, feature=None, *, at=None) -> Sheet:
+    def section(self, feature=None, *, at=None) -> Self:
         """Request a full **section A–A** (#841) — the part-level verb behind the auto section.
 
         A section fires automatically only when a Z-axis hole/pattern has a counterbore,
@@ -515,9 +518,9 @@ class _SheetViewMethods:
             self._section = ("feature", src)
         else:
             self._section = ("auto", None)
-        return cast("Sheet", self)
+        return self
 
-    def detail(self) -> Sheet:
+    def detail(self) -> Self:
         """Ensure enlarged **detail-view** recovery is enabled (#42/#307/#841).
 
         Automatic builds enable it by default; this verb is useful after constructing a
@@ -537,7 +540,7 @@ class _SheetViewMethods:
                 "derived-view source; use detail_view()"
             )
         self._opts["detail_view"] = True
-        return cast("Sheet", self)
+        return self
 
     # -- inspection / output --------------------------------------------------
 
@@ -573,7 +576,7 @@ class _SheetViewMethods:
             pins=tuple(self._view_pins),
         )
 
-    def row(self, *views, gap=None) -> Sheet:
+    def row(self, *views, gap=None) -> Self:
         """Constrain complete view blocks into a left-to-right row."""
         names = [view.name if isinstance(view, _View) else str(view) for view in views]
         if len(names) < 2:
@@ -583,9 +586,9 @@ class _SheetViewMethods:
             self._view_relations.append(
                 ViewRelation(right, "right_of", left, None if gap is None else float(gap), source)
             )
-        return cast("Sheet", self)
+        return self
 
-    def column(self, *views, gap=None) -> Sheet:
+    def column(self, *views, gap=None) -> Self:
         """Constrain complete view blocks into a bottom-to-top column."""
         names = [view.name if isinstance(view, _View) else str(view) for view in views]
         if len(names) < 2:
@@ -595,7 +598,7 @@ class _SheetViewMethods:
             self._view_relations.append(
                 ViewRelation(above, "above", below, None if gap is None else float(gap), source)
             )
-        return cast("Sheet", self)
+        return self
 
     def _view_build_request(self) -> tuple[tuple[str, ...] | None, bool]:
         """Validate source coherence and lower the principal request to the engine seam."""
