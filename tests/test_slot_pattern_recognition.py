@@ -19,7 +19,7 @@ from quiddity import (
     recognise_slots,
 )
 
-from draftwright.make_drawing import build_drawing
+from draftwright.builder import build_drawing
 from draftwright.model.detect import build_part_model
 
 

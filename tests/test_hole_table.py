@@ -441,7 +441,7 @@ class TestHoleTable:
         import sys
 
         m = sys.modules["draftwright.drawing"]
-        monkeypatch.setattr(m, "fit_box", lambda *a, **k: None)
+        monkeypatch.setattr(m, "fit_auxiliary_box", lambda *a, **k: None)
         dwg = build_drawing(_multi_hole_plate())
         assert dwg.add_hole_table("plan") is None
         assert "table_dropped" in {i.code for i in dwg.lint()}
@@ -552,7 +552,7 @@ class TestEscalation:
         assert any(n.startswith("hc_plan") for n in dwg.annotations())
 
     def test_wrap_rows_reshapes_into_blocks(self):
-        from draftwright.annotate import _wrap_rows
+        from draftwright._core import _wrap_rows
 
         header = ("T", "D")
         data = [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5")]

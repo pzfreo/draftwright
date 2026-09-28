@@ -1,9 +1,42 @@
 """Repeated-feature TYP dimension behavior."""
 
+import importlib
+import sys
+
+import pytest
 from _parts import uniform_staircase as _uniform_staircase
 from build123d import Box, Pos
 
 from draftwright import build_drawing
+
+
+def test_annotate_shim_warns_and_preserves_orchestrator_identity() -> None:
+    from draftwright._core import _wrap_rows
+    from draftwright.annotations.orchestrator import (
+        _auto_annotate,
+        build_model,
+        build_rotational_feature,
+    )
+    from draftwright.model.compiled import _step_repeat
+
+    with pytest.warns(DeprecationWarning) as caught:
+        shim = (
+            importlib.reload(sys.modules["draftwright.annotate"])
+            if "draftwright.annotate" in sys.modules
+            else importlib.import_module("draftwright.annotate")
+        )
+    assert len(caught) == 1
+    assert "draftwright.annotations.orchestrator" in str(caught[0].message)
+    assert "draftwright._core" in str(caught[0].message)
+    assert "_step_repeat" in str(caught[0].message)
+    assert "build_model" in str(caught[0].message)
+    assert "build_rotational_feature" in str(caught[0].message)
+    assert "0.6.0" in str(caught[0].message)
+    assert shim._auto_annotate is _auto_annotate
+    assert shim._wrap_rows is _wrap_rows
+    assert shim._detect_step_repeat is _step_repeat
+    assert shim.build_model is build_model
+    assert shim.build_rotational_feature is build_rotational_feature
 
 
 class TestTypDimensioning:
@@ -41,14 +74,14 @@ class TestTypDimensioning:
 
     def test_two_step_part_not_detected_as_pattern(self):
         # Only 2 interior steps → below the ≥3 threshold; per-step path used.
-        from draftwright.annotate import _detect_step_repeat
+        from draftwright.model.compiled import _step_repeat as _detect_step_repeat
 
         step_zs = [10.0, 20.0]
         result = _detect_step_repeat(step_zs, 0.0, 30.0)
         assert result is None
 
     def test_detect_step_repeat_uniform(self):
-        from draftwright.annotate import _detect_step_repeat
+        from draftwright.model.compiled import _step_repeat as _detect_step_repeat
 
         zs = [15.0, 30.0, 45.0, 60.0, 75.0, 90.0, 105.0]
         n, rise = _detect_step_repeat(zs, 0.0, 120.0)
@@ -56,14 +89,14 @@ class TestTypDimensioning:
         assert abs(rise - 15.0) < 0.01
 
     def test_detect_step_repeat_nonuniform(self):
-        from draftwright.annotate import _detect_step_repeat
+        from draftwright.model.compiled import _step_repeat as _detect_step_repeat
 
         zs = [10.0, 25.0, 35.0, 60.0]
         assert _detect_step_repeat(zs, 0.0, 70.0) is None
 
     def test_detect_step_repeat_top_gap_mismatch_excluded_from_count(self):
         # When top gap doesn't match the mean rise, n = len(step_zs) not +1.
-        from draftwright.annotate import _detect_step_repeat
+        from draftwright.model.compiled import _step_repeat as _detect_step_repeat
 
         zs = [10.0, 20.0, 30.0]  # 3 equal interior rises of 10mm
         # top gap = 55 - 30 = 25 ≠ 10 → should NOT add 1

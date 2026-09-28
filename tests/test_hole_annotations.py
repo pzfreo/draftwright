@@ -7,7 +7,7 @@ from build123d import Box, Cylinder, Pos
 from build123d_drafting import HoleCallout
 
 from draftwright import build_drawing
-from draftwright.make_drawing import lint_feature_coverage
+from draftwright.linting import lint_feature_coverage
 
 
 @pytest.fixture(scope="module")
@@ -229,16 +229,23 @@ class TestHolePatternAnnotations:
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)
-    def test_opposite_face_arrays_get_separate_callouts_and_pitch_dims(self):
+    def test_opposite_face_arrays_get_separate_callouts_and_shared_pitch_dim(self):
         # Blind holes drilled from opposite faces are different machining
-        # operations: two counted callouts, two (tiered) pitch dims.
+        # operations: two counted callouts. Their equal pitch is shared by
+        # one dimension that claims both pattern measurements.
         part = Box(140, 50, 14)
         for i in range(3):
             part = part - Pos(-30 + i * 20, 8, 4) * Cylinder(3, 6)
             part = part - Pos(-30 + i * 20, -8, -4) * Cylinder(3, 6)
         dwg = build_drawing(part)
         assert len([n for n in dwg.annotations() if n.startswith("hc_plan")]) == 2
-        assert len([n for n in dwg.annotations() if n.startswith("dim_pitch_plan")]) == 2
+        pitch_names = [n for n in dwg.annotations() if n.startswith("dim_pitch_plan")]
+        assert len(pitch_names) == 1
+        assert dwg.get_annotation(pitch_names[0]).label == "2× 20"
+        measured = dwg.registry.measurement_of(pitch_names[0])
+        assert len(measured) == 2
+        assert {item.parameter for item in measured} == {"pitch.length"}
+        assert len({item.feature for item in measured}) == 2
         assert [i for i in dwg.lint() if i.severity != "info"] == []
 
     @pytest.mark.timeout(120)

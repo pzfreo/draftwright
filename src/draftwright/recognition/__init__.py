@@ -8,7 +8,16 @@ the sanctioned surface and have no shims.
 
 from __future__ import annotations
 
+import warnings
+
 import quiddity as _external
+
+warnings.warn(
+    "draftwright.recognition is deprecated (#1936); import public symbols from quiddity. "
+    "Removed in 0.6.0.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = _external.__all__
 

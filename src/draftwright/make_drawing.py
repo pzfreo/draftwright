@@ -7,6 +7,8 @@ public surface so `from draftwright.make_drawing import ...` and the `draftwrigh
 CLI entry point keep working.
 """
 
+import warnings
+
 from draftwright.builder import (  # noqa: F401
     build_drawing,
     make_drawing,
@@ -15,6 +17,14 @@ from draftwright.cli import _cli  # noqa: F401 — #523: the shim lives beside t
 from draftwright.drawing import Drawing, FeatureInfo  # noqa: F401
 from draftwright.export import fix_svg_page_size  # noqa: F401
 from draftwright.linting import lint_feature_coverage  # noqa: F401
+
+warnings.warn(
+    "draftwright.make_drawing is deprecated (#1936); import build_drawing and make_drawing "
+    "from draftwright.builder, Drawing from draftwright.drawing, and other symbols from "
+    "their owning modules. Removed in 0.6.0.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 if __name__ == "__main__":
     _cli()

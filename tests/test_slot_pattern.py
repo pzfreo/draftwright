@@ -10,7 +10,7 @@ composition, the grouped render (linear + grid), and the input guards.
 import pytest
 from build123d import Box
 
-from draftwright.make_drawing import build_drawing
+from draftwright.builder import build_drawing
 from draftwright.model import slot, slot_pattern
 from draftwright.sheet import Sheet
 
@@ -99,7 +99,7 @@ def test_obround_pattern_member_emits_and_rebuilds_its_radius():
     assert rebuilt.end_radius == 4
 
 
-def test_grid_pattern_renders_both_pitch_dims():
+def test_grid_pattern_accounts_for_both_pitch_dimensions():
     member = slot(
         width=6.0,
         length=12.0,
@@ -120,7 +120,18 @@ def test_grid_pattern_renders_both_pitch_dims():
         "6× SLOT 6 × 12"
     ]
     pitch_labels = sorted(dwg.get_annotation(n).label for n in names if "slotpat_pitch" in n)
-    assert pitch_labels == ["1× 30", "2× 40"]  # (rows-1)× row_pitch, (cols-1)× col_pitch
+    assert pitch_labels == ["1× 30"]
+    pattern = next(feature for feature in dwg.model().features if feature.kind == "slot_pattern")
+    assert [
+        parameter.value for parameter in pattern.parameters() if parameter.role == "grid_pitch"
+    ] == [
+        30.0,
+        40.0,
+    ]
+    drops = [issue for issue in dwg.lint() if issue.code == "slot_dim_dropped"]
+    assert len(drops) == 1
+    assert "pitch 40 not placed" in drops[0].message
+    assert [mid.parameter for mid in drops[0].measurement_ids] == ["grid_pitch.length.col"]
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
 
 

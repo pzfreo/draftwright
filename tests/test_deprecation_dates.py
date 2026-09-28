@@ -114,6 +114,76 @@ def test_every_deprecation_names_its_removal() -> None:
     )
 
 
+def test_only_shim_contract_tests_import_compatibility_modules() -> None:
+    """Keep ordinary suite imports on the canonical owners (#1936)."""
+    allowed = {
+        (
+            "test_external_recognition_boundary.py",
+            "test_embedded_implementation_is_gone_and_compatibility_is_identity_preserving",
+            "draftwright.recognition",
+        ),
+        (
+            "test_score.py",
+            "test_score_shim_warns_and_preserves_feature_census_identity",
+            "draftwright.score",
+        ),
+        (
+            "test_cli_behavior.py",
+            "test_make_drawing_module_entrypoint_runs_cli_help",
+            "draftwright.make_drawing",
+        ),
+        (
+            "test_typ_dimensions.py",
+            "test_annotate_shim_warns_and_preserves_orchestrator_identity",
+            "draftwright.annotate",
+        ),
+    }
+    shims = {
+        "draftwright.recognition",
+        "draftwright.score",
+        "draftwright.make_drawing",
+        "draftwright.annotate",
+    }
+    found: set[tuple[str, str, str]] = set()
+    for path in sorted(Path(__file__).parent.glob("test_*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            names: set[str] = set()
+            if isinstance(node, ast.Import):
+                names.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                names.add(node.module)
+                if node.module == "draftwright":
+                    names.update(
+                        f"draftwright.{alias.name}"
+                        for alias in node.names
+                        if alias.name in {"recognition", "score", "annotate"}
+                    )
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                names.add(node.args[0].value)
+            for name in names & shims:
+                owner = node
+                while owner in parents and not isinstance(
+                    owner, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ):
+                    owner = parents[owner]
+                function = (
+                    owner.name
+                    if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    else "<module>"
+                )
+                found.add((path.name, function, name))
+    assert found == allowed
+
+
 #: The number of deprecation announcements the scanner must still find. Lower it ONLY when a
 #: deprecation was genuinely removed, and say which — the point is that a silent drop means the
 #: scanner broke, not that the codebase got cleaner.
@@ -123,7 +193,8 @@ def test_every_deprecation_names_its_removal() -> None:
 #: removal date to check. 9 → 11 when #987 gave the two legacy `Drawing.export` shapes the
 #: warnings they had lacked since 0.3.1 — which is also what brought them into this check's
 #: scope, since it can only see things that warn.
-_EXPECTED_DEPRECATIONS = 11
+#: 11 → 15 when #1936 added import warnings to the four compatibility shims.
+_EXPECTED_DEPRECATIONS = 15
 
 
 def test_the_scanner_actually_matches_something() -> None:

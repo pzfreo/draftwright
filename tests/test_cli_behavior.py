@@ -1,5 +1,6 @@
 """CLI compatibility and lazy-import behavior."""
 
+import importlib
 import os
 import subprocess
 import sys
@@ -10,6 +11,23 @@ import pytest
 @pytest.mark.smoke
 def test_make_drawing_module_entrypoint_runs_cli_help():
     """The compat facade remains executable as ``python -m draftwright.make_drawing``."""
+    from draftwright import builder
+    from draftwright import make_drawing as public_make_drawing
+
+    with pytest.warns(DeprecationWarning) as caught:
+        facade = (
+            importlib.reload(sys.modules["draftwright.make_drawing"])
+            if "draftwright.make_drawing" in sys.modules
+            else importlib.import_module("draftwright.make_drawing")
+        )
+    assert len(caught) == 1
+    assert "draftwright.builder" in str(caught[0].message)
+    assert "0.6.0" in str(caught[0].message)
+    assert facade.build_drawing is builder.build_drawing
+    assert "generate_script" not in vars(facade)
+    assert public_make_drawing is facade.make_drawing
+    assert importlib.import_module("draftwright").make_drawing is public_make_drawing
+
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "cp1252"
     result = subprocess.run(
@@ -17,6 +35,8 @@ def test_make_drawing_module_entrypoint_runs_cli_help():
             sys.executable,
             "-W",
             "error::RuntimeWarning",
+            "-W",
+            "always::DeprecationWarning",
             "-m",
             "draftwright.make_drawing",
             "--help",
@@ -28,6 +48,8 @@ def test_make_drawing_module_entrypoint_runs_cli_help():
     )
 
     assert result.returncode == 0, f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert "draftwright.make_drawing is deprecated" in result.stderr
+    assert "Removed in 0.6.0" in result.stderr
     assert "Usage:" in result.stdout  # Typer/rich help capitalises (was argparse "usage:")
     assert "step_file" in result.stdout
     # Rich degrades unsupported box drawing on cp1252 streams. Long flag names may
@@ -41,7 +63,7 @@ def test_cli_version_reports_installed_version():
     from importlib.metadata import version as _pkg_version
 
     result = subprocess.run(
-        [sys.executable, "-m", "draftwright.make_drawing", "--version"],
+        [sys.executable, "-c", "from draftwright.cli import app; app()", "--version"],
         capture_output=True,
         text=True,
     )
@@ -97,16 +119,12 @@ def test_cli_inherits_automatic_detail_default(monkeypatch):
 
 
 def test_lazy_public_api_preserves_make_drawing_identity():
-    """The lazy package __init__ (#313) must still expose the public API, and
-    `draftwright.make_drawing` must stay the FUNCTION even after the compat
-    submodule of the same name is imported and would otherwise shadow it."""
+    """The lazy package __init__ (#313) exposes the public function."""
     code = (
         "import types, draftwright as d; "
         "from draftwright import make_drawing, build_drawing, Drawing, choose_scale; "
         "assert callable(make_drawing) and not isinstance(make_drawing, types.ModuleType); "
         "assert d.make_drawing is make_drawing; "
-        "import draftwright.make_drawing; "  # provoke the shadowing path
-        "assert callable(d.make_drawing) and not isinstance(d.make_drawing, types.ModuleType); "
         "print('ok')"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
