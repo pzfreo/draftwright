@@ -8,14 +8,16 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: rank-0 modules (not yet all independent): `progress.py`, `layout.py`, `obligations.py` (pure semantic survival order), `layout_scheme.py` (typed render-free annotation
+top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (including
+semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `leader_policy.py`, `registry.py`, `fonts.py`,
 `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
-`_core.py` → stage modules (`export.py`, `pdf_text.py`,
+`_core.py` (beside the stable rank-1 `obligations.py` import path) → stage modules
+(`export.py`, `pdf_text.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
 `builder.py` → the
@@ -182,16 +184,17 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   the `Analysis` namespace and its field types (`_Projector`, `Strip`, `ViewZones`),
   the dimension/format helpers (`_dim`, `_fmt`, `_add_title_block`, …), and the
   page/slot/margin layout constants.
-- **`layout.py`** — the deterministic placement primitives used by ADRs 0004/0014:
+- **`layout.py`** — the deterministic placement primitives used by ADR 2:
   the deterministic
   1D PAVA strip solve (`_solve_strip_1d_pava`, plus `plan_strip`/`StripCandidate`,
   the ADR 2 (was 0014) collect-then-solve entry point), the 2D free-rectangle placer
   (`fit_box`), and the balloon band-assignment min-cost max-flow solve
   (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
-  layer). Sits *below* the domain API.
-- **`obligations.py`** — the pure required/unknown/optional survival order shared
-  by pre-render demand and the existing placement solvers. It has no IR or
-  rendering dependency; source and measurement authority stay with the compiler.
+  layer), and the required/unknown/optional survival order shared by pre-render
+  demand and placement solvers. It has no IR or rendering dependency; source and
+  measurement authority stay with the compiler. Sits *below* the domain API.
+- **`obligations.py`** — stable rank-1 import path for `layout.py`'s semantic
+  survival order. Engine consumers import the owner directly.
 - **`leader_policy.py`** — the typed, coordinate-free document policy that filters
   feature-leader candidate regions without granting placement coordinates or inventing
   interior eligibility for a producer.

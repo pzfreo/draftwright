@@ -41,6 +41,8 @@ What actually lives here today:
   measured alternatives to numeric costs and pairwise conflicts; this leaf
   maximises placed jobs, then minimises total leader length, retaining the
   legacy greedy incumbent if its deterministic search budget is exhausted.
+- :func:`obligation_rank` — the shared required/unknown/optional survival order
+  for pre-render demand and placement. Unknown ink cannot be treated as optional.
 
 Global 2D non-overlap (the disjunctive constraint ADR 2 (was 0003) notes is
 non-linear) stays deferred (#94) and may never be needed — see that ADR's
@@ -54,9 +56,22 @@ import math
 from dataclasses import dataclass, field
 from typing import Literal, NamedTuple
 
-from draftwright.obligations import ObligationClass, obligation_rank
-
 Axis = Literal["x", "y"]
+ObligationClass = Literal["required", "optional", "unknown"]
+
+# Product policy, not an ISO/ASME hierarchy: unknown placement ink must remain
+# distinct from explicitly optional ink.
+_OBLIGATION_RANK: dict[ObligationClass, int] = {"optional": 0, "unknown": 1, "required": 2}
+
+
+def obligation_rank(classification: ObligationClass) -> int:
+    """Return the deterministic over-capacity survival rank of one obligation."""
+    try:
+        return _OBLIGATION_RANK[classification]
+    except KeyError as exc:
+        raise ValueError(f"invalid annotation obligation class: {classification!r}") from exc
+
+
 _LAYOUT_EPSILON = 1e-9
 _FLOW_COST_SCALE = 1000
 # The guarded DP allocates three count×coordinate matrices; these caps keep that
