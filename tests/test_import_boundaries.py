@@ -145,6 +145,7 @@ _LAYERS: dict[str, int] = {
     "repair": 2,
     "projection": 2,
     "compose": 2,
+    "auxiliary_layout": 2,
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade)

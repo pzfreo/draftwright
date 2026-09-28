@@ -77,6 +77,7 @@ from draftwright.annotations._common import (
 )
 from draftwright.annotations.balloons import render_balloons
 from draftwright.annotations.leaders import drain_feature_leaders
+from draftwright.auxiliary_layout import fit_auxiliary_box
 from draftwright.export import (
     _DraftwrightDXF,
     _export_shape,
@@ -94,7 +95,7 @@ from draftwright.export import (
 )
 from draftwright.fonts import PLEX_MONO
 from draftwright.intents import Intent
-from draftwright.layout import FitBoxTrace, fit_box
+from draftwright.layout import FitBoxTrace
 from draftwright.linting import (
     EXAMINABLE_DECLARED_KINDS,
     CoverageState,
@@ -4009,7 +4010,7 @@ class Drawing:
         obstacles = late_furniture_obstacles(self, named=True)
 
         trace = FitBoxTrace()
-        pos = fit_box(
+        pos = fit_auxiliary_box(
             (w, h),
             region,
             obstacles,

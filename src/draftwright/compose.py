@@ -61,6 +61,7 @@ from draftwright._core import (
 from draftwright._geometry import _END_ON, _fmt_angle
 from draftwright.angular_geometry import AngularGeometry, AngularStyle
 from draftwright.annotation_layout_profile import layout_flag
+from draftwright.auxiliary_layout import fit_auxiliary_box
 from draftwright.fonts import PLEX_MONO
 from draftwright.layout import fit_box
 from draftwright.layout_scheme import (
@@ -2124,7 +2125,7 @@ def _layout_geometry(
             _prefer_gutters=False,
         )
     for size, prefer in required_tables:
-        position = fit_box(size, drawable, obstacles, prefer, clearance=2.0)
+        position = fit_auxiliary_box(size, drawable, obstacles, prefer, clearance=2.0)
         if position is None:
             required_tables_fit = False
             break

@@ -450,7 +450,7 @@ def test_empty_document_requirement_stays_raw_with_a_blocker():
 def test_document_note_table_drop_is_a_source_complete_annotate_error(monkeypatch):
     import draftwright.drawing as drawing_module
 
-    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(drawing_module, "fit_auxiliary_box", lambda *_args, **_kwargs: None)
     part = Box(40, 20, 20)
     notes = [
         DocumentNote(

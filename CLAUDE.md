@@ -64,7 +64,8 @@ Compact map, bottom to top:
 - **`document_input.py`** — common source/analysis authority and sealed physical membership,
   beside `_core`; member models copy authoring containers while retaining exact owners.
 - **Stage modules** — `analysis.py` (classification + one-shot feature inventory),
-  `projection.py` (HLR + material lowering), `compose.py` (the ADR 2 (was 0004) outer
+  `projection.py` (HLR + material lowering), `auxiliary_layout.py` (shared measured
+  note/section/detail block spacing and hard-fit fallback), `compose.py` (the ADR 2 (was 0004) outer
   compose-then-pack layout), `export.py` (SVG→PDF→PNG chain, DXF), `repair.py`
   (the ADR 5 (was 0002) lint→repair safety net), `pmi.py` (STEP AP242 PMI), `linting/`
   (draftwright-owned lint and recognition requirement ledgers, ADR 3 (was 0007)), `reporting.py`

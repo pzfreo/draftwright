@@ -42,7 +42,6 @@ from draftwright._core import (
     _dim,
     _fmt,
     _iso_bbox,
-    _largest_empty_rect,
     _legible_steps,
     _log,
     _title_margins,
@@ -64,6 +63,7 @@ from draftwright.annotations._common import (
     strip_obstacles,
 )
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
+from draftwright.auxiliary_layout import detail_space, section_slot_x
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
 from draftwright.view_plan import DERIVED_VIEW_IDENTIFIERS, DerivedViewIdentifierPool
@@ -386,10 +386,11 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx) -> bool:
     # block top y 46.0). Every fitting segment is tested, not just the leftmost: a
     # segment further left may clear the block where the first does not.
     tb_left = a.PAGE_W - a.TB_W - _TB_CLEAR
+    shares_title_row = a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H
     usable = _segments_clearing_title_block(
         fitting,
         half_w,
-        shares_title_row=a.FV_Y - half_h - 10 < _TB_CLEAR + _TB_H,
+        shares_title_row=shares_title_row,
         tb_left=tb_left,
     )
     if not usable:
@@ -403,7 +404,12 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx) -> bool:
             section=section,
         )
         return False
-    pos_x = usable[0][0] + half_w
+    # Where the band permits it, leave a more comfortable gap after the parent
+    # row. Keep the ten-millimetre hard minimum above: whitespace may never
+    # veto an otherwise fitting section.
+    pos_x = section_slot_x(
+        usable, side_right, half_w, shares_title_row=shares_title_row, tb_left=tb_left
+    )
 
     big = 4 * a.bbox_max
     # STEP imports with PMI carry annotation curves beside the solid, and a
@@ -939,7 +945,15 @@ def _render_detail(
         )
     )
     if reserved_box is None:
-        rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
+        desired_left, desired_right = _horizontal_extents(detail_scale)
+        _, desired_pad_top = _pads(detail_scale)
+        desired_footprint = (
+            desired_left + desired_right,
+            view_h * detail_scale + desired_pad_top + caption_gap + cap_h,
+        )
+        rx0, ry0, rx1, ry1 = detail_space(
+            drawable, obstacles, minimum_size=min_footprint, desired_size=desired_footprint
+        )
     else:
         rx0, ry0, rx1, ry1 = reserved_box
         if not _reserved_detail_box_is_clear(drawable, obstacles, reserved_box):
