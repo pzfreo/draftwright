@@ -69,6 +69,28 @@ from draftwright.model.planner import hole_location_parameter_id
 _log = logging.getLogger(__name__)
 
 
+# Shared corridor ordering: feature sizes near the view, datum locations outside.
+_SIZE_SUBCHAIN = 0
+_LOC_SUBCHAIN = 1
+
+
+def _ray_exit_dist(px, py, ux, uy, rect) -> float:
+    """Distance along the unit ray (ux, uy) from (px, py) to where it leaves *rect*
+    (x0, y0, x1, y1). For a tip inside the rect this is the positive distance to the
+    boundary; clamped to ``>= 0`` so a tip already outside contributes no negative reach."""
+    x0, y0, x1, y1 = rect
+    ts = []
+    if ux > 0:
+        ts.append((x1 - px) / ux)
+    elif ux < 0:
+        ts.append((x0 - px) / ux)
+    if uy > 0:
+        ts.append((y1 - py) / uy)
+    elif uy < 0:
+        ts.append((y0 - py) / uy)
+    return max(min([t for t in ts if t > 0], default=0.0), 0.0)
+
+
 _LABEL_INK_CLEARANCE_MM = 0.25
 
 
