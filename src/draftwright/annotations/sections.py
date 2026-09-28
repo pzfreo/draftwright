@@ -55,7 +55,13 @@ from draftwright._geometry import (
     _scale_world,
     _stroke_polygon,
 )
-from draftwright.annotations._common import carve_free_segments, strip_obstacles
+from draftwright.annotations._common import (
+    _geom_box,
+    _restore_annotation_transaction,
+    _snapshot_annotation_transaction,
+    carve_free_segments,
+    strip_obstacles,
+)
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
@@ -96,6 +102,26 @@ def _reserved_detail_box_is_clear(drawable, obstacles, box) -> bool:
         drawable[0] <= x0 < x1 <= drawable[2]
         and drawable[1] <= y0 < y1 <= drawable[3]
         and not any(_boxes_overlap(box, obstacle) for obstacle in obstacles)
+    )
+
+
+def _detail_ink_within_reservation(reserved_box, shapes, *, tolerance=0.05):
+    """Measured detail geometry and ink must fit its pre-sheet page box."""
+    boxes = [_geom_box(shape) for shape in shapes if shape is not None]
+    if any(box is None for box in boxes):
+        return False, None
+    measured = (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+    return (
+        measured[0] >= reserved_box[0] - tolerance
+        and measured[1] >= reserved_box[1] - tolerance
+        and measured[2] <= reserved_box[2] + tolerance
+        and measured[3] <= reserved_box[3] + tolerance,
+        measured,
     )
 
 
@@ -991,6 +1017,14 @@ def _render_detail(
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
         return False
 
+    if reserved_box is not None:
+        within, measured = _detail_ink_within_reservation(reserved_box, (placed, placed_hid))
+        if not within:
+            req.failure_code = "reserved_footprint_exceeded"
+            req.failure_reason = "projected detail geometry exceeds its planned page box"
+            req.fit_evidence["measured_box_mm"] = measured
+            return False
+
     # Commit the view GEOMETRY (public `views` dict) so the feature's dim pass can read its
     # view_bounds, but keep the COORDINATES in `coords` (passed to redraw) — they reach the drawing
     # through the layout seam only if the dims land. If nothing legible lands even at the detail
@@ -999,12 +1033,37 @@ def _render_detail(
     # place-then-drop). The main view always locates the head/block inline, so lint reports any
     # un-located interior.
     dwg.views[view_name] = (placed, placed_hid)
+    annotation_snapshot = (
+        _snapshot_annotation_transaction(dwg, ctx.coverage) if reserved_box is not None else None
+    )
     redrawn = req.redraw(dwg, view_name, coords, detail_scale)
     if not redrawn and not req.keep_without_annotations:
         req.failure_code = "annotations_unplaceable"
+        if annotation_snapshot is not None:
+            _restore_annotation_transaction(dwg, ctx.coverage, annotation_snapshot, {})
         dwg.views.pop(view_name, None)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
+    dvb = placed.bounding_box()
+    caption = Note(
+        _caption_text(detail_scale),
+        ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
+        dwg.draft,
+    )
+    if reserved_box is not None:
+        assert annotation_snapshot is not None
+        new_ink = dwg.items[len(annotation_snapshot.items) :]
+        within, measured = _detail_ink_within_reservation(
+            reserved_box, (placed, placed_hid, *new_ink, caption)
+        )
+        req.fit_evidence["measured_box_mm"] = measured
+        req.fit_evidence["within_reservation"] = within
+        if not within:
+            req.failure_code = "reserved_footprint_exceeded"
+            req.failure_reason = "detail annotation ink exceeds its planned page box"
+            _restore_annotation_transaction(dwg, ctx.coverage, annotation_snapshot, {})
+            dwg.views.pop(view_name, None)
+            return False
     dwg._set_view_coordinates(view_name, coords)
 
     # The marker uses the same two world-axis crop bands as the detail, on
@@ -1040,15 +1099,7 @@ def _render_detail(
     ctx.place(Note(letter, (mx1 + 3, my1 + 2), dwg.draft), f"detail_marker_label_{letter}")
 
     # Caption below the placed view (anchored to its real footprint).
-    dvb = dwg.views[view_name][0].bounding_box()
-    ctx.place(
-        Note(
-            _caption_text(detail_scale),
-            ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
-            dwg.draft,
-        ),
-        f"detail_caption_{letter}",
-    )
+    ctx.place(caption, f"detail_caption_{letter}")
     req.placed_scale = float(detail_scale)
     return True
 
