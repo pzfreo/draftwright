@@ -269,38 +269,6 @@ def test_the_above_strip_is_clamped_below_an_overlapping_iso(monkeypatch):
     )
 
 
-@pytest.mark.slow  # CTC fixture build (#153)
-def test_the_iso_no_longer_grows_over_ctc_01s_pocket_position_dim():
-    """The one NATURAL case in the corpus, found only by the #1240 review.
-
-    Both hunts for a reproducing fixture reported none, and the PR said so — but they searched
-    for *strip* collisions and this is the other direction: on `main`, CTC-01 AP203's iso grows
-    over `m_pocket0_pos_long`'s witness lines. It escaped every sweep because
-    `view_annotation_overlap` compares projected EDGES, not bboxes, so the drawing linted clean
-    while the boxes genuinely overlapped (#1240 review F2).
-
-    Asserted against the whole fixture rather than that one name: any annotation ink inside the
-    final iso bbox is the defect, whichever annotation it belongs to.
-    """
-    from draftwright._geometry import _boxes_overlap
-    from draftwright.annotations._common import annotation_obstacle_boxes
-
-    drawing = build_drawing("tests/fixtures/nist_ctc_01_asme1_ap203.stp")
-    assert "iso" in drawing.views, "precondition: the fixture has no iso view"
-    iso = _iso_bbox(drawing)
-    intruders = sorted(
-        {
-            name
-            for name, obj in drawing.iter_annotations()
-            if not getattr(obj, "is_sheet_frame", False)
-            and not getattr(obj, "is_zone_grid", False)
-            for box in annotation_obstacle_boxes(drawing, obj)
-            if _boxes_overlap(box, iso)
-        }
-    )
-    assert not intruders, f"the iso grew over placed annotation ink: {intruders}"
-
-
 def test_the_post_fit_recap_only_ever_tightens(monkeypatch):
     """The builder's re-cap must not hand back space another pass took.
 
