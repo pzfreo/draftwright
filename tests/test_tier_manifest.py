@@ -29,6 +29,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
     all_modules = {path.name for path in _TESTS.glob("test_*.py")}
     probes = {
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
+        "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
@@ -53,6 +54,11 @@ def test_each_named_contract_group_resolves_to_existing_modules():
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected
+
+
+def test_turned_step_evidence_change_runs_its_physical_correspondence_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_turned_step_evidence.py"])
+    assert "test_issue_1374_turned_step_completeness_evidence.py" in selected
 
 
 def test_from_model_change_runs_through_step_placement_contract():

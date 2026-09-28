@@ -153,17 +153,20 @@ class TestTheEvaluationModuleStaysCheapToImport:
             "(#313); see that module's docstring for the shape (#1229)."
         )
 
-    def test_the_module_only_imports_its_engine_free_evidence_helper(self):
+    def test_the_module_only_imports_its_engine_free_evidence_helpers(self):
         spec = importlib.util.find_spec("draftwright.evaluation.step_analysis")
         assert spec is not None and spec.origin is not None
         source = Path(spec.origin)
-        helper = source.with_name("_double_d_evidence.py")
+        helpers = (
+            source.with_name("_double_d_evidence.py"),
+            source.with_name("_turned_step_evidence.py"),
+        )
         # BOTH `from x import y` and plain `import x`. Matching only `ImportFrom` left the
         # test named for this property unable to see the commonest form; a mutation adding
         # `import draftwright.linting.hole_coverage` was caught only by the subprocess test
         # beside it (#1229 review).
         offenders = []
-        for path in (source, helper):
+        for path in (source, *helpers):
             tree = ast.parse(path.read_text())
             for node in tree.body:
                 # The reviewed evaluation helper imports only Python library modules.
@@ -173,7 +176,11 @@ class TestTheEvaluationModuleStaysCheapToImport:
                     and (node.module or "").startswith(_ENGINE)
                     and not (
                         path == source
-                        and node.module == "draftwright.evaluation._double_d_evidence"
+                        and node.module
+                        in {
+                            "draftwright.evaluation._double_d_evidence",
+                            "draftwright.evaluation._turned_step_evidence",
+                        }
                     )
                 ) or (
                     isinstance(node, ast.Import)
