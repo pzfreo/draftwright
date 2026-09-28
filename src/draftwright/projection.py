@@ -73,10 +73,20 @@ def _raw_view_projector(camera, up, look_at_scaled):
     return proj
 
 
-def _projected_shape_bounds(shape, project) -> tuple[float, float, float, float]:
+def _projected_shape_bounds(
+    shape, project, *, bounds_cache=None
+) -> tuple[float, float, float, float]:
     """The exact orthographic envelope implied by *shape*'s model-space AABB."""
 
-    bounds = shape.bounding_box()
+    bounds = None
+    if bounds_cache is not None:
+        cached = bounds_cache.get(id(shape))
+        if cached is not None and cached[0] is shape:
+            bounds = cached[1]
+    if bounds is None:
+        bounds = shape.bounding_box()
+        if bounds_cache is not None:
+            bounds_cache[id(shape)] = (shape, bounds)
     projected = [
         project(gp_Pnt(x, y, z))
         for x in (bounds.min.X, bounds.max.X)
@@ -325,7 +335,9 @@ def _exactify_silhouettes(edges, faces, view_dir, proj_fn, tol=_SILHOUETTE_TOL):
 _ISO_MAX_GROW = 1.3
 
 
-def project_view_geometry(scale, name, shape, camera, up, position, *, look_at, scaled):
+def project_view_geometry(
+    scale, name, shape, camera, up, position, *, look_at, scaled, bounds_cache=None
+):
     """Project *shape* into a view's placed geometry + coordinates — the pure core of
     :meth:`Drawing._add_view`, returning ``(placed, placed_hid, ViewCoordinates)`` WITHOUT mutating
     a Drawing (#830). ``Drawing._add_view`` wraps it (stores the result under ``name``); the detail
@@ -350,7 +362,7 @@ def project_view_geometry(scale, name, shape, camera, up, position, *, look_at, 
         )
     axes = view_axes(camera, up, look_at)
     proj = _raw_view_projector(camera, up, look_at)
-    projected_bounds = _projected_shape_bounds(shape_s, proj)
+    projected_bounds = _projected_shape_bounds(shape_s, proj, bounds_cache=bounds_cache)
     vl, rejected_visible = _bounded_projected_edges(vl, projected_bounds)
     hl, rejected_hidden = _bounded_projected_edges(hl, projected_bounds)
     if rejected_visible or rejected_hidden:
@@ -392,7 +404,7 @@ def _bbox_within(bb, region, tol: float = 0.5) -> bool:
     )
 
 
-def _project_iso(dwg, a: Analysis, scale, shape_s=None):
+def _project_iso(dwg, a: Analysis, scale, shape_s=None, *, bounds_cache=None):
     """(Re-)project the iso view at *scale* (an absolute factor, not a fraction).
 
     Pass *shape_s* when the part is already scaled by *scale* to skip the copy.
@@ -411,6 +423,7 @@ def _project_iso(dwg, a: Analysis, scale, shape_s=None):
         (a.ISO_X, a.ISO_Y),
         look_at=la,
         scaled=True,
+        bounds_cache=bounds_cache,
     )
     # add_view builds ViewCoordinates from a collapsed view_axes() mapping, which
     # helpers (>=0.11) cannot project for the oblique iso (pp() needs the full

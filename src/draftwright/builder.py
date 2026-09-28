@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Literal, cast
 
 from build123d import (
+    BoundBox,
     Shape,
 )
 from build123d_drafting.helpers import (
@@ -846,10 +847,22 @@ def _assemble(
         "rear": ((cxs, cys + dist, czs), (0, 0, 1)),
     }
     dwg._build.view_plan = view_plan = resolve_from_analysis(a)
+    # Principal views and the initial same-scale iso share this unchanged scaled
+    # solid. Reuse its exact OCC AABB for their projected-edge envelopes only
+    # within this assembly; a repack or later iso scale gets a fresh measurement.
+    bounds_cache: dict[int, tuple[Shape, BoundBox]] = {}
     for spec in view_plan.of_kind("principal"):
         camera, up = _CAMERAS[spec.name]
         place = view_plan.placements[spec.name]
-        dwg._add_view(spec.name, part_s, camera, up, (place.cx, place.cy), scaled=True)
+        dwg._add_view(
+            spec.name,
+            part_s,
+            camera,
+            up,
+            (place.cx, place.cy),
+            scaled=True,
+            bounds_cache=bounds_cache,
+        )
     dwg.view_decision = {
         "policy": "selected",
         "status": "selected",
@@ -858,7 +871,7 @@ def _assemble(
     }
     if a.planned_iso:
         if a.planned_iso_scale is None:
-            _project_iso(dwg, a, a.SCALE, shape_s=part_s)
+            _project_iso(dwg, a, a.SCALE, shape_s=part_s, bounds_cache=bounds_cache)
         else:
             _project_iso(dwg, a, a.SCALE * a.planned_iso_scale)
 

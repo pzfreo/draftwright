@@ -876,7 +876,9 @@ class Drawing:
         """DEPRECATED (#817): the raw view projector is now private (:meth:`_add_view`)."""
         return self._add_view(name, shape, camera, up, position, look_at=look_at, scaled=scaled)
 
-    def _add_view(self, name, shape, camera, up, position, *, look_at=None, scaled=False):
+    def _add_view(
+        self, name, shape, camera, up, position, *, look_at=None, scaled=False, bounds_cache=None
+    ):
         """Project ``shape`` from ``camera`` and place it at ``position``.
 
         Args:
@@ -897,7 +899,15 @@ class Drawing:
         """
         la = self.look_at if look_at is None else look_at
         placed, placed_hid, coords = project_view_geometry(
-            self.scale, name, shape, camera, up, position, look_at=la, scaled=scaled
+            self.scale,
+            name,
+            shape,
+            camera,
+            up,
+            position,
+            look_at=la,
+            scaled=scaled,
+            bounds_cache=bounds_cache,
         )
         self.views[name] = (placed, placed_hid)
         self._coords[name] = coords
