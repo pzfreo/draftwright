@@ -15,6 +15,7 @@ import json
 import math
 import os
 import warnings
+import weakref
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import nullcontext
 from dataclasses import replace
@@ -2636,6 +2637,19 @@ def build_drawing(
     build_attempt = 0
     latest_analysis = None
     critique_recognition_cache = None
+    placement_issues: weakref.WeakKeyDictionary[Drawing, tuple] = weakref.WeakKeyDictionary()
+
+    def _placement_issues(candidate):
+        # The default builder only changes decision metadata after an attempt returns;
+        # a post-build hook may edit the sheet, so preserve its normal critique calls.
+        # Lightweight test doubles likewise keep their own lint semantics.
+        if type(candidate) is not Drawing or _post_build is not None:
+            return tuple(candidate.lint(physical=False))
+        issues = placement_issues.get(candidate)
+        if issues is None:
+            issues = tuple(candidate.lint(physical=False))
+            placement_issues[candidate] = issues
+        return issues
 
     built_arrangement = ARRANGEMENTS[0]
 
@@ -2736,9 +2750,8 @@ def build_drawing(
     )
 
     def _automatic_assessment(candidate):
-        # One lint pass feeds both structural and requirement gates.  Re-running lint here
-        # used to duplicate the most expensive post-build critique for every trial.
-        issues = tuple(candidate.lint(physical=False))
+        # One recognition-free critique feeds every builder gate on this finished attempt.
+        issues = _placement_issues(candidate)
         return issues, _scale_blockers_from_issues(issues)
 
     def _principal_names(candidate):
@@ -2829,7 +2842,7 @@ def build_drawing(
                     views=settled_principal_views,
                     retry_reason="arrangement_preserve_requirements",
                 ),
-                lambda built: _scale_blockers(built, physical=False),
+                lambda built: _scale_blockers_from_issues(_placement_issues(built)),
             )
             # The arrangement gate may return a rebuilt preferred-layout drawing.  Issues
             # cached from the pre-gate candidate describe different placed ink and must never
