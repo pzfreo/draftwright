@@ -26,6 +26,9 @@ def _drawing():
 
 def test_declared_sheet_report_uses_final_ir_authority_and_retains_lint() -> None:
     drawing = _drawing()
+    drawing.detail_decisions.append(
+        {"status": "refused", "reason": "no_room_for_minimum_footprint"}
+    )
 
     report = drawing.report()
 
@@ -40,6 +43,11 @@ def test_declared_sheet_report_uses_final_ir_authority_and_retains_lint() -> Non
     assert report["declarations"]["feature_count"] == len(drawing.model().features)
     assert sum(report["declarations"]["by_kind"].values()) == len(drawing.model().features)
     assert report["lint"] == json.loads(json.dumps(drawing.lint_summary()))
+    assert report["layout"]["decisions"]["detail"] == {
+        "availability": "available",
+        "coverage_authority": False,
+        "requests": drawing.detail_decisions,
+    }
     assert "recognition" not in report
 
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))

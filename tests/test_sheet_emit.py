@@ -2298,6 +2298,7 @@ class TestRoundTripParity:
 
         assert _annotation_signature(scripted) == _annotation_signature(direct)
         assert sorted(scripted.views) == sorted(direct.views)
+        assert scripted.detail_decisions == direct.detail_decisions
         da, sa = direct._analysis, scripted._analysis
         assert round(sa.SCALE, 4) == round(da.SCALE, 4)
         assert (sa.PAGE_W, sa.PAGE_H) == (da.PAGE_W, da.PAGE_H)

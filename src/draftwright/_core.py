@@ -1131,6 +1131,9 @@ class DetailRequest:
     #: Render-time refusal retained so the owner can report the real constraint,
     #: rather than mislabelling an invalid crop as a page-fit failure.
     failure_reason: str | None = None
+    failure_code: str | None = None
+    placed_scale: float | None = None
+    fit_evidence: dict[str, object] | None = None
 
 
 def _detail_caption(req: DetailRequest, letter: str, scale: float, bb) -> str:

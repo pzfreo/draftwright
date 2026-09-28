@@ -163,6 +163,22 @@ def test_raw_report_has_the_closed_v3_shape_and_exact_owner(fresh_drawing) -> No
     validator_for(schema)(schema).validate(report)
 
 
+def test_raw_report_projects_recorded_detail_extent_without_claiming_coverage(fresh_drawing):
+    drawing = fresh_drawing("through_step_report")
+    drawing.detail_decisions.append(
+        {"status": "placed", "extent": {"axis": "z", "lo": 1.0, "hi": 2.0}}
+    )
+
+    report = drawing.report()
+
+    assert report["layout"]["detail"] == {
+        "coverage_authority": False,
+        "requests": drawing.detail_decisions,
+    }
+    validator_for(_schema())(_schema()).validate(report)
+    json.dumps(report, allow_nan=False)
+
+
 def test_grouped_occurrences_share_one_physical_requirement_ledger() -> None:
     report = build_drawing(_grouped_holes_part()).report()
     recognition = report["recognition"]

@@ -1688,6 +1688,7 @@ def drawing_report(
     dimension_plan: object | None = None,
     part: object | None = None,
     requirement_outcomes: Mapping[str, tuple[Any, ...]] | None = None,
+    detail_decisions: tuple[dict[str, object], ...] = (),
 ) -> dict[str, object]:
     """Build the strict schema-v3 report for one raw automatic drawing.
 
@@ -1716,7 +1717,7 @@ def drawing_report(
     # occurrence/requirement identity contract unchanged while making the first machine-facing
     # summary a vector rather than the legacy severity scalar (#1609, #1618).
     lint = {"assessment": assessment, **lint}
-    return {
+    result = {
         "schema": REPORT_SCHEMA,
         "schema_version": REPORT_SCHEMA_VERSION,
         "status": assessment["status"],
@@ -1733,6 +1734,14 @@ def drawing_report(
         },
         "lint": lint,
     }
+    if detail_decisions:
+        result["layout"] = {
+            "detail": {
+                "coverage_authority": False,
+                "requests": json_value(detail_decisions),
+            }
+        }
+    return result
 
 
 def _declared_representations(model: PartModel, registry: object | None) -> tuple[dict, ...]:
@@ -2132,8 +2141,9 @@ def _declared_layout(
             "arrangement": drawing.arrangement_decision,
             "section": drawing.section_decision,
             "detail": {
-                "availability": "unavailable",
-                "reason": "detail-request outcomes are not retained after placement",
+                "availability": "available",
+                "coverage_authority": False,
+                "requests": drawing.detail_decisions,
             },
             "tables": {
                 "availability": "unavailable",

@@ -115,6 +115,25 @@
     "lint": {
       "type": "object",
       "description": "The existing Drawing.lint_summary() JSON contract."
+    },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["detail"],
+      "properties": {
+        "detail": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["coverage_authority", "requests"],
+          "properties": {
+            "coverage_authority": { "const": false },
+            "requests": {
+              "type": "array",
+              "items": { "type": "object" }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
