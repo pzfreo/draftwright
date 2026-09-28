@@ -154,6 +154,12 @@ def test_only_shim_contract_tests_import_compatibility_modules() -> None:
                 names.update(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names.add(node.module)
+                if node.module == "draftwright":
+                    names.update(
+                        f"draftwright.{alias.name}"
+                        for alias in node.names
+                        if alias.name in {"recognition", "score", "annotate"}
+                    )
             elif (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
