@@ -43,7 +43,8 @@ dimension-intent validation (ADR 1) → **1**
 passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` and
 `intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
 `builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
-`sheet_object_source`, `inspection`, `cli`, the recogniser/inspection contract joins).
+`sheet_object_source`, `inspection`, `evaluation/`, `cli`, the recogniser/inspection
+contract joins).
 `make_drawing` / `annotate`
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
 `annotation_layout_profile` owns feature-leader region policy at rank 1;
