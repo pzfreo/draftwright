@@ -119,6 +119,13 @@ wall time for each case, plus peak resident memory and host OS, architecture, Py
 logical CPU/physical core counts, and physical RAM. The corpus summary reports sample counts, median, and
 nearest-rank p95 separately for candidate process/build time, baseline process time, and
 candidate peak memory. A failed candidate retains its process time in a separate distribution.
+For a fresh one-build observation without rebuilding the baseline,
+`scripts/annotation-scheme-corpus --candidate-only` runs only the public
+`demand-guided` path, retains each case report and input STEP SHA-256, and
+records the Git commit and tracked-worktree cleanliness alongside the aggregate.
+It summarizes candidate cost and failures but deliberately reports neither
+semantic parity nor relative visual wins; those still require separate paired
+evidence against a valid baseline.
 Linux/macOS use `resource.ru_maxrss`; Windows uses `psutil`'s peak working set. The isolated
 process time includes interpreter startup and report transfer; build time does not. Comparisons
 must use the same fixed page/scale, export formats, and host class, and must record the runner's

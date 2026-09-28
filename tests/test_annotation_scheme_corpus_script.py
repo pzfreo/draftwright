@@ -1,6 +1,8 @@
+import hashlib
 import importlib.machinery
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -245,6 +247,168 @@ def test_candidate_first_summary_keeps_rendered_candidates_separate_from_wins():
         "p95_nearest_rank": 250.0,
     }
     assert summary["cost"]["fallback_rate"] is None
+
+
+def test_candidate_only_runs_one_worker_and_never_claims_relative_parity(
+    monkeypatch, tmp_path, capsys
+):
+    script = _load_script()
+    commands = []
+
+    def run(command, **_kwargs):
+        commands.append(command)
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {
+                    "mode": "candidate-preview",
+                    "cost": {"build_seconds": 2.0, "peak_rss_mib": 120.0},
+                    "manifest": {"arrangement_quality": {"required_outcomes_dropped": 3}},
+                    "layout_decision": {"pre_render_choice": {"profile": "columns"}},
+                }
+            ),
+            stderr="",
+            returncode=0,
+        )
+
+    monkeypatch.setattr(script.subprocess, "run", run)
+    monkeypatch.setattr(
+        script.subprocess,
+        "check_output",
+        lambda command, **_kwargs: "abc123\n" if command[1] == "rev-parse" else "",
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--manifest",
+            str(MANIFEST),
+            "--output",
+            str(tmp_path / "candidate-only"),
+            "--candidate-only",
+        ],
+    )
+
+    assert script.main() == 0
+    report = json.loads(capsys.readouterr().out)
+    assert len(commands) == 2
+    assert all(command[-3:] == ["--worker", "--mode", "candidate-preview"] for command in commands)
+    assert report["selector"] == "candidate-only"
+    assert set(report["source_revision"]) == {"git_commit", "tracked_worktree_clean"}
+    assert (
+        report["results"][0]["source_sha256"]
+        == hashlib.sha256(
+            (SCRIPT.parents[1] / "tests/fixtures/nist_ctc_01_asme1_ap242.stp").read_bytes()
+        ).hexdigest()
+    )
+    assert report["summary"]["rendered_candidate"] == 2
+    assert report["summary"]["baseline_built"] is False
+    assert report["summary"]["semantic_parity_assessed"] is False
+    assert report["summary"]["relative_quality_assessed"] is False
+    assert report["summary"]["cohort_gate_eligible"] is False
+    assert "quality_comparison" not in report["results"][0]
+
+
+def test_candidate_only_worker_failure_is_persisted_and_fails_the_run(
+    monkeypatch, tmp_path, capsys
+):
+    script = _load_script()
+    monkeypatch.setattr(
+        script.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="", stderr="build error", returncode=1),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--manifest",
+            str(MANIFEST),
+            "--output",
+            str(tmp_path / "candidate-only"),
+            "--candidate-only",
+            "--case",
+            "ctc01-a3-1to5",
+        ],
+    )
+
+    assert script.main() == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["summary"]["failed_candidate"] == 1
+    assert report["results"][0]["candidate"]["error"] == "worker_failed"
+    saved = tmp_path / "candidate-only/case-reports/ctc01-a3-1to5.json"
+    assert json.loads(saved.read_text(encoding="utf-8")) == report["results"][0]
+
+
+def test_candidate_only_rejects_incomplete_worker_evidence(monkeypatch, tmp_path):
+    script = _load_script()
+    monkeypatch.setattr(
+        script.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stdout=json.dumps({"mode": "candidate-preview", "cost": {}}),
+            stderr="",
+            returncode=0,
+        ),
+    )
+    case = script._load_manifest(MANIFEST)["cases"][0]
+
+    with pytest.raises(ValueError, match="incomplete candidate report"):
+        script._run_case(case, tmp_path, candidate_only=True)
+
+
+def test_candidate_only_refuses_source_changed_during_build(monkeypatch, tmp_path):
+    script = _load_script()
+    observed_hashes = iter(("before", "after"))
+    monkeypatch.setattr(script, "_sha256_file", lambda _path: next(observed_hashes))
+    monkeypatch.setattr(
+        script.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout="", stderr="failure", returncode=1),
+    )
+    case = script._load_manifest(MANIFEST)["cases"][0]
+
+    with pytest.raises(RuntimeError, match="source changed"):
+        script._run_case(case, tmp_path, candidate_only=True)
+
+
+def test_candidate_only_timeout_is_a_failed_case_not_a_baseline_retry(monkeypatch, tmp_path):
+    script = _load_script()
+    commands = []
+
+    def timeout(command, **_kwargs):
+        commands.append(command)
+        raise subprocess.TimeoutExpired(command, 5)
+
+    monkeypatch.setattr(script.subprocess, "run", timeout)
+    case = script._load_manifest(MANIFEST)["cases"][0]
+    result = script._run_case(case, tmp_path, candidate_only=True, worker_timeout_seconds=5)
+
+    assert len(commands) == 1
+    assert commands[0][-3:] == ["--worker", "--mode", "candidate-preview"]
+    assert result["status"] == "failed"
+    assert result["candidate"]["error"] == "worker_timeout"
+
+
+def test_candidate_only_refuses_relative_win_gates(monkeypatch, tmp_path):
+    script = _load_script()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--manifest",
+            str(MANIFEST),
+            "--output",
+            str(tmp_path / "candidate-only"),
+            "--candidate-only",
+            "--require-wins",
+            "1",
+        ],
+    )
+    with pytest.raises(SystemExit, match="2"):
+        script.main()
 
 
 def test_candidate_first_case_dispatches_the_preview_comparison(monkeypatch, tmp_path):
