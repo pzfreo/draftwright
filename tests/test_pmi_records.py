@@ -3,7 +3,10 @@
 import inspect
 import pickle
 
+import pytest
+
 from draftwright import pmi
+from draftwright._pmi_linear_geometry import _linear_reference_stations
 
 
 def test_pmi_records_keep_source_inspection_and_pickle_paths():
@@ -18,3 +21,27 @@ def test_pmi_records_keep_source_inspection_and_pickle_paths():
     report = pmi.PmiExtractionReport(sources=(source,), records=(record,))
     for value in (record, source, report):
         assert pickle.loads(pickle.dumps(value)) == value
+
+
+@pytest.mark.parametrize(
+    ("stations", "nominal", "axis", "reason"),
+    [
+        (((0, 0, 0), None), 10, "?", "two measurable authored reference groups"),
+        (((0, 0, 0), (0, 0, 0)), 0, "?", "same station"),
+        (((0, 0, 0), (3, 4, 5)), 7, "?", "principal projection plane"),
+        (((0, 0, 0), (3, 4, 0)), 5, "?", None),
+        (((0, 0, 0), (10, 0, 0)), 9, "X", "differs from nominal"),
+        (((0, 0, 0), (10, 0, 0)), 10, "X", None),
+    ],
+)
+def test_linear_reference_stations_only_accept_truthful_authored_spans(
+    stations, nominal, axis, reason
+):
+    measured, actual_axis, findings = _linear_reference_stations(stations, nominal)
+    assert measured == tuple(station for station in stations if station is not None)
+    assert actual_axis == axis
+    if reason is None:
+        assert findings == ()
+    else:
+        assert len(findings) == 1
+        assert reason in findings[0]
