@@ -53,7 +53,7 @@ from __future__ import annotations
 import inspect
 import math
 import warnings
-from collections.abc import Callable, MutableSequence, Sequence
+from collections.abc import MutableSequence
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -120,8 +120,8 @@ from draftwright.model.declare import (
 )
 from draftwright.model.declare import read_bore_step as _read_bore_step
 from draftwright.model.declare import read_countersink as _read_countersink
+from draftwright.model.ir import PLACEMENT_SIDES as PLACEMENT_SIDES
 from draftwright.model.ir import (
-    PLACEMENT_SIDES,
     ControlFrame,
     DatumRef,
     DeclarationIdentity,
@@ -142,6 +142,19 @@ from draftwright.model.planner import (
     validate_dimension_placement,
 )
 from draftwright.model.planner import location_role as _location_role
+from draftwright.sheet_features import _FeatureView
+from draftwright.sheet_layout_controls import (
+    _declaration_token as _layout_declaration_token,
+)
+from draftwright.sheet_layout_controls import (
+    _dimension_entry_for_layout as _layout_dimension_entry_for_layout,
+)
+from draftwright.sheet_layout_controls import _identify as _layout_identify
+from draftwright.sheet_layout_controls import layout_options as _layout_options
+from draftwright.sheet_layout_controls import layout_override as _layout_apply_layout_override
+from draftwright.sheet_layout_controls import (
+    validate_layout_override as _layout_validate_layout_override,
+)
 from draftwright.view_plan import (
     PRINCIPAL_VIEW_NAMES,
     ConstraintSource,
@@ -259,139 +272,6 @@ def _requirement_parameter(feature, target: str):
             "owners and the diameter owners of boss, hole, pattern, or rotational features"
         )
     return parameter
-
-
-class _FeatureView(MutableSequence):
-    """The public ``Sheet.features`` list — a view over ``(token, feature)`` entries.
-
-    Handles address their feature by **token**, not position (#908), and this view is
-    what keeps the two in step. Every mutation moves entries, so the token travels with
-    the feature it names:
-
-    - ``append`` mints a new token — a declaration;
-    - ``features[i] = f`` mints a **new** token: assignment cannot express "move this
-      feature here", so inheriting the slot's identity would silently hand every
-      reference to whatever was assigned. Stale references fail loudly instead. The
-      identity-preserving rebuild a size verb needs is :meth:`_rebind`;
-    - ``reverse`` / ``sort`` / ``insert`` reorder entries, so a handle simply finds its
-      feature at the new position rather than silently naming a neighbour;
-    - ``del`` drops the token, so a handle for a removed feature raises when used.
-
-    Before this, everything addressed by index into a plain list, and #872 found ways
-    for a long-lived reference — a tolerance, a GD&T origin, a
-    section, a dimension intent — to end up pointing at the wrong feature. Each fix
-    detected one route and opened another. Carrying identity makes the class impossible
-    instead of detectable.
-    """
-
-    __slots__ = ("_entries", "_next_token", "validate_change")
-
-    def __init__(self, entries: list) -> None:
-        self._entries = entries
-        # A plain int, not `itertools.count`: counters lose pickle/copy support in
-        # Python 3.14 and this package supports >=3.11, so a Sheet carrying one would
-        # stop being copyable. Per-sheet rather than global because tokens appear in
-        # internal keys and this project holds output to be deterministic — a
-        # process-wide counter would make those keys depend on how many other sheets
-        # happened to be built first.
-        self._next_token = 0
-        self.validate_change: Callable[[Sequence], None] | None = None
-
-    def _validate(self, values):
-        if self.validate_change is not None:
-            self.validate_change(values)
-
-    def _mint(self) -> int:
-        token = self._next_token
-        self._next_token += 1
-        return token
-
-    def __getitem__(self, i):
-        if isinstance(i, slice):
-            return [e[1] for e in self._entries[i]]
-        return self._entries[i][1]
-
-    def __setitem__(self, i, value) -> None:
-        # Public assignment always mints a NEW token, scalar or slice.
-        #
-        # This is the distinction an earlier draft got wrong. Keeping the destination
-        # slot's token is right for the INTERNAL rebuild a size verb does — `.depth()`
-        # replaces the frozen dataclass with an updated copy of the same feature — but on
-        # the public view, assignment cannot tell "move this feature here" from "put a
-        # different feature here". Preserving identity across it silently transferred
-        # every reference (handles, tolerances, GD&T origins, sections, intents) onto
-        # whatever was assigned, which is the exact bug this class exists to remove:
-        #
-        #     features[0], features[1] = features[1], features[0]   # a tuple swap
-        #     features[:] = features[::-1]                          # a slice reversal
-        #
-        # both of which move VALUES between slots. Minting fresh tokens makes those
-        # references fail loudly instead. To reorder while keeping identity, use
-        # `reverse()` / `sort()`, which move whole entries. Internal rebuilding goes
-        # through `_rebind`, which is the only path that preserves a token.
-        current = list(self)
-        if isinstance(i, slice):
-            value = list(value)
-        current[i] = value
-        self._validate(current)
-        if isinstance(i, slice):
-            self._entries[i] = [(self._mint(), f) for f in value]
-            return
-        self._entries[i] = (self._mint(), value)
-
-    def _rebind(self, index: int, feature) -> None:
-        """Replace the feature at *index* KEEPING its token — the same feature, rebuilt.
-
-        The only identity-preserving write. Used by the size verbs, whose frozen
-        dataclasses are replaced wholesale on every `.depth()` / `.cbore()` / `.thread()`.
-        """
-        current = list(self)
-        current[index] = feature
-        self._validate(current)
-        self._entries[index] = (self._entries[index][0], feature)
-
-    def __delitem__(self, i) -> None:
-        current = list(self)
-        del current[i]
-        self._validate(current)
-        del self._entries[i]
-
-    def clear(self) -> None:
-        self._validate([])
-        self._entries.clear()
-
-    def __len__(self) -> int:
-        return len(self._entries)
-
-    def insert(self, i, value) -> None:
-        current = list(self)
-        current.insert(i, value)
-        self._validate(current)
-        self._entries.insert(i, (self._mint(), value))
-
-    def extend(self, values) -> None:
-        values = list(values)
-        self._validate([*self, *values])
-        self._entries.extend((self._mint(), value) for value in values)
-
-    # Reordering must move ENTRIES, not values. `MutableSequence` implements `reverse`
-    # in terms of `__setitem__`, which here keeps each slot's token — right for a size
-    # verb replacing a feature in place, wrong for a reorder, where it would swap the
-    # features and leave every token pointing at its old position. Overriding both is
-    # what makes a reorder transparent to handles rather than silently retargeting them.
-    def reverse(self) -> None:
-        self._entries.reverse()
-
-    def sort(self, *, key=None, reverse: bool = False) -> None:
-        self._entries.sort(
-            key=(lambda e: e[1]) if key is None else (lambda e: key(e[1])), reverse=reverse
-        )
-
-    def __repr__(self) -> str:
-        return repr([e[1] for e in self._entries])
-
-    def __eq__(self, other) -> bool:
-        return [e[1] for e in self._entries] == list(other)
 
 
 class _Nameable:
@@ -1817,16 +1697,7 @@ class Sheet:
     def _identify(self, token: int, identity: DeclarationIdentity) -> None:
         """Bind one validated identity to a live declaration token."""
 
-        self._index_of_token(token)
-        live_tokens = {live_token for live_token, _feature in self._entries}
-        for other_token, existing in self._declaration_identities.items():
-            if (
-                other_token != token
-                and existing.declaration_id == identity.declaration_id
-                and other_token in live_tokens
-            ):
-                raise ValueError(f"duplicate declaration_id {identity.declaration_id!r}")
-        self._declaration_identities[token] = identity
+        _layout_identify(self, token, identity)
 
     def by_declaration(self, declaration_id: str) -> _Params:
         """Return the live handle carrying *declaration_id*, or fail if it was withdrawn."""
@@ -1836,38 +1707,14 @@ class Sheet:
     def _declaration_token(self, declaration_id: str) -> int:
         """Resolve one build-scoped declaration ID to its live token."""
 
-        live_tokens = {token for token, _feature in self._entries}
-        matches = [
-            token
-            for token, identity in self._declaration_identities.items()
-            if identity.declaration_id == declaration_id and token in live_tokens
-        ]
-        if len(matches) != 1:
-            raise ValueError(
-                f"by_declaration({declaration_id!r}) requires one live declaration; "
-                f"found {len(matches)}"
-            )
-        return matches[0]
+        return _layout_declaration_token(self, declaration_id)
 
     def _dimension_entry_for_layout(
         self, token: int, parameter_id: str
     ) -> tuple[dict, str] | None:
         """Return the one declared dimension entry addressed by a lane override."""
 
-        for entries in (self._authored, self._added_dimensions):
-            matches = [
-                entry
-                for entry in entries
-                if entry["token"] == token and entry["role"] == parameter_id
-            ]
-            if len(matches) > 1:
-                raise ValueError(
-                    f"dimension {parameter_id!r} is declared more than once; "
-                    "remove the conflicting intent before overriding its lane"
-                )
-            if matches:
-                return matches[0], parameter_id
-        return None
+        return _layout_dimension_entry_for_layout(self, token, parameter_id)
 
     def layout_options(
         self, declaration_id: str, *, parameter: DimensionParameterId | None = None
@@ -1878,68 +1725,7 @@ class Sheet:
         solve still decides whether the requested corridor can be used on the final sheet.
         """
 
-        token = self._declaration_token(declaration_id)
-        feature = self._features[self._index_of_token(token)]
-        if parameter is not None:
-            handle = _Params(self, self._index_of_token(token))
-            _resolved_token, target, discriminator, canonical = self._resolve_measurement(
-                handle, parameter, None, "layout_options"
-            )
-            parameter_id = next(
-                (
-                    item.parameter_id
-                    for item in target.parameters()
-                    if canonical in (item.role, item.parameter_id)
-                    and item.discriminator == discriminator
-                ),
-                canonical,
-            )
-            entry = self._dimension_entry_for_layout(token, parameter_id)
-            if entry is None:
-                raise ValueError(
-                    f"declaration {declaration_id!r} has no declared dimension "
-                    f"{parameter_id!r} to override"
-                )
-            if not dimension_lane_supported(feature, parameter_id):
-                raise ValueError(
-                    f"dimension {parameter_id!r} on {feature.kind} does not expose a lane control"
-                )
-            return {
-                "schema": "draftwright.layout-options",
-                "schema_version": 1,
-                "scope": "single-dimension-layout-controls",
-                "requires_build_validation": True,
-                "declaration_id": declaration_id,
-                "feature_kind": feature.kind,
-                "parameter_id": parameter_id,
-                "controls": {
-                    "lane": {
-                        "current": entry[0].get("lane"),
-                        "minimum": 1,
-                        "maximum": 8,
-                        "meaning": "one-based drafting-spaced lane from the feature witness",
-                    }
-                },
-            }
-        side = getattr(feature, "side", None)
-        if side not in PLACEMENT_SIDES:
-            raise ValueError(
-                f"declaration {declaration_id!r} does not expose a supported side control"
-            )
-        return {
-            "schema": "draftwright.layout-options",
-            "schema_version": 1,
-            "scope": "single-declaration-layout-controls",
-            "requires_build_validation": True,
-            "declaration_id": declaration_id,
-            "feature_kind": feature.kind,
-            "controls": {
-                "side": {
-                    "current": side,
-                    "supported_values": sorted(PLACEMENT_SIDES),
-                }
-            },
-        }
+        return _layout_options(self, declaration_id, parameter=parameter, handle_factory=_Params)
 
     def validate_layout_override(
         self,
@@ -1956,101 +1742,9 @@ class Sheet:
         requires :meth:`build` to establish geometric feasibility on the composed sheet.
         """
 
-        result: dict[str, object] = {
-            "schema": "draftwright.layout-validation",
-            "schema_version": 1,
-            "scope": "single-declaration-layout-controls",
-            "requires_build_validation": True,
-            "declaration_id": declaration_id,
-            "supported": False,
-            "issues": [],
-            "options": None,
-        }
-        try:
-            token = self._declaration_token(declaration_id)
-        except ValueError as error:
-            result["issues"] = [
-                {
-                    "code": "invalid_declaration",
-                    "message": str(error),
-                }
-            ]
-            return result
-        if unsupported_controls:
-            result["issues"] = [
-                {
-                    "code": "unsupported_control",
-                    "controls": sorted(unsupported_controls),
-                    "message": "layout_override accepts only side, or parameter with lane",
-                }
-            ]
-            return result
-        if (side is None) == (lane is None):
-            result["issues"] = [
-                {
-                    "code": "invalid_control_combination",
-                    "message": "specify exactly one of side or lane",
-                }
-            ]
-            return result
-        if lane is not None and parameter is None:
-            result["issues"] = [
-                {
-                    "code": "invalid_control_combination",
-                    "message": "lane requires an exact parameter selector",
-                }
-            ]
-            return result
-        if side is not None and parameter is not None:
-            result["issues"] = [
-                {
-                    "code": "invalid_control_combination",
-                    "message": "parameter selects a dimension lane and cannot accompany side",
-                }
-            ]
-            return result
-        feature = self._features[self._index_of_token(token)]
-        try:
-            options = self.layout_options(declaration_id, parameter=parameter)
-        except (TypeError, ValueError, IndexError) as error:
-            result["issues"] = [
-                {
-                    "code": "unsupported_declaration",
-                    "feature_kind": feature.kind,
-                    "message": str(error),
-                }
-            ]
-            return result
-        result["options"] = options
-        if side is not None:
-            supported = options["controls"]["side"]["supported_values"]  # type: ignore[index]
-            if side not in supported:
-                result["issues"] = [
-                    {
-                        "code": "unsupported_value",
-                        "control": "side",
-                        "value": side,
-                        "supported_values": supported,
-                        "message": f"side must be a supported side: {supported} (got {side!r})",
-                    }
-                ]
-                return result
-        else:
-            assert parameter is not None
-            if isinstance(lane, bool) or not isinstance(lane, int) or not 1 <= lane <= 8:
-                result["issues"] = [
-                    {
-                        "code": "unsupported_value",
-                        "control": "lane",
-                        "value": lane,
-                        "minimum": 1,
-                        "maximum": 8,
-                        "message": f"lane must be an integer from 1 to 8 (got {lane!r})",
-                    }
-                ]
-                return result
-        result["supported"] = True
-        return result
+        return _layout_validate_layout_override(
+            self, declaration_id, side=side, parameter=parameter, lane=lane, **unsupported_controls
+        )
 
     def layout_override(
         self,
@@ -2067,30 +1761,9 @@ class Sheet:
         coordinates; the shared placement solve resolves and validates the physical offset.
         """
 
-        key = (declaration_id, parameter)
-        if any((row.declaration_id, row.parameter_id) == key for row in self._layout_overrides):
-            raise ValueError(f"layout target {key!r} already has a layout override")
-        validation = self.validate_layout_override(
-            declaration_id, side=side, parameter=parameter, lane=lane
+        return _layout_apply_layout_override(
+            self, declaration_id, side=side, parameter=parameter, lane=lane
         )
-        if not validation["supported"]:
-            issues = cast(list[dict[str, object]], validation["issues"])
-            raise ValueError(str(issues[0]["message"]))
-        token = self._declaration_token(declaration_id)
-        if side is not None:
-            index = self._index_of_token(token)
-            self._replace_feature(index, replace(self._features[index], side=side))
-            self._layout_overrides.append(LayoutOverride(declaration_id, side))
-        else:
-            options = cast(dict[str, object], validation["options"])
-            parameter_id = cast(str, options["parameter_id"])
-            entry = self._dimension_entry_for_layout(token, parameter_id)
-            assert entry is not None and lane is not None
-            entry[0]["lane"] = lane
-            self._layout_overrides.append(
-                LayoutOverride(declaration_id, parameter_id=parameter_id, lane=lane)
-            )
-        return self
 
     def _declared_token(self, ref, *, verb: str) -> int | None:
         """The token of the declared feature *ref* names, or ``None`` if it names none.
