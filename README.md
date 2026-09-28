@@ -255,7 +255,7 @@ build_drawing(part, scale=1.0, page="A4", scale_policy="permissive")
 
 ```python
 dwg = build_drawing(part, annotation_layout="estimated-strips")  # original planning
-dwg = build_drawing(part, annotation_layout="demand-guided")    # one-build alternative
+dwg = build_drawing(part, annotation_layout="demand-guided")    # current one-build default
 dwg = build_drawing(part, annotation_layout="compare")          # multi-build comparison
 print(dwg.annotation_scheme_decision)  # selected trial and finished-drawing evidence
 ```
@@ -263,7 +263,7 @@ print(dwg.annotation_scheme_decision)  # selected trial and finished-drawing evi
 Both planning algorithms use the same annotation placement solver. `estimated-strips`
 reserves annotation corridors from feature-based estimates; `demand-guided` uses typed
 annotation demand to choose a planning profile before rendering. The current default
-is `estimated-strips`.
+is `demand-guided`; `estimated-strips` remains an explicit compatibility choice.
 
 `compare` builds the estimated-strips layout first, then tries a bounded alternative on
 the **same sheet and scale**. It selects an alternative only when rendered annotation
