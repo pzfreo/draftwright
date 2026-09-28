@@ -163,6 +163,9 @@ and re-exports the existing private helper names.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.
+  - **`annotations/_edge_callouts.py`** — owns compiler-approved chamfer, fillet,
+    and Blend labels, physical attachment sites, and leader candidate jobs. The
+    public passes in `from_model` retain the shared late assignment and outcomes.
   - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
     in-plane dimension witnesses, corridor candidates, and obround-radius
     candidates. `from_model.render_slots` retains the public pass and submits

@@ -242,6 +242,20 @@ CONTRACT_GROUPS = {
             "test_issue_740_leader_assignment.py",
         ),
     ),
+    "edge_callouts": ContractGroup(
+        ("src/draftwright/annotations/_edge_callouts.py",),
+        (
+            "test_machined_feature_callouts.py",
+            "test_issue_1433_blend_semantics.py",
+            "test_issue_1254_turned_chamfers.py",
+            "test_issue_1281_turned_fillets.py",
+            "test_issue_1374_chamfer_completeness_evidence.py",
+            "test_issue_1374_fillet_completeness_evidence.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_script_detail_parity.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (

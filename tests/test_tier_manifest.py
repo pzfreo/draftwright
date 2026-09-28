@@ -54,6 +54,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "drawing_edits": "src/draftwright/drawing_edits.py",
         "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
         "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
+        "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -254,6 +255,19 @@ def test_pocket_pad_owner_runs_its_label_and_placement_contracts():
         "test_tolerances.py",
         "test_refactor_golden.py",
         "test_issue_740_leader_assignment.py",
+    } <= selected
+
+
+def test_edge_callout_owner_selects_physical_and_script_contracts():
+    source = "src/draftwright/annotations/_edge_callouts.py"
+    assert selected_groups([source]) == {"edge_callouts", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_machined_feature_callouts.py",
+        "test_issue_1433_blend_semantics.py",
+        "test_issue_1374_chamfer_completeness_evidence.py",
+        "test_issue_1374_fillet_completeness_evidence.py",
+        "test_script_detail_parity.py",
     } <= selected
 
 
