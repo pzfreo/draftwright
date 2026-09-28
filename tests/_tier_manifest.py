@@ -26,6 +26,14 @@ CONTRACT_GROUPS = {
         ("src/draftwright/annotations/from_model.py",),
         ("test_through_step_semantics.py",),
     ),
+    "hole_locations": ContractGroup(
+        ("src/draftwright/annotations/hole_locations.py",),
+        (
+            "test_lint_summary.py",
+            "test_location_dimensions.py",
+            "test_location_vocabulary.py",
+        ),
+    ),
     "recognition": ContractGroup(
         (
             "src/draftwright/recogn*",

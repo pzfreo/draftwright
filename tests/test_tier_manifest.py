@@ -30,6 +30,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
     probes = {
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
+        "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
@@ -53,6 +54,17 @@ def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
 def test_from_model_change_runs_through_step_placement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/annotations/from_model.py"])
     assert "test_through_step_semantics.py" in selected
+
+
+def test_hole_location_source_selects_its_behavior_and_evidence_contracts():
+    source = "src/draftwright/annotations/hole_locations.py"
+    assert selected_groups([source]) == frozenset({"hole_locations", "placement"})
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_location_dimensions.py",
+        "test_location_vocabulary.py",
+        "test_lint_summary.py",
+    } <= selected
 
 
 def test_unknown_production_module_selects_every_contract_group():
