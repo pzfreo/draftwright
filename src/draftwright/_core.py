@@ -1133,6 +1133,19 @@ class DetailRequest:
     failure_reason: str | None = None
 
 
+def _detail_caption(req: DetailRequest, letter: str, scale: float, bb) -> str:
+    """Identify a genuinely truncated profile independently of detail family."""
+    partial_profile = False
+    if req.cross_axis is not None and req.cross_lo is not None and req.cross_hi is not None:
+        axis = req.cross_axis.upper()
+        partial_profile = (
+            req.cross_lo > getattr(bb.min, axis) + 1e-6
+            or req.cross_hi < getattr(bb.max, axis) - 1e-6
+        )
+    qualifier = " — PARTIAL PROFILE" if partial_profile else ""
+    return f"DETAIL {letter}{qualifier} — SCALE {format_drawing_scale(scale)}"
+
+
 @dataclass(frozen=True)
 class _Projector:
     """Model → page coordinate projection for the orthographic views.

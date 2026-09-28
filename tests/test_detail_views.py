@@ -26,8 +26,7 @@ class TestDetailView:
     def test_detail_caption_identifies_actual_secondary_crop(self, kind, cross_bounds, partial):
         from types import SimpleNamespace
 
-        from draftwright._core import DetailRequest
-        from draftwright.annotations.sections import _detail_caption
+        from draftwright._core import DetailRequest, _detail_caption
 
         req = DetailRequest(
             axis="x",
