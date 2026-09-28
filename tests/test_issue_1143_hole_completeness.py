@@ -2490,12 +2490,21 @@ def test_unattached_external_countersink_false_positive_is_not_a_hole_requiremen
 def test_failed_hole_table_escalation_restores_semantic_fallback_evidence(monkeypatch):
     import draftwright.drawing as drawing_module
 
-    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    fit_attempts = []
+
+    def refuse_table_fit(*args, **kwargs):
+        fit_attempts.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(drawing_module, "fit_auxiliary_box", refuse_table_fit)
     drawing = build_drawing(_dense_scattered_plate(), page="A3")
 
+    assert fit_attempts, "the table-fit seam was not exercised"
     assert "hole_table_plan" not in drawing.annotations()
     assert "table_dropped" in {issue.code for issue in drawing.lint()}
     outcomes = _outcomes(drawing)
+    assert outcomes, "the failed table must leave hole requirements to assess"
+    assert any(item.state == "dropped" for item in outcomes)
     assert not [item for item in outcomes if item.state == "missing"]
     assert {item.state for item in outcomes} <= {"placed", "dropped"}
 

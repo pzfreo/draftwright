@@ -30,7 +30,7 @@ from _unit_manifest import UNIT_MODULES, unit_paths
 _TESTS = Path(__file__).resolve().parent
 
 # Measured at fee4931 with `ls tests | grep -c '^test_issue'`. MAY ONLY SHRINK.
-_MAX_ISSUE_MODULES = 151
+_MAX_ISSUE_MODULES = 150
 
 
 def test_unit_manifest_names_existing_test_modules_once():

@@ -76,12 +76,16 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright.section_recess_contract",  # pure validated pattern projection during detect
         "draftwright.builder",
         "draftwright.compose",
+        "draftwright.contract_values",  # shared validation at the model boundary
         "draftwright.inspection",
+        "draftwright.layout",  # obligation priority during model planning
         "draftwright.layout_scheme",  # pure typed annotation-scheme validation
         "draftwright.model.callout",
         "draftwright.model.declare",
         "draftwright.model.detect",
+        "draftwright.model.dimension_intent",
         "draftwright.model.ir",
+        "draftwright.model.manufacturing_schedule",
         "draftwright.model.planner",
         "draftwright.pmi",
         "draftwright.recogniser_policy",

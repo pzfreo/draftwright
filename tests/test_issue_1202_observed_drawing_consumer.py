@@ -247,6 +247,19 @@ class TestTheCorrespondenceIsNotFooledByGeometry:
         )
 
 
+def _refuse_table_fit(monkeypatch):
+    from draftwright import drawing as drawing_module
+
+    attempts = []
+
+    def refuse(*args, **kwargs):
+        attempts.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(drawing_module, "fit_auxiliary_box", refuse)
+    return attempts
+
+
 class TestAHoleTableIsAlsoTheFactReachingTheSheet:
     """Above ~16 scattered holes the engine WITHDRAWS the individual `hc_*` callouts and
     places one table plus balloons. Reading only `hc_` scored every hole on such a sheet
@@ -279,7 +292,7 @@ class TestAHoleTableIsAlsoTheFactReachingTheSheet:
             f"a correct table-escalated sheet scored {sorted(set(outcomes))}"
         )
 
-    def test_the_metric_is_not_inverted_on_dense_parts(self):
+    def test_the_metric_is_not_inverted_on_dense_parts(self, monkeypatch):
         # The sharpest statement of the defect: a correct sheet must not score WORSE than
         # the same part whose table failed to fit. Before the fix the correct sheet scored
         # 16/16 unsupported and the broken one only 12/16.
@@ -288,36 +301,28 @@ class TestAHoleTableIsAlsoTheFactReachingTheSheet:
         good_outcomes = _drawing_consumer_outcomes(good.recognition().holes, good)
         good_lost = sum(1 for o in good_outcomes if o != "supported")
 
-        from draftwright import drawing as drawing_module
-
-        original = drawing_module.fit_box
-        drawing_module.fit_box = lambda *a, **k: None
-        try:
-            broken = build_drawing(part, page="A3")
-            broken_outcomes = _drawing_consumer_outcomes(broken.recognition().holes, broken)
-        finally:
-            drawing_module.fit_box = original
+        fit_attempts = _refuse_table_fit(monkeypatch)
+        broken = build_drawing(part, page="A3")
+        broken_outcomes = _drawing_consumer_outcomes(broken.recognition().holes, broken)
         broken_lost = sum(1 for o in broken_outcomes if o != "supported")
 
+        assert fit_attempts, "the table-fit seam was not exercised"
+        assert "table_dropped" in {issue.code for issue in broken.lint()}
         assert broken_lost > 0, "the table did not actually fail to fit; nothing is compared"
         assert good_lost < broken_lost, (
             f"the correct sheet lost {good_lost} holes and the broken one {broken_lost} — "
             f"the metric rewards a worse drawing"
         )
 
-    def test_a_dropped_table_is_not_credited(self):
+    def test_a_dropped_table_is_not_credited(self, monkeypatch):
         # The ledger is written only after the table is placed and the balloon gate passes,
         # and the annotation transaction rolls it back before that — so a `table_dropped`
         # sheet must credit nothing. Asserted on the OUTCOME now that `_table_represented`
         # is gone with the duplicate correspondence.
-        from draftwright import drawing as drawing_module
-
-        original = drawing_module.fit_box
-        drawing_module.fit_box = lambda *a, **k: None
-        try:
-            broken = build_drawing(self._dense(), page="A3")
-        finally:
-            drawing_module.fit_box = original
+        fit_attempts = _refuse_table_fit(monkeypatch)
+        broken = build_drawing(self._dense(), page="A3")
+        assert fit_attempts, "the table-fit seam was not exercised"
+        assert "table_dropped" in {issue.code for issue in broken.lint()}
         names = {n for n, _o in broken.iter_annotations()}
         assert not any(n.startswith("hole_table") for n in names), (
             "the table reached the sheet after all; nothing is under test"
