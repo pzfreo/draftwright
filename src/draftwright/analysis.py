@@ -80,6 +80,7 @@ from draftwright.compose import (
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.detect import _build_part_model_from_recognition
 from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
+from draftwright.model.manufacturing_schedule import manufacturing_schedule
 from draftwright.model.planner import annotation_groups, plan_dimensions
 from draftwright.progress import observed_stage
 from draftwright.recognition_cache import _result_from_evidence
@@ -1491,12 +1492,21 @@ def _analyse(
         else ()
     )
     sizing_groups = annotation_groups(strip_sizing_model, sizing_groups)
+    planned_manufacturing_schedule = manufacturing_schedule(
+        strip_sizing_model,
+        include_source_pmi=pmi_mode == "annotate",
+    )
     bore_callout_width = _est_planned_bore_callout_width(
         sizing_groups,
         _draft_est,
         font_size=_FONT_SIZE,
         pad_around_text=_pad_around_text,
         include_source_pmi=_document_input is None or pmi_mode == "annotate",
+        manufacturing_tags=(
+            planned_manufacturing_schedule.tags_by_source
+            if planned_manufacturing_schedule is not None
+            else None
+        ),
     )
     section_count = _planned_section_count(
         sizing_model,
@@ -1569,6 +1579,17 @@ def _analyse(
         )
         for schedule in schedule_tables
     )
+    if planned_manufacturing_schedule is not None:
+        layout_required_tables += (
+            (
+                _est_table_size(
+                    planned_manufacturing_schedule.rows,
+                    font_size=_FONT_SIZE,
+                    pad_around_text=_pad_around_text,
+                ),
+                "tr",
+            ),
+        )
     planned_iso_scale = _planned_iso_scale(_view_constraints)
     # Recognition's raw face levels can be owned by a plate, channel, or pocket and
     # removed from the final step ladder. Reserve only the levels present in that IR,
@@ -1911,6 +1932,7 @@ def _analyse(
         pmi_report=pmi_report,
         pmi_mode=pmi_mode,
         pmi_defaulted=pmi_defaulted,
+        manufacturing_schedule=planned_manufacturing_schedule,
         document_member=_document_input is not None,
         document_source_annotations=(
             _document_input.source_annotations() if _document_input is not None else ()

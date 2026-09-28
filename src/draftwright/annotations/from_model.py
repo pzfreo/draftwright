@@ -167,6 +167,7 @@ from draftwright.model.ir import (
     _linear_projection_view,
     authored_dimension_target_view,
 )
+from draftwright.model.manufacturing_schedule import manufacturing_callout_suffix
 from draftwright.view_plan import views_showing
 
 
@@ -2013,16 +2014,18 @@ def _diameter_step_anchor(anchor, groups):
     return tuple(centred)
 
 
-def _manufacturing_suffix(thread, knurl=None, *, include_source_pmi=True) -> str | None:
+def _manufacturing_suffix(
+    thread, knurl=None, *, include_source_pmi=True, manufacturing_tags=None
+) -> str | None:
     """Renderer text for typed manufacturing aspects after the canonical diameter."""
     terms = []
     if isinstance(thread, ThreadRequirement):
         if include_source_pmi:
-            terms.append(thread.callout_suffix)
+            terms.append(manufacturing_callout_suffix(thread, manufacturing_tags))
     elif thread:
         terms.append(str(thread))
     if isinstance(knurl, KnurlRequirement) and include_source_pmi:
-        terms.append(knurl.callout_suffix)
+        terms.append(manufacturing_callout_suffix(knurl, manufacturing_tags))
     return "; ".join(terms) or None
 
 
@@ -2191,6 +2194,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
             g.facts.get("thread"),
             g.facts.get("knurl"),
             include_source_pmi=include_source_pmi,
+            manufacturing_tags=ctx.manufacturing_tags,
         )
         if dwg.registry.has_measurement(dpd.id):
             continue
@@ -5068,6 +5072,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
             getattr(b, "thread", None),
             getattr(b, "knurl", None),
             include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
+            manufacturing_tags=ctx.manufacturing_tags,
         )
         if dwg.registry.has_measurement(dpd.id):
             continue

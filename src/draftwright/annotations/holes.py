@@ -2578,6 +2578,7 @@ def _assemble_view_callouts(a, view_of_axis, groups, feature_keys, only, draft, 
         eligible,
         member_locations=members_by_owner,
         include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
+        manufacturing_tags=getattr(ctx, "manufacturing_tags", None),
     ):
         group = batch.groups[0]
         feature = group.feature

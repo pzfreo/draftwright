@@ -3070,6 +3070,8 @@ class PlacementContext:
     # remains discovery-sourced and obeys the member's pmi= policy (#1794).
     document_member: bool = False
     document_source_annotation_ids: frozenset[int] = frozenset()
+    # Activated only after the complete imported manufacturing table fits.
+    manufacturing_tags: dict[str, str] | None = None
     # Per-run cache for :meth:`feature_of_hole_at` — the model is fixed after build, so a
     # per-ctx (per-run) index is correct (mirrors the old ``Drawing._hole_feature_index``).
     _hole_feature_index: Any = field(default=None, repr=False)

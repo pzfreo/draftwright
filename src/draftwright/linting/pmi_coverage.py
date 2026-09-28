@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from typing import Literal
 
@@ -9,6 +10,62 @@ from draftwright.linting.issues import LintIssue
 from draftwright.pmi import PmiExtractionReport
 
 _SUPPORTED_MANUFACTURING_REQUIREMENTS = frozenset(("external_thread", "internal_thread", "knurl"))
+_MANUFACTURING_REF = re.compile(r"\bSEE (MFG [1-9][0-9]*)\b")
+
+
+def lint_manufacturing_references(registry) -> list[LintIssue]:
+    """Judge the finished ink: a short source reference needs its exact full row.
+
+    A table can later be removed through ``drop`` or ``remove``.  The short leader
+    still exists, but without the table it no longer states the requirement.
+    This check reads placed annotations and their feature owners, never a planned
+    table.  Source ownership alone is not proof that the required terms survived.
+    """
+    table = registry.named("manufacturing_requirements")
+    rows = getattr(table, "table_rows", ())
+    source_ids_by_tag = getattr(table, "manufacturing_source_ids", {})
+    rows_by_tag: dict[str, list[str]] = {}
+    if rows and rows[0] == ("REF", "MANUFACTURING REQUIREMENT"):
+        current = None
+        for tag, requirement in rows[1:]:
+            if tag:
+                current = tag
+                rows_by_tag[current] = []
+            if current is not None:
+                rows_by_tag[current].append(requirement)
+    issues = []
+    for name, annotation in registry.iter_named():
+        label = str(getattr(annotation, "label", ""))
+        for tag in _MANUFACTURING_REF.findall(label):
+            aspects = tuple(
+                aspect
+                for owner in registry.features_of(name)
+                for subject in (getattr(owner, "member", None) or owner,)
+                for aspect in (getattr(subject, "thread", None), getattr(subject, "knurl", None))
+                if getattr(aspect, "source_ids", ())
+            )
+            if not aspects:
+                continue  # a user-authored note is not this engine's keyed carrier
+            source_ids = tuple(
+                dict.fromkeys(source_id for aspect in aspects for source_id in aspect.source_ids)
+            )
+            claimed_sources = set(source_ids_by_tag.get(tag, ()))
+            printed = " ".join(rows_by_tag.get(tag, ()))
+            complete = bool(printed and claimed_sources) and any(
+                claimed_sources == set(aspect.source_ids) and printed == aspect.callout_suffix
+                for aspect in aspects
+            )
+            if complete:
+                continue
+            issues.append(
+                LintIssue(
+                    severity="error",
+                    code="manufacturing_reference_unresolved",
+                    message=f"{name} refers to {tag}, but its complete source-matched manufacturing row is absent",
+                    source_ids=source_ids,
+                )
+            )
+    return issues
 
 
 def _registry_subject(feature):

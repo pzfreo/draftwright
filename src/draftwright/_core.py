@@ -1526,6 +1526,9 @@ class Analysis:
     # from the effective mode so the ignored-PMI diagnostic can distinguish that default from
     # an explicit opt-out without widening the three-mode renderer contract (#623).
     pmi_defaulted: bool
+    # Planned alternate carrier for multiple long imported manufacturing terms.
+    # The renderer activates its short feature references only after this table fits.
+    manufacturing_schedule: object | None = None
     # True when this layout is a member projection of a Document's sealed acquisition.
     document_member: bool = False
     # Exact top-level annotation objects supplied by the Document acquisition. Member-authored

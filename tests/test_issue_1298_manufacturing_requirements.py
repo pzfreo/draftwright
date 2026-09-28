@@ -769,13 +769,17 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     } == {
         "m_dia_x0": "ø4",
         "m_dia_x1": "ø6",
-        "m_dia_x2": (
-            "ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
-            "CUT/FORMED PERMITTED"
-        ),
+        "m_dia_x2": "ø10 SEE MFG 2",
         "m_dia_x3": "ø5",
-        "m_dia_x4": "ø3 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH",
+        "m_dia_x4": "ø3 SEE MFG 1",
     }
+    table = drawing.get_annotation("manufacturing_requirements")
+    assert table.table_rows[0] == ("REF", "MANUFACTURING REQUIREMENT")
+    assert " ".join(cell for row in table.table_rows for cell in row if cell) == (
+        "REF MANUFACTURING REQUIREMENT MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
+        "MFG 2 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "CUT/FORMED PERMITTED"
+    )
     knurl_owner = next(
         feature
         for feature in drawing.model().features
@@ -813,6 +817,30 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     }.items():
         tip_y = drawing.get_annotation(name).tip[1]
         assert abs(tip_y - axis_y) == pytest.approx(diameter / 2 * drawing.scale)
+
+    intact_rows = table.table_rows
+    table.table_rows = tuple(
+        (tag, "WRONG" if tag == "MFG 1" else requirement) for tag, requirement in intact_rows
+    )
+    assert {
+        issue.source_ids
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    } == {("manufacturing_requirement:#2000",)}
+    table.table_rows = intact_rows
+
+    # A later curation edit must not leave apparently complete short references
+    # after removing their full manufacturing carrier.
+    drawing.remove("manufacturing_requirements")
+    unresolved = [
+        issue
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    ]
+    assert {issue.source_ids for issue in unresolved} == {
+        ("manufacturing_requirement:#2000",),
+        ("manufacturing_requirement:#2008",),
+    }
 
 
 def test_identical_typed_threads_on_distinct_owners_keep_two_owned_annotations():
@@ -1473,7 +1501,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
 
-    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 1.0)
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
     assert {"front", "side", "detail_a"} <= set(drawing.views)
     assert drawing.get_annotation("detail_caption_A").label == (
         "DETAIL A — PARTIAL PROFILE — SCALE 10:1"
@@ -1485,18 +1513,26 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     expected_manufacturing = {
         "manufacturing_requirement:#2000": (
             "m_dia_x4",
-            "ø3 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH",
+            "ø3 SEE MFG 1",
         ),
         "manufacturing_requirement:#2004": (
             "hc_side0",
-            "⌀1.6 ↧ 8 M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT",
+            "⌀1.6 ↧ 8 SEE MFG 2",
         ),
         "manufacturing_requirement:#2008": (
             "m_dia_x2",
-            "ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
-            "CUT/FORMED PERMITTED",
+            "ø10 SEE MFG 3",
         ),
     }
+    table = drawing.get_annotation("manufacturing_requirements")
+    assert table.source_ids == tuple(expected_manufacturing)
+    assert " ".join(cell for row in table.table_rows for cell in row if cell) == (
+        "REF MANUFACTURING REQUIREMENT "
+        "MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
+        "MFG 2 M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT "
+        "MFG 3 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "CUT/FORMED PERMITTED"
+    )
     typed_occurrences = []
     for feature in drawing.model().features:
         for requirement in (getattr(feature, "thread", None), getattr(feature, "knurl", None)):
