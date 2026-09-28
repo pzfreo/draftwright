@@ -143,6 +143,8 @@ _LAYERS: dict[str, int] = {
     # recognition-owned typed requirement ledgers but never reaches through Drawing internals.
     "reporting": 2,
     "document_evidence": 2,
+    "_pmi_schema": 2,
+    "_pmi_linear_geometry": 2,
     "pmi": 2,
     "export": 2,
     "pdf_text": 2,
