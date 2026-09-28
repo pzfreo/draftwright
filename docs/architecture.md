@@ -123,6 +123,10 @@ observer registry and re-exports its existing private helper names.
     PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 1 (was 0015),
     #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
     were deleted as each migrated here.
+  - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
+    in-plane dimension witnesses, corridor candidates, and obround-radius
+    candidates. `from_model.render_slots` retains the public pass and submits
+    radius jobs to the shared late leader assignment.
   - **`annotations/angular.py`** — angular arc/arrow/extension ink and analytic
     radius-dependent footprints, consumed through the shared corridor solve.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, planar location

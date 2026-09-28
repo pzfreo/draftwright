@@ -344,7 +344,9 @@ class TestTheRendererCannotSeeContent:
             ("from_model", "render_locations"): 1,
             # The shared-width prepass reads a second slot's witness geometry so
             # one physical span can carry both owners (#1599).
-            ("from_model", "render_slots"): 2,
+            # Slot geometry reads moved with the pass implementation; the public
+            # from_model wrapper still receives only the compiled plan.
+            ("_slots", "_render_slot_dimensions"): 2,
             ("hole_locations", "_approved_off_axis_holes"): 1,
             ("holes", "_furnish_uncalled_patterns"): 1,
             ("holes", "_add_grid_pitch_dims"): 1,

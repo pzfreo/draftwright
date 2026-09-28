@@ -33,6 +33,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
+        "slot_rendering": "src/draftwright/annotations/_slots.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -78,6 +79,23 @@ def test_oriented_slot_geometry_change_runs_its_semantics_contract():
 def test_ir_foundation_change_runs_manufacturing_requirement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/model/ir_foundation.py"])
     assert "test_issue_1298_manufacturing_requirements.py" in selected
+
+
+def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():
+    source = "src/draftwright/annotations/_slots.py"
+    assert selected_groups([source]) == {"slot_rendering", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_edit_corridors.py",
+        "test_issue_885_prismatic_coverage.py",
+        "test_issue_1599_duplicate_slot_widths.py",
+        "test_layout_override_lane_issue_1757.py",
+        "test_slot_completeness.py",
+        "test_slot_pattern.py",
+        "test_slot_recognition.py",
+        "test_tolerances.py",
+    } <= selected
+    assert "test_pad_rendering.py" in selected
 
 
 def test_unknown_production_module_selects_every_contract_group():

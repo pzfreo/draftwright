@@ -41,7 +41,8 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
 `_pmi_linear_geometry`, `pmi`,
 `linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
-passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` and
+passes; `from_model.render_slots` delegates slot witnesses to `_slots`, and
+`orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` and
 `intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
 `builder` and guarded layout selection → **7** facades (`sheet` and its private
 identity/layout-control/view owners, `document`, `sheet_emit`,
