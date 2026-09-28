@@ -785,7 +785,9 @@ def _approved_off_axis_holes(plan) -> list[_OffHole]:
     return list(holes.values())
 
 
-def _off_axis_drop(dwg, axis, view, *, ctx, measurement=(), reason="no room beside the view"):
+def _off_axis_drop(
+    dwg, axis, view, *, ctx, measurement=(), reason="no room beside the view", short_span=False
+):
     # Recorded at INFO under a code DISTINCT from the plan path's
     # ``location_ref_dropped`` (which is a warning). Two reasons:
     #  - Severity: a best-effort off-axis location dim that did not fit is not
@@ -804,6 +806,9 @@ def _off_axis_drop(dwg, axis, view, *, ctx, measurement=(), reason="no room besi
         "off_axis_location_dropped",
         f"{axis} location dim for a {view}-view hole not placed ({reason})",
         measurement=measurement,
+        # This gate is independent of layout. The approved span and model are reused
+        # across explicit-scale retries, and a smaller scale cannot restore 1 mm.
+        evidence_reason="off_axis_span_below_1_mm" if short_span else None,
     )
 
 
@@ -931,6 +936,7 @@ def _locate_across(dwg, ctx, a: Analysis, off):
                     ctx=ctx,
                     measurement=entry.id,
                     reason="span shorter than 1 mm at this scale",
+                    short_span=True,
                 )
             continue
         name = f"dim_loc_side_y{round(yo * 100)}"
@@ -1062,6 +1068,7 @@ def _locate_along_planar(dwg, ctx, a: Analysis, off, *, view="front"):
                     ctx=ctx,
                     measurement=entry.id,
                     reason="span shorter than 1 mm at this scale",
+                    short_span=True,
                 )
             continue
         name = f"dim_loc_{view}_x{round(xo * 100)}"
@@ -1145,6 +1152,7 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
                     ctx=ctx,
                     measurement=entry.id,
                     reason="span shorter than 1 mm at this scale",
+                    short_span=True,
                 )
             continue
         if zo in seen_z:

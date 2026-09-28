@@ -492,6 +492,67 @@ def test_step_spacing_drop_on_retry_keeps_later_scales_eligible(monkeypatch):
     assert caught.value.decision["attempted_scales"] == (1.0, 0.5, 0.2, 0.1)
 
 
+@pytest.mark.parametrize(
+    ("post_build", "short_at", "settled_scale", "stops"),
+    [
+        (False, 1.0, 1.0, True),
+        (False, 0.5, 0.5, True),
+        (True, 0.5, 0.5, False),
+        (False, 0.5, 0.1, False),
+    ],
+)
+def test_certified_short_off_axis_span_stops_explicit_fallback_issue_1949(
+    monkeypatch, post_build, short_at, settled_scale, stops
+):
+    import draftwright.builder as builder
+
+    calls = []
+
+    def fake_build(*args, scale, **kwargs):
+        calls.append(scale)
+        issue = (
+            LintIssue(
+                severity="info",
+                code="off_axis_location_dropped",
+                message="approved Y location span is below 1 mm on paper",
+                measurement_ids=("side_hole_y",),
+                evidence_reason="off_axis_span_below_1_mm",
+            )
+            if scale == short_at
+            else LintIssue(
+                severity="warning",
+                code="location_ref_dropped",
+                message="location could not fit",
+            )
+        )
+        return SimpleNamespace(
+            scale=settled_scale if scale == short_at else scale,
+            lint=lambda **_: (issue,),
+            recognition=lambda: None,
+            _analysis=None,
+        )
+
+    monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
+
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        builder.build_drawing(
+            Box(10, 10, 10),
+            scale=1.0,
+            _post_build=(lambda drawing: drawing) if post_build else None,
+        )
+
+    expected_calls = ([1.0] if short_at == 1.0 else [1.0, 0.5]) if stops else [1.0, 0.5, 0.2, 0.1]
+    assert calls == expected_calls
+    decision = caught.value.decision
+    assert decision["status"] == "no_complete_scale"
+    assert decision["attempted_scales"] == tuple(calls)
+    if stops:
+        assert decision["attempts"][-1]["reason"] == "off_axis_span_below_1_mm"
+        assert decision["blockers"][0]["measurements"]
+        assert decision["blockers"][0]["evidence_reason"] == "off_axis_span_below_1_mm"
+
+
 def test_principal_projection_must_fit_inside_the_physical_page():
     import draftwright.builder as builder
 
