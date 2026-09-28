@@ -15,9 +15,10 @@ from __future__ import annotations
 import pytest
 from build123d import Box, BuildPart, Cylinder, Hole, Pos, Rotation
 
+import draftwright.obligations as legacy_obligations
 from draftwright import build_drawing
 from draftwright.annotations._common import strip_obstacles
-from draftwright.layout import StripCandidate, plan_strip
+from draftwright.layout import ObligationClass, StripCandidate, obligation_rank, plan_strip
 
 
 def _same(a, b, tol=1e-6):
@@ -398,6 +399,18 @@ def test_plan_strip_rejects_unrecognized_obligation_class():
     candidate = StripCandidate("invalid", (0.0, 0.0), (6, 3), obligation_class="sometimes")
     with pytest.raises(ValueError, match="invalid annotation obligation class"):
         plan_strip([candidate], lo=0, hi=10, min_gap=5)
+
+
+def test_obligation_import_path_preserves_policy_identity():
+    assert legacy_obligations.ObligationClass is ObligationClass
+    assert legacy_obligations.obligation_rank is obligation_rank
+    assert [
+        legacy_obligations.obligation_rank(value) for value in ("optional", "unknown", "required")
+    ] == [
+        0,
+        1,
+        2,
+    ]
 
 
 def test_corridor_candidate_cannot_downgrade_approved_measurement():

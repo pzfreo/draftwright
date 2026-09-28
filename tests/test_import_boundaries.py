@@ -94,8 +94,8 @@ _LAYERS: dict[str, int] = {
     "feature_identity": 0,
     "fonts": 0,
     "layout": 0,
-    # Semantic survival order shared by render-free demand and placement leaves.
-    "obligations": 0,
+    # Stable import path only; semantic survival policy is owned by layout.
+    "obligations": 1,
     # Typed, render-free annotation topology consumed by compose/analysis and render ordering.
     "layout_scheme": 0,
     "annotation_layout_profile": 0,

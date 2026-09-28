@@ -42,7 +42,13 @@ from draftwright._geometry import (  # noqa: F401
 )
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations.angular import AngularDimension
-from draftwright.layout import StripCandidate, _assign_leader_candidates, plan_strip
+from draftwright.layout import (
+    ObligationClass,
+    StripCandidate,
+    _assign_leader_candidates,
+    obligation_rank,
+    plan_strip,
+)
 from draftwright.linting.ink_overlap import (
     MIN_CROSSING_MM,
     crossable_region,
@@ -59,7 +65,6 @@ from draftwright.linting.structural import (
 from draftwright.model.compiled import resolve_feature
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import hole_location_parameter_id
-from draftwright.obligations import ObligationClass, obligation_rank
 
 _log = logging.getLogger(__name__)
 

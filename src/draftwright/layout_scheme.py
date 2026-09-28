@@ -13,9 +13,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from draftwright.layout import ObligationClass, obligation_rank
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import DimensionId, annotation_groups, plan_dimensions
-from draftwright.obligations import ObligationClass, obligation_rank
 from draftwright.view_plan import VIEW_AXES
 
 _VIEWS = frozenset({"front", "plan", "side", "rear"})
