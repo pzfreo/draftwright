@@ -45,6 +45,7 @@ from typing import Literal, cast
 from build123d import Shape
 
 from draftwright._core import _dimension_draft
+from draftwright.build_options import BuildOptions
 from draftwright.builder import (
     _detect_part_model_analysis,
     _is_expected_candidate_build_failure,
@@ -2462,6 +2463,7 @@ def emit_sheet_script(
 
     leader_region = leader_region_policy(leader_region).value
     annotation_layout = annotation_layout_policy(annotation_layout)
+    script_options = BuildOptions.from_mapping(locals())
     # The script declares this model — `model` plus an envelope when the overall height would
     # otherwise be unnameable under the mirrored (authored) set. BEFORE the import scan, since
     # a synthesised envelope needs `EnvelopeFeature` imported like a detected one.
@@ -2584,97 +2586,60 @@ def emit_sheet_script(
         for f in model.features
     ):
         model_imports.add("PmiFeature")
-    # Only carry an aspect into the emitted constructor when it differs from build_drawing's
-    # default (mirrors the CLI's inert-flag test) — an unset aspect stays off the script.
-    ctor = [f"title={title!r}", f"number={number!r}"]
-    if replayed_recognition:
-        ctor.append("_replayed_recognition=True")
+    # Ordinary aspects, ordering and defaults come from BuildOptions. Only replay-
+    # dependent spellings are supplied here, at their field's declared position.
     from draftwright._core import _sheet_option_margins, _validated_title_block_width
 
     _sheet_option_margins(
-        margin_left=margin_left,
-        margin_right=margin_right,
-        margin_top=margin_top,
-        margin_bottom=margin_bottom,
+        margin_left=script_options.margin_left,
+        margin_right=script_options.margin_right,
+        margin_top=script_options.margin_top,
+        margin_bottom=script_options.margin_bottom,
     )
-    title_block_width = _validated_title_block_width(title_block_width)
-    for key, value in (
-        ("margin_left", margin_left),
-        ("margin_right", margin_right),
-        ("margin_top", margin_top),
-        ("margin_bottom", margin_bottom),
-        ("title_block_width", title_block_width),
+    validated_width = _validated_title_block_width(script_options.title_block_width)
+    special: dict[str, list[str]] = {}
+    for key in (
+        "margin_left",
+        "margin_right",
+        "margin_top",
+        "margin_bottom",
+        "title_block_width",
     ):
-        if value is not None:
-            ctor.append(f"{key}={float(value)!r}")
-    if drawn_by:
-        ctor.append(f"drawn_by={drawn_by!r}")
-    if tolerance is not None:
-        ctor.append(f"tolerance={tolerance!r}")
-    emitted_scale = scale
+        value = validated_width if key == "title_block_width" else getattr(script_options, key)
+        special[key] = [] if value is None else [f"{key}={float(value)!r}"]
+    emitted_scale = script_options.scale
     if emitted_scale is None and settled_layout is not None and not _mirrors_dimensions(model):
         # An unmirrorable model keeps auto_dimensions(), so its requirement planner must stay
         # in charge of the view topology. Replay the settled numeric scale through the public
         # explicit-scale path; the private authored-mirror constraint relies on fixed views.
         emitted_scale = settled_layout["scale"]
     if emitted_scale is not None:
-        ctor.append(f"scale={emitted_scale!r}")
+        special["scale"] = [f"scale={emitted_scale!r}"]
     elif settled_layout is not None:
-        ctor.append(f"_replayed_scale={settled_layout['scale']!r}")
-    if scale_policy != "fallback":
-        ctor.append(f"scale_policy={scale_policy!r}")
-    emitted_page = page
+        special["scale"] = [f"_replayed_scale={settled_layout['scale']!r}"]
+    else:
+        special["scale"] = []
+    emitted_page = script_options.page
     if emitted_page is None and settled_layout is not None:
         emitted_page = settled_layout["page"]
-    if emitted_page is not None:
-        ctor.append(f"page={emitted_page!r}")
+    special["page"] = [] if emitted_page is None else [f"page={emitted_page!r}"]
     if settled_layout is not None and settled_layout.get("pin_views", False):
         replayed_views = tuple(
             name for name in settled_layout["views"] if name in {"front", "plan", "side", "iso"}
         )
-        ctor.append(f"_replayed_views={replayed_views!r}")
-    # The AP242 seam (#1563). A generated script builds from an in-memory solid, which carries
-    # no AP242 document, so without naming its source the re-run reconciles nothing — the raw
-    # `sheet.add(PmiFeature(...))` fallbacks below would sit unexamined and their deletion would
-    # change no diagnostic. `pmi_source` is the same absolute path the script's own
-    # `part = import_step(...)` line opens, so the two cannot disagree about which file this is.
-    if pmi_source is not None:
-        ctor.append(f"source={pmi_source!r}")
+        special["page"].append(f"_replayed_views={replayed_views!r}")
+    # The AP242 seam (#1563): the generated script builds from a solid, so it must retain
+    # the document path separately for PMI correspondence.
+    special["source"] = [] if pmi_source is None else [f"source={pmi_source!r}"]
     if assessment:
-        ctor.append('pmi=_replay_options["pmi_mode"]')
-    elif pmi != "off":
-        ctor.append(f"pmi={pmi!r}")
-    if material:
-        ctor.append(f"material={material!r}")
-    if date:
-        ctor.append(f"date={date!r}")
-    if revision != "A":  # "A" is build_drawing's own default
-        ctor.append(f"revision={revision!r}")
-    if company:
-        ctor.append(f"company={company!r}")
-    if approved_by:
-        ctor.append(f"approved_by={approved_by!r}")
-    if document_type:
-        ctor.append(f"document_type={document_type!r}")
-    if sheet:
-        ctor.append(f"sheet={sheet!r}")
-    if frame:
-        ctor.append("frame=True")
-    if zones:
-        ctor.append("zones=True")
-    if projection:
-        ctor.append(f"projection={projection!r}")
-    if not projection_symbol:
-        ctor.append("projection_symbol=False")
-    if text_position != "inline":
-        ctor.append(f"text_position={text_position!r}")
-    if text_orientation != "aligned":
-        ctor.append(f"text_orientation={text_orientation!r}")
-    if leader_region != "auto":
-        ctor.append(f"leader_region={leader_region!r}")
-    # Pin even the current default in a generated declaration. A saved script
-    # should replay its chosen algorithm if a later release changes the default.
-    ctor.append(f"annotation_layout={annotation_layout!r}")
+        special["pmi"] = ['pmi=_replay_options["pmi_mode"]']
+    elif script_options.pmi != "off":
+        special["pmi"] = [f"pmi={script_options.pmi!r}"]
+    else:
+        special["pmi"] = []
+    ctor = script_options.script_constructor_args(special)
+    if replayed_recognition:
+        ctor.insert(2, "_replayed_recognition=True")
     from draftwright.model.declare import _envelope_from_bbox
 
     object_refs = _object_references(model.features, source_part, object_candidates)
@@ -3051,6 +3016,7 @@ def generate_sheet_script(
             stem = stem[: -len(_ext)]
             break
     title = title or (Path(stem).name.replace("_", " ").upper() if not is_shape else "DRAWING")
+    script_options = BuildOptions.from_mapping(locals())
 
     # A STEP path is mutable and may be a retargetable symlink. Resolve its replay seam once,
     # then read one immutable byte snapshot. Recognition, PMI, and any semantic-correction build
@@ -3139,72 +3105,19 @@ def generate_sheet_script(
             settled = _settled_reference_build(
                 detection_source,
                 _analysis_base=analysis,
-                title=title,
-                number=number,
-                tolerance=tolerance,
-                drawn_by=drawn_by,
-                page=page,
-                scale_policy=scale_policy,
-                material=material,
-                date=date,
-                revision=revision,
-                company=company,
-                approved_by=approved_by,
-                document_type=document_type,
-                sheet=sheet,
-                frame=frame,
-                margin_left=margin_left,
-                margin_right=margin_right,
-                margin_top=margin_top,
-                margin_bottom=margin_bottom,
-                title_block_width=title_block_width,
-                zones=zones,
-                projection=projection,
-                projection_symbol=projection_symbol,
-                text_position=text_position,
-                text_orientation=text_orientation,
-                leader_region=leader_region,
-                annotation_layout=annotation_layout,
-                pmi=pmi,
+                **script_options.script_front_door_kwargs(),
             )
             settled_layout = None if settled is None else settled_layout_for(settled)
         script = emit_sheet_script(
             model,
             part_expr,
             stem,
-            title=title,
-            number=number,
-            drawn_by=drawn_by,
-            tolerance=tolerance,
-            scale=scale,
-            scale_policy=scale_policy,
-            page=page,
-            material=material,
-            date=date,
-            revision=revision,
-            company=company,
-            approved_by=approved_by,
-            document_type=document_type,
-            sheet=sheet,
-            frame=frame,
-            margin_left=margin_left,
-            margin_right=margin_right,
-            margin_top=margin_top,
-            margin_bottom=margin_bottom,
-            title_block_width=title_block_width,
-            zones=zones,
-            projection=projection,
-            projection_symbol=projection_symbol,
-            text_position=text_position,
-            text_orientation=text_orientation,
-            leader_region=leader_region,
-            annotation_layout=annotation_layout,
+            **script_options.script_front_door_kwargs(),
             object_ref=is_shape,
             object_candidates=object_candidates,
             source_part=step_file if isinstance(step_file, Shape) else None,
             formats=formats,
             settled_layout=settled_layout,
-            pmi=pmi,
             pmi_source=None if source_resolved is None else str(source_resolved),
             declaration_occurrences=declaration_occurrences,
             assessment=assessment,

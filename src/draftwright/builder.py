@@ -18,7 +18,6 @@ import warnings
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import nullcontext
 from dataclasses import replace
-from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 
@@ -76,6 +75,7 @@ from draftwright.annotations.orchestrator import (
     build_model,
     build_rotational_feature,
 )
+from draftwright.build_options import BuildOptions
 from draftwright.compose import (
     ViewBlock,
     _attribute_annotations,
@@ -125,7 +125,6 @@ from draftwright.view_plan import (
     ViewPlanIncomplete,
     resolve_from_analysis,
     third_angle_view_names,
-    validate_projection,
 )
 
 # A view centre must move by more than this (mm) for the measure-and-repack
@@ -1369,69 +1368,23 @@ def _resolve_trace(trace, out) -> SolveTrace | None:
 
 def _build_drawing_once(
     step_file: str | Path | Shape,
-    out: str | None = None,
-    title: str | None = None,
-    number: str = "DWG-001",
-    tolerance: str | None = None,
-    drawn_by: str = "",
-    scale: float | None = None,
-    page: str | tuple | None = None,
-    auto_dims: bool = True,
-    detail_view: bool = True,
-    pmi: Literal["off", "report", "annotate"] | None = None,
-    repair: bool = True,
-    assembly: bool | None = None,
-    model: Sequence[Feature] | PartModel | None = None,
-    decorations: dict | None = None,
-    requested: tuple | None = None,
-    authored: tuple | None = None,
-    trace: str | Path | bool | None = None,
-    material: str = "",
-    date: str = "",
-    revision: str = "A",
-    company: str = "",
-    frame: bool = False,
-    projection: str | None = None,
-    projection_symbol: bool = True,
-    zones: bool = False,
-    reproducible: bool = True,
-    framed_recognition: bool = False,
-    text_position: str = "inline",
-    text_orientation: str = "aligned",
-    _analysis_base=None,
+    options: BuildOptions,
+    *,
+    scale: float | None,
+    page: str | tuple | None,
+    _analysis_base: Analysis | None = None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     _critique_recognition_cache=None,
     _arrangements: tuple[str, ...] | None = None,
-    _views: tuple[str, ...] | None = None,
-    _include_iso: bool = True,
-    _view_constraints=None,
-    _required_tables=(),
     _select_automatic_views: bool = False,
-    _document_input=None,
-    *,
-    #: The STEP document the geometry came from, when it is not `step_file` itself
-    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
-    #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
-    #: exists to catch — and did.
-    source: str | Path | None = None,
-    approved_by: str = "",
-    document_type: str = "",
-    sheet: str = "",
-    margin_left: float | None = None,
-    margin_right: float | None = None,
-    margin_top: float | None = None,
-    margin_bottom: float | None = None,
-    title_block_width: float | None = None,
-    leader_region: Literal["auto", "interior", "exterior"] = "auto",
     _candidate_profile_first: bool = False,
     _title_block_cache=None,
 ) -> Drawing:
-    """Build a customisable 4-view :class:`Drawing` without exporting it.
+    """Build one drawing attempt from the validated options and chosen scale/page.
 
-    Same arguments as :func:`make_drawing`, but returns the live :class:`Drawing`
-    so you can add or remove annotations and add section/auxiliary views before
-    calling :meth:`Drawing.export`. ``make_drawing(...)`` is
-    ``build_drawing(...).export(formats=("svg", "dxf"))``, unpacked to a tuple.
+    The descriptions below refer to fields of ``options``. The public
+    :func:`build_drawing` returns the live :class:`Drawing`; ``make_drawing``
+    wraps that front door with export.
 
     Args:
         auto_dims: pass ``False`` to skip the automatic dimensions,
@@ -1511,6 +1464,49 @@ def _build_drawing_once(
         A :class:`Drawing` with the standard front/plan/side/iso views projected
         and the automatic dimensions + title block already added.
     """
+
+    out = options.out
+    title = options.title
+    number = options.number
+    tolerance = options.tolerance
+    drawn_by = options.drawn_by
+    auto_dims = options.auto_dims
+    detail_view = options.detail_view
+    pmi = options.pmi
+    repair = options.repair
+    assembly = options.assembly
+    model = options.model
+    decorations = options.decorations
+    requested = options.requested
+    authored = options.authored
+    trace = options.trace
+    material = options.material
+    date = options.date
+    revision = options.revision
+    company = options.company
+    frame = options.frame
+    projection = options.projection
+    projection_symbol = options.projection_symbol
+    zones = options.zones
+    reproducible = options.reproducible
+    framed_recognition = options.framed_recognition
+    text_position = options.text_position
+    text_orientation = options.text_orientation
+    _views = options._views
+    _include_iso = options._include_iso
+    _view_constraints = options._view_constraints
+    _required_tables = options._required_tables
+    _document_input = options._document_input
+    source = options.source
+    approved_by = options.approved_by
+    document_type = options.document_type
+    sheet = options.sheet
+    margin_left = options.margin_left
+    margin_right = options.margin_right
+    margin_top = options.margin_top
+    margin_bottom = options.margin_bottom
+    title_block_width = options.title_block_width
+    leader_region = options.leader_region
     stem = "drawing" if isinstance(step_file, Shape) else Path(step_file).stem
     out = out or stem
     for _ext in (".svg", ".dxf"):
@@ -2619,74 +2615,10 @@ def build_drawing(
             }
         return drawing
 
-    from draftwright.leader_policy import leader_region_policy
-
-    validate_projection(projection, projection_symbol=projection_symbol)
-    _dimension_draft(text_position, text_orientation)
-    leader_region = leader_region_policy(leader_region).value
-    if _replayed_scale is not None:
-        _replayed_scale = float(_replayed_scale)
-        if not math.isfinite(_replayed_scale) or _replayed_scale <= 0:
-            raise ValueError(
-                f"_replayed_scale must be finite and positive, got {_replayed_scale!r}"
-            )
-        if scale is not None:
-            raise ValueError("_replayed_scale cannot be combined with authored scale=")
-        if page is None:
-            raise ValueError("_replayed_scale requires the settled page")
-    if scale_policy not in {"strict", "fallback", "permissive"}:
-        raise ValueError(
-            f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
-        )
+    build_options = BuildOptions.from_mapping(locals())
+    leader_region = build_options.leader_region
+    _replayed_scale = build_options._replayed_scale
     title_block_cache: dict[tuple, tuple] = {}
-    one_pass = partial(
-        _build_drawing_once,
-        step_file,
-        out=out,
-        title=title,
-        number=number,
-        tolerance=tolerance,
-        drawn_by=drawn_by,
-        page=page,
-        auto_dims=auto_dims,
-        detail_view=detail_view,
-        pmi=pmi,
-        source=source,
-        repair=repair,
-        assembly=assembly,
-        model=model,
-        decorations=decorations,
-        requested=requested,
-        authored=authored,
-        trace=trace,
-        material=material,
-        date=date,
-        revision=revision,
-        company=company,
-        approved_by=approved_by,
-        document_type=document_type,
-        sheet=sheet,
-        margin_left=margin_left,
-        margin_right=margin_right,
-        margin_top=margin_top,
-        margin_bottom=margin_bottom,
-        title_block_width=title_block_width,
-        leader_region=leader_region,
-        frame=frame,
-        projection=projection,
-        projection_symbol=projection_symbol,
-        text_position=text_position,
-        text_orientation=text_orientation,
-        zones=zones,
-        reproducible=reproducible,
-        framed_recognition=framed_recognition,
-        _required_tables=_required_tables,
-        _include_iso=_include_iso,
-        _view_constraints=_view_constraints,
-        _document_input=_document_input,
-        _candidate_profile_first=annotation_layout == "demand-guided",
-        _title_block_cache=title_block_cache,
-    )
     analysis_base = _analysis_base
     build_attempt = 0
     latest_analysis = None
@@ -2744,17 +2676,23 @@ def build_drawing(
                 scale=candidate_scale,
                 page=str(page if page_override is None else page_override),
             )
-        built = one_pass(
+        attempt_options = replace(
+            build_options,
+            _views=views,
+            _include_iso=_include_iso if include_iso is None else include_iso,
+        )
+        built = _build_drawing_once(
+            step_file,
+            attempt_options,
             scale=candidate_scale,
             page=page if page_override is None else page_override,
             _analysis_base=analysis_base,
             _analysis_sink=retain_analysis,
             _critique_recognition_cache=critique_recognition_cache,
             _arrangements=arrangements,
-            _views=views,
-            _include_iso=_include_iso if include_iso is None else include_iso,
-            _view_constraints=_view_constraints,
             _select_automatic_views=select_automatic_views,
+            _candidate_profile_first=annotation_layout == "demand-guided",
+            _title_block_cache=title_block_cache,
         )
         _validate_authored_view_layout(built, _view_constraints)
         if _document_input is not None:

@@ -9,7 +9,9 @@ import math
 import os
 import subprocess
 import sys
+from dataclasses import fields
 from functools import cache
+from inspect import Parameter, signature
 from pathlib import Path
 
 import pytest
@@ -35,6 +37,7 @@ from build123d import (
 from build123d import chamfer as bd_chamfer
 from build123d import fillet as bd_fillet
 
+from draftwright.build_options import BuildOptions
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.model.declare import hole as _declare_hole
 from draftwright.pmi import _PMI_AVAILABLE
@@ -48,6 +51,142 @@ from draftwright.sheet_emit import (
     settled_layout_for,
     unmirrored_dimensions,
 )
+
+
+def test_build_options_front_door_parity_issue_1927():
+    """A new build option must be classified before it can silently miss a front door."""
+    option_fields = {item.name: item for item in fields(BuildOptions)}
+    build_parameters = signature(build_drawing).parameters
+    runtime_only = {"step_file", "_post_build", "_analysis_base", "_analysis_sink"}
+    assert set(build_parameters) - runtime_only == set(option_fields)
+    assert all(
+        build_parameters[name].default == item.default for name, item in option_fields.items()
+    )
+
+    script_fields = {
+        name for name, item in option_fields.items() if "script_order" in item.metadata
+    }
+    # These values govern detection, placement, export, or private replay state. They
+    # have no direct Sheet-constructor spelling in an emitted declaration.
+    not_scripted = {
+        "out",
+        "auto_dims",
+        "detail_view",
+        "repair",
+        "assembly",
+        "model",
+        "decorations",
+        "requested",
+        "authored",
+        "trace",
+        "reproducible",
+        "framed_recognition",
+        "_required_tables",
+        "_views",
+        "_include_iso",
+        "_view_constraints",
+        "_document_input",
+        "_replayed_scale",
+    }
+    assert script_fields | not_scripted == set(option_fields)
+    assert script_fields.isdisjoint(not_scripted)
+    assert len({option_fields[name].metadata["script_order"] for name in script_fields}) == len(
+        script_fields
+    )
+
+    from draftwright.make_drawing import make_drawing
+    from draftwright.sheet import Sheet
+
+    generator = signature(generate_sheet_script).parameters
+    emitter = signature(emit_sheet_script).parameters
+    sheet = signature(Sheet).parameters
+    make = signature(make_drawing).parameters
+    assert set(make) - {"step_file"} == set(option_fields) - {
+        "_document_input",
+        "_include_iso",
+        "_replayed_scale",
+        "_required_tables",
+        "_view_constraints",
+        "_views",
+        "authored",
+        "decorations",
+        "model",
+        "repair",
+        "requested",
+        "trace",
+    }
+    assert set(sheet) - script_fields == {
+        "_replayed_recognition",
+        "_replayed_scale",
+        "_replayed_views",
+        "detail_view",
+        "out",
+        "part",
+    }
+    assert set(emitter) - script_fields == {
+        "assessment",
+        "assessment_source_name",
+        "declaration_occurrences",
+        "formats",
+        "model",
+        "object_candidates",
+        "object_ref",
+        "part_expr",
+        "pmi_source",
+        "settled_layout",
+        "source_part",
+        "stem",
+        "view_constraints",
+    }
+    assert set(generator) - script_fields == {
+        "assessment",
+        "formats",
+        "inspect",
+        "object_candidates",
+        "out",
+        "part_expr",
+        "step_file",
+    }
+    assert script_fields - {"source"} <= set(generator) & set(emitter) & set(sheet)
+    assert "source" in sheet and "pmi_source" in emitter
+    for name in script_fields - {"source", "title", "number", "pmi"}:
+        assert generator[name].default == emitter[name].default == option_fields[name].default
+    assert emitter["title"].default is Parameter.empty
+    assert emitter["number"].default is Parameter.empty
+    assert generator["pmi"].default == emitter["pmi"].default == "off"
+
+    options = BuildOptions(
+        title="PART",
+        number="N-1",
+        drawn_by="AB",
+        scale=2,
+        page="A3",
+        material="STEEL",
+        revision="B",
+        frame=True,
+        projection="first",
+        projection_symbol=False,
+        leader_region="exterior",
+        annotation_layout="compare",
+    )
+    forwarded = options.script_front_door_kwargs()
+    assert set(forwarded) == script_fields - {"source"}
+    assert signature(generate_sheet_script).bind("part.step", **forwarded)
+    assert signature(emit_sheet_script).bind(object(), "part", "drawing", **forwarded)
+    encoded = options.script_constructor_args({})
+    parsed = ast.parse(f"dict({', '.join(encoded)})", mode="eval").body
+    roundtrip = {keyword.arg: ast.literal_eval(keyword.value) for keyword in parsed.keywords}
+    assert roundtrip == {
+        name: value
+        for name, value in forwarded.items()
+        if value != option_fields[name].default
+        or option_fields[name].metadata.get("script_always")
+    }
+    # Nullable blanks retain the emitter's established omission rule.
+    blank = BuildOptions.from_mapping({"title": "PART", "drawn_by": None, "material": None})
+    assert "drawn_by=None" not in blank.script_constructor_args({})
+    assert "material=None" not in blank.script_constructor_args({})
+
 
 # A throwaway source module the object-spec tests import a live part off (#469): an object,
 # a zero-arg factory, a non-Shape, and a callable that needs args (the guard-rail case).
