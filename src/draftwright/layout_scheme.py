@@ -456,6 +456,14 @@ def _compound_leader_route(model, group, members, corridor_loads) -> tuple[str, 
     view = group.view
     if view not in VIEW_AXES:
         return None
+    if (
+        view == "front"
+        and group.feature.kind in {"hole", "pattern"}
+        and group.feature.frame.axis == "y"
+    ):
+        # The front hole renderer's actual corridor is below the view. Keep
+        # observational demand evidence aligned with that fixed render route.
+        return view, "below"
     site = _site(group.feature)
     axis_index = {"x": 0, "y": 1, "z": 2}
     bounds = {

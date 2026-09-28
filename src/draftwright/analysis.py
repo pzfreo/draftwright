@@ -38,15 +38,24 @@ from draftwright._core import (
     _FRAME_BAND,
     _MARGIN,
     _MIN_RENDER_MM,
+    _MIN_STEP_SEP_MM,
     _MIN_VIEW_MM,
     Analysis,
+    DetailRequest,
     SheetMargins,
     _content_margin,
+    _detail_caption,
     _dimension_draft,
+    _fmt,
     _legible_steps,
     _Projector,
     _sheet_option_margins,
+    _text_size,
+    _tol_suffix,
     _validated_title_block_width,
+    crowded_horizontal_step_runs,
+    supported_secondary_crop,
+    y_chain_detail_scale_needed,
 )
 from draftwright._geometry import _classify_rotational_cylinders, _solids_body
 from draftwright._geometry import (
@@ -65,6 +74,7 @@ from draftwright.compose import (
     _est_table_size,
     _layout_geometry,
     _measure_strips,
+    _strips_for_derived_views,
     choose_scale,
 )
 from draftwright.model.compiled import compile_dimensions
@@ -81,6 +91,7 @@ from draftwright.recognition_frame import (
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
 from draftwright.view_plan import (
+    DERIVED_VIEW_IDENTIFIERS,
     ViewConstraints,
     arrangement_of,
     principal_placements,
@@ -90,6 +101,269 @@ from draftwright.view_plan import (
 _log = logging.getLogger(__name__)
 
 _ScalePick = tuple[float, float, float, float]
+
+
+def _automatic_y_chain_detail_footprints(
+    approved,
+    bb,
+    draft,
+    *,
+    section_count: int,
+    planned_views: tuple[str, ...] | None,
+) -> Callable[[float], tuple[tuple[str, float, float], ...]] | None:
+    """Pre-sheet minimum footprint for one unambiguous approved Y-step chain.
+
+    Unknown/multiple physical profiles remain unplanned rather than reserving a
+    guessed box. The final detailer still owns the crop and validates real ink.
+    """
+    if planned_views is not None and "side" not in planned_views:
+        return None
+    # A planned section can yield late and release its letter, so its detail
+    # successor is not a stable identity until section placement is made part
+    # of the same pre-sheet derived-view plan.
+    if section_count != 0:
+        return None
+    rows = []
+    memberships = set()
+    for group in approved.of_kind("step"):
+        if group.facts.frame.axis != "y":
+            continue
+        length = group.dim(kind="length")
+        if length is None or length.span is None:
+            continue
+        origin = group.facts.frame.origin
+        membership = group.facts.profile or group.facts.profile_group
+        memberships.add(repr(membership))
+        lo, hi = sorted((float(length.span[0][1]), float(length.span[1][1])))
+        rows.append((lo, hi, length, float(origin[0]), float(origin[2])))
+    if len(rows) < 2 or len(memberships) != 1:
+        return None
+    if (
+        max(row[3] for row in rows) - min(row[3] for row in rows) > 0.5
+        or max(row[4] for row in rows) - min(row[4] for row in rows) > 0.5
+    ):
+        return None
+    rows.sort(key=lambda row: (row[0], row[1]))
+    # The renderer separates axially disconnected profiles even on one axis
+    # line. A single pre-sheet box would otherwise plan a phantom combined
+    # chain and could enlarge the sheet without any matching detail request.
+    if any(
+        abs(previous[1] - current[0]) > 1e-3 + 1e-9 for previous, current in zip(rows, rows[1:])
+    ):
+        return None
+    # The renderer states a contiguous repeated pitch of three or more once on
+    # the parent view. Such a chain does not request an enlarged detail.
+    repeat = 1
+    for prev, current in zip(rows, rows[1:]):
+        old, new = prev[2], current[2]
+        same_text = (
+            old.value_text == new.value_text
+            if old.display_decimals is not None or new.display_decimals is not None
+            else _fmt(old.value) == _fmt(new.value)
+        )
+        repeat = (
+            repeat + 1
+            if abs(prev[1] - current[0]) <= 1e-4
+            and same_text
+            and old.tolerance is None
+            and new.tolerance is None
+            else 1
+        )
+        if repeat >= 3:
+            return None
+    widths = tuple(
+        _text_size(
+            row[2].value_text + _tol_suffix(row[2].tolerance, draft),
+            draft.font_size,
+            font=getattr(draft, "font", "Arial"),
+        )[0]
+        for row in rows
+    )
+    axis_lo = min(row[0] for row in rows)
+    axis_hi = max(row[1] for row in rows)
+    axis_z = sum(row[4] for row in rows) / len(rows)
+    letter = DERIVED_VIEW_IDENTIFIERS[section_count]
+    view_name = f"detail_{letter.lower()}"
+    # Measure the worst six-significant-digit scale caption once. The candidate
+    # scale loop (which may bisect 60 times) must stay box arithmetic.
+    caption_req = DetailRequest(
+        axis="y",
+        lo=axis_lo,
+        hi=axis_hi,
+        scale_needed=1.0,
+        redraw=lambda *_args: 0,
+        source_view="side",
+        cross_axis="z",
+        cross_lo=axis_z,
+        cross_hi=axis_z,
+        kind="y-turned-chain",
+    )
+    caption_w = _text_size(
+        _detail_caption(caption_req, letter, 9.99999, bb),
+        draft.font_size,
+        font=getattr(draft, "font", "Arial"),
+    )[0]
+    footprint_cache: dict[float, tuple[tuple[str, float, float], ...]] = {}
+
+    def for_scale(scale: float) -> tuple[tuple[str, float, float], ...]:
+        if scale in footprint_cache:
+            return footprint_cache[scale]
+        needed = y_chain_detail_scale_needed(
+            tuple((row[0] * scale, row[1] * scale, row[2].value) for row in rows),
+            widths,
+            arrow_length=draft.arrow_length,
+            text_padding=draft.pad_around_text,
+        )
+        result: tuple[tuple[str, float, float], ...]
+        if needed is None or needed > scale * 10:
+            result = ()
+        else:
+            target = next(
+                (scale * factor for factor in (2, 5, 10) if scale * factor >= needed), scale * 10
+            )
+            min_scale = max(needed, scale * 1.2 + 1e-6)
+            cross_half = max(0.1, min((bb.max.Z - bb.min.Z) / 4, 6.0 / target))
+            # Reserve the minimum sufficient footprint. An arbitrary cushion
+            # can turn a feasible A4 detail into a false refusal; measured
+            # containment after rendering catches any actual estimate error.
+            width = max((axis_hi - axis_lo) * min_scale, caption_w)
+            height = (
+                2 * cross_half * min_scale
+                + draft.font_size
+                + 2 * draft.pad_around_text
+                + draft.arrow_length
+                + _DIM_PAD
+                + 8.0
+            )
+            result = ((view_name, width, height),)
+        footprint_cache[scale] = result
+        return result
+
+    return for_scale
+
+
+def _automatic_x_head_detail_footprints(
+    approved,
+    bb,
+    draft,
+    *,
+    section_count: int,
+    planned_views: tuple[str, ...] | None,
+) -> Callable[[float], tuple[tuple[str, float, float], ...]] | None:
+    """Pre-sheet extent of one unambiguous approved X-turned crowded head.
+
+    The same short-run test and supported-profile crop as the renderer define
+    the demand. Multiple physical profiles/heads remain explicitly unplanned.
+    """
+    if section_count or (planned_views is not None and "front" not in planned_views):
+        return None
+    rows = []
+    memberships = set()
+    for group in approved.of_kind("step"):
+        if group.facts.frame.axis != "x":
+            continue
+        length = group.dim(kind="length")
+        diameter = group.dim(kind="diameter")
+        if length is None or length.span is None or diameter is None:
+            return None
+        lo, hi = sorted((float(length.span[0][0]), float(length.span[1][0])))
+        origin = group.facts.frame.origin
+        rows.append(
+            (
+                lo,
+                hi,
+                length,
+                diameter,
+                float(origin[1]),
+                float(origin[2]),
+                float(getattr(group.facts, "diameter", diameter.value)),
+            )
+        )
+        memberships.add(repr(group.facts.profile or group.facts.profile_group))
+    if len(rows) < 2 or len(memberships) != 1:
+        return None
+    if (
+        max(row[4] for row in rows) - min(row[4] for row in rows) > 0.5
+        or max(row[5] for row in rows) - min(row[5] for row in rows) > 0.5
+    ):
+        return None
+    ordered = sorted(rows, key=lambda row: (row[0], row[1]))
+    if rows != ordered:
+        # The renderer forms short runs in compiled order. Do not reserve a
+        # different physically sorted run until both boundaries share ordering.
+        return None
+    if any(
+        abs(previous[1] - current[0]) > 1e-3 + 1e-9 for previous, current in zip(rows, rows[1:])
+    ):
+        return None
+    # The renderer crops against the controlled step's physical profile, not
+    # the displayed nominal diameter (which PMI may specify independently).
+    radial_extents = tuple((row[5] - row[6] / 2, row[5] + row[6] / 2) for row in rows)
+    full_lo = min(extent[0] for extent in radial_extents)
+    full_hi = max(extent[1] for extent in radial_extents)
+    letter = DERIVED_VIEW_IDENTIFIERS[section_count]
+    view_name = f"detail_{letter.lower()}"
+    cache: dict[float, tuple[tuple[str, float, float], ...]] = {}
+
+    def for_scale(scale: float) -> tuple[tuple[str, float, float], ...]:
+        if scale in cache:
+            return cache[scale]
+        heads = crowded_horizontal_step_runs(
+            tuple((row[0], row[1]) for row in rows), scale, draft.arrow_length
+        )
+        result: tuple[tuple[str, float, float], ...] = ()
+        if len(heads) == 1:
+            head = [rows[index] for index in heads[0]]
+            lo = min(row[0] for row in head)
+            hi = max(row[1] for row in head)
+            min_length = min(row[2].value for row in head)
+            needed = _MIN_STEP_SEP_MM / min_length if min_length > 0 else float("inf")
+            target = next(
+                (scale * factor for factor in (2, 5, 10) if scale * factor >= needed),
+                scale * 10,
+            )
+            min_scale = max(needed, scale * 1.2 + 1e-6)
+            if 10.0 < min_scale <= 15.0 and scale <= 5.0:
+                target = min_scale = 10.0
+            support = tuple(
+                (station, row[4], row[5] + row[6] / 2)
+                for row in head
+                for station in (row[0], row[1])
+            )
+            crop = supported_secondary_crop(support, "z", full_lo, full_hi, needed)
+            if crop is not None and min_scale <= target:
+                request = DetailRequest(
+                    axis="x",
+                    lo=lo,
+                    hi=hi,
+                    scale_needed=needed,
+                    redraw=lambda *_args: 0,
+                    source_view="front",
+                    cross_axis="z",
+                    cross_lo=crop[0],
+                    cross_hi=crop[1],
+                    kind="turned-head",
+                )
+                caption_w = _text_size(
+                    _detail_caption(request, letter, min_scale, bb),
+                    draft.font_size,
+                    font=getattr(draft, "font", "Arial"),
+                )[0]
+                result = (
+                    (
+                        view_name,
+                        max((hi - lo) * min_scale, caption_w),
+                        (crop[1] - crop[0]) * min_scale
+                        + 2 * (draft.font_size + 2 * draft.pad_around_text)
+                        + draft.arrow_length
+                        + min(_DIM_PAD, 6.0)
+                        + 8.0,
+                    ),
+                )
+        cache[scale] = result
+        return result
+
+    return for_scale
 
 
 @observed_stage("recognition")
@@ -818,6 +1092,7 @@ def _analyse(
     _views: tuple[str, ...] | None = None,
     _include_iso: bool = True,
     _view_constraints=None,
+    _plan_automatic_details: bool = True,
     _framed_recognition: bool = False,
     _document_input=None,
     _scale_from_prior_analysis: bool = False,
@@ -1199,9 +1474,20 @@ def _analyse(
         strip_sizing_model,
         planned_views=third_angle_view_names() if _views is None else _views,
     )
+    # Compile ahead of sheet selection only when a derived Y chain or a schedule
+    # needs approved measurements. Other parts keep their existing cheap path.
+    needs_step_detail_plan = _plan_automatic_details and any(
+        isinstance(feature, StepFeature) and feature.frame.axis in {"x", "y"}
+        for feature in strip_sizing_model.features
+    )
+    approved_for_sizing = (
+        compile_dimensions(strip_sizing_model, groups=sizing_groups)
+        if strip_sizing_model.schedules or needs_step_detail_plan
+        else None
+    )
     schedule_tables = (
-        compile_dimensions(strip_sizing_model, groups=sizing_groups).schedules
-        if strip_sizing_model.schedules
+        approved_for_sizing.schedules
+        if approved_for_sizing is not None and strip_sizing_model.schedules
         else ()
     )
     sizing_groups = annotation_groups(strip_sizing_model, sizing_groups)
@@ -1222,6 +1508,53 @@ def _analyse(
     # Preserve the long-standing public diagnostic shape for the common zero/one case while
     # carrying an integer only when authored constraints genuinely reserve multiple sections.
     layout_section = section_count if section_count > 1 else bool(section_count)
+    # Generated Sheet scripts may author the settled principal view *set* while
+    # leaving derived views automatic. That is not a request to disable the
+    # automatic detail's pre-sheet footprint. Only an authored/augmented derived
+    # view or a page-position constraint makes this reservation unsafe to infer.
+    automatic_detail_space = _view_constraints is None or (
+        _view_constraints.derived_source in (None, "automatic")
+        and not _view_constraints.derived
+        and not _view_constraints.added_derived
+        and not _view_constraints.relations
+        and not _view_constraints.pins
+    )
+    y_detail_footprints_for_scale = (
+        _automatic_y_chain_detail_footprints(
+            approved_for_sizing,
+            bb,
+            _draft_est,
+            section_count=section_count,
+            planned_views=_views,
+        )
+        if approved_for_sizing is not None and needs_step_detail_plan and automatic_detail_space
+        else None
+    )
+    x_detail_footprints_for_scale = (
+        _automatic_x_head_detail_footprints(
+            approved_for_sizing,
+            bb,
+            _draft_est,
+            section_count=section_count,
+            planned_views=_views,
+        )
+        if approved_for_sizing is not None and needs_step_detail_plan and automatic_detail_space
+        else None
+    )
+
+    def derived_view_footprints_for_scale(scale: float):
+        y = y_detail_footprints_for_scale(scale) if y_detail_footprints_for_scale else ()
+        x = x_detail_footprints_for_scale(scale) if x_detail_footprints_for_scale else ()
+        # Both automatic producers currently propose DETAIL A. Until the
+        # identifier pool is planned before sheet selection, neither box may
+        # impersonate the other's renderer-owned request.
+        return () if x and y else x or y
+
+    detail_footprints_for_scale = (
+        derived_view_footprints_for_scale
+        if x_detail_footprints_for_scale or y_detail_footprints_for_scale
+        else None
+    )
     layout_table_sizes = _est_hole_table_sizes(
         sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
@@ -1286,6 +1619,7 @@ def _analyse(
             include_iso=_include_iso,
             iso_scale_factor=planned_iso_scale,
             convention=convention,
+            derived_view_footprints_for_scale=detail_footprints_for_scale,
         )
 
     scale_pick, strips_i, n_for_sizing = _converge_step_sizing(
@@ -1358,6 +1692,10 @@ def _analyse(
             bore_callout_width=bore_callout_width,
         )
     )
+    derived_footprints = (
+        detail_footprints_for_scale(SCALE) if detail_footprints_for_scale is not None else ()
+    )
+    strips = _strips_for_derived_views(strips, derived_footprints)
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
     # later scales the iso to fill its rectangle.
@@ -1381,6 +1719,7 @@ def _analyse(
         include_iso=_include_iso,
         iso_scale_factor=layout_iso_scale,
         convention=convention,
+        derived_view_footprints=derived_footprints,
     )
     _apply_principal_view_pins(
         _g,
@@ -1460,6 +1799,7 @@ def _analyse(
         RV_X=_g.RV_X,
         RV_Y=_g.RV_Y,
         rv_zones=_build_rear_zones(_g, margin, PAGE_H),
+        derived_view_boxes=tuple(_g.derived_view_boxes.items()),
         planned_iso_scale=layout_iso_scale,
         planned_iso_scale_authored=layout_iso_scale_authored,
         view_constraints=_view_constraints,

@@ -1454,6 +1454,8 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert drawing.get_annotation("detail_caption_A").label == (
         "DETAIL A — PARTIAL PROFILE — SCALE 10:1"
     )
+    assert drawing.detail_decisions[0]["status"] == "placed"
+    assert drawing.detail_decisions[0]["fit"]["within_reservation"] is True
     assert drawing.scale_decision["status"] != "invalid"
 
     expected_manufacturing = {
@@ -1604,6 +1606,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         if isinstance(feature, ChamferFeature)
     ] == chamfers
     replayed = namespace["sheet"].build()
+    assert replayed.detail_decisions[0]["status"] == "placed"
+    assert replayed.detail_decisions[0]["extent"] == drawing.detail_decisions[0]["extent"]
+    assert replayed.detail_decisions[0]["fit"]["within_reservation"] is True
     replayed_model = replayed.model()
     assert sum(isinstance(feature, GeneralTolerance) for feature in replayed_model.features) == 1
     assert (

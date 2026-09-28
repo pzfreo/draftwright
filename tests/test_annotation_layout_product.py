@@ -176,6 +176,38 @@ def test_candidate_preview_chooses_one_build_without_gutters_when_views_are_off_
     )
 
 
+def test_off_page_profile_fallback_cannot_erase_required_detail_space(monkeypatch):
+    import draftwright.builder as builder
+
+    original_choice = builder.choose_pre_render_profile
+    original_reservation_check = builder.lost_required_derived_view_reservations
+    checked_profiles = []
+
+    def dense_choice(*args, **kwargs):
+        return {**original_choice(*args, **kwargs), "profile": "columns"}
+
+    def check_reservations(before, after):
+        checked_profiles.append(after)
+        if len(checked_profiles) == 2:
+            return ("detail_a",)
+        return original_reservation_check(before, after)
+
+    monkeypatch.setattr(builder, "choose_pre_render_profile", dense_choice)
+    monkeypatch.setattr(builder, "lost_required_derived_view_reservations", check_reservations)
+    drawing = build_drawing(
+        Box(190, 5, 279),
+        page="A3",
+        scale=1,
+        scale_policy="permissive",
+        annotation_layout="candidate-preview",
+    )
+
+    assert len(checked_profiles) == 2
+    choice = drawing.annotation_scheme_decision["pre_render_choice"]
+    assert choice["profile"] == "columns"
+    assert choice["reason"] != "protected_gutters_worsen_off_page_views"
+
+
 def test_conservative_profile_does_not_inherit_rejected_arrangement(monkeypatch):
     import draftwright.builder as builder
 
@@ -340,7 +372,16 @@ def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
         annotation_layout="best",
     )
 
-    assert drawing.annotation_scheme_decision["selected_trial"] == "planned"
+    # The compare policy may reject a trial that loses a baseline annotation.
+    # The product claim is an enlarged, clear ISO on the same fixed sheet with
+    # semantic parity, not a particular internal profile name.
+    assert drawing.annotation_scheme_decision["selected_trial"] in {"planned", "legacy-depth"}
+    selected = next(
+        trial
+        for trial in drawing.annotation_scheme_decision["trials"]
+        if trial["name"] == drawing.annotation_scheme_decision["selected_trial"]
+    )
+    assert selected["semantic_parity"] is True
     left, _bottom, right, _top = drawing.view_bounds("iso")
     assert right - left > 120.0  # the fixed 65% preview was only about 108 mm wide
     iso = drawing.view_bounds("iso")

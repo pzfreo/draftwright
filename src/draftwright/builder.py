@@ -90,6 +90,7 @@ from draftwright.layout_safety import candidate_safety_evidence
 from draftwright.layout_selection import (
     annotation_demand_carrier_evidence,
     choose_pre_render_profile,
+    lost_required_derived_view_reservations,
     pre_render_view_page_overflow,
     select_best_annotation_layout,
 )
@@ -1579,6 +1580,7 @@ def _build_drawing_once(
             _views=views,
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
+            _plan_automatic_details=detail_view,
             _framed_recognition=framed_recognition,
             _document_input=_document_input,
             _scale_from_prior_analysis=(
@@ -1745,6 +1747,21 @@ def _build_drawing_once(
                     page_override=(a.PAGE_W, a.PAGE_H),
                     arrangements_override=(selected_profile.arrangement or a.arrangement,),
                 )
+            lost_derived = lost_required_derived_view_reservations(pre_profile_analysis, a)
+            if lost_derived:
+                # Recomposition is allowed to move a required detail's box, but
+                # never erase it while keeping the caller's page/scale pinned.
+                # The conservative analysis is already available; this still
+                # builds exactly one drawing and needs no baseline comparison.
+                selected_profile = None
+                a = pre_profile_analysis
+                pre_render_choice = {
+                    **pre_render_choice,
+                    "proposed_profile": profile_name,
+                    "profile": None,
+                    "reason": "required_derived_view_reservation_lost",
+                    "lost_derived_views": list(lost_derived),
+                }
             # The protected-gutter profile can worsen a caller-fixed, already
             # overfull sheet by pushing principal views beyond its physical page.
             # Compare only cheap pre-render geometry.  If the established
@@ -1754,7 +1771,7 @@ def _build_drawing_once(
             # admission. FTC09's plan moved 6 mm farther out, withholding a
             # width and PMI carrier that the conservative profile preserves.
             overflow = pre_render_view_page_overflow(a)
-            if selected_profile.view_gutters and overflow:
+            if selected_profile is not None and selected_profile.view_gutters and overflow:
                 conservative_profile = candidate_profile("iso-growth", a.SCALE)
                 with use_layout_profile(conservative_profile):
                     conservative_analysis = analyse(
@@ -1778,7 +1795,14 @@ def _build_drawing_once(
                     conservative_overflow.get(view, 0.0) < overflow.get(view, 0.0) - 1e-6
                     for view in views_to_compare
                 )
-                if no_worse and strictly_better:
+                # The overflow comparison protects principal geometry, but a
+                # different profile must also retain required derived space.
+                # Otherwise this second pre-render choice can undo the guard
+                # above without ever building a drawing for the lost detail.
+                lost_conservative_derived = lost_required_derived_view_reservations(
+                    pre_profile_analysis, conservative_analysis
+                )
+                if no_worse and strictly_better and not lost_conservative_derived:
                     selected_profile = conservative_profile
                     a = conservative_analysis
                     pre_render_choice = {

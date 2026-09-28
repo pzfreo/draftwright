@@ -11,7 +11,7 @@ from draftwright.annotation_layout_profile import (
     current_layout_profile,
     use_layout_profile,
 )
-from draftwright.compose import StripDepths, _measure_strips
+from draftwright.compose import StripDepths, _measure_strips, _strips_for_derived_views
 from draftwright.layout_scheme import (
     AnnotationDemand,
     AnnotationScheme,
@@ -242,6 +242,21 @@ def test_compound_hole_demand_tracks_every_addressable_measurement():
         "counterbore.depth",
     }
     assert all(identity.feature is hole for identity in leader.measurements)
+
+
+def test_y_axis_hole_leader_reserves_the_front_below_band_it_uses():
+    hole = HoleFeature(Frame((0, 0, 0), "y"), 4, 10, False)
+    model = PartModel(Box(20, 20, 15).bounding_box(), "y", [hole])
+
+    strips = _measure_strips(model, 0, model.bbox)
+    leaders = [demand for demand in strips.scheme.demands if demand.family == "feature_leader"]
+
+    assert [(demand.view, demand.side) for demand in leaders] == [("front", "below")]
+    assert strips.front_hole_below > 0
+    assert strips.fv_bottom == 0  # ordinary no-detail builds retain their old view plan
+    assert _strips_for_derived_views(strips, ()) is strips
+    planned = _strips_for_derived_views(strips, (("detail_a", 40.0, 30.0),))
+    assert planned.fv_bottom == strips.front_hole_below
 
 
 def test_demand_carrier_evidence_uses_exact_live_measurements_and_table_cells():

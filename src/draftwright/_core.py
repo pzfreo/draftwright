@@ -1149,6 +1149,65 @@ def _detail_caption(req: DetailRequest, letter: str, scale: float, bb) -> str:
     return f"DETAIL {letter}{qualifier} — SCALE {format_drawing_scale(scale)}"
 
 
+def y_chain_detail_scale_needed(
+    segments: tuple[tuple[float, float, float], ...],
+    label_widths: tuple[float, ...],
+    *,
+    arrow_length: float,
+    text_padding: float,
+) -> float | None:
+    """Return the minimum enlargement for an unreadable Y-turned step chain.
+
+    Segment endpoints are projected page X coordinates; their third value is the
+    approved world-space step length. ``None`` means the principal-view chain
+    already has room for every label and both inside arrows. The same pure rule
+    can be consumed by pre-sheet planning and the render pass (#1872).
+    """
+
+    if len(segments) != len(label_widths):
+        raise ValueError("Y-chain segments and label widths must correspond")
+    if not segments:
+        return None
+    centres = sorted(
+        ((pa + pb) / 2, width) for (pa, pb, _length), width in zip(segments, label_widths)
+    )
+    labels_clear = all(
+        next_centre - centre >= (width + next_width) / 2 + text_padding
+        for (centre, width), (next_centre, next_width) in zip(centres, centres[1:])
+    )
+    inside_arrows_fit = all(
+        abs(pb - pa) >= width + 2 * arrow_length + 2 * text_padding
+        for (pa, pb, _length), width in zip(segments, label_widths)
+    )
+    if labels_clear and inside_arrows_fit:
+        return None
+    return max(
+        (width + 2 * arrow_length + 2 * text_padding) / length
+        for (_pa, _pb, length), width in zip(segments, label_widths)
+        if length > 0
+    )
+
+
+def crowded_horizontal_step_runs(
+    spans: tuple[tuple[float, float], ...], scale: float, arrow_length: float
+) -> tuple[tuple[int, ...], ...]:
+    """Runs of at least two consecutive steps narrower than two page arrowheads.
+
+    The semantic pre-sheet planner and X-turned renderer must identify the same
+    head requirements; neither may invent a different crowded-step threshold.
+    """
+    short = [
+        index for index, (lo, hi) in enumerate(spans) if abs(hi - lo) * scale < 2 * arrow_length
+    ]
+    runs: list[list[int]] = []
+    for index in short:
+        if runs and index == runs[-1][-1] + 1:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+    return tuple(tuple(run) for run in runs if len(run) >= 2)
+
+
 _DETAIL_PROFILE_CONTEXT_PAGE_MM = 2.0  # Draftwright policy, not a drafting-standard minimum.
 _DETAIL_PROFILE_MIN_WORLD_MM = 0.1  # Keep the Boolean crop wider than OCC's fuzzy edge.
 
@@ -1555,6 +1614,9 @@ class Analysis:
     RV_X: float = 0.0
     RV_Y: float = 0.0
     rv_zones: ViewZones | None = None
+    #: Planned hard page boxes for required derived views, carried from composition
+    #: to annotation placement. Empty until a supported pre-sheet demand exists.
+    derived_view_boxes: tuple[tuple[str, tuple[float, float, float, float]], ...] = ()
 
     sheet_margins: SheetMargins | None = None
     content_margins: SheetMargins | None = None

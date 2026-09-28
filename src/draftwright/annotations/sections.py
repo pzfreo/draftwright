@@ -49,8 +49,20 @@ from draftwright._core import (
     _tol_suffix,
     supported_secondary_crop,
 )
-from draftwright._geometry import _leader_ink_polygons, _scale_world, _stroke_polygon
-from draftwright.annotations._common import carve_free_segments, strip_obstacles
+from draftwright._geometry import (
+    _boxes_overlap,
+    _leader_ink_polygons,
+    _scale_world,
+    _stroke_polygon,
+)
+from draftwright.annotations._common import (
+    _clear_derived_view_reservation,
+    _geom_box,
+    _restore_annotation_transaction,
+    _snapshot_annotation_transaction,
+    carve_free_segments,
+    strip_obstacles,
+)
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
@@ -81,6 +93,36 @@ def _section_annotation_names(section, *, reservation=False) -> tuple[str, ...]:
         f"{prefix}_wing_right",
         f"{prefix}_{letter}_left",
         f"{prefix}_{letter}_right",
+    )
+
+
+def _reserved_detail_box_is_clear(drawable, obstacles, box) -> bool:
+    """Verify a pre-sheet detail box remains free after ordinary annotation passes."""
+    x0, y0, x1, y1 = box
+    return (
+        drawable[0] <= x0 < x1 <= drawable[2]
+        and drawable[1] <= y0 < y1 <= drawable[3]
+        and not any(_boxes_overlap(box, obstacle) for obstacle in obstacles)
+    )
+
+
+def _detail_ink_within_reservation(reserved_box, shapes, *, tolerance=0.05):
+    """Measured detail geometry and ink must fit its pre-sheet page box."""
+    boxes = [_geom_box(shape) for shape in shapes if shape is not None]
+    if any(box is None for box in boxes):
+        return False, None
+    measured = (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+    return (
+        measured[0] >= reserved_box[0] - tolerance
+        and measured[1] >= reserved_box[1] - tolerance
+        and measured[2] <= reserved_box[2] + tolerance
+        and measured[3] <= reserved_box[3] + tolerance,
+        measured,
     )
 
 
@@ -745,7 +787,7 @@ def _detail_secondary_crop_error(req: DetailRequest) -> str | None:
 
 
 def _render_detail(
-    dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx
+    dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx, reserved_box=None
 ) -> bool:
     """Generic detail renderer (#307) — the single crop → project → place → caption
     → mark machinery both the prismatic step detail (#42) and the turned-head detail
@@ -896,7 +938,14 @@ def _render_detail(
             _title_margins(a).bottom + _TB_H,
         )
     )
-    rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
+    if reserved_box is None:
+        rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
+    else:
+        rx0, ry0, rx1, ry1 = reserved_box
+        if not _reserved_detail_box_is_clear(drawable, obstacles, reserved_box):
+            req.failure_code = "reservation_occupied"
+            req.failure_reason = "planned detail space was occupied before projection"
+            return False
     rect_w, rect_h = rx1 - rx0, ry1 - ry0
     req.fit_evidence = {
         "minimum_footprint_mm": [float(min_footprint[0]), float(min_footprint[1])],
@@ -906,7 +955,14 @@ def _render_detail(
     def _fits(s):
         _, pt = _pads(s)
         left, right = _horizontal_extents(s)
-        return left + right <= rect_w and view_h * s + pt + caption_gap + cap_h <= rect_h
+        # Compose and render do the same arithmetic through different centring
+        # paths. A mathematically exact planned fit can differ by ~1e-13 mm in
+        # floating point; that is not a real page-space shortfall.
+        epsilon = 1e-6
+        return (
+            left + right <= rect_w + epsilon
+            and view_h * s + pt + caption_gap + cap_h <= rect_h + epsilon
+        )
 
     # Fit continuously enough not to jump over a viable scale.  Subtracting a
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit
@@ -969,6 +1025,14 @@ def _render_detail(
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
         return False
 
+    if reserved_box is not None:
+        within, measured = _detail_ink_within_reservation(reserved_box, (placed, placed_hid))
+        if not within:
+            req.failure_code = "reserved_footprint_exceeded"
+            req.failure_reason = "projected detail geometry exceeds its planned page box"
+            req.fit_evidence["measured_box_mm"] = measured
+            return False
+
     # Commit the view GEOMETRY (public `views` dict) so the feature's dim pass can read its
     # view_bounds, but keep the COORDINATES in `coords` (passed to redraw) — they reach the drawing
     # through the layout seam only if the dims land. If nothing legible lands even at the detail
@@ -977,12 +1041,37 @@ def _render_detail(
     # place-then-drop). The main view always locates the head/block inline, so lint reports any
     # un-located interior.
     dwg.views[view_name] = (placed, placed_hid)
+    annotation_snapshot = (
+        _snapshot_annotation_transaction(dwg, ctx.coverage) if reserved_box is not None else None
+    )
     redrawn = req.redraw(dwg, view_name, coords, detail_scale)
     if not redrawn and not req.keep_without_annotations:
         req.failure_code = "annotations_unplaceable"
+        if annotation_snapshot is not None:
+            _restore_annotation_transaction(dwg, ctx.coverage, annotation_snapshot, {})
         dwg.views.pop(view_name, None)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
+    dvb = placed.bounding_box()
+    caption = Note(
+        _caption_text(detail_scale),
+        ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
+        dwg.draft,
+    )
+    if reserved_box is not None:
+        assert annotation_snapshot is not None
+        new_ink = dwg.items[len(annotation_snapshot.items) :]
+        within, measured = _detail_ink_within_reservation(
+            reserved_box, (placed, placed_hid, *new_ink, caption)
+        )
+        req.fit_evidence["measured_box_mm"] = measured
+        req.fit_evidence["within_reservation"] = within
+        if not within:
+            req.failure_code = "reserved_footprint_exceeded"
+            req.failure_reason = "detail annotation ink exceeds its planned page box"
+            _restore_annotation_transaction(dwg, ctx.coverage, annotation_snapshot, {})
+            dwg.views.pop(view_name, None)
+            return False
     dwg._set_view_coordinates(view_name, coords)
 
     # The marker uses the same two world-axis crop bands as the detail, on
@@ -1018,15 +1107,7 @@ def _render_detail(
     ctx.place(Note(letter, (mx1 + 3, my1 + 2), dwg.draft), f"detail_marker_label_{letter}")
 
     # Caption below the placed view (anchored to its real footprint).
-    dvb = dwg.views[view_name][0].bounding_box()
-    ctx.place(
-        Note(
-            _caption_text(detail_scale),
-            ((dvb.min.X + dvb.max.X) / 2, dvb.min.Y - cap_h),
-            dwg.draft,
-        ),
-        f"detail_caption_{letter}",
-    )
+    ctx.place(caption, f"detail_caption_{letter}")
     req.placed_scale = float(detail_scale)
     return True
 
@@ -1083,13 +1164,14 @@ def _detail_decision_record(
     }
 
 
-def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
+def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None, reservations=None) -> None:
     """Resolve every queued :class:`DetailRequest` (#307) through the one generic
     detailer, lettering DETAIL A/B/… On a placement bail-out nothing is drawn for that
     request — the main view may carry only a synthetic head/block, so an automatic
     request that owns exact step lengths records their absence. Clears the queue."""
     reqs = list(ctx.detail_requests)
     ctx.detail_requests = []
+    reservations = {} if reservations is None else reservations
     if identifiers is None:
         identifiers = DerivedViewIdentifierPool(
             (req.label for req in reqs if req.label is not None),
@@ -1121,8 +1203,12 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
             dwg.detail_decisions.append(_detail_decision_record(req, None, None, False))
             continue
         view_name = req.view_name or f"detail_{letter.lower()}"
+        reservation_name = reservations.pop(view_name, None)
+        reserved_box = None
+        if reservation_name is not None:
+            reserved_box = _clear_derived_view_reservation(dwg, reservation_name, required=True)
         issue_start = len(ctx.registry.issues)
-        placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
+        placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx, reserved_box=reserved_box)
         hname = (
             _overall_height_name(dwg, a)
             if not placed and req.failure_reason is None and req.kind == "prismatic-steps"
@@ -1137,7 +1223,9 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
             # explicit and logged) and retry the detail once.
             ident = dwg.registry.identity_of(hname)
             hobj = dwg.remove(hname)
-            placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
+            placed = _render_detail(
+                dwg, a, req, view_name, letter, ctx=ctx, reserved_box=reserved_box
+            )
             if placed:
                 _log.warning(
                     "%s demoted: the requested crowded-step detail view takes its room", hname

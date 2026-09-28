@@ -32,7 +32,7 @@ rendered as a section.
 | --- | --- | --- |
 | Enlarged detail | A source-direction projection of a Boolean-cropped solid. Primary and optional secondary bounds remain model-space; witness and physical-support checks reject an over-tight crop. The caption carries `DETAIL`, an identifier and the actual scale. It adds `PARTIAL PROFILE` only when the secondary crop truncates the original body envelope. | The marker and caption describe a detail, not a cutting plane. A crop that lacks enough source support falls back to fuller geometry or is refused. There is no general proof of minimum sufficient context. |
 | Full section | A Y-normal cut through a planned row, projected as a distinct section. The plan view carries a named cutting-plane line, end arrows and letters; the cut faces receive 45-degree hatch. A skipped section has a named reason and lint finding. | The section retains the full X/Z envelope. It does not plan a minimum local region, an arbitrary cutting-plane orientation or local-section break boundary. |
-| Scale and page | Main views use the sheet scale; each placed detail captions its resolved scale. Detail fitting accounts for the cropped silhouette, its annotation pads and caption when searching free space on the **already selected** sheet. | The detail footprint is not yet reserved before sheet/scale selection. The detail fit may select a non-preferred scale. No standards-conformance claim follows from legibility alone. |
+| Scale and page | Main views use the sheet scale; each placed detail captions its resolved scale. Detail fitting accounts for the cropped silhouette, its annotation pads and caption. Single unambiguous approved Y-step chains and X-turned crowded heads now have pre-sheet minimum-footprint demands, hard in-pass reservations, and measured post-render containment. | Other detail/section families are not yet pre-sheet planned. A fixed page can still refuse a genuinely unfit required detail. The detail fit may select a non-preferred scale. No standards-conformance claim follows from legibility alone. |
 
 Implementation evidence: `DetailRequest`, `supported_secondary_crop` and
 `_detail_caption` in `src/draftwright/_core.py`; `_render_detail`,
@@ -55,3 +55,88 @@ Implementation evidence: `DetailRequest`, `supported_secondary_crop` and
 
 The context margin, crop preference, and decision to say `PARTIAL PROFILE` are
 Draftwright policies. They are not attributed to ISO or ASME here.
+
+## Planning contract for the remaining implementation
+
+The pre-sheet result must be a *derived-view demand*, not a second rendered
+`Drawing`. It is compiled from the same approved measurements and feature
+support that the detail or section renderer will consume. Each demand names its
+source view, controlled measurement identities, model-space axial and secondary
+extent, minimum legible detail scale, bounded annotation pads, caption footprint,
+and whether the view is full, partial/detail, or a true section. A demand whose
+required witness/support geometry cannot be established remains explicitly
+unplanned; it must not be treated as zero-size optional furniture.
+
+The sequence is:
+
+1. Compile derived-view demands alongside the ordinary dimension/view plan,
+   before `choose_scale`. Share the chain-legibility and crop-support policy with
+   the renderer; do not duplicate a second set of feature-family thresholds in
+   `analysis.py`.
+2. For each candidate `(view set, scale, page, arrangement)`, convert each
+   demand's **post-crop** model span and paper-space pads/caption into a box.
+   Reserve those boxes against principal-view footprints, title block, tables,
+   and isometric view in the same compose-then-pack decision. Spend only the
+   *remaining* slack on the preferred 12 mm view gutter; the 6 mm safety gutter
+   remains a hard floor. Search uses box arithmetic, never an OCC bbox.
+3. Carry the chosen reservation and its semantic identity into the one render
+   pass. Ordinary annotation placement treats it as occupied; `_render_detail`
+   or the section renderer projects once and validates the real cropped geometry,
+   witnesses, annotation ink and caption inside the reserved footprint. A
+   measured mismatch enters the existing bounded repack/refusal path, not a
+   second annotation engine or a silent crop relaxation.
+4. Record planned-versus-measured footprint and any refusal on
+   `detail_decisions`/section decisions and in exported evidence. An approved
+   dimension left without a view remains a named withheld outcome; automatic
+   sheet selection must not call that result complete merely because the
+   principal blocks fit. Explicit-scale builds retain their existing
+   caller-constraint policy: a `step_dim_withheld` finding is reported by lint,
+   but does not itself make the requested scale a rejected placement outcome.
+
+The current `test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor`
+is a useful adversarial fixture: at fixed A4/1:1 it needs a 108.16 × 44.19 mm
+Y-chain detail, but the settled layout leaves only 102.96 × 45.30 mm. It must
+keep the exact 4 and 6 mm step measurements, or report genuine infeasibility
+under the caller's fixed constraints. It must not be made green by weakening
+the measurement assertion or by stealing the minimum gutter. GRM03 and a
+non-turned detail/section remain separate acceptance fixtures; success on this
+Y-chain alone is not completion of #1872.
+
+The first pre-sheet probe found a further constraint: a box that fits when
+principal views are represented by padded silhouettes can overlap the side
+view's dimension and leader bands. The apparent five-millimetre shortage does
+**not** prove that preferred gutter space alone solves this fixture. Derived
+views must be packed against full planned view blocks and their reserved boxes
+must remain hard occupancy for ordinary annotation placement. A prototype
+that changes only the scale/page verdict is insufficient. The first Y-chain
+producers are wired through hard occupancy and measured validation; other
+families remain unplanned. The fixed-A4 adversarial fixture exposes a harder
+tradeoff: its exact measured 108.16 × 44.19 mm detail box can be reserved and
+recovers the 4 and 6 mm steps. Reserving the front-below Y-hole leader band
+also retains the ø4 callout. Both plan-view pad-length dimensions lose their
+preferred upper strip, but one lands in the opposite strip; the other drops
+with `pad_dim_dropped`/`strip_full`. Although the pads have equal nominal
+sizes, no grouped or quantified carrier proves that remaining feature requirement
+is represented by a surviving dimension. Passing the step and callout
+assertions is therefore not a passing semantic result. The conflict needs a
+requirement-aware placement/page choice, not unbounded overlap or raw placement.
+The Y-hole band is a measured demand hint; it is spent in view packing only
+when a derived detail footprint is actually planned, so a no-detail drawing
+does not move its principal views solely because this reservation exists.
+
+The GRM03 AP242 fixture has one approved X-turned profile with a crowded run
+from X −3.2 to 5.5 mm. A changed-head PMI-annotated build retains A4 at 1:1,
+reserves an 87 × 62.13 mm partial-head box, and places the detail at 10:1.
+Measured detail ink passes the reservation's 0.05 mm numeric tolerance; lint
+has only the two informational GD&T fallback decisions, with no drops or
+overlaps. Visual PDF inspection against current `main` found the same legible
+head dimensions and manufacturing callouts, though the detail moves to a
+different clear region. This is one rendered fixture, not proof for all parts.
+
+The same analysis-only GRM03 model was emitted to a Sheet script and compiled
+without building its drawing. Direct and emitted models independently produced
+the identical `detail_a` planning footprint, 87 × 62.128571 mm at 1:1. This
+checks the planning boundary, not rendered/exported script parity. The existing
+slow GRM03 manufacturing test now asserts the pre-sheet reservation and actual
+ink containment in the same drawing build it already performs, so CI will not
+build this expensive fixture a second time just for #1872.
