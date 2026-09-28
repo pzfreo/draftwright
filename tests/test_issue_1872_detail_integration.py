@@ -7,6 +7,10 @@ from draftwright import build_drawing
 from draftwright.annotations._common import DerivedViewReservation
 
 
+def _y_chain_part():
+    return (Cylinder(15, 4) + Pos(0, 0, 5) * Cylinder(10, 6)).rotate(Axis.X, 90)
+
+
 def test_unmatched_pre_sheet_reservation_is_removed_before_drawing_returns(monkeypatch):
     real_layout = analysis_module._layout_geometry
 
@@ -22,9 +26,8 @@ def test_unmatched_pre_sheet_reservation_is_removed_before_drawing_returns(monke
 
 
 def test_approved_y_chain_uses_pre_sheet_reservation_and_places_both_steps():
-    part = (Cylinder(15, 4) + Pos(0, 0, 5) * Cylinder(10, 6)).rotate(Axis.X, 90)
     drawing = build_drawing(
-        part,
+        _y_chain_part(),
         scale=1.0,
         scale_policy="permissive",
         _include_iso=False,

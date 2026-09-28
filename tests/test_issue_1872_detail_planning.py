@@ -14,6 +14,7 @@ from draftwright.annotations.sections import (
     _reserved_detail_box_is_clear,
 )
 from draftwright.compose import StripDepths, _compose_view_blocks, _layout_geometry, choose_scale
+from draftwright.layout_selection import lost_required_derived_view_reservations
 
 
 def _approved_y_chain(lengths, *, gap=0.0):
@@ -66,6 +67,16 @@ def test_approved_y_chain_produces_scale_dependent_detail_demand(monkeypatch):
     assert name == "detail_a" and width > 10.0 and height > 20.0
     assert footprints(5.0) == ()  # both lengths are legible on the parent view
     assert len(measured) == 3  # two step labels + one caption, not one per scale probe
+
+
+def test_profile_recomposition_may_move_but_not_lose_required_detail_space():
+    original = SimpleNamespace(derived_view_boxes=(("detail_a", (10.0, 20.0, 50.0, 55.0)),))
+    moved = SimpleNamespace(derived_view_boxes=(("detail_a", (60.0, 20.0, 100.0, 55.0)),))
+    shrunk = SimpleNamespace(derived_view_boxes=(("detail_a", (60.0, 20.0, 99.0, 55.0)),))
+    missing = SimpleNamespace(derived_view_boxes=())
+    assert lost_required_derived_view_reservations(original, moved) == ()
+    assert lost_required_derived_view_reservations(original, shrunk) == ("detail_a",)
+    assert lost_required_derived_view_reservations(original, missing) == ("detail_a",)
 
 
 def test_repeated_y_pitch_needs_no_planned_detail(monkeypatch):

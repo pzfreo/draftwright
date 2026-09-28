@@ -103,6 +103,23 @@ def choose_pre_render_profile(
     }
 
 
+def lost_required_derived_view_reservations(before: Analysis, after: Analysis) -> tuple[str, ...]:
+    """Required planned view space that a fixed-sheet profile recomposition lost.
+
+    Translation is allowed; shrinking the reserved footprint is not. The
+    result is pre-render evidence, so no second drawing or baseline layout run
+    is involved.
+    """
+    retained = dict(after.derived_view_boxes)
+    return tuple(
+        identity
+        for identity, box in before.derived_view_boxes
+        if identity not in retained
+        or retained[identity][2] - retained[identity][0] < box[2] - box[0] - 0.05
+        or retained[identity][3] - retained[identity][1] < box[3] - box[1] - 0.05
+    )
+
+
 def pre_render_view_page_overflow(analysis: Analysis) -> dict[str, float]:
     """Measure principal-view geometry outside the caller's fixed page before render.
 
