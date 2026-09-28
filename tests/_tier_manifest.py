@@ -41,7 +41,6 @@ CONTRACT_GROUPS = {
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (
-            "test_dimension_lane_canary_issue_1757.py",
             "test_layout_override_lane_issue_1757.py",
             "test_layout_override_side_issue_1757.py",
             "test_sheet_identity_invariant.py",

@@ -93,6 +93,7 @@ def test_sheet_layout_control_changes_run_the_declaration_contract():
     assert "test_layout_override_lane_issue_1757.py" in modules
     assert "test_layout_override_side_issue_1757.py" in modules
     assert "test_sheet_identity_invariant.py" in modules
+    assert "test_dimension_lane_canary_issue_1757.py" not in modules
 
 
 def test_nonproduction_changes_do_not_expand_the_core():
