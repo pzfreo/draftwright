@@ -134,6 +134,7 @@ _LAYERS: dict[str, int] = {
     "model": 0,  # the ADR 1 (was 0008) IR waist — depends only on rank-0 leaves (guarded below too)
     # 1 — the shared drawing/layout primitives
     "_core": 1,
+    "build_options": 1,
     "document_input": 1,
     # 2 — core-consumers: depend on _core, sit below the stages
     "linting": 2,

@@ -315,6 +315,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   reads. It validates inspection manifest format 1/API major 1, the exact installed recogniser
   release, and only the stable `quiddity.inspection` symbols and value schemas consumed
   by `model/declare.py`. It deliberately does not declare recognition-family semantics.
+- **`build_options.py`** — rank-1 frozen build inputs shared by the builder and script
+  emitter. It owns defaults and context-free policy validation; retry-specific scale,
+  page, and analysis state remain explicit in the builder.
 - **`document_input.py`** — rank-1 common intake authority: exact raw recognition/ownership,
   sealed physical membership and copies of member authoring containers. It retains source bytes
   and the original analysis for reuse through the existing builder.

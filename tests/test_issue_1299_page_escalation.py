@@ -90,13 +90,14 @@ def test_no_iso_proposal_on_different_page_reselects_scale_for_original_page(mon
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         scale,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         calls.append({"scale": scale, "page": page, "include_iso": _include_iso})
         _analysis_sink(
             SimpleNamespace(
@@ -174,12 +175,13 @@ def test_required_drop_without_axial_gap_uses_the_same_bounded_page_recovery(
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         _analysis_sink(
             SimpleNamespace(
                 arrangement=builder.ARRANGEMENTS[0],
@@ -255,13 +257,14 @@ def test_required_drop_without_iso_still_uses_bounded_scale_and_page_recovery(mo
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         scale,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         assert not _include_iso
         _analysis_sink(
             SimpleNamespace(
@@ -332,13 +335,14 @@ def test_hard_layout_precedes_completeness_in_automatic_page_scale_verdict(monke
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         scale,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         assert not _include_iso
         _analysis_sink(
             SimpleNamespace(
@@ -402,13 +406,14 @@ def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         scale,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         assert not _include_iso
         analysis = SimpleNamespace(
             arrangement=builder.ARRANGEMENTS[0],
@@ -490,12 +495,13 @@ def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch)
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         _analysis_sink(
             SimpleNamespace(
                 arrangement=builder.ARRANGEMENTS[0],
@@ -595,12 +601,13 @@ def test_recovery_does_not_trade_a_required_drop_for_unreadable_ink(
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         _analysis_sink(
             SimpleNamespace(
                 arrangement=builder.ARRANGEMENTS[0],
@@ -681,7 +688,8 @@ def test_geometry_drop_recovery_does_not_borrow_a_typed_owners_source(monkeypatc
         def lint(self, *, physical=False):
             return (dropped,)
 
-    def fake_one_pass(_step_file, *, _include_iso, _analysis_sink, **_kwargs):
+    def fake_one_pass(_step_file, options, *, _analysis_sink, **_kwargs):
+        _include_iso = options._include_iso
         calls.append(_include_iso)
         _analysis_sink(
             SimpleNamespace(
@@ -731,13 +739,14 @@ def test_complete_detail_drawing_stays_on_its_original_page(monkeypatch):
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         scale,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         _analysis_sink(
             SimpleNamespace(
                 arrangement=builder.ARRANGEMENTS[0],
@@ -819,13 +828,14 @@ def test_detail_and_source_recovery_reuse_the_same_upscale_candidates(monkeypatc
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         scale,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         calls.append((scale, page, _include_iso))
         _analysis_sink(
             SimpleNamespace(
@@ -866,12 +876,13 @@ def test_expected_larger_page_build_failure_is_recorded_before_next_page(monkeyp
 
     def fake_one_pass(
         _step_file,
+        options,
         *,
         page,
-        _include_iso,
         _analysis_sink,
         **_kwargs,
     ):
+        _include_iso = options._include_iso
         _analysis_sink(
             SimpleNamespace(
                 arrangement=builder.ARRANGEMENTS[0],
