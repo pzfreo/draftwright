@@ -32,6 +32,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
+        "ir_foundation": "src/draftwright/model/ir_foundation.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -72,6 +73,11 @@ def test_hole_location_source_selects_its_behavior_and_evidence_contracts():
 def test_oriented_slot_geometry_change_runs_its_semantics_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/model/oriented_slot_geometry.py"])
     assert "test_issue_1432_oriented_slot_semantics.py" in selected
+
+
+def test_ir_foundation_change_runs_manufacturing_requirement_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/model/ir_foundation.py"])
+    assert "test_issue_1298_manufacturing_requirements.py" in selected
 
 
 def test_unknown_production_module_selects_every_contract_group():
