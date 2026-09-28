@@ -438,6 +438,7 @@ class StripDepths:
     pv_halo: float = 0.0  # balloon standoff band reserved around the plan view (#111)
     fv_top: float = 0.0  # authored X-linear dimensions above the front view (#563)
     fv_bottom: float = 0.0
+    front_hole_below: float = 0.0  # demand hint, spent only beside a planned detail
     pv_authored_top: float = 0.0
     pv_bottom: float = 0.0
     sv_top: float = 0.0
@@ -585,6 +586,20 @@ class AnnoBox:
     angular: AngularReservation | None = None
 
 
+def _strips_for_derived_views(
+    strips: StripDepths | None,
+    derived_view_footprints: tuple[tuple[str, float, float], ...],
+) -> StripDepths | None:
+    """Spend the Y-hole leader band only when a derived box could claim it."""
+    if (
+        strips is None
+        or not derived_view_footprints
+        or strips.front_hole_below <= strips.fv_bottom
+    ):
+        return strips
+    return replace(strips, fv_bottom=strips.front_hole_below)
+
+
 def _compose_anno_boxes(
     model,
     n_steps: int,
@@ -631,7 +646,7 @@ def _compose_anno_boxes(
         row_height = font_size + 2 * pad_around_text
         boxes.append(
             AnnoBox(
-                "front_below",
+                "front_hole_below",
                 _STRIP_GAP
                 + front_hole_rows * row_height
                 + max(front_hole_rows - 1, 0) * _STRIP_SPACING,
@@ -955,6 +970,7 @@ def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
         pv_halo=deepest("plan_halo"),
         fv_top=deepest("front_above"),
         fv_bottom=deepest("front_below"),
+        front_hole_below=deepest("front_hole_below"),
         pv_authored_top=deepest("plan_authored_above"),
         pv_bottom=deepest("plan_below"),
         sv_top=deepest("side_above"),
@@ -1626,6 +1642,7 @@ def _layout_geometry(
     # margin is a parameter (default _MARGIN) so a reserved content margin — e.g. the
     # #767 sheet-frame band — flows through BOTH scale selection and placement, which
     # share this one authority. Default keeps every existing caller byte-identical.
+    strips = _strips_for_derived_views(strips, derived_view_footprints)
     margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
     left, right, top, bottom = margins.left, margins.right, margins.top, margins.bottom
     furniture = title_block_margins or SheetMargins(right=_TB_CLEAR, bottom=_TB_CLEAR)

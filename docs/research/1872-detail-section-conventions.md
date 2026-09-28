@@ -120,6 +120,9 @@ sizes, no grouped or quantified carrier proves that remaining feature requiremen
 is represented by a surviving dimension. Passing the step and callout
 assertions is therefore not a passing semantic result. The conflict needs a
 requirement-aware placement/page choice, not unbounded overlap or raw placement.
+The Y-hole band is a measured demand hint; it is spent in view packing only
+when a derived detail footprint is actually planned, so a no-detail drawing
+does not move its principal views solely because this reservation exists.
 
 The GRM03 AP242 fixture has one approved X-turned profile with a crowded run
 from X −3.2 to 5.5 mm. An analysis-only check (stopped before projection and

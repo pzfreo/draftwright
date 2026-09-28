@@ -74,6 +74,7 @@ from draftwright.compose import (
     _est_table_size,
     _layout_geometry,
     _measure_strips,
+    _strips_for_derived_views,
     choose_scale,
 )
 from draftwright.model.compiled import compile_dimensions
@@ -1678,6 +1679,10 @@ def _analyse(
             bore_callout_width=bore_callout_width,
         )
     )
+    derived_footprints = (
+        detail_footprints_for_scale(SCALE) if detail_footprints_for_scale is not None else ()
+    )
+    strips = _strips_for_derived_views(strips, derived_footprints)
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
     # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
     # later scales the iso to fill its rectangle.
@@ -1701,9 +1706,7 @@ def _analyse(
         include_iso=_include_iso,
         iso_scale_factor=layout_iso_scale,
         convention=convention,
-        derived_view_footprints=(
-            detail_footprints_for_scale(SCALE) if detail_footprints_for_scale is not None else ()
-        ),
+        derived_view_footprints=derived_footprints,
     )
     _apply_principal_view_pins(
         _g,
