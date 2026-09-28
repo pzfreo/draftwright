@@ -30,6 +30,7 @@ from draftwright._geometry import (
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
     CROSSABLE_TYPES,
+    DerivedViewReservation,
     _geom_box,
     annotation_obstacle_boxes,
     strip_obstacles,
@@ -1384,6 +1385,13 @@ def _rendered_residual_components(
 
 def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
     """Exact-width fixed ink components for one already-rendered annotation."""
+
+    if isinstance(annotation, DerivedViewReservation):
+        # A future required view owns its entire planned rectangle, not merely
+        # the strokes it will eventually draw. Keep it hard even in the bounded
+        # feature-leader solve; optional section reservations use a separate
+        # provisional flag and may yield to those leaders.
+        return (_FixedInkComponent(f"{name}:reserved", box=annotation.box),)
 
     components: list[_FixedInkComponent] = []
     owner = dwg.registry.feature_of(name)

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from itertools import chain
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from build123d import FontStyle
@@ -64,6 +65,30 @@ _log = logging.getLogger(__name__)
 
 
 _LABEL_INK_CLEARANCE_MM = 0.25
+
+
+@dataclass(frozen=True)
+class DerivedViewReservation:
+    """An engine-owned, non-rendered hard keep-out for a required derived view.
+
+    This occupies the *whole* planned view/annotation/caption box, including
+    blank space between strokes. It is not a provisional section arrow: required
+    leaders must not override it. The detail pass must remove it before export.
+    """
+
+    box: tuple[float, float, float, float]
+
+    def __post_init__(self):
+        x0, y0, x1, y1 = self.box
+        if not all(math.isfinite(value) for value in self.box) or x0 >= x1 or y0 >= y1:
+            raise ValueError("derived-view reservation needs a finite nonempty page box")
+
+    def bounding_box(self):
+        x0, y0, x1, y1 = self.box
+        return SimpleNamespace(
+            min=SimpleNamespace(X=x0, Y=y0),
+            max=SimpleNamespace(X=x1, Y=y1),
+        )
 
 
 def _with_hole_location_coverage(annotation, coverage):

@@ -4,6 +4,8 @@ import pytest
 
 from draftwright._core import y_chain_detail_scale_needed
 from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
+from draftwright.annotations._common import DerivedViewReservation, strip_obstacles
+from draftwright.annotations.leaders import _fixed_annotation_obstacles
 from draftwright.compose import StripDepths, _compose_view_blocks, _layout_geometry, choose_scale
 
 
@@ -117,3 +119,33 @@ def test_detail_reservation_clears_full_planned_side_annotation_band():
         or detail[3] <= side[1]
         or side[3] <= detail[1]
     )
+
+
+def test_required_detail_reservation_is_hard_for_strips_and_feature_leaders():
+    class DrawingProbe:
+        def __init__(self):
+            self.reservation = DerivedViewReservation((10.0, 20.0, 40.0, 55.0))
+            self.registry = self
+
+        def iter_annotations(self):
+            return iter((("detail_a_reservation", self.reservation),))
+
+        def view_of(self, _name):
+            return None
+
+        def feature_of(self, _name):
+            return None
+
+    dwg = DrawingProbe()
+    assert strip_obstacles(dwg, view="front", named=True) == [
+        ("detail_a_reservation", (10.0, 20.0, 40.0, 55.0))
+    ]
+    fixed = tuple(_fixed_annotation_obstacles(dwg, "front"))
+    assert len(fixed) == 1
+    assert fixed[0].box == (10.0, 20.0, 40.0, 55.0)
+    assert tuple(_fixed_annotation_obstacles(dwg, "front", provisional=True)) == ()
+
+
+def test_required_detail_reservation_rejects_invalid_box():
+    with pytest.raises(ValueError, match="finite nonempty"):
+        DerivedViewReservation((10.0, 20.0, float("nan"), 55.0))
