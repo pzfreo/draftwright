@@ -209,7 +209,7 @@ def test_conservative_profile_does_not_inherit_rejected_arrangement(monkeypatch)
     assert choice["proposed_profile"] == "planned"
     assert choice["profile"] == "iso-growth"
     assert proposed_arrangements == ["staggered-side"]
-    assert drawing._analysis.arrangement == initial_arrangements[0]
+    assert drawing.arrangement_decision["chosen"] == initial_arrangements[0]
 
 
 def test_frame_conservative_profile_preserves_required_location_and_iso():
@@ -227,7 +227,7 @@ def test_frame_conservative_profile_preserves_required_location_and_iso():
     )
 
     assert drawing.annotation_scheme_decision["pre_render_choice"]["profile"] == "iso-growth"
-    assert drawing._analysis.arrangement == "columns"
+    assert drawing.arrangement_decision["chosen"] == "columns"
     assert drawing.get_annotation("m_locx1").label == "27.8"
     assert drawing.view_bounds("plan")[3] <= drawing.page_h
     iso_x0, _, iso_x1, _ = drawing.view_bounds("iso")
