@@ -8,6 +8,13 @@ from build123d_drafting import HoleCallout
 
 from draftwright import build_drawing
 from draftwright.linting import lint_feature_coverage
+from draftwright.linting.hole_coverage import hole_requirement_outcomes
+
+
+def test_hole_requirement_outcomes_requires_the_run_recognition_result():
+    assert hole_requirement_outcomes(None, (), None) == []
+    with pytest.raises(TypeError, match="requires the run's RecognitionResult"):
+        hole_requirement_outcomes(object(), (), None)
 
 
 class TestLintFeatureCoverage:

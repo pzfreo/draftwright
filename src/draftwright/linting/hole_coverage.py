@@ -972,98 +972,8 @@ def _physical_requirement_count(kind: HoleSourceKind, source, member_count: int)
     return count
 
 
-def hole_requirement_outcomes(
-    recognition: RecognitionResult | None,
-    features,
-    registry,
-    omissions=(),
-    *,
-    ownership: RecognitionOwnership | None = None,
-) -> list[HoleRequirementOutcome]:
-    """Follow every recognised hole requirement to an exact compiler/placement outcome."""
-    if recognition is None:
-        return []
-    if not isinstance(recognition, RecognitionResult):
-        raise TypeError(
-            "hole_requirement_outcomes() requires the run's RecognitionResult; "
-            f"got {type(recognition).__name__}"
-        )
-
-    # Automatic refusals carry their original run identity. A declared replay has no
-    # conversion ownership; apply the same physical corroboration policy to its cached
-    # inventory. An exact declared pattern remains independently verifiable even when
-    # automatic drafting would use individual holes. Missing a corroborated pattern is
-    # still a mismatch: absence from the IR cannot itself justify a refusal.
-    patterns = recognition.hole_patterns
-    if ownership is not None:
-        if ownership.evidence.result is not recognition:
-            raise ValueError("hole ownership and recognition must belong to the same run")
-        refused = {id(row.pattern) for row in ownership.hole_pattern_refusals}
-        if not refused <= {id(pattern) for pattern in patterns}:
-            raise ValueError("refused hole pattern does not belong to this recognition run")
-        patterns = tuple(pattern for pattern in patterns if id(pattern) not in refused)
-    else:
-        declared_patterns = {
-            _pattern_key(feature)
-            for feature in features
-            if getattr(feature, "kind", None) == "pattern"
-        }
-        patterns = tuple(
-            pattern
-            for pattern in patterns
-            if not isinstance(pattern, BoltCircle)
-            or bolt_circle_is_corroborated(
-                pattern, pattern.holes, recognition.holes, recognition.bosses
-            )
-            or _pattern_key(pattern) in declared_patterns
-            or _tool_center_pattern_key(pattern) in declared_patterns
-        )
-    pattern_member_ids = {id(hole) for pattern in patterns for hole in pattern.holes}
-    loose_groups: dict[tuple, list] = defaultdict(list)
-    for hole in recognition.holes:
-        if id(hole) not in pattern_member_ids:
-            # HoleSpec's signed axis is part of machining identity. Keep opposite-face
-            # and distinct oblique bores in separate source groups even when every printed
-            # size matches. Use recognition's 6 dp identity rather than critique's 3 dp
-            # geometry normalization.
-            loose_groups[(_recognised_spec(hole), HoleSpec.from_hole(hole).axis)].append(hole)
-
-    # Carries the group's member SITES explicitly (#1217 PR 2). The source object is the
-    # representative `holes[0]`, so deriving members from it yields one site for a group of
-    # eight — which a consumer attributing per hole then silently misses seven of.
-    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple, tuple[object, ...]]] = []
-    for (spec, _direction), holes in loose_groups.items():
-        axis_index = "xyz".index(spec[0])
-        through = spec[3]
-        member_sites = []
-        for hole in holes:
-            site = list(_point(hole.location))
-            if through:
-                site[axis_index] = 0.0
-            member_sites.append((site[0], site[1], site[2]))
-        members = tuple(sorted(member_sites))
-        sources.append(("hole", holes[0], (spec, members), len(holes), members, tuple(holes)))
-    sources.extend(
-        (
-            "hole_pattern",
-            pattern,
-            _pattern_key(pattern),
-            len(pattern.holes),
-            tuple(_members(pattern)),
-            tuple(pattern.holes),
-        )
-        for pattern in patterns
-    )
-    attached_countersinks = Counter(
-        hole.csink for hole in recognition.holes if getattr(hole, "csink", None) is not None
-    )
-    unmatched_countersinks = []
-    for countersink in recognition.countersinks:
-        if attached_countersinks[countersink]:
-            attached_countersinks[countersink] -= 1
-        elif any(countersink_matches_hole(countersink, hole) for hole in recognition.holes):
-            unmatched_countersinks.append(countersink)
-
+def _match_hole_sources(sources, features) -> list[tuple]:
+    """Join recognised sources to exact owners, then unique cutter-centre owners."""
     ir_by_key: dict[tuple[str, tuple], list] = defaultdict(list)
     owners_by_exact_member: dict[tuple, list] = defaultdict(list)
     for feature in features:
@@ -1223,6 +1133,103 @@ def hole_requirement_outcomes(
     for index, proposal in residual_proposals.items():
         if all(residual_claims[id(feature)] == 1 for feature in proposal):
             matches_by_source[index] = proposal
+
+    return matches_by_source
+
+
+def hole_requirement_outcomes(
+    recognition: RecognitionResult | None,
+    features,
+    registry,
+    omissions=(),
+    *,
+    ownership: RecognitionOwnership | None = None,
+) -> list[HoleRequirementOutcome]:
+    """Follow every recognised hole requirement to an exact compiler/placement outcome."""
+    if recognition is None:
+        return []
+    if not isinstance(recognition, RecognitionResult):
+        raise TypeError(
+            "hole_requirement_outcomes() requires the run's RecognitionResult; "
+            f"got {type(recognition).__name__}"
+        )
+
+    # Automatic refusals carry their original run identity. A declared replay has no
+    # conversion ownership; apply the same physical corroboration policy to its cached
+    # inventory. An exact declared pattern remains independently verifiable even when
+    # automatic drafting would use individual holes. Missing a corroborated pattern is
+    # still a mismatch: absence from the IR cannot itself justify a refusal.
+    patterns = recognition.hole_patterns
+    if ownership is not None:
+        if ownership.evidence.result is not recognition:
+            raise ValueError("hole ownership and recognition must belong to the same run")
+        refused = {id(row.pattern) for row in ownership.hole_pattern_refusals}
+        if not refused <= {id(pattern) for pattern in patterns}:
+            raise ValueError("refused hole pattern does not belong to this recognition run")
+        patterns = tuple(pattern for pattern in patterns if id(pattern) not in refused)
+    else:
+        declared_patterns = {
+            _pattern_key(feature)
+            for feature in features
+            if getattr(feature, "kind", None) == "pattern"
+        }
+        patterns = tuple(
+            pattern
+            for pattern in patterns
+            if not isinstance(pattern, BoltCircle)
+            or bolt_circle_is_corroborated(
+                pattern, pattern.holes, recognition.holes, recognition.bosses
+            )
+            or _pattern_key(pattern) in declared_patterns
+            or _tool_center_pattern_key(pattern) in declared_patterns
+        )
+    pattern_member_ids = {id(hole) for pattern in patterns for hole in pattern.holes}
+    loose_groups: dict[tuple, list] = defaultdict(list)
+    for hole in recognition.holes:
+        if id(hole) not in pattern_member_ids:
+            # HoleSpec's signed axis is part of machining identity. Keep opposite-face
+            # and distinct oblique bores in separate source groups even when every printed
+            # size matches. Use recognition's 6 dp identity rather than critique's 3 dp
+            # geometry normalization.
+            loose_groups[(_recognised_spec(hole), HoleSpec.from_hole(hole).axis)].append(hole)
+
+    # Carries the group's member SITES explicitly (#1217 PR 2). The source object is the
+    # representative `holes[0]`, so deriving members from it yields one site for a group of
+    # eight — which a consumer attributing per hole then silently misses seven of.
+    sources: list[tuple[HoleSourceKind, object, tuple, int, tuple, tuple[object, ...]]] = []
+    for (spec, _direction), holes in loose_groups.items():
+        axis_index = "xyz".index(spec[0])
+        through = spec[3]
+        member_sites = []
+        for hole in holes:
+            site = list(_point(hole.location))
+            if through:
+                site[axis_index] = 0.0
+            member_sites.append((site[0], site[1], site[2]))
+        members = tuple(sorted(member_sites))
+        sources.append(("hole", holes[0], (spec, members), len(holes), members, tuple(holes)))
+    sources.extend(
+        (
+            "hole_pattern",
+            pattern,
+            _pattern_key(pattern),
+            len(pattern.holes),
+            tuple(_members(pattern)),
+            tuple(pattern.holes),
+        )
+        for pattern in patterns
+    )
+    attached_countersinks = Counter(
+        hole.csink for hole in recognition.holes if getattr(hole, "csink", None) is not None
+    )
+    unmatched_countersinks = []
+    for countersink in recognition.countersinks:
+        if attached_countersinks[countersink]:
+            attached_countersinks[countersink] -= 1
+        elif any(countersink_matches_hole(countersink, hole) for hole in recognition.holes):
+            unmatched_countersinks.append(countersink)
+
+    matches_by_source = _match_hole_sources(sources, features)
 
     evidence_index = _index_hole_evidence(registry)
     turned_axis_centers = {
