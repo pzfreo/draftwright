@@ -89,16 +89,12 @@ from draftwright.intent_drain import IntentDrainState, drain_intents
 from draftwright.intents import Intent
 from draftwright.layout import FitBoxTrace
 from draftwright.linting import (
-    EXAMINABLE_DECLARED_KINDS,
     CoverageState,
     LintIssue,
-    is_dimension_like,
-    pmi_stage_summary,
 )
 from draftwright.linting.evidence import compiled_display_precisions
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
 from draftwright.linting.orchestration import LintContext, lint_finished_drawing
-from draftwright.linting.quality import quality_components, review_explanation
 from draftwright.projection import (
     part_material_mesh,
     project_view_geometry,
@@ -1411,25 +1407,9 @@ class Drawing:
         ``kind@(x,y,z)/axis``, which survives a rebuild because it is
         derived from the geometry rather than from list position.
         """
+        from draftwright.drawing_evidence import suppression_rows
 
-        return [
-            {
-                "feature": feature_key(o.feature),
-                "parameter_id": o.parameter_id,
-                "value": o.value,
-                "reason": o.reason,
-                "authored": o.authored,
-                "conveyed_by": (
-                    None
-                    if o.conveyed_by is None
-                    else {
-                        "feature": feature_key(o.conveyed_by.feature),
-                        "parameter_id": o.conveyed_by.parameter,
-                    }
-                ),
-            }
-            for o in self._build.omissions
-        ]
+        return suppression_rows(self._build.omissions, feature_key)
 
     def measurement_keys(self, name) -> list[dict]:
         """Which measurements the annotation *name* draws — possibly none (#1002).
@@ -1450,10 +1430,9 @@ class Drawing:
         For declaration-local ownership and meaning comparisons, capture
         :meth:`measurement_snapshot`; geometry descriptions alone do not prove correspondence.
         """
-        return [
-            {"feature": feature_key(mid.feature), "parameter_id": mid.parameter}
-            for mid in self._registry.measurement_of(name)
-        ]
+        from draftwright.drawing_evidence import measurement_keys
+
+        return measurement_keys(self._registry, name, feature_key)
 
     def measurement_snapshot(self):
         """Capture named measurement claims for a declaration-local edit comparison.
@@ -1463,178 +1442,12 @@ class Drawing:
         rebuilt declarations need an explicit correspondence, never a geometry-key guess.
         This read compiles the existing model and reads recorded claim text, without recognition.
         """
-        from copy import deepcopy
-
-        from draftwright.audit import (
-            _FURNITURE,
-            MeasurementCellUncertainty,
-            MeasurementClaim,
-            MeasurementSnapshot,
-        )
-        from draftwright.linting.evidence import compiled_values, verify_measurement_claims
-        from draftwright.linting.structural import dimension_path_measurement
-        from draftwright.model.compiled import compile_dimensions
+        from draftwright.drawing_evidence import measurement_snapshot
 
         model = self.model()
         if model is None:
-            return MeasurementSnapshot((), (), (("", "model_unavailable"),))
-        plan = compile_dimensions(model)
-        values = compiled_values(plan)
-        schedules = {schedule.name: schedule for schedule in plan.schedules}
-        outcomes = verify_measurement_claims(self.registry, plan)
-        claims = []
-        unknown = []
-        cell_unknown = []
-        for name, type_name in self.annotations().items():
-            if type_name in _FURNITURE:
-                continue
-            annotation = self.registry.named(name)
-            path = dimension_path_measurement(annotation, self.scale)
-            # Paper-space arithmetic can introduce sub-nanometre roundoff when
-            # a view moves or rescales. Compiled values/spans remain unrounded;
-            # this extra observed length only binds the text to its drawn path.
-            measured_length = None if path is None else round(path[0] / path[1], 9)
-            identities = self.registry.measurement_of(name)
-            if not identities:
-                unknown.append((name, "measurement_identity_unavailable"))
-            cells = self.registry.cells_of(name)
-            if cells:
-                for reference in cells:
-                    identity = reference.measurement
-                    address = (reference.row, reference.column)
-                    evidence = [
-                        item
-                        for item in outcomes
-                        if item.annotation == name
-                        and item.cell == address
-                        and item.measurement is not None
-                        and getattr(item.measurement, "feature", None) is identity.feature
-                        and item.parameter_id == identity.parameter
-                    ]
-                    if not evidence or any(item.state != "confirmed" for item in evidence):
-                        unknown.append((name, "compiled_claim_unconfirmed"))
-                        cell_unknown.append(
-                            MeasurementCellUncertainty(name, address, "compiled_claim_unconfirmed")
-                        )
-                        continue
-                    schedule = schedules[reference.schedule]
-                    approved_cell = schedule.rows[reference.row][reference.column]
-                    item = approved_cell.measurement
-                    # Verification has bound the actual cell to this exact approval.
-                    # Other cells sharing a coarse ID cannot enlarge its meaning.
-                    assert item is not None
-                    rows = annotation.table_rows
-                    claims.append(
-                        MeasurementClaim(
-                            identity.feature,
-                            identity.parameter,
-                            name,
-                            (
-                                (
-                                    item.value,
-                                    deepcopy(item.tolerance),
-                                    item.span,
-                                    item.axis,
-                                    item.discriminator,
-                                    item.location_member,
-                                    item.angular_reference.measurement_key
-                                    if item.angular_reference is not None
-                                    else None,
-                                ),
-                            ),
-                            (
-                                str(rows[reference.row][reference.column]),
-                                str(rows[0][reference.column]),
-                                tuple(
-                                    (column, str(rows[reference.row][column]))
-                                    for column, cell in enumerate(schedule.rows[reference.row])
-                                    if cell.measurement is None
-                                ),
-                            ),
-                            approved=(item,),
-                            cell=address,
-                        )
-                    )
-                # Retain unsliced claims as uncertainty, just as the common verifier
-                # does. No successful neighbour grants them an implicit address.
-                if any(
-                    item.annotation == name and item.cell is None and item.state != "confirmed"
-                    for item in outcomes
-                ):
-                    unknown.append((name, "compiled_claim_unconfirmed"))
-                continue
-            for identity in identities:
-                approved = tuple(
-                    item
-                    for item in values.get(identity, ())
-                    if item.id is not None and item.id.feature is identity.feature
-                )
-                evidence = [
-                    item
-                    for item in outcomes
-                    if item.annotation == name
-                    and item.measurement is not None
-                    and getattr(item.measurement, "feature", None) is identity.feature
-                    and item.parameter_id == identity.parameter
-                ]
-                if (
-                    not approved
-                    or not evidence
-                    or any(item.state != "confirmed" for item in evidence)
-                ):
-                    unknown.append((name, "compiled_claim_unconfirmed"))
-                    continue
-                meaning = tuple(
-                    (
-                        item.value,
-                        deepcopy(item.tolerance),
-                        item.span,
-                        item.axis,
-                        item.discriminator,
-                        item.location_member,
-                        item.angular_reference.measurement_key
-                        if item.angular_reference is not None
-                        else None,
-                    )
-                    for item in approved
-                )
-                claims.append(
-                    MeasurementClaim(
-                        identity.feature,
-                        identity.parameter,
-                        name,
-                        meaning,
-                        (
-                            str(
-                                getattr(self.registry.named(name), "label", None)
-                                or getattr(self.registry.named(name), "_annotate_label", "")
-                            ),
-                            tuple(
-                                tuple(str(cell) for cell in row)
-                                for row in getattr(self.registry.named(name), "table_rows", ())
-                                or ()
-                            ),
-                            measured_length,
-                        ),
-                        (
-                            deepcopy(getattr(annotation, "_dw_measurement_span", None)),
-                            tuple(
-                                (component, deepcopy(at))
-                                for feature, component, at in getattr(
-                                    annotation, "covers_hole_locations", ()
-                                )
-                                if feature is identity.feature
-                            ),
-                        ),
-                        approved=approved,
-                    )
-                )
-        return MeasurementSnapshot(
-            tuple(model.features),
-            tuple(claims),
-            tuple(unknown),
-            cell_unknown=tuple(cell_unknown),
-        )
+            return measurement_snapshot(None, None, None, None)
+        return measurement_snapshot(model, self.registry, self.annotations, self.scale)
 
     @property
     def solve_trace(self):
@@ -3728,85 +3541,10 @@ class Drawing:
         and sufficient to expose a large unused sheet or empty quadrant without parsing
         an export (#1797).
         """
+        from draftwright.drawing_evidence import layout_utilization
 
         page = _frame_margins(self._analysis).bounds(self.page_w, self.page_h)
-        boxes = [bounds for name in self.views if (bounds := self.view_bounds(name)) is not None]
-        for name, annotation in self.iter_annotations():
-            if name in {"sheet_frame", "title_block"}:
-                continue
-            try:
-                bounds = annotation.bounding_box()
-                boxes.append((bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y))
-            except Exception:  # noqa: BLE001 — unmeasurable ink stays outside this evidence
-                continue
-
-        def clip(box, region):
-            clipped = (
-                max(box[0], region[0]),
-                max(box[1], region[1]),
-                min(box[2], region[2]),
-                min(box[3], region[3]),
-            )
-            return clipped if clipped[0] < clipped[2] and clipped[1] < clipped[3] else None
-
-        def union_area(region):
-            clipped = [found for box in boxes if (found := clip(box, region)) is not None]
-            xs = sorted({value for box in clipped for value in (box[0], box[2])})
-            area = 0.0
-            for left, right in zip(xs, xs[1:]):
-                intervals = sorted(
-                    (box[1], box[3]) for box in clipped if box[0] < right and box[2] > left
-                )
-                covered = 0.0
-                end = None
-                for low, high in intervals:
-                    if end is None or low > end:
-                        covered += high - low
-                        end = high
-                    elif high > end:
-                        covered += high - end
-                        end = high
-                area += (right - left) * covered
-            return area
-
-        x0, y0, x1, y1 = page
-        width, height = x1 - x0, y1 - y0
-        envelope = None
-        clipped_boxes = [found for box in boxes if (found := clip(box, page)) is not None]
-        if clipped_boxes:
-            envelope = (
-                min(box[0] for box in clipped_boxes),
-                min(box[1] for box in clipped_boxes),
-                max(box[2] for box in clipped_boxes),
-                max(box[3] for box in clipped_boxes),
-            )
-        mid_x, mid_y = (x0 + x1) / 2.0, (y0 + y1) / 2.0
-        quadrants = {
-            "left-bottom": (x0, y0, mid_x, mid_y),
-            "right-bottom": (mid_x, y0, x1, mid_y),
-            "left-top": (x0, mid_y, mid_x, y1),
-            "right-top": (mid_x, mid_y, x1, y1),
-        }
-        page_area = width * height
-        return {
-            "scope": "clipped-view-and-annotation-bounding-boxes",
-            "drawable_bounds": page,
-            "content_bounds": envelope,
-            "content_envelope_fraction": (
-                None
-                if envelope is None or page_area <= 0.0
-                else (envelope[2] - envelope[0]) * (envelope[3] - envelope[1]) / page_area
-            ),
-            "footprint_fraction": None if page_area <= 0.0 else union_area(page) / page_area,
-            "quadrants": {
-                name: {
-                    "bounds": region,
-                    "footprint_fraction": union_area(region)
-                    / ((region[2] - region[0]) * (region[3] - region[1])),
-                }
-                for name, region in quadrants.items()
-            },
-        }
+        return layout_utilization(page, self.views, self.view_bounds, self.iter_annotations)
 
     def lint_summary(self) -> dict:
         """Aggregate :meth:`lint` into a JSON-friendly diagnostic summary.
@@ -3839,120 +3577,29 @@ class Drawing:
         else:
             with _collect_issue_aggregation() as aggregation:
                 issues = self.lint()
-        errors = sum(1 for i in issues if i.severity == "error")
-        warnings = sum(1 for i in issues if i.severity == "warning")
-        infos = sum(1 for i in issues if i.severity == "info")
-        by_code: dict[str, int] = {}
-        for i in issues:
-            by_code[i.code] = by_code.get(i.code, 0) + 1
-        score = max(
-            0.0,
-            1.0 - errors * _SCORE_ERROR_PENALTY - warnings * _SCORE_WARNING_PENALTY,
-        )
-        pmi = (
-            pmi_stage_summary(
-                self._analysis.pmi_report,
-                getattr(self._part_model, "features", ()),
-                self._registry,
-                self._analysis.pmi_mode,
-                decorations=getattr(self._part_model, "decorations", {}),
-            )
-            if self._analysis is not None
-            else None
-        )
-        from draftwright.model.compiled import compile_dimensions
+        from draftwright.drawing_evidence import lint_summary as project_lint_summary
 
         candidate = _REPORT_REQUIREMENTS.get()
         report_requirements = candidate if candidate is not None and candidate[0] is self else None
-        quality = quality_components(
-            recognition=self._build.recognition,
-            features=getattr(self._part_model, "features", ()),
+        return project_lint_summary(
+            issues,
+            aggregation,
+            analysis=self._analysis,
+            model=self._part_model,
             registry=self._registry,
-            omissions=self._build.omissions,
-            issues=issues,
-            part=self._working_part,
+            recognition=self._build.recognition,
             evidence=self._build.recognition_evidence,
             ownership=self._build.recognition_ownership,
-            # Fidelity asks whether what the drawing SAYS is true, so a drawing that says
-            # nothing measurable has no answer rather than a perfect one.
-            #
-            # The two terms are the domains of the five truth-class checks: a drawn measured
-            # quantity for `label_vs_measured`, and a declared feature of a kind some check
-            # actually EXAMINES for the other four — `EXAMINABLE_DECLARED_KINDS`, owned by
-            # `linting/coverage.py` beside the check that uses it.
-            #
-            # A title block label does not assert geometric content. Drawn measurements and
-            # declared features examined by a truth check do; an unexamined declared slot
-            # alone does not establish fidelity.
-            has_asserted_content=(
-                any(is_dimension_like(item) for item in self.items)
-                or (
-                    self._model_declared
-                    and any(
-                        getattr(f, "kind", None) in EXAMINABLE_DECLARED_KINDS
-                        for f in getattr(self._part_model, "features", ())
-                    )
-                )
-            ),
-            error_penalty=_SCORE_ERROR_PENALTY,
-            warning_penalty=_SCORE_WARNING_PENALTY,
-            dimension_plan=(
-                report_requirements[2]
-                if report_requirements is not None
-                else (
-                    compile_dimensions(self._part_model) if self._part_model is not None else None
-                )
-            ),
-            requirement_outcomes=(
-                report_requirements[1] if report_requirements is not None else None
-            ),
-            _aggregation=aggregation,
+            omissions=self._build.omissions,
+            working_part=self._working_part,
+            items=self.items,
+            model_declared=self._model_declared,
+            layout_utilization=self.layout_utilization,
+            report_requirements=report_requirements,
+            geometry_aware_codes=_GEOMETRY_AWARE_CODES,
+            score_error_penalty=_SCORE_ERROR_PENALTY,
+            score_warning_penalty=_SCORE_WARNING_PENALTY,
         )
-        return {
-            "passed": errors == 0,
-            "score": score,
-            "diagnostic_score": score,
-            "quality": quality,
-            "layout_utilization": self.layout_utilization(),
-            "review": review_explanation(
-                quality=quality, errors=errors, warnings=warnings, score=score
-            ),
-            "errors": errors,
-            "warnings": warnings,
-            "infos": infos,
-            "by_code": by_code,
-            "geometry_issues": sum(1 for i in issues if i.code in _GEOMETRY_AWARE_CODES),
-            "issues": [
-                {
-                    "severity": i.severity,
-                    "code": i.code,
-                    "message": i.message,
-                    "location": i.location,
-                    # Omit suggestion when None to keep the JSON non-breaking (#29).
-                    **(
-                        {"suggestion": s}
-                        if (s := getattr(i, "suggestion", None)) is not None
-                        else {}
-                    ),
-                    **({"source_ids": i.source_ids} if i.source_ids else {}),
-                    **({"annotation_name": i.annotation_name} if i.annotation_name else {}),
-                    **(
-                        {"related_annotation_names": i.related_annotation_names}
-                        if i.related_annotation_names
-                        else {}
-                    ),
-                    **({"view": i.view} if i.view is not None else {}),
-                    **({"evidence_reason": i.evidence_reason} if i.evidence_reason else {}),
-                    **(
-                        {"outcome_stage": i.outcome_stage}
-                        if getattr(i, "outcome_stage", None) is not None
-                        else {}
-                    ),
-                }
-                for i in issues
-            ],
-            **({"pmi": pmi} if pmi is not None else {}),
-        }
 
     # The output formats export() understands. PDF renders from the SVG, PNG from the PDF —
     # so requesting pdf/png writes the SVG (and pdf) as intermediates, cleaned up if not asked for.

@@ -99,6 +99,7 @@ observer registry and re-exports its existing private helper names.
     slice d the state-bus guard covers the WHOLE engine: no module but
     `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
     fill site only).)*
+  - **`drawing_evidence.py`** — rank-2 read-only suppression, measurement-claim, page-use and lint-summary projections. `Drawing` supplies explicit model, registry, annotation and build evidence; this module neither owns build state nor reaches into private drawing fields.
   - **`intent_drain.py`** — rank-5 deferred intent stage execution. `Drawing.finalize()`
     owns the snapshot, rollback and trace commit; its thin `_drain_intents` facade
     supplies an explicit intent list, detail setting and callbacks. The drain uses

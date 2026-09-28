@@ -142,6 +142,7 @@ _LAYERS: dict[str, int] = {
     # Schema-v1 projection over explicitly supplied finished-build state. It consumes linting's
     # recognition-owned typed requirement ledgers but never reaches through Drawing internals.
     "reporting": 2,
+    "drawing_evidence": 2,  # read-only finished-drawing projections over explicit inputs
     "document_evidence": 2,
     "_pmi_schema": 2,
     "_pmi_linear_geometry": 2,

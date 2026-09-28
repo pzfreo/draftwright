@@ -10,6 +10,29 @@ from draftwright.audit import compare_measurements
 from draftwright.document_evidence import bind_document_claims, document_conflicts
 
 
+def test_measurement_snapshot_needs_no_registry_when_model_is_unavailable():
+    from draftwright import Drawing
+
+    class NoModel:
+        def model(self):
+            return None
+
+        @property
+        def registry(self):
+            raise AssertionError("registry must not be read without a model")
+
+        def annotations(self):
+            raise AssertionError("annotations must not be read without a model")
+
+        @property
+        def scale(self):
+            raise AssertionError("scale must not be read without a model")
+
+    snapshot = Drawing.measurement_snapshot(NoModel())
+    assert snapshot.claims == ()
+    assert snapshot.unknown == (("", "model_unavailable"),)
+
+
 @pytest.fixture(scope="module")
 def hole_source(tmp_path_factory):
     path = tmp_path_factory.mktemp("document-claims") / "hole.step"
