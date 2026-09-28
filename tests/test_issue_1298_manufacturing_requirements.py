@@ -72,6 +72,11 @@ KNURL_TEXT = (
             {"text": "DATUM A IS PRIMARY", "note_kind": "free_text"},
             "unsupported document-note kind",
         ),
+        (
+            DocumentNote,
+            {"text": "MODEL ONLY", "note_kind": "model_representation", "on_drawing": 0},
+            "on_drawing must be a bool",
+        ),
     ],
 )
 def test_document_requirements_reject_ambiguous_values(feature_type, arguments, message):
@@ -292,6 +297,23 @@ def test_document_requirements_lower_to_unattached_typed_notes():
     ]
     assert all(isinstance(note, DocumentNote) for note in lowered.features)
     assert [note.on_drawing for note in lowered.features] == [True, False]
+
+
+def test_imported_model_metadata_keeps_provenance_without_a_drawing_obligation():
+    from draftwright.linting.pmi_coverage import lint_pmi_rendering
+    from draftwright.registry import AnnotationRegistry
+
+    model = lower_ap242_document_requirements(
+        _model(_document_note("#2", "model_representation", "Threads are represented by PMI"))
+    )
+    (metadata,) = model.features
+    assert isinstance(metadata, DocumentNote)
+    assert metadata.source_id == "manufacturing_requirement:#2"
+    assert metadata.on_drawing is False
+    assert lint_pmi_rendering(model.features, AnnotationRegistry(), "annotate") == []
+
+    script = emit_sheet_script(model, "part", "metadata-only", title="T", number="N")
+    assert "on_drawing=False" in script
 
 
 def test_empty_document_requirement_stays_raw_with_a_blocker():
