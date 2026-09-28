@@ -1562,6 +1562,8 @@ def _layout_geometry(
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
     convention: str = "third",
+    derived_view_footprints: tuple[tuple[str, float, float], ...] = (),
+    _prefer_gutters: bool = True,
 ):
     """Compute the 4-view layout geometry for a part at a given scale/page.
 
@@ -1648,7 +1650,7 @@ def _layout_geometry(
     # safety floor when the sheet is crowded.  This happens before both the
     # estimator and measured layout paths, so scale selection sees the same
     # policy as final placement.  The preferred gap never demands a larger page.
-    if view_gutters and has_front and has_plan:
+    if view_gutters and _prefer_gutters and has_front and has_plan:
         stack_without_gutter = fv.bottom + 2 * fv.hh + fv.top + pv.bottom + 2 * pv.hh + pv.top
         vertical_slack = page_h - top - bottom - stack_without_gutter - vertical_gutter
         extra_vertical = min(
@@ -1667,7 +1669,7 @@ def _layout_geometry(
             max_column_h = page_h - top - bottom - 2 * (title_top - bottom - DIM_PAD)
             extra_vertical = min(extra_vertical, max(0.0, max_column_h - min_column_h))
         vertical_gutter += extra_vertical
-    if view_gutters and has_column and has_side:
+    if view_gutters and _prefer_gutters and has_column and has_side:
         iso_budget = (
             bbox_max
             * scale
@@ -1983,6 +1985,61 @@ def _layout_geometry(
     # the next table and for the iso, matching the runtime's declaration order.
     required_tables_fit = True
     required_table_boxes = []
+    identities = [identity for identity, _width, _height in derived_view_footprints]
+    if len(set(identities)) != len(identities) or any(
+        not all(math.isfinite(value) and value > 0 for value in (width, height))
+        for _identity, width, height in derived_view_footprints
+    ):
+        raise ValueError("derived view footprints need unique identities and positive sizes")
+    derived_view_boxes: dict[str, tuple[float, float, float, float]] = {}
+    derived_views_fit = True
+    for identity, width, height in derived_view_footprints:
+        rx0, ry0, rx1, ry1 = _largest_empty_rect(
+            drawable, obstacles, warn=False, target_size=(width, height)
+        )
+        if (
+            rx1 - rx0 < width
+            or ry1 - ry0 < height
+            or any(
+                rx0 < box[2] and box[0] < rx1 and ry0 < box[3] and box[1] < ry1
+                for box in obstacles
+            )
+        ):
+            derived_views_fit = False
+            break
+        cx, cy = (rx0 + rx1) / 2, (ry0 + ry1) / 2
+        box = (cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2)
+        derived_view_boxes[identity] = box
+        obstacles.append(box)
+    if not derived_views_fit and _prefer_gutters and view_gutters:
+        # The preferred blank space is discretionary; a required derived view
+        # gets first claim on it. Recompose once with the six-mm safety gutter,
+        # still using only box arithmetic inside the sheet/scale search.
+        return _layout_geometry(
+            x_size,
+            y_size,
+            z_size,
+            scale,
+            page_w,
+            page_h,
+            tb_w,
+            strips,
+            n_steps,
+            blocks,
+            section=section,
+            table_sizes=table_sizes,
+            required_tables=required_tables,
+            warn_no_iso=warn_no_iso,
+            margin=margin,
+            title_block_margins=title_block_margins,
+            arrangement=arrangement,
+            views=views,
+            include_iso=include_iso,
+            iso_scale_factor=iso_scale_factor,
+            convention=convention,
+            derived_view_footprints=derived_view_footprints,
+            _prefer_gutters=False,
+        )
     for size, prefer in required_tables:
         position = fit_box(size, drawable, obstacles, prefer, clearance=2.0)
         if position is None:
@@ -2043,6 +2100,7 @@ def _layout_geometry(
         title_block.footprint(tb_cx, tb_cy),
     ]
     table_obstacles.extend(section_blocks)
+    table_obstacles.extend(derived_view_boxes.values())
     if include_iso and iso_valid:
         table_obstacles.append((iso_left, iso_bottom, iso_right, iso_top))
     table_obstacles.extend(required_table_boxes)
@@ -2051,6 +2109,7 @@ def _layout_geometry(
     )
     fits = (
         iso_fits
+        and derived_views_fit
         and table_fits
         and required_tables_fit
         and cy0 >= bottom - _tol
@@ -2060,6 +2119,7 @@ def _layout_geometry(
     )
     auto_fits = (
         auto_row_fits
+        and derived_views_fit
         and table_fits
         and required_tables_fit
         and cy0 >= bottom - _tol
@@ -2068,6 +2128,8 @@ def _layout_geometry(
     )
 
     return SimpleNamespace(
+        derived_view_boxes=derived_view_boxes,
+        derived_views_fit=derived_views_fit,
         convention=convention,
         view_gutters=view_gutters,
         planned_views=tuple(
