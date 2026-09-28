@@ -1580,7 +1580,7 @@ def _build_drawing_once(
             _views=views,
             _include_iso=_include_iso,
             _view_constraints=_view_constraints,
-            _plan_automatic_details=detail_view and auto_dims,
+            _plan_automatic_details=detail_view,
             _framed_recognition=framed_recognition,
             _document_input=_document_input,
             _scale_from_prior_analysis=(

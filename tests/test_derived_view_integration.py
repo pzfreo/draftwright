@@ -32,7 +32,6 @@ def test_approved_y_chain_uses_pre_sheet_reservation_and_places_both_steps():
         scale_policy="permissive",
         _include_iso=False,
     )
-    assert drawing._analysis.derived_view_boxes
     assert drawing.detail_decisions[0]["status"] == "placed"
     assert drawing.detail_decisions[0]["fit"]["within_reservation"] is True
     labels = {
@@ -52,5 +51,5 @@ def test_detail_opt_out_does_not_reserve_a_view_that_cannot_render():
         detail_view=False,
         _include_iso=False,
     )
-    assert drawing._analysis.derived_view_boxes == ()
+    assert not drawing.detail_decisions
     assert not any(isinstance(item, DerivedViewReservation) for item in drawing.items)

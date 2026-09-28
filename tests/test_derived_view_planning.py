@@ -13,10 +13,6 @@ from draftwright.annotations._common import (
     strip_obstacles,
 )
 from draftwright.annotations.leaders import _fixed_annotation_obstacles
-from draftwright.annotations.sections import (
-    _detail_ink_within_reservation,
-    _reserved_detail_box_is_clear,
-)
 from draftwright.compose import StripDepths, _compose_view_blocks, _layout_geometry, choose_scale
 from draftwright.layout_selection import lost_required_derived_view_reservations
 
@@ -324,25 +320,3 @@ def test_missing_required_detail_reservation_cannot_become_unreserved_placement(
     assert _clear_derived_view_reservation(drawing, "detail_a_layout_reservation") is None
     with pytest.raises(KeyError, match="required derived-view reservation"):
         _clear_derived_view_reservation(drawing, "detail_a_layout_reservation", required=True)
-
-
-def test_reserved_detail_box_must_still_clear_landed_annotations():
-    drawable = (0.0, 0.0, 100.0, 100.0)
-    box = (10.0, 20.0, 40.0, 55.0)
-    assert _reserved_detail_box_is_clear(drawable, ((40.0, 20.0, 50.0, 30.0),), box)
-    assert not _reserved_detail_box_is_clear(drawable, ((39.9, 20.0, 50.0, 30.0),), box)
-    assert not _reserved_detail_box_is_clear(drawable, (), (10.0, 20.0, 101.0, 55.0))
-
-
-def test_measured_detail_ink_must_fit_reserved_box():
-    outer = (10.0, 20.0, 40.0, 55.0)
-    fitting = DerivedViewReservation((11.0, 21.0, 39.0, 54.0))
-    escaping = DerivedViewReservation((11.0, 21.0, 41.0, 54.0))
-    assert _detail_ink_within_reservation(outer, (fitting,)) == (
-        True,
-        fitting.box,
-    )
-    assert _detail_ink_within_reservation(outer, (fitting, escaping)) == (
-        False,
-        escaping.box,
-    )

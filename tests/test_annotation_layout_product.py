@@ -372,7 +372,16 @@ def test_ctc01_candidate_grows_iso_into_clear_space_on_fixed_sheet():
         annotation_layout="best",
     )
 
-    assert drawing.annotation_scheme_decision["selected_trial"] == "planned"
+    # The compare policy may reject a trial that loses a baseline annotation.
+    # The product claim is an enlarged, clear ISO on the same fixed sheet with
+    # semantic parity, not a particular internal profile name.
+    assert drawing.annotation_scheme_decision["selected_trial"] in {"planned", "legacy-depth"}
+    selected = next(
+        trial
+        for trial in drawing.annotation_scheme_decision["trials"]
+        if trial["name"] == drawing.annotation_scheme_decision["selected_trial"]
+    )
+    assert selected["semantic_parity"] is True
     left, _bottom, right, _top = drawing.view_bounds("iso")
     assert right - left > 120.0  # the fixed 65% preview was only about 108 mm wide
     iso = drawing.view_bounds("iso")
