@@ -103,6 +103,12 @@ local solve, not yet the drawing-wide coordinator or common decision trace.
 No production collector asserts optionality yet, so this guard does not claim
 that generated ink has been safely pruned.
 
+The GD&T post-drain fallback now adds a recording-only trace event naming each
+rejected alternate side and the final sheet-route or unmet outcome. This closes
+a diagnostic gap exposed by CTC03: a strip-full trace alone could not explain
+which subsequent recovery attempts failed. It is not a new placement policy or
+evidence that CTC03 must fit perfectly on one page.
+
 ## Extra sheets reuse the explicit document boundary
 
 `Document`/`DocumentResult` already provide explicitly authored sheets over one

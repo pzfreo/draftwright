@@ -500,6 +500,9 @@ class SolveTrace:
       ``hole_table_replacement`` event records the transactional choice between
       retained feature annotations and a complete table with keyed balloons;
       ``coverage_authority=false`` leaves the semantic verdict to coverage lint.
+      ``gdt_post_drain_fallback`` records each rejected alternate side and the
+      final sheet-route or unmet outcome after a full GD&T corridor; it does not
+      change placement or claim semantic coverage.
       The #733 gap:
       pre-#734 these callouts were the drain-time occupants; post-drain, their own
       story must still be in the trace.

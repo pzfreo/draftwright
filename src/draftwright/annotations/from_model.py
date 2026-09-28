@@ -10092,6 +10092,18 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 _routed_build=_routed_build,
                 _declaration=_declaration,
             ):
+                trace = getattr(ctx, "trace", None)
+                event = (
+                    trace.pass_event("gdt_post_drain_fallback", view=_v, requested_side=_s)
+                    if trace is not None
+                    else None
+                )
+                trace_item = (
+                    {"name": nm, "outcome": "unmet", "attempts": []} if event is not None else None
+                )
+                if event is not None:
+                    event["items"].append(trace_item)
+
                 # Auto-relax the requested side (#841 outcome C): the requested strip is full, so
                 # try the OPPOSITE side, then the two PERPENDICULAR sides, placing on the first
                 # with room. A note the caller asked to see should appear somewhere legible
@@ -10116,11 +10128,21 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                     perp = (_px, _px + _sz[0]) if hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
                     pos = carve_free_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
                     if pos is None:
+                        if trace_item is not None:
+                            trace_item["attempts"].append(
+                                {"side": alt, "outcome": "no_free_position"}
+                            )
                         continue
                     dim = _bld(pos, _hz=hz)
-                    if _box_hits(_anno_box(dim), (_tb,)) or not annotation_ink_clear(
-                        dwg, dim
-                    ):  # no real-ink/title-block collision on a relaxed side
+                    if _box_hits(_anno_box(dim), (_tb,)):
+                        if trace_item is not None:
+                            trace_item["attempts"].append(
+                                {"side": alt, "outcome": "title_block_conflict"}
+                            )
+                        continue
+                    if not annotation_ink_clear(dwg, dim):
+                        if trace_item is not None:
+                            trace_item["attempts"].append({"side": alt, "outcome": "ink_conflict"})
                         continue
                     ctx.place(
                         dim,
@@ -10135,6 +10157,9 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                         "gdt_side_relaxed",
                         f"{nm}: the {_v} {_s} strip was full — placed on {alt} instead",
                     )
+                    if trace_item is not None:
+                        trace_item["attempts"].append({"side": alt, "outcome": "placed"})
+                        trace_item.update(outcome="placed", side=alt)
                     return
                 fallback = _sheet_leader_fallback(
                     dwg,
@@ -10159,7 +10184,12 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                         f"{nm}: adjacent {_v} strips were full — placed in clear sheet space",
                         source=_source,
                     )
+                    if trace_item is not None:
+                        trace_item["attempts"].append({"side": "sheet", "outcome": "placed"})
+                        trace_item.update(outcome="placed", side="sheet")
                     return
+                if trace_item is not None:
+                    trace_item["attempts"].append({"side": "sheet", "outcome": "no_clear_route"})
                 ctx.record_issue(
                     "warning",
                     "pmi_dropped" if _source else "gdt_dropped",
