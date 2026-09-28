@@ -153,26 +153,33 @@ class TestTheEvaluationModuleStaysCheapToImport:
             "(#313); see that module's docstring for the shape (#1229)."
         )
 
-    def test_the_module_has_no_module_level_draftwright_import(self):
+    def test_the_module_only_imports_its_engine_free_evidence_helper(self):
         spec = importlib.util.find_spec("draftwright.evaluation.step_analysis")
         assert spec is not None and spec.origin is not None
-        tree = ast.parse(Path(spec.origin).read_text())
+        source = Path(spec.origin)
+        helper = source.with_name("_double_d_evidence.py")
         # BOTH `from x import y` and plain `import x`. Matching only `ImportFrom` left the
         # test named for this property unable to see the commonest form; a mutation adding
         # `import draftwright.linting.hole_coverage` was caught only by the subprocess test
         # beside it (#1229 review).
-        offenders = [
-            node.lineno
-            for node in tree.body
-            # `quiddity` too: measured, importing it puts build123d in `sys.modules`,
-            # so it carries the same cost the note is about and the guard missed it entirely
-            # (#1229 review round 3).
-            if (isinstance(node, ast.ImportFrom) and (node.module or "").startswith(_ENGINE))
-            or (
-                isinstance(node, ast.Import)
-                and any(a.name.startswith(_ENGINE) for a in node.names)
-            )
-        ]
+        offenders = []
+        for path in (source, helper):
+            tree = ast.parse(path.read_text())
+            for node in tree.body:
+                # The reviewed evaluation helper imports only Python library modules.
+                # Keep checking it here, so moving code cannot hide an eager engine import.
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and (node.module or "").startswith(_ENGINE)
+                    and not (
+                        path == source
+                        and node.module == "draftwright.evaluation._double_d_evidence"
+                    )
+                ) or (
+                    isinstance(node, ast.Import)
+                    and any(alias.name.startswith(_ENGINE) for alias in node.names)
+                ):
+                    offenders.append(f"{path.name}:{node.lineno}")
         assert not offenders, (
-            f"module-level engine import at line(s) {offenders}; keep them in function bodies"
+            f"module-level engine import at {offenders}; keep them in function bodies"
         )

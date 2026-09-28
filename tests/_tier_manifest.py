@@ -18,6 +18,10 @@ class ContractGroup:
 
 
 CONTRACT_GROUPS = {
+    "double_d_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_double_d_evidence.py",),
+        ("test_issue_1370_double_d_completeness_evidence.py",),
+    ),
     "recognition": ContractGroup(
         (
             "src/draftwright/recogn*",
