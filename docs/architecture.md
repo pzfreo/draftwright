@@ -137,8 +137,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   The resource-cap floor, which is what actually runs on dense parts, gained a
   bounded lookahead past a first acceptable-but-cutting route; a job whose first
   acceptable route already clears the body selects it exactly where it always did.
-  - **`annotations/sections.py`** — section A–A + detail views (ISO 128-44 arrows,
-    ISO 128-50 hatching).
+  - **`annotations/sections.py`** — section A–A + detail views (cut-plane arrows,
+    hatched cut faces; supported conventions and limits in
+    [the detail/section comparison](research/1872-detail-section-conventions.md)).
   - **`annotations/balloons.py`** — the leadered hole-balloon pass (#111/#516;
     moved down from `Drawing`, #699). `Drawing.add_balloons` is the public verb
     threading build state in; the band-assignment flow solver lives in `layout.py`.
