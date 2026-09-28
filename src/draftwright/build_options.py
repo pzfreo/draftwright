@@ -136,11 +136,6 @@ class BuildOptions:
         validate_projection(self.projection, projection_symbol=self.projection_symbol)
         _dimension_draft(self.text_position, self.text_orientation)
         object.__setattr__(self, "leader_region", leader_region_policy(self.leader_region).value)
-        if self.scale_policy not in {"strict", "fallback", "permissive"}:
-            raise ValueError(
-                "scale_policy must be 'strict', 'fallback', or 'permissive', "
-                f"got {self.scale_policy!r}"
-            )
         if self._replayed_scale is not None:
             replayed = float(self._replayed_scale)
             if not math.isfinite(replayed) or replayed <= 0:
@@ -150,3 +145,8 @@ class BuildOptions:
             if self.page is None:
                 raise ValueError("_replayed_scale requires the settled page")
             object.__setattr__(self, "_replayed_scale", replayed)
+        if self.scale_policy not in {"strict", "fallback", "permissive"}:
+            raise ValueError(
+                "scale_policy must be 'strict', 'fallback', or 'permissive', "
+                f"got {self.scale_policy!r}"
+            )

@@ -188,6 +188,11 @@ def test_build_options_front_door_parity_issue_1927():
     assert "material=None" not in blank.script_constructor_args({})
 
 
+def test_build_options_preserves_replay_validation_precedence_issue_1927():
+    with pytest.raises(ValueError, match="_replayed_scale must be finite and positive"):
+        build_drawing(Box(1, 1, 1), scale_policy="bad", _replayed_scale=-1)
+
+
 # A throwaway source module the object-spec tests import a live part off (#469): an object,
 # a zero-arg factory, a non-Shape, and a callable that needs args (the guard-rail case).
 _SOURCE_MODULE = (
