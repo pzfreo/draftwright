@@ -69,6 +69,7 @@ from draftwright._core import (
     _wrap_callout_text,
     layout_frame,
     supported_secondary_crop,
+    y_chain_detail_scale_needed,
 )
 from draftwright._geometry import (
     _blend_profile_arcs,
@@ -6820,15 +6821,11 @@ def render_step_lengths(
             )[0]
             for seg in bare_rows
         ]
-        cw = sorted(((seg.pa[0] + seg.pb[0]) / 2, label_widths[i]) for i, seg in enumerate(fsegs))
-        labels_clear = all(
-            c2 - c1 >= (w1 + w2) / 2 + draft.pad_around_text
-            for (c1, w1), (c2, w2) in zip(cw, cw[1:])
-        )
-        inside_arrows_fit = all(
-            abs(seg.pb[0] - seg.pa[0])
-            >= label_widths[i] + 2 * draft.arrow_length + 2 * draft.pad_around_text
-            for i, seg in enumerate(fsegs)
+        scale_needed = y_chain_detail_scale_needed(
+            tuple((seg.pa[0], seg.pb[0], row.value) for seg, row in zip(fsegs, bare_rows)),
+            tuple(label_widths),
+            arrow_length=draft.arrow_length,
+            text_padding=draft.pad_around_text,
         )
         # A long repeated-pitch tail can be stated once on the main view. This
         # removes several competing short labels and may make the remaining
@@ -6891,7 +6888,7 @@ def render_step_lengths(
                 start=start,
                 profile_bounds=profile_bounds,
             )
-        if not (labels_clear and inside_arrows_fit):
+        if scale_needed is not None:
             axis_lo = min(min(seg.pa[1], seg.pb[1]) for seg in bare_rows)
             axis_hi = max(max(seg.pa[1], seg.pb[1]) for seg in bare_rows)
             page_xs = [p[0] for seg in fsegs for p in (seg.pa, seg.pb)]
@@ -6903,12 +6900,6 @@ def render_step_lengths(
                     axis_hi - axis_lo,
                 )
             ]
-            scale_needed = max(
-                (w + 2 * draft.arrow_length + 2 * draft.pad_around_text) / row.value
-                for w, row in zip(label_widths, bare_rows)
-                if row.value > 0
-            )
-
             # Use the detected turning axis, not the sheet/bounding-box centroid:
             # an eccentric shaft's profile may be nowhere near the latter. A single
             # side-profile detail is valid only for a coaxial chain.
