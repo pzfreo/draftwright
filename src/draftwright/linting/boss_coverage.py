@@ -6,6 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
+from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import measurement_outcome_index, with_measurement_carriers
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID
 from draftwright.measurement_support import RequirementCarrier
@@ -35,7 +36,7 @@ class BossRequirementOutcome:
 
 
 def _point(value) -> tuple[float, float, float]:
-    point = tuple(round(float(component), 3) for component in value)
+    point = tuple(_rounded(component) for component in value)
     if len(point) != 3:
         raise ValueError("boss point must have three coordinates")
     return point
@@ -56,8 +57,8 @@ def _axis(value) -> str:
 def _source_values(source) -> tuple[str, tuple[float, float, float], float, float]:
     axis = _axis(source.axis)
     location = _point(source.location)
-    diameter = round(float(source.diameter), 3)
-    height = round(float(source.height), 3)
+    diameter = _rounded(source.diameter)
+    height = _rounded(source.height)
     if diameter <= 0 or height <= 0:
         raise ValueError("boss diameter and height must be positive")
     return axis, location, diameter, height
@@ -66,8 +67,8 @@ def _source_values(source) -> tuple[str, tuple[float, float, float], float, floa
 def _feature_values(feature) -> tuple[str, tuple[float, float, float], float, float]:
     axis = str(feature.frame.axis)
     location = _point(feature.frame.origin)
-    diameter = round(float(feature.diameter), 3)
-    height = round(float(feature.height), 3)
+    diameter = _rounded(feature.diameter)
+    height = _rounded(feature.height)
     if axis not in "xyz" or len(axis) != 1 or diameter <= 0 or height <= 0:
         raise ValueError("boss feature is incomplete")
     if tuple(parameter.parameter_id for parameter in feature.parameters()) != (

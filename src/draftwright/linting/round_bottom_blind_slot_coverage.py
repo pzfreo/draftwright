@@ -11,13 +11,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from math import isfinite
-from numbers import Real
 from typing import Literal
 
 from quiddity import RecognitionResult, SectionRecess
 
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
+from draftwright.linting._coverage_common import recess_point as _point
+from draftwright.linting._coverage_common import recess_positive as _positive
 from draftwright.linting._registry import (
     satisfaction_of,
     with_measurement_carriers,
@@ -53,37 +53,6 @@ class RoundBottomBlindSlotRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _rounded(value) -> float:
-    try:
-        result = round(float(value), 3)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError from exc
-    if not isfinite(result):
-        raise ValueError
-    return result
-
-
-def _positive(value) -> float:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ValueError
-    result = _rounded(value)
-    if result <= 0:
-        raise ValueError
-    return result
-
-
-def _point(value) -> tuple[float, float, float]:
-    if (
-        not isinstance(value, tuple)
-        or len(value) != 3
-        or any(
-            isinstance(component, bool) or not isinstance(component, Real) for component in value
-        )
-    ):
-        raise ValueError
-    return (_rounded(value[0]), _rounded(value[1]), _rounded(value[2]))
 
 
 def round_bottom_blind_slot_key(slot, *, require_frame: bool = False) -> tuple:
