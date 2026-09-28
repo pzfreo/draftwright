@@ -1255,6 +1255,7 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
             note_kind=item.pmi_kind,
             source_id=item.source_id,
             part21_id=item.part21_id,
+            on_drawing=item.pmi_kind != "model_representation",
         )
     return replace(model, features=features)
 

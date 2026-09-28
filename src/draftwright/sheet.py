@@ -2486,8 +2486,9 @@ class Sheet:
         kind: str,
         source_id: str = "",
         part21_id: str = "",
+        on_drawing: bool = True,
     ) -> _Params:
-        """Declare a source-proven requirement for the solver-placed GENERAL NOTES block."""
+        """Declare a document statement, optionally retained as model-only metadata."""
         bbox = self._part.bounding_box()
         center = bbox.center()
         self._features.append(
@@ -2497,6 +2498,7 @@ class Sheet:
                 note_kind=kind,
                 source_id=source_id,
                 part21_id=part21_id,
+                on_drawing=on_drawing,
             )
         )
         return _Params(self, len(self._features) - 1)

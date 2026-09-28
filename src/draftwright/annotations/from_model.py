@@ -9697,7 +9697,7 @@ def render_document_notes(dwg, model, *, exclude=()) -> int:
     notes = [
         feature
         for feature in model.features
-        if feature.kind == "document_note" and id(feature) not in exclude
+        if feature.kind == "document_note" and feature.on_drawing and id(feature) not in exclude
     ]
     if not notes:
         return 0

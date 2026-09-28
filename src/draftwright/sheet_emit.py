@@ -797,6 +797,8 @@ def _feature_line(
             kwargs.append(f"source_id={f.source_id!r}")
         if f.part21_id:
             kwargs.append(f"part21_id={f.part21_id!r}")
+        if not f.on_drawing:
+            kwargs.append("on_drawing=False")
         return f"sheet.document_note({f.text!r}, {', '.join(kwargs)})"
     if k == "control_frame":
         return _control_frame_line(f, origin_ref)
