@@ -5,6 +5,8 @@ from _kernel import B123D_GE_011, SKIP_011
 from build123d import Box
 
 from draftwright import build_drawing
+from draftwright._core import _iso_bbox
+from draftwright.projection import _largest_clear_factor
 
 _skip_011 = pytest.mark.skipif(B123D_GE_011, reason=SKIP_011)
 
@@ -137,3 +139,201 @@ def test_tall_part_iso_in_largest_free_zone():
     # No overlap with the title-block region (bottom-right corner).
     tb_bb = (a.PAGE_W - a.TB_W - 11, 11, a.PAGE_W - 11, 11 + 35)
     assert not overlaps(iso_bb, tb_bb), "iso overlaps title block"
+
+
+@pytest.fixture(scope="module")
+def ctc01_iso_case():
+    """One STEPControl_Reader build shared by the CTC-01 iso collision and oracle checks."""
+    from pathlib import Path
+
+    from draftwright import builder as builder_mod
+
+    source = Path(__file__).parent / "fixtures" / "nist_ctc_01_asme1_ap203.stp"
+    seen = []
+    real = builder_mod._project_iso
+
+    def capture(dwg, analysis, scale, *args, **kwargs):
+        seen.append((dwg, analysis))
+        return real(dwg, analysis, scale, *args, **kwargs)
+
+    builder_mod._project_iso = capture
+    try:
+        drawing = build_drawing(source)
+    finally:
+        builder_mod._project_iso = real
+    matching = [analysis for dwg, analysis in seen if dwg is drawing]
+    assert matching, "precondition: the final CTC-01 build did not project an iso"
+    return drawing, matching[-1]
+
+
+def _assert_iso_search_matches_reprojection(drawing, analysis, base, lo, hi, obstacles, region):
+    """Compare every bisection box with real OCC geometry, then check the chosen factor."""
+    from draftwright import projection as projection_mod
+    from draftwright._geometry import _boxes_overlap
+
+    entry_scale = drawing.iso_projection_scale
+    ox, oy = analysis.ISO_X, analysis.ISO_Y
+
+    def clear(box):
+        return (region is None or projection_mod._bbox_within(box, region)) and not any(
+            _boxes_overlap(box, obstacle) for obstacle in obstacles
+        )
+
+    def measured(factor):
+        projection_mod._project_iso(drawing, analysis, analysis.SCALE * factor)
+        actual = _iso_bbox(drawing)
+        ratio = factor / (entry_scale / analysis.SCALE)
+        predicted = (
+            ox + ratio * (base[0] - ox),
+            oy + ratio * (base[1] - oy),
+            ox + ratio * (base[2] - ox),
+            oy + ratio * (base[3] - oy),
+        )
+        assert actual == pytest.approx(predicted, abs=1e-6), (
+            f"CTC-01 iso bbox differs at factor {factor}: {actual} versus {predicted}"
+        )
+        return actual
+
+    assert clear(base), "precondition: the measured seed already hits an obstacle"
+    assert not clear(measured(hi)), "precondition: the ceiling does not exercise bisection"
+    left, right = lo, hi
+    for _ in range(projection_mod._ISO_CLEAR_STEPS):
+        mid = (left + right) / 2
+        if clear(measured(mid)):
+            left = mid
+        else:
+            right = mid
+    projection_mod._project_iso(drawing, analysis, entry_scale)
+    return left
+
+
+@pytest.mark.slow  # CTC fixture build (#153)
+def test_the_iso_no_longer_grows_over_ctc_01s_pocket_position_dim(ctc01_iso_case):
+    """The one NATURAL case in the corpus, found only by the #1240 review.
+
+    Both hunts for a reproducing fixture reported none, and the PR said so — but they searched
+    for *strip* collisions and this is the other direction: on `main`, CTC-01 AP203's iso grows
+    over `m_pocket0_pos_long`'s witness lines. It escaped every sweep because
+    `view_annotation_overlap` compares projected EDGES, not bboxes, so the drawing linted clean
+    while the boxes genuinely overlapped (#1240 review F2).
+
+    Asserted against the whole fixture rather than that one name: any annotation ink inside the
+    final iso bbox is the defect, whichever annotation it belongs to.
+    """
+    from draftwright._geometry import _boxes_overlap
+    from draftwright.annotations._common import annotation_obstacle_boxes
+
+    drawing, _analysis = ctc01_iso_case
+    assert "iso" in drawing.views, "precondition: the fixture has no iso view"
+    iso = _iso_bbox(drawing)
+    intruders = sorted(
+        {
+            name
+            for name, obj in drawing.iter_annotations()
+            if not getattr(obj, "is_sheet_frame", False)
+            and not getattr(obj, "is_zone_grid", False)
+            for box in annotation_obstacle_boxes(drawing, obj)
+            if _boxes_overlap(box, iso)
+        }
+    )
+    assert not intruders, f"the iso grew over placed annotation ink: {intruders}"
+
+
+@pytest.mark.slow  # shares the CTC-01 STEP build above (#153)
+def test_ctc01_iso_similarity_matches_search_projections_issue_1946(ctc01_iso_case, monkeypatch):
+    """Real HLR boxes agree at every search factor, including the planned-detail path.
+
+    The first corridor proves similarity on CTC-01's complex AP203 geometry. The second
+    asks the actual builder to search from its 65% plan with a planted detail view in the
+    growth corridor. Detail relocation is held unavailable so that corridor is exercised.
+    The final real projection still belongs to the builder, not this oracle.
+    """
+    from draftwright import builder as builder_mod
+    from draftwright import projection as projection_mod
+    from draftwright._geometry import _boxes_overlap
+
+    drawing, analysis = ctc01_iso_case
+    original_scale = drawing.iso_projection_scale
+    assert analysis.planned_iso_scale == pytest.approx(0.65)
+    assert analysis.planned_iso_scale_authored is False
+
+    try:
+        projection_mod._project_iso(drawing, analysis, analysis.SCALE)
+        base = _iso_bbox(drawing)
+        projection_mod._project_iso(drawing, analysis, analysis.SCALE * 1.3)
+        grown = _iso_bbox(drawing)
+        assert grown[3] > base[3] + 5, "precondition: CTC-01's iso has no upward growth"
+        obstacle = (base[0], (base[3] + grown[3]) / 2, base[2], grown[3])
+        assert not _boxes_overlap(base, obstacle)
+        projection_mod._project_iso(drawing, analysis, analysis.SCALE)
+        expected = _assert_iso_search_matches_reprojection(
+            drawing, analysis, base, 1.0, 1.3, [obstacle], None
+        )
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                projection_mod,
+                "_project_iso",
+                lambda *_args, **_kwargs: pytest.fail("clearance search reprojected CTC-01"),
+            )
+            chosen = _largest_clear_factor(drawing, analysis, 1.3, [obstacle], base)
+        assert chosen == expected
+
+        # Use the same real CTC-01 drawing at its actual planned seed. The planted detail
+        # view contributes a fixed page-mm box through builder._settle_iso_view.
+        projection_mod._project_iso(drawing, analysis, analysis.SCALE * 0.65)
+        seed = _iso_bbox(drawing)
+        detail = (
+            analysis.ISO_X - 12,
+            seed[3] + 8,
+            analysis.ISO_X + 12,
+            seed[3] + 11,
+        )
+        inflated_detail = (detail[0] - 5, detail[1] - 5, detail[2] + 5, detail[3] + 5)
+        assert not _boxes_overlap(seed, inflated_detail)
+        captured = []
+        real_bounds = drawing.view_bounds
+        real_search = builder_mod._largest_clear_factor
+
+        def bounds(name):
+            return detail if name == "detail_probe" else real_bounds(name)
+
+        def search(dwg, selected, hi, obstacles, box, *, lo, region):
+            captured.append((hi, tuple(obstacles), box, lo, region, dwg.iso_projection_scale))
+            return real_search(dwg, selected, hi, obstacles, box, lo=lo, region=region)
+
+        drawing.views["detail_probe"] = drawing.views["front"]
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(drawing, "view_bounds", bounds)
+                patch.setattr(builder_mod, "_clear_iso_translation", lambda *_args: None)
+                patch.setattr(builder_mod, "_largest_clear_factor", search)
+                patch.setattr(
+                    projection_mod,
+                    "_project_iso",
+                    lambda *_args, **_kwargs: pytest.fail("detail clearance search reprojected"),
+                )
+                builder_mod._settle_iso_view(drawing, analysis)
+        finally:
+            drawing.views.pop("detail_probe")
+
+        assert len(captured) == 1, "precondition: the detail path did not search"
+        hi, obstacles, box, lo, region, entry_scale = captured[0]
+        assert lo == pytest.approx(0.65)
+        assert entry_scale == pytest.approx(analysis.SCALE * 0.65)
+        assert inflated_detail in obstacles, "precondition: the planted detail was not a blocker"
+        assert box == pytest.approx(seed)
+        projection_mod._project_iso(drawing, analysis, entry_scale)
+        expected = _assert_iso_search_matches_reprojection(
+            drawing, analysis, box, lo, hi, obstacles, region
+        )
+        without_detail = [obstacle for obstacle in obstacles if obstacle != inflated_detail]
+        assert (
+            _largest_clear_factor(drawing, analysis, hi, without_detail, box, lo=lo, region=region)
+            > expected
+        ), "precondition: another obstacle, not the detail, capped growth"
+        assert (
+            _largest_clear_factor(drawing, analysis, hi, obstacles, box, lo=lo, region=region)
+            == expected
+        )
+    finally:
+        projection_mod._project_iso(drawing, analysis, original_scale)
