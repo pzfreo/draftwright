@@ -8,6 +8,7 @@ never overlap, a full strip drops honestly (a warning, not a silent vanish), and
 placement stays lint-clean.
 """
 
+import json
 import math
 from collections import defaultdict
 from pathlib import Path
@@ -27,11 +28,11 @@ def _part():
     return Box(80, 50, 20) - Pos(0, 0, 0) * Cylinder(6, 20)
 
 
-def _build(*extra_features, part=None):
+def _build(*extra_features, part=None, trace=None, **kwargs):
     part = part if part is not None else _part()
     m = detect_part_model(part)
     m.features.extend(extra_features)
-    return build_drawing(part, model=m)
+    return build_drawing(part, model=m, trace=trace, **kwargs)
 
 
 def _fcf_height():
@@ -325,7 +326,7 @@ def test_invalid_glyph_spec_drops_not_crashes():
     assert "m_gdt0" not in dwg.annotations()
 
 
-def test_wide_frame_in_narrow_strip_relaxes_not_overshoots():
+def test_wide_frame_in_narrow_strip_relaxes_not_overshoots(tmp_path):
     # Adversarial-review finding (CONFIRMED): a wide GD&T glyph (multi-datum FCF ~33 mm) on a
     # left/right strip narrower than the glyph must never render off the drawable area
     # (annotation_out_of_bounds — pre-fix it placed at min.X=-7.17, 17 mm past outer_limit).
@@ -340,14 +341,23 @@ def test_wide_frame_in_narrow_strip_relaxes_not_overshoots():
         side="left",
         datums=("A", "B"),
     )
-    dwg = _build(frame)
+    trace_path = tmp_path / "gdt-relaxed.json"
+    dwg = _build(frame, trace=trace_path)
     assert "m_gdt0" in dwg.annotations()  # placed on a relaxed side, not dropped
     assert [i for i in dwg.registry.issues if i.code == "gdt_side_relaxed"]
     assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]  # never overshoots
+    events = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "gdt_post_drain_fallback"
+    ]
+    assert len(events) == 1
+    assert events[0]["items"][0]["outcome"] == "placed"
+    assert events[0]["items"][0]["side"] in {"above", "below"}
 
 
-def test_full_adjacent_strips_fall_back_to_clear_sheet_space(monkeypatch):
+def test_full_adjacent_strips_fall_back_to_clear_sheet_space(monkeypatch, tmp_path):
     """A required frame may use the sheet after every adjacent strip is exhausted."""
     import draftwright.annotations.from_model as from_model
 
@@ -360,13 +370,67 @@ def test_full_adjacent_strips_fall_back_to_clear_sheet_space(monkeypatch):
         side="left",
         datums=("A", "B"),
     )
-    dwg = _build(frame)
+    trace_path = tmp_path / "gdt-fallback.json"
+    dwg = _build(frame, trace=trace_path)
 
     assert "m_gdt0" in dwg.annotations()
     assert [i for i in dwg.registry.issues if i.code == "gdt_sheet_fallback"]
     assert dwg.registry.declaration_of("m_gdt0") is frame
     assert not [i for i in dwg.registry.issues if i.code == "gdt_dropped"]
     assert not [i for i in dwg.lint() if i.code == "annotation_out_of_bounds"]
+    events = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "gdt_post_drain_fallback"
+    ]
+    assert [event["items"][0]["outcome"] for event in events] == ["placed"]
+    assert events[0]["items"][0]["side"] == "sheet"
+    assert [attempt["outcome"] for attempt in events[0]["items"][0]["attempts"]] == [
+        "no_free_position",
+        "no_free_position",
+        "no_free_position",
+        "placed",
+    ]
+
+
+def test_gdt_fallback_trace_names_unmet_after_every_route_is_exhausted(monkeypatch, tmp_path):
+    import draftwright.annotations.from_model as from_model
+
+    # A deliberately wide frame cannot fit the requested left strip on this fixed A4 page.
+    # Permissive mode returns the incomplete drawing for inspection rather than raising.
+    monkeypatch.setattr(from_model, "carve_free_position", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(from_model, "_sheet_leader_fallback", lambda *_args, **_kwargs: None)
+    frame = ControlFrame(
+        frame=Frame((0.0, 0.0, 0.0), "z"),
+        characteristic="position",
+        tolerance="0.1",
+        view="plan",
+        side="left",
+        datums=("A", "B", "C", "D", "E", "F"),
+    )
+    trace_path = tmp_path / "gdt-unmet.json"
+    dwg = _build(frame, trace=trace_path, page="A4", scale=1.0, scale_policy="permissive")
+
+    assert "m_gdt0" not in dwg.annotations()
+    assert [issue for issue in dwg.registry.issues if issue.code == "gdt_dropped"]
+    events = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "gdt_post_drain_fallback"
+    ]
+    assert len(events) == 1
+    assert events[0]["items"] == [
+        {
+            "name": "m_gdt0",
+            "outcome": "unmet",
+            "attempts": [
+                {"side": "right", "outcome": "no_free_position"},
+                {"side": "above", "outcome": "no_free_position"},
+                {"side": "below", "outcome": "no_free_position"},
+                {"side": "sheet", "outcome": "no_clear_route"},
+            ],
+        }
+    ]
 
 
 def test_note_relaxes_side_when_requested_strip_full():
