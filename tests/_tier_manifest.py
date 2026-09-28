@@ -22,6 +22,10 @@ CONTRACT_GROUPS = {
         ("src/draftwright/evaluation/_double_d_evidence.py",),
         ("test_issue_1370_double_d_completeness_evidence.py",),
     ),
+    "turned_step_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_turned_step_evidence.py",),
+        ("test_issue_1374_turned_step_completeness_evidence.py",),
+    ),
     "through_step_placement": ContractGroup(
         (
             "src/draftwright/annotations/from_model.py",

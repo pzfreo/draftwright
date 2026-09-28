@@ -55,8 +55,9 @@ use this exemption. Keep `_LAYERS` and this section in step.
 scoring model. It is a top-layer consumer of the recognition contract; production recognition,
 IR, generation, and drawing code must not depend on benchmark expectations or scores.
 `evaluation/_double_d_evidence.py` owns the Double-D physical correspondence, public
-declaration, and drawing-evidence checks; `evaluation/step_analysis.py` retains the
-observer registry and re-exports its existing private helper names.
+declaration, and drawing-evidence checks. `evaluation/_turned_step_evidence.py` owns
+turned-step IR correspondence and finished-drawing evidence. `evaluation/step_analysis.py`
+retains the observer registry and re-exports the existing private helper names.
 
 - **`make_drawing.py`** — thin compat facade (~20 lines) re-exporting the public
   surface (`Drawing`, `build_drawing`, `make_drawing`, `_cli`,

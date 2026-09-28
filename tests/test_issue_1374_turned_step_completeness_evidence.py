@@ -747,6 +747,35 @@ def test_automatic_ir_cannot_drop_profile_ownership() -> None:
     assert set(_turned_step_model_outcomes(sources, recognition, features)) == {"unknown"}
 
 
+def test_extra_turned_step_requirement_cannot_certify_any_band(monkeypatch) -> None:
+    from draftwright import build_drawing
+    from draftwright.evaluation.step_analysis import _turned_step_model_outcomes
+    from draftwright.linting import turned_step_coverage
+    from draftwright.registry import AnnotationRegistry
+
+    drawing = build_drawing(_shaft())
+    recognition = drawing.recognition()
+    assert recognition is not None
+    sources = turned_step_coverage.physical_turned_steps(recognition)
+    features = drawing.model().features
+    assert sources
+    assert set(_turned_step_model_outcomes(sources, recognition, features)) == {"supported"}
+    ledger = tuple(
+        turned_step_coverage.turned_step_requirement_outcomes(
+            recognition, features, AnnotationRegistry(), ()
+        )
+    )
+    assert len(ledger) == 2 * len(sources)
+    contaminated = (*ledger, ledger[0])
+    monkeypatch.setattr(
+        turned_step_coverage,
+        "turned_step_requirement_outcomes",
+        lambda *_args, **_kwargs: contaminated,
+    )
+
+    assert set(_turned_step_model_outcomes(sources, recognition, features)) == {"unknown"}
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

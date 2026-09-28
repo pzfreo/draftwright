@@ -58,6 +58,8 @@ common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
 shared registry evidence, outcome checks, and blind-slot value validation live inside
 rank-2 `linting/_coverage_common`.
+Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
+evidence; `step_analysis.py` keeps the observer registry and its stable helper imports.
 
 Key invariants — each is machine-enforced, and the guard test is the authority:
 
