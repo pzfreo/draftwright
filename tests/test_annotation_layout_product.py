@@ -101,7 +101,7 @@ def test_default_selects_candidate_before_render_without_baseline_build(monkeypa
     assert "recognized_occurrences" not in decision["safety_evidence"]["failed_checks"]
     assert decision["fallback_decision"] == "not_evaluated"
     assert decision["pre_render_choice"]["profile"] == "iso-growth"
-    assert decision["carrier_evidence"]["version"] == 2
+    assert decision["carrier_evidence"]["version"] == 3
     assert decision["carrier_evidence"]["coverage_authority"] is False
     assert decision["carrier_evidence"]["demands"]
     assert all(entry["measurements"] for entry in decision["carrier_evidence"]["demands"])

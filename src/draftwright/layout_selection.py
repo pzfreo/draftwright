@@ -233,6 +233,7 @@ def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> di
             "identity": item.identity,
             "family": item.family,
             "feature_index": item.feature_index,
+            "obligation_class": item.obligation_class,
             "status": status,
             "measurements": represented,
         }
@@ -245,7 +246,7 @@ def annotation_demand_carrier_evidence(scheme: AnnotationScheme, registry) -> di
         return evidence
 
     return {
-        "version": 2,
+        "version": 3,
         "coverage_authority": False,
         "demands": [row(item) for item in scheme.demands],
         "unplanned": [row(item) for item in scheme.unplanned],

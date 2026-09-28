@@ -24,6 +24,15 @@ notes, and source-owned PMI after placement; source ownership alone remains
 `coverage_authority=false`. No new policy may turn an unverified source link into
 a satisfied requirement.
 
+The first collector seam now marks approved automatic measurements and explicit
+authored/source-owned requests as `required`. An unattributed synthetic request
+defaults to `unknown`, never `optional`; an item with an approved measurement or
+source ID is rejected if a producer tries to mark its obligation optional. This
+is the obligation's class, **not** a command to retain that particular glyph:
+an exact table cell may carry the same required fact. No current producer
+asserts optionality, and the class is evidence only until the coordination
+policy below is implemented and tested.
+
 ## Decision contract
 
 For each conflict, form a stable set of obligations from the recognized and
