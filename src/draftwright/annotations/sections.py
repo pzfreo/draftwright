@@ -24,7 +24,6 @@ from build123d import (
 from build123d_drafting.helpers import (
     Centerline,
     Note,
-    format_drawing_scale,
 )
 from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCP.TopTools import TopTools_ListOfShape
@@ -39,6 +38,7 @@ from draftwright._core import (
     HoleRef,
     _analysis_margins,
     _anno_box,
+    _detail_caption,
     _dim,
     _fmt,
     _iso_bbox,
@@ -841,11 +841,7 @@ def _render_detail(
     caption_gap = min(a.DIM_PAD, 6.0) if req.kind == "turned-head" else a.DIM_PAD
 
     def _caption_text(s):
-        return (
-            f"DETAIL {letter}"
-            + (" — PARTIAL PROFILE" if req.kind == "turned-head" else "")
-            + f" — SCALE {format_drawing_scale(s)}"
-        )
+        return _detail_caption(req, letter, s, a.bb)
 
     def _horizontal_extents(s):
         """Space needed on each side of the view centre, including its caption."""
