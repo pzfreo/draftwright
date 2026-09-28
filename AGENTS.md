@@ -35,7 +35,7 @@ in step; do not restate the module list here.
 In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
 geometry maths, registry, measurement support with pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist with its
-dimension-intent validation (ADR 1) → **1**
+dimension-intent and oriented-slot geometry validation (ADR 1) → **1**
 `_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
 `_pmi_linear_geometry`, `pmi`,

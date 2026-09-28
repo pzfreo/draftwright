@@ -359,7 +359,9 @@ observer registry and re-exports its existing private helper names.
   `from draftwright import inspect_step` stays sub-second (#313). `sheet_emit` imports it at
   the same rank to write its sidecar; nothing below rank 7 depends on it.
 - **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
-  `Datum`/`PartModel` types — the one inventory), `dimension_intent.py` (the authored
+  `Datum`/`PartModel` types — the one inventory), `oriented_slot_geometry.py` (private
+  passage and feature geometry validation, with the public dataclasses retained in `ir.py`),
+  `dimension_intent.py` (the authored
   measurement selector vocabulary and semantic view/strip validation, with stable
   forwarding functions in `ir.py`), `detect.py` (detectors →
   `Feature` objects, adapting `quiddity` records), `planner.py`
