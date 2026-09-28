@@ -9,7 +9,7 @@ keep that table, this document, and `CLAUDE.md`'s compact map in step. The
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: leaf modules (`progress.py`, `layout.py`, `layout_scheme.py` (typed render-free annotation
+top: leaf modules (`progress.py`, `layout.py`, `obligations.py` (pure semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `leader_policy.py`, `registry.py`, `fonts.py`,
 `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
@@ -172,6 +172,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   (`fit_box`), and the balloon band-assignment min-cost max-flow solve
   (`_assign_balloon_bands`, #516; here since #699 — solvers live in the solver
   layer). Sits *below* the domain API.
+- **`obligations.py`** — the pure required/unknown/optional survival order shared
+  by pre-render demand and the existing placement solvers. It has no IR or
+  rendering dependency; source and measurement authority stay with the compiler.
 - **`leader_policy.py`** — the typed, coordinate-free document policy that filters
   feature-leader candidate regions without granting placement coordinates or inventing
   interior eligibility for a producer.

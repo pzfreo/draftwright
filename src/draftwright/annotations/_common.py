@@ -58,6 +58,7 @@ from draftwright.linting.structural import (
 from draftwright.model.compiled import resolve_feature
 from draftwright.model.ir import HoleFeature, PatternFeature
 from draftwright.model.planner import hole_location_parameter_id
+from draftwright.obligations import ObligationClass, obligation_rank
 
 _log = logging.getLogger(__name__)
 
@@ -612,6 +613,7 @@ class SolveTrace:
                     "name": c.name,
                     "order": list(c.order),
                     "priority": c.priority,
+                    "obligation_class": c.effective_obligation_class,
                     "size": list(c.size) if c.size is not None else None,
                     "force": c.force,
                     "anchored": c.anchored,
@@ -2465,9 +2467,9 @@ class CorridorCandidate:
             share one physical statement; the higher-``precedence`` one survives (#345).
         precedence: dedup survivor rank — a hole *location* dim (feeds coverage/table
             escalation) outranks a coincident slot *position* line.
-        priority:   over-capacity survival rank (#357). When a strip cannot hold every
-            candidate, :func:`plan_strip` drops the lowest ``(priority, key)`` — so a higher
-            ``priority`` is kept. Pick a rung from :data:`PRIORITY` below rather than a bare
+        priority:   within-class over-capacity survival rank (#357). When a strip cannot
+            hold every candidate, :func:`plan_strip` drops the lowest semantic class,
+            then ``(priority, key)``. Pick a rung from :data:`PRIORITY` below rather than a bare
             number: the value only means anything *relative to the others*, so a literal at
             a call site cannot be reviewed on its own.
         anchored/natural: when ``anchored`` is true, the strip solve keeps this candidate
@@ -2488,6 +2490,7 @@ class CorridorCandidate:
     dedup: tuple | None = None
     precedence: int = 0
     priority: float = 0
+    obligation_class: ObligationClass = "unknown"
     anchored: bool = False
     natural: float | None = None
     force: bool = False
@@ -2548,6 +2551,16 @@ class CorridorCandidate:
     interior_side: str | None = None
     interior_build: object | None = None
     interior_geometry: object | None = None
+
+    @property
+    def effective_obligation_class(self) -> ObligationClass:
+        """Approved measurements and declarations are required even if not marked."""
+        obligation_rank(self.obligation_class)
+        if self.measurement is not None or self.declaration is not None:
+            if self.obligation_class == "optional":
+                raise ValueError("approved or authored annotation cannot be optional")
+            return "required"
+        return self.obligation_class
 
 
 @dataclass(frozen=True)
@@ -2832,6 +2845,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
     forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
     prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
+    obligation_classes = {c.name: c.effective_obligation_class for c in kept}
     anchored = {c.name: c.anchored for c in kept if c.anchored}
     naturals = {c.name: c.natural for c in kept if c.natural is not None}
     foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical (#602)
@@ -2859,6 +2873,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             sizes=sizes,
             forbid=forbid,
             priorities=prio,
+            obligation_classes=obligation_classes,
             anchored=anchored,
             naturals=naturals,
             footprints=foots,
@@ -2900,6 +2915,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 sizes=sizes,
                 forbid=forbid,
                 priorities=prio,
+                obligation_classes=obligation_classes,
                 anchored=anchored,
                 naturals=naturals,
                 trace=trace,
@@ -3495,6 +3511,7 @@ def place_strip_candidates(
     sizes=None,
     forbid=None,
     priorities=None,
+    obligation_classes=None,
     anchored=None,
     naturals=None,
     footprints=None,
@@ -3531,10 +3548,12 @@ def place_strip_candidates(
     frame, #61) sets it so :func:`plan_strip` enforces its true stacking gap — over
     capacity it is relocated to the next segment or dropped, never overlapped.
 
-    *priorities* maps a candidate's name to its over-capacity survival rank (#357);
+    *priorities* maps a candidate's name to its within-class survival rank (#357);
     absent names default to 0. When a segment is over capacity :func:`plan_strip` drops
-    the lowest ``(priority, key)``, so a higher priority is kept — an authored GD&T frame
-    is not dropped for a lower-value auto dim purely by stacking-key order.
+    the lowest ``(obligation class, priority, key)``, so a required obligation survives
+    optional generated ink before authored priority decides within its class.
+    An authored GD&T frame is not dropped for a lower-value auto dim purely by
+    stacking-key order.
 
     *anchored* and *naturals* opt individual candidates into the weighted anchoring
     mode in :func:`plan_strip`. This preserves the old segment-edge natural for every
@@ -3561,6 +3580,13 @@ def place_strip_candidates(
     (with reasons), and the unplaced leftovers."""
     if strip is None or not cands:
         return list(cands)
+
+    def _survival_rank(name):
+        return (
+            obligation_rank((obligation_classes or {}).get(name, "unknown")),
+            (priorities or {}).get(name, 0.0),
+        )
+
     tp = (
         trace.begin_pass(force=force, label=trace_label, strip=strip, view=view, axis=axis)
         if trace is not None
@@ -3724,7 +3750,7 @@ def place_strip_candidates(
         ranked = sorted(
             enumerate(items),
             key=lambda item: (
-                (priorities or {}).get(item[1][0], 0.0),
+                *_survival_rank(item[1][0]),
                 item[0] if inner == lo else -item[0],
             ),
             reverse=True,
@@ -3750,6 +3776,7 @@ def place_strip_candidates(
                     ),
                     (sizes or {}).get(nb[0], (tier, tier)),
                     priority=(priorities or {}).get(nb[0], 0.0),
+                    obligation_class=(obligation_classes or {}).get(nb[0], "unknown"),
                     anchored=(anchored or {}).get(nb[0], False),
                 ),
                 nb,
@@ -4030,7 +4057,7 @@ def place_strip_candidates(
     builds_by_name = dict(cands) if require_clear_ink else {}
     for name in sorted(
         require_clear_ink,
-        key=lambda item: (-(priorities or {}).get(item, 0.0), item),
+        key=lambda item: tuple(-value for value in _survival_rank(item)) + (item,),
     ):
         index = next((i for i, (key, _item) in enumerate(solved) if key == name), None)
         if index is None:
@@ -4075,8 +4102,7 @@ def place_strip_candidates(
                 else []
             )
             if conflicts and all(
-                (priorities or {}).get(key, 0.0) < (priorities or {}).get(name, 0.0)
-                and not (anchored or {}).get(key, False)
+                _survival_rank(key) < _survival_rank(name) and not (anchored or {}).get(key, False)
                 for key in conflicts
             ):
                 displaced = set(conflicts)

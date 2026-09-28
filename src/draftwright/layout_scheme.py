@@ -11,15 +11,15 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import DimensionId, annotation_groups, plan_dimensions
+from draftwright.obligations import ObligationClass, obligation_rank
 from draftwright.view_plan import VIEW_AXES
 
 _VIEWS = frozenset({"front", "plan", "side", "rear"})
 _SIDES = frozenset({"above", "below", "left", "right"})
-ObligationClass = Literal["required", "optional", "unknown"]
 
 
 def _check_obligation_class(
@@ -27,8 +27,7 @@ def _check_obligation_class(
     measurements: tuple[DimensionId, ...],
     source_ids: tuple[str, ...],
 ) -> None:
-    if classification not in {"required", "optional", "unknown"}:
-        raise ValueError(f"invalid annotation obligation class: {classification!r}")
+    obligation_rank(classification)
     if classification == "optional" and (measurements or source_ids):
         raise ValueError("source-backed or approved measurement obligations cannot be optional")
 
