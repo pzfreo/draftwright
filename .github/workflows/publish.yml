@@ -40,7 +40,9 @@ jobs:
         with:
           repository-url: https://test.pypi.org/legacy/
 
-  # A real release retains the built artifact across the separately protected PyPI job.
+  # A published stable or RC release retains its built artifact across the
+  # separately protected PyPI job. The tag, not the dev version on main, is
+  # authoritative; an RC tag must also carry GitHub's prerelease flag.
   build-release:
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
@@ -53,11 +55,13 @@ jobs:
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: false
-      - name: Strip dev suffix for real release
+      - name: Set the exact stable or RC version from the release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          current=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          base="${current%.dev*}"
-          scripts/update-draftwright-version "$base"
+          target=$(python scripts/release-version "$RELEASE_TAG" "$RELEASE_PRERELEASE")
+          scripts/update-draftwright-version "$target"
       - run: uv build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -78,9 +82,10 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
 
+  # Publishing an RC does not advance main past the pending stable 0.5.0 release.
   bump-version:
     needs: publish-pypi
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' && !github.event.release.prerelease
     runs-on: ubuntu-latest
     permissions:
       actions: write # Dispatch the branch-SHA-bound maintenance CI run.

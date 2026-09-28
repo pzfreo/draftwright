@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""Print the PEP 440 package version for one GitHub release tag.
+
+An RC tag is ``vX.Y.Z-rcN``; its package version is ``X.Y.ZrcN``. Refuse a
+prerelease flag that disagrees with the tag so a candidate cannot publish as a
+stable release (or vice versa).
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+
+_TAG = re.compile(
+    r"^v(?P<base>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))"
+    r"(?:-rc(?P<rc>[1-9]\d*))?$"
+)
+
+
+def release_version(tag: str, prerelease: bool) -> str:
+    match = _TAG.fullmatch(tag)
+    if match is None:
+        raise ValueError("release tag must be vX.Y.Z or vX.Y.Z-rcN (N >= 1)")
+    rc = match.group("rc")
+    if (rc is not None) != prerelease:
+        raise ValueError("release prerelease flag must agree with the RC tag")
+    return match.group("base") + (f"rc{rc}" if rc is not None else "")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("tag")
+    parser.add_argument("prerelease", choices=("true", "false"))
+    args = parser.parse_args()
+    try:
+        version = release_version(args.tag, args.prerelease == "true")
+    except ValueError as error:
+        parser.error(str(error))
+    print(version)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
