@@ -15,7 +15,7 @@ topology and corridor demand planning), `leader_policy.py`, `registry.py`, `font
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary) →
-`_core.py` → stage modules (`export.py`,
+`_core.py` → stage modules (`export.py`, `pdf_text.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
 `builder.py` → the
@@ -399,6 +399,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `feature_census`. It imports build123d/OCP and never imports Draftwright.
 - **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 5 (was 0006)).
+- **`pdf_text.py`** — rank-2 PDF semantic text assembly from the drawing's
+  explicitly supplied draft and named annotations. It preserves label recovery,
+  text placement, and page reading order; `Drawing._pdf_text_runs()` delegates here,
+  and `export.py` renders the returned runs over vector glyph paths.
 - **`export.py`** — SVG/DXF/PDF/PNG export + post-processing (page-size fix,
   attribution hyperlink/metadata, DXF metadata, arc sanitisation, element-wise
   shape-export degradation). The render chain is **SVG → PDF → PNG**: PDF via

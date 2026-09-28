@@ -19,9 +19,10 @@ from PIL import Image, ImageChops
 
 from draftwright import Sheet, build_drawing
 from draftwright._core import _text_line_spacing_em
-from draftwright.drawing import Drawing, _exact_vertex_rotation
+from draftwright.drawing import Drawing
 from draftwright.export import _PDFTextRun, _render_pdf, _resolved_semantic_font_path
 from draftwright.fonts import PLEX_MONO, PLEX_SANS_CONDENSED
+from draftwright.pdf_text import _exact_vertex_rotation
 
 
 def _manufacturing_drawing():
