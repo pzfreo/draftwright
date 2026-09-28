@@ -154,7 +154,8 @@ _LAYERS: dict[str, int] = {
     "auxiliary_layout": 2,
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
-    # 4 — the annotation render layer (+ the thin annotate re-export facade)
+    # 4 — the annotation render layer (+ the thin annotate re-export facade).
+    # `_step_lengths` is an annotations/ family owner beside `_slots`; both remain rank 4.
     "annotations": 4,
     "annotate": 4,
     # 5 — the Drawing result object
