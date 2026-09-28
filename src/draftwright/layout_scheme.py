@@ -527,7 +527,7 @@ def _automatic_demand(
         ink,
         dedicated_lane,
         measurements,
-        obligation_class="required",
+        obligation_class="required" if measurements else "unknown",
     )
 
 
