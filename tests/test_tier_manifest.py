@@ -79,6 +79,12 @@ def test_unknown_production_module_selects_every_contract_group():
         assert selected_groups([pattern]) == frozenset(CONTRACT_GROUPS)
 
 
+def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
+    changed = ["src/draftwright/sheet_features.py"]
+    assert selected_groups(changed) == {"compilation"}
+    assert "test_sheet_identity_invariant.py" in pr_modules(_TESTS, changed)
+
+
 def test_nonproduction_changes_do_not_expand_the_core():
     assert set(pr_modules(_TESTS, ["docs/guide.md"])) == (
         set(PR_CORE_MODULES) | set(PR_POLICY_MODULES) | set(UNIT_MODULES)

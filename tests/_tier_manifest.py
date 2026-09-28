@@ -65,6 +65,7 @@ CONTRACT_GROUPS = {
             "src/draftwright/intents.py",
             "src/draftwright/measurement_support.py",
             "src/draftwright/sheet.py",
+            "src/draftwright/sheet_features.py",
             "src/draftwright/sheet_emit.py",
         ),
         (
@@ -79,6 +80,7 @@ CONTRACT_GROUPS = {
             "test_measurement_support.py",
             "test_model_ir.py",
             "test_sheet_emit.py",
+            "test_sheet_identity_invariant.py",
         ),
     ),
     "placement": ContractGroup(
