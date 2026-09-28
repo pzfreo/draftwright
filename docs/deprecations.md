@@ -42,17 +42,32 @@ warnings.filterwarnings("ignore", category=SoftDeprecationWarning)
 build123d object and get a fully dimensioned drawing — that is the detected front door and
 being automatic is the whole point of it.
 
-## Compatibility re-exports — scheduled, silent
+## Compatibility import shims
 
-The recognition extraction keeps two import facades for one migration window. They do not warn
-at import time because importing a compatibility module must not make otherwise-correct builds
-noisy, but they are compatibility surfaces under ADR 1 (was 0005 §4) and therefore have an explicit
-exit. The extraction epic is the tracker; private historical submodules were not retained.
+These modules warn on import (#1936) and retain their existing exports through 0.5.x.
+Private historical recognition submodules were not retained.
 
 | Surface | Use instead | Compatibility since | Removed in |
 |---|---|---|---|
-| `draftwright.recognition` public symbols | import the same symbols from `b123d_recognisers` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
-| `draftwright.score.feature_census` | `b123d_recognisers.feature_census` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
+| `draftwright.recognition` public symbols | import the same symbols from `quiddity` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
+| `draftwright.score.feature_census` | `quiddity.feature_census` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
+| `draftwright.make_drawing` module | import each symbol from its owning module (`builder`, `drawing`, `linting`, `export`, `cli`) | engine split (#138) | 0.6.0 |
+| `draftwright.annotate` module | `draftwright.annotations.orchestrator`; `_step_repeat` from `draftwright.model.compiled` | annotation split (#164) | 0.6.0 |
+
+The `python -m draftwright.make_drawing` CLI entry point remains available during this window;
+use the installed `draftwright` command instead.
+
+### Drawing build-state compatibility properties
+
+These properties continue to forward to `BuildState` without a runtime warning. They are
+inventoried for removal in 0.6.0 (#1936); this change does not alter their behavior.
+
+| Property | Current owner | Removed in |
+|---|---|---|
+| `Drawing._analysis` (getter and setter) | `BuildState.analysis` | 0.6.0 |
+| `Drawing._part_model` (getter) | `BuildState.part_model` | 0.6.0 |
+| `Drawing._view_edge_cache` (getter) | `BuildState.view_edge_cache` | 0.6.0 |
+| `Drawing._ann_box_cache` (getter) | `BuildState.ann_box_cache` | 0.6.0 |
 
 ## Live deprecations
 
@@ -148,7 +163,6 @@ checkable.
   so existing invocations keep working, which is a decision rather than an oversight: removing
   it would break every script that passes `--style sheet` to buy nothing. (`--style imperative`
   was a compat stub with a date, and was deleted at it in #720.)
-- **`make_drawing.py`** — a permanent re-export facade, not a transitional one.
 
 ## Removed
 

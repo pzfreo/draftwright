@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,10 +19,8 @@ try:
 except ModuleNotFoundError:  # Python 3.10
     import tomli as tomllib
 
-import draftwright.recognition as compatibility
 from draftwright.drawing import BuildState, Drawing
 from draftwright.recognition_cache import RecognitionCache
-from draftwright.score import feature_census
 
 ROOT = Path(__file__).parents[1]
 RECOGNITION_DIR = ROOT / "src" / "draftwright" / "recognition"
@@ -51,10 +51,18 @@ def test_consumed_evidence_api_is_the_released_public_major() -> None:
 
 def test_embedded_implementation_is_gone_and_compatibility_is_identity_preserving() -> None:
     assert {path.name for path in RECOGNITION_DIR.glob("*.py")} == {"__init__.py"}
+    with pytest.warns(DeprecationWarning) as caught:
+        compatibility = (
+            importlib.reload(sys.modules["draftwright.recognition"])
+            if "draftwright.recognition" in sys.modules
+            else importlib.import_module("draftwright.recognition")
+        )
+    assert len(caught) == 1
+    assert "quiddity" in str(caught[0].message)
+    assert "0.6.0" in str(caught[0].message)
     assert frozenset(compatibility.__all__) == public_recogniser_names()
     for name in public_recogniser_names():
         assert getattr(compatibility, name) is public_recogniser_member(name)
-    assert feature_census is external.feature_census
 
 
 def test_recognition_cache_is_consumer_owned_and_runs_once(monkeypatch) -> None:

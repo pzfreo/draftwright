@@ -146,7 +146,7 @@ class TestLintSummaryAndDrops:
         # not place (#36) is surfaced once (as callout_dropped) and not
         # double-reported.
 
-        from draftwright.make_drawing import lint_feature_coverage
+        from draftwright.linting import lint_feature_coverage
 
         part = Box(60, 40, 20) - Cylinder(5, 20)  # one undimensioned ø10 bore
         base = lint_feature_coverage(part, [])
@@ -294,7 +294,7 @@ class TestLintSummaryAndDrops:
         # (A full second pass is not idempotent — strip cursors advance — but
         # the records always reflect only the latest pass.)
 
-        from draftwright.annotate import _auto_annotate
+        from draftwright.annotations.orchestrator import _auto_annotate
 
         dwg = fresh_drawing("box_60x40x30")
         dwg.registry.record_issue(

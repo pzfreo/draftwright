@@ -10,7 +10,7 @@ composition, the grouped render (linear + grid), and the input guards.
 import pytest
 from build123d import Box
 
-from draftwright.make_drawing import build_drawing
+from draftwright.builder import build_drawing
 from draftwright.model import slot, slot_pattern
 from draftwright.sheet import Sheet
 

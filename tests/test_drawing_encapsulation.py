@@ -293,7 +293,6 @@ def test_the_deleted_modules_and_stubs_stay_deleted():
     """
     import draftwright
     import draftwright.builder
-    import draftwright.make_drawing
 
     with pytest.raises(ModuleNotFoundError):
         import draftwright.sheet_dsl  # type: ignore[import-not-found] # noqa: F401
@@ -301,12 +300,10 @@ def test_the_deleted_modules_and_stubs_stay_deleted():
     # The #940-retired emitter: gone from the package's lazy surface AND its owners, so the
     # failure is an ImportError at the top of a script rather than mid-run.
     #
-    # Read the two statically imported submodules from sys.modules: the package re-exports a
-    # FUNCTION named make_drawing which shadows that submodule as an ordinary attribute.
+    # The facade's retired-name absence is checked by its dedicated import test.
     owners = [
         draftwright,
         sys.modules["draftwright.builder"],
-        sys.modules["draftwright.make_drawing"],
     ]
     assert "generate_script" not in draftwright.__all__
     for mod in owners:

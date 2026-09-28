@@ -7,7 +7,7 @@ from build123d import Box, Cylinder, Pos
 from build123d_drafting import HoleCallout
 
 from draftwright import build_drawing
-from draftwright.make_drawing import lint_feature_coverage
+from draftwright.linting import lint_feature_coverage
 
 
 @pytest.fixture(scope="module")

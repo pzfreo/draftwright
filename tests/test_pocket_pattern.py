@@ -10,7 +10,7 @@ pockets are not double-rendered.
 import pytest
 from build123d import Box
 
-from draftwright.make_drawing import build_drawing
+from draftwright.builder import build_drawing
 from draftwright.model import hole, pocket, pocket_pattern
 from draftwright.sheet import Sheet
 

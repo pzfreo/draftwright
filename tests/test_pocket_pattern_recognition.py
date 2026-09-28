@@ -14,7 +14,7 @@ import pytest
 from build123d import Align, Box, Pos, import_step
 from quiddity import SectionRecessArray, SectionRecessGrid, build_raw_recognition_result
 
-from draftwright.make_drawing import build_drawing
+from draftwright.builder import build_drawing
 from draftwright.model import pocket, pocket_pattern  # noqa: F401  (declared-path symmetry)
 from draftwright.model.detect import build_part_model
 

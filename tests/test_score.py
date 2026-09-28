@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
-from build123d import Box, Cylinder, Pos, Rotation
+import importlib
+import sys
 
-from draftwright.score import feature_census
+import pytest
+from build123d import Box, Cylinder, Pos, Rotation
+from quiddity import feature_census
+
+
+def test_score_shim_warns_and_preserves_feature_census_identity() -> None:
+    with pytest.warns(DeprecationWarning) as caught:
+        shim = (
+            importlib.reload(sys.modules["draftwright.score"])
+            if "draftwright.score" in sys.modules
+            else importlib.import_module("draftwright.score")
+        )
+    assert len(caught) == 1
+    assert "quiddity.feature_census" in str(caught[0].message)
+    assert "0.6.0" in str(caught[0].message)
+    assert shim.feature_census is feature_census
 
 
 def _grooved_shaft():
