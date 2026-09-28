@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
@@ -961,6 +962,7 @@ def _fits(
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
     convention: str = "third",
+    derived_view_footprints: tuple[tuple[str, float, float], ...] = (),
 ) -> bool:
     """True if the composed 4-view footprint fits the page at this scale.
 
@@ -990,6 +992,7 @@ def _fits(
         include_iso=include_iso,
         iso_scale_factor=iso_scale_factor,
         convention=convention,
+        derived_view_footprints=derived_view_footprints,
     )
     return bool(g.fits if pack_iso_2d else g.auto_fits)
 
@@ -1012,6 +1015,8 @@ def _bisect_fit_scale(
     include_iso: bool = True,
     iso_scale_factor: float | None = None,
     convention: str = "third",
+    derived_view_footprints_for_scale: Callable[[float], tuple[tuple[str, float, float], ...]]
+    | None = None,
 ):
     """Largest scale at which the 4-view layout fits ``(pw, ph)``, found by bisection —
     the layout is monotone in scale (a smaller scale never fits worse). Used only as the
@@ -1041,6 +1046,11 @@ def _bisect_fit_scale(
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
+            derived_view_footprints=(
+                derived_view_footprints_for_scale(mid)
+                if derived_view_footprints_for_scale is not None
+                else ()
+            ),
         ):
             lo = mid
         else:
@@ -1093,6 +1103,8 @@ def choose_scale(
     convention: str = "third",
     advisories: list[tuple[str, str]] | None = None,
     title_block_width: float | None = None,
+    derived_view_footprints_for_scale: Callable[[float], tuple[tuple[str, float, float], ...]]
+    | None = None,
 ) -> tuple:
     """Return (SCALE, PAGE_W, PAGE_H, TB_W) for a 4-view layout.
 
@@ -1160,6 +1172,11 @@ def choose_scale(
             iso_scale_factor=iso_scale_factor,
             convention=convention,
             arrangement=requested_arrangement,
+            derived_view_footprints=(
+                derived_view_footprints_for_scale(float(scale))
+                if derived_view_footprints_for_scale is not None
+                else ()
+            ),
         ):
             if advisories is not None:
                 advisories.append(
@@ -1247,6 +1264,11 @@ def choose_scale(
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
+            derived_view_footprints=(
+                derived_view_footprints_for_scale(cand_scale)
+                if derived_view_footprints_for_scale is not None
+                else ()
+            ),
         )
 
     def _candidate(cand, arrangement):
@@ -1331,6 +1353,7 @@ def choose_scale(
             include_iso=include_iso,
             iso_scale_factor=iso_scale_factor,
             convention=convention,
+            derived_view_footprints_for_scale=derived_view_footprints_for_scale,
         )
         if s is not None:
             if advisories is not None:
@@ -1979,6 +2002,22 @@ def _layout_geometry(
             section_x = SECTION_X + index * (2 * section_hw + DIM_PAD)
             section_blocks.append(section_block.footprint(section_x, SECTION_Y))
         obstacles.extend(section_blocks)
+    # The iso estimator intentionally uses padded silhouettes for compatibility.
+    # A required detail needs the FULL planned annotation blocks instead: the
+    # weaker obstacle set would reserve its box over a side/front strip, only to
+    # have the real ink veto it after rendering.
+    derived_obstacles = (
+        [
+            *([fv.footprint(FV_X, FV_Y)] if has_front else []),
+            *([pv.footprint(PV_X, PV_Y)] if has_plan else []),
+            *([sv.footprint(SV_X, SV_Y)] if has_side else []),
+            *([rv.footprint(RV_X, RV_Y)] if has_rear else []),
+            title_block.footprint(tb_cx, tb_cy),
+            *section_blocks,
+        ]
+        if derived_view_footprints
+        else []
+    )
     # Authored Sheet tables are required fixed-size furniture, not alternative fallback shapes.
     # Place their estimated footprints before allocating the iso so page selection can grow the
     # sheet while preserving the requested scale (#1146). Each placement becomes an obstacle for
@@ -1995,14 +2034,14 @@ def _layout_geometry(
     derived_views_fit = True
     for identity, width, height in derived_view_footprints:
         rx0, ry0, rx1, ry1 = _largest_empty_rect(
-            drawable, obstacles, warn=False, target_size=(width, height)
+            drawable, derived_obstacles, warn=False, target_size=(width, height)
         )
         if (
             rx1 - rx0 < width
             or ry1 - ry0 < height
             or any(
                 rx0 < box[2] and box[0] < rx1 and ry0 < box[3] and box[1] < ry1
-                for box in obstacles
+                for box in derived_obstacles
             )
         ):
             derived_views_fit = False
@@ -2010,6 +2049,7 @@ def _layout_geometry(
         cx, cy = (rx0 + rx1) / 2, (ry0 + ry1) / 2
         box = (cx - width / 2, cy - height / 2, cx + width / 2, cy + height / 2)
         derived_view_boxes[identity] = box
+        derived_obstacles.append(box)
         obstacles.append(box)
     if not derived_views_fit and _prefer_gutters and view_gutters:
         # The preferred blank space is discretionary; a required derived view
