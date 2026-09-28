@@ -128,3 +128,8 @@ head detail box. This proves pre-sheet fit, **not** that the finished detail ink
 all PMI carriers, and scripts remain correct after the reservation. Those are
 still acceptance checks; the earlier #1871 rendered verification covered the
 old late-placement path, not this new pre-sheet path.
+
+The same analysis-only GRM03 model was emitted to a Sheet script and compiled
+without building its drawing. Direct and emitted models independently produced
+the identical `detail_a` planning footprint, 87 × 62.128571 mm at 1:1. This
+checks the planning boundary, not rendered/exported script parity.
