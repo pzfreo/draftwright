@@ -21,8 +21,8 @@ class _FeatureView(MutableSequence):
       feature at the new position rather than silently naming a neighbour;
     - ``del`` drops the token, so a handle for a removed feature raises when used.
 
-    Before this, everything addressed by index into a plain list, and seven review rounds
-    on #872 found seven ways for a long-lived reference — a tolerance, a GD&T origin, a
+    Before this, everything addressed by index into a plain list, and #872 found ways
+    for a long-lived reference — a tolerance, a GD&T origin, a
     section, a dimension intent — to end up pointing at the wrong feature. Each fix
     detected one route and opened another. Carrying identity makes the class impossible
     instead of detectable.
