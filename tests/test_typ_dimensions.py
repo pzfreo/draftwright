@@ -21,6 +21,7 @@ def test_annotate_shim_warns_and_preserves_orchestrator_identity() -> None:
         )
     assert len(caught) == 1
     assert "draftwright.annotations.orchestrator" in str(caught[0].message)
+    assert "draftwright._core" in str(caught[0].message)
     assert "0.6.0" in str(caught[0].message)
     assert shim._auto_annotate is _auto_annotate
 

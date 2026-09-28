@@ -552,7 +552,7 @@ class TestEscalation:
         assert any(n.startswith("hc_plan") for n in dwg.annotations())
 
     def test_wrap_rows_reshapes_into_blocks(self):
-        from draftwright.annotations.orchestrator import _wrap_rows
+        from draftwright._core import _wrap_rows
 
         header = ("T", "D")
         data = [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4"), ("e", "5")]

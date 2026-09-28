@@ -52,7 +52,7 @@ Private historical recognition submodules were not retained.
 | `draftwright.recognition` public symbols | import the same symbols from `quiddity` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
 | `draftwright.score.feature_census` | `quiddity.feature_census` | 0.4.6 (`b123d-recognisers#1`) | 0.6.0 |
 | `draftwright.make_drawing` module | import each symbol from its owning module (`builder`, `drawing`, `linting`, `export`, `cli`) | engine split (#138) | 0.6.0 |
-| `draftwright.annotate` module | `draftwright.annotations.orchestrator`; `_step_repeat` from `draftwright.model.compiled` | annotation split (#164) | 0.6.0 |
+| `draftwright.annotate` module | `_auto_annotate` from `draftwright.annotations.orchestrator`, `_wrap_rows` from `draftwright._core`, `_step_repeat` from `draftwright.model.compiled` | annotation split (#164) | 0.6.0 |
 
 The `python -m draftwright.make_drawing` CLI entry point remains available during this window;
 use the installed `draftwright` command instead.

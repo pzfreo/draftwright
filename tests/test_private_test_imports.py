@@ -43,6 +43,10 @@ _ALLOW: frozenset[tuple[str, str]] = frozenset(
         # (#733): the sequence pin test exists precisely to guard it, so its white-box
         # read is the point, not a coupling smell.
         ("orchestrator", "_PASS_SEQUENCE"),
+        # #1936 moved the stale-build-issue reset test off the annotate shim. That
+        # mid-build reset has no public seam; the test already exercised this same
+        # private function and now imports it from its actual owner.
+        ("orchestrator", "_auto_annotate"),
         # #1240: the iso/above-strip clamp has NO natural fixture — compose plus page/scale
         # selection keeps the iso x-separated from populated above strips on every real
         # layout tried (two independent sweeps) — so the guard test plants a fake iso bbox
