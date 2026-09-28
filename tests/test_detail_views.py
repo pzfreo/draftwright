@@ -31,6 +31,45 @@ class TestDetailView:
 
         assert supported_secondary_crop(points, "z", 0.0, 10.0, scale) == expected
 
+    def test_detail_decision_record_preserves_model_extent_and_named_refusal(self):
+        import json
+
+        from draftwright._core import DetailRequest
+        from draftwright.annotations.sections import _detail_decision_record
+
+        request = DetailRequest(
+            axis="x",
+            lo=1.0,
+            hi=3.0,
+            scale_needed=10.0,
+            redraw=lambda *_args: 1,
+            cross_axis="z",
+            cross_lo=4.8,
+            cross_hi=7.2,
+            profile_support_points=((1.0, 0.0, 5.0), (3.0, 0.0, 7.0)),
+        )
+        request.placed_scale = 10.0
+        placed = _detail_decision_record(request, "A", "detail_a", True)
+        assert placed["status"] == "placed"
+        assert placed["view"] == "detail_a"
+        assert placed["reason"] == "source_supported_secondary_band"
+        assert placed["extent"] == {
+            "axis": "x",
+            "lo": 1.0,
+            "hi": 3.0,
+            "secondary": {"axis": "z", "lo": 4.8, "hi": 7.2},
+        }
+        assert placed["scale"] == {"required": 10.0, "placed": 10.0}
+
+        request.failure_code = "invalid_scale"
+        request.scale_needed = float("inf")
+        refused = _detail_decision_record(request, "A", "detail_a", False)
+        assert refused["view"] is None
+        assert refused["requested_view"] == "detail_a"
+        assert refused["reason"] == "invalid_scale"
+        assert refused["scale"] == {"required": None, "placed": None}
+        json.dumps(refused, allow_nan=False)
+
     @pytest.mark.parametrize(
         ("kind", "cross_bounds", "partial"),
         [
@@ -145,6 +184,7 @@ class TestDetailView:
             ctx=None,
         )
         assert req.failure_reason == "measurement witness 1 lies outside the X detail crop"
+        assert req.failure_code == "invalid_crop"
 
         # The same public render boundary refuses malformed crop facts before
         # projection, not only the ordinary over-tight witness case.
@@ -648,6 +688,9 @@ class TestDetailView:
         assert on.lint_summary()["by_code"].get("detail_unplaceable", 0) == 0
         assert "detail_a" in on.views
         assert "PARTIAL PROFILE" in on.get_annotation("detail_caption_A").label
+        assert on.detail_decisions[0]["status"] == "placed"
+        assert on.detail_decisions[0]["reason"] == "source_supported_secondary_band"
+        assert on.detail_decisions[0]["extent"]["secondary"]["axis"] == "x"
         assert [
             annotation.label
             for name, annotation in on.iter_annotations()

@@ -677,6 +677,9 @@ class Drawing:
             ``status`` is ``"placed"``, ``"skipped"``, ``"not_warranted"``, or
             ``"not_evaluated"`` when the section pass never ran (``auto_dims=False``),
             with a stable ``reason`` code and human-readable ``detail`` when skipped.
+        detail_decisions: JSON-friendly outcomes for requested detail views, including
+            model-space crop bounds, physical support evidence, resolved scale, and a
+            named refusal reason. Observational only; requirement lint remains authoritative.
         page_w, page_h: sheet size in mm.
         tb_w: title-block width in mm.
         draft: the shared ``Draft`` preset used by the automatic annotations.
@@ -775,6 +778,7 @@ class Drawing:
             "reason": None,
             "detail": "the section pass has not run",
         }
+        self.detail_decisions: list[dict[str, object]] = []
         self.part = part
         self._working_part = part if working_part is None else working_part
         self._cyl_cache = cyls
@@ -1197,6 +1201,7 @@ class Drawing:
                     dimension_plan=snapshot.dimension_plan,
                     part=snapshot.part,
                     requirement_outcomes=snapshot.outcomes,
+                    detail_decisions=tuple(self.detail_decisions),
                 )
                 report["recognition"] = source_report["recognition"]
             return report
@@ -1215,6 +1220,7 @@ class Drawing:
             dimension_plan=snapshot.dimension_plan,
             part=snapshot.part,
             requirement_outcomes=snapshot.outcomes,
+            detail_decisions=tuple(self.detail_decisions),
         )
 
     def requirement_snapshot(self, *, include_lint=False):

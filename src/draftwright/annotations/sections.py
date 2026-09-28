@@ -756,6 +756,9 @@ def _render_detail(
     ``False`` (drawing unchanged) rather than aborting; ``True`` when the detail is
     placed. Mirrors :func:`_add_section_view`'s skip-with-log discipline."""
     req.failure_reason = None
+    req.failure_code = None
+    req.placed_scale = None
+    req.fit_evidence = None
     # Detail scale: smallest standard multiple in [2, 5, 10] of sheet scale that
     # makes the region legible (>= the requested scale), always >= 2x.
     if req.scale_factor is not None:
@@ -776,11 +779,13 @@ def _render_detail(
             detail_scale = 10.0
             min_detail_scale = 10.0
     if not math.isfinite(min_detail_scale):
+        req.failure_code = "invalid_scale"
         req.failure_reason = "non-finite detail scale required"
         _log.info("Detail %s skipped (non-finite scale required)", letter)
         return False
     req.failure_reason = _detail_axial_crop_error(req) or _detail_secondary_crop_error(req)
     if req.failure_reason is not None:
+        req.failure_code = "invalid_crop"
         _log.info("Detail %s refused (%s)", letter, req.failure_reason)
         return False
     if req.source_view not in dwg.views:
@@ -789,12 +794,14 @@ def _render_detail(
                 f"authored detail {letter!r} from {req.source} needs parent view "
                 f"{req.source_view!r}; add that principal view"
             )
+        req.failure_code = "source_view_unavailable"
         return False
 
     # Crop to the band along req.axis (two fuzzy cuts). Solids only — a mixed
     # compound (PMI curves) cannot be cut.
     solids = a.part.solids()
     if not solids:
+        req.failure_code = "no_solid_body"
         _log.info("Detail %s skipped (no solid bodies to crop)", letter)
         return False
     body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
@@ -821,9 +828,11 @@ def _render_detail(
             if cropped is not None:
                 cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_hi + big / 2))
     except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
+        req.failure_code = "crop_failed"
         _log.warning("Detail %s skipped (crop failed: %s)", letter, exc)
         return False
     if cropped is None:
+        req.failure_code = "empty_crop"
         _log.warning("Detail %s skipped (boolean crop produced no solid)", letter)
         return False
 
@@ -889,6 +898,10 @@ def _render_detail(
     )
     rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
     rect_w, rect_h = rx1 - rx0, ry1 - ry0
+    req.fit_evidence = {
+        "minimum_footprint_mm": [float(min_footprint[0]), float(min_footprint[1])],
+        "available_rectangle_mm": [float(rect_w), float(rect_h)],
+    }
 
     def _fits(s):
         _, pt = _pads(s)
@@ -908,6 +921,7 @@ def _render_detail(
     if not _fits(detail_scale) and detail_scale > min_detail_scale:
         detail_scale = min_detail_scale
     if detail_scale < min_detail_scale or not _fits(detail_scale):
+        req.failure_code = "no_room_for_minimum_footprint"
         _log.info(
             "Detail %s skipped (no room: minimum footprint %.1f×%.1f mm; "
             "largest available rectangle %.1f×%.1f mm)",
@@ -951,6 +965,7 @@ def _render_detail(
             detail_scale, view_name, band_s, camera, up, (DX, DY), look_at=la, scaled=True
         )
     except Exception as exc:  # noqa: BLE001 — projection raises broadly on cast geometry
+        req.failure_code = "projection_failed"
         _log.warning("Detail %s skipped (projection failed: %s)", letter, exc)
         return False
 
@@ -964,6 +979,7 @@ def _render_detail(
     dwg.views[view_name] = (placed, placed_hid)
     redrawn = req.redraw(dwg, view_name, coords, detail_scale)
     if not redrawn and not req.keep_without_annotations:
+        req.failure_code = "annotations_unplaceable"
         dwg.views.pop(view_name, None)
         _log.info("Detail %s skipped (no legible dims at the detail scale)", letter)
         return False
@@ -1011,7 +1027,60 @@ def _render_detail(
         ),
         f"detail_caption_{letter}",
     )
+    req.placed_scale = float(detail_scale)
     return True
+
+
+def _detail_decision_record(
+    req: DetailRequest, letter: str | None, view_name: str | None, placed: bool
+) -> dict[str, object]:
+    """Retain model-space extent evidence, not a second coverage judgment."""
+
+    def finite(value):
+        number = float(value)
+        return number if math.isfinite(number) else None
+
+    secondary = (
+        {
+            "axis": req.cross_axis,
+            "lo": finite(req.cross_lo),
+            "hi": finite(req.cross_hi),
+        }
+        if req.cross_axis is not None and req.cross_lo is not None and req.cross_hi is not None
+        else None
+    )
+    return {
+        "kind": req.kind,
+        "label": letter,
+        "view": view_name if placed else None,
+        "requested_view": view_name,
+        "source_view": req.source_view,
+        "status": "placed" if placed else "refused",
+        "reason": (
+            "source_supported_secondary_band"
+            if secondary is not None and req.profile_support_points
+            else "specified_secondary_band"
+            if secondary is not None
+            else "full_secondary_extent"
+        )
+        if placed
+        else (req.failure_code or "unclassified_refusal"),
+        "detail": req.failure_reason if not placed else None,
+        "extent": {
+            "axis": req.axis,
+            "lo": finite(req.lo if req.crop_lo is None else req.crop_lo),
+            "hi": finite(req.hi if req.crop_hi is None else req.crop_hi),
+            "secondary": secondary,
+        },
+        "scale": {
+            "required": finite(req.scale_needed),
+            "placed": req.placed_scale if placed else None,
+        },
+        "physical_support_points": [
+            [finite(value) for value in point] for point in req.profile_support_points
+        ],
+        "fit": req.fit_evidence,
+    }
 
 
 def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
@@ -1044,10 +1113,12 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
         letter = req.label or identifiers.allocate()
         if letter is None:
             _log.info("detail request '%s' dropped: derived-view identifiers exhausted", req.kind)
+            req.failure_code = "identifiers_exhausted"
             _record_detail_failure(
                 req,
                 f"{req.kind} detail view requested but derived-view identifiers are exhausted",
             )
+            dwg.detail_decisions.append(_detail_decision_record(req, None, None, False))
             continue
         view_name = req.view_name or f"detail_{letter.lower()}"
         issue_start = len(ctx.registry.issues)
@@ -1117,6 +1188,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
                         "dimension the feature manually or move it onto its own sheet"
                     ),
                 )
+        dwg.detail_decisions.append(_detail_decision_record(req, letter, view_name, placed))
         if not placed and automatic_identifier:
             identifiers.release(letter)
 
