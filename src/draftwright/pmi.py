@@ -2306,80 +2306,13 @@ def _extract_pmi_report(
     return replace(census, source_name=name, source_sha256=digest)
 
 
-def _extract_pmi_census(
-    step_file: str | Path, *, frame: PartFrame | None = None
-) -> PmiExtractionReport:
-    """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
-
-    The report retains one source outcome for every dimension, geometric tolerance,
-    datum-reference occurrence, standalone datum definition, associated surface label, and
-    semantic manufacturing requirement. Graphical
-    presentation-only dimension labels are inventoried but are not manufacturing requirements.
-    Repeated datum occurrences project onto their authored datum-feature definition without
-    shrinking the source denominator.
-
-    Returns an empty report (with a report-level error where applicable) when no source
-    identities can be recovered and:
-
-    - the file contains neither XCAF GDT data nor semantic Part21 annotations;
-    - the file uses AP203/AP214 which carry no semantic PMI.
-
-    Part21-only manufacturing requirements and surface labels remain inventoried even when
-    OCP's GDT support is unavailable or the XCAF transfer fails; the report also retains that
-    global XCAF error.
-
-    Geometry evidence is returned in global STEP coordinates by default. Passing ``frame``
-    expresses points, vectors, boxes, cylinders, and datum geometry in that frame's local
-    coordinates before principal-axis relationships are validated. Scalars and source
-    identities are unchanged.
-
-    Does **not** modify the solid geometry — purely a read-only second pass.
-    """
-    requirement_sources, requirement_records = _manufacturing_requirement_projection(step_file)
-    label_sources, label_records = _surface_label_projection(step_file)
-
-    def failed(reason: str) -> PmiExtractionReport:
-        return PmiExtractionReport(
-            sources=(*requirement_sources, *label_sources),
-            records=(*requirement_records, *label_records),
-            error=reason,
-        )
-
-    if not _PMI_AVAILABLE:
-        reason = "OCP SetGDTMode is unavailable"
-        _log.debug("PMI extraction unavailable (%s)", reason)
-        return failed(reason)
-
-    path = str(step_file)
-    doc = TDocStd_Document(TCollection_ExtendedString("XCAF"))
-    reader = STEPCAFControl_Reader()
-    reader.SetGDTMode(True)
-    reader.SetNameMode(True)
-    try:
-        status = reader.ReadFile(path)
-    except Exception as exc:
-        reason = f"ReadFile failed: {_failure_reason(exc)}"
-        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
-        return failed(reason)
-    if status != IFSelect_RetDone:
-        reason = f"ReadFile failed with status {status}"
-        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
-        return failed(reason)
-    try:
-        transferred = reader.Transfer(doc)
-    except Exception as exc:
-        reason = f"Transfer failed: {_failure_reason(exc)}"
-        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
-        return failed(reason)
-    if transferred is False:
-        reason = "Transfer failed"
-        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
-        return failed(reason)
-
-    main = doc.Main()
-    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(main)
-    dt = XCAFDoc_DocumentTool.DimTolTool_s(main)
-
+def _enrich_part21_topology(
+    requirement_records: tuple[PmiRecord, ...],
+    label_records: tuple[PmiRecord, ...],
+    reader: STEPCAFControl_Reader,
+    frame: PartFrame | None,
+) -> tuple[tuple[PmiRecord, ...], tuple[PmiRecord, ...]]:
+    """Enrich independent Part21 projections after XCAF transfer."""
     try:
         if frame is None:
             requirement_records = _manufacturing_requirement_topology(
@@ -2416,9 +2349,19 @@ def _extract_pmi_census(
             for record in label_records
         )
 
+    return requirement_records, label_records
+
+
+def _extract_xcaf_dimensions(
+    step_file: str | Path,
+    dt: XCAFDoc_DimTolTool,
+    shape_tool: Any,
+    reader: STEPCAFControl_Reader,
+    frame: PartFrame | None,
+) -> tuple[list[PmiRecord], list[PmiSourceEntity]]:
+    """Extract dimension occurrences and reconcile their imported supports."""
     records: list[PmiRecord] = []
     sources: list[PmiSourceEntity] = []
-
     # ---- Dimensions --------------------------------------------------------
     dims = TDF_LabelSequence()
     dt.GetDimensionLabels(dims)
@@ -2657,6 +2600,18 @@ def _extract_pmi_census(
         for source in sources
     ]
 
+    return records, sources
+
+
+def _extract_xcaf_tolerances(
+    step_file: str | Path,
+    dt: XCAFDoc_DimTolTool,
+    shape_tool: Any,
+    frame: PartFrame | None,
+) -> tuple[list[PmiRecord], list[PmiSourceEntity], int]:
+    """Extract geometric-tolerance occurrences in source order."""
+    records: list[PmiRecord] = []
+    sources: list[PmiSourceEntity] = []
     # ---- Geometric tolerances ----------------------------------------------
     tolerances = TDF_LabelSequence()
     dt.GetGeomToleranceLabels(tolerances)
@@ -2712,6 +2667,18 @@ def _extract_pmi_census(
                 )
             )
 
+    return records, sources, tolerances.Length()
+
+
+def _extract_xcaf_datums(
+    step_file: str | Path,
+    dt: XCAFDoc_DimTolTool,
+    shape_tool: Any,
+    reader: STEPCAFControl_Reader,
+    frame: PartFrame | None,
+) -> tuple[list[PmiRecord], list[PmiSourceEntity]]:
+    """Extract datum occurrences and unrepresented definitions."""
+    sources: list[PmiSourceEntity] = []
     # ---- Datums ------------------------------------------------------------
     datums = TDF_LabelSequence()
     dt.GetDatumLabels(datums)
@@ -2881,16 +2848,17 @@ def _extract_pmi_census(
                 "; ".join(unique_blockers),
             )
         )
-    records.extend(_coalesce_datum_records(datum_records))
+    records = list(_coalesce_datum_records(datum_records))
 
-    # XCAF exposes neither authoritative descriptive text nor its shape-aspect association.
-    # The independent Part21 projection was collected before XCAF so it survives every early
-    # transfer failure; append it after XCAF categories to keep the established report order.
-    sources.extend(requirement_sources)
-    records.extend(requirement_records)
-    sources.extend(label_sources)
-    records.extend(label_records)
+    return records, sources
 
+
+def _log_pmi_census(
+    step_file: str | Path,
+    sources: list[PmiSourceEntity],
+    tolerance_count: int,
+) -> None:
+    """Log source-outcome totals from the completed census."""
     semantic_dimensions = sum(
         source.category == "dimension" and source.outcome != "presentation_only"
         for source in sources
@@ -2945,7 +2913,7 @@ def _extract_pmi_census(
         partial_dimensions,
         presentation_dimensions,
         extracted_tolerances,
-        tolerances.Length(),
+        tolerance_count,
         partial_tolerances,
         extracted_datums,
         datum_source_count,
@@ -2954,6 +2922,107 @@ def _extract_pmi_census(
         requirement_source_count,
         partial_requirements,
     )
+
+
+def _extract_pmi_census(
+    step_file: str | Path, *, frame: PartFrame | None = None
+) -> PmiExtractionReport:
+    """Inventory and extract semantic PMI from an AP242 STEP file in one XCAF pass.
+
+    The report retains one source outcome for every dimension, geometric tolerance,
+    datum-reference occurrence, standalone datum definition, associated surface label, and
+    semantic manufacturing requirement. Graphical
+    presentation-only dimension labels are inventoried but are not manufacturing requirements.
+    Repeated datum occurrences project onto their authored datum-feature definition without
+    shrinking the source denominator.
+
+    Returns an empty report (with a report-level error where applicable) when no source
+    identities can be recovered and:
+
+    - the file contains neither XCAF GDT data nor semantic Part21 annotations;
+    - the file uses AP203/AP214 which carry no semantic PMI.
+
+    Part21-only manufacturing requirements and surface labels remain inventoried even when
+    OCP's GDT support is unavailable or the XCAF transfer fails; the report also retains that
+    global XCAF error.
+
+    Geometry evidence is returned in global STEP coordinates by default. Passing ``frame``
+    expresses points, vectors, boxes, cylinders, and datum geometry in that frame's local
+    coordinates before principal-axis relationships are validated. Scalars and source
+    identities are unchanged.
+
+    Does **not** modify the solid geometry — purely a read-only second pass.
+    """
+    requirement_sources, requirement_records = _manufacturing_requirement_projection(step_file)
+    label_sources, label_records = _surface_label_projection(step_file)
+
+    def failed(reason: str) -> PmiExtractionReport:
+        return PmiExtractionReport(
+            sources=(*requirement_sources, *label_sources),
+            records=(*requirement_records, *label_records),
+            error=reason,
+        )
+
+    if not _PMI_AVAILABLE:
+        reason = "OCP SetGDTMode is unavailable"
+        _log.debug("PMI extraction unavailable (%s)", reason)
+        return failed(reason)
+
+    path = str(step_file)
+    doc = TDocStd_Document(TCollection_ExtendedString("XCAF"))
+    reader = STEPCAFControl_Reader()
+    reader.SetGDTMode(True)
+    reader.SetNameMode(True)
+    try:
+        status = reader.ReadFile(path)
+    except Exception as exc:
+        reason = f"ReadFile failed: {_failure_reason(exc)}"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return failed(reason)
+    if status != IFSelect_RetDone:
+        reason = f"ReadFile failed with status {status}"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return failed(reason)
+    try:
+        transferred = reader.Transfer(doc)
+    except Exception as exc:
+        reason = f"Transfer failed: {_failure_reason(exc)}"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return failed(reason)
+    if transferred is False:
+        reason = "Transfer failed"
+        _log.warning("PMI extraction: %s for %s", reason, Path(step_file).name)
+        return failed(reason)
+
+    main = doc.Main()
+    shape_tool = XCAFDoc_DocumentTool.ShapeTool_s(main)
+    dt = XCAFDoc_DocumentTool.DimTolTool_s(main)
+
+    requirement_records, label_records = _enrich_part21_topology(
+        requirement_records, label_records, reader, frame
+    )
+
+    records, sources = _extract_xcaf_dimensions(step_file, dt, shape_tool, reader, frame)
+
+    tolerance_records, tolerance_sources, tolerance_count = _extract_xcaf_tolerances(
+        step_file, dt, shape_tool, frame
+    )
+    records.extend(tolerance_records)
+    sources.extend(tolerance_sources)
+
+    datum_records, datum_sources = _extract_xcaf_datums(step_file, dt, shape_tool, reader, frame)
+    records.extend(datum_records)
+    sources.extend(datum_sources)
+
+    # XCAF exposes neither authoritative descriptive text nor its shape-aspect association.
+    # The independent Part21 projection was collected before XCAF so it survives every early
+    # transfer failure; append it after XCAF categories to keep the established report order.
+    sources.extend(requirement_sources)
+    records.extend(requirement_records)
+    sources.extend(label_sources)
+    records.extend(label_records)
+
+    _log_pmi_census(step_file, sources, tolerance_count)
     return PmiExtractionReport(sources=tuple(sources), records=tuple(records))
 
 
