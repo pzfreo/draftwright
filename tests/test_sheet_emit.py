@@ -1557,6 +1557,22 @@ class TestObjectSpec:
         assert "sheet.hole(diameter=8" in hole_line
         assert "features.bore" not in hole_line
 
+    def test_object_source_import_paths_keep_their_original_objects(self):
+        import draftwright.sheet_emit as legacy
+        import draftwright.sheet_object_source as owner
+
+        for name in (
+            "_ObjectSource",
+            "_REFERENCE_EXTERNAL",
+            "_REFERENCE_DIA_TOL",
+            "_REFERENCE_POS_TOL",
+            "_candidate_external",
+            "_reference_geometry_matches",
+            "_object_references",
+            "_resolve_object_source",
+        ):
+            assert getattr(legacy, name) is getattr(owner, name)
+
     def test_candidate_polarity_requires_wholly_present_or_wholly_absent_material(self):
         from draftwright.sheet_emit import _candidate_external
 

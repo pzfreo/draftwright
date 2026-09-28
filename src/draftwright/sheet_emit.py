@@ -76,6 +76,15 @@ from draftwright.reporting import (
     write_json_document,
 )
 from draftwright.sheet_object_source import (
+    _REFERENCE_DIA_TOL as _REFERENCE_DIA_TOL,
+)
+from draftwright.sheet_object_source import (
+    _REFERENCE_EXTERNAL as _REFERENCE_EXTERNAL,
+)
+from draftwright.sheet_object_source import (
+    _REFERENCE_POS_TOL as _REFERENCE_POS_TOL,
+)
+from draftwright.sheet_object_source import (
     _candidate_external as _candidate_external,
 )
 from draftwright.sheet_object_source import (
