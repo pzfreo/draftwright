@@ -140,3 +140,32 @@ def test_report_requires_member_lint_and_replay_inputs(report_inputs, missing):
         kwargs[key] = {k: v for k, v in kwargs[key].items() if k != name}
     with pytest.raises(ReportUnavailableError, match="lacks lint or run options"):
         document_report(**kwargs)
+
+
+def test_document_assessment_keeps_unassessed_and_affected_member_axes_distinct(report_inputs):
+    evaluation = report_inputs["evaluation"]
+    name, snapshot, rows = evaluation.members[0]
+    assert snapshot.lint["quality"]["legibility"]["available"]
+    assert snapshot.lint["quality"]["fidelity"]["available"]
+    quality = {
+        **snapshot.lint["quality"],
+        "legibility": {"available": False, "raw_issues": 0},
+        "fidelity": {"available": True, "raw_issues": 2},
+    }
+    changed = replace(snapshot, lint={**snapshot.lint, "quality": quality})
+    report = document_report(
+        **{
+            **report_inputs,
+            "evaluation": replace(
+                evaluation, members=((name, changed, rows), *evaluation.members[1:])
+            ),
+        }
+    )
+    first_sheet_id = report["sheets"][0]["id"]
+    assert report["assessment"]["layout"] == {
+        "status": "unassessed",
+        "affected_sheets": [],
+        "unassessed_sheets": [first_sheet_id],
+    }
+    assert report["assessment"]["fidelity"]["affected_sheets"] == [first_sheet_id]
+    assert report["assessment"]["fidelity"]["unassessed_sheets"] == []
