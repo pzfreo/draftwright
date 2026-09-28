@@ -11,7 +11,13 @@ from draftwright import build_drawing
 
 
 def test_annotate_shim_warns_and_preserves_orchestrator_identity() -> None:
-    from draftwright.annotations.orchestrator import _auto_annotate
+    from draftwright._core import _wrap_rows
+    from draftwright.annotations.orchestrator import (
+        _auto_annotate,
+        build_model,
+        build_rotational_feature,
+    )
+    from draftwright.model.compiled import _step_repeat
 
     with pytest.warns(DeprecationWarning) as caught:
         shim = (
@@ -22,8 +28,15 @@ def test_annotate_shim_warns_and_preserves_orchestrator_identity() -> None:
     assert len(caught) == 1
     assert "draftwright.annotations.orchestrator" in str(caught[0].message)
     assert "draftwright._core" in str(caught[0].message)
+    assert "_step_repeat" in str(caught[0].message)
+    assert "build_model" in str(caught[0].message)
+    assert "build_rotational_feature" in str(caught[0].message)
     assert "0.6.0" in str(caught[0].message)
     assert shim._auto_annotate is _auto_annotate
+    assert shim._wrap_rows is _wrap_rows
+    assert shim._detect_step_repeat is _step_repeat
+    assert shim.build_model is build_model
+    assert shim.build_rotational_feature is build_rotational_feature
 
 
 class TestTypDimensioning:
