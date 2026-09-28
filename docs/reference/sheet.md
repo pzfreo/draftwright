@@ -566,6 +566,7 @@ physical completeness, pin preservation or release readiness.
 ::: draftwright.sheet.Sheet
     options:
       filters: public
+      inherited_members: true
 
 ### Authored views and layout
 

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
+import pickle
 import warnings
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -29,6 +32,18 @@ def _sheet(part=None):
 
 
 class TestTypedRequestState:
+    def test_view_source_and_retained_handle_survive_the_private_owner(self):
+        sheet = _sheet()
+        line = inspect.currentframe().f_lineno + 1
+        front = sheet.view("front")
+        source = sheet.view_constraints.principals[0].source
+        assert (source.filename, source.lineno) == (__file__, line)
+
+        for clone in (deepcopy(front), pickle.loads(pickle.dumps(front))):
+            clone.pin((100, 80))
+            assert clone._sheet.view_constraints.pins[0].source.filename == __file__
+            assert clone._sheet.view_constraints.pins[0].view == "front"
+
     def test_constraints_are_immutable_and_not_a_resolved_plan(self):
         sheet = _sheet()
         sheet.authored_views().view("front")
