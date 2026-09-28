@@ -587,15 +587,11 @@ class AnnoBox:
 
 
 def _strips_for_derived_views(
-    strips: StripDepths | None,
+    strips: StripDepths,
     derived_view_footprints: tuple[tuple[str, float, float], ...],
-) -> StripDepths | None:
+) -> StripDepths:
     """Spend the Y-hole leader band only when a derived box could claim it."""
-    if (
-        strips is None
-        or not derived_view_footprints
-        or strips.front_hole_below <= strips.fv_bottom
-    ):
+    if not derived_view_footprints or strips.front_hole_below <= strips.fv_bottom:
         return strips
     return replace(strips, fv_bottom=strips.front_hole_below)
 
@@ -1642,7 +1638,8 @@ def _layout_geometry(
     # margin is a parameter (default _MARGIN) so a reserved content margin — e.g. the
     # #767 sheet-frame band — flows through BOTH scale selection and placement, which
     # share this one authority. Default keeps every existing caller byte-identical.
-    strips = _strips_for_derived_views(strips, derived_view_footprints)
+    if strips is not None:
+        strips = _strips_for_derived_views(strips, derived_view_footprints)
     margins = margin if isinstance(margin, SheetMargins) else SheetMargins.uniform(margin)
     left, right, top, bottom = margins.left, margins.right, margins.top, margins.bottom
     furniture = title_block_margins or SheetMargins(right=_TB_CLEAR, bottom=_TB_CLEAR)
