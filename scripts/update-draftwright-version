@@ -5,29 +5,48 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 _VERSION = re.compile(
-    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\.dev(0|[1-9]\d*))?$"
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:rc([1-9]\d*)|\.dev(0|[1-9]\d*))?$"
 )
+_PROJECT_VERSION = re.compile(r'^version = "(?P<version>[^"]+)"$', re.MULTILINE)
+_LOCK_VERSION = re.compile(
+    r'^\[\[package\]\]\nname = "draftwright"\nversion = "(?P<version>[^"]+)"$',
+    re.MULTILINE,
+)
+
+
+def _single_version(text: str, pattern: re.Pattern[str], file_name: str) -> re.Match[str]:
+    matches = list(pattern.finditer(text))
+    if len(matches) != 1:
+        raise RuntimeError(f"{file_name} needs exactly one Draftwright version identity")
+    return matches[0]
 
 
 def update(root: Path, target: str) -> None:
     """Update package metadata and its lockfile entry together."""
     if not _VERSION.fullmatch(target):
-        raise ValueError("version must be X.Y.Z or X.Y.Z.devN")
+        raise ValueError("version must be X.Y.Z, X.Y.ZrcN, or X.Y.Z.devN")
     project = root / "pyproject.toml"
     lock = root / "uv.lock"
     project_text = project.read_text(encoding="utf-8")
-    current_match = re.search(r'^version = "([^"]+)"$', project_text, re.MULTILINE)
-    if not current_match:
-        raise RuntimeError("pyproject.toml has no single project version")
-    current = current_match.group(1)
+    lock_text = lock.read_text(encoding="utf-8")
+    project_match = _single_version(project_text, _PROJECT_VERSION, "pyproject.toml")
+    lock_match = _single_version(lock_text, _LOCK_VERSION, "uv.lock")
+    current = project_match.group("version")
+    if lock_match.group("version") != current:
+        raise RuntimeError("pyproject.toml and uv.lock disagree on the current version")
+
+    def replace_version(text: str, match: re.Match[str]) -> str:
+        start, end = match.span("version")
+        return text[:start] + target + text[end:]
+
     snapshots = {path: path.read_bytes() for path in (project, lock)}
     try:
-        subprocess.run(["uv", "version", "--no-sync", target], cwd=root, check=True)
+        project.write_text(replace_version(project_text, project_match), encoding="utf-8")
+        lock.write_text(replace_version(lock_text, lock_match), encoding="utf-8")
     except BaseException:
         for path, content in snapshots.items():
             path.write_bytes(content)
