@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 import sys
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from math import ceil, isfinite
@@ -33,6 +35,32 @@ def _safe_case_id(case_id: str) -> bool:
 def _python() -> str:
     candidates = (_ROOT / ".venv" / "bin" / "python", _ROOT / ".venv" / "Scripts" / "python.exe")
     return str(next((path for path in candidates if path.is_file()), Path(sys.executable)))
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _source_revision() -> dict[str, object]:
+    """Identify the code used for an observation without calling a dirty tree exact-head."""
+
+    try:
+        commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=_ROOT, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        tracked_changes = subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return {"git_commit": None, "tracked_worktree_clean": None}
+    return {"git_commit": commit, "tracked_worktree_clean": not bool(tracked_changes)}
 
 
 def _load_manifest(path: Path) -> dict:
@@ -184,6 +212,44 @@ def _aggregate_preview(results: list[dict]) -> dict:
     return summary
 
 
+def _aggregate_candidate_only(results: list[dict]) -> dict:
+    """Summarize one-build observations without inventing a baseline verdict."""
+
+    rendered = [result["candidate"] for result in results if result["status"] == "rendered"]
+    failed = [result["candidate"] for result in results if result["status"] == "failed"]
+
+    def distribution(candidates: list[dict], key: str) -> dict:
+        values = sorted(
+            float(value)
+            for candidate in candidates
+            if isinstance(value := candidate.get("cost", {}).get(key), int | float)
+            and not isinstance(value, bool)
+            and isfinite(value)
+        )
+        return {
+            "samples": len(values),
+            "median": median(values) if values else None,
+            "p95_nearest_rank": values[ceil(0.95 * len(values)) - 1] if values else None,
+        }
+
+    return {
+        "cases": len(results),
+        "rendered_candidate": len(rendered),
+        "failed_candidate": len(results) - len(rendered),
+        "baseline_built": False,
+        "semantic_parity_assessed": False,
+        "relative_quality_assessed": False,
+        "production_contender": False,
+        "cohort_gate_eligible": False,
+        "cost": {
+            "candidate_process_seconds": distribution(rendered, "process_seconds"),
+            "failed_candidate_process_seconds": distribution(failed, "process_seconds"),
+            "candidate_build_seconds": distribution(rendered, "build_seconds"),
+            "candidate_peak_rss_mib": distribution(rendered, "peak_rss_mib"),
+        },
+    }
+
+
 def _public_result(worker: dict) -> dict:
     """Translate one finished public-selector build into the versioned corpus verdict."""
 
@@ -211,6 +277,7 @@ def _run_case(
     *,
     public_selector: bool = False,
     candidate_first: bool = False,
+    candidate_only: bool = False,
     case_report_dir: Path | None = None,
     worker_timeout_seconds: float | None = None,
 ) -> dict:
@@ -238,19 +305,92 @@ def _run_case(
         command.append("--exterior-dimensions")
     if routes := case.get("candidate_routes"):
         command.extend(("--candidate-routes", routes))
-    if public_selector:
+    if candidate_only:
+        command.extend(("--worker", "--mode", "candidate-preview"))
+    elif public_selector:
         command.extend(("--worker", "--mode", "best"))
     elif candidate_first:
         command.extend(("--mode", "candidate-preview"))
-    if worker_timeout_seconds is not None:
+    if worker_timeout_seconds is not None and not candidate_only:
         command.extend(("--worker-timeout-seconds", str(worker_timeout_seconds)))
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
-    if not completed.stdout.strip():
-        raise RuntimeError(f"{case['id']} produced no comparison report:\n{completed.stderr}")
-    worker = json.loads(completed.stdout)
-    result = _public_result(worker) if public_selector else worker
-    result["case_id"] = case["id"]
-    result["comparison_exit_code"] = completed.returncode
+    if candidate_only:
+        source = _ROOT / case["source"]
+        source_sha = _sha256_file(source)
+        started = time.perf_counter()
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=worker_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            elapsed = time.perf_counter() - started
+            result = {
+                "case_id": case["id"],
+                "source_sha256": source_sha,
+                "status": "failed",
+                "candidate": {
+                    "mode": "candidate-preview",
+                    "error": "worker_timeout",
+                    "cost": {"process_seconds": elapsed},
+                },
+            }
+        else:
+            elapsed = time.perf_counter() - started
+            if completed.returncode or not completed.stdout.strip():
+                result = {
+                    "case_id": case["id"],
+                    "source_sha256": source_sha,
+                    "status": "failed",
+                    "candidate": {
+                        "mode": "candidate-preview",
+                        "error": "worker_failed",
+                        "detail": completed.stderr.strip()[-2000:],
+                        "cost": {"process_seconds": elapsed},
+                    },
+                }
+            else:
+                try:
+                    worker = json.loads(completed.stdout)
+                except json.JSONDecodeError:
+                    worker = None
+                if not (
+                    isinstance(worker, dict)
+                    and worker.get("mode") == "candidate-preview"
+                    and isinstance(worker.get("manifest"), dict)
+                    and isinstance(worker.get("layout_decision"), dict)
+                    and isinstance(worker.get("cost"), dict)
+                ):
+                    result = {
+                        "case_id": case["id"],
+                        "source_sha256": source_sha,
+                        "status": "failed",
+                        "candidate": {
+                            "mode": "candidate-preview",
+                            "error": "invalid_worker_report",
+                            "cost": {"process_seconds": elapsed},
+                        },
+                    }
+                else:
+                    worker["cost"]["process_seconds"] = elapsed
+                    result = {
+                        "case_id": case["id"],
+                        "source_sha256": source_sha,
+                        "status": "rendered",
+                        "candidate": worker,
+                    }
+        if _sha256_file(source) != source_sha:
+            raise RuntimeError(f"{case['id']} source changed during candidate build")
+    else:
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if not completed.stdout.strip():
+            raise RuntimeError(f"{case['id']} produced no comparison report:\n{completed.stderr}")
+        worker = json.loads(completed.stdout)
+        result = _public_result(worker) if public_selector else worker
+        result["case_id"] = case["id"]
+        result["comparison_exit_code"] = completed.returncode
     if case_report_dir is not None:
         # The aggregate is buffered until every worker finishes. Keep finished
         # cases available even if a later CAD worker stalls or the run aborts.
@@ -284,6 +424,11 @@ def main() -> int:
         help="compare one-build candidate-preview results with baseline offline",
     )
     parser.add_argument(
+        "--candidate-only",
+        action="store_true",
+        help="observe one demand-guided build per case without building baseline or claiming parity",
+    )
+    parser.add_argument(
         "--jobs",
         type=int,
         default=1,
@@ -292,7 +437,7 @@ def main() -> int:
     parser.add_argument(
         "--worker-timeout-seconds",
         type=float,
-        help="optional bound for each isolated baseline/candidate worker; timeout is a failed case",
+        help="optional worker time bound; a timeout is a failed case",
     )
     parser.add_argument("--require-contender", action="store_true")
     parser.add_argument(
@@ -311,8 +456,12 @@ def main() -> int:
         parser.error("--require-wins must be non-negative")
     if args.jobs < 1:
         parser.error("--jobs must be positive")
-    if args.public_selector and args.candidate_first:
-        parser.error("--public-selector and --candidate-first are mutually exclusive")
+    if sum((args.public_selector, args.candidate_first, args.candidate_only)) > 1:
+        parser.error("--public-selector, --candidate-first, and --candidate-only are exclusive")
+    if args.candidate_only and (
+        args.require_contender or args.require_affected_majority or args.require_wins
+    ):
+        parser.error("relative corpus gates are unavailable with --candidate-only")
     if args.worker_timeout_seconds is not None and (
         not isfinite(args.worker_timeout_seconds) or args.worker_timeout_seconds <= 0
     ):
@@ -340,6 +489,7 @@ def main() -> int:
                     args.output,
                     public_selector=args.public_selector,
                     candidate_first=args.candidate_first,
+                    candidate_only=args.candidate_only,
                     case_report_dir=args.output / "case-reports",
                     worker_timeout_seconds=args.worker_timeout_seconds,
                 ),
@@ -352,16 +502,28 @@ def main() -> int:
         "metric_version": corpus["metric_version"],
         "selection": selection,
         "selector": (
-            "candidate-first"
+            "candidate-only"
+            if args.candidate_only
+            else "candidate-first"
             if args.candidate_first
             else "public"
             if args.public_selector
             else "comparison"
         ),
-        "summary": _aggregate_preview(results) if args.candidate_first else _aggregate(results),
+        "summary": (
+            _aggregate_candidate_only(results)
+            if args.candidate_only
+            else _aggregate_preview(results)
+            if args.candidate_first
+            else _aggregate(results)
+        ),
         "results": results,
     }
-    report["summary"]["cohort_gate_eligible"] = not selection["partial"]
+    if args.candidate_only:
+        report["source_revision"] = _source_revision()
+    report["summary"]["cohort_gate_eligible"] = (
+        not selection["partial"] and not args.candidate_only
+    )
     if selection["partial"]:
         # Case-level evidence is useful, but a selected subset cannot satisfy a
         # fixed-corpus production or safety gate by changing the denominator.
@@ -370,6 +532,8 @@ def main() -> int:
         if "safety_admission_ready" in report["summary"]:
             report["summary"]["safety_admission_ready"] = False
     print(json.dumps(report, indent=2, sort_keys=True))
+    if args.candidate_only:
+        return int(report["summary"]["failed_candidate"] > 0)
     return int(
         (report["summary"]["semantic_parity"] != report["summary"]["cases"])
         or (args.require_contender and not report["summary"]["production_contender"])
