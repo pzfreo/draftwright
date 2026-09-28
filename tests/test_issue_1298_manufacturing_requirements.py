@@ -3,12 +3,15 @@
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos
 
-from draftwright import Sheet, build_drawing
+from draftwright import Drawing, Sheet, build_drawing
 from draftwright.analysis import _import_step
+from draftwright.annotations.from_model import render_document_notes
+from draftwright.linting.issues import LintIssue
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
 from draftwright.model.detect import build_part_model
 from draftwright.model.ir import (
@@ -16,6 +19,7 @@ from draftwright.model.ir import (
     BossFeature,
     ChamferFeature,
     CylindricalReference,
+    DatumRef,
     DefaultSurfaceFinish,
     DocumentNote,
     Frame,
@@ -297,6 +301,125 @@ def test_document_requirements_lower_to_unattached_typed_notes():
     ]
     assert all(isinstance(note, DocumentNote) for note in lowered.features)
     assert [note.on_drawing for note in lowered.features] == [True, False]
+
+
+def _source_datum(letter, entity, bbox, at):
+    origin = PmiFeature(
+        frame=Frame((at, 0.0, 0.0), "x"),
+        pmi_kind="datum",
+        value=0.0,
+        label=letter,
+        dominant_axis="X",
+        ref_bbox=bbox,
+        source_id=f"datum_definition:{entity}",
+        source_ids=(f"datum_definition:{entity}",),
+        source_category="datum",
+        reference_item_ids=(f"{entity}:face",),
+        reference_axis="X",
+    )
+    return DatumRef(
+        frame=origin.frame,
+        letter=letter,
+        view="front",
+        side="above",
+        origin=origin,
+        source_id=origin.source_id,
+        source_ids=origin.source_ids,
+    )
+
+
+def _datum_scheme_model(*, statement=None, include_b=True, include_chamfer=True):
+    statement = statement or (
+        "Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face"
+    )
+    datums = [
+        _source_datum("A", "#A", (2.5, -2.5, -2.5, 5.5, 2.5, 2.5), 4.0),
+    ]
+    if include_b:
+        datums.append(_source_datum("B", "#B", (2.5, -4.7, -4.7, 2.5, 4.7, 4.7), 2.5))
+    features = [_step(10.0, 0.8, 2.2), _step(5.0, 2.5, 5.5)]
+    if include_chamfer:
+        features.append(
+            ChamferFeature(Frame((2.35, 0.0, 4.85), "x"), "x", 0.3, 0.3, 45.0, turned=True)
+        )
+    return _model(*features, *datums, _document_note("#note", "datum_scheme", statement))
+
+
+def test_source_datum_explanation_is_omitted_only_while_both_symbols_are_placed():
+    from draftwright.linting.pmi_coverage import lint_pmi_rendering
+    from draftwright.registry import AnnotationRegistry
+
+    model = lower_ap242_document_requirements(_datum_scheme_model())
+    note = model.features[-1]
+    assert isinstance(note, DocumentNote)
+    assert note.on_drawing is False
+    assert note.represented_by_source_ids == ("datum_definition:#A", "datum_definition:#B")
+
+    registry = AnnotationRegistry()
+    for datum in (feature for feature in model.features if isinstance(feature, DatumRef)):
+        registry.add(object(), datum.letter, "front", feature=datum.origin)
+    assert lint_pmi_rendering(model.features, registry, "annotate") == []
+
+    registry.remove("B")
+    assert {
+        issue.source_ids for issue in lint_pmi_rendering(model.features, registry, "annotate")
+    } == {
+        ("manufacturing_requirement:#note",),
+        ("datum_definition:#B",),
+    }
+
+
+def test_unplaced_datum_symbol_restores_the_source_note_as_a_fallback():
+    model = lower_ap242_document_requirements(_datum_scheme_model())
+    added = []
+
+    class Registry:
+        def __init__(self, placed):
+            self.placed = placed
+
+        def names_for_feature(self, feature):
+            return ["datum"] if feature.source_id in self.placed else []
+
+    def add_table(rows, **kwargs):
+        added.append((rows, kwargs))
+        return object()
+
+    dwg = SimpleNamespace(
+        registry=Registry({"datum_definition:#A", "datum_definition:#B"}),
+        add_table=add_table,
+    )
+    assert render_document_notes(dwg, model) == 0
+    assert added == []
+
+    dwg.registry.placed.remove("datum_definition:#B")
+    assert render_document_notes(dwg, model) == 1
+    assert added[0][1]["_source_ids"] == ("manufacturing_requirement:#note",)
+    assert "datum B is the DIA 10-to-DIA 5 shoulder face" in " ".join(
+        " ".join(cell.split()) for row in added[0][0] for cell in row
+    )
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        _datum_scheme_model(include_b=False),
+        _datum_scheme_model(include_chamfer=False),
+        _datum_scheme_model(
+            statement="Datum A is the axis derived from DIA 6; datum B is the DIA 10-to-DIA 5 shoulder face"
+        ),
+        _datum_scheme_model(
+            statement="Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face; inspect B first"
+        ),
+        _datum_scheme_model(
+            statement="Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 6 shoulder face"
+        ),
+    ],
+)
+def test_unproven_or_additional_datum_claim_keeps_its_document_note(model):
+    note = lower_ap242_document_requirements(model).features[-1]
+    assert isinstance(note, DocumentNote)
+    assert note.on_drawing is True
+    assert note.represented_by_source_ids == ()
 
 
 def test_imported_model_metadata_keeps_provenance_without_a_drawing_obligation():
@@ -769,13 +892,17 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     } == {
         "m_dia_x0": "ø4",
         "m_dia_x1": "ø6",
-        "m_dia_x2": (
-            "ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
-            "CUT/FORMED PERMITTED"
-        ),
+        "m_dia_x2": "ø10 SEE MFG 2",
         "m_dia_x3": "ø5",
-        "m_dia_x4": "ø3 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH",
+        "m_dia_x4": "ø3 SEE MFG 1",
     }
+    table = drawing.get_annotation("manufacturing_requirements")
+    assert table.table_rows[0] == ("REF", "MANUFACTURING REQUIREMENT")
+    assert " ".join(cell for row in table.table_rows for cell in row if cell) == (
+        "REF MANUFACTURING REQUIREMENT MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
+        "MFG 2 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "CUT/FORMED PERMITTED"
+    )
     knurl_owner = next(
         feature
         for feature in drawing.model().features
@@ -813,6 +940,81 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     }.items():
         tip_y = drawing.get_annotation(name).tip[1]
         assert abs(tip_y - axis_y) == pytest.approx(diameter / 2 * drawing.scale)
+
+    intact_rows = table.table_rows
+    table.table_rows = tuple(
+        (tag, "WRONG" if tag == "MFG 1" else requirement) for tag, requirement in intact_rows
+    )
+    assert {
+        issue.source_ids
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    } == {("manufacturing_requirement:#2000",)}
+    table.table_rows = intact_rows
+
+    # A later curation edit must not leave apparently complete short references
+    # after removing their full manufacturing carrier.
+    drawing.remove("manufacturing_requirements")
+    unresolved = [
+        issue
+        for issue in drawing.lint(physical=False)
+        if issue.code == "manufacturing_reference_unresolved"
+    ]
+    assert {issue.source_ids for issue in unresolved} == {
+        ("manufacturing_requirement:#2000",),
+        ("manufacturing_requirement:#2008",),
+    }
+
+
+def test_unplaced_manufacturing_table_keeps_complete_direct_labels(monkeypatch):
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Cylinder(5.0, 2.0, align=align).rotate(Axis.Y, 90) + (
+        Pos(2.0, 0, 0) * Cylinder(1.5, 20.0, align=align).rotate(Axis.Y, 90)
+    )
+    model = lower_ap242_manufacturing_requirements(
+        PartModel(
+            part.bounding_box(),
+            "x",
+            [
+                _step(10.0, 0.0, 2.0),
+                _step(3.0, 2.0, 22.0),
+                _raw(
+                    "knurl",
+                    KNURL_TEXT,
+                    _reference(diameter=10.0, interval=(0.3, 1.7), sense="external"),
+                    "#2008",
+                ),
+                _raw(
+                    "external_thread",
+                    EXTERNAL_TEXT,
+                    _reference(diameter=3.0, interval=(2.5, 21.5), sense="external"),
+                    "#2000",
+                ),
+            ],
+        )
+    )
+    original_add_table = Drawing.add_table
+
+    def refuse_manufacturing_table(self, rows, **kwargs):
+        if kwargs.get("name") == "manufacturing_requirements":
+            self.registry.record_issue(
+                LintIssue("error", "pmi_dropped", "simulated full table", source_ids=("x",))
+            )
+            return None
+        return original_add_table(self, rows, **kwargs)
+
+    monkeypatch.setattr(Drawing, "add_table", refuse_manufacturing_table)
+    drawing = build_drawing(part, model=model, pmi="annotate", page="A2")
+
+    assert drawing.registry.named("manufacturing_requirements") is None
+    labels = [
+        drawing.get_annotation(name).label
+        for name in drawing.annotations()
+        if name.startswith("m_dia_x")
+    ]
+    assert any("FULL AVAILABLE LENGTH" in label for label in labels)
+    assert any("STRAIGHT KNURL P1 FULL WIDTH" in label for label in labels)
+    assert not [issue for issue in drawing.lint(physical=False) if issue.code == "pmi_dropped"]
 
 
 def test_identical_typed_threads_on_distinct_owners_keep_two_owned_annotations():
@@ -1382,7 +1584,11 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
         ("datum_scheme", "manufacturing_requirement:#2020"),
         ("model_representation", "manufacturing_requirement:#2028"),
     ]
-    assert [note.on_drawing for note in document_notes] == [True, False]
+    assert [note.on_drawing for note in document_notes] == [False, False]
+    assert document_notes[0].represented_by_source_ids == (
+        "datum_definition:#777",
+        "datum_definition:#810",
+    )
     chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
     assert [(feature.leg1, feature.source_ids) for feature in chamfers] == [
         (0.3, ("manufacturing_requirement:#2024",)),
@@ -1473,7 +1679,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert hashlib.sha256(GRM03.read_bytes()).hexdigest() == GRM03_SHA256
     drawing = build_drawing(GRM03, pmi="annotate")
 
-    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 1.0)
+    assert (drawing.page_w, drawing.page_h, drawing.scale) == (297.0, 210.0, 2.0)
     assert {"front", "side", "detail_a"} <= set(drawing.views)
     assert drawing.get_annotation("detail_caption_A").label == (
         "DETAIL A — PARTIAL PROFILE — SCALE 10:1"
@@ -1485,18 +1691,26 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     expected_manufacturing = {
         "manufacturing_requirement:#2000": (
             "m_dia_x4",
-            "ø3 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH",
+            "ø3 SEE MFG 1",
         ),
         "manufacturing_requirement:#2004": (
             "hc_side0",
-            "⌀1.6 ↧ 8 M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT",
+            "⌀1.6 ↧ 8 SEE MFG 2",
         ),
         "manufacturing_requirement:#2008": (
             "m_dia_x2",
-            "ø10 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
-            "CUT/FORMED PERMITTED",
+            "ø10 SEE MFG 3",
         ),
     }
+    table = drawing.get_annotation("manufacturing_requirements")
+    assert table.source_ids == tuple(expected_manufacturing)
+    assert " ".join(cell for row in table.table_rows for cell in row if cell) == (
+        "REF MANUFACTURING REQUIREMENT "
+        "MFG 1 M3 x 0.5-6g RH, FULL AVAILABLE LENGTH "
+        "MFG 2 M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT "
+        "MFG 3 MAX AFTER KNURL; STRAIGHT KNURL P1 FULL WIDTH TO C0.3 CHAMFERS; "
+        "CUT/FORMED PERMITTED"
+    )
     typed_occurrences = []
     for feature in drawing.model().features:
         for requirement in (getattr(feature, "thread", None), getattr(feature, "knurl", None)):
@@ -1580,15 +1794,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     assert drawing.registry.feature_of("default_surface_finish") is default_finish
     document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
-    assert [note.on_drawing for note in document_notes] == [True, False]
-    assert drawing.get_annotation("general_notes").table_rows == (
-        ("GENERAL NOTES",),
-        (
-            "1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",
-        ),
-    )
-    assert drawing.registry.features_of("general_notes") == (document_notes[0],)
-    assert drawing.registry.names_for_feature(document_notes[1]) == []
+    assert [note.on_drawing for note in document_notes] == [False, False]
+    assert "general_notes" not in drawing.annotations()
+    assert all(drawing.registry.names_for_feature(note) == [] for note in document_notes)
     chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
     assert [drawing.registry.names_for_feature(feature) for feature in chamfers] == [
         ["m_chamfer_x0"],
@@ -1639,10 +1847,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     assert sum(isinstance(feature, DocumentNote) for feature in replayed_model.features) == 2
     assert sum(isinstance(feature, ChamferFeature) for feature in replayed_model.features) == 3
-    assert (
-        replayed.get_annotation("general_notes").table_rows
-        == drawing.get_annotation("general_notes").table_rows
-    )
+    assert "general_notes" not in replayed.annotations()
     assert replayed.registry.feature_of("title_block").source_id == general_tolerance.source_id
     assert (
         replayed.registry.feature_of("default_surface_finish").source_id

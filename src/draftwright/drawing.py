@@ -120,6 +120,7 @@ from draftwright.linting import (
     lint_gusset_rib_coverage,
     lint_hole_coverage,
     lint_location_coverage,
+    lint_manufacturing_references,
     lint_oriented_slot_coverage,
     lint_pad_coverage,
     lint_paired_ramp_step_coverage,
@@ -220,6 +221,7 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "unrecognised_defining_geometry",
         "pmi_not_lowered",
         "pmi_not_rendered",
+        "manufacturing_reference_unresolved",
         # Registered here for the same reason as the two above: an unverified or
         # fabricated AP242 claim is a statement about the geometry, not about layout
         # (#1563). Leaving them out would let a drawing carrying either report
@@ -3963,6 +3965,7 @@ class Drawing:
         _drop_code: str = "table_dropped",
         _drop_severity: Literal["error", "warning", "info"] = "warning",
         _cells=(),
+        _left_align_cols=(),
     ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
 
@@ -3981,7 +3984,9 @@ class Drawing:
             return None
         if _cells and name in self._registry:
             raise ValueError(f"measured schedule name {name!r} already belongs to an annotation")
-        table = _build_table(rows, self.draft, block_cols=block_cols)
+        table = _build_table(
+            rows, self.draft, block_cols=block_cols, left_align_cols=_left_align_cols
+        )
         # Keep the rows the table draws, so its content is readable back off the annotation
         # (#1217). A table renders as compound geometry with no `label`, so without this a
         # hole table's measurement claims can be neither confirmed nor refuted — and the
@@ -4857,6 +4862,7 @@ class Drawing:
                 getattr(self._part_model, "features", ()),
                 decorations=getattr(self._part_model, "decorations", {}),
             )
+        issues += lint_manufacturing_references(self._registry)
         issues += list(self._registry.issues)
         # Attach a ready-to-paste fix snippet where one is computable (#29).
         # str | None — None when no concrete repair can be inferred.

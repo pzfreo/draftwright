@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import re
+import textwrap
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
 from typing import Any, Literal, cast
@@ -167,6 +168,7 @@ from draftwright.model.ir import (
     _linear_projection_view,
     authored_dimension_target_view,
 )
+from draftwright.model.manufacturing_schedule import manufacturing_callout_suffix
 from draftwright.view_plan import views_showing
 
 
@@ -2013,16 +2015,18 @@ def _diameter_step_anchor(anchor, groups):
     return tuple(centred)
 
 
-def _manufacturing_suffix(thread, knurl=None, *, include_source_pmi=True) -> str | None:
+def _manufacturing_suffix(
+    thread, knurl=None, *, include_source_pmi=True, manufacturing_tags=None
+) -> str | None:
     """Renderer text for typed manufacturing aspects after the canonical diameter."""
     terms = []
     if isinstance(thread, ThreadRequirement):
         if include_source_pmi:
-            terms.append(thread.callout_suffix)
+            terms.append(manufacturing_callout_suffix(thread, manufacturing_tags))
     elif thread:
         terms.append(str(thread))
     if isinstance(knurl, KnurlRequirement) and include_source_pmi:
-        terms.append(knurl.callout_suffix)
+        terms.append(manufacturing_callout_suffix(knurl, manufacturing_tags))
     return "; ".join(terms) or None
 
 
@@ -2191,6 +2195,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
             g.facts.get("thread"),
             g.facts.get("knurl"),
             include_source_pmi=include_source_pmi,
+            manufacturing_tags=ctx.manufacturing_tags,
         )
         if dwg.registry.has_measurement(dpd.id):
             continue
@@ -5068,6 +5073,7 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
             getattr(b, "thread", None),
             getattr(b, "knurl", None),
             include_source_pmi=not ctx.document_member or a.pmi_mode == "annotate",
+            manufacturing_tags=ctx.manufacturing_tags,
         )
         if dwg.registry.has_measurement(dpd.id):
             continue
@@ -9694,16 +9700,38 @@ def _pmi_source_ids(item) -> tuple[str, ...]:
 
 def render_document_notes(dwg, model, *, exclude=()) -> int:
     """Place source-proven drawing-wide requirements in one solver-owned notes block."""
+    placed_datum_sources = {
+        source_id
+        for feature in model.features
+        if feature.kind == "datum_ref"
+        and dwg.registry.names_for_feature(getattr(feature, "origin", None) or feature)
+        for source_id in _pmi_source_ids(feature)
+    }
     notes = [
         feature
         for feature in model.features
-        if feature.kind == "document_note" and feature.on_drawing and id(feature) not in exclude
+        if feature.kind == "document_note"
+        and (
+            feature.on_drawing
+            or bool(feature.represented_by_source_ids)
+            and not set(feature.represented_by_source_ids) <= placed_datum_sources
+        )
+        and id(feature) not in exclude
     ]
     if not notes:
         return 0
-    rows = [("GENERAL NOTES",)] + [
-        (f"{index}  {_font_safe_text(note.text)}",) for index, note in enumerate(notes, 1)
-    ]
+    rows = [("GENERAL NOTES",)]
+    for index, note in enumerate(notes, 1):
+        lines = textwrap.wrap(
+            _font_safe_text(note.text),
+            width=48,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        rows.extend(
+            (f"{index}  {line}" if line_index == 0 else f"   {line}",)
+            for line_index, line in enumerate(lines or [""])
+        )
     placed = dwg.add_table(
         rows,
         prefer="tr",
@@ -9712,6 +9740,7 @@ def render_document_notes(dwg, model, *, exclude=()) -> int:
         _features=tuple(notes),
         _drop_code="pmi_dropped",
         _drop_severity="error",
+        _left_align_cols=(0,),
     )
     return len(notes) if placed is not None else 0
 

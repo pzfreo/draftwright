@@ -279,6 +279,9 @@ _FIDELITY_CODES = frozenset(
         # provenance asserts a machinist can trace it to the model. A fabricated provenance
         # is worse than a missing one, because it reads as evidence.
         "pmi_source_unknown",
+        # A printed SEE MFG reference asserts a matching source-owned table row.
+        # A missing or altered row makes that printed reference false.
+        "manufacturing_reference_unresolved",
         # An annotation claiming a measurement it does not render, and one claiming a
         # measurement the compiler never approved (#1217). Both are the sheet contradicting
         # its own provenance: the drawing asserts, through the seam coverage reads, that it

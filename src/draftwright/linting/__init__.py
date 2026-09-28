@@ -51,6 +51,7 @@ from draftwright.linting.paired_ramp_step_coverage import lint_paired_ramp_step_
 from draftwright.linting.passage_coverage import lint_passage_coverage
 from draftwright.linting.plate_coverage import lint_plate_coverage
 from draftwright.linting.pmi_coverage import (
+    lint_manufacturing_references,
     lint_pmi_extraction,
     lint_pmi_ignored,
     lint_pmi_lowering,
@@ -119,6 +120,7 @@ __all__ = [
     "lint_paired_ramp_step_coverage",
     "lint_pmi_ignored",
     "lint_pmi_extraction",
+    "lint_manufacturing_references",
     "lint_pmi_lowering",
     "lint_pmi_rendering",
     "lint_pmi_source_unknown",

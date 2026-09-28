@@ -24,6 +24,7 @@ from dataclasses import dataclass
 
 from draftwright._geometry import _fmt
 from draftwright.model.ir import HoleFeature, PatternFeature, ThreadOperation, ThreadRequirement
+from draftwright.model.manufacturing_schedule import manufacturing_callout_suffix
 from draftwright.model.planner import _SCHEDULE_REPRESENTATION, DimensionGroup, DimensionId
 
 
@@ -68,7 +69,7 @@ def bore_callout_value(spec: dict, tolerance_suffix=lambda _value: "") -> str:
 
 
 def hole_callout_batches(
-    groups, *, member_locations=None, include_source_pmi=True
+    groups, *, member_locations=None, include_source_pmi=True, manufacturing_tags=None
 ) -> tuple[HoleCalloutBatch, ...]:
     """Group compatible printed content without replacing any feature or identity.
 
@@ -80,7 +81,11 @@ def hole_callout_batches(
     ordered: list[list] = []
     for group in groups:
         feature = group.feature
-        spec = hole_callout_spec(group, include_source_pmi=include_source_pmi)
+        spec = hole_callout_spec(
+            group,
+            include_source_pmi=include_source_pmi,
+            manufacturing_tags=manufacturing_tags,
+        )
         if spec is None:
             continue
         complete = tuple(feature.members or (group.anchor,))
@@ -540,7 +545,9 @@ def authored_omission_in(group) -> bool:
     )
 
 
-def hole_callout_spec(group: DimensionGroup, *, include_source_pmi=True) -> dict | None:
+def hole_callout_spec(
+    group: DimensionGroup, *, include_source_pmi=True, manufacturing_tags=None
+) -> dict | None:
     """A hole/pattern group's plan → `HoleCallout` kwargs, mirroring the engine's
     convention. ``None`` if not a hole-bearing callout.
 
@@ -594,7 +601,9 @@ def hole_callout_spec(group: DimensionGroup, *, include_source_pmi=True) -> dict
     if isinstance(thread, ThreadRequirement) and not include_source_pmi:
         thread = None
     thread_source_ids = thread.source_ids if isinstance(thread, ThreadRequirement) else ()
-    if isinstance(thread, ThreadRequirement | ThreadOperation):
+    if isinstance(thread, ThreadRequirement):
+        thread = manufacturing_callout_suffix(thread, manufacturing_tags)
+    elif isinstance(thread, ThreadOperation):
         thread = thread.callout_suffix
     profile_suffix = None
     across = None

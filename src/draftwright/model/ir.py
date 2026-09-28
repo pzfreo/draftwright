@@ -3770,6 +3770,9 @@ class DocumentNote:
     source_id: str = ""
     part21_id: str = ""
     on_drawing: bool = True
+    # A source-authored datum explanation omitted only after these source-owned
+    # datum symbols prove every claim. The source text remains in the IR/audit.
+    represented_by_source_ids: tuple[str, ...] = ()
     kind: ClassVar[str] = "document_note"
 
     def __post_init__(self) -> None:
@@ -3781,6 +3784,11 @@ class DocumentNote:
             raise ValueError(f"unsupported document-note kind {self.note_kind!r}")
         if not isinstance(self.on_drawing, bool):
             raise ValueError("document-note on_drawing must be a bool")
+        if not isinstance(self.represented_by_source_ids, tuple) or any(
+            not isinstance(source_id, str) or not source_id
+            for source_id in self.represented_by_source_ids
+        ):
+            raise ValueError("document-note represented_by_source_ids must be source IDs")
 
     def parameters(self) -> list[DimParameter]:
         return []

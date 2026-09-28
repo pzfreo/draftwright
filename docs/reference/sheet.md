@@ -250,6 +250,21 @@ measurement should also appear beside a view. Ordinary `table(...)` text has no 
 authority. See [shared drawing documents](document.md#feature-schedules) for an executable
 recipe, verified cell evidence and the document report contract.
 
+For an automatic `pmi="annotate"` drawing with multiple long imported thread/knurl
+requirements, the engine may instead place a **manufacturing requirements** table.
+The diameter or hole callout keeps its canonical size and a short `SEE MFG n` reference;
+the table carries the complete source-owned manufacturing terms. Its measured footprint
+participates in page selection, and the references are used only after the table fits.
+If it cannot be placed, full direct callouts remain. Lint reports a short reference whose
+source-matched table row is removed or altered. This does not apply to `pmi="off"` or
+replace an authored feature schedule.
+
+An imported datum-scheme sentence is omitted from the sheet only when its whole
+meaning is proven by placed, source-owned datum symbols on the matching geometry.
+The original AP242 text and the symbol source IDs remain in the model. A missing
+symbol, unmatched geometry, or extra instruction keeps the note (or produces a
+source-coverage lint error if a previously proven symbol is later removed).
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`

@@ -316,6 +316,7 @@ def _queue_authored_details(dwg, a, ctx, plan) -> None:
 # state, and post-drain fallbacks run in registration order.
 _PASS_SEQUENCE: tuple[str, ...] = (
     "reserve_derived_views",
+    "manufacturing_schedule",
     "rotational",
     "centermarks",
     "reserve_section",
@@ -377,6 +378,32 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "sheet_frame",
     "zone_grid",
 )
+
+
+def _place_manufacturing_schedule(dwg, schedule, ctx) -> bool:
+    """Commit the full table before allowing its short references into any solve."""
+    if ctx.registry.named("manufacturing_requirements") is not None:
+        return False  # never replace an existing authored annotation by name
+    issues = ctx.registry.issues
+    table = dwg.add_table(
+        schedule.rows,
+        prefer="tr",
+        name="manufacturing_requirements",
+        _source_ids=schedule.source_ids,
+        _features=schedule.owners,
+        _drop_code="pmi_dropped",
+        _drop_severity="error",
+        _left_align_cols=(1,),
+    )
+    if table is None:
+        # This was an *alternative* presentation.  No short references were
+        # emitted, so restore its speculative drop and use full direct labels.
+        ctx.registry.restore_issues(issues)
+        return False
+    table.source_ids = schedule.source_ids
+    table.manufacturing_source_ids = schedule.source_ids_by_tag
+    ctx.manufacturing_tags = schedule.tags_by_source
+    return True
 
 
 def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
@@ -700,6 +727,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             name = f"{view_name}_layout_reservation"
             ctx.place(DerivedViewReservation(box), name)
             detail_reservations[view_name] = name
+
+    def _s_manufacturing_schedule():
+        schedule = a.manufacturing_schedule
+        if schedule is None or a.pmi_mode != "annotate":
+            return
+        _place_manufacturing_schedule(dwg, schedule, ctx)
 
     def _s_rotational():
         # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
@@ -1050,6 +1083,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     run_stages(
         {
             "reserve_derived_views": _s_reserve_derived_views,
+            "manufacturing_schedule": _s_manufacturing_schedule,
             "rotational": _s_rotational,
             "centermarks": _s_centermarks,
             "reserve_section": _s_reserve_section,
