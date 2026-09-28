@@ -1516,7 +1516,9 @@ def _analyse(
             section_count=section_count,
             planned_views=_views,
         )
-        if approved_for_sizing is not None and needs_step_detail_plan and _view_constraints is None
+        if approved_for_sizing is not None
+        and needs_step_detail_plan
+        and (_view_constraints is None or _view_constraints.is_automatic_only)
         else None
     )
     x_detail_footprints_for_scale = (
@@ -1527,7 +1529,9 @@ def _analyse(
             section_count=section_count,
             planned_views=_views,
         )
-        if approved_for_sizing is not None and needs_step_detail_plan and _view_constraints is None
+        if approved_for_sizing is not None
+        and needs_step_detail_plan
+        and (_view_constraints is None or _view_constraints.is_automatic_only)
         else None
     )
 

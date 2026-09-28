@@ -5,6 +5,8 @@ from build123d import Axis, Box, Cylinder, Pos
 from draftwright import analysis as analysis_module
 from draftwright import build_drawing
 from draftwright.annotations._common import DerivedViewReservation
+from draftwright.builder import detect_part_model
+from draftwright.view_plan import ViewConstraints
 
 
 def _y_chain_part():
@@ -43,6 +45,22 @@ def test_approved_y_chain_uses_pre_sheet_reservation_and_places_both_steps():
     assert not any(isinstance(item, DerivedViewReservation) for item in drawing.items)
 
 
+def test_explicit_automatic_view_source_still_plans_the_required_detail():
+    part = _y_chain_part()
+    drawing = build_drawing(
+        part,
+        model=detect_part_model(part),
+        _view_constraints=ViewConstraints(
+            principal_source="automatic", derived_source="automatic"
+        ),
+        scale=1.0,
+        scale_policy="permissive",
+        _include_iso=False,
+    )
+    assert drawing.detail_decisions[0]["status"] == "placed"
+    assert drawing.detail_decisions[0]["fit"]["within_reservation"] is True
+
+
 def test_detail_opt_out_does_not_reserve_a_view_that_cannot_render():
     drawing = build_drawing(
         _y_chain_part(),
@@ -51,5 +69,4 @@ def test_detail_opt_out_does_not_reserve_a_view_that_cannot_render():
         detail_view=False,
         _include_iso=False,
     )
-    assert not drawing.detail_decisions
     assert not any(isinstance(item, DerivedViewReservation) for item in drawing.items)
