@@ -44,6 +44,8 @@ passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing
 `sheet_object_source`, `inspection`, `cli`, the recogniser/inspection contract joins).
 `make_drawing` / `annotate`
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
+`annotation_layout_profile` owns feature-leader region policy at rank 1;
+`leader_policy` remains its stable import path at that rank.
 Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
