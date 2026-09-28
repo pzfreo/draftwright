@@ -177,14 +177,24 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
 def test_automatic_and_declared_builds_use_the_same_recognition_free_repair(monkeypatch):
     from conftest import recognition_consumer_calls
 
-    from draftwright import builder
+    from draftwright import build_policy, builder
 
     part = Rot(90, 0, 0) * (Box(50, 50, 30) - Pos(10, 10, 10) * Box(22, 14, 10))
+
     # Keep the historically dirty proposal for this repair test. Automatic hard-validity
     # recovery now selects a clean half-scale candidate before repair runs, which would make
     # the comparison vacuous; the validity ladder has its own dedicated contracts.
-    monkeypatch.setattr(builder, "_hard_layout_issues", lambda _issues: ())
+    def preserve_dirty_proposal(_issues):
+        return ()
+
+    # The retry ladder holds the builder binding; the final audit resolves the
+    # policy owner's binding. Both must accept this deliberately dirty fixture.
+    monkeypatch.setattr(builder, "_hard_layout_issues", preserve_dirty_proposal)
+    monkeypatch.setattr(build_policy, "_hard_layout_issues", preserve_dirty_proposal)
     raw = build_drawing(part, repair=False)
+    assert raw.scale == 1.0
+    assert raw.scale_decision["status"] == "automatic"
+    assert raw.scale_decision["attempts"] == ()
     assert len(raw.lint(physical=False)) == 2
     automatic = build_drawing(part)
     automatic_left = [i.code for i in automatic.lint(physical=False)]
