@@ -95,7 +95,7 @@ def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():
         "test_slot_recognition.py",
         "test_tolerances.py",
     } <= selected
-    assert "test_issue_1392_recognisers_048.py" not in selected
+    assert "test_pad_rendering.py" in selected
 
 
 def test_unknown_production_module_selects_every_contract_group():
