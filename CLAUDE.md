@@ -35,6 +35,7 @@ Compact map, bottom to top:
 
 - **Leaf modules** — `progress.py` (headless activity and cooperative cancellation; no drawing policy), `layout.py` (the deterministic placement solvers: 1D PAVA strip
   solve, `fit_box`, balloon band flow), `registry.py` (annotation identity/pins/issues),
+  `obligations.py` (pure semantic survival classes shared by demand and placement),
   `layout_scheme.py` (typed, render-free annotation topology and corridor demand planning),
   `annotation_layout_profile.py` (build-scoped candidate options and corridor caps),
   `leader_policy.py` (typed feature-leader candidate-region policy),
