@@ -38,7 +38,7 @@ from build123d import chamfer as bd_chamfer
 from build123d import fillet as bd_fillet
 
 from draftwright.build_options import BuildOptions
-from draftwright.builder import build_drawing, detect_part_model
+from draftwright.builder import build_drawing, detect_part_model, make_drawing
 from draftwright.model.declare import hole as _declare_hole
 from draftwright.pmi import _PMI_AVAILABLE
 from draftwright.sheet_emit import (
@@ -94,7 +94,6 @@ def test_build_options_front_door_parity_issue_1927():
         script_fields
     )
 
-    from draftwright.make_drawing import make_drawing
     from draftwright.sheet import Sheet
 
     generator = signature(generate_sheet_script).parameters
