@@ -60,7 +60,6 @@ from draftwright.annotations._common import (
     clear_label_of_centerlines,
     corridor_blockers,
     dim_footprint,
-    leader_callout_geometry,
     leader_footprint,
     place_strip_candidates,
     register_corridor,
@@ -82,11 +81,13 @@ from draftwright.annotations.from_model import (
     hole_callout_spec,
     place_machined_leader_jobs,
 )
+from draftwright.annotations.hole_leader_candidates import (
+    HoleLeaderCandidateAdapter,
+    hole_candidate_rows,
+)
 from draftwright.annotations.leaders import (
-    FeatureLeaderCandidate,
     FeatureLeaderJob,
     LeaderRegionPolicy,
-    RadialLeaderTarget,
     _FeatureLeaderInvariantError,
     collect_feature_leader,
     feature_leader_candidates,
@@ -2988,230 +2989,43 @@ def _place_queue(
                 family_region_policy,
                 getattr(a, "leader_region", "auto"),
             )
-            ys: list[float] = []
-            for y in (
-                source_final_y.get(id(s)),
-                base_y.get(id(s)),
-                seg_y.get(id(s)),
-                min(max(natural_y, y_min), y_max),
-                y_min,
-                y_max,
-                *(value for interval in obstacle_intervals for value in interval),
-            ):
-                if y is None:
-                    continue
-                y = min(max(float(y), y_min), y_max)
-                if not any(abs(y - prior) <= 1e-6 for prior in ys):
-                    ys.append(y)
-
             callout_box = _geom_box(callout, cache)
-
-            def _analytical_geometry(
-                tip,
-                elbow,
-                _owner,
-                *,
-                _callout_box=callout_box,
-            ):
-                candidate_side = "right" if elbow[0] >= tip[0] else "left"
-                return leader_callout_geometry(
-                    tip,
-                    elbow,
-                    draft,
-                    text_side=candidate_side,
-                    callout_box=_callout_box,
-                )
-
-            def _exterior_candidates(
-                _s=s,
-                _ys=tuple(ys),
-                _owner=owner,
-                _requested_side=requested_side,
-                _column_bands=leader_column_bands,
-            ):
-                # This generator is consumed by the canonical late leader drain,
-                # after the corridor dimensions have landed.  Derive extra lanes from
-                # that live sheet ink here rather than freezing the pre-drain obstacle
-                # inventory above.  The producer still owns only physical attachment
-                # sites; the shared solver proves every resulting route exactly.
-                late_ys = list(_ys)
-                late_obstacles = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
-                late_boundaries: list[float] = []
-                for obstacle in late_obstacles:
-                    if _column_bands and not any(
-                        obstacle[0] < band_hi and obstacle[2] > band_lo
-                        for band_lo, band_hi in _column_bands
-                    ):
-                        continue
-                    late_boundaries.extend((obstacle[1] - min_gap, obstacle[3] + min_gap))
-                for y in sorted(
-                    {
-                        min(max(float(value), y_min), y_max)
-                        for value in late_boundaries
-                        if y_min <= value <= y_max
-                    },
-                    key=lambda value: (abs(value - float(_s[4])), value),
-                ):
-                    if not any(abs(y - prior) <= 1e-6 for prior in late_ys):
-                        late_ys.append(y)
-
-                for y in late_ys:
-                    tip, elbow = _leader_anchors(
-                        _s,
-                        edge,
-                        side,
-                        y,
-                        to_page,
-                        elbow_dx,
-                        draft,
-                        a.SCALE,
-                    )
-                    yield (tip, elbow, _owner)
-                # The cross-pass inventory owns side choice as well as label
-                # lanes (#1166).  A dimension placed during the corridor drain
-                # can consume the former strip after the hole job was collected;
-                # expose the opposite view boundary so a required callout can
-                # route clear rather than silently accepting a new Policy-B
-                # crossing.  The legacy resource floor below remains unchanged.
-                if _requested_side is None:
-                    other_side = "left" if side == "right" else "right"
-                    other_edge = vb[0] if other_side == "left" else vb[2]
-                    for y in _ys:
-                        tip, elbow = _leader_anchors(
-                            _s,
-                            other_edge,
-                            other_side,
-                            y,
-                            to_page,
-                            elbow_dx,
-                            draft,
-                            a.SCALE,
-                        )
-                        yield (tip, elbow, _owner)
-
-            def _interior_anchors(
-                _s=s,
-                _locations=tuple(locations or ()),
-                _owner=owner,
-                _ys=tuple(ys),
-                _callout=callout,
-                _dia=dia,
-                _scale=a.SCALE,
-            ):
-                anchor_y = _ys[0] if _ys else min(max(float(_s[4]), y_min), y_max)
-                for location in _locations or (_s[5],):
-                    member = (*_s[:5], location)
-                    tip, elbow = _leader_anchors(
-                        member,
-                        edge,
-                        side,
-                        anchor_y,
-                        to_page,
-                        elbow_dx,
-                        draft,
-                        _scale,
-                    )
-                    centre = to_page(location)
-                    member_owner = _callout_member_owner(_callout, location, _owner)
-                    yield FeatureLeaderCandidate(
-                        tip=tip,
-                        elbow=elbow,
-                        feature=member_owner,
-                        radial_target=(
-                            RadialLeaderTarget(
-                                center=(float(centre[0]), float(centre[1])),
-                                radius=float(_dia) * float(_scale) / 2.0,
-                            )
-                            if getattr(_callout, "profile_boundary", None) is None
-                            else None
-                        ),
-                    )
-
-            def _raw_candidates(
-                _anchors=_interior_anchors,
-                _exterior=_exterior_candidates,
-                _region_policy=region_policy,
-                _callout_box=callout_box,
-                _analytical=_analytical_geometry,
-                _projected_clear=projected_clear,
-            ):
-                yield from feature_leader_candidates(
-                    _anchors(),
-                    region_policy=_region_policy,
-                    silhouette=vb,
-                    analytical_geometry=(
-                        _analytical
-                        if _projected_clear is not None and _callout_box is not None
-                        else None
-                    ),
-                    draft=draft,
-                    exterior_candidates=_exterior(),
-                    interior_label_clear=_projected_clear,
-                )
-
-            legacy_y = source_final_y.get(id(s))
-
-            def _fallback_candidates(
-                _s=s,
-                _y=legacy_y,
-                _owner=owner,
-                _requested_side=requested_side,
-                _region_policy=region_policy,
-                _raw=_raw_candidates,
-            ):
-                if _region_policy is LeaderRegionPolicy.INTERIOR:
-                    yield from _raw()
-                    return
-                # Candidate zero remains the established strip winner.  Put its
-                # same-lane opposite-side alternative immediately after it so the
-                # bounded lookahead can test both sides before spending work on all
-                # other Y lanes.  Authored sides remain constraints and never gain
-                # this automatic alternative.
-                if _y is not None:
-                    tip, elbow = _leader_anchors(
-                        _s, edge, side, _y, to_page, elbow_dx, draft, a.SCALE
-                    )
-                    yield (tip, elbow, _owner)
-                    if _requested_side is None:
-                        other_side = "left" if side == "right" else "right"
-                        other_edge = vb[0] if other_side == "left" else vb[2]
-                        tip, elbow = _leader_anchors(
-                            _s,
-                            other_edge,
-                            other_side,
-                            _y,
-                            to_page,
-                            elbow_dx,
-                            draft,
-                            a.SCALE,
-                        )
-                        yield (tip, elbow, _owner)
-                # Keep the rest of the producer's lazy semantic inventory available:
-                # a nearby clear lane should beat a verified Policy-B crossing.
-                yield from _raw()
-
-            def _candidate_budget_fallback_candidates(
-                _s=s,
-                _y=legacy_y,
-                _owner=owner,
-                _region_policy=region_policy,
-                _raw=_raw_candidates,
-            ):
-                # Candidate-measurement exhaustion is different: candidates beyond
-                # the admitted prefix were never proved cheap enough to inspect.  Its
-                # semantic floor is therefore the exact pre-joint producer result.
-                if _region_policy is LeaderRegionPolicy.INTERIOR:
-                    yield from _raw()
-                    return
-                if _y is None:
-                    return
-                if not getattr(ctx, "dense_internal_section", False):
-                    tip, elbow = _leader_anchors(
-                        _s, edge, side, _y, to_page, elbow_dx, draft, a.SCALE
-                    )
-                    yield (tip, elbow, _owner)
-                    return
-                yield from _raw()
+            adapter = HoleLeaderCandidateAdapter(
+                entry=s,
+                locations=tuple(locations or ()),
+                rows=hole_candidate_rows(
+                    source_final_y.get(id(s)),
+                    base_y.get(id(s)),
+                    seg_y.get(id(s)),
+                    natural_y,
+                    y_min,
+                    y_max,
+                    obstacle_intervals,
+                ),
+                legacy_y=source_final_y.get(id(s)),
+                owner=owner,
+                requested_side=requested_side,
+                region_policy=region_policy,
+                callout_box=callout_box,
+                projected_clear=projected_clear,
+                column_bands=leader_column_bands,
+                edge=edge,
+                side=side,
+                view_bounds=vb,
+                y_min=y_min,
+                y_max=y_max,
+                min_gap=min_gap,
+                to_page=to_page,
+                elbow_dx=elbow_dx,
+                draft=draft,
+                scale=a.SCALE,
+                dwg=dwg,
+                ctx=ctx,
+                anchors=_leader_anchors,
+                member_owner=_callout_member_owner,
+                expand_regions=feature_leader_candidates,
+            )
+            _raw_candidates = adapter.raw
 
             def _build(tip, elbow, _owner, *, _callout=callout):
                 candidate_side = "right" if elbow[0] >= tip[0] else "left"
@@ -3392,10 +3206,10 @@ def _place_queue(
                     noun="hole",
                     drop_code="callout_dropped",
                     analytical_geometry=(
-                        _analytical_geometry if callout_box is not None else None
+                        adapter.analytical_geometry if callout_box is not None else None
                     ),
-                    fallback_candidates=_fallback_candidates(),
-                    candidate_budget_fallback_candidates=(_candidate_budget_fallback_candidates()),
+                    fallback_candidates=adapter.fallback(),
+                    candidate_budget_fallback_candidates=adapter.candidate_budget_fallback(),
                     # Candidate zero is the established whole-queue placement.
                     # The former Policy-B path kept it when avoiding a thin fixed
                     # obstacle would require a large relocation; resource fallback

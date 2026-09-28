@@ -8,6 +8,7 @@ from build123d_drafting.helpers import Leader, draft_preset
 
 from draftwright import Sheet
 from draftwright.annotations import from_model, holes, leaders
+from draftwright.annotations import hole_leader_candidates as hole_candidates
 from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
@@ -62,6 +63,68 @@ def _candidate(*, region, label=(40.0, 20.0, 50.0, 24.0)):
         ink_polygons=(),
         region=region,
     )
+
+
+@pytest.mark.parametrize("authored_side", (None, "right"))
+def test_hole_candidate_adapter_keeps_row_order_and_authored_side(monkeypatch, authored_side):
+    """Late fixed ink adds row choices without changing the producer's strip floor."""
+
+    monkeypatch.setattr(
+        hole_candidates,
+        "strip_obstacles",
+        lambda _dwg, *, crossable: ((90.0, 20.0, 110.0, 22.0),),
+    )
+    rows = hole_candidates.hole_candidate_rows(11.0, 14.0, 11.0, 10.0, 0.0, 30.0, [])
+    assert rows == (11.0, 14.0, 10.0, 0.0, 30.0)
+
+    def anchors(_entry, edge, side, y, *_rest):
+        return ((1.0, y), (edge, y))
+
+    adapter = hole_candidates.HoleLeaderCandidateAdapter(
+        entry=(
+            ((1.0, 10.0, 0.0),),
+            6.0,
+            SimpleNamespace(profile_boundary=None),
+            None,
+            10.0,
+            (1.0, 10.0, 0.0),
+        ),
+        locations=((1.0, 10.0, 0.0),),
+        rows=rows,
+        legacy_y=11.0,
+        owner="hole",
+        requested_side=authored_side,
+        region_policy=LeaderRegionPolicy.EXTERIOR,
+        callout_box=None,
+        projected_clear=None,
+        column_bands=((90.0, 110.0),),
+        edge=100.0,
+        side="right",
+        view_bounds=(0.0, 0.0, 100.0, 30.0),
+        y_min=0.0,
+        y_max=30.0,
+        min_gap=2.0,
+        to_page=lambda point: point,
+        elbow_dx=0.0,
+        draft=SimpleNamespace(),
+        scale=1.0,
+        dwg=object(),
+        ctx=SimpleNamespace(dense_internal_section=False),
+        anchors=anchors,
+        member_owner=lambda *_args: "hole",
+        expand_regions=feature_leader_candidates,
+    )
+    exterior = [(candidate[1][0], candidate[1][1]) for candidate in adapter.exterior()]
+    assert exterior[:7] == [(100.0, y) for y in (*rows, 18.0, 24.0)]
+    assert exterior[7:] == ([] if authored_side else [(0.0, y) for y in rows])
+    floor = list(adapter.candidate_budget_fallback())
+    assert [(candidate[1][0], candidate[1][1]) for candidate in floor] == [(100.0, 11.0)]
+    fallback = list(adapter.fallback())
+    assert fallback[0][1] == (100.0, 11.0)
+    if authored_side is None:
+        assert fallback[1][1] == (0.0, 11.0)
+    else:
+        assert fallback[1].elbow == (100.0, 11.0)
 
 
 def test_legacy_raw_candidate_retains_exterior_provenance():
