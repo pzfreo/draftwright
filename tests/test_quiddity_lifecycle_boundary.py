@@ -52,8 +52,8 @@ ALLOWED_STANDALONE_CALLS = {
         "analyse_cylinders",
     ): "analysis acquires the shared cylinder substrate before aggregate recognition",
     (
-        "drawing.py",
-        "Drawing._lint",
+        "linting/orchestration.py",
+        "lint_finished_drawing",
         "analyse_cylinders",
     ): "manual Drawing fallback has no Analysis substrate to reuse",
     (

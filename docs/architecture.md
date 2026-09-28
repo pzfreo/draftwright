@@ -78,7 +78,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     is imported **lazily inside the command body** so completion/`--help`/
     `--version` stay sub-second (#313). Entry point: `draftwright.cli:app`.
   - **`drawing.py`** — the `Drawing` result object (`.lint()`/`.add()`/`.place_dim()`/
-    `.repair()`/`.export*()`; delegates identity to `registry`, coverage to `lint`)
+    `.repair()`/`.export*()`; delegates identity to `registry`, ordered lint critique to
+    `linting/orchestration.py`)
     plus `FeatureInfo` (`_build_table` moved beside `_table_metrics` in `_core`, #699).
     Sits below `builder` (which constructs it).
     *(The build context lives in ONE typed `BuildState` on `Drawing` (`_build`:
@@ -219,7 +220,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `names()`, `issues`, `restore_issues()`) and `dwg.coverage`. Their absence is
   asserted by `test_the_expired_compat_aliases_stay_deleted`.
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
-  owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
+  owns linting): `orchestration.py` (ordered structural, physical, PMI, and build-issue
+  critique over an explicit drawing context), `coverage.py` (`lint_feature_coverage` + `CoverageState`),
   `_coverage_common.py` (shared registry evidence, outcome checks, and blind-slot value validation),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink, with explicit unavailable

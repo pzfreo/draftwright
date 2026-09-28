@@ -3,11 +3,10 @@
 import logging
 
 import pytest
-from quiddity import recognise_face_levels
+from quiddity import analyse_cylinders, recognise_face_levels
 
 from draftwright.analysis import _converge_step_sizing
 from draftwright.compose import StripDepths
-from draftwright.drawing import analyse_cylinders
 
 
 @pytest.mark.timeout(60)
