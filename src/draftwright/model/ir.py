@@ -3758,13 +3758,18 @@ class DefaultSurfaceFinish:
 
 @dataclass(frozen=True)
 class DocumentNote:
-    """A source-proven document requirement with no honest geometric attachment."""
+    """A source-proven document statement with no geometric attachment.
+
+    ``on_drawing=False`` retains source/model provenance for representation
+    metadata without presenting that metadata as a manufacturing instruction.
+    """
 
     frame: Frame
     text: str
     note_kind: str
     source_id: str = ""
     part21_id: str = ""
+    on_drawing: bool = True
     kind: ClassVar[str] = "document_note"
 
     def __post_init__(self) -> None:
@@ -3774,6 +3779,8 @@ class DocumentNote:
             raise ValueError("document note text cannot contain surrounding whitespace")
         if self.note_kind not in ("datum_scheme", "model_representation"):
             raise ValueError(f"unsupported document-note kind {self.note_kind!r}")
+        if not isinstance(self.on_drawing, bool):
+            raise ValueError("document-note on_drawing must be a bool")
 
     def parameters(self) -> list[DimParameter]:
         return []

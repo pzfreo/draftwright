@@ -426,6 +426,12 @@ def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> li
 
     by_source: dict[str, list[object]] = {}
     for feature in features:
+        # Model-representation metadata is retained in typed IR for provenance,
+        # but is not a drawing requirement and has no annotation to reconcile.
+        if getattr(feature, "kind", None) == "document_note" and not getattr(
+            feature, "on_drawing", True
+        ):
+            continue
         if getattr(feature, "kind", None) != "pmi":
             for source_id in _source_ids(feature):
                 by_source.setdefault(source_id, []).append(feature)

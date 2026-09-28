@@ -291,6 +291,7 @@ def test_document_requirements_lower_to_unattached_typed_notes():
         ),
     ]
     assert all(isinstance(note, DocumentNote) for note in lowered.features)
+    assert [note.on_drawing for note in lowered.features] == [True, False]
 
 
 def test_empty_document_requirement_stays_raw_with_a_blocker():
@@ -1359,6 +1360,7 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
         ("datum_scheme", "manufacturing_requirement:#2020"),
         ("model_representation", "manufacturing_requirement:#2028"),
     ]
+    assert [note.on_drawing for note in document_notes] == [True, False]
     chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
     assert [(feature.leg1, feature.source_ids) for feature in chamfers] == [
         (0.3, ("manufacturing_requirement:#2024",)),
@@ -1556,17 +1558,15 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     assert drawing.registry.feature_of("default_surface_finish") is default_finish
     document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
+    assert [note.on_drawing for note in document_notes] == [True, False]
     assert drawing.get_annotation("general_notes").table_rows == (
         ("GENERAL NOTES",),
         (
             "1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",
         ),
-        (
-            "2  Thread and knurl teeth are represented by semantic PMI; "
-            "their nominal envelope geometry remains smooth",
-        ),
     )
-    assert drawing.registry.features_of("general_notes") == tuple(document_notes)
+    assert drawing.registry.features_of("general_notes") == (document_notes[0],)
+    assert drawing.registry.names_for_feature(document_notes[1]) == []
     chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
     assert [drawing.registry.names_for_feature(feature) for feature in chamfers] == [
         ["m_chamfer_x0"],
@@ -1583,6 +1583,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         pmi="annotate",
         pmi_source=str(GRM03.resolve()),
     )
+    assert "on_drawing=False" in source
     namespace = {"part": _import_step(str(GRM03))}
     exec(  # noqa: S102
         compile(source[: source.index("drawing = sheet.build()")], "<grm03-pmi-emit>", "exec"),
