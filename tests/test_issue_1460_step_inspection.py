@@ -85,6 +85,7 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright.model.detect",
         "draftwright.model.dimension_intent",
         "draftwright.model.ir",
+        "draftwright.model.ir_foundation",  # record validation and parameter IDs during detect
         "draftwright.model.manufacturing_schedule",
         "draftwright.model.planner",
         "draftwright.pmi",
