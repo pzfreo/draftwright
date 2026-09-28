@@ -35,7 +35,7 @@ in step; do not restate the module list here.
 In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
 geometry maths, registry, measurement support with pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) → **1**
-`_core` / `document_input` / the `location_contract` compat import → **2**
+`_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `pmi`,
 `linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
 passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` → **6**
