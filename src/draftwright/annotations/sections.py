@@ -47,6 +47,7 @@ from draftwright._core import (
     _log,
     _title_margins,
     _tol_suffix,
+    supported_secondary_crop,
 )
 from draftwright._geometry import _leader_ink_polygons, _scale_world, _stroke_polygon
 from draftwright.annotations._common import carve_free_segments, strip_obstacles
@@ -1250,17 +1251,20 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     # Crop around the approved HEIGHT witnesses only when every rung carries retained physical
     # support. A compiler fallback at the envelope edge has a span too, but no support bounds;
     # treating that synthetic station as crop evidence would cut away the measured face. One
-    # millimetre gives the fuzzy booleans context without scaling the crop back toward the full
-    # 170 mm envelope that made the A2 detail unplaceable (#915).
+    # page-space context around those witnesses is planned by the same rule as
+    # turned and authored step details; no fixed world-space padding is assumed.
     supported = [r for r in approved_rungs if r.span is not None and r.support_bounds is not None]
     has_level_supports = len(supported) == len(approved_rungs)
     x_stations = sorted({r.span[1][0] for r in supported}) if has_level_supports else []
-    crop_xs = (
-        (max(a.bb.min.X, x_stations[0] - 1.0), min(a.bb.max.X, x_stations[-1] + 1.0))
-        if x_stations
-        # Lightweight unit plans do not need X bounds until a queued request is rendered.
-        else (getattr(a.bb.min, "X", 0.0), getattr(a.bb.max, "X", 0.0))
+    support_points = tuple(rung.span[1] for rung in supported) if x_stations else ()
+    cross_bounds = supported_secondary_crop(
+        support_points,
+        "x",
+        getattr(a.bb.min, "X", 0.0),
+        getattr(a.bb.max, "X", 0.0),
+        scale_needed,
     )
+    crop_xs = cross_bounds or (getattr(a.bb.min, "X", 0.0), getattr(a.bb.max, "X", 0.0))
 
     def pads(detail_scale):  # one ladder rung per step legible at this scale, + overall
         return (
@@ -1384,14 +1388,12 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
             # retain the physical part base so those witnesses attach to visible detail
             # linework even when a declared base differs from the bounding-box minimum.
             crop_lo=a.bb.min.Z,
-            cross_axis="x" if x_stations else None,
-            cross_lo=crop_xs[0] if x_stations else None,
-            cross_hi=crop_xs[1] if x_stations else None,
+            cross_axis="x" if cross_bounds is not None else None,
+            cross_lo=crop_xs[0] if cross_bounds is not None else None,
+            cross_hi=crop_xs[1] if cross_bounds is not None else None,
             kind="prismatic-steps",
             measurement_ids=tuple(rung.id for rung in rungs if rung.id is not None),
             measurement_spans=tuple(rung.span for rung in rungs if rung.id is not None),
-            profile_support_points=(
-                tuple(rung.span[1] for rung in supported) if x_stations else ()
-            ),
+            profile_support_points=support_points if cross_bounds is not None else (),
         )
     )

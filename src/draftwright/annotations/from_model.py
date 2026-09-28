@@ -68,6 +68,7 @@ from draftwright._core import (
     _tol_suffix,
     _wrap_callout_text,
     layout_frame,
+    supported_secondary_crop,
 )
 from draftwright._geometry import (
     _blend_profile_arcs,
@@ -6297,7 +6298,6 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
     profile_support_points: tuple[tuple[float, float, float], ...]
     if diameter is not None:
         rim = group.facts.frame.origin[ci] + diameter.value / 2
-        cross_lo, cross_hi = rim - context, rim + context
 
         # A partial secondary crop may keep a dimension's centreline witnesses
         # while cutting away the shoulder they describe. Carry the physical
@@ -6314,6 +6314,21 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
             at_rim(length.span[1]),
         )
         profile_support_points = render_span
+        cross_bounds = supported_secondary_crop(
+            profile_support_points,
+            cross,
+            getattr(a.bb.min, cross.upper()),
+            getattr(a.bb.max, cross.upper()),
+            a.SCALE * factor,
+        )
+        if cross_bounds is None:
+            # An unprovable partial crop must not discard an authored detail.
+            # Keep the full profile and its centreline witnesses instead.
+            cross_lo = cross_hi = None
+            profile_support_points = ()
+            render_span = length.span
+        else:
+            cross_lo, cross_hi = cross_bounds
     else:
         # Without a controlled diameter there is no exact outer-rim support
         # for a partial crop. Retain the full secondary extent instead.
@@ -6357,7 +6372,7 @@ def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, s
             redraw=redraw,
             pads=lambda _scale: (band, 0.0) if axis == in_plane[view][1] else (0.0, band),
             source_view=view,
-            cross_axis=cross if diameter is not None else None,
+            cross_axis=cross if cross_lo is not None else None,
             cross_lo=cross_lo,
             cross_hi=cross_hi,
             kind="authored-step",
@@ -7060,26 +7075,16 @@ def render_step_lengths(
 
                 cross_axis: Literal["x", "y", "z"] = "z" if view == "front" else "y"
                 cross_index = "xyz".index(cross_axis)
-                # Derive the visible radial envelope from the same step geometry that
-                # both detected and declared builds carry. Provider-only profile bounds
-                # disappear from an emitted Sheet script, which otherwise redraws a
-                # full-height detail while the automatic drawing shows a partial one.
+                # Require the same complete controlled step geometry on detected and
+                # declared builds. Provider-only bounds disappear from generated Sheet
+                # scripts; source-owned profile support survives both paths.
                 radial_extents = [
                     (frame.origin[cross_index] - radius, frame.origin[cross_index] + radius)
                     for frame, _span, radius in step_geometry
                     if radius is not None
                 ]
-                cross_bounds = (
-                    (min(lo for lo, _hi in radial_extents), max(hi for _lo, hi in radial_extents))
-                    if len(radial_extents) == len(step_geometry)
-                    else None
-                )
-                # The axial shoulders are fully described by the upper radial
-                # silhouette. Retain a narrow band immediately below the smallest
-                # head radius, so every involved outside edge remains visible. The
-                # full mirrored diameter makes a 20:1 detail unnecessarily tall.
                 profile_steps: list[StepFeature] = []
-                if cross_bounds is not None:
+                if len(radial_extents) == len(step_geometry):
                     possible_steps = [
                         next(
                             (
@@ -7093,17 +7098,8 @@ def render_step_lengths(
                     ]
                     if possible_steps and all(step is not None for step in possible_steps):
                         profile_steps = [step for step in possible_steps if step is not None]
-                        axis_centre = profile_steps[0].frame.origin[cross_index]
-                        cross_lo = (
-                            axis_centre + min(step.diameter for step in profile_steps) / 2 * 0.9
-                        )
-                        cross_bounds = (min(cross_lo, cross_bounds[1] - 0.1), cross_bounds[1])
-                    else:
-                        # Without exact controlled step edges there is no proof that
-                        # a partial radial silhouette preserves every shoulder.
-                        cross_bounds = None
                 profile_support_points = []
-                if cross_bounds is not None:
+                if profile_steps:
                     for segment, step in zip(ra, profile_steps, strict=True):
                         rim = step.frame.origin[cross_index] + step.diameter / 2
                         for endpoint in (segment.pa, segment.pb):
@@ -7112,6 +7108,13 @@ def render_step_lengths(
                             profile_support_points.append(
                                 (float(support[0]), float(support[1]), float(support[2]))
                             )
+                cross_bounds = supported_secondary_crop(
+                    tuple(profile_support_points),
+                    cross_axis,
+                    min(lo for lo, _hi in radial_extents) if radial_extents else 0.0,
+                    max(hi for _lo, hi in radial_extents) if radial_extents else 0.0,
+                    scale_needed,
+                )
                 ctx.detail_requests.append(
                     DetailRequest(
                         axis="x",
