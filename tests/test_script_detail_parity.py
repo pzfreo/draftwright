@@ -208,7 +208,7 @@ def test_unplaceable_turned_head_reports_the_exact_step_lengths(monkeypatch):
 def test_turned_head_redraw_drop_is_not_counted_again_as_request_failure(monkeypatch):
     import draftwright.annotations.sections as sections
 
-    def failed_redraw(_drawing, _analysis, req, _view_name, _letter, *, ctx):
+    def failed_redraw(_drawing, _analysis, req, _view_name, _letter, *, ctx, reserved_box):
         if req.kind == "turned-head":
             ctx.record_issue(
                 "warning",

@@ -155,7 +155,12 @@ class TestTraceRecording:
         import draftwright.builder as builder
 
         writes = []
-        detected_model = SimpleNamespace(authored_dimensions=None)
+        detected_model = SimpleNamespace(
+            authored_dimensions=None,
+            requested_dimensions=(),
+            schedules=(),
+            features=(),
+        )
 
         def fake_build(*_args, scale, **_kwargs):
             label = "original" if scale is None else f"candidate:{scale:g}"
@@ -165,9 +170,14 @@ class TestTraceRecording:
                 page_w=297.0,
                 page_h=210.0,
                 views=("front", "detail_A"),
+                view_bounds=lambda _name: (10.0, 10.0, 40.0, 30.0),
+                items=(),
+                box_cache={},
                 solve_trace=recorder,
                 model=lambda: detected_model,
+                report=lambda: {"schema_version": 0},
                 lint=lambda **_kwargs: [],
+                annotation_scheme_decision={},
             )
             # Mirror _build_drawing_once: each speculative build writes the shared path.
             recorder.write()

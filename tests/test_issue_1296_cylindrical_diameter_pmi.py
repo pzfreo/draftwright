@@ -598,13 +598,17 @@ def test_requirement_api_rejects_parameters_the_emitter_cannot_preserve():
         hi=10,
         at=(6, 5, 2.5),
     )
-    with pytest.raises(ValueError, match="canonical imported diameter owner"):
+    with pytest.raises(ValueError) as caught:
         slot.requirement(
             4,
             on="slot_width",
             source="ap242_pmi",
             source_ids=("dimension:unsupported",),
         )
+    assert str(caught.value) == (
+        "requirement() supports only canonical imported step length or diameter "
+        "owners and the diameter owners of boss, hole, pattern, or rotational features"
+    )
 
 
 @pytest.mark.parametrize(
