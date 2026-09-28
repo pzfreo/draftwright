@@ -67,6 +67,7 @@ from draftwright._core import (
     _title_block_box,
     _tol_suffix,
     _wrap_callout_text,
+    crowded_horizontal_step_runs,
     layout_frame,
     supported_secondary_crop,
     y_chain_detail_scale_needed,
@@ -7023,12 +7024,9 @@ def render_step_lengths(
     # main chain — a one-step block would just be that step at its sub-floor width
     # (#307 review). The legible steps + blocks stay as the main chain.
     if horizontal and turn_axis == "x":
-        floor_pg = 2 * draft.arrow_length
-        sub = [i for i, seg in enumerate(fsegs) if abs(seg.pb[0] - seg.pa[0]) < floor_pg]
-        runs: list[list[int]] = []
-        for j in sub:
-            (runs[-1].append(j) if runs and j == runs[-1][-1] + 1 else runs.append([j]))
-        heads = [run for run in runs if len(run) >= 2]
+        heads = crowded_horizontal_step_runs(
+            tuple((seg.pa[0], seg.pb[0]) for seg in fsegs), 1.0, draft.arrow_length
+        )
         if heads:
             blocks = []
             for run in heads:

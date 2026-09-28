@@ -42,3 +42,15 @@ def test_approved_y_chain_uses_pre_sheet_reservation_and_places_both_steps():
     }
     assert {"4", "6"} <= labels
     assert not any(isinstance(item, DerivedViewReservation) for item in drawing.items)
+
+
+def test_detail_opt_out_does_not_reserve_a_view_that_cannot_render():
+    drawing = build_drawing(
+        _y_chain_part(),
+        scale=1.0,
+        scale_policy="permissive",
+        detail_view=False,
+        _include_iso=False,
+    )
+    assert drawing._analysis.derived_view_boxes == ()
+    assert not any(isinstance(item, DerivedViewReservation) for item in drawing.items)

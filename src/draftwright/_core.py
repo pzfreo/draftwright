@@ -1188,6 +1188,26 @@ def y_chain_detail_scale_needed(
     )
 
 
+def crowded_horizontal_step_runs(
+    spans: tuple[tuple[float, float], ...], scale: float, arrow_length: float
+) -> tuple[tuple[int, ...], ...]:
+    """Runs of at least two consecutive steps narrower than two page arrowheads.
+
+    The semantic pre-sheet planner and X-turned renderer must identify the same
+    head requirements; neither may invent a different crowded-step threshold.
+    """
+    short = [
+        index for index, (lo, hi) in enumerate(spans) if abs(hi - lo) * scale < 2 * arrow_length
+    ]
+    runs: list[list[int]] = []
+    for index in short:
+        if runs and index == runs[-1][-1] + 1:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+    return tuple(tuple(run) for run in runs if len(run) >= 2)
+
+
 _DETAIL_PROFILE_CONTEXT_PAGE_MM = 2.0  # Draftwright policy, not a drafting-standard minimum.
 _DETAIL_PROFILE_MIN_WORLD_MM = 0.1  # Keep the Boolean crop wider than OCC's fuzzy edge.
 
