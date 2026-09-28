@@ -125,8 +125,10 @@ observer registry and re-exports its existing private helper names.
     were deleted as each migrated here.
   - **`annotations/angular.py`** — angular arc/arrow/extension ink and analytic
     radius-dependent footprints, consumed through the shared corridor solve.
-  - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
-    (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
+  - **`annotations/holes.py`** — hole/pattern callouts, balloons, planar location
+    and pitch/grid dimensions, table furniture, and slots.
+  - **`annotations/hole_locations.py`** — compiler-approved off-axis hole
+    locations (incl. side-drilled #133) placed through the shared corridor solve.
   - **`annotations/hole_leader_candidates.py`** — ordered physical candidates for
     sparse plan and side hole leaders in the shared late leader assignment, plus
     front/rear rim-tip construction consumed by the current vertical strip solve.

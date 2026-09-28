@@ -1,10 +1,13 @@
 """Automatic feature-location dimensions and section interaction."""
 
+from types import SimpleNamespace
+
 import pytest
 from _drawing_helpers import ink_crossings_named as _ink_crossings_named
 from build123d import Box, Compound, Cylinder, Edge, Pos
 
 from draftwright import build_drawing
+from draftwright.annotations import hole_locations
 
 
 @pytest.fixture(scope="module")
@@ -260,3 +263,196 @@ class TestLocationDimsAndSection:
         dwg = build_drawing(Cylinder(30, 40) - Cylinder(10, 40))
         assert "section_aa" not in dwg.views
         assert not any(n.startswith(("m_loc", "dim_loc")) for n in dwg.annotations())
+
+
+def _off_axis_location_context():
+    def identity(value):
+        return value
+
+    strip = SimpleNamespace(spacing=2)
+    analysis = SimpleNamespace(
+        SCALE=1.0,
+        bb=SimpleNamespace(
+            min=SimpleNamespace(X=0.0, Y=0.0, Z=0.0),
+            max=SimpleNamespace(X=40.0, Y=30.0, Z=20.0),
+        ),
+        proj=SimpleNamespace(
+            side_x=identity,
+            side_z=identity,
+            plan_x=identity,
+            plan_y=identity,
+            front_x=identity,
+            front_z=identity,
+            rear_x=identity,
+            rear_z=identity,
+        ),
+        sv_zones=SimpleNamespace(below=strip, right=strip),
+        pv_zones=SimpleNamespace(right=strip),
+        planned_views=None,
+    )
+    issues = []
+    context = SimpleNamespace(
+        record_issue=lambda *args, **kwargs: issues.append((args, kwargs)),
+        post_drain=[],
+        corridor_batch={},
+        trace=None,
+    )
+    drawing = SimpleNamespace(
+        draft=SimpleNamespace(font_size=3, pad_around_text=1), views={"side": object()}
+    )
+    return drawing, context, analysis, strip, issues
+
+
+def test_off_axis_short_spans_report_each_approved_measurement(monkeypatch):
+    drawing, context, analysis, strip, issues = _off_axis_location_context()
+    queued = []
+    monkeypatch.setattr(
+        hole_locations, "_off_axis_queue", lambda *args, **kwargs: queued.append(args)
+    )
+    monkeypatch.setattr(
+        hole_locations,
+        "layout_frame",
+        lambda _analysis: SimpleNamespace(zones=lambda _view: SimpleNamespace(below=strip)),
+    )
+
+    def short(axis):
+        return SimpleNamespace(value=0.5, id=f"approved-{axis}")
+
+    missing = hole_locations._OffHole("x", (4.0, 4.0, 4.0), object(), {}, "side")
+    x_hole = hole_locations._OffHole("x", (4.0, 4.0, 4.0), object(), {"y": short("y")}, "side")
+    y_hole = hole_locations._OffHole("y", (4.0, 4.0, 4.0), object(), {"x": short("x")}, "front")
+    z_hole = hole_locations._OffHole("x", (4.0, 4.0, 4.0), object(), {"z": short("z")}, "side")
+    assert all(
+        entry.value * analysis.SCALE < 1
+        for entry in (x_hole.approved["y"], y_hole.approved["x"], z_hole.approved["z"])
+    )
+
+    hole_locations._locate_across(drawing, context, analysis, [missing, x_hole])
+    hole_locations._locate_along_planar(drawing, context, analysis, [y_hole, missing])
+    hole_locations._locate_along_z(drawing, context, analysis, [missing, z_hole])
+
+    assert len(queued) == 2
+    assert [args[1] for args, _kwargs in issues] == ["off_axis_location_dropped"] * 3
+    assert [kwargs["measurement"] for _args, kwargs in issues] == [
+        "approved-y",
+        "approved-x",
+        "approved-z",
+    ]
+    assert all(kwargs["evidence_reason"] == "off_axis_span_below_1_mm" for _args, kwargs in issues)
+
+
+@pytest.mark.parametrize(
+    ("plan_available", "alternate_failed", "expected_issue"),
+    [(False, False, True), (True, False, False), (True, True, True)],
+)
+def test_off_axis_side_location_retries_only_on_a_selected_plan_view(
+    monkeypatch, plan_available, alternate_failed, expected_issue
+):
+    drawing, context, analysis, _strip, issues = _off_axis_location_context()
+    if plan_available:
+        drawing.views["plan"] = object()
+    captured = {}
+    monkeypatch.setattr(hole_locations, "shared_location_text", lambda _entries: "5")
+    monkeypatch.setattr(hole_locations, "_hole_location_coverage_fact", lambda entry: entry.id)
+    monkeypatch.setattr(
+        hole_locations,
+        "_off_axis_queue",
+        lambda *args, **kwargs: captured.update(candidates=args[7], on_drop=kwargs["on_drop"]),
+    )
+    emits = []
+    monkeypatch.setattr(
+        hole_locations,
+        "_off_axis_emit",
+        lambda *args, **kwargs: emits.append((args, kwargs)) or alternate_failed,
+    )
+    entry = SimpleNamespace(value=5.0, id="approved-y")
+    hole = hole_locations._OffHole("x", (4.0, 5.0, 4.0), object(), {"y": entry}, "side")
+
+    hole_locations._locate_across(drawing, context, analysis, [hole])
+    assert len(captured["candidates"]) == 1
+    captured["on_drop"](captured["candidates"][0][0])
+    assert len(context.post_drain) == 1
+    context.post_drain.pop()()
+
+    assert len(emits) == int(plan_available)
+    assert len(issues) == int(expected_issue)
+    if emits:
+        assert emits[0][0][3] == "plan"
+    else:
+        assert issues[0][1]["measurement"] == ("approved-y",)
+
+
+def test_off_axis_height_reroutes_around_a_blocked_witness_corridor(monkeypatch):
+    drawing, context, analysis, strip, issues = _off_axis_location_context()
+    drawing.views["front"] = object()
+    monkeypatch.setattr(hole_locations, "shared_location_text", lambda _entries: "5")
+    monkeypatch.setattr(hole_locations, "_hole_location_coverage_fact", lambda entry: entry.id)
+    monkeypatch.setattr(hole_locations, "_with_hole_location_coverage", lambda dim, _facts: dim)
+    monkeypatch.setattr(
+        hole_locations, "_dim", lambda *_args, **kwargs: SimpleNamespace(label=kwargs["label"])
+    )
+    monkeypatch.setattr(hole_locations, "_geom_box", lambda _dim: (0, 0, 1, 1))
+    monkeypatch.setattr(hole_locations, "strip_free_span", lambda _strip: (0, 100, 10))
+    checked_views = []
+
+    def blockers(_drawing, view):
+        checked_views.append(view)
+        return view
+
+    monkeypatch.setattr(hole_locations, "corridor_blockers", blockers)
+    monkeypatch.setattr(hole_locations, "_box_hits", lambda _box, view: view == "side")
+    monkeypatch.setattr(
+        hole_locations,
+        "layout_frame",
+        lambda _analysis: SimpleNamespace(zones=lambda _view: SimpleNamespace(right=strip)),
+    )
+    captured = {}
+    monkeypatch.setattr(
+        hole_locations,
+        "_off_axis_queue",
+        lambda *args, **kwargs: captured.update(
+            view=args[4], on_drop=kwargs["on_drop"], candidates=args[7]
+        ),
+    )
+    emits = []
+    monkeypatch.setattr(
+        hole_locations,
+        "_off_axis_emit",
+        lambda *args, **kwargs: emits.append((args, kwargs)) or True,
+    )
+    entry = SimpleNamespace(value=5.0, id="approved-z")
+    hole = hole_locations._OffHole("x", (4.0, 5.0, 5.0), object(), {"z": entry}, "side")
+    assert entry.value * analysis.SCALE >= 1
+
+    hole_locations._locate_along_z(drawing, context, analysis, [hole])
+    assert checked_views == ["side", "front"]
+    assert captured["view"] == "front"
+    captured["on_drop"](captured["candidates"][0][0])
+    assert [(args[3], kwargs.get("force", False)) for args, kwargs in emits] == [
+        ("side", False),
+        ("front", True),
+    ]
+    assert issues[0][1]["measurement"] == ("approved-z",)
+
+
+def test_off_axis_missing_strip_invokes_drop_callback_once(monkeypatch):
+    drawing, context, _analysis, _strip, _issues = _off_axis_location_context()
+    dropped = []
+    monkeypatch.setattr(
+        hole_locations,
+        "register_corridor",
+        lambda *_args, **_kwargs: pytest.fail("a missing strip cannot register a candidate"),
+    )
+
+    hole_locations._off_axis_queue(
+        drawing,
+        context,
+        5,
+        None,
+        "front",
+        "right",
+        "x",
+        [("first", object()), ("second", object())],
+        on_drop=dropped.append,
+    )
+    assert dropped == ["first", "second"]
