@@ -41,7 +41,8 @@ recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) 
 passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` and
 `intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
 `builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
-`inspection`, `cli`, the recogniser/inspection contract joins). `make_drawing` / `annotate`
+`sheet_object_source`, `inspection`, `cli`, the recogniser/inspection contract joins).
+`make_drawing` / `annotate`
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
 Shared three-decimal correspondence rounding and exact built-in finite-real validation live in
 the rank-0 `contract_values` leaf;

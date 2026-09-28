@@ -392,6 +392,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
   (renamed #640 — it's a fluent facade, not a DSL, per ADR 4 (was 0001); the `sheet_dsl`
   alias shim was deleted at 0.4.0, #720).
+- **`sheet_object_source.py`** — live-object import seams and mutual one-to-one
+  geometry correspondence for script generation. This facade-rank owner keeps the
+  existing private `sheet_emit` import paths available to callers.
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
   model — one named binding per feature, an explicit dimension source, and a bounded

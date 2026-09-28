@@ -167,6 +167,7 @@ _LAYERS: dict[str, int] = {
     "sheet": 7,
     "document": 7,
     "sheet_emit": 7,
+    "sheet_object_source": 7,
     "replay_assessment": 7,
     # Developer-only pytest/runner support. It patches the user-facing builder bindings at
     # runtime and is therefore a top-layer consumer, never an engine dependency.
