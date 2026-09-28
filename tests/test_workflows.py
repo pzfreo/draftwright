@@ -527,13 +527,16 @@ def test_testpypi_snapshot_build_and_publish_share_one_job():
     )
     assert "repository-url: https://test.pypi.org/legacy/" in snapshot
     assert "if: github.event_name == 'release'" in _job(workflow, "build-release")
-    assert 'scripts/update-draftwright-version "$base"' in _job(workflow, "build-release")
+    release_build = _job(workflow, "build-release")
+    assert 'python scripts/release-version "$RELEASE_TAG" "$RELEASE_PRERELEASE"' in release_build
+    assert 'scripts/update-draftwright-version "$target"' in release_build
     assert "needs: build-release" in _job(workflow, "publish-pypi")
 
 
 def test_post_release_version_bump_uses_a_protected_main_pr():
     bump = _job(_workflow("publish.yml"), "bump-version")
 
+    assert "!github.event.release.prerelease" in bump
     assert "pull-requests: write" in bump and "actions: write" in bump
     assert "gh pr create" in bump
     assert "gh workflow run ci.yml" in bump
@@ -542,6 +545,60 @@ def test_post_release_version_bump_uses_a_protected_main_pr():
     assert "git push origin HEAD:" in bump
     assert "git push\n" not in bump
     assert "recogniser_contract.py" not in bump
+
+
+@pytest.mark.parametrize(
+    ("tag", "prerelease", "expected"),
+    (
+        ("v0.4.36", False, "0.4.36"),
+        ("v0.5.0-rc1", True, "0.5.0rc1"),
+        ("v0.5.0-rc12", True, "0.5.0rc12"),
+    ),
+)
+def test_release_version_matches_exact_tag_and_github_prerelease_flag(tag, prerelease, expected):
+    loader = SourceFileLoader(
+        "draftwright_release_version", str(ROOT / "scripts" / "release-version")
+    )
+    spec = spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    assert module.release_version(tag, prerelease) == expected
+
+
+@pytest.mark.parametrize(
+    ("tag", "prerelease"),
+    (
+        ("v0.5.0-rc1", False),
+        ("v0.5.0", True),
+        ("v0.5.0.dev0", True),
+        ("v0.5.0-rc0", True),
+        ("0.5.0-rc1", True),
+        ("v0.5.0-rc1-extra", True),
+    ),
+)
+def test_release_version_refuses_mismatched_or_malformed_tags(tag, prerelease):
+    loader = SourceFileLoader(
+        "draftwright_release_version", str(ROOT / "scripts" / "release-version")
+    )
+    spec = spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    with pytest.raises(ValueError):
+        module.release_version(tag, prerelease)
+
+
+def test_version_updater_accepts_pep440_rc_but_not_tag_spelling():
+    loader = SourceFileLoader(
+        "draftwright_version_update", str(ROOT / "scripts" / "update-draftwright-version")
+    )
+    spec = spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+    assert module._VERSION.fullmatch("0.5.0rc1")
+    assert not module._VERSION.fullmatch("0.5.0-rc1")
 
 
 @pytest.mark.parametrize("target", ("0.4.12", "0.4.12.dev0", "0.4.12.dev123"))
