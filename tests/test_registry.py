@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from draftwright.registry import AnnotationRegistry
+from draftwright.registry import AnnotationRegistry, SectionMark
 
 # Pure unit tests — no OCC builds — so they join the build-light `smoke` set (#153).
 pytestmark = pytest.mark.smoke
@@ -180,6 +180,8 @@ def test_identity_of_reapply_round_trips_every_axis():
         declaration=declaration,
     )
     r.pin("d1")
+    mark = SectionMark(2.0, "section_aa")
+    r.mark_section("d1", mark)
     ident = r.identity_of("d1")
 
     removed = r.remove("d1")
@@ -190,6 +192,7 @@ def test_identity_of_reapply_round_trips_every_axis():
         "measurement": (),
         "cells": (),
         "satisfaction": (),
+        "section": None,
         "pinned": False,
     }
 
@@ -200,6 +203,7 @@ def test_identity_of_reapply_round_trips_every_axis():
     assert r.declaration_of("d1") is declaration
     assert r.measurement_of("d1") == ("bore.depth",)
     assert r.satisfaction_of("d1") == ("counterbore.depth",)
+    assert r.section_of("d1") is mark
     assert r.is_pinned("d1")
 
 
@@ -232,7 +236,49 @@ def test_reapply_clears_axes_the_identity_does_not_carry():
     assert r.declaration_of("d1") is None
     assert r.measurement_of("d1") == ()
     assert r.satisfaction_of("d1") == ()
+    assert r.section_of("d1") is None
     assert not r.is_pinned("d1")
+
+
+def test_section_mark_lifecycle_issue_1931():
+    r = AnnotationRegistry()
+    line, other = object(), object()
+    mark = SectionMark(2.0, "section_aa")
+    assert not hasattr(line, "_dw_section_cut_y")
+    with pytest.raises(KeyError):
+        r.mark_section("line", mark)
+    r.add(line, "line", None)
+    r.mark_section("line", mark)
+    assert r.has_section(2.0, {"section_aa"})
+    assert not r.has_section(3.0, {"section_aa"})
+    assert not r.has_section(2.0, set())
+    with pytest.raises(AttributeError):
+        mark.cut_y = 3.0
+    assert r.section_of("line") is mark
+
+    snap = r.snapshot()
+    r.add(other, "line", None)
+    assert r.section_of("line") is None  # same-name unmarked replacement
+    assert not r.has_section(2.0, {"section_aa"})
+    r.restore(snap)
+    assert r.named("line") is line and r.section_of("line") is mark
+
+    r.replace_object(line, other)
+    assert r.section_of("line") is None  # object replacement also loses the old mark
+    assert not r.has_section(2.0, {"section_aa"})
+    r.mark_section("line", mark)
+    assert r.remove("line") is other
+    assert r.section_of("line") is None
+
+    r.add(line, "line", None)
+    r.mark_section("line", mark)
+    r.add(other, "keep", None)
+    r.clear(("keep",))
+    assert r.section_of("line") is None
+    r.add(line, "line", None)
+    r.mark_section("line", mark)
+    r.clear(("line",))
+    assert r.section_of("line") is mark
 
 
 def test_identity_of_covers_every_per_name_axis():

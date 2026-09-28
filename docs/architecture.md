@@ -211,7 +211,8 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   (#426): a dependency-free leaf recording edit-verb intents for the recompose
   (deliberately stringly-typed in its Phase-1 form).
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
-  identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). `Drawing`
+  identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
+  owns the immutable cut/view mark on each live section cutting-plane line (#1931). `Drawing`
   delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
   `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
   their §4 date (#720): reach the state through `dwg.registry` (`in reg`,

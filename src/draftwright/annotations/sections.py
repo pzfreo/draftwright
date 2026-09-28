@@ -66,6 +66,7 @@ from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.auxiliary_layout import detail_space, section_slot_x
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
+from draftwright.registry import SectionMark
 from draftwright.view_plan import DERIVED_VIEW_IDENTIFIERS, DerivedViewIdentifierPool
 
 
@@ -188,12 +189,7 @@ def add_section(dwg, model, a, *, ctx) -> list[str]:
 def _has_rendered_section(dwg, section) -> bool:
     """Whether this semantic cut plane already owns a rendered section view."""
 
-    cut_y = float(section.cut_y)
-    return any(
-        getattr(annotation, "_dw_section_cut_y", None) == cut_y
-        and getattr(annotation, "_dw_section_view", None) in dwg.views
-        for _name, annotation in dwg.iter_annotations()
-    )
+    return bool(dwg.registry.has_section(float(section.cut_y), dwg.views))
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
@@ -531,9 +527,9 @@ def _place_cutting_plane(dwg, y_page, x0, x1, *, section, ctx):
 
     _label, view_name, prefix = _section_identity(section)
     line = Centerline((x0, y_page, 0), (x1, y_page, 0))
-    line._dw_section_cut_y = float(section.cut_y)
-    line._dw_section_view = view_name
-    ctx.place(line, f"{prefix}_line")
+    line_name = f"{prefix}_line"
+    ctx.place(line, line_name)
+    ctx.registry.mark_section(line_name, SectionMark(float(section.cut_y), view_name))
     _add_cutting_plane_arrows(dwg, y_page, x0, x1, section=section, ctx=ctx)
     _add_section_letters(dwg, y_page, x0, x1, section=section, ctx=ctx)
 
