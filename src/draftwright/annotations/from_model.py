@@ -1879,10 +1879,9 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     min_gap = 2 * half_h
     # Place what fits; drop the smallest ø first, never the whole column.
     survivors, ys = _place_what_fits(specs, 1, min_gap, fy0 + half_h, fy1 - half_h)
-    # Full-footprint occupancy (leader shafts, witness/extension lines, hatch) — NOT
-    # a label-box-only view, which is blind to a bore callout's leader SHAFT, so a
-    # An ø label could silently overprint a leader shaft. Centre lines stay
-    # crossable because a diameter dimension may cross one.
+    # Full-footprint occupancy includes leader shafts, witness lines, and hatch.
+    # A label-box-only check could let an ø label overprint a leader shaft.
+    # Centre lines stay crossable because a diameter dimension may cross one.
     if ev is not None:  # the specs the fit solve squeezed out, smallest first
         kept = {id(s) for s in survivors}
         ev["items"].extend(
@@ -2434,7 +2433,7 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
         except Exception:  # noqa: BLE001 — a re-route error must never lose the leader
             placed_it = False
         if not placed_it and dwg.get_annotation(name) is None:
-            ctx.place(old, name, view="front")  # restore before reporting the failed route
+            ctx.place(old, name, view="front")  # restore the leader when rerouting fails
             dwg.registry.reapply(name, ident)
     return rerouted
 
@@ -2448,9 +2447,10 @@ def _chamfer_label(leg_text, leg, ch) -> str:
     while *leg* is the number the equal-leg comparison needs. The feature supplies only the
     geometric form discriminators (``leg2``/``angle``), and a ``ChamferFeature`` stays pure
     data (ADR 3 (was 0013 §7))."""
-    # `ch.angle` is a FORM discriminator, not a planned parameter — `ChamferFeature.
-    # parameters` emits only the leg — so it has no approved text to consume. That is the
-    # IR gap `_FACTS` records, and it is why this line stays in the provenance budget.
+    # `ch.angle` is a form discriminator, not a planned parameter.
+    # `ChamferFeature.parameters()` emits only the leg, so the angle has no approved
+    # text to consume. That is the IR gap `_FACTS` records, and it is why this
+    # line stays in the provenance budget.
     return _fmt_chamfer(leg_text, leg, ch.leg2, ch.angle)
 
 
@@ -4190,7 +4190,7 @@ def _oriented_slot_label(width, length, draft) -> str:
     return "ORIENTED SLOT " + " × ".join(terms)
 
 
-# Unit lead directions. Diagonals remain first as the stable tie-break, while 's
+# Unit lead directions. Diagonals remain first as the stable tie-break, while
 # within-pass assignment normally selects the shortest jointly compatible ray.
 _POCKET_LEAD_DIRS = (
     (1, 1),
