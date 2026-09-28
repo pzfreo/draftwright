@@ -1206,7 +1206,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None, reservations=No
         reservation_name = reservations.pop(view_name, None)
         reserved_box = None
         if reservation_name is not None:
-            reserved_box = _clear_derived_view_reservation(dwg, reservation_name)
+            reserved_box = _clear_derived_view_reservation(dwg, reservation_name, required=True)
         issue_start = len(ctx.registry.issues)
         placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx, reserved_box=reserved_box)
         hname = (

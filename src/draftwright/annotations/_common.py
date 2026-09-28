@@ -91,9 +91,11 @@ class DerivedViewReservation:
         )
 
 
-def _clear_derived_view_reservation(dwg, name: str):
+def _clear_derived_view_reservation(dwg, name: str, *, required: bool = False):
     """Permanently consume one private planning placeholder, never user ink."""
     if name not in dwg.annotations():
+        if required:
+            raise KeyError(f"required derived-view reservation {name} is missing")
         return None
     reservation = dwg.get_annotation(name)
     if not isinstance(reservation, DerivedViewReservation):

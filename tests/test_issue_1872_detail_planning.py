@@ -7,7 +7,11 @@ import pytest
 from draftwright import analysis as analysis_module
 from draftwright._core import crowded_horizontal_step_runs, y_chain_detail_scale_needed
 from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
-from draftwright.annotations._common import DerivedViewReservation, strip_obstacles
+from draftwright.annotations._common import (
+    DerivedViewReservation,
+    _clear_derived_view_reservation,
+    strip_obstacles,
+)
 from draftwright.annotations.leaders import _fixed_annotation_obstacles
 from draftwright.annotations.sections import (
     _detail_ink_within_reservation,
@@ -313,6 +317,13 @@ def test_required_detail_reservation_is_hard_for_strips_and_feature_leaders():
 def test_required_detail_reservation_rejects_invalid_box():
     with pytest.raises(ValueError, match="finite nonempty"):
         DerivedViewReservation((10.0, 20.0, float("nan"), 55.0))
+
+
+def test_missing_required_detail_reservation_cannot_become_unreserved_placement():
+    drawing = SimpleNamespace(annotations=lambda: {})
+    assert _clear_derived_view_reservation(drawing, "detail_a_layout_reservation") is None
+    with pytest.raises(KeyError, match="required derived-view reservation"):
+        _clear_derived_view_reservation(drawing, "detail_a_layout_reservation", required=True)
 
 
 def test_reserved_detail_box_must_still_clear_landed_annotations():
