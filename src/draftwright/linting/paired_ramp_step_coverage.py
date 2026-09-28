@@ -14,12 +14,13 @@ from typing import Literal
 
 from quiddity import PairedRampStep, RecognitionResult
 
+from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._registry import (
-    satisfaction_ids,
     satisfaction_of,
     with_measurement_carriers,
 )
-from draftwright.linting.issues import LintIssue, is_placement_drop
+from draftwright.linting.issues import LintIssue
 from draftwright.measurement_support import RequirementCarrier
 
 PairedRampRequirementState = Literal[
@@ -43,10 +44,6 @@ class PairedRampRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _rounded(value) -> float:
-    return round(float(value), 3)
 
 
 def _point(value) -> tuple[float, float, float]:
@@ -82,28 +79,6 @@ def _has_parameters(feature) -> bool:
         )
     except (AttributeError, TypeError):
         return False
-
-
-def _index_evidence(registry):
-    placed = {
-        (measurement.feature, measurement.parameter)
-        for name in registry.names()
-        for measurement in registry.measurement_of(name)
-    }
-    satisfied = {
-        (identity.feature, identity.parameter)
-        for identity in satisfaction_ids(registry)
-        if identity.feature is not None and isinstance(identity.parameter, str)
-    }
-    dropped = {
-        (measurement.feature, measurement.parameter)
-        for issue in registry.issues
-        if is_placement_drop(issue)
-        for measurement in getattr(issue, "measurement_ids", ())
-        if getattr(measurement, "feature", None) is not None
-        and isinstance(getattr(measurement, "parameter", None), str)
-    }
-    return placed, satisfied, dropped
 
 
 def paired_ramp_step_requirement_outcomes(

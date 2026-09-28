@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from math import isfinite
 from typing import Literal
 
 from quiddity import OrientedSlot, RecognitionResult
@@ -18,6 +17,7 @@ from draftwright.linting._registry import (
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.measurement_support import RequirementCarrier
 from draftwright.oriented_slot_contract import (
+    _real,
     oriented_slot_provider_key,
     standalone_oriented_slots,
 )
@@ -43,18 +43,6 @@ class OrientedSlotRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _real(value, *, name: str, positive: bool = False) -> float:
-    if type(value) not in (int, float):
-        raise ValueError(f"{name} must be a finite real number")
-    try:
-        result = float(value)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite real number") from exc
-    if not isfinite(result) or (positive and result <= 0):
-        raise ValueError(f"{name} must be a finite real number")
-    return result
 
 
 def _vector(value) -> tuple[float, float, float]:

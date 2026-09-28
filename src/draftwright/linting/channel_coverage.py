@@ -7,6 +7,7 @@ from typing import Literal
 
 from quiddity import RecognitionResult, SectionRecess, has_multi_axis_plates
 
+from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import (
     satisfaction_ids,
     satisfaction_of,
@@ -36,10 +37,6 @@ class ChannelRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _rounded(value) -> float:
-    return round(float(value), 3)
 
 
 def _point(value) -> tuple[float, float, float]:

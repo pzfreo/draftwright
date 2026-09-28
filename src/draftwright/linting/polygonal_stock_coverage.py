@@ -19,15 +19,15 @@ from typing import Literal
 
 from quiddity import PolygonalStock, RecognitionResult
 
+from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import index_evidence as _index_evidence
+from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
-    satisfaction_ids,
-    satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
     LintIssue,
-    is_placement_drop,
     requirement_subject,
 )
 from draftwright.measurement_support import RequirementCarrier
@@ -70,10 +70,6 @@ class PolygonalStockOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
-
-
-def _rounded(value) -> float:
-    return round(float(value), 3)
 
 
 def _point(values) -> Point:
@@ -305,46 +301,6 @@ def _parameter_ids(feature, source) -> tuple[str, str] | None:
         return required
     except (AttributeError, OverflowError, TypeError, ValueError):
         return None
-
-
-def _index_evidence(registry):
-    placed = {
-        (measurement.feature, measurement.parameter)
-        for name in registry.names()
-        for measurement in registry.measurement_of(name)
-    }
-    satisfied = {
-        (identity.feature, identity.parameter)
-        for identity in satisfaction_ids(registry)
-        if identity.feature is not None and isinstance(identity.parameter, str)
-    }
-    dropped = {
-        (measurement.feature, measurement.parameter)
-        for issue in registry.issues
-        if is_placement_drop(issue)
-        for measurement in getattr(issue, "measurement_ids", ())
-        if getattr(measurement, "feature", None) is not None
-        and isinstance(getattr(measurement, "parameter", None), str)
-    }
-    return placed, satisfied, dropped
-
-
-def _state(feature, parameter, *, placed, satisfied, suppressed, dropped, registry):
-    if (feature, parameter) in placed:
-        return "placed"
-    if (feature, parameter) in satisfied:
-        return "satisfied_by_structured_note"
-    if (feature, parameter) in suppressed:
-        return "suppressed"
-    if (feature, parameter) in dropped:
-        return "dropped"
-    associated = registry.names_for_feature(feature)
-    if any(
-        not registry.measurement_of(name) and not satisfaction_of(registry, name)
-        for name in associated
-    ):
-        return "unverifiable"
-    return "missing"
 
 
 def polygonal_stock_outcomes(

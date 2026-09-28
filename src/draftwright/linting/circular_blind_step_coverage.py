@@ -16,6 +16,7 @@ from typing import Literal
 from quiddity import CircularBlindStep, RecognitionResult
 
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
+from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import (
     measurement_outcome_index,
     satisfaction_of,
@@ -45,10 +46,6 @@ class CircularBlindStepRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _rounded(value) -> float:
-    return round(float(value), 3)
 
 
 def _point(value) -> tuple:
