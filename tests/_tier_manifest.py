@@ -159,6 +159,7 @@ CONTRACT_GROUPS = {
             "test_inspection.py",
             "test_lint_coverage.py",
             "test_lint_summary.py",
+            "test_pmi_records.py",
             "test_requirement_catalog.py",
             "test_report_projection.py",
             "test_report_writer.py",

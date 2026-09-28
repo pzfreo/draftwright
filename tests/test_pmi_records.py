@@ -9,6 +9,47 @@ from draftwright import pmi
 from draftwright._pmi_linear_geometry import _linear_reference_stations
 
 
+@pytest.mark.skipif(not pmi._PMI_AVAILABLE, reason="OCP GDT support not available")
+def test_report_returns_structured_reader_failures(monkeypatch):
+    monkeypatch.setattr(pmi, "_PMI_AVAILABLE", False)
+    assert "SetGDTMode" in pmi.extract_pmi_report("missing.step").error
+
+    class FakeReader:
+        def __init__(self, *, status=1, transfer=True):
+            self.status = status
+            self.transfer = transfer
+
+        def SetGDTMode(self, _enabled):
+            pass
+
+        def SetNameMode(self, _enabled):
+            pass
+
+        def ReadFile(self, _path):
+            if isinstance(self.status, Exception):
+                raise self.status
+            return self.status
+
+        def Transfer(self, _doc):
+            if isinstance(self.transfer, Exception):
+                raise self.transfer
+            return self.transfer
+
+    monkeypatch.setattr(pmi, "_PMI_AVAILABLE", True)
+    monkeypatch.setattr(pmi, "IFSelect_RetDone", 1)
+    monkeypatch.setattr(pmi, "TCollection_ExtendedString", lambda value: value)
+    monkeypatch.setattr(pmi, "TDocStd_Document", lambda _name: object())
+
+    for reader, expected in (
+        (FakeReader(status=RuntimeError("read exploded")), "read exploded"),
+        (FakeReader(status=0), "ReadFile failed"),
+        (FakeReader(transfer=RuntimeError("transfer exploded")), "transfer exploded"),
+        (FakeReader(transfer=False), "Transfer failed"),
+    ):
+        monkeypatch.setattr(pmi, "STEPCAFControl_Reader", lambda: reader)
+        assert expected in pmi.extract_pmi_report("broken.step").error
+
+
 def test_pmi_records_keep_source_inspection_and_pickle_paths():
     for name in ("PmiRecord", "PmiSourceEntity", "PmiExtractionReport"):
         record_type = getattr(pmi, name)
