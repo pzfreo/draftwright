@@ -42,6 +42,19 @@ CONTRACT_GROUPS = {
         ("src/draftwright/model/ir_foundation.py",),
         ("test_issue_1298_manufacturing_requirements.py",),
     ),
+    "slot_rendering": ContractGroup(
+        ("src/draftwright/annotations/_slots.py",),
+        (
+            "test_feature_edit_corridors.py",
+            "test_issue_885_prismatic_coverage.py",
+            "test_issue_1599_duplicate_slot_widths.py",
+            "test_layout_override_lane_issue_1757.py",
+            "test_slot_completeness.py",
+            "test_slot_pattern.py",
+            "test_slot_recognition.py",
+            "test_tolerances.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (
