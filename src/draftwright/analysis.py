@@ -40,13 +40,19 @@ from draftwright._core import (
     _MIN_RENDER_MM,
     _MIN_VIEW_MM,
     Analysis,
+    DetailRequest,
     SheetMargins,
     _content_margin,
+    _detail_caption,
     _dimension_draft,
+    _fmt,
     _legible_steps,
     _Projector,
     _sheet_option_margins,
+    _text_size,
+    _tol_suffix,
     _validated_title_block_width,
+    y_chain_detail_scale_needed,
 )
 from draftwright._geometry import _classify_rotational_cylinders, _solids_body
 from draftwright._geometry import (
@@ -81,6 +87,7 @@ from draftwright.recognition_frame import (
 )
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
 from draftwright.view_plan import (
+    DERIVED_VIEW_IDENTIFIERS,
     ViewConstraints,
     arrangement_of,
     principal_placements,
@@ -90,6 +97,145 @@ from draftwright.view_plan import (
 _log = logging.getLogger(__name__)
 
 _ScalePick = tuple[float, float, float, float]
+
+
+def _automatic_y_chain_detail_footprints(
+    approved,
+    bb,
+    draft,
+    *,
+    section_count: int,
+    planned_views: tuple[str, ...] | None,
+) -> Callable[[float], tuple[tuple[str, float, float], ...]] | None:
+    """Pre-sheet minimum footprint for one unambiguous approved Y-step chain.
+
+    Unknown/multiple physical profiles remain unplanned rather than reserving a
+    guessed box. The final detailer still owns the crop and validates real ink.
+    """
+    if planned_views is not None and "side" not in planned_views:
+        return None
+    # A planned section can yield late and release its letter, so its detail
+    # successor is not a stable identity until section placement is made part
+    # of the same pre-sheet derived-view plan.
+    if section_count != 0:
+        return None
+    rows = []
+    memberships = set()
+    for group in approved.of_kind("step"):
+        if group.facts.frame.axis != "y":
+            continue
+        length = group.dim(kind="length")
+        if length is None or length.span is None:
+            continue
+        origin = group.facts.frame.origin
+        membership = group.facts.profile or group.facts.profile_group
+        memberships.add(repr(membership))
+        lo, hi = sorted((float(length.span[0][1]), float(length.span[1][1])))
+        rows.append((lo, hi, length, float(origin[0]), float(origin[2])))
+    if len(rows) < 2 or len(memberships) != 1:
+        return None
+    if (
+        max(row[3] for row in rows) - min(row[3] for row in rows) > 0.5
+        or max(row[4] for row in rows) - min(row[4] for row in rows) > 0.5
+    ):
+        return None
+    rows.sort(key=lambda row: (row[0], row[1]))
+    # The renderer separates axially disconnected profiles even on one axis
+    # line. A single pre-sheet box would otherwise plan a phantom combined
+    # chain and could enlarge the sheet without any matching detail request.
+    if any(
+        abs(previous[1] - current[0]) > 1e-3 + 1e-9 for previous, current in zip(rows, rows[1:])
+    ):
+        return None
+    # The renderer states a contiguous repeated pitch of three or more once on
+    # the parent view. Such a chain does not request an enlarged detail.
+    repeat = 1
+    for prev, current in zip(rows, rows[1:]):
+        old, new = prev[2], current[2]
+        same_text = (
+            old.value_text == new.value_text
+            if old.display_decimals is not None or new.display_decimals is not None
+            else _fmt(old.value) == _fmt(new.value)
+        )
+        repeat = (
+            repeat + 1
+            if abs(prev[1] - current[0]) <= 1e-4
+            and same_text
+            and old.tolerance is None
+            and new.tolerance is None
+            else 1
+        )
+        if repeat >= 3:
+            return None
+    widths = tuple(
+        _text_size(
+            row[2].value_text + _tol_suffix(row[2].tolerance, draft),
+            draft.font_size,
+            font=getattr(draft, "font", "Arial"),
+        )[0]
+        for row in rows
+    )
+    axis_lo = min(row[0] for row in rows)
+    axis_hi = max(row[1] for row in rows)
+    axis_z = sum(row[4] for row in rows) / len(rows)
+    letter = DERIVED_VIEW_IDENTIFIERS[section_count]
+    view_name = f"detail_{letter.lower()}"
+    # Measure the worst six-significant-digit scale caption once. The candidate
+    # scale loop (which may bisect 60 times) must stay box arithmetic.
+    caption_req = DetailRequest(
+        axis="y",
+        lo=axis_lo,
+        hi=axis_hi,
+        scale_needed=1.0,
+        redraw=lambda *_args: 0,
+        source_view="side",
+        cross_axis="z",
+        cross_lo=axis_z,
+        cross_hi=axis_z,
+        kind="y-turned-chain",
+    )
+    caption_w = _text_size(
+        _detail_caption(caption_req, letter, 9.99999, bb),
+        draft.font_size,
+        font=getattr(draft, "font", "Arial"),
+    )[0]
+    footprint_cache: dict[float, tuple[tuple[str, float, float], ...]] = {}
+
+    def for_scale(scale: float) -> tuple[tuple[str, float, float], ...]:
+        if scale in footprint_cache:
+            return footprint_cache[scale]
+        needed = y_chain_detail_scale_needed(
+            tuple((row[0] * scale, row[1] * scale, row[2].value) for row in rows),
+            widths,
+            arrow_length=draft.arrow_length,
+            text_padding=draft.pad_around_text,
+        )
+        result: tuple[tuple[str, float, float], ...]
+        if needed is None or needed > scale * 10:
+            result = ()
+        else:
+            target = next(
+                (scale * factor for factor in (2, 5, 10) if scale * factor >= needed), scale * 10
+            )
+            min_scale = max(needed, scale * 1.2 + 1e-6)
+            cross_half = max(0.1, min((bb.max.Z - bb.min.Z) / 4, 6.0 / target))
+            # One millimetre each side/top conservatively absorbs the Note
+            # anchoring and crop/typography estimate; actual ink is checked later.
+            width = max((axis_hi - axis_lo) * min_scale, caption_w) + 2.0
+            height = (
+                2 * cross_half * min_scale
+                + draft.font_size
+                + 2 * draft.pad_around_text
+                + draft.arrow_length
+                + _DIM_PAD
+                + 8.0
+                + 2.0
+            )
+            result = ((view_name, width, height),)
+        footprint_cache[scale] = result
+        return result
+
+    return for_scale
 
 
 @observed_stage("recognition")
@@ -1199,9 +1345,20 @@ def _analyse(
         strip_sizing_model,
         planned_views=third_angle_view_names() if _views is None else _views,
     )
+    # Compile ahead of sheet selection only when a derived Y chain or a schedule
+    # needs approved measurements. Other parts keep their existing cheap path.
+    needs_y_detail_plan = any(
+        isinstance(feature, StepFeature) and feature.frame.axis == "y"
+        for feature in strip_sizing_model.features
+    )
+    approved_for_sizing = (
+        compile_dimensions(strip_sizing_model, groups=sizing_groups)
+        if strip_sizing_model.schedules or needs_y_detail_plan
+        else None
+    )
     schedule_tables = (
-        compile_dimensions(strip_sizing_model, groups=sizing_groups).schedules
-        if strip_sizing_model.schedules
+        approved_for_sizing.schedules
+        if approved_for_sizing is not None and strip_sizing_model.schedules
         else ()
     )
     sizing_groups = annotation_groups(strip_sizing_model, sizing_groups)
@@ -1222,6 +1379,17 @@ def _analyse(
     # Preserve the long-standing public diagnostic shape for the common zero/one case while
     # carrying an integer only when authored constraints genuinely reserve multiple sections.
     layout_section = section_count if section_count > 1 else bool(section_count)
+    y_detail_footprints_for_scale = (
+        _automatic_y_chain_detail_footprints(
+            approved_for_sizing,
+            bb,
+            _draft_est,
+            section_count=section_count,
+            planned_views=_views,
+        )
+        if approved_for_sizing is not None and needs_y_detail_plan and _view_constraints is None
+        else None
+    )
     layout_table_sizes = _est_hole_table_sizes(
         sizing_model, bb, font_size=_FONT_SIZE, pad_around_text=_pad_around_text
     )
@@ -1286,6 +1454,7 @@ def _analyse(
             include_iso=_include_iso,
             iso_scale_factor=planned_iso_scale,
             convention=convention,
+            derived_view_footprints_for_scale=y_detail_footprints_for_scale,
         )
 
     scale_pick, strips_i, n_for_sizing = _converge_step_sizing(
@@ -1381,6 +1550,11 @@ def _analyse(
         include_iso=_include_iso,
         iso_scale_factor=layout_iso_scale,
         convention=convention,
+        derived_view_footprints=(
+            y_detail_footprints_for_scale(SCALE)
+            if y_detail_footprints_for_scale is not None
+            else ()
+        ),
     )
     _apply_principal_view_pins(
         _g,

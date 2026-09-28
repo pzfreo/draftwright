@@ -1,7 +1,10 @@
 """Render-free legibility policy shared by detail planning and drawing."""
 
+from types import SimpleNamespace
+
 import pytest
 
+from draftwright import analysis as analysis_module
 from draftwright._core import y_chain_detail_scale_needed
 from draftwright.annotation_layout_profile import AnnotationLayoutProfile, use_layout_profile
 from draftwright.annotations._common import DerivedViewReservation, strip_obstacles
@@ -11,6 +14,88 @@ from draftwright.annotations.sections import (
     _reserved_detail_box_is_clear,
 )
 from draftwright.compose import StripDepths, _compose_view_blocks, _layout_geometry, choose_scale
+
+
+def _approved_y_chain(lengths, *, gap=0.0):
+    groups = []
+    station = 0.0
+    for length in lengths:
+        measurement = SimpleNamespace(
+            span=((0.0, station, 0.0), (0.0, station + length, 0.0)),
+            value=float(length),
+            value_text=str(length),
+            tolerance=None,
+            display_decimals=None,
+        )
+        group = SimpleNamespace(
+            facts=SimpleNamespace(
+                frame=SimpleNamespace(axis="y", origin=(0.0, 0.0, 0.0)),
+                profile=None,
+                profile_group=None,
+            ),
+            dim=lambda *, kind, item=measurement: item if kind == "length" else None,
+        )
+        groups.append(group)
+        station += length + gap
+    return SimpleNamespace(of_kind=lambda kind: tuple(groups) if kind == "step" else ())
+
+
+def test_approved_y_chain_produces_scale_dependent_detail_demand(monkeypatch):
+    measured = []
+
+    def measure(text, *_args, **_kwargs):
+        measured.append(text)
+        return float(len(text)), 3.0
+
+    monkeypatch.setattr(
+        analysis_module,
+        "_text_size",
+        measure,
+    )
+    bb = SimpleNamespace(min=SimpleNamespace(Z=-21.0), max=SimpleNamespace(Z=21.0))
+    draft = SimpleNamespace(font_size=3.0, arrow_length=2.0, pad_around_text=1.0)
+    footprints = analysis_module._automatic_y_chain_detail_footprints(
+        _approved_y_chain((4, 6)),
+        bb,
+        draft,
+        section_count=0,
+        planned_views=None,
+    )
+    assert footprints is not None
+    name, width, height = footprints(1.0)[0]
+    assert name == "detail_a" and width > 10.0 and height > 20.0
+    assert footprints(5.0) == ()  # both lengths are legible on the parent view
+    assert len(measured) == 3  # two step labels + one caption, not one per scale probe
+
+
+def test_repeated_y_pitch_needs_no_planned_detail(monkeypatch):
+    monkeypatch.setattr(
+        analysis_module,
+        "_text_size",
+        lambda text, *_args, **_kwargs: (float(len(text)), 3.0),
+    )
+    bb = SimpleNamespace(min=SimpleNamespace(Z=-21.0), max=SimpleNamespace(Z=21.0))
+    draft = SimpleNamespace(font_size=3.0, arrow_length=2.0, pad_around_text=1.0)
+    assert (
+        analysis_module._automatic_y_chain_detail_footprints(
+            _approved_y_chain((4, 4, 4)),
+            bb,
+            draft,
+            section_count=0,
+            planned_views=None,
+        )
+        is None
+    )
+    assert (
+        analysis_module._automatic_y_chain_detail_footprints(
+            _approved_y_chain((4, 6), gap=1.0),
+            bb,
+            draft,
+            section_count=0,
+            planned_views=None,
+        )
+        is None
+    )
 
 
 def test_y_chain_that_fits_on_parent_view_needs_no_detail():

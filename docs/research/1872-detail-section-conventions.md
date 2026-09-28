@@ -32,7 +32,7 @@ rendered as a section.
 | --- | --- | --- |
 | Enlarged detail | A source-direction projection of a Boolean-cropped solid. Primary and optional secondary bounds remain model-space; witness and physical-support checks reject an over-tight crop. The caption carries `DETAIL`, an identifier and the actual scale. It adds `PARTIAL PROFILE` only when the secondary crop truncates the original body envelope. | The marker and caption describe a detail, not a cutting plane. A crop that lacks enough source support falls back to fuller geometry or is refused. There is no general proof of minimum sufficient context. |
 | Full section | A Y-normal cut through a planned row, projected as a distinct section. The plan view carries a named cutting-plane line, end arrows and letters; the cut faces receive 45-degree hatch. A skipped section has a named reason and lint finding. | The section retains the full X/Z envelope. It does not plan a minimum local region, an arbitrary cutting-plane orientation or local-section break boundary. |
-| Scale and page | Main views use the sheet scale; each placed detail captions its resolved scale. Detail fitting accounts for the cropped silhouette, its annotation pads and caption when searching free space on the **already selected** sheet. | The detail footprint is not yet reserved before sheet/scale selection. The detail fit may select a non-preferred scale. No standards-conformance claim follows from legibility alone. |
+| Scale and page | Main views use the sheet scale; each placed detail captions its resolved scale. Detail fitting accounts for the cropped silhouette, its annotation pads and caption. A single unambiguous approved Y-step chain now has a pre-sheet minimum-footprint demand, a hard in-pass reservation, and measured post-render containment. | Other detail/section families are not yet pre-sheet planned. A fixed page can still refuse a genuinely unfit required detail. The detail fit may select a non-preferred scale. No standards-conformance claim follows from legibility alone. |
 
 Implementation evidence: `DetailRequest`, `supported_secondary_crop` and
 `_detail_caption` in `src/draftwright/_core.py`; `_render_detail`,
@@ -108,5 +108,9 @@ view's dimension and leader bands. The apparent five-millimetre shortage does
 **not** prove that preferred gutter space alone solves this fixture. Derived
 views must be packed against full planned view blocks and their reserved boxes
 must remain hard occupancy for ordinary annotation placement. A prototype
-that changes only the scale/page verdict is insufficient and is not wired into
-production until that occupancy path and measured validation agree.
+that changes only the scale/page verdict is insufficient. The first Y-chain
+producer is wired through hard occupancy and measured validation; other
+families remain unplanned. The fixed-A4 adversarial fixture still refuses:
+its measured 108.16 × 44.19 mm minimum cannot be reserved against its full
+planned annotation blocks at the 6 mm safety gutter, so its 4 and 6 mm steps
+remain named withheld requirements. This is not a passing visual result.
