@@ -28,8 +28,11 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.location_contract import datum_location_exclusion
-from draftwright.measurement_support import RequirementCarrier, RequirementExclusion
+from draftwright.measurement_support import (
+    RequirementCarrier,
+    RequirementExclusion,
+    datum_location_exclusion,
+)
 from draftwright.section_recess_contract import (
     pocket_mouth_key,
     recesses_with_kind,

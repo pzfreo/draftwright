@@ -55,7 +55,7 @@ from typing import Any, Literal
 
 from draftwright._geometry import _fmt, _fmt_angle, _fmt_chamfer, _fmt_tolerance
 from draftwright.fits import FitClass
-from draftwright.location_contract import coincident_location_axes
+from draftwright.measurement_support import coincident_location_axes
 from draftwright.model.callout import resolved_through_indicator
 from draftwright.model.ir import (
     AngularReference,

@@ -8,13 +8,13 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: leaf modules (`progress.py`, `layout.py`, `obligations.py` (pure semantic survival order), `layout_scheme.py` (typed render-free annotation
+top: rank-0 modules (not yet all independent): `progress.py`, `layout.py`, `obligations.py` (pure semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `leader_policy.py`, `registry.py`, `fonts.py`,
 `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
-`blend_contract.py` provider-record boundary) →
+`blend_contract.py` provider-record boundary →
 `_core.py` → stage modules (`export.py`, `pdf_text.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
@@ -27,7 +27,9 @@ recognition-evaluation package (`evaluation/`), and the
 `cli.py` entry point. Developer-only `_build_profile.py` sits at the same top layer: it
 patches the public builder and Sheet bindings lazily for pytest measurement, and no engine
 module depends on it. No lower module imports an
-upper one. `progress.py` holds a context-scoped observer and cooperative cancellation; stage
+upper one. `location_contract.py` remains a stable rank-1 import path for the location predicates
+in `measurement_support.py`; the compiler and lint import their owner directly. `progress.py`
+holds a context-scoped observer and cooperative cancellation; stage
 modules publish activity at their existing seams, while the CLI alone renders it. It does not
 own placement decisions or a recognition inventory. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
@@ -250,8 +252,10 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   owners, and settled
   unsupported/deferred/evidence-only occurrences are classified; remaining conditional
   cross-family records stay unclassified.
-- **`measurement_support.py`** — run-local producer-issued measurement, interval and member witnesses.
-- **`location_contract.py`** — shared pocket/pad datum reference and coincidence predicates.
+- **`measurement_support.py`** — run-local producer-issued measurement, interval and member
+  witnesses, plus the shared pocket/pad datum reference and coincidence predicates.
+- **`location_contract.py`** — stable rank-1 import path for those predicates; the
+  implementation is owned by `measurement_support.py` and this path is not deprecated.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
 - **`contract_values.py`** — shared three-decimal correspondence rounding and exact built-in finite-real validation for record contracts.
 - **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in

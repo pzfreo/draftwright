@@ -30,7 +30,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from draftwright._geometry import _EDGE_ON, _END_ON, HoleRef, _fmt_angle
-from draftwright.location_contract import pocket_location_reference
+from draftwright.measurement_support import pocket_location_reference
 from draftwright.model.ir import (
     PLACEMENT_SIDES,
     PLACEMENT_VIEWS,

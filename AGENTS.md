@@ -32,9 +32,11 @@ ranked map (an upward module-level import or a cycle fails CI), and
 [`docs/architecture.md`](docs/architecture.md) is the module-by-module map. Keep the two
 in step; do not restate the module list here.
 
-In outline, by `_LAYERS` rank: **0** leaves — placement solvers, geometry maths, registry,
+In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
+geometry maths, registry, measurement support with pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) → **1**
-`_core` / `document_input` → **2** `projection`, `compose`, `export`, `pdf_text`, `repair`, `pmi`,
+`_core` / `document_input` / the stable `location_contract` import path → **2**
+`projection`, `compose`, `export`, `pdf_text`, `repair`, `pmi`,
 `linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
 passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` → **6**
 `builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
