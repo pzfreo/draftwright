@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from build123d import Align, Box, Cylinder, Pos
 
-from draftwright import build_drawing
+from draftwright import ScaleCompletenessWarning, build_drawing
 from draftwright.builder import detect_part_model
 from draftwright.fits import fit_class
 from draftwright.linting.hole_coverage import hole_requirement_outcomes
@@ -80,6 +80,32 @@ def _dense_plate_with_close_x_ordinates():
     for index, (x, y) in enumerate(positions):
         part -= Pos(x, y, 0) * Cylinder(1.0 + index * 0.15, 20)
     return part
+
+
+def test_scale_fallback_can_reach_a_replacement_hole_table_issue_1941():
+    part = _dense_plate_with_close_x_ordinates()
+    with pytest.warns(ScaleCompletenessWarning):
+        initial = build_drawing(part, page="A3", scale=2.0, scale_policy="permissive", pmi="off")
+
+    assert "hole_table_plan" not in initial.annotations()
+    assert any(
+        blocker["code"] == "location_ref_dropped"
+        and "too closely spaced to dimension legibly" in blocker["message"]
+        for blocker in initial.scale_decision["blockers"]
+    )
+    assert any(issue.code == "table_dropped" for issue in initial.lint())
+
+    with pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 1"):
+        recovered = build_drawing(part, page="A3", scale=2.0, pmi="off")
+
+    assert recovered.scale == 1.0
+    assert recovered.scale_decision["attempted_scales"] == (2.0, 1.0)
+    assert "hole_table_plan" in recovered.annotations()
+    assert not [
+        issue
+        for issue in recovered.lint()
+        if issue.code in {"location_ref_dropped", "table_dropped", "balloon_dropped"}
+    ]
 
 
 def _dense_perimeter_plate():
@@ -1213,7 +1239,7 @@ def test_automatic_initial_table_failure_restores_every_fallback(
         for name, item in baseline.iter_annotations()
         if name.startswith("hc_plan")
     }
-    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(drawing_module, "fit_auxiliary_box", lambda *_args, **_kwargs: None)
 
     trace_path = tmp_path / "rollback.trace.json"
     drawing = build_drawing(part, page="A3", trace=trace_path)

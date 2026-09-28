@@ -53,8 +53,40 @@ def _scale_sensitive_plate():
     return part
 
 
+def _short_step_ladder():
+    """Two recognised heights that change from crowded to withheld on reduction."""
+    return (
+        Pos(0, 0, 10) * Box(120, 60, 20)
+        + Pos(-20, 0, 21) * Box(80, 60, 2)
+        + Pos(-40, 0, 23) * Box(40, 60, 2)
+    )
+
+
 def _placement_drops(drawing):
     return [issue for issue in drawing.lint() if _is_required_scale_drop(issue)]
+
+
+def test_smaller_scale_can_replace_a_step_drop_with_reported_withholding_issue_1941():
+    part = _short_step_ladder()
+    options = {"page": "A4", "detail_view": False, "pmi": "off"}
+    with pytest.warns(ScaleCompletenessWarning):
+        crowded = build_drawing(part, scale=1.0, scale_policy="permissive", **options)
+    smaller = build_drawing(part, scale=0.5, scale_policy="permissive", **options)
+
+    steps = [feature for feature in crowded.model().features if feature.kind == "step_level"]
+    assert len(steps) == 1 and steps[0].levels == (20.0, 22.0)
+    assert any(
+        issue.code == "step_dim_dropped" and "too closely spaced" in issue.message
+        for issue in crowded.lint()
+    )
+    assert not any(issue.code == "step_dim_dropped" for issue in smaller.lint())
+    assert any(issue.code == "step_dim_withheld" for issue in smaller.lint())
+
+    with pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 0.5"):
+        recovered = build_drawing(part, scale=1.0, **options)
+    assert recovered.scale == 0.5
+    assert recovered.scale_decision["status"] == "fallback"
+    assert recovered.scale_decision["attempted_scales"] == (1.0, 0.5)
 
 
 def test_automatic_incomplete_summary_preserves_every_provenance_channel():
@@ -403,7 +435,7 @@ def test_corrective_candidate_failure_filter_is_narrow():
     assert builder._AUTOMATIC_UPSCALE_TRIAL_LIMIT == 2
 
 
-def test_monotone_step_separation_failure_does_not_rebuild_smaller_scales(monkeypatch):
+def test_step_spacing_drop_keeps_smaller_scales_eligible(monkeypatch):
     import draftwright.builder as builder
 
     calls = []
@@ -425,9 +457,79 @@ def test_monotone_step_separation_failure_does_not_rebuild_smaller_scales(monkey
     with pytest.raises(ScaleIncompatibilityError) as caught:
         builder.build_drawing(Box(10, 10, 10), scale=1.0)
 
-    assert calls == [1.0]
+    assert calls == [1.0, 0.5, 0.2, 0.1]
     assert caught.value.decision["status"] == "no_complete_scale"
-    assert caught.value.decision["attempted_scales"] == (1.0,)
+    assert caught.value.decision["attempted_scales"] == (1.0, 0.5, 0.2, 0.1)
+
+
+def test_step_spacing_drop_on_retry_keeps_later_scales_eligible(monkeypatch):
+    import draftwright.builder as builder
+
+    calls = []
+
+    def fake_build(*args, scale, **kwargs):
+        calls.append(scale)
+        code = "step_dim_dropped" if scale == 0.5 else "location_ref_dropped"
+        message = (
+            "1 step height(s) too closely spaced to dimension at this scale"
+            if scale == 0.5
+            else "required location did not fit"
+        )
+        return SimpleNamespace(
+            scale=scale,
+            lint=lambda **_: [LintIssue(severity="warning", code=code, message=message)],
+            recognition=lambda: None,
+            _analysis=None,
+        )
+
+    monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
+
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        builder.build_drawing(Box(10, 10, 10), scale=1.0)
+
+    assert calls == [1.0, 0.5, 0.2, 0.1]
+    assert caught.value.decision["attempted_scales"] == (1.0, 0.5, 0.2, 0.1)
+
+
+def test_principal_projection_must_fit_inside_the_physical_page():
+    import draftwright.builder as builder
+
+    bounds = SimpleNamespace(
+        min=SimpleNamespace(X=-340, Y=-40, Z=-360),
+        max=SimpleNamespace(X=340, Y=820, Z=40),
+    )
+    page = (1189.0, 841.0)
+    assert not builder._principal_view_exceeds_page(0.5, page, bounds, ("front", "plan", "side"))
+    assert builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "plan", "side"))
+    assert not builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "side"))
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(900)
+def test_ctc02_automatic_recovery_has_a_bounded_build_budget_issue_1941():
+    source = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap203.stp"
+    events = []
+    with observe_build(events.append), pytest.warns(ScaleCompletenessWarning):
+        drawing = build_drawing(source)
+
+    decision = drawing.scale_decision
+    assert decision["status"] == "invalid"
+    assert decision["violations"]
+    assert any(
+        blocker["code"] == "location_ref_dropped"
+        and "too closely spaced to dimension legibly" in blocker["message"]
+        for blocker in decision["blockers"]
+    )
+    retries = [event for event in events if event.phase == "retry"]
+    assert len(retries) <= 4
+    assert {dict(event.details)["scale"] for event in retries} == {None, 0.1, 0.5}
+    skipped = [attempt for attempt in decision["attempts"] if attempt["status"] == "skipped"]
+    assert [(attempt["scale"], attempt["rejection"]) for attempt in skipped] == [
+        (1.0, "principal_view_exceeds_page")
+    ]
+    assert all("blockers" not in attempt and "views" not in attempt for attempt in skipped)
+    assert 1.0 not in decision["attempted_scales"]
 
 
 def test_scale_warning_category_remains_a_dependency_free_user_warning():

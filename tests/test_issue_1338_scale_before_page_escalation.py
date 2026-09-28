@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 import draftwright.builder as builder
-from draftwright import build_drawing
+from draftwright import build_drawing, observe_build
 
 FIXTURE = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
 A4 = (297.0, 210.0)
@@ -50,7 +50,11 @@ def test_first_selected_scale_uses_a_detail_for_short_shoulders():
 
 
 def test_automatic_recovers_on_a4_at_a_larger_scale_instead_of_escalating_the_sheet():
-    drawing = build_drawing(FIXTURE, pmi="off", out=None)
+    events = []
+    with observe_build(events.append):
+        drawing = build_drawing(FIXTURE, pmi="off", out=None)
+
+    assert 1 + sum(event.phase == "retry" for event in events) <= 3
 
     assert (drawing.page_w, drawing.page_h, drawing.scale) == (*A4, 5.0)
     assert "iso" in drawing.views

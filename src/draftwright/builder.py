@@ -2365,8 +2365,10 @@ def _scale_attempt(
     views: Iterable[str] | None = None,
     page: tuple[float, float] | None = None,
 ) -> dict:
-    """One plain-data trial in an explicit-scale decision."""
-    attempt = {"scale": scale, "status": status, "blockers": tuple(blockers)}
+    """One plain-data scale trial, or a prebuild skip with no candidate evidence."""
+    attempt: dict[str, object] = {"scale": scale, "status": status}
+    if status != "skipped":
+        attempt["blockers"] = tuple(blockers)
     if error is not None:
         attempt["error"] = error
     if reason is not None:
@@ -2382,16 +2384,25 @@ def _scale_attempt(
     return attempt
 
 
-def _blocks_all_smaller_scales(blockers) -> bool:
-    """True when a blocker is mathematically monotone under scale reduction.
+def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
+    """Rule out a fixed-scale build whose unannotated principal cannot fit.
 
-    A step separation already below the fixed paper-space legibility threshold only shrinks
-    further at every smaller scale. Rebuilding the whole ISO ladder cannot remove it; stopping
-    here is both exact and keeps an impossible fallback bounded (#1146).
+    This uses only the part's world-space bounding box and the full page, leaving
+    margins and annotation footprints out of the bound. A rejected candidate
+    therefore cannot be rescued by a different arrangement or ink placement.
     """
+    extents = {
+        "x": bounds.max.X - bounds.min.X,
+        "y": bounds.max.Y - bounds.min.Y,
+        "z": bounds.max.Z - bounds.min.Z,
+    }
+    axes = {"front": ("x", "z"), "plan": ("x", "y"), "side": ("y", "z")}
+    page_w, page_h = page
     return any(
-        item["code"] == "step_dim_dropped" and "too closely spaced" in item["message"]
-        for item in blockers
+        extents[horizontal] * scale > page_w + 1e-9 or extents[vertical] * scale > page_h + 1e-9
+        for view in views
+        if (pair := axes.get(view)) is not None
+        for horizontal, vertical in (pair,)
     )
 
 
@@ -3006,6 +3017,21 @@ def build_drawing(
         def _try_scales_on_selected_page(candidate_scales, *, reason, require_axial_coverage):
             """Try a bounded scale sequence on the already selected sheet."""
             for candidate_scale in candidate_scales:
+                if (
+                    latest_analysis is not None
+                    and hasattr(latest_analysis, "bb")
+                    and _principal_view_exceeds_page(
+                        candidate_scale, original_page, latest_analysis.bb, settled_principal_views
+                    )
+                ):
+                    _record_attempt(
+                        candidate_scale,
+                        "skipped",
+                        reason=reason,
+                        rejection="principal_view_exceeds_page",
+                        page=original_page,
+                    )
+                    continue
                 candidate_drawing = selected_page_scale_candidates.get(candidate_scale)
                 failure = selected_page_scale_failures.get(candidate_scale)
                 if candidate_drawing is None and failure is None:
@@ -3463,7 +3489,9 @@ def build_drawing(
             effective=drawing.scale,
             status="automatic_replanned" if replanned else "automatic",
             attempted=tuple(
-                item["scale"] for item in replan_attempts if item["scale"] is not None
+                item["scale"]
+                for item in replan_attempts
+                if item["scale"] is not None and item["status"] != "skipped"
             ),
             attempts=replan_attempts,
         )
@@ -3607,18 +3635,6 @@ def build_drawing(
     attempts = [_scale_attempt(requested_scale, "incomplete", blockers)]
     last_effective_scale = drawing.scale
     last_blockers = blockers
-    if _blocks_all_smaller_scales(blockers):
-        raise ScaleIncompatibilityError(
-            _scale_decision(
-                policy=scale_policy,
-                requested=requested_scale,
-                effective=drawing.scale,
-                status="no_complete_scale",
-                blockers=blockers,
-                attempted=attempted,
-                attempts=attempts,
-            )
-        )
     # ``_SCALES`` is descending and contains the preferred ISO 5455 reductions. The
     # requested non-standard scale is evaluated first above; fallback candidates must be
     # standard and no greater than it.
