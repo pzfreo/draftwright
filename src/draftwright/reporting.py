@@ -2380,6 +2380,122 @@ def _document_schedules(schedules, owner_id):
     ]
 
 
+def _document_assessment(sheets, requirements, occurrences, conflicts, unknown):
+    """Summarize the projected member evidence without reading live drawing state."""
+
+    def axis_summary(axis):
+        values = [sheet["lint"].get("quality", {}).get(axis, {}) for sheet in sheets]
+        unavailable = [
+            sheet["id"]
+            for sheet, value in zip(sheets, values, strict=True)
+            if not value.get("available", False)
+        ]
+        affected = [
+            sheet["id"]
+            for sheet, value in zip(sheets, values, strict=True)
+            if value.get("raw_issues", 0)
+        ]
+        return {
+            "status": "needs-attention"
+            if affected
+            else "unassessed"
+            if unavailable
+            else "clear-within-lint-scope",
+            "affected_sheets": affected,
+            "unassessed_sheets": unavailable,
+        }
+
+    layout = axis_summary("legibility")
+    fidelity = {
+        **axis_summary("fidelity"),
+        "conflicts": conflicts,
+        "unknown_claims": unknown,
+        "scope": "verified-measurement-claims-and-member-fidelity-lint",
+        "unassessed_scope": [
+            "authored-note-prose",
+            "manufacturing-intent",
+            "engineering-content-without-typed-verified-claims",
+        ],
+    }
+    if conflicts or unknown:
+        fidelity["status"] = "needs-attention"
+    applicable = [row for row in requirements if row["state"] != "inapplicable"]
+    unknown_counts = sum(not row["requirement_count_known"] for row in applicable)
+    denominator = sum(
+        row["requirement_count"] for row in applicable if row["requirement_count_known"]
+    )
+    credit = sum(row["coverage_credit"] for row in applicable)
+    unresolved = [row["id"] for row in applicable if not row["coverage_credit"]]
+    unattributed = [row["id"] for row in applicable if row["carrier_attribution"] == "unavailable"]
+    coverage = {
+        "scope": "accepted-occurrences-and-profile-requirements",
+        "known_requirement_count": denominator,
+        "unknown_cardinality_rows": unknown_counts,
+        "credited_requirements": credit,
+        "audited_score": credit / denominator if denominator and not unknown_counts else None,
+        "uncovered_or_unresolved": unresolved,
+        "unattributed_carriers": unattributed,
+        "excludes": ["unrecognised-geometry", "manufacturing-readiness"],
+    }
+    unresolved_occurrences = [
+        item["id"]
+        for item in occurrences
+        if item["disposition"] in _ATTENTION_DISPOSITIONS
+        or item["requirements"]["coverage"] == "not-projected"
+    ]
+    attention = bool(
+        unresolved
+        or unattributed
+        or unknown_counts
+        or unresolved_occurrences
+        or conflicts
+        or unknown
+    )
+    attention = (
+        attention
+        or layout["status"] != "clear-within-lint-scope"
+        or fidelity["status"] != "clear-within-lint-scope"
+    )
+    return layout, fidelity, coverage, unresolved_occurrences, attention
+
+
+def _document_sheets(members, sheet_ids, member_recipes, resolved, cell_schema, owner_id):
+    """Project member recipes and lint after validating every sheet input."""
+    sheets = []
+    for name, snapshot, _rows in members:
+        if snapshot.lint is None or name not in resolved or name not in member_recipes:
+            raise ReportUnavailableError(f"document sheet {name!r} lacks lint or run options")
+        if cell_schema and "schedules" not in member_recipes[name]:
+            raise ReportUnavailableError(f"document sheet {name!r} lacks schedule intent")
+        options = {
+            key: str(value) if isinstance(value, PathLike) else value
+            for key, value in member_recipes[name]["options"].items()
+        }
+        sheets.append(
+            {
+                "id": sheet_ids[name],
+                "name": name,
+                "options": options,
+                "resolved": resolved[name],
+                "dimension_intents": _document_intents(snapshot.model, owner_id),
+                "view_intents": _document_views(member_recipes[name]["views"], owner_id),
+                "table_intents": member_recipes[name]["tables"],
+                **(
+                    {
+                        "schedule_intents": _document_schedules(
+                            member_recipes[name]["schedules"], owner_id
+                        )
+                    }
+                    if cell_schema
+                    else {}
+                ),
+                "lint": snapshot.lint,
+            }
+        )
+
+    return sheets
+
+
 def document_report(
     *, catalog, evaluation, model, source, run_options, member_recipes, resolved
 ) -> dict[str, object]:
@@ -2600,110 +2716,9 @@ def document_report(
             "ids": identities,
         }
 
-    sheets = []
-    for name, snapshot, _rows in members:
-        if snapshot.lint is None or name not in resolved or name not in member_recipes:
-            raise ReportUnavailableError(f"document sheet {name!r} lacks lint or run options")
-        if cell_schema and "schedules" not in member_recipes[name]:
-            raise ReportUnavailableError(f"document sheet {name!r} lacks schedule intent")
-        options = {
-            key: str(value) if isinstance(value, PathLike) else value
-            for key, value in member_recipes[name]["options"].items()
-        }
-        sheets.append(
-            {
-                "id": sheet_ids[name],
-                "name": name,
-                "options": options,
-                "resolved": resolved[name],
-                "dimension_intents": _document_intents(snapshot.model, owner_id),
-                "view_intents": _document_views(member_recipes[name]["views"], owner_id),
-                "table_intents": member_recipes[name]["tables"],
-                **(
-                    {
-                        "schedule_intents": _document_schedules(
-                            member_recipes[name]["schedules"], owner_id
-                        )
-                    }
-                    if cell_schema
-                    else {}
-                ),
-                "lint": snapshot.lint,
-            }
-        )
-
-    def axis_summary(axis):
-        values = [sheet["lint"].get("quality", {}).get(axis, {}) for sheet in sheets]
-        unavailable = [
-            sheet["id"]
-            for sheet, value in zip(sheets, values, strict=True)
-            if not value.get("available", False)
-        ]
-        affected = [
-            sheet["id"]
-            for sheet, value in zip(sheets, values, strict=True)
-            if value.get("raw_issues", 0)
-        ]
-        return {
-            "status": "needs-attention"
-            if affected
-            else "unassessed"
-            if unavailable
-            else "clear-within-lint-scope",
-            "affected_sheets": affected,
-            "unassessed_sheets": unavailable,
-        }
-
-    layout = axis_summary("legibility")
-    fidelity = {
-        **axis_summary("fidelity"),
-        "conflicts": conflicts,
-        "unknown_claims": unknown,
-        "scope": "verified-measurement-claims-and-member-fidelity-lint",
-        "unassessed_scope": [
-            "authored-note-prose",
-            "manufacturing-intent",
-            "engineering-content-without-typed-verified-claims",
-        ],
-    }
-    if conflicts or unknown:
-        fidelity["status"] = "needs-attention"
-    applicable = [row for row in requirements if row["state"] != "inapplicable"]
-    unknown_counts = sum(not row["requirement_count_known"] for row in applicable)
-    denominator = sum(
-        row["requirement_count"] for row in applicable if row["requirement_count_known"]
-    )
-    credit = sum(row["coverage_credit"] for row in applicable)
-    unresolved = [row["id"] for row in applicable if not row["coverage_credit"]]
-    unattributed = [row["id"] for row in applicable if row["carrier_attribution"] == "unavailable"]
-    coverage = {
-        "scope": "accepted-occurrences-and-profile-requirements",
-        "known_requirement_count": denominator,
-        "unknown_cardinality_rows": unknown_counts,
-        "credited_requirements": credit,
-        "audited_score": credit / denominator if denominator and not unknown_counts else None,
-        "uncovered_or_unresolved": unresolved,
-        "unattributed_carriers": unattributed,
-        "excludes": ["unrecognised-geometry", "manufacturing-readiness"],
-    }
-    unresolved_occurrences = [
-        item["id"]
-        for item in occurrences
-        if item["disposition"] in _ATTENTION_DISPOSITIONS
-        or item["requirements"]["coverage"] == "not-projected"
-    ]
-    attention = bool(
-        unresolved
-        or unattributed
-        or unknown_counts
-        or unresolved_occurrences
-        or conflicts
-        or unknown
-    )
-    attention = (
-        attention
-        or layout["status"] != "clear-within-lint-scope"
-        or fidelity["status"] != "clear-within-lint-scope"
+    sheets = _document_sheets(members, sheet_ids, member_recipes, resolved, cell_schema, owner_id)
+    layout, fidelity, coverage, unresolved_occurrences, attention = _document_assessment(
+        sheets, requirements, occurrences, conflicts, unknown
     )
     report = {
         "schema": REPORT_SCHEMA,
