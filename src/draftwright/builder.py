@@ -614,6 +614,7 @@ def _assemble(
     shape=None,
     critique_recognition_cache=None,
     reproducible=True,
+    title_block_cache=None,
 ) -> Drawing:
     """Project the 4 views for analysis *a*, run the automatic annotation
     passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
@@ -650,6 +651,7 @@ def _assemble(
         assembly=assembly,
         reproducible=reproducible,
     )
+    dwg._build.title_block_cache = title_block_cache if title_block_cache is not None else {}
     dwg.annotation_scheme_decision = {
         "status": "shadow",
         "influenced_layout": False,
@@ -1246,6 +1248,7 @@ def _repack(
         trace=trace,
         critique_recognition_cache=critique_recognition_cache,
         reproducible=reproducible,
+        title_block_cache=dwg._build.title_block_cache,
     )
     return a2, dwg2
 
@@ -1422,6 +1425,7 @@ def _build_drawing_once(
     title_block_width: float | None = None,
     leader_region: Literal["auto", "interior", "exterior"] = "auto",
     _candidate_profile_first: bool = False,
+    _title_block_cache=None,
 ) -> Drawing:
     """Build a customisable 4-view :class:`Drawing` without exporting it.
 
@@ -1832,6 +1836,7 @@ def _build_drawing_once(
             trace=tracer,
             critique_recognition_cache=_critique_recognition_cache,
             reproducible=reproducible,
+            title_block_cache=_title_block_cache,
         )
         if auto_dims:
             repacked = _repack_to_fixed_point(
@@ -2604,6 +2609,7 @@ def build_drawing(
         raise ValueError(
             f"scale_policy must be 'strict', 'fallback', or 'permissive', got {scale_policy!r}"
         )
+    title_block_cache: dict[tuple, tuple] = {}
     one_pass = partial(
         _build_drawing_once,
         step_file,
@@ -2650,6 +2656,7 @@ def build_drawing(
         _view_constraints=_view_constraints,
         _document_input=_document_input,
         _candidate_profile_first=annotation_layout == "demand-guided",
+        _title_block_cache=title_block_cache,
     )
     analysis_base = _analysis_base
     build_attempt = 0

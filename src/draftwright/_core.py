@@ -19,6 +19,7 @@ import math
 import re
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable
+from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -1834,17 +1835,55 @@ def _make_title_block(dwg, a: Analysis):
     return tb, cell
 
 
+def _cached_title_block(dwg, a: Analysis):
+    """Share one constructed block across footprint, placement and build retries."""
+    margins = _title_margins(a)
+    key = (
+        a.PAGE_W,
+        a.PAGE_H,
+        a.TB_W,
+        a.title,
+        a.number,
+        a.tolerance,
+        a.drawn_by,
+        a.material,
+        a.date,
+        a.revision,
+        a.company,
+        a.approved_by,
+        a.document_type,
+        a.sheet,
+        dwg.draft.font_size,
+        dwg.draft.decimal_precision,
+        PLEX_SANS_CONDENSED,
+    )
+    prototype, cell = dwg.title_block_for(key, lambda: _make_title_block(dwg, a))
+    bx, by = a.PAGE_W - a.TB_W - margins.right, margins.bottom
+    at = prototype.location.position
+    dx, dy = bx - at.X, by - at.Y
+    if dx == 0 and dy == 0:
+        return prototype, cell
+    tb = copy(prototype).locate(Location((bx, by, 0)))
+    tb.pdf_text_specs = tuple(
+        (value, x + dx, y + dy, size, font) for value, x, y, size, font in prototype.pdf_text_specs
+    )
+    return tb, cell
+
+
 def _title_block_box(dwg, a: Analysis):
     """The title block's real page-space bbox ``(x0, y0, x1, y1)``. GD&T placement avoids it
     (#481): the block is added last, so strip placement can't see it, but it's deterministic."""
-    tb, _ = _make_title_block(dwg, a)
+    tb, _ = _cached_title_block(dwg, a)
     b = tb.bounding_box()
     return (b.min.X, b.min.Y, b.max.X, b.max.Y)
 
 
 def _add_title_block(dwg, a: Analysis):
     """Add the title block annotation."""
-    tb, cell = _make_title_block(dwg, a)
+    prototype, cell = _cached_title_block(dwg, a)
+    # Candidate drawings may share the build cache. The placed annotation owns a
+    # separate wrapper so edits/removal on one candidate cannot alter another.
+    tb = copy(prototype)
 
     # Record that cell's page-space rectangle so export() can place a clickable
     # draftwright hyperlink over the "… / draftwright" author text. The build-frame
