@@ -15,6 +15,7 @@ from draftwright.compose import StripDepths, _measure_strips
 from draftwright.layout_scheme import (
     AnnotationDemand,
     AnnotationScheme,
+    UnplannedAnnotation,
     pack_annotation_lanes,
     pack_estimated_annotation_lanes,
     plan_annotation_scheme,
@@ -73,8 +74,53 @@ def test_scheme_groups_explicit_semantics_by_view_corridor_without_coordinates()
             "reason": "raw PMI has no typed corridor",
             "measurements": [],
             "source_ids": ["dimension:raw"],
+            "obligation_class": "required",
         }
     ]
+
+
+def test_obligation_classes_preserve_authored_and_compiled_requirements():
+    scheme = plan_annotation_scheme(_model())
+    assert all(item.obligation_class == "required" for item in scheme.demands)
+    assert all(item.obligation_class == "required" for item in scheme.unplanned)
+    assert all(row["obligation_class"] == "required" for row in scheme.to_dict()["demands"])
+
+    automatic = plan_annotation_scheme(build_part_model(Cylinder(10, 30, rotation=(0, 90, 0))))
+    assert any(item.measurements for item in automatic.demands)
+    assert all(item.obligation_class == "required" for item in automatic.demands)
+    assert all(item.obligation_class == "required" for item in automatic.unplanned)
+
+
+def test_unknown_obligation_is_not_optional_and_source_backed_optional_is_refused():
+    demand = AnnotationDemand("unattributed", "generated", "front", "above", 0, (0, 0, 0))
+    assert demand.obligation_class == "unknown"
+    assert AnnotationScheme((demand,), ()).to_dict()["demands"][0]["obligation_class"] == (
+        "unknown"
+    )
+    optional = replace(demand, obligation_class="optional")
+    assert optional.obligation_class == "optional"
+    with pytest.raises(ValueError, match="invalid annotation obligation class"):
+        replace(demand, obligation_class="invented")
+    with pytest.raises(ValueError, match="cannot be optional"):
+        UnplannedAnnotation(
+            "source",
+            "pmi",
+            0,
+            "no corridor",
+            source_ids=("source:1",),
+            obligation_class="optional",
+        )
+    with pytest.raises(ValueError, match="cannot be optional"):
+        AnnotationDemand(
+            "measure",
+            "automatic_dimension",
+            "front",
+            "above",
+            0,
+            (0, 0, 0),
+            measurements=(DimensionId(_model().features[0], "bore.diameter"),),
+            obligation_class="optional",
+        )
 
 
 def test_strip_measurement_carries_the_scheme_without_changing_depths():
@@ -258,6 +304,7 @@ def test_source_only_demand_is_unattributed_not_falsely_satisfied():
             "identity": "dimension:raw",
             "family": "pmi",
             "feature_index": 4,
+            "obligation_class": "required",
             "status": "unattributed",
             "measurements": [],
             "sources": [{"source_id": "dimension:raw", "carriers": []}],

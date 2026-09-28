@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from draftwright.model.ir import authored_dimension_target_view
 from draftwright.model.planner import DimensionId, annotation_groups, plan_dimensions
@@ -19,6 +19,18 @@ from draftwright.view_plan import VIEW_AXES
 
 _VIEWS = frozenset({"front", "plan", "side", "rear"})
 _SIDES = frozenset({"above", "below", "left", "right"})
+ObligationClass = Literal["required", "optional", "unknown"]
+
+
+def _check_obligation_class(
+    classification: ObligationClass,
+    measurements: tuple[DimensionId, ...],
+    source_ids: tuple[str, ...],
+) -> None:
+    if classification not in {"required", "optional", "unknown"}:
+        raise ValueError(f"invalid annotation obligation class: {classification!r}")
+    if classification == "optional" and (measurements or source_ids):
+        raise ValueError("source-backed or approved measurement obligations cannot be optional")
 
 
 @dataclass(frozen=True)
@@ -40,6 +52,13 @@ class AnnotationDemand:
     # One imported PMI item can own several exact source occurrences (notably
     # repeated datum references). Keep every source ID, not just ``identity``.
     source_ids: tuple[str, ...] = ()
+    # Classifies the semantic obligation, never the glyph: a required fact may
+    # still use a table or another legible carrier. Unknown fails closed and is
+    # not permission to drop the candidate as redundant (#1866).
+    obligation_class: ObligationClass = "unknown"
+
+    def __post_init__(self) -> None:
+        _check_obligation_class(self.obligation_class, self.measurements, self.source_ids)
 
     def estimated_paper_span(self, font_size: float, padding: float = 0.0) -> float:
         """Estimate along-corridor ink in page mm without constructing render geometry."""
@@ -72,6 +91,10 @@ class UnplannedAnnotation:
     reason: str
     measurements: tuple[DimensionId, ...] = ()
     source_ids: tuple[str, ...] = ()
+    obligation_class: ObligationClass = "unknown"
+
+    def __post_init__(self) -> None:
+        _check_obligation_class(self.obligation_class, self.measurements, self.source_ids)
 
 
 @dataclass(frozen=True)
@@ -113,6 +136,7 @@ class AnnotationScheme:
                         for item in demand.measurements
                     ],
                     "source_ids": list(demand.source_ids),
+                    "obligation_class": demand.obligation_class,
                 }
                 for demand in self.demands
             ],
@@ -127,6 +151,7 @@ class AnnotationScheme:
                         for identity in item.measurements
                     ],
                     "source_ids": list(item.source_ids),
+                    "obligation_class": item.obligation_class,
                 }
                 for item in self.unplanned
             ],
@@ -502,6 +527,7 @@ def _automatic_demand(
         ink,
         dedicated_lane,
         measurements,
+        obligation_class="required" if measurements else "unknown",
     )
 
 
@@ -539,6 +565,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     feature_index,
                     "compound feature leader has no single typed corridor",
                     leader_measurements,
+                    obligation_class="required",
                 )
             else:
                 explicitly_exterior = any(
@@ -578,6 +605,7 @@ def _automatic_scheme_items(model, groups=None, corridor_loads=None):
                     feature_index,
                     "automatic dimension has no single typed corridor",
                     (DimensionId(group.feature, unit.id),),
+                    obligation_class="required",
                 )
                 continue
             view, side = next(iter(routes))
@@ -625,14 +653,24 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
             if side is None:
                 unplanned.append(
                     UnplannedAnnotation(
-                        identity, family, index, "no explicit corridor side", source_ids=source_ids
+                        identity,
+                        family,
+                        index,
+                        "no explicit corridor side",
+                        source_ids=source_ids,
+                        obligation_class="required",
                     )
                 )
                 continue
         elif kind == "pmi":
             unplanned.append(
                 UnplannedAnnotation(
-                    identity, family, index, "raw PMI has no typed corridor", source_ids=source_ids
+                    identity,
+                    family,
+                    index,
+                    "raw PMI has no typed corridor",
+                    source_ids=source_ids,
+                    obligation_class="required",
                 )
             )
             continue
@@ -647,6 +685,7 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
                     index,
                     "invalid or absent view-side route",
                     source_ids=source_ids,
+                    obligation_class="required",
                 )
             )
             continue
@@ -662,6 +701,7 @@ def plan_annotation_scheme(model, *, groups=None) -> AnnotationScheme:
                 support,
                 _estimated_ink_em(feature),
                 source_ids=source_ids,
+                obligation_class="required",
             )
         )
 
