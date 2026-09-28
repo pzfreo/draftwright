@@ -41,7 +41,7 @@ def _approved_y_chain(lengths, *, gap=0.0):
     return SimpleNamespace(of_kind=lambda kind: tuple(groups) if kind == "step" else ())
 
 
-def _approved_x_head():
+def _approved_x_head(*, displayed_diameter_offset=0.0):
     rows = []
     station = -3.2
     for length, diameter in ((3.2, 4), (0.5, 6), (2, 10), (3, 5), (20, 3)):
@@ -52,8 +52,9 @@ def _approved_x_head():
                     frame=SimpleNamespace(axis="x", origin=((lo + hi) / 2, 0, 0)),
                     profile="one physical profile",
                     profile_group=None,
+                    diameter=float(diameter),
                 ),
-                dim=lambda *, kind, span=((lo, 0, 0), (hi, 0, 0)), size=length, dia=diameter: (
+                dim=lambda *, kind, span=((lo, 0, 0), (hi, 0, 0)), size=length, dia=(diameter + displayed_diameter_offset): (
                     SimpleNamespace(value=size, span=span)
                     if kind == "length"
                     else SimpleNamespace(value=dia)
@@ -84,6 +85,24 @@ def test_x_crowded_run_and_partial_head_demand_share_renderer_rule(monkeypatch):
     assert width == pytest.approx(87.0)
     assert 55.0 < height < 70.0
     assert footprints(5.0) == ()  # only the isolated 0.5 mm step remains sub-floor
+
+
+def test_x_head_crop_uses_physical_profile_not_displayed_diameter(monkeypatch):
+    monkeypatch.setattr(analysis_module, "_text_size", lambda text, *_a, **_k: (len(text), 3))
+    bb = SimpleNamespace(min=SimpleNamespace(Z=-5.0), max=SimpleNamespace(Z=5.0))
+    draft = SimpleNamespace(font_size=3.0, arrow_length=2.7, pad_around_text=2.0)
+    ordinary = analysis_module._automatic_x_head_detail_footprints(
+        _approved_x_head(), bb, draft, section_count=0, planned_views=None
+    )
+    different_nominal = analysis_module._automatic_x_head_detail_footprints(
+        _approved_x_head(displayed_diameter_offset=1.0),
+        bb,
+        draft,
+        section_count=0,
+        planned_views=None,
+    )
+    assert ordinary is not None and different_nominal is not None
+    assert ordinary(1.0) == different_nominal(1.0)
 
 
 def test_approved_y_chain_produces_scale_dependent_detail_demand(monkeypatch):

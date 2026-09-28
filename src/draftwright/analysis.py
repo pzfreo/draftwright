@@ -296,7 +296,9 @@ def _automatic_x_head_detail_footprints(
         abs(previous[1] - current[0]) > 1e-3 + 1e-9 for previous, current in zip(rows, rows[1:])
     ):
         return None
-    radial_extents = tuple((row[5] - row[3].value / 2, row[5] + row[3].value / 2) for row in rows)
+    # The renderer crops against the controlled step's physical profile, not
+    # the displayed nominal diameter (which PMI may specify independently).
+    radial_extents = tuple((row[5] - row[6] / 2, row[5] + row[6] / 2) for row in rows)
     full_lo = min(extent[0] for extent in radial_extents)
     full_hi = max(extent[1] for extent in radial_extents)
     letter = DERIVED_VIEW_IDENTIFIERS[section_count]
