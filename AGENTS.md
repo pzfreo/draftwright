@@ -38,7 +38,8 @@ recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) 
 `_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `pmi`,
 `linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
-passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` → **6**
+passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` and
+`intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
 `builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
 `inspection`, `cli`, the recogniser/inspection contract joins). `make_drawing` / `annotate`
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.

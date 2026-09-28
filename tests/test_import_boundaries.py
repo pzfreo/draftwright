@@ -156,6 +156,7 @@ _LAYERS: dict[str, int] = {
     "annotations": 4,
     "annotate": 4,
     # 5 — the Drawing result object
+    "intent_drain": 5,
     "drawing": 5,
     # 6 — build orchestration
     "builder": 6,
