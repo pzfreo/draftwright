@@ -76,6 +76,46 @@ def test_options_and_validation_are_available_before_build() -> None:
     }
 
 
+def test_duplicate_live_identity_is_refused_but_withdrawn_identity_can_be_reused() -> None:
+    sheet = _sheet()
+    replacement = sheet.add(DatumRef(Frame((-20, 0, 5), "z"), "B", "plan", "above"))
+
+    with pytest.raises(ValueError, match="duplicate declaration_id 'declaration:57'"):
+        replacement.identify("declaration:57")
+
+    sheet.features.pop(0)
+    with pytest.raises(ValueError, match="requires one live declaration; found 0"):
+        sheet.by_declaration("declaration:57")
+    replacement.identify("declaration:57")
+    sheet.layout_override("declaration:57", side="below")
+    assert sheet.model().features[-1].side == "below"
+
+
+def test_validation_rejects_unknown_and_ambiguous_controls_without_changing_intent() -> None:
+    sheet = _sheet()
+    before = sheet.model().features
+
+    unknown = sheet.validate_layout_override("declaration:57", side="above", x=10, y=20)
+    assert unknown["supported"] is False
+    assert unknown["issues"] == [
+        {
+            "code": "unsupported_control",
+            "controls": ["x", "y"],
+            "message": "layout_override accepts only side, or parameter with lane",
+        }
+    ]
+    for controls in ({}, {"side": "above", "lane": 2}):
+        invalid = sheet.validate_layout_override("declaration:57", **controls)
+        assert invalid["issues"] == [
+            {
+                "code": "invalid_control_combination",
+                "message": "specify exactly one of side or lane",
+            }
+        ]
+    assert sheet.model().features == before
+    assert sheet.model().layout_overrides == ()
+
+
 def test_two_overrides_change_only_side_and_are_retained_as_layout_intent() -> None:
     sheet = _sheet()
     sheet.layout_override("declaration:57", side="above")
