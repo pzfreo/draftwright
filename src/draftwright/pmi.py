@@ -72,19 +72,31 @@ from draftwright._pmi_part21 import (
 from draftwright._pmi_schema import (
     _DIM_PREFIX,
     _DIM_TYPE,
-    _GTOL_MATERIAL_REQUIREMENT,
-    _GTOL_MODIFIER,
     _GTOL_TYPE,
-    _GTOL_TYPE_OF_VALUE,
     _LENGTH_DIMENSION_KINDS,
     _PRESENTATION_TYPES,
-    _SUPPORTED_GTOL_SCOPE_MODIFIERS,
+)
+from draftwright._pmi_schema import (
+    _GTOL_MATERIAL_REQUIREMENT as _GTOL_MATERIAL_REQUIREMENT,
+)
+from draftwright._pmi_schema import (
+    _GTOL_MODIFIER as _GTOL_MODIFIER,
+)
+from draftwright._pmi_schema import (
+    _GTOL_TYPE_OF_VALUE as _GTOL_TYPE_OF_VALUE,
+)
+from draftwright._pmi_schema import (
+    _SUPPORTED_GTOL_SCOPE_MODIFIERS as _SUPPORTED_GTOL_SCOPE_MODIFIERS,
 )
 from draftwright._pmi_support_blockers import (
     _dimension_geometry_blockers,
+    _failure_reason,
+    _geometric_tolerance_modifiers,
+    _geometric_tolerance_qualifiers,
     _is_direct_xcaf_angular_failure,
     _is_direct_xcaf_diameter_failure,
     _is_direct_xcaf_reference_failure,
+    _unpreserved_geometric_tolerance_fields,
     _without_direct_xcaf_angular_failures,
     _without_direct_xcaf_diameter_failures,
     _without_direct_xcaf_reference_failures,
@@ -445,10 +457,6 @@ def _dimension_without_record(source_id: str, type_code: int) -> PmiSourceEntity
             reason="graphical presentation is not a semantic requirement",
         )
     return None
-
-
-def _failure_reason(exc: Exception) -> str:
-    return f"{type(exc).__name__}: {exc}"
 
 
 def _reference_geometry_with_groups(label, shape_tool, frame: PartFrame | None = None):
@@ -1368,99 +1376,6 @@ def _semantic_name(obj) -> tuple[str, str]:
     if not name:
         return "", "XCAF geometric tolerance has no semantic name"
     return name, ""
-
-
-def _geometric_tolerance_modifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Inventory XCAF's modifier sequence and admit representable scope symbols."""
-    try:
-        codes = tuple(int(modifier) for modifier in obj.GetModifiers())
-    except Exception as exc:
-        return (), (f"geometric-tolerance modifiers are unavailable ({_failure_reason(exc)})",)
-
-    names: list[str] = []
-    reasons: list[str] = []
-    for code in codes:
-        name = _GTOL_MODIFIER.get(code)
-        if name is None:
-            names.append(f"unknown({code})")
-            reasons.append(f"geometric-tolerance modifier {code} is unknown")
-            continue
-        names.append(name)
-        if name not in _SUPPORTED_GTOL_SCOPE_MODIFIERS:
-            reasons.append(f"geometric-tolerance modifier {name!r} is not supported")
-
-    if len(names) > 1:
-        reasons.append(
-            f"geometric-tolerance modifier combination {tuple(names)!r} is not supported"
-        )
-    return tuple(names), tuple(dict.fromkeys(reasons))
-
-
-def _geometric_tolerance_qualifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Preserve supported tolerance-zone shape and material-condition qualifiers."""
-    names: list[str] = []
-    reasons: list[str] = []
-    fields = (
-        ("GetTypeOfValue", "type-of-value", _GTOL_TYPE_OF_VALUE),
-        (
-            "GetMaterialRequirementModifier",
-            "material-requirement modifier",
-            _GTOL_MATERIAL_REQUIREMENT,
-        ),
-    )
-    for accessor, description, vocabulary in fields:
-        try:
-            code = int(getattr(obj, accessor)())
-        except Exception as exc:
-            reasons.append(
-                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
-            )
-            continue
-        if code == 0:
-            continue
-        name = vocabulary.get(code)
-        if name is None:
-            reasons.append(f"geometric-tolerance {description} {code} is unknown")
-            continue
-        names.append(name)
-        if name == "spherical_diameter_zone":
-            reasons.append("geometric-tolerance spherical-diameter zone is not supported")
-    return tuple(names), tuple(reasons)
-
-
-def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
-    """Keep a source partial when XCAF exposes requirement fields we do not yet carry."""
-    reasons: list[str] = []
-    enum_fields = (("GetZoneModifier", "zone modifier"),)
-    for accessor, description in enum_fields:
-        try:
-            enum_value = int(getattr(obj, accessor)())
-        except Exception as exc:
-            reasons.append(
-                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
-            )
-        else:
-            if enum_value != 0:
-                reasons.append(f"geometric-tolerance {description} {enum_value} is not preserved")
-
-    float_fields = (
-        ("GetValueOfZoneModifier", "zone-modifier value"),
-        ("GetMaxValueModifier", "maximum-value modifier"),
-    )
-    for accessor, description in float_fields:
-        try:
-            numeric_value = float(getattr(obj, accessor)())
-        except Exception as exc:
-            reasons.append(
-                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
-            )
-        else:
-            if abs(numeric_value) > 1e-9:
-                reasons.append(
-                    f"geometric-tolerance {description} {numeric_value:g} is not preserved"
-                )
-
-    return tuple(reasons)
 
 
 def _dimension_record(

@@ -1,9 +1,17 @@
-"""Pure source-geometry blocker policy for AP242 PMI extraction.
+"""Pure source-support blocker policy for AP242 PMI extraction.
 
 Direct XCAF failures are removed only after exact Part21 support replaces them.
+Geometric-tolerance fields outside the lowered vocabulary remain explicit source blockers.
 """
 
 from __future__ import annotations
+
+from draftwright._pmi_schema import (
+    _GTOL_MATERIAL_REQUIREMENT,
+    _GTOL_MODIFIER,
+    _GTOL_TYPE_OF_VALUE,
+    _SUPPORTED_GTOL_SCOPE_MODIFIERS,
+)
 
 
 def _dimension_geometry_blockers(
@@ -69,3 +77,100 @@ def _is_direct_xcaf_angular_failure(reason: str) -> bool:
 def _without_direct_xcaf_angular_failures(reasons: tuple[str, ...]) -> tuple[str, ...]:
     """Drop angular XCAF failures superseded by exact Part21 member supports."""
     return tuple(reason for reason in reasons if not _is_direct_xcaf_angular_failure(reason))
+
+
+def _failure_reason(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _geometric_tolerance_modifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Inventory XCAF's modifier sequence and admit representable scope symbols."""
+    try:
+        codes = tuple(int(modifier) for modifier in obj.GetModifiers())
+    except Exception as exc:
+        return (), (f"geometric-tolerance modifiers are unavailable ({_failure_reason(exc)})",)
+
+    names: list[str] = []
+    reasons: list[str] = []
+    for code in codes:
+        name = _GTOL_MODIFIER.get(code)
+        if name is None:
+            names.append(f"unknown({code})")
+            reasons.append(f"geometric-tolerance modifier {code} is unknown")
+            continue
+        names.append(name)
+        if name not in _SUPPORTED_GTOL_SCOPE_MODIFIERS:
+            reasons.append(f"geometric-tolerance modifier {name!r} is not supported")
+
+    if len(names) > 1:
+        reasons.append(
+            f"geometric-tolerance modifier combination {tuple(names)!r} is not supported"
+        )
+    return tuple(names), tuple(dict.fromkeys(reasons))
+
+
+def _geometric_tolerance_qualifiers(obj) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Preserve supported tolerance-zone shape and material-condition qualifiers."""
+    names: list[str] = []
+    reasons: list[str] = []
+    fields = (
+        ("GetTypeOfValue", "type-of-value", _GTOL_TYPE_OF_VALUE),
+        (
+            "GetMaterialRequirementModifier",
+            "material-requirement modifier",
+            _GTOL_MATERIAL_REQUIREMENT,
+        ),
+    )
+    for accessor, description, vocabulary in fields:
+        try:
+            code = int(getattr(obj, accessor)())
+        except Exception as exc:
+            reasons.append(
+                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
+            )
+            continue
+        if code == 0:
+            continue
+        name = vocabulary.get(code)
+        if name is None:
+            reasons.append(f"geometric-tolerance {description} {code} is unknown")
+            continue
+        names.append(name)
+        if name == "spherical_diameter_zone":
+            reasons.append("geometric-tolerance spherical-diameter zone is not supported")
+    return tuple(names), tuple(reasons)
+
+
+def _unpreserved_geometric_tolerance_fields(obj) -> tuple[str, ...]:
+    """Keep a source partial when XCAF exposes requirement fields we do not yet carry."""
+    reasons: list[str] = []
+    enum_fields = (("GetZoneModifier", "zone modifier"),)
+    for accessor, description in enum_fields:
+        try:
+            enum_value = int(getattr(obj, accessor)())
+        except Exception as exc:
+            reasons.append(
+                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
+            )
+        else:
+            if enum_value != 0:
+                reasons.append(f"geometric-tolerance {description} {enum_value} is not preserved")
+
+    float_fields = (
+        ("GetValueOfZoneModifier", "zone-modifier value"),
+        ("GetMaxValueModifier", "maximum-value modifier"),
+    )
+    for accessor, description in float_fields:
+        try:
+            numeric_value = float(getattr(obj, accessor)())
+        except Exception as exc:
+            reasons.append(
+                f"geometric-tolerance {description} is unavailable ({_failure_reason(exc)})"
+            )
+        else:
+            if abs(numeric_value) > 1e-9:
+                reasons.append(
+                    f"geometric-tolerance {description} {numeric_value:g} is not preserved"
+                )
+
+    return tuple(reasons)
