@@ -404,6 +404,8 @@ observer registry and re-exports its existing private helper names.
   `model/declare.py` and calls `build_drawing(model=…)`. Née `sheet_dsl.py`
   (renamed #640 — it's a fluent facade, not a DSL, per ADR 4 (was 0001); the `sheet_dsl`
   alias shim was deleted at 0.4.0, #720).
+- **`sheet_features.py`** — the facade's private token-preserving feature-list view;
+  `sheet.py` re-exports `_FeatureView` for existing private imports and pickles.
 - **`sheet_object_source.py`** — live-object import seams and mutual one-to-one
   geometry correspondence for script generation. This facade-rank owner keeps the
   existing private `sheet_emit` import paths available to callers.
