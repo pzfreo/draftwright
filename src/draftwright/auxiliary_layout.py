@@ -14,6 +14,17 @@ from draftwright.layout import _boxes_overlap, fit_box
 PREFERRED_BLOCK_GUTTER = 6.0  # page millimetres, beyond the hard ink clearance
 
 
+def section_slot_x(usable, side_right, half_w, *, shares_title_row, tb_left):
+    """Choose a gracious section gutter only when the original slot still fits."""
+    spacious = [
+        (lo, hi)
+        for lo, hi in usable
+        if hi - max(lo, side_right + 16) >= 2 * half_w
+        and (not shares_title_row or max(lo, side_right + 16) + 2 * half_w <= tb_left - 4)
+    ]
+    return (max(spacious[0][0], side_right + 16) if spacious else usable[0][0]) + half_w
+
+
 def document_note_rows(notes) -> tuple[tuple[str], ...]:
     """One measured text shape for both page planning and rendering."""
     rows = [("GENERAL NOTES",)]

@@ -63,7 +63,7 @@ from draftwright.annotations._common import (
     strip_obstacles,
 )
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
-from draftwright.auxiliary_layout import detail_space
+from draftwright.auxiliary_layout import detail_space, section_slot_x
 from draftwright.model import plan_sections
 from draftwright.projection import project_view_geometry
 from draftwright.view_plan import DERIVED_VIEW_IDENTIFIERS, DerivedViewIdentifierPool
@@ -104,17 +104,6 @@ def _reserved_detail_box_is_clear(drawable, obstacles, box) -> bool:
         and drawable[1] <= y0 < y1 <= drawable[3]
         and not any(_boxes_overlap(box, obstacle) for obstacle in obstacles)
     )
-
-
-def _section_slot_x(usable, side_right, half_w, *, shares_title_row, tb_left):
-    """Choose a gracious section gutter only when the original slot still fits."""
-    spacious = [
-        (lo, hi)
-        for lo, hi in usable
-        if hi - max(lo, side_right + 16) >= 2 * half_w
-        and (not shares_title_row or max(lo, side_right + 16) + 2 * half_w <= tb_left - 4)
-    ]
-    return (max(spacious[0][0], side_right + 16) if spacious else usable[0][0]) + half_w
 
 
 def _detail_ink_within_reservation(reserved_box, shapes, *, tolerance=0.05):
@@ -418,7 +407,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx) -> bool:
     # Where the band permits it, leave a more comfortable gap after the parent
     # row. Keep the ten-millimetre hard minimum above: whitespace may never
     # veto an otherwise fitting section.
-    pos_x = _section_slot_x(
+    pos_x = section_slot_x(
         usable, side_right, half_w, shares_title_row=shares_title_row, tb_left=tb_left
     )
 

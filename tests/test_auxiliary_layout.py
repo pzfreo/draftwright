@@ -2,14 +2,16 @@
 
 from types import SimpleNamespace
 
+import pytest
 from build123d import Box
 
+from draftwright import build_drawing
 from draftwright.analysis import _analyse
-from draftwright.annotations.sections import _section_slot_x
 from draftwright.auxiliary_layout import (
     detail_space,
     document_note_rows,
     fit_auxiliary_box,
+    section_slot_x,
 )
 from draftwright.model.ir import DocumentNote, Frame, PartModel
 
@@ -56,9 +58,9 @@ def test_detail_gutter_cannot_reduce_requested_scale():
 
 
 def test_section_prefers_space_without_crossing_title_block_or_losing_fit():
-    assert _section_slot_x([(20.0, 80.0)], 10.0, 12.0, shares_title_row=False, tb_left=50) == 38.0
-    assert _section_slot_x([(20.0, 45.0)], 10.0, 12.0, shares_title_row=False, tb_left=50) == 32.0
-    assert _section_slot_x([(20.0, 80.0)], 10.0, 12.0, shares_title_row=True, tb_left=50) == 32.0
+    assert section_slot_x([(20.0, 80.0)], 10.0, 12.0, shares_title_row=False, tb_left=50) == 38.0
+    assert section_slot_x([(20.0, 45.0)], 10.0, 12.0, shares_title_row=False, tb_left=50) == 32.0
+    assert section_slot_x([(20.0, 80.0)], 10.0, 12.0, shares_title_row=True, tb_left=50) == 32.0
 
 
 def test_visible_document_notes_reserve_their_measured_page_block():
@@ -73,5 +75,14 @@ def test_visible_document_notes_reserve_their_measured_page_block():
         )
         return _analyse(part, "", "", None, "", "", model=model, pmi="annotate")
 
-    assert analyse(True).layout_required_tables
+    visible = analyse(True)
+    assert len(visible.layout_required_tables) == 1
+    drawing = build_drawing(
+        part,
+        model=PartModel(part.bounding_box(), "z", [note]),
+        pmi="annotate",
+    )
+    assert visible.layout_required_tables[0][0] == pytest.approx(
+        drawing.get_annotation("general_notes").table_size
+    )
     assert not analyse(False).layout_required_tables
