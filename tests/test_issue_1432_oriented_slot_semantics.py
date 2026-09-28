@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 import math
+import pickle
 from copy import copy
 from dataclasses import replace
 from types import SimpleNamespace
@@ -23,7 +25,13 @@ from draftwright import Sheet, build_drawing
 from draftwright.feature_identity import register_oriented_slot_feature_type
 from draftwright.linting import LintIssue
 from draftwright.linting.oriented_slot_coverage import oriented_slot_requirement_outcomes
-from draftwright.model import Frame, PartModel, oriented_slot
+from draftwright.model import (
+    Frame,
+    OrientedSlotFeature,
+    OrientedSlotPassage,
+    PartModel,
+    oriented_slot,
+)
 from draftwright.model.detect import _CONVERTERS, build_part_model
 from draftwright.model.planner import _parameter_view_preferences, plan_dimensions
 from draftwright.oriented_slot_contract import oriented_slot_provider_key
@@ -142,6 +150,17 @@ def test_public_aggregate_lowers_to_a_dedicated_lossless_ir() -> None:
         "oriented_slot_width.length",
         "oriented_slot_length.length",
     ]
+
+
+def test_oriented_slot_public_ir_identity_survives_private_validation_split() -> None:
+    from draftwright.model import ir
+
+    feature = _feature()
+    for value in (feature, feature.passage):
+        assert type(value) in (OrientedSlotFeature, OrientedSlotPassage)
+        assert type(value).__module__ == "draftwright.model.ir"
+        assert inspect.getsourcefile(type(value)) == ir.__file__
+        assert pickle.loads(pickle.dumps(value)) == value
 
 
 def test_sheet_word_and_generated_line_replay_the_exact_feature() -> None:

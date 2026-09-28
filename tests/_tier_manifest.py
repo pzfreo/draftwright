@@ -34,6 +34,10 @@ CONTRACT_GROUPS = {
             "test_location_vocabulary.py",
         ),
     ),
+    "oriented_slot_geometry": ContractGroup(
+        ("src/draftwright/model/oriented_slot_geometry.py",),
+        ("test_issue_1432_oriented_slot_semantics.py",),
+    ),
     "recognition": ContractGroup(
         (
             "src/draftwright/recogn*",

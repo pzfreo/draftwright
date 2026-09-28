@@ -31,6 +31,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
+        "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
@@ -65,6 +66,11 @@ def test_hole_location_source_selects_its_behavior_and_evidence_contracts():
         "test_location_vocabulary.py",
         "test_lint_summary.py",
     } <= selected
+
+
+def test_oriented_slot_geometry_change_runs_its_semantics_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/model/oriented_slot_geometry.py"])
+    assert "test_issue_1432_oriented_slot_semantics.py" in selected
 
 
 def test_unknown_production_module_selects_every_contract_group():
