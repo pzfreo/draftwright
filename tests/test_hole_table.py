@@ -441,7 +441,7 @@ class TestHoleTable:
         import sys
 
         m = sys.modules["draftwright.drawing"]
-        monkeypatch.setattr(m, "fit_box", lambda *a, **k: None)
+        monkeypatch.setattr(m, "fit_auxiliary_box", lambda *a, **k: None)
         dwg = build_drawing(_multi_hole_plate())
         assert dwg.add_hole_table("plan") is None
         assert "table_dropped" in {i.code for i in dwg.lint()}
