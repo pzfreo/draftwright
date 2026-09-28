@@ -1224,7 +1224,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
     only_refs = None if only is None else {FeatureRef(f) for f in only}
     refs = []
     for loc in approved:
-        if only_refs is not None and loc.ref not in only_refs:  #: recorded subset only
+        if only_refs is not None and loc.ref not in only_refs:  # recorded subset only
             continue
         rx, ry = loc.span[1][0], loc.span[1][1]
         # A rotational part's on-axis (concentric) *hole* bore is located by the
@@ -1350,7 +1350,7 @@ def render_locations(dwg, plan, a, *, ctx, only=None, pinned=None) -> int:
         ctx.escalations.append(Escalation("location", "plan", None, "illegible"))
     _kept_x_set = set(_kept_x)
     x_refs = [r for r in x_refs if r[0] not in _x_drawable or r[0] in _kept_x_set]
-    # Register X-location dims into the shared plan-above corridor (ADR 2 (was 0009) end state,
+    # Register X-location dims into the shared plan-above corridor (ADR 2 (was 0009) end state),
     # so the slot pass feeds the SAME strip: a single solve_corridor drain
     # dedups a coincident slot-position line and orders the whole ladder — instead of each
     # pass carving around the other and interleaving. No alternate view for a plan-X
@@ -9995,7 +9995,7 @@ def render_gdt(dwg, model, a, *, ctx) -> int:
                 # rather than vanish; when the requested strip has no room, an explicit `side=`
                 # is a preference, not a hard constraint. A perpendicular side flips the leader
                 # orientation (`_bld(pos, _hz=hz)`). If the placement lands on a side other than
-                # requested, record an INFO issue so the relaxation is visible, not silent — the
+                # requested, record an INFO issue so the relaxation is visible.
                 # A requested annotation must never be silently lost.
                 relax_order = {
                     "above": ("below", "right", "left"),
