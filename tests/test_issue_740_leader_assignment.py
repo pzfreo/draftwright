@@ -162,6 +162,10 @@ def test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor(monkeypa
     }
     assert {"4", "6"} <= set(heights)
     assert all(drawing.measurement_keys(heights[label]) for label in ("4", "6"))
+    # Recovering the crowded shoulder chain must not silently evict another
+    # required fact from this fixed sheet. A pre-sheet detail reservation can
+    # occupy the front-below band needed by the ø4 hole callout (#1872).
+    assert not [issue for issue in drawing.lint() if issue.code == "callout_dropped"]
     trace = json.loads(trace_path.read_text(encoding="utf-8"))
     events = [
         item

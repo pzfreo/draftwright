@@ -613,6 +613,30 @@ def _compose_anno_boxes(
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
+    # Y-axis hole/pattern leaders render in horizontal rows BELOW the front
+    # view, regardless of the observational scheme's generic leader route.
+    # Without this band, a pre-sheet detail can take that row and only the
+    # later callout pass discovers that a required bore fact no longer fits.
+    front_hole_rows = sum(
+        group.feature.kind in {"hole", "pattern"}
+        and group.feature.frame.axis == "y"
+        and any(
+            not member.suppressed and member.convention == "leader"
+            for unit in group.units
+            for member in unit.members
+        )
+        for group in planned_groups
+    )
+    if front_hole_rows:
+        row_height = font_size + 2 * pad_around_text
+        boxes.append(
+            AnnoBox(
+                "front_below",
+                _STRIP_GAP
+                + front_hole_rows * row_height
+                + max(front_hole_rows - 1, 0) * _STRIP_SPACING,
+            )
+        )
     if any(
         feature.kind in ("boss", "step") and feature.frame.axis == "y"
         for feature in model.features

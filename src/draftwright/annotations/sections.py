@@ -954,7 +954,14 @@ def _render_detail(
     def _fits(s):
         _, pt = _pads(s)
         left, right = _horizontal_extents(s)
-        return left + right <= rect_w and view_h * s + pt + caption_gap + cap_h <= rect_h
+        # Compose and render do the same arithmetic through different centring
+        # paths. A mathematically exact planned fit can differ by ~1e-13 mm in
+        # floating point; that is not a real page-space shortfall.
+        epsilon = 1e-6
+        return (
+            left + right <= rect_w + epsilon
+            and view_h * s + pt + caption_gap + cap_h <= rect_h + epsilon
+        )
 
     # Fit continuously enough not to jump over a viable scale.  Subtracting a
     # whole sheet scale skipped 3:1 on a 2:1 sheet (4→2), even when 3:1 both fit

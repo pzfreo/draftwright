@@ -110,7 +110,12 @@ views must be packed against full planned view blocks and their reserved boxes
 must remain hard occupancy for ordinary annotation placement. A prototype
 that changes only the scale/page verdict is insufficient. The first Y-chain
 producer is wired through hard occupancy and measured validation; other
-families remain unplanned. The fixed-A4 adversarial fixture still refuses:
-its measured 108.16 × 44.19 mm minimum cannot be reserved against its full
-planned annotation blocks at the 6 mm safety gutter, so its 4 and 6 mm steps
-remain named withheld requirements. This is not a passing visual result.
+families remain unplanned. The fixed-A4 adversarial fixture exposes a harder
+tradeoff: its exact measured 108.16 × 44.19 mm detail box can be reserved and
+recovers the 4 and 6 mm steps. Reserving the front-below Y-hole leader band
+also retains the ø4 callout. However, two plan-view pad-length dimensions then
+drop with `pad_dim_dropped`/`strip_full`. Although the pads have equal nominal
+sizes, no grouped or quantified carrier proves those two feature requirements
+are represented by the surviving dimensions. Passing the step and callout
+assertions is therefore not a passing semantic result. The conflict needs a
+requirement-aware placement/page choice, not unbounded overlap or raw placement.

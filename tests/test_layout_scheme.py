@@ -244,6 +244,19 @@ def test_compound_hole_demand_tracks_every_addressable_measurement():
     assert all(identity.feature is hole for identity in leader.measurements)
 
 
+def test_y_axis_hole_leader_reserves_the_front_below_band_it_uses():
+    hole = HoleFeature(Frame((0, 0, 0), "y"), 4, 10, False)
+    model = PartModel(Box(20, 20, 15).bounding_box(), "y", [hole])
+
+    strips = _measure_strips(model, 0, model.bbox)
+    leaders = [
+        demand for demand in strips.scheme.demands if demand.family == "feature_leader"
+    ]
+
+    assert [(demand.view, demand.side) for demand in leaders] == [("front", "below")]
+    assert strips.fv_bottom > 0
+
+
 def test_demand_carrier_evidence_uses_exact_live_measurements_and_table_cells():
     model = _model()
     first = DimensionId(model.features[0], "bore.diameter")

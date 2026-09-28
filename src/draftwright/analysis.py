@@ -219,9 +219,10 @@ def _automatic_y_chain_detail_footprints(
             )
             min_scale = max(needed, scale * 1.2 + 1e-6)
             cross_half = max(0.1, min((bb.max.Z - bb.min.Z) / 4, 6.0 / target))
-            # One millimetre each side/top conservatively absorbs the Note
-            # anchoring and crop/typography estimate; actual ink is checked later.
-            width = max((axis_hi - axis_lo) * min_scale, caption_w) + 2.0
+            # Reserve the minimum sufficient footprint. An arbitrary cushion
+            # can turn a feasible A4 detail into a false refusal; measured
+            # containment after rendering catches any actual estimate error.
+            width = max((axis_hi - axis_lo) * min_scale, caption_w)
             height = (
                 2 * cross_half * min_scale
                 + draft.font_size
@@ -229,7 +230,6 @@ def _automatic_y_chain_detail_footprints(
                 + draft.arrow_length
                 + _DIM_PAD
                 + 8.0
-                + 2.0
             )
             result = ((view_name, width, height),)
         footprint_cache[scale] = result
