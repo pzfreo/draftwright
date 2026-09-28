@@ -101,3 +101,12 @@ under the caller's fixed constraints. It must not be made green by weakening
 the measurement assertion or by stealing the minimum gutter. GRM03 and a
 non-turned detail/section remain separate acceptance fixtures; success on this
 Y-chain alone is not completion of #1872.
+
+The first pre-sheet probe found a further constraint: a box that fits when
+principal views are represented by padded silhouettes can overlap the side
+view's dimension and leader bands. The apparent five-millimetre shortage does
+**not** prove that preferred gutter space alone solves this fixture. Derived
+views must be packed against full planned view blocks and their reserved boxes
+must remain hard occupancy for ordinary annotation placement. A prototype
+that changes only the scale/page verdict is insufficient and is not wired into
+production until that occupancy path and measured validation agree.
