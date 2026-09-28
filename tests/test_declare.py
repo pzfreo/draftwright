@@ -440,18 +440,24 @@ class TestFillet:
 
         return bd_fillet(Box(60, 40, 20).edges().filter_by(Axis.Z), radius)
 
+    @pytest.fixture(scope="class")
+    @classmethod
+    def rounded_drawing(cls):
+        solid = cls._filleted(3)
+        return solid, build_drawing(solid, number="X")
+
     def test_explicit(self):
         f = fillet(axis="z", radius=3, at=(28.5, 18.5, 0))
         assert isinstance(f, FilletFeature)
         assert f.axis == "z" and f.radius == 3 and f.frame.origin == pytest.approx((28.5, 18.5, 0))
 
-    def test_reads_off_the_round_face_and_matches_detection(self):
+    def test_reads_off_the_round_face_and_matches_detection(self, rounded_drawing):
         # The object flavour reads the CYLINDRICAL blend face — radius off the cylinder, `at`
         # on the round — and round-trips (in-plane) with the detected feature.
         from OCP.BRepAdaptor import BRepAdaptor_Surface
         from OCP.GeomAbs import GeomAbs_Cylinder
 
-        solid = self._filleted(3)
+        solid, dwg = rounded_drawing
         face = next(
             g
             for g in solid.faces()
@@ -459,9 +465,7 @@ class TestFillet:
         )
         f = fillet(face)
         assert f.axis == "z" and abs(f.radius - 3) < 0.01
-        det = next(
-            x for x in build_drawing(solid, number="X").model().features if x.kind == "fillet"
-        )
+        det = next(x for x in dwg.model().features if x.kind == "fillet")
         # Exact in-plane parity: declare reads the same on-round anchor the recogniser does — a
         # point at mid angular/axial of the trimmed face (#622), not the off-surface bbox centre
         # (the along-edge Z coord is view depth, so it need not match).
@@ -498,8 +502,8 @@ class TestFillet:
         assert len(members) == 4
         assert all(Vertex(*m.at).distance_to(grouped) < 0.05 for m in members)
 
-    def test_recognises_external_fillet(self):
-        dwg = build_drawing(self._filleted(3), number="X")
+    def test_recognises_external_fillet(self, rounded_drawing):
+        _, dwg = rounded_drawing
         fs = [f for f in dwg.model().features if f.kind == "fillet"]
         assert fs and all(abs(f.radius - 3) < 0.01 for f in fs)
 
@@ -540,9 +544,9 @@ class TestFillet:
         assert len(fs) == 1 and _fillet_label(fs[0].radius, 1) == "R3"
         assert not any(i.severity == "error" for i in dwg.lint())
 
-    def test_equal_radii_group_as_n_times_R(self):
+    def test_equal_radii_group_as_n_times_R(self, rounded_drawing):
         # #561 acceptance #2: repeated equal-radius fillets share one n× R callout.
-        dwg = build_drawing(self._filleted(3), number="X")
+        _, dwg = rounded_drawing
         names = [n for n in dwg.annotations() if n.startswith("m_fillet")]
         assert len(names) == 1  # ONE grouped callout, not four
         assert dwg.get_annotation(names[0]).label == "4× R3"
