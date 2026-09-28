@@ -17,7 +17,8 @@ It sits on top of three Apache 2.0 libraries:
 - `quiddity` — deterministic geometry-only feature recognition (ADR 3 (was 0013)).
 - `build123d` — the underlying CAD kernel.
 
-`AGENTS.md` is the "drive it correctly" usage guide; this file is the working map for
+[`docs/using-draftwright.md`](docs/using-draftwright.md) is the "drive it correctly" usage
+guide for agents *using* draftwright; this file is the working map for
 changing the engine.
 
 ## Architecture

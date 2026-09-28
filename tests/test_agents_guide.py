@@ -1,6 +1,6 @@
-"""Executable check that AGENTS.md's examples stay correct (#818).
+"""Executable check that docs/using-draftwright.md's examples stay correct (#818).
 
-AGENTS.md is the one-page agent usage guide; a guide with wrong API is worse than none, and an
+docs/using-draftwright.md is the one-page agent usage guide; a guide with wrong API is worse than none, and an
 agent will follow it verbatim. These run the exact public surfaces it recommends so a rename or
 signature change fails CI here, not silently in an agent's hands. Every verb and front door the
 guide shows is exercised (Codex #819: untested claims let a wrong `drop(name)` example and an

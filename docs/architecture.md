@@ -1,9 +1,9 @@
 # Architecture — the detailed module map
 
-The module-by-module map of the draftwright engine, moved out of `CLAUDE.md`
+The module-by-module map of the draftwright engine, moved out of `AGENTS.md`
 (which keeps the compact map and the working rules). The machine-enforced
 authority for the layering is `tests/test_import_boundaries.py` (`_LAYERS`);
-keep that table, this document, and `CLAUDE.md`'s compact map in step. The
+keep that table, this document, and `AGENTS.md`'s compact map in step. The
 *why* behind every shape here lives in `docs/adr/`.
 
 ## The module map

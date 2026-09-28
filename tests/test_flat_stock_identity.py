@@ -170,7 +170,7 @@ def test_the_emitted_script_carries_the_stock_identity(tmp_path):
     grouping — so an emitted script regenerated exactly the drawing the detection had just
     fixed. Silence is not neutral here; it is the old bug (Codex #1035 r1).
 
-    CLAUDE.md requires a feature to round-trip recognise + emit + declare, and this is the
+    AGENTS.md requires a feature to round-trip recognise + emit + declare, and this is the
     emit leg.
     """
     from build123d import export_step

@@ -65,7 +65,7 @@ def test_the_defect_state_is_actually_reached(unverifiable_drawing):
     """Precondition: the ledger really does hold the sentinel, with a count above one.
 
     Without this the message assertions below could pass on a drawing that never produced an
-    unverifiable outcome at all — the failure mode CLAUDE.md names, and the reason a message
+    unverifiable outcome at all — the failure mode AGENTS.md names, and the reason a message
     test that only greps for absence of `?` would be worthless.
     """
 

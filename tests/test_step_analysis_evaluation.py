@@ -254,7 +254,7 @@ def test_real_step_corpus_scores_all_layers_and_topology_variants_deterministica
     and is owned here. That is true of the FUNCTION but not of the corpora: this test
     loads `corpus-v1.json`, whose scope is `("holes",)`, so repeat-determinism is no
     longer exercised on the pocket, plate, groove, turned-step, chamfer, fillet, flat,
-    pad, boss, stock, countersink, double-D or hole-pattern corpora. CLAUDE.md rates an
+    pad, boss, stock, countersink, double-D or hole-pattern corpora. AGENTS.md rates an
     in-process repeat as weak evidence anyway — string hashing is stable for a given
     PYTHONHASHSEED — so this is a deliberate trade, recorded here rather than left as an
     overstatement in a merged PR body.

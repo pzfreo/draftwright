@@ -134,4 +134,4 @@ of DXF export time again. Off costs exactly what it did before the option existe
 
 `docs/adr/` — five live records: ADR 1 (the compiler pipeline), ADR 2 (sheet layout and view
 planning), ADR 3 (the recognition boundary), ADR 4 (declared intent), ADR 5 (trust and honest
-failure). `CLAUDE.md` has the compact module map; `docs/architecture.md` the detailed one.
+failure). `AGENTS.md` has the compact module map; `docs/architecture.md` the detailed one.

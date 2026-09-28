@@ -2236,7 +2236,7 @@ def build_part_model(
             # Refused HERE for the same reason the oblique pattern above is: ADR 3 says the
             # recogniser reports the geometry it finds, and a circle through those holes IS
             # findable. Whether it may be STATED as a drafting datum is drafting policy, and
-            # that is draftwright's (ADR 3 / CLAUDE.md). The members fall through to the
+            # that is draftwright's (ADR 3 / AGENTS.md). The members fall through to the
             # un-patterned grouping below, so they are still drawn, counted and located —
             # they simply stop claiming a bolt circle.
             if ownership is not None:

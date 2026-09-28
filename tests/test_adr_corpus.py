@@ -110,7 +110,6 @@ def test_no_live_document_cites_an_archived_record_as_authority():
         _ROOT / "tests",
         _ROOT / "docs",
         _ROOT / "AGENTS.md",
-        _ROOT / "CLAUDE.md",
         _ROOT / "README.md",
         _ROOT / "skills" / "SKILL.md",
     ]

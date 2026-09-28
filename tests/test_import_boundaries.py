@@ -1,6 +1,6 @@
 """Import-boundary guards — the whole-package DAG, machine-enforced (#640 / ADR 1 (was 0005/0008)).
 
-CLAUDE.md's **## Architecture** section declares a layered DAG: leaf modules →
+AGENTS.md's **## Architecture** section declares a layered DAG: leaf modules →
 ``_core`` → the core-consumers (``linting``/``pmi``/``export``/``repair``/``projection``/
 ``compose``) → ``analysis`` → the ``annotations`` render layer → ``drawing`` → ``builder``
 → the user-facing facades/``cli``. No lower layer may import an upper one. Before #640 this
@@ -75,9 +75,9 @@ def _tree(path: Path) -> ast.Module:
     return ast.parse(_source_text(path), filename=str(path))
 
 
-# ── The declared DAG (mirrors CLAUDE.md ## Architecture) ─────────────────────────────────
+# ── The declared DAG (mirrors AGENTS.md ## Architecture) ─────────────────────────────────
 # Rank each top-level submodule (and subpackage) by its layer; a file may import only names
-# at its own rank or lower. Keep this in step with CLAUDE.md ## Architecture — the two are the
+# at its own rank or lower. Keep this in step with AGENTS.md ## Architecture — the two are the
 # same source of truth, and test_every_module_is_ranked fails if a module here is missing so
 # the table can't silently drift from the tree.
 _LAYERS: dict[str, int] = {
@@ -342,7 +342,7 @@ def test_every_module_is_ranked():
             seen |= {_submodule(t) for t in targets}
     missing = seen - set(_LAYERS)
     assert not missing, (
-        "Unranked submodule(s) — add them to _LAYERS (and CLAUDE.md ## Architecture) so the "
+        "Unranked submodule(s) — add them to _LAYERS (and AGENTS.md ## Architecture) so the "
         f"DAG guard covers them: {sorted(missing)}"
     )
 
@@ -360,7 +360,7 @@ def test_no_upward_runtime_imports():
                     f"{'.'.join(target)} ({tsm}, L{_LAYERS[tsm]}) — upward"
                 )
     assert not offenders, (
-        "Upward cross-layer import(s) break the declared DAG (CLAUDE.md ## Architecture / ADR "
+        "Upward cross-layer import(s) break the declared DAG (AGENTS.md ## Architecture / ADR "
         "0005). Move the dependency down, defer it to a lazy in-function import (a documented "
         "cycle-breaker), or re-layer with a reason:\n  " + "\n  ".join(offenders)
     )

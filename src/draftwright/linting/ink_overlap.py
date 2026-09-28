@@ -430,7 +430,7 @@ def length_inside(segment, region) -> float:
     0.0 while `_segment_clip_extent` documents "inclusive at the boundary (a touch
     is a hit)" — so a stroke lying exactly on a label's edge was a hit for one
     lint check and a miss for another, in the same module. One predicate, and the
-    shared convention wins: CLAUDE.md asks for a shared pass extended rather than
+    shared convention wins: AGENTS.md asks for a shared pass extended rather than
     a copy, and a boundary is a measure-zero case not worth a second answer to.
     """
     polygon = _region_polygon(region)
