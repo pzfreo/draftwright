@@ -2374,6 +2374,183 @@ def settled_layout_for(drawing) -> dict | None:
     }
 
 
+def _declaration_metadata(model, source_feature_ids, source_detected, declaration_occurrences):
+    """Preserve declaration identities while assigning names to mirrored features."""
+    declaration_metadata = {}
+    reserved_declaration_ids = {
+        identity.declaration_id
+        for identity in model.declaration_identities
+        if identity is not None
+    }
+    generated_declaration_ids: set[str] = set()
+    for index, feature in enumerate(model.features, start=1):
+        identity = (
+            model.declaration_identities[index - 1] if model.declaration_identities else None
+        )
+        if identity is not None:
+            declaration_id = identity.declaration_id
+            provenance = identity.provenance
+            occurrence_ids = identity.occurrence_ids
+        else:
+            declaration_id = f"declaration:{index}"
+            suffix = 1
+            while declaration_id in reserved_declaration_ids | generated_declaration_ids:
+                declaration_id = f"declaration:{index}:generated-{suffix}"
+                suffix += 1
+            generated_declaration_ids.add(declaration_id)
+            if id(feature) not in source_feature_ids:
+                provenance = "derived"
+            elif feature.kind in {
+                "pmi",
+                "control_frame",
+                "datum_ref",
+                "general_tolerance",
+                "default_surface_finish",
+                "document_note",
+            }:
+                provenance = "pmi"
+            elif feature.kind == "note":
+                provenance = "structured-note"
+            elif source_detected:
+                provenance = "detected-geometry"
+            else:
+                provenance = "authored"
+            occurrence_ids = ()
+        if declaration_occurrences is not None and id(feature) in declaration_occurrences:
+            occurrence_ids = tuple(declaration_occurrences[id(feature)])
+        declaration_metadata[id(feature)] = (
+            declaration_id,
+            provenance,
+            occurrence_ids,
+        )
+    return declaration_metadata
+
+
+def _model_constructor_imports(model):
+    """Find constructor names potentially used by the emitted feature declarations."""
+    # Every constructor a member template can name has to be listed here. The pattern verbs
+    # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
+    # rejects `members=` and recomputes the layout — so the member constructor is a name the
+    # generated file uses, and a missing entry is a NameError on the first line that runs
+    # (#957 review; pocket/slot patterns were emitting unrunnable scripts).
+    model_imports = set()
+    if any(f.kind == "angle" and getattr(f, "members", ()) for f in model.features):
+        model_imports.add("AngularReference")
+    if any(f.kind in ("hole", "pattern") for f in model.features):
+        model_imports.add("hole")
+    if any(
+        f.kind == "pattern" and getattr(f.member, "profile", None) == "double_d"
+        for f in model.features
+    ):
+        model_imports.add("double_d_bore")
+    if any(f.kind == "pocket_pattern" for f in model.features):
+        model_imports.add("pocket")
+    if any(f.kind == "slot_pattern" for f in model.features):
+        model_imports.add("slot")
+    if any(f.kind == "envelope" for f in model.features):
+        model_imports.update(["EnvelopeFeature", "Frame"])
+    if any(f.kind == "pmi" for f in model.features):
+        model_imports.update(["Frame", "PmiFeature"])
+    if any(f.kind == "pmi" and getattr(f, "cylindrical_refs", ()) for f in model.features):
+        model_imports.add("CylindricalReference")
+    if any(f.kind == "control_frame" for f in model.features):
+        model_imports.update(["ControlFrame", "Frame"])
+    if any(f.kind == "datum_ref" for f in model.features):
+        model_imports.update(["DatumRef", "Frame"])
+    if any(
+        f.kind == "note"
+        and (
+            getattr(getattr(f, "origin", None), "kind", None) == "pmi"
+            or getattr(f, "source_id", "")
+            or getattr(f, "source_ids", ())
+            or getattr(f, "part21_id", "")
+        )
+        for f in model.features
+    ):
+        model_imports.update(["Frame", "Note", "PmiFeature"])
+    typed_aspects = [
+        aspect
+        for feature in model.features
+        for target in (getattr(feature, "member", feature),)
+        for aspect in (getattr(target, "thread", None), getattr(target, "knurl", None))
+        if isinstance(aspect, (ThreadOperation, ThreadRequirement, KnurlRequirement))
+    ]
+    if any(isinstance(aspect, ThreadOperation) for aspect in typed_aspects):
+        model_imports.add("ThreadOperation")
+    if any(isinstance(aspect, ThreadRequirement) for aspect in typed_aspects):
+        model_imports.update(["CylindricalReference", "ThreadRequirement"])
+    if any(isinstance(aspect, KnurlRequirement) for aspect in typed_aspects):
+        model_imports.update(["CylindricalReference", "KnurlRequirement"])
+    if any(
+        f.kind in ("control_frame", "datum_ref", "note")
+        and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
+        for f in model.features
+    ):
+        model_imports.add("PmiFeature")
+    return model_imports
+
+
+def _script_constructor_args(
+    script_options, model, settled_layout, pmi_source, assessment, replayed_recognition
+):
+    """Spell replay-dependent Sheet options at their declared constructor positions."""
+    # Ordinary aspects, ordering and defaults come from BuildOptions. Only replay-
+    # dependent spellings are supplied here, at their field's declared position.
+    from draftwright._core import _sheet_option_margins, _validated_title_block_width
+
+    _sheet_option_margins(
+        margin_left=script_options.margin_left,
+        margin_right=script_options.margin_right,
+        margin_top=script_options.margin_top,
+        margin_bottom=script_options.margin_bottom,
+    )
+    validated_width = _validated_title_block_width(script_options.title_block_width)
+    special: dict[str, list[str]] = {}
+    for key in (
+        "margin_left",
+        "margin_right",
+        "margin_top",
+        "margin_bottom",
+        "title_block_width",
+    ):
+        value = validated_width if key == "title_block_width" else getattr(script_options, key)
+        special[key] = [] if value is None else [f"{key}={float(value)!r}"]
+    emitted_scale = script_options.scale
+    if emitted_scale is None and settled_layout is not None and not _mirrors_dimensions(model):
+        # An unmirrorable model keeps auto_dimensions(), so its requirement planner must stay
+        # in charge of the view topology. Replay the settled numeric scale through the public
+        # explicit-scale path; the private authored-mirror constraint relies on fixed views.
+        emitted_scale = settled_layout["scale"]
+    if emitted_scale is not None:
+        special["scale"] = [f"scale={emitted_scale!r}"]
+    elif settled_layout is not None:
+        special["scale"] = [f"_replayed_scale={settled_layout['scale']!r}"]
+    else:
+        special["scale"] = []
+    emitted_page = script_options.page
+    if emitted_page is None and settled_layout is not None:
+        emitted_page = settled_layout["page"]
+    special["page"] = [] if emitted_page is None else [f"page={emitted_page!r}"]
+    if settled_layout is not None and settled_layout.get("pin_views", False):
+        replayed_views = tuple(
+            name for name in settled_layout["views"] if name in {"front", "plan", "side", "iso"}
+        )
+        special["page"].append(f"_replayed_views={replayed_views!r}")
+    # The AP242 seam (#1563): the generated script builds from a solid, so it must retain
+    # the document path separately for PMI correspondence.
+    special["source"] = [] if pmi_source is None else [f"source={pmi_source!r}"]
+    if assessment:
+        special["pmi"] = ['pmi=_replay_options["pmi_mode"]']
+    elif script_options.pmi != "off":
+        special["pmi"] = [f"pmi={script_options.pmi!r}"]
+    else:
+        special["pmi"] = []
+    ctor = script_options.script_constructor_args(special)
+    if replayed_recognition:
+        ctor.insert(2, "_replayed_recognition=True")
+    return ctor
+
+
 def emit_sheet_script(
     model,
     part_expr: str,
@@ -2480,166 +2657,13 @@ def emit_sheet_script(
         )
     )
     model, _synth_env = mirror_model(model)
-    declaration_metadata = {}
-    reserved_declaration_ids = {
-        identity.declaration_id
-        for identity in model.declaration_identities
-        if identity is not None
-    }
-    generated_declaration_ids: set[str] = set()
-    for index, feature in enumerate(model.features, start=1):
-        identity = (
-            model.declaration_identities[index - 1] if model.declaration_identities else None
-        )
-        if identity is not None:
-            declaration_id = identity.declaration_id
-            provenance = identity.provenance
-            occurrence_ids = identity.occurrence_ids
-        else:
-            declaration_id = f"declaration:{index}"
-            suffix = 1
-            while declaration_id in reserved_declaration_ids | generated_declaration_ids:
-                declaration_id = f"declaration:{index}:generated-{suffix}"
-                suffix += 1
-            generated_declaration_ids.add(declaration_id)
-            if id(feature) not in source_feature_ids:
-                provenance = "derived"
-            elif feature.kind in {
-                "pmi",
-                "control_frame",
-                "datum_ref",
-                "general_tolerance",
-                "default_surface_finish",
-                "document_note",
-            }:
-                provenance = "pmi"
-            elif feature.kind == "note":
-                provenance = "structured-note"
-            elif source_detected:
-                provenance = "detected-geometry"
-            else:
-                provenance = "authored"
-            occurrence_ids = ()
-        if declaration_occurrences is not None and id(feature) in declaration_occurrences:
-            occurrence_ids = tuple(declaration_occurrences[id(feature)])
-        declaration_metadata[id(feature)] = (
-            declaration_id,
-            provenance,
-            occurrence_ids,
-        )
-    # Every constructor a member template can name has to be listed here. The pattern verbs
-    # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
-    # rejects `members=` and recomputes the layout — so the member constructor is a name the
-    # generated file uses, and a missing entry is a NameError on the first line that runs
-    # (#957 review; pocket/slot patterns were emitting unrunnable scripts).
-    model_imports = set()
-    if any(f.kind == "angle" and getattr(f, "members", ()) for f in model.features):
-        model_imports.add("AngularReference")
-    if any(f.kind in ("hole", "pattern") for f in model.features):
-        model_imports.add("hole")
-    if any(
-        f.kind == "pattern" and getattr(f.member, "profile", None) == "double_d"
-        for f in model.features
-    ):
-        model_imports.add("double_d_bore")
-    if any(f.kind == "pocket_pattern" for f in model.features):
-        model_imports.add("pocket")
-    if any(f.kind == "slot_pattern" for f in model.features):
-        model_imports.add("slot")
-    if any(f.kind == "envelope" for f in model.features):
-        model_imports.update(["EnvelopeFeature", "Frame"])
-    if any(f.kind == "pmi" for f in model.features):
-        model_imports.update(["Frame", "PmiFeature"])
-    if any(f.kind == "pmi" and getattr(f, "cylindrical_refs", ()) for f in model.features):
-        model_imports.add("CylindricalReference")
-    if any(f.kind == "control_frame" for f in model.features):
-        model_imports.update(["ControlFrame", "Frame"])
-    if any(f.kind == "datum_ref" for f in model.features):
-        model_imports.update(["DatumRef", "Frame"])
-    if any(
-        f.kind == "note"
-        and (
-            getattr(getattr(f, "origin", None), "kind", None) == "pmi"
-            or getattr(f, "source_id", "")
-            or getattr(f, "source_ids", ())
-            or getattr(f, "part21_id", "")
-        )
-        for f in model.features
-    ):
-        model_imports.update(["Frame", "Note", "PmiFeature"])
-    typed_aspects = [
-        aspect
-        for feature in model.features
-        for target in (getattr(feature, "member", feature),)
-        for aspect in (getattr(target, "thread", None), getattr(target, "knurl", None))
-        if isinstance(aspect, (ThreadOperation, ThreadRequirement, KnurlRequirement))
-    ]
-    if any(isinstance(aspect, ThreadOperation) for aspect in typed_aspects):
-        model_imports.add("ThreadOperation")
-    if any(isinstance(aspect, ThreadRequirement) for aspect in typed_aspects):
-        model_imports.update(["CylindricalReference", "ThreadRequirement"])
-    if any(isinstance(aspect, KnurlRequirement) for aspect in typed_aspects):
-        model_imports.update(["CylindricalReference", "KnurlRequirement"])
-    if any(
-        f.kind in ("control_frame", "datum_ref", "note")
-        and getattr(getattr(f, "origin", None), "kind", None) == "pmi"
-        for f in model.features
-    ):
-        model_imports.add("PmiFeature")
-    # Ordinary aspects, ordering and defaults come from BuildOptions. Only replay-
-    # dependent spellings are supplied here, at their field's declared position.
-    from draftwright._core import _sheet_option_margins, _validated_title_block_width
-
-    _sheet_option_margins(
-        margin_left=script_options.margin_left,
-        margin_right=script_options.margin_right,
-        margin_top=script_options.margin_top,
-        margin_bottom=script_options.margin_bottom,
+    declaration_metadata = _declaration_metadata(
+        model, source_feature_ids, source_detected, declaration_occurrences
     )
-    validated_width = _validated_title_block_width(script_options.title_block_width)
-    special: dict[str, list[str]] = {}
-    for key in (
-        "margin_left",
-        "margin_right",
-        "margin_top",
-        "margin_bottom",
-        "title_block_width",
-    ):
-        value = validated_width if key == "title_block_width" else getattr(script_options, key)
-        special[key] = [] if value is None else [f"{key}={float(value)!r}"]
-    emitted_scale = script_options.scale
-    if emitted_scale is None and settled_layout is not None and not _mirrors_dimensions(model):
-        # An unmirrorable model keeps auto_dimensions(), so its requirement planner must stay
-        # in charge of the view topology. Replay the settled numeric scale through the public
-        # explicit-scale path; the private authored-mirror constraint relies on fixed views.
-        emitted_scale = settled_layout["scale"]
-    if emitted_scale is not None:
-        special["scale"] = [f"scale={emitted_scale!r}"]
-    elif settled_layout is not None:
-        special["scale"] = [f"_replayed_scale={settled_layout['scale']!r}"]
-    else:
-        special["scale"] = []
-    emitted_page = script_options.page
-    if emitted_page is None and settled_layout is not None:
-        emitted_page = settled_layout["page"]
-    special["page"] = [] if emitted_page is None else [f"page={emitted_page!r}"]
-    if settled_layout is not None and settled_layout.get("pin_views", False):
-        replayed_views = tuple(
-            name for name in settled_layout["views"] if name in {"front", "plan", "side", "iso"}
-        )
-        special["page"].append(f"_replayed_views={replayed_views!r}")
-    # The AP242 seam (#1563): the generated script builds from a solid, so it must retain
-    # the document path separately for PMI correspondence.
-    special["source"] = [] if pmi_source is None else [f"source={pmi_source!r}"]
-    if assessment:
-        special["pmi"] = ['pmi=_replay_options["pmi_mode"]']
-    elif script_options.pmi != "off":
-        special["pmi"] = [f"pmi={script_options.pmi!r}"]
-    else:
-        special["pmi"] = []
-    ctor = script_options.script_constructor_args(special)
-    if replayed_recognition:
-        ctor.insert(2, "_replayed_recognition=True")
+    model_imports = _model_constructor_imports(model)
+    ctor = _script_constructor_args(
+        script_options, model, settled_layout, pmi_source, assessment, replayed_recognition
+    )
     from draftwright.model.declare import _envelope_from_bbox
 
     object_refs = _object_references(model.features, source_part, object_candidates)
