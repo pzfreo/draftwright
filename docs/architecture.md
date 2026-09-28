@@ -115,6 +115,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     radius-dependent footprints, consumed through the shared corridor solve.
   - **`annotations/holes.py`** — hole/pattern callouts, balloons, location dims
     (incl. side-drilled #133), pitch/grid dims, slots (the largest *pass*).
+  - **`annotations/hole_leader_candidates.py`** — ordered physical candidates for
+    sparse plan and side hole leaders in the shared late leader assignment. The hole
+    pass retains the strip solve, table eligibility, and furniture transaction.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
