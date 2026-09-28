@@ -2023,7 +2023,7 @@ class TestBuildDrawingPmi:
         }
         assert frames["geometric_tolerance:0:1:4:15"].all_around is True
 
-    def test_pmi_annotate_renders_each_proven_datum_feature_once(self, ctc01_annotated):
+    def test_pmi_annotate_accounts_for_each_proven_datum_feature(self, ctc01_annotated):
         from draftwright.model import DatumRef
 
         datums = [
@@ -2038,9 +2038,22 @@ class TestBuildDrawingPmi:
             ("C", "#36"),
         }
         assert sum(len(datum.source_ids) for datum in datums) == 11
-        assert all(
-            len(ctc01_annotated.registry.names_for_feature(datum.origin)) == 1 for datum in datums
-        )
+        datum_sources = {source for datum in datums for source in datum.source_ids}
+        drops = [
+            issue
+            for issue in ctc01_annotated.registry.issues
+            if issue.code == "pmi_dropped" and set(issue.source_ids) & datum_sources
+        ]
+        assert all(issue.outcome_stage == "placement" for issue in drops)
+        for datum in datums:
+            names = ctc01_annotated.registry.names_for_feature(datum.origin)
+            matching_drops = [
+                issue for issue in drops if set(issue.source_ids) == set(datum.source_ids)
+            ]
+            assert (len(names), len(matching_drops)) in {(1, 0), (0, 1)}
+        assert len(drops) + sum(
+            len(ctc01_annotated.registry.names_for_feature(datum.origin)) for datum in datums
+        ) == len(datums)
 
     def test_pmi_annotate_accounts_for_each_typed_dimension_at_the_render_seam(
         self, ctc01_annotated
@@ -2057,12 +2070,13 @@ class TestBuildDrawingPmi:
             for feature in authored
             if ctc01_annotated.registry.names_for_feature(feature)
         }
-        dropped = {
+        all_dropped = {
             source_id
             for issue in ctc01_annotated.registry.issues
             if issue.code == "pmi_dropped"
             for source_id in issue.source_ids
         }
+        dropped = all_dropped & {feature.source_id for feature in authored}
 
         # `dimension:0:1:4:17` is an ANGULAR dimension (label '60 ±0.5'). It used to render
         # through the linear path, producing an annotation whose label states an angle and
@@ -2076,7 +2090,7 @@ class TestBuildDrawingPmi:
             for issue in ctc01_annotated.registry.issues
             if issue.code == "dimension_kind_unsupported"
             for source_id in issue.source_ids
-        }
+        } & {feature.source_id for feature in authored}
         angular = {
             feature.source_id for feature in authored if feature.dimension_kind == "angular"
         }
@@ -2087,7 +2101,8 @@ class TestBuildDrawingPmi:
         assert rendered.isdisjoint(dropped) and rendered.isdisjoint(refused)
         assert rendered | dropped | refused == {feature.source_id for feature in authored}
         assert not [issue for issue in ctc01_annotated.lint() if issue.code == "pmi_not_rendered"]
-        assert ctc01_annotated.lint_summary()["pmi"] == {
+        summary = ctc01_annotated.lint_summary()["pmi"]
+        assert summary == {
             "mode": "annotate",
             "source": {"name": "nist_ctc_01_asme1_ap242.stp", "sha256": _CTC01_SHA256},
             "sources": 40,
@@ -2101,8 +2116,10 @@ class TestBuildDrawingPmi:
             "lowered": 27,
             # Seven diameter sources ride canonical bore owners; the angular record renders
             # from its planar supports, and the four raw location records remain unlowered.
-            "rendered": 27,
-            "dropped": 0,
+            # Crowded GD&T and datum candidates may be dropped, but the source census must
+            # account for them explicitly rather than report them as rendered.
+            "rendered": 27 - len(all_dropped),
+            "dropped": len(all_dropped),
         }
 
     def test_a_deleted_render_dispatch_is_reported_by_source_identity(self, monkeypatch):
