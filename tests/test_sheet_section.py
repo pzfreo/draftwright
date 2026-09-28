@@ -8,8 +8,10 @@ forced section actually renders (and is lint-clean), and the no-request canary.
 """
 
 import pytest
-from build123d import Box
+from build123d import Box, Cylinder, Pos
+from build123d_drafting.helpers import Centerline
 
+from draftwright import build_drawing
 from draftwright.sheet import Sheet
 
 
@@ -43,8 +45,62 @@ def test_section_through_feature_renders():
     assert s.section(p) is s  # chainable
     dwg = s.build()
     assert "section_aa" in dwg.views
+    mark = dwg.registry.section_of("section_line")
+    assert mark is not None and mark.cut_y == 0.0 and mark.view == "section_aa"
+    assert not hasattr(dwg.get_annotation("section_line"), "_dw_section_cut_y")
     assert dwg.get_annotation("section_caption").label == "SECTION A–A"
     assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]
+
+
+def test_section_lookup_requires_matching_cut_live_line_and_view_issue_1931():
+    s, p = _blind_pocket_sheet()
+    s.section(p)
+    dwg = s.build()
+    assert dwg.registry.has_section(0.0, dwg.views)
+    assert not dwg.registry.has_section(1.0, dwg.views)
+
+    view = dwg.views.pop("section_aa")
+    assert not dwg.registry.has_section(0.0, dwg.views)
+    dwg.views["section_aa"] = view
+    dwg.add(Centerline((0, 0, 0), (1, 0, 0)), "section_line")
+    assert not dwg.registry.has_section(0.0, dwg.views)
+
+
+def test_deferred_section_replay_and_rollback_issue_1931(monkeypatch):
+    from draftwright.annotations import orchestrator
+
+    part = Box(60, 40, 20) - Cylinder(4, 30) - Pos(0, 0, 2) * Cylinder(7, 20)
+    dwg = build_drawing(part, page="A3", auto_dims=False)
+    dwg._defer_intents = True
+    assert dwg.section() == []
+    assert dwg.registry.section_of("section_line") is None
+
+    real = orchestrator._maybe_tabulate_holes
+    calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            assert dwg.registry.section_of("section_line") is not None
+            raise RuntimeError("after section placement")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(orchestrator, "_maybe_tabulate_holes", fail_once)
+    with pytest.raises(RuntimeError, match="after section placement"):
+        dwg.finalize()
+    assert "section_aa" not in dwg.views
+    assert dwg.registry.section_of("section_line") is None
+
+    dwg.finalize()
+    assert "section_aa" in dwg.views
+    assert dwg.registry.section_of("section_line") is not None
+    dwg._defer_intents = False
+    line = dwg.get_annotation("section_line")
+    mark = dwg.registry.section_of("section_line")
+    assert dwg.section() == []
+    assert dwg.get_annotation("section_line") is line
+    assert dwg.registry.section_of("section_line") is mark
 
 
 def test_cut_plane_resolution():

@@ -29,6 +29,7 @@ draftwright and carries no behaviour beyond the bookkeeping moved out of
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -64,6 +65,14 @@ class MeasurementCell:
             raise ValueError("measurement cell requires a data row and nonnegative column")
         if self.measurement is None:
             raise ValueError("measurement cell requires a measurement identity")
+
+
+@dataclass(frozen=True)
+class SectionMark:
+    """Semantic cut and derived view carried by a live cutting-plane line."""
+
+    cut_y: float
+    view: str
 
 
 def _as_ids(measurement) -> tuple:
@@ -120,6 +129,7 @@ class AnnotationRegistry:
         # without pretending to be dimensional ink; coverage and quality reports must retain
         # that distinction. Like every identity axis, this is snapshot/restored transactionally.
         self._anno_satisfaction: dict = {}
+        self._anno_section: dict[str, SectionMark] = {}
         self._pinned: set = set()
         self._build_issues: list = []
 
@@ -185,6 +195,26 @@ class AnnotationRegistry:
         ids: tuple = self._anno_satisfaction.get(name, ())
         return ids
 
+    def section_of(self, name) -> SectionMark | None:
+        """The section mark on a live named line, if one was registered."""
+        return self._anno_section.get(name)
+
+    def has_section(self, cut_y: float, views: Collection[str]) -> bool:
+        """Whether a live line marks this cut and its derived view still exists."""
+        return any(
+            mark.cut_y == cut_y and mark.view in views
+            for name in self._named
+            if (mark := self.section_of(name)) is not None
+        )
+
+    def mark_section(self, name, mark: SectionMark) -> None:
+        """Bind a cut to its placed line, never to an absent or replaced object."""
+        if name not in self._named:
+            raise KeyError(name)
+        if not isinstance(mark, SectionMark):
+            raise TypeError("section mark must be a SectionMark")
+        self._anno_section[name] = mark
+
     def names_for_feature(self, feature) -> list:
         """Every annotation name owned by *feature* (matched by value equality, so a
         feature from ``dwg.model()`` finds the annotations rendered for it) (#398).
@@ -229,6 +259,7 @@ class AnnotationRegistry:
         for name, obj in self._named.items():
             if obj is old:
                 self._named[name] = new
+                self._anno_section.pop(name, None)
 
     def snapshot(self) -> dict:
         """An opaque snapshot of the annotation identity state — the name → object map
@@ -243,6 +274,7 @@ class AnnotationRegistry:
             "anno_measurement": dict(self._anno_measurement),
             "anno_cells": dict(self._anno_cells),
             "anno_satisfaction": dict(self._anno_satisfaction),
+            "anno_section": dict(self._anno_section),
             "pinned": set(self._pinned),
         }
 
@@ -262,6 +294,8 @@ class AnnotationRegistry:
         self._anno_cells.update(snap.get("anno_cells", {}))
         self._anno_satisfaction.clear()
         self._anno_satisfaction.update(snap.get("anno_satisfaction", {}))
+        self._anno_section.clear()
+        self._anno_section.update(snap.get("anno_section", {}))
         self._pinned.clear()
         self._pinned.update(snap["pinned"])
 
@@ -287,6 +321,7 @@ class AnnotationRegistry:
             "measurement": self._anno_measurement.get(name, ()),
             "cells": self._anno_cells.get(name, ()),
             "satisfaction": self._anno_satisfaction.get(name, ()),
+            "section": self._anno_section.get(name),
             "pinned": name in self._pinned,
         }
 
@@ -331,6 +366,11 @@ class AnnotationRegistry:
             self._anno_satisfaction[name] = satisfactions
         else:
             self._anno_satisfaction.pop(name, None)
+        section = identity.get("section")
+        if section is not None:
+            self._anno_section[name] = section
+        else:
+            self._anno_section.pop(name, None)
         if identity.get("pinned"):
             self._pinned.add(name)
         else:
@@ -393,6 +433,7 @@ class AnnotationRegistry:
                 self._anno_satisfaction[name] = satisfactions
             else:
                 self._anno_satisfaction.pop(name, None)
+            self._anno_section.pop(name, None)
         return displaced
 
     def remove(self, name):
@@ -406,6 +447,7 @@ class AnnotationRegistry:
             self._anno_measurement.pop(name, None)
             self._anno_cells.pop(name, None)
             self._anno_satisfaction.pop(name, None)
+            self._anno_section.pop(name, None)
         return obj
 
     def clear(self, keep) -> dict:
@@ -425,6 +467,7 @@ class AnnotationRegistry:
         self._anno_satisfaction = {
             n: s for n, s in self._anno_satisfaction.items() if n in keep_set
         }
+        self._anno_section = {n: s for n, s in self._anno_section.items() if n in keep_set}
         return kept_named
 
     # -- pins -----------------------------------------------------------------
