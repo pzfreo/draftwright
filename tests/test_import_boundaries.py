@@ -112,7 +112,7 @@ _LAYERS: dict[str, int] = {
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
     "plate_correspondence": 0,
-    "contract_values": 0,
+    "contract_values": 0,  # finite values and exact shared vector arithmetic
     "measurement_support": 0,
     "profile_angles": 0,
     "angular_geometry": 0,

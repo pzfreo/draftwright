@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from math import atan2, degrees, dist, fsum, hypot, isfinite, pi
+from math import atan2, degrees, dist, hypot, isfinite, pi
 from statistics import median
 from types import SimpleNamespace
 
 from build123d import GeomType
 
+from draftwright.contract_values import cross3 as _cross
+from draftwright.contract_values import dot_fsum as _dot
 from draftwright.linting._registry import cell_approvals_of
 from draftwright.linting.issues import LintIssue
 from draftwright.measurement_support import RequirementCarrier
@@ -173,18 +175,6 @@ def lint_angular_geometry(item, label_value):
 
 def _difference(first, second):
     return tuple(a - b for a, b in zip(first, second, strict=True))
-
-
-def _cross(first, second):
-    return (
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    )
-
-
-def _dot(first, second):
-    return fsum(a * b for a, b in zip(first, second, strict=True))
 
 
 def _physical_corner(evidence, requirement):

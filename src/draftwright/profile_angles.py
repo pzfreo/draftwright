@@ -8,7 +8,7 @@ supports; it never traverses part topology or creates recognition occurrences.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import cos, dist, fsum, pi, sin
+from math import cos, dist, pi, sin
 from typing import TYPE_CHECKING
 
 from quiddity import BoltCircle, Chamfer, PolygonalBoss, PolygonalStock
@@ -20,6 +20,8 @@ from quiddity.evidence import (
     ProfileLine,
 )
 
+from draftwright.contract_values import cross3, dot_fsum
+
 if TYPE_CHECKING:
     from build123d import Edge
 
@@ -29,11 +31,11 @@ def _sub(a, b):
 
 
 def _dot(a, b):
-    return fsum(x * y for x, y in zip(a, b, strict=True))
+    return dot_fsum(a, b)
 
 
 def _cross(a, b):
-    return a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]
+    return cross3(a, b)
 
 
 @dataclass(frozen=True)
