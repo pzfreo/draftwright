@@ -14,6 +14,7 @@ from typing import Literal
 from quiddity import RecognitionResult
 
 from draftwright._geometry import _canonical_axis_direction
+from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import (
     satisfaction_ids,
     satisfaction_of,
@@ -59,7 +60,7 @@ class FlatRequirementOutcome:
 
 def _rounded_pair(values) -> tuple[float, float]:
     first, second = values
-    return (round(float(first), 3), round(float(second), 3))
+    return (_rounded(first), _rounded(second))
 
 
 def _key(flat) -> _FlatRequirementKey:
@@ -68,7 +69,7 @@ def _key(flat) -> _FlatRequirementKey:
         axis_direction=_canonical_axis_direction(flat.axis, getattr(flat, "axis_direction", None)),
         axis_line=_rounded_pair(flat.axis_line),
         stock_span=_rounded_pair(flat.stock_span),
-        across=round(float(flat.across), 3),
+        across=_rounded(flat.across),
     )
 
 
@@ -77,7 +78,7 @@ def _source_point(flat) -> tuple[float, float, float]:
     if point is None:
         point = flat.frame.origin
     x, y, z = point
-    return (round(float(x), 3), round(float(y), 3), round(float(z), 3))
+    return (_rounded(x), _rounded(y), _rounded(z))
 
 
 def _matches(measurement, feature, parameter: str) -> bool:

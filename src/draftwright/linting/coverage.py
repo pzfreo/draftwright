@@ -50,6 +50,7 @@ from draftwright._core import (
     _fmt,
     _xyz,
 )
+from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import annotation_owner, cell_approvals_of, satisfaction_ids
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.pocket_pattern_coverage import pocket_pattern_requirement_outcomes
@@ -1710,12 +1711,12 @@ def lint_prismatic_coverage(
         return (
             channel.width_axis,
             channel.long_axis,
-            round(float(channel.width), 3),
-            round(float(channel.w_center), 3),
-            round(float(channel.lo), 3),
-            round(float(channel.hi), 3),
-            round(float(channel.d_lo), 3),
-            round(float(channel.d_hi), 3),
+            _rounded(channel.width),
+            _rounded(channel.w_center),
+            _rounded(channel.lo),
+            _rounded(channel.hi),
+            _rounded(channel.d_lo),
+            _rounded(channel.d_hi),
             int(channel.open_sign),
         )
 
@@ -1723,10 +1724,7 @@ def lint_prismatic_coverage(
         (
             data["width_axis"],
             data["long_axis"],
-            *(
-                round(float(data[key]), 3)
-                for key in ("width", "w_center", "lo", "hi", "d_lo", "d_hi")
-            ),
+            *(_rounded(data[key]) for key in ("width", "w_center", "lo", "hi", "d_lo", "d_hi")),
             data["open_sign"],
         )
         for source in recesses_with_kind(_rec.section_recesses, "channel")
@@ -2081,9 +2079,9 @@ def _lint_one_axial_profile(
     physical_grooves = {
         (
             groove.axis,
-            round(float(groove.width), 3),
-            round(float(groove.diameter), 3),
-            tuple(round(float(value), 3) for value in groove.at),
+            _rounded(groove.width),
+            _rounded(groove.diameter),
+            tuple(_rounded(value) for value in groove.at),
         )
         for groove in getattr(recognition, "grooves", ())
     }
@@ -2091,9 +2089,9 @@ def _lint_one_axial_profile(
     def groove_key(feature):
         return (
             feature.axis,
-            round(float(feature.width), 3),
-            round(float(feature.diameter), 3),
-            tuple(round(float(value), 3) for value in feature.frame.origin),
+            _rounded(feature.width),
+            _rounded(feature.diameter),
+            tuple(_rounded(value) for value in feature.frame.origin),
         )
 
     def groove_belongs_exactly(feature) -> bool:
@@ -2210,13 +2208,13 @@ def lint_axial_coverage(
         if plural and key is not None:
             axis_index = "xyz".index(profile.axis)
             line = tuple(
-                round(float(value), 3)
+                _rounded(value)
                 for index, value in enumerate(key.axis_origin)
                 if index != axis_index
             )
             span = (
-                round(float(min(profile.shoulders)), 3),
-                round(float(max(profile.shoulders)), 3),
+                _rounded(min(profile.shoulders)),
+                _rounded(max(profile.shoulders)),
             )
             label = f" on {profile.axis}-axis line {line}, span {span}"
         issues.extend(

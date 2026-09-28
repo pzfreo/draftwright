@@ -417,9 +417,7 @@ def _recognised_turned_axis_center(recognition, axis):
     for cylinder in (item for group in recognition.cylinders for item in group):
         if not cylinder.get("external") or cylinder.get("axis") != axis:
             continue
-        center_values = tuple(
-            round(float(cylinder["axis_xyz"][index]), 3) for index in perpendicular
-        )
+        center_values = tuple(_rounded(cylinder["axis_xyz"][index]) for index in perpendicular)
         center = (center_values[0], center_values[1])
         matched, overlap = support.setdefault(center, (set(), 0.0))
         for index, step in enumerate(steps):

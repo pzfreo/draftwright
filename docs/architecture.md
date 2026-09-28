@@ -220,7 +220,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   asserted by `test_the_expired_compat_aliases_stay_deleted`.
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
-  `_coverage_common.py` (shared registry evidence and outcome checks),
+  `_coverage_common.py` (shared registry evidence, outcome checks, and blind-slot value validation),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink, with explicit unavailable
   physical-support evidence),

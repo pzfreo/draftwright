@@ -1,7 +1,42 @@
 """Evidence and outcome operations shared by coverage checks."""
 
+from math import isfinite
+from numbers import Real
+
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import is_placement_drop
+
+
+def recess_rounded(value) -> float:
+    """Round a blind-slot fact, rejecting non-finite and unconvertible values."""
+    try:
+        result = round(float(value), 3)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError from exc
+    if not isfinite(result):
+        raise ValueError
+    return result
+
+
+def recess_positive(value) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError
+    result = recess_rounded(value)
+    if result <= 0:
+        raise ValueError
+    return result
+
+
+def recess_point(value) -> tuple[float, float, float]:
+    if (
+        not isinstance(value, tuple)
+        or len(value) != 3
+        or any(
+            isinstance(component, bool) or not isinstance(component, Real) for component in value
+        )
+    ):
+        raise ValueError
+    return (recess_rounded(value[0]), recess_rounded(value[1]), recess_rounded(value[2]))
 
 
 def index_evidence(registry):
