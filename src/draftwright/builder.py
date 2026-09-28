@@ -2384,21 +2384,6 @@ def _scale_attempt(
     return attempt
 
 
-def _blocks_all_smaller_scales(blockers) -> bool:
-    """Whether fixed paper-space legibility already rules out every smaller scale.
-
-    The prismatic step-spacing drop is emitted only when detail recovery is disabled.
-    Its world-space separation shrinks against a fixed page-mm floor. Hole-location
-    spacing is different: a smaller scale may let a replacement table fit and clear
-    the drop, so it must remain eligible for the measured fallback ladder.
-    """
-    return any(
-        item["code"] == "step_dim_dropped"
-        and "too closely spaced to dimension at this scale" in item["message"]
-        for item in blockers
-    )
-
-
 def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
     """Rule out a fixed-scale build whose unannotated principal cannot fit.
 
@@ -3031,20 +3016,7 @@ def build_drawing(
 
         def _try_scales_on_selected_page(candidate_scales, *, reason, require_axial_coverage):
             """Try a bounded scale sequence on the already selected sheet."""
-            original_blockers = None
             for candidate_scale in candidate_scales:
-                if candidate_scale < original_scale:
-                    if original_blockers is None:
-                        _, original_blockers = _automatic_assessment(drawing)
-                    if _blocks_all_smaller_scales(original_blockers):
-                        _record_attempt(
-                            candidate_scale,
-                            "skipped",
-                            reason=reason,
-                            rejection="smaller_scale_cannot_clear_legibility",
-                            page=original_page,
-                        )
-                        continue
                 if (
                     latest_analysis is not None
                     and hasattr(latest_analysis, "bb")
@@ -3663,18 +3635,6 @@ def build_drawing(
     attempts = [_scale_attempt(requested_scale, "incomplete", blockers)]
     last_effective_scale = drawing.scale
     last_blockers = blockers
-    if _blocks_all_smaller_scales(blockers):
-        raise ScaleIncompatibilityError(
-            _scale_decision(
-                policy=scale_policy,
-                requested=requested_scale,
-                effective=drawing.scale,
-                status="no_complete_scale",
-                blockers=blockers,
-                attempted=attempted,
-                attempts=attempts,
-            )
-        )
     # ``_SCALES`` is descending and contains the preferred ISO 5455 reductions. The
     # requested non-standard scale is evaluated first above; fallback candidates must be
     # standard and no greater than it.
@@ -3697,8 +3657,6 @@ def build_drawing(
             attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))
             last_effective_scale = fallback.scale
             last_blockers = candidate_blockers
-            if _blocks_all_smaller_scales(candidate_blockers):
-                break
             continue
         attempts.append(_scale_attempt(candidate, "complete"))
         fallback.scale_decision = _scale_decision(
