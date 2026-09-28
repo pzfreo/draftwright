@@ -24,16 +24,55 @@ deliberately not asserted tight here.
 from __future__ import annotations
 
 import pytest
-from build123d import Box, Cylinder, Pos
+from build123d import Box, Cylinder, HeadType, Pos
 from build123d_drafting import draft_preset
+from build123d_drafting.helpers import Draft
 
 from draftwright import build_drawing
 from draftwright._core import _dim
 from draftwright.annotations._common import (
+    _dimension_probe_ink,
     _geom_box,
     dim_footprint,
     dimension_candidate_geometry,
 )
+
+
+@pytest.mark.parametrize("head_type", tuple(HeadType))
+@pytest.mark.parametrize("arrow_length", (2.7, 4.0))
+@pytest.mark.parametrize(
+    ("p1", "p2", "side", "distance", "offset"),
+    [
+        ((20, 30, 0), (25, 30, 0), "above", 11.0, -8.0),
+        ((25, 30, 0), (20, 30, 0), "below", 11.0, 8.0),
+        ((20, 30, 0), (20, 48, 0), "left", 11.0, 2.0),
+        ((20, 48, 0), (20, 30, 0), "right", 11.0, -2.0),
+        ((20, 30, 0), (25, 30, 0), "above", 4.0, 0.0),
+        ((20, 30, 0), (25, 30, 0), "below", 4.0, 0.0),
+        ((20, 30, 0), (20, 35, 0), "left", 4.0, 0.0),
+        ((20, 30, 0), (20, 35, 0), "right", 4.0, 0.0),
+    ],
+)
+def test_shifted_dimension_probe_covers_rendered_ink(
+    p1, p2, side, distance, offset, arrow_length, head_type
+):
+    draft = Draft(font_size=3.0, arrow_length=arrow_length, line_width=0.1, head_type=head_type)
+    rendered = _dim(p1, p2, side, distance, draft, label="0.5", label_offset_x=offset)
+    probe = _dimension_probe_ink(p1, p2, side, distance, draft, "0.5", offset)
+
+    assert probe is not None
+    label_box, segments, box = probe
+    assert label_box == pytest.approx(rendered.label_bbox, abs=1e-6)
+    assert len(segments) == len(rendered.segments)
+    for estimated, real in zip(segments, rendered.segments, strict=True):
+        for estimated_point, real_point in zip(estimated, real, strict=True):
+            assert estimated_point == pytest.approx(real_point, abs=1e-6)
+    real_box = _geom_box(rendered)
+    assert real_box is not None
+    assert box[0] <= real_box[0] + 1e-6
+    assert box[1] <= real_box[1] + 1e-6
+    assert box[2] >= real_box[2] - 1e-6
+    assert box[3] >= real_box[3] - 1e-6
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import pytest
 from build123d import Edge
 from build123d_drafting.helpers import Draft
 
+import draftwright.annotations._common as common
 from draftwright._core import _dim
 from draftwright._geometry import _boxes_overlap
 from draftwright.annotations._common import prevent_dimension_label_ink, view_label_clearance
@@ -125,6 +126,90 @@ def test_same_batch_dimension_ink_selects_clear_label_candidates():
     assert [dim._dw_spec.kwargs for _name, dim in replay] == [
         dim._dw_spec.kwargs for _name, dim in placed
     ]
+
+
+def test_probe_constructs_only_selected_dimension_geometry(monkeypatch):
+    natural = _short_chain()
+    assert _stage1_crossings(natural)
+    builds = 0
+    original = common._dim
+
+    def counting_dim(*args, **kwargs):
+        nonlocal builds
+        builds += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(common, "_dim", counting_dim)
+    placed = prevent_dimension_label_ink(natural, page=(0.0, 0.0, 100.0, 100.0))
+
+    assert _stage1_crossings(placed) == []
+    assert builds == sum(
+        after is not before for (_, after), (_, before) in zip(placed, natural, strict=True)
+    )
+
+
+def test_negative_tier_delta_keeps_the_rendered_candidate_path(monkeypatch):
+    natural = _connected_mixed_chain()
+    assert _stage1_crossings(natural)
+    rendered_negative = []
+    original = common._dim
+
+    def recording_dim(*args, **kwargs):
+        if args[3] < 0:
+            rendered_negative.append(args[3])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(common, "_dim", recording_dim)
+    placed = prevent_dimension_label_ink(
+        natural, page=(0.0, 0.0, 100.0, 100.0), perpendicular_step=-20.0
+    )
+
+    assert rendered_negative and set(rendered_negative) == {-9.0}
+    assert placed[1][1]._dw_spec.distance == 9.0
+
+
+def test_misaligned_side_keeps_the_rendered_candidate_path(monkeypatch):
+    draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+    natural = _dim((20, 30, 0), (25, 30, 0), "left", 11.0, draft, label="0.5")
+    approximate = common.dimension_candidate_geometry(
+        natural._dw_spec.p1,
+        natural._dw_spec.p2,
+        natural._dw_spec.side,
+        natural._dw_spec.distance,
+        draft,
+        "0.5",
+    )
+    assert approximate is not None
+    assert natural.label_bbox[1] < 20.0 < approximate.label_bbox[1]
+    assert (
+        common._dimension_probe_ink(
+            natural._dw_spec.p1,
+            natural._dw_spec.p2,
+            natural._dw_spec.side,
+            natural._dw_spec.distance,
+            draft,
+            "0.5",
+            0.0,
+        )
+        is None
+    )
+    builds = 0
+    original = common._dim
+
+    def counting_dim(*args, **kwargs):
+        nonlocal builds
+        builds += 1
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(common, "_dim", counting_dim)
+    placed = prevent_dimension_label_ink(
+        [("misaligned", natural)],
+        page=(0.0, 0.0, 100.0, 100.0),
+        label_clear=lambda box: box[1] > 20.0,
+    )
+
+    assert builds > 0
+    assert placed[0][1] is natural
 
 
 def test_short_size_label_can_clear_a_position_witness_at_its_midpoint():

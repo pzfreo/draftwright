@@ -1017,6 +1017,118 @@ class AnalyticalDimensionInk:
     _dw_dimension_candidate: bool = True
 
 
+@dataclass(frozen=True)
+class _DimensionInkProbe:
+    """Exact label and straight-stroke metadata before building helper geometry."""
+
+    label_bbox: tuple[float, float, float, float]
+    segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
+    box: tuple[float, float, float, float]
+    _dw_spec: Any
+
+
+def _subtract_probe_span(spans, lo, hi):
+    """Remove one label keep-clear interval from dimension-line spans."""
+    result = []
+    for first, last in spans:
+        if hi <= first or lo >= last:
+            result.append((first, last))
+        else:
+            if first < lo:
+                result.append((first, lo))
+            if hi < last:
+                result.append((hi, last))
+    return [(first, last) for first, last in result if last - first > 1e-9]
+
+
+def _dimension_probe_ink(p1, p2, side, distance, draft, label, label_offset_x):
+    """Mirror inline, axis-aligned Dimension stroke clipping for the local ink solve."""
+    dx, dy = float(p2[0] - p1[0]), float(p2[1] - p1[1])
+    if (abs(dx) > 1e-9 and side not in ("above", "below")) or (
+        abs(dy) > 1e-9 and side not in ("left", "right")
+    ):
+        return None
+    analytical = dimension_candidate_geometry(
+        p1, p2, side, distance, draft, label, label_offset_x=label_offset_x
+    )
+    if analytical is None:
+        return None
+    directions = {
+        "above": (0.0, 1.0),
+        "below": (0.0, -1.0),
+        "left": (-1.0, 0.0),
+        "right": (1.0, 0.0),
+    }
+    sx, sy = directions[side]
+    length = math.hypot(dx, dy)
+    ux, uy = dx / length, dy / length
+    axis = 1 if abs(dy) > abs(dx) else 0
+    other = 1 - axis
+    label_box = analytical.label_bbox
+    half_along = (label_box[axis + 2] - label_box[axis]) / 2.0
+    half_normal = (label_box[other + 2] - label_box[other]) / 2.0
+    pad = draft.pad_around_text
+    arrow = draft.arrow_length
+    label_t = length / 2.0 + label_offset_x
+
+    fits = 2 * half_along + 2 * arrow < length and length / 2.0 - half_along - pad > arrow / 2.0
+    shaft = (
+        [(arrow / 2.0, length - arrow / 2.0)]
+        if fits
+        else [
+            (-2 * arrow, -arrow / 2.0),
+            (0.0, length),
+            (length + arrow / 2.0, length + 2 * arrow),
+        ]
+    )
+    shaft = _subtract_probe_span(shaft, label_t - half_along - pad, label_t + half_along + pad)
+    origin = (float(p1[0]) + sx * abs(distance), float(p1[1]) + sy * abs(distance))
+    segments = [
+        (
+            (origin[0] + ux * first, origin[1] + uy * first),
+            (origin[0] + ux * last, origin[1] + uy * last),
+        )
+        for first, last in shaft
+    ]
+    gap = draft.extension_gap
+    for endpoint, point in ((0.0, p1), (length, p2)):
+        witness = [(gap, abs(distance) + gap)]
+        if abs(label_t - endpoint) < half_along + pad:
+            witness = _subtract_probe_span(
+                witness, abs(distance) - half_normal - pad, abs(distance) + half_normal + pad
+            )
+        segments.extend(
+            (
+                (float(point[0]) + sx * first, float(point[1]) + sy * first),
+                (float(point[0]) + sx * last, float(point[1]) + sy * last),
+            )
+            for first, last in witness
+        )
+    # The older generic footprint can omit an uncrossed witness overshoot or a
+    # short-span arrowhead. This private hull covers the exact stroke pieces,
+    # label, both complete witness extents and all current arrowhead styles.
+    xs = [label_box[0], label_box[2]]
+    ys = [label_box[1], label_box[3]]
+    for start, end in segments:
+        xs.extend((start[0], end[0]))
+        ys.extend((start[1], end[1]))
+    head_half = arrow / 3.0
+    for point in (p1, p2):
+        cx, cy = float(point[0]) + sx * abs(distance), float(point[1]) + sy * abs(distance)
+        wx, wy = (
+            float(point[0]) + sx * (abs(distance) + gap),
+            float(point[1]) + sy * (abs(distance) + gap),
+        )
+        xs.append(wx)
+        ys.append(wy)
+        for along in (-2.0 * arrow, 2.0 * arrow):
+            xs.extend((cx + ux * along - uy * head_half, cx + ux * along + uy * head_half))
+            ys.extend((cy + uy * along - ux * head_half, cy + uy * along + ux * head_half))
+    stroke_pad = draft.line_width / 2.0
+    box = (min(xs) - stroke_pad, min(ys) - stroke_pad, max(xs) + stroke_pad, max(ys) + stroke_pad)
+    return label_box, tuple(segments), box
+
+
 def dimension_candidate_geometry(
     p1,
     p2,
@@ -2330,22 +2442,61 @@ def prevent_dimension_label_ink(
         kwargs["label_offset_x"] = (
             kwargs.get("label_offset_x", 0.0) + (centre - natural) * direction
         )
-        rebuilt = _dim(
-            spec.p1,
-            spec.p2,
-            spec.side,
-            spec.distance + distance_delta,
-            spec.draft,
-            **kwargs,
-        )
-        # The producer attaches semantic evidence before the corridor commits the
-        # survivor. Rebuilding only the rendered Dimension must not erase that evidence:
-        # hole-table escalation and coverage lint read these riders from the final object.
-        # Copy semantic namespaces, never helper geometry internals; `_dw_spec` belongs to
-        # the rebuilt placement and must remain the one `_dim` just created.
-        for attr, value in vars(dim).items():
-            if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
-                setattr(rebuilt, attr, value)
+        distance = spec.distance + distance_delta
+        rebuilt = None
+        # These are the exact fields this local solve reads; styled or custom
+        # dimensions keep the rendered path until their ink has an exact model.
+        if (
+            isinstance(spec.side, str)
+            and spec.side in ("above", "below", "left", "right")
+            and isinstance(kwargs.get("label"), str)
+            and kwargs["label"]
+            and set(kwargs) <= {"label", "label_offset_x"}
+            and (
+                getattr(spec.draft, "text_position", "inline"),
+                getattr(spec.draft, "text_orientation", "aligned"),
+            )
+            == ("inline", "aligned")
+            and distance > 0.0
+        ):
+            ink = _dimension_probe_ink(
+                spec.p1,
+                spec.p2,
+                spec.side,
+                distance,
+                spec.draft,
+                kwargs["label"],
+                kwargs["label_offset_x"],
+            )
+            if ink is not None:
+                rebuilt = _DimensionInkProbe(
+                    ink[0],
+                    ink[1],
+                    ink[2],
+                    SimpleNamespace(
+                        p1=spec.p1,
+                        p2=spec.p2,
+                        side=spec.side,
+                        distance=distance,
+                        draft=spec.draft,
+                        kwargs=kwargs,
+                    ),
+                )
+        if rebuilt is None:
+            rebuilt = _dim(
+                spec.p1,
+                spec.p2,
+                spec.side,
+                distance,
+                spec.draft,
+                **kwargs,
+            )
+        # The producer's coverage evidence belongs on the final rendered Dimension.
+        # A cheap probe carries only collision metadata until selection completes.
+        if not isinstance(rebuilt, _DimensionInkProbe):
+            for attr, value in vars(dim).items():
+                if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+                    setattr(rebuilt, attr, value)
         cache[key] = rebuilt
         return rebuilt
 
@@ -2460,6 +2611,15 @@ def prevent_dimension_label_ink(
         _key, current, current_objective, conflicts = best
         if not conflicts:
             break
+    for index, (name, candidate) in enumerate(current):
+        if not isinstance(candidate, _DimensionInkProbe):
+            continue
+        spec = candidate._dw_spec
+        rendered = _dim(spec.p1, spec.p2, spec.side, spec.distance, spec.draft, **spec.kwargs)
+        for attr, value in vars(original[index][1]).items():
+            if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
+                setattr(rendered, attr, value)
+        current[index] = (name, rendered)
     return current
 
 
