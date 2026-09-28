@@ -97,7 +97,9 @@ def manufacturing_schedule(model, *, include_source_pmi: bool) -> ManufacturingS
     """
     if not include_source_pmi:
         return None
-    by_source: dict[tuple[str, ...], tuple[object, list[object]]] = {}
+    by_source: dict[
+        tuple[str, ...], tuple[ThreadRequirement | KnurlRequirement, list[object]]
+    ] = {}
     claimed_ids: set[str] = set()
     for feature in model.features:
         owner = feature.member if isinstance(feature, PatternFeature) else feature

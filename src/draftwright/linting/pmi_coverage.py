@@ -42,7 +42,7 @@ def lint_manufacturing_references(registry) -> list[LintIssue]:
                 for owner in registry.features_of(name)
                 for subject in (getattr(owner, "member", None) or owner,)
                 for aspect in (getattr(subject, "thread", None), getattr(subject, "knurl", None))
-                if getattr(aspect, "source_ids", ())
+                if aspect is not None and hasattr(aspect, "source_ids") and aspect.source_ids
             )
             if not aspects:
                 continue  # a user-authored note is not this engine's keyed carrier
