@@ -503,7 +503,7 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
         i = kind_indices.get(s.kind, 0)
         kind_indices[s.kind] = i + 1
         if only_refs is not None and g.ref not in only_refs:
-            continue  # skip in place so i stays the model index
+            continue  # #426 Ph2b: skip in place — i must stay the model index
         view = views[frozenset((s.width_axis, s.long_axis))]
         name, zones, h_axis, h_proj, _v_axis, v_proj = view
 
@@ -4568,7 +4568,7 @@ def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
     ):
         pk = g.facts
         if only is not None and g.ref not in only:
-            continue  # skip in place so i stays the model index
+            continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
         by_key = {(pd.role, pd.kind): pd for pd in g.dims}
         wpd = by_key.get(("pocket_width", "length"))
         lpd = by_key.get(("pocket_length", "length"))
@@ -4936,7 +4936,7 @@ def render_grooves(dwg, plan, a, *, ctx, only=None) -> int:
     ):
         gr = g.facts
         if only is not None and g.ref not in only:
-            continue  # skip in place so gi stays the model index
+            continue  # #426 Ph2b subset (finalize): skip in place — gi stays the model index
         wpd = next((d for d in g.dims if (d.role, d.kind) == ("groove", "length")), None)
         dpd = next((d for d in g.dims if (d.role, d.kind) == ("groove", "diameter")), None)
         if wpd is None or dpd is None:
