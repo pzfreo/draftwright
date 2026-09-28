@@ -162,6 +162,54 @@ class TestDetailView:
         assert not _render_detail(None, SimpleNamespace(SCALE=1.0), req, "detail_a", "A", ctx=None)
         assert req.failure_reason == "measurement witness 1 has no complete model-space span"
 
+    @pytest.mark.parametrize(
+        "failure",
+        ("source_view_unavailable", "no_solid_body", "crop_failed", "empty_crop"),
+    )
+    def test_detail_refusal_keeps_a_named_reason(self, monkeypatch, failure):
+        from types import SimpleNamespace
+
+        from draftwright._core import DetailRequest
+        from draftwright.annotations.sections import _render_detail
+
+        request = DetailRequest(
+            axis="x", lo=-1.0, hi=1.0, scale_needed=1.0, redraw=lambda *_args: 1
+        )
+        drawing = SimpleNamespace(
+            views={} if failure == "source_view_unavailable" else {"front": (None, None)}
+        )
+        solids = [] if failure == "no_solid_body" else [Box(2, 2, 2)]
+        analysis = SimpleNamespace(
+            SCALE=1.0,
+            part=SimpleNamespace(solids=lambda: solids),
+            bbox_max=10.0,
+            cx=0.0,
+            cy=0.0,
+            cz=0.0,
+        )
+        if failure == "crop_failed":
+
+            def fail_crop(*_args):
+                raise RuntimeError("injected crop failure")
+
+            monkeypatch.setattr("draftwright.annotations.sections._fuzzy_cut", fail_crop)
+        elif failure == "empty_crop":
+            monkeypatch.setattr("draftwright.annotations.sections._fuzzy_cut", lambda *_args: None)
+
+        assert not _render_detail(drawing, analysis, request, "detail_a", "A", ctx=None)
+        assert request.failure_code == failure
+
+    def test_exhausted_detail_identifiers_are_reported(self, monkeypatch):
+        from draftwright.view_plan import DerivedViewIdentifierPool
+
+        monkeypatch.setattr(DerivedViewIdentifierPool, "allocate", lambda _self: None)
+        drawing = build_drawing(_crowded_shoulder_part(), detail_view=True)
+
+        assert drawing.detail_decisions
+        assert drawing.detail_decisions[0]["status"] == "refused"
+        assert drawing.detail_decisions[0]["reason"] == "identifiers_exhausted"
+        assert drawing.detail_decisions[0]["view"] is None
+
     def test_turned_head_partial_crop_requires_every_controlled_profile_edge(self):
         from types import SimpleNamespace
 
