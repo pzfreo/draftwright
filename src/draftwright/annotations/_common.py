@@ -91,6 +91,17 @@ class DerivedViewReservation:
         )
 
 
+def _clear_derived_view_reservation(dwg, name: str):
+    """Permanently consume one private planning placeholder, never user ink."""
+    if name not in dwg.annotations():
+        return None
+    reservation = dwg.get_annotation(name)
+    if not isinstance(reservation, DerivedViewReservation):
+        raise TypeError(f"{name} is not a derived-view reservation")
+    dwg.remove(name)
+    return reservation.box
+
+
 def _with_hole_location_coverage(annotation, coverage):
     """Attach exact compiler location/member facts to a rendered annotation.
 

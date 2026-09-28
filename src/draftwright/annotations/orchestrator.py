@@ -45,6 +45,7 @@ from draftwright.annotations._common import (
     DerivedViewReservation,
     PlacementContext,
     _annotation_hole_features,
+    _clear_derived_view_reservation,
     _discard_attempt_annotations,
     _fully_ballooned_features,
     _hole_location_coverage_fact,
@@ -1004,8 +1005,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             # A planned demand that produced no request must not leak a private
             # placeholder into the Drawing, lint, or an exported file.
             for name in detail_reservations.values():
-                if name in dwg.annotations():
-                    dwg.remove(name)
+                _clear_derived_view_reservation(dwg, name)
 
     def _s_title_block():
         _add_title_block(dwg, a)

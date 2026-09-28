@@ -264,6 +264,9 @@ def test_every_remove_and_restore_site_goes_through_the_identity_pair():
     # function name -> why it may remove without restoring identity
     EXEMPT = {
         "_clear_section_reservation": "deletes the reserved section marks outright; no restore",
+        "_clear_derived_view_reservation": (
+            "deletes only an engine-owned planning placeholder; no restore"
+        ),
         "_discard_attempt_annotations": (
             "permanently deletes table/balloon geometry from an uncommitted attempt"
         ),

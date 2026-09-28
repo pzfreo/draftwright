@@ -56,6 +56,7 @@ from draftwright._geometry import (
     _stroke_polygon,
 )
 from draftwright.annotations._common import (
+    _clear_derived_view_reservation,
     _geom_box,
     _restore_annotation_transaction,
     _snapshot_annotation_transaction,
@@ -1205,7 +1206,7 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None, reservations=No
         reservation_name = reservations.pop(view_name, None)
         reserved_box = None
         if reservation_name is not None:
-            reserved_box = dwg.remove(reservation_name).box
+            reserved_box = _clear_derived_view_reservation(dwg, reservation_name)
         issue_start = len(ctx.registry.issues)
         placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx, reserved_box=reserved_box)
         hname = (
