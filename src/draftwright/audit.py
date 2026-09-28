@@ -606,63 +606,24 @@ def _pareto_result(axes: Mapping[str, Mapping] | None, limitations: Sequence[str
     }
 
 
-def compare_assessments(
+@dataclass
+class _RequirementComparison:
+    before_declarations: dict[str, Mapping]
+    after_declarations: dict[str, Mapping]
+    expected: set[tuple[str, str]]
+    authorised: dict[tuple[str, str], str]
+    transitions: list[dict[str, Any]]
+    blockers: list[dict[str, Any]]
+    improvements: list[dict[str, Any]]
+    applied_changes: list[dict[str, Any]]
+
+
+def _compare_requirements(
     baseline: Mapping,
     candidate: Mapping,
-    *,
-    expected_requirements: Sequence[ExpectedRequirement | Mapping | tuple] = (),
-    intentional_changes: Sequence[IntentionalChange | Mapping] = (),
-    selected_layout_finding: LayoutFindingIdentity | Mapping | None = None,
-) -> dict:
-    """Compare two exact replay assessments using separate axes and a Pareto relation.
-
-    Compatibility is fail-closed: both documents must be v2 assessments for the same immutable
-    STEP bytes, producer versions, and run options. ``expected_requirements`` is the caller's
-    fixed denominator and is the only way to expose a requirement omitted from both drawings.
-    Authorised changes are reported separately; they do not excuse unrelated regressions.
-    Unresolved claims match only by their serialized annotation/cell or annotation/parameter
-    identity; duplicates refuse comparison instead of pairing by order.
-    """
-
-    if not isinstance(baseline, Mapping) or not isinstance(candidate, Mapping):
-        raise TypeError("assessment comparison requires two mappings")
-    compatibility = _compatibility_reasons(baseline, candidate)
-    base = {
-        "schema": "draftwright-assessment-comparison",
-        "schema_version": 2,
-        "scope": "same-source-replay-delta",
-        "decision": "incomparable" if compatibility else "no-preference",
-        "reasons": compatibility,
-        "compatibility": {
-            "comparable": not compatibility,
-            "reasons": compatibility,
-        },
-        "restraint": {
-            "availability": "unavailable",
-            "reason": "physical requirement equivalence is not established by this comparison",
-        },
-        "manufacturing_readiness": {
-            "availability": "unavailable",
-            "reason": "material, process, finish, fit, and tolerance intent are not certified",
-        },
-    }
-    if compatibility:
-        return {
-            **base,
-            "axes": None,
-            "pareto": _pareto_result(None, compatibility),
-            "uncertainty": None,
-            "lint": None,
-            "requirements": None,
-            "completeness": None,
-            "fidelity": None,
-            "layout": None,
-            "unscored": None,
-            "unavailable": {"reasons": compatibility, "measurement_claims": []},
-            "intentional_changes": [],
-            "policy": None,
-        }
-
+    expected_requirements: Sequence[ExpectedRequirement | Mapping | tuple],
+    intentional_changes: Sequence[IntentionalChange | Mapping],
+) -> _RequirementComparison:
     before_declarations, after_declarations = (
         _declarations(baseline),
         _declarations(candidate),
@@ -696,7 +657,6 @@ def compare_assessments(
     transitions: list[dict[str, Any]] = []
     blockers: list[dict[str, Any]] = []
     improvements: list[dict[str, Any]] = []
-    unavailable: list[str] = []
     applied_changes: list[dict[str, Any]] = []
     for key in keys:
         old = _requirement_side(key, before_declarations, before_measurements, before_carriers)
@@ -781,11 +741,31 @@ def compare_assessments(
                     "parameter_id": key[1],
                 }
             )
-    lint = _lint_delta(baseline, candidate)
-    for issue in lint["introduced"]:
-        if issue.get("severity") == "error":
-            blockers.append({"code": "error_lint_introduced", "finding": issue})
+    return _RequirementComparison(
+        before_declarations,
+        after_declarations,
+        expected,
+        authorised,
+        transitions,
+        blockers,
+        improvements,
+        applied_changes,
+    )
 
+
+@dataclass
+class _CompletenessComparison:
+    report: dict[str, Any]
+    improvements: list[dict[str, Any]]
+    regressions: list[dict[str, Any]]
+    unavailable_reasons: list[str]
+    blockers: list[dict[str, Any]]
+    unavailable: list[str]
+
+
+def _compare_completeness(baseline: Mapping, candidate: Mapping) -> _CompletenessComparison:
+    blockers: list[dict[str, Any]] = []
+    unavailable: list[str] = []
     before_quality = baseline["drawing"]["lint"]["quality"]
     after_quality = candidate["drawing"]["lint"]["quality"]
     before_completeness = before_quality["completeness"]
@@ -872,6 +852,147 @@ def compare_assessments(
     if after_completeness.get("unknown_cardinality_rows", 0):
         unavailable.append("candidate requirement cardinality is unknown")
 
+    return _CompletenessComparison(
+        report={
+            "baseline": before_completeness,
+            "candidate": after_completeness,
+            "adverse_outcome_changes": completeness_changes,
+            "known_requirement_count": {"baseline": old_known, "candidate": new_known},
+        },
+        improvements=completeness_improvements,
+        regressions=completeness_regressions,
+        unavailable_reasons=completeness_unavailable,
+        blockers=blockers,
+        unavailable=unavailable,
+    )
+
+
+@dataclass
+class _LayoutComparison:
+    report: dict[str, Any]
+    blockers: list[dict[str, Any]]
+    improvements: list[dict[str, Any]]
+
+
+def _compare_layout(
+    baseline: Mapping,
+    candidate: Mapping,
+    selected_layout_finding: LayoutFindingIdentity | Mapping | None,
+) -> _LayoutComparison:
+    blockers: list[dict[str, Any]] = []
+    improvements: list[dict[str, Any]] = []
+    old_layout = {_finding_key(row): row for row in baseline["drawing"]["layout"]["findings"]}
+    new_layout = {_finding_key(row): row for row in candidate["drawing"]["layout"]["findings"]}
+    selected = _layout_selection_key(selected_layout_finding)
+    layout: dict[str, Any] = {
+        "selected": None
+        if selected is None
+        else {
+            "code": selected[0],
+            "declaration_ids": list(selected[1]),
+            "annotation_names": list(selected[2]),
+        },
+        "resolved": [old_layout[key] for key in sorted(old_layout.keys() - new_layout.keys())],
+        "introduced": [new_layout[key] for key in sorted(new_layout.keys() - old_layout.keys())],
+        "unchanged": [old_layout[key] for key in sorted(old_layout.keys() & new_layout.keys())],
+        "selected_transition": "not-selected",
+    }
+    for finding in layout["introduced"]:
+        blockers.append({"code": "layout_finding_introduced", "finding": finding})
+    if selected is not None:
+        was, now = selected in old_layout, selected in new_layout
+        layout["selected_transition"] = (
+            "resolved"
+            if was and not now
+            else "introduced"
+            if now and not was
+            else "unchanged"
+            if was and now
+            else "absent"
+        )
+        if was and not now:
+            improvements.append({"code": "selected_layout_finding_resolved"})
+
+    return _LayoutComparison(layout, blockers, improvements)
+
+
+def compare_assessments(
+    baseline: Mapping,
+    candidate: Mapping,
+    *,
+    expected_requirements: Sequence[ExpectedRequirement | Mapping | tuple] = (),
+    intentional_changes: Sequence[IntentionalChange | Mapping] = (),
+    selected_layout_finding: LayoutFindingIdentity | Mapping | None = None,
+) -> dict:
+    """Compare two exact replay assessments using separate axes and a Pareto relation.
+
+    Compatibility is fail-closed: both documents must be v2 assessments for the same immutable
+    STEP bytes, producer versions, and run options. ``expected_requirements`` is the caller's
+    fixed denominator and is the only way to expose a requirement omitted from both drawings.
+    Authorised changes are reported separately; they do not excuse unrelated regressions.
+    Unresolved claims match only by their serialized annotation/cell or annotation/parameter
+    identity; duplicates refuse comparison instead of pairing by order.
+    """
+
+    if not isinstance(baseline, Mapping) or not isinstance(candidate, Mapping):
+        raise TypeError("assessment comparison requires two mappings")
+    compatibility = _compatibility_reasons(baseline, candidate)
+    base = {
+        "schema": "draftwright-assessment-comparison",
+        "schema_version": 2,
+        "scope": "same-source-replay-delta",
+        "decision": "incomparable" if compatibility else "no-preference",
+        "reasons": compatibility,
+        "compatibility": {
+            "comparable": not compatibility,
+            "reasons": compatibility,
+        },
+        "restraint": {
+            "availability": "unavailable",
+            "reason": "physical requirement equivalence is not established by this comparison",
+        },
+        "manufacturing_readiness": {
+            "availability": "unavailable",
+            "reason": "material, process, finish, fit, and tolerance intent are not certified",
+        },
+    }
+    if compatibility:
+        return {
+            **base,
+            "axes": None,
+            "pareto": _pareto_result(None, compatibility),
+            "uncertainty": None,
+            "lint": None,
+            "requirements": None,
+            "completeness": None,
+            "fidelity": None,
+            "layout": None,
+            "unscored": None,
+            "unavailable": {"reasons": compatibility, "measurement_claims": []},
+            "intentional_changes": [],
+            "policy": None,
+        }
+
+    requirements = _compare_requirements(
+        baseline, candidate, expected_requirements, intentional_changes
+    )
+    before_declarations = requirements.before_declarations
+    after_declarations = requirements.after_declarations
+    expected = requirements.expected
+    authorised = requirements.authorised
+    transitions = requirements.transitions
+    blockers = requirements.blockers
+    improvements = requirements.improvements
+    applied_changes = requirements.applied_changes
+    unavailable: list[str] = []
+    lint = _lint_delta(baseline, candidate)
+    for issue in lint["introduced"]:
+        if issue.get("severity") == "error":
+            blockers.append({"code": "error_lint_introduced", "finding": issue})
+
+    completeness = _compare_completeness(baseline, candidate)
+    blockers.extend(completeness.blockers)
+    unavailable.extend(completeness.unavailable)
     fidelity = _component_delta(baseline, candidate, "fidelity")
     old_fidelity, new_fidelity = fidelity["baseline"], fidelity["candidate"]
     fidelity["target_validation"] = _code_count_delta(old_fidelity, new_fidelity)
@@ -908,38 +1029,10 @@ def compare_assessments(
             }
         )
 
-    old_layout = {_finding_key(row): row for row in baseline["drawing"]["layout"]["findings"]}
-    new_layout = {_finding_key(row): row for row in candidate["drawing"]["layout"]["findings"]}
-    selected = _layout_selection_key(selected_layout_finding)
-    layout: dict[str, Any] = {
-        "selected": None
-        if selected is None
-        else {
-            "code": selected[0],
-            "declaration_ids": list(selected[1]),
-            "annotation_names": list(selected[2]),
-        },
-        "resolved": [old_layout[key] for key in sorted(old_layout.keys() - new_layout.keys())],
-        "introduced": [new_layout[key] for key in sorted(new_layout.keys() - old_layout.keys())],
-        "unchanged": [old_layout[key] for key in sorted(old_layout.keys() & new_layout.keys())],
-        "selected_transition": "not-selected",
-    }
-    for finding in layout["introduced"]:
-        blockers.append({"code": "layout_finding_introduced", "finding": finding})
-    if selected is not None:
-        was, now = selected in old_layout, selected in new_layout
-        layout["selected_transition"] = (
-            "resolved"
-            if was and not now
-            else "introduced"
-            if now and not was
-            else "unchanged"
-            if was and now
-            else "absent"
-        )
-        if was and not now:
-            improvements.append({"code": "selected_layout_finding_resolved"})
-
+    layout_delta = _compare_layout(baseline, candidate, selected_layout_finding)
+    layout = layout_delta.report
+    blockers.extend(layout_delta.blockers)
+    improvements.extend(layout_delta.improvements)
     uncertainty = _uncertainty_delta(baseline, candidate)
     old_annotation_declarations = _annotation_declarations(before_declarations)
     new_annotation_declarations = _annotation_declarations(after_declarations)
@@ -1024,9 +1117,9 @@ def compare_assessments(
             regressions=requirement_regressions,
         ),
         "completeness": _axis_result(
-            improvements=completeness_improvements,
-            regressions=completeness_regressions,
-            unavailable_reasons=completeness_unavailable,
+            improvements=completeness.improvements,
+            regressions=completeness.regressions,
+            unavailable_reasons=completeness.unavailable_reasons,
         ),
         "fidelity": _axis_result(
             improvements=fidelity_improvements,
@@ -1093,12 +1186,7 @@ def compare_assessments(
             "blockers": [row for row in blockers if row["code"] == "requirement_regression"],
             "improvements": [row for row in improvements if row["code"] == "requirement_resolved"],
         },
-        "completeness": {
-            "baseline": before_completeness,
-            "candidate": after_completeness,
-            "adverse_outcome_changes": completeness_changes,
-            "known_requirement_count": {"baseline": old_known, "candidate": new_known},
-        },
+        "completeness": completeness.report,
         "fidelity": fidelity,
         "layout": layout,
         "unscored": unscored,
