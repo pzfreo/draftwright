@@ -83,6 +83,13 @@ CONTRACT_GROUPS = {
             "test_pocket_pattern_completeness_evidence.py",
         ),
     ),
+    "prismatic_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_prismatic_evidence.py",),
+        (
+            "test_pad_completeness_evidence.py",
+            "test_issue_1373_plate_completeness_evidence.py",
+        ),
+    ),
     "through_step_placement": ContractGroup(
         (
             "src/draftwright/annotations/from_model.py",

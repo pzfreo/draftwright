@@ -58,7 +58,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 declaration, and drawing-evidence checks. `evaluation/_turned_step_evidence.py` owns
 turned-step IR correspondence and finished-drawing evidence.
 `evaluation/_pocket_evidence.py` owns lone-pocket and pocket-pattern correspondence, public
-declaration, and drawing evidence. `evaluation/step_analysis.py` retains the observer registry
+declaration, and drawing evidence. `evaluation/_prismatic_evidence.py` owns rectangular-pad
+and plate correspondence, public declaration, and drawing evidence.
+`evaluation/step_analysis.py` retains the observer registry
 and re-exports the existing private helper names.
 
 - **`make_drawing.py`** — thin compat facade (~20 lines) re-exporting the public
