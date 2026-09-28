@@ -805,7 +805,8 @@ def _furnish_uncalled_patterns(dwg, a: Analysis, view_of_axis, plan, *, ctx, fur
     Furniture has always been a side effect of placing a bore callout, which was fine while
     the two stood or fell together. An authored set separates them: `dimension(pattern,
     "pitch")` names the pitch and nothing else, so there is no callout to hang the furniture
-    off and the measurement the script explicitly asked for was silently not drawn (#925) — the blank-drawing failure `_check_authored_targets` exists to prevent, arriving
+    off and the measurement the script explicitly asked for was silently not drawn (#925) —
+    the blank-drawing failure `_check_authored_targets` exists to prevent, arriving
     by a different route.
 
     Additive by construction: it runs only for patterns `_add_furniture` did not already

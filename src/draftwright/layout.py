@@ -1061,7 +1061,7 @@ def fit_box(size, region, obstacles, prefer="br", *, clearance=0.0, trace=None):
     ``{edge, edge - boxsize}`` per axis — O(n) each, O(n²) positions, each
     checked against the obstacles in O(n). That is O(n³), tractable for the
     dozens-of-annotations obstacle sets the hole table feeds it (the old
-    rectangle-enumeration form was O(n⁴) and blew up (#93)). Candidate
+    rectangle-enumeration form was O(n⁴) and blew up (#93). Candidate
     pairs are streamed rather than materialised, keeping live memory O(n).
     Deterministic (ascending candidates, first minimum wins).
     """
