@@ -315,6 +315,31 @@ _REPORT_REQUIREMENTS: ContextVar[tuple[object, Mapping[str, tuple[Any, ...]], ob
     ContextVar("draftwright_report_requirements", default=None)
 )
 
+# A finished-layout assessment needs the raw issues and their summary together. Keep that
+# result task-local for the duration of the assessment; Drawing exposes mutable annotations,
+# so a persistent generation cache needs a wider mutation contract (follow-on #1945).
+_SCOPED_LINT: ContextVar[tuple[object, tuple, object] | None] = ContextVar(
+    "draftwright_scoped_lint", default=None
+)
+
+
+def lint_snapshot(drawing):
+    """Return issues and summary from one lint without exposing a mutable cache scope."""
+    # A nested assessment must not expose its outer snapshot to lint overrides that
+    # call lint_summary() while the inner public lint method is still running.
+    mask = _SCOPED_LINT.set(None)
+    try:
+        with _collect_issue_aggregation() as aggregation:
+            issues = tuple(drawing.lint())
+    finally:
+        _SCOPED_LINT.reset(mask)
+    token = _SCOPED_LINT.set((drawing, issues, aggregation))
+    try:
+        summary = drawing.lint_summary()
+    finally:
+        _SCOPED_LINT.reset(token)
+    return issues, summary
+
 
 @contextlib.contextmanager
 def _reuse_report_requirements(
@@ -4993,8 +5018,12 @@ class Drawing:
         # Keep dispatch through the documented public critique method: subclasses and callers
         # may extend ``lint``. The context is task-local, and only the base implementation
         # records pair evidence; custom issues remain independent (fail closed).
-        with _collect_issue_aggregation() as aggregation:
-            issues = self.lint()
+        scoped = _SCOPED_LINT.get()
+        if scoped is not None and scoped[0] is self:
+            issues, aggregation = scoped[1], scoped[2]
+        else:
+            with _collect_issue_aggregation() as aggregation:
+                issues = self.lint()
         errors = sum(1 for i in issues if i.severity == "error")
         warnings = sum(1 for i in issues if i.severity == "warning")
         infos = sum(1 for i in issues if i.severity == "info")

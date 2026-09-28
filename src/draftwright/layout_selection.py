@@ -11,6 +11,7 @@ from draftwright.annotation_layout_profile import (
     AnnotationLayoutProfile,
     candidate_profile,
 )
+from draftwright.drawing import lint_snapshot
 
 if TYPE_CHECKING:
     from draftwright._core import Analysis
@@ -363,9 +364,10 @@ def _manifest(drawing) -> dict:
                 key=lambda value: json.dumps(value, sort_keys=True),
             ),
         }
-    issues = tuple(drawing.lint())
+    # Summary reuses these exact issues and their task-local pair ledger while still
+    # dispatching through the public lint_summary method.
+    issues, lint = lint_snapshot(drawing)
     blockers = _scale_blockers_from_issues(issues)
-    lint = drawing.lint_summary()
     completeness = lint["quality"]["completeness"]
     drops = {
         code: count

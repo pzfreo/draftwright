@@ -13,6 +13,7 @@ import pytest
 from build123d import Box
 
 from draftwright import build_drawing
+from draftwright.drawing import lint_snapshot
 from draftwright.linting.issues import (
     LintIssue,
     _collect_issue_aggregation,
@@ -292,6 +293,80 @@ def test_legacy_summary_counts_and_diagnostic_score_keep_raw_finding_semantics()
     assert len(summary["issues"]) == 10
     assert all(not any("aggregation" in key for key in issue) for issue in summary["issues"])
     assert summary["quality"]["legibility"]["score"] == pytest.approx(0.9)
+
+
+def test_scoped_lint_keeps_pair_evidence_and_public_dispatch_issue_1945(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+    drawing.items = _crossed_items()
+    drawing.views.clear()
+    drawing.part = None
+    expected = drawing.lint_summary()
+    base_lint = drawing.lint
+    calls = []
+
+    def counted_lint(*, physical=True):
+        calls.append(physical)
+        return base_lint(physical=physical)
+
+    monkeypatch.setattr(drawing, "lint", counted_lint)
+    issues, summary = lint_snapshot(drawing)
+
+    assert calls == [True]
+    assert len(issues) == 10  # two labels crossed by five centre marks
+    assert summary == expected
+    assert summary["quality"]["legibility"]["affected_pairs"] == 10
+    assert summary["quality"]["legibility"]["primary_issues"] == 2
+
+
+def test_nested_lint_snapshot_does_not_reuse_outer_issues_issue_1945(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+    outer = LintIssue(severity="warning", code="outer_marker", message="outer")
+    inner = LintIssue(severity="warning", code="inner_marker", message="inner")
+    calls = 0
+    nested_codes = None
+    nested_summary = None
+    entered = False
+    base_summary = drawing.lint_summary
+
+    def reentrant_lint(*, physical=True):
+        nonlocal calls, nested_codes
+        calls += 1
+        if calls == 1:
+            return [outer]
+        if calls == 2:
+            nested_codes = drawing.lint_summary()["by_code"]
+        return [inner]
+
+    def reentrant_summary():
+        nonlocal entered, nested_summary
+        if not entered:
+            entered = True
+            _, nested_summary = lint_snapshot(drawing)
+        return base_summary()
+
+    monkeypatch.setattr(drawing, "lint", reentrant_lint)
+    monkeypatch.setattr(drawing, "lint_summary", reentrant_summary)
+    issues, summary = lint_snapshot(drawing)
+
+    assert issues == (outer,)
+    assert summary["by_code"] == {"outer_marker": 1}
+    assert nested_summary["by_code"] == {"inner_marker": 1}
+    assert nested_codes == {"inner_marker": 1}
+    assert calls == 3
+
+
+def test_lint_snapshot_does_not_keep_stale_issues_after_mutation_issue_1945():
+    drawing = build_drawing(Box(20, 15, 10))
+    drawing.items = _crossed_items()
+    drawing.views.clear()
+    drawing.part = None
+
+    issues, summary = lint_snapshot(drawing)
+    assert len(issues) == 10
+    assert summary["by_code"]["label_centerline_overlap"] == 10
+
+    drawing.items = []
+    assert drawing.lint_summary()["by_code"].get("label_centerline_overlap", 0) == 0
 
 
 def test_lint_summary_still_dispatches_through_a_public_lint_override(monkeypatch):
