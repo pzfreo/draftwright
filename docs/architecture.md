@@ -76,6 +76,9 @@ and re-exports the existing private helper names.
     working.)*
     *(The CLI moved out to `cli.py`; the `_cli` compat shim lives there too (#523),
     so `builder` no longer imports `cli`.)*
+  - **`build_policy.py`** — rank-6 finished-drawing scale and arrangement decisions:
+    required-outcome blockers, structural validity, candidate quality, and stable
+    decision records. `builder.py` keeps the retry ladder and its constants.
   - **`layout_safety.py`** — rank-6 observational safety evidence for a finished
     candidate, using reporting and settled view geometry without a baseline drawing.
   - **`layout_selection.py`** — rank-6 finished-drawing annotation layout evidence and
