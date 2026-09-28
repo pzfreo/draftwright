@@ -472,8 +472,13 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   re-place helpers (`_find_dim`/`_replace_dim`/`_repair_*`/`repair_drawing`) take
   the drawing duck-typed as `dwg`; `Drawing.repair()` stays a thin wrapper.
   Depends only on `_core`.
+- **`_pmi_schema.py`** — OCCT dimension and geometric-tolerance type-code tables used by
+  the AP242 extractor.
+- **`_pmi_linear_geometry.py`** — proves authored linear reference stations and their
+  principal projection before the PMI extractor lowers dimensions.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
-  Owns the XCAF source census and overlays `_pmi_part21` facts only after exact
+  Defines the public record and source-census types at their established import path,
+  owns the XCAF source census, and overlays `_pmi_part21` facts only after exact
   correspondence. It inventories the complete OCCT geometric-tolerance modifier vocabulary,
   preserves unsupported facts in the raw IR fallback, and exposes explicit blockers to typed
   lowering; XCAF and Part21 source identities survive both paths.

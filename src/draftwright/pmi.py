@@ -28,6 +28,24 @@ from typing import Any, Literal, cast
 
 from quiddity import PartFrame
 
+from draftwright._pmi_linear_geometry import (
+    _LINEAR_AXIS_ABS_TOL as _LINEAR_AXIS_ABS_TOL,
+)
+from draftwright._pmi_linear_geometry import (
+    _LINEAR_AXIS_REL_TOL as _LINEAR_AXIS_REL_TOL,
+)
+from draftwright._pmi_linear_geometry import (
+    _LINEAR_OBLIQUE_VALUE_ABS_TOL as _LINEAR_OBLIQUE_VALUE_ABS_TOL,
+)
+from draftwright._pmi_linear_geometry import (
+    _LINEAR_VALUE_ABS_TOL as _LINEAR_VALUE_ABS_TOL,
+)
+from draftwright._pmi_linear_geometry import (
+    _LINEAR_VALUE_REL_TOL as _LINEAR_VALUE_REL_TOL,
+)
+from draftwright._pmi_linear_geometry import (
+    _linear_reference_stations,
+)
 from draftwright._pmi_part21 import (
     CommonLabelFact,
     DatumDefinitionFact,
@@ -51,162 +69,24 @@ from draftwright._pmi_part21 import (
     read_manufacturing_requirements,
     read_surface_labels,
 )
+from draftwright._pmi_schema import (
+    _DIM_PREFIX,
+    _DIM_TYPE,
+    _GTOL_MATERIAL_REQUIREMENT,
+    _GTOL_MODIFIER,
+    _GTOL_TYPE,
+    _GTOL_TYPE_OF_VALUE,
+    _LENGTH_DIMENSION_KINDS,
+    _PRESENTATION_TYPES,
+    _SUPPORTED_GTOL_SCOPE_MODIFIERS,
+)
 from draftwright.model.ir import (
     AngularReference,
     CircularReference,
     CylindricalReference,
-    _linear_projection_view,
 )
 
 _log = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# OCP capability guard
-# ---------------------------------------------------------------------------
-
-try:
-    from OCP.Bnd import Bnd_Box
-    from OCP.BRep import BRep_Tool
-    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
-    from OCP.BRepBndLib import BRepBndLib
-    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
-    from OCP.gp import gp_Trsf
-    from OCP.IFSelect import IFSelect_RetDone
-    from OCP.STEPCAFControl import STEPCAFControl_Reader
-    from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
-    from OCP.TDF import TDF_LabelSequence, TDF_Tool
-    from OCP.TDocStd import TDocStd_Document
-    from OCP.TopAbs import (
-        TopAbs_COMPOUND,
-        TopAbs_EDGE,
-        TopAbs_FACE,
-        TopAbs_FORWARD,
-        TopAbs_REVERSED,
-        TopAbs_VERTEX,
-    )
-    from OCP.TopExp import TopExp
-    from OCP.TopLoc import TopLoc_Location
-    from OCP.TopoDS import TopoDS
-    from OCP.TopTools import TopTools_IndexedMapOfShape
-    from OCP.XCAFDoc import (
-        XCAFDoc_Datum,
-        XCAFDoc_Dimension,
-        XCAFDoc_DimTolTool,
-        XCAFDoc_DocumentTool,
-        XCAFDoc_GeomTolerance,
-    )
-
-    _PMI_AVAILABLE = hasattr(STEPCAFControl_Reader, "SetGDTMode")
-except ImportError:
-    _PMI_AVAILABLE = False
-
-
-# ---------------------------------------------------------------------------
-# Type-code tables
-# ---------------------------------------------------------------------------
-
-# int → human tag for XCAFDimTolObjects_DimensionType enum
-_DIM_TYPE: dict[int, str] = {
-    0: "location",  # Location_None
-    1: "curved_dist",  # Location_CurvedDistance
-    2: "linear",  # Location_LinearDistance (outer-to-outer, generic)
-    3: "linear",  # FromCenterToOuter
-    4: "linear",  # FromCenterToInner
-    5: "linear",  # FromOuterToCenter
-    6: "linear",  # FromOuterToOuter
-    7: "linear",  # FromOuterToInner
-    8: "linear",  # FromInnerToCenter
-    9: "linear",  # FromInnerToOuter
-    10: "linear",  # FromInnerToInner
-    11: "angular",  # Location_Angular (incl. curved centre-to-centre)
-    12: "oriented",  # Location_Oriented
-    14: "curve_length",  # Size_CurveLength
-    15: "diameter",  # Size_Diameter  ← add ø prefix
-    16: "diameter",  # Size_SphericalDiameter
-    17: "radius",  # Size_Radius    ← add R prefix
-    18: "radius",  # Size_SphericalRadius
-    27: "thickness",  # Size_Thickness
-    28: "angular",  # Size_Angular
-    30: "label",  # CommonLabel     ← no numeric value, skip
-    31: "presentation",  # DimensionPresentation ← graphical only, skip
-}
-
-# Type 31 is graphical presentation only. Type 30 (CommonLabel) can carry authored meaning
-# despite having no numeric GetValue, so it must fail visibly until supported rather than be
-# discarded with presentation geometry (#623 review).
-_PRESENTATION_TYPES = {31}
-
-_LENGTH_DIMENSION_KINDS = frozenset(
-    (
-        "location",
-        "curved_dist",
-        "linear",
-        "oriented",
-        "curve_length",
-        "diameter",
-        "radius",
-        "thickness",
-    )
-)
-
-# prefix character for the label
-_DIM_PREFIX: dict[str, str] = {
-    "diameter": "ø",
-    "radius": "R",
-}
-
-# int → short tag for XCAFDimTolObjects_GeomToleranceType
-_GTOL_TYPE: dict[int, str] = {
-    1: "angularity",
-    2: "circular_runout",
-    3: "circularity",
-    4: "coaxiality",
-    5: "concentricity",
-    6: "cylindricity",
-    7: "flatness",
-    8: "parallelism",
-    9: "perpendicularity",
-    10: "position",
-    11: "profile_line",
-    12: "profile_surface",
-    13: "straightness",
-    14: "symmetry",
-    15: "total_runout",
-}
-
-# int → stable semantic name for XCAFDimTolObjects_GeomToleranceModif.  The whole OCCT
-# vocabulary is inventoried even though only the leader-scope symbols have faithful,
-# export-safe drafting representations today; every other known value remains explicit and
-# fail-closed.
-_GTOL_MODIFIER: dict[int, str] = {
-    0: "any_cross_section",
-    1: "common_zone",
-    2: "each_radial_element",
-    3: "free_state",
-    4: "least_material_requirement",
-    5: "line_element",
-    6: "major_diameter",
-    7: "maximum_material_requirement",
-    8: "minor_diameter",
-    9: "not_convex",
-    10: "pitch_diameter",
-    11: "reciprocity_requirement",
-    12: "separate_requirement",
-    13: "statistical_tolerance",
-    14: "tangent_plane",
-    15: "all_around",
-    16: "all_over",
-}
-_SUPPORTED_GTOL_SCOPE_MODIFIERS = frozenset(("all_around", "all_over"))
-_GTOL_TYPE_OF_VALUE = {
-    1: "diameter_zone",
-    2: "spherical_diameter_zone",
-}
-_GTOL_MATERIAL_REQUIREMENT = {
-    1: "maximum_material_requirement",
-    2: "least_material_requirement",
-}
-
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -344,6 +224,47 @@ class PmiExtractionReport:
 
 
 # ---------------------------------------------------------------------------
+# OCP capability guard
+# ---------------------------------------------------------------------------
+
+try:
+    from OCP.Bnd import Bnd_Box
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
+    from OCP.BRepBndLib import BRepBndLib
+    from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cone, GeomAbs_Cylinder, GeomAbs_Plane
+    from OCP.gp import gp_Trsf
+    from OCP.IFSelect import IFSelect_RetDone
+    from OCP.STEPCAFControl import STEPCAFControl_Reader
+    from OCP.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+    from OCP.TDF import TDF_LabelSequence, TDF_Tool
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.TopAbs import (
+        TopAbs_COMPOUND,
+        TopAbs_EDGE,
+        TopAbs_FACE,
+        TopAbs_FORWARD,
+        TopAbs_REVERSED,
+        TopAbs_VERTEX,
+    )
+    from OCP.TopExp import TopExp
+    from OCP.TopLoc import TopLoc_Location
+    from OCP.TopoDS import TopoDS
+    from OCP.TopTools import TopTools_IndexedMapOfShape
+    from OCP.XCAFDoc import (
+        XCAFDoc_Datum,
+        XCAFDoc_Dimension,
+        XCAFDoc_DimTolTool,
+        XCAFDoc_DocumentTool,
+        XCAFDoc_GeomTolerance,
+    )
+
+    _PMI_AVAILABLE = hasattr(STEPCAFControl_Reader, "SetGDTMode")
+except ImportError:
+    _PMI_AVAILABLE = False
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -432,71 +353,6 @@ def _dominant_from_bbox(bbox: tuple[float, float, float, float, float, float]) -
     spans = [("X", abs(xmax - xmin)), ("Y", abs(ymax - ymin)), ("Z", abs(zmax - zmin))]
     dom = max(spans, key=lambda t: t[1])
     return dom[0] if dom[1] > 1e-6 else "?"
-
-
-_LINEAR_AXIS_ABS_TOL = 0.005
-_LINEAR_AXIS_REL_TOL = 1e-3
-_LINEAR_VALUE_ABS_TOL = 0.01
-_LINEAR_VALUE_REL_TOL = 5e-4
-_LINEAR_OBLIQUE_VALUE_ABS_TOL = 0.05
-
-
-def _linear_reference_stations(
-    stations: tuple[tuple[float, float, float] | None, ...], nominal: float
-) -> tuple[tuple[tuple[float, float, float], ...], str, tuple[str, ...]]:
-    """Prove a truthful principal-axis span from the two authored reference groups.
-
-    A merged bbox answers how large the referenced faces are, not which direction relates
-    them. Circular end faces in GRM-03 are wider than their axial separation, which made
-    short X dimensions render across Y. Conversely, CTC-04 includes a genuinely oblique
-    relationship and one dimension whose second group XCAF does not transfer. Those must
-    remain explicit omissions rather than being guessed from the nominal value (#1209).
-    """
-    measurable = tuple(station for station in stations if station is not None)
-    if len(stations) != 2 or len(measurable) != 2:
-        return (
-            measurable,
-            "?",
-            ("linear dimension needs two measurable authored reference groups",),
-        )
-
-    first, second = measurable
-    delta = tuple(second[index] - first[index] for index in range(3))
-    magnitudes = tuple(abs(value) for value in delta)
-    axis_index = max(range(3), key=magnitudes.__getitem__)
-    primary = magnitudes[axis_index]
-    if primary <= 1e-9:
-        return measurable, "?", ("linear reference groups occupy the same station",)
-
-    transverse = max(value for index, value in enumerate(magnitudes) if index != axis_index)
-    direction_tol = max(_LINEAR_AXIS_ABS_TOL, primary * _LINEAR_AXIS_REL_TOL)
-    oblique = transverse > direction_tol
-    if oblique and _linear_projection_view(measurable) is None:
-        return (
-            measurable,
-            "?",
-            (
-                "linear reference relationship does not lie in a principal projection plane "
-                f"(delta=({delta[0]:.6g}, {delta[1]:.6g}, {delta[2]:.6g}) mm)",
-            ),
-        )
-
-    axis = "?" if oblique else "XYZ"[axis_index]
-    span = math.hypot(*delta) if oblique else primary
-    value_tol = max(
-        _LINEAR_OBLIQUE_VALUE_ABS_TOL if oblique else _LINEAR_VALUE_ABS_TOL,
-        abs(nominal) * _LINEAR_VALUE_REL_TOL,
-    )
-    if abs(span - nominal) > value_tol:
-        return (
-            measurable,
-            axis,
-            (
-                f"linear reference-station span {span:.6g} mm differs from nominal "
-                f"{nominal:.6g} mm",
-            ),
-        )
-    return measurable, axis, ()
 
 
 def _dimension_geometry_blockers(

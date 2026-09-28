@@ -36,7 +36,8 @@ In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — 
 geometry maths, registry, measurement support with pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) → **1**
 `_core` / `document_input` / the stable `location_contract` import path → **2**
-`projection`, `compose`, `export`, `pdf_text`, `repair`, `pmi`,
+`projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
+`_pmi_linear_geometry`, `pmi`,
 `linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
 passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` and
 `intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
