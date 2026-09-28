@@ -1239,7 +1239,7 @@ def test_automatic_initial_table_failure_restores_every_fallback(
         for name, item in baseline.iter_annotations()
         if name.startswith("hc_plan")
     }
-    monkeypatch.setattr(drawing_module, "fit_box", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(drawing_module, "fit_auxiliary_box", lambda *_args, **_kwargs: None)
 
     trace_path = tmp_path / "rollback.trace.json"
     drawing = build_drawing(part, page="A3", trace=trace_path)
