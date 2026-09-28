@@ -1724,6 +1724,9 @@ def _build_drawing_once(
     selected_profile = None
     pre_render_choice = None
     if _candidate_profile_first:
+        # A rejected profile must not donate its arrangement to the conservative
+        # recomposition. Keep the settled caller analysis as the common fork.
+        pre_profile_analysis = a
         pre_render_choice = choose_pre_render_profile(
             a.layout_strips,
             a.layout_strips.annotation_scheme_shadow_report(a.SCALE),
@@ -1755,11 +1758,15 @@ def _build_drawing_once(
                 conservative_profile = candidate_profile("iso-growth", a.SCALE)
                 with use_layout_profile(conservative_profile):
                     conservative_analysis = analyse(
-                        reuse=a,
-                        views=tuple(a.planned_views or third_angle_view_names()),
-                        scale_override=a.SCALE,
-                        page_override=(a.PAGE_W, a.PAGE_H),
-                        arrangements_override=(conservative_profile.arrangement or a.arrangement,),
+                        reuse=pre_profile_analysis,
+                        views=tuple(
+                            pre_profile_analysis.planned_views or third_angle_view_names()
+                        ),
+                        scale_override=pre_profile_analysis.SCALE,
+                        page_override=(pre_profile_analysis.PAGE_W, pre_profile_analysis.PAGE_H),
+                        arrangements_override=(
+                            conservative_profile.arrangement or pre_profile_analysis.arrangement,
+                        ),
                     )
                 conservative_overflow = pre_render_view_page_overflow(conservative_analysis)
                 views_to_compare = set(overflow) | set(conservative_overflow)
