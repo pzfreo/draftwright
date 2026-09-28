@@ -1146,6 +1146,47 @@ def _detail_caption(req: DetailRequest, letter: str, scale: float, bb) -> str:
     return f"DETAIL {letter}{qualifier} — SCALE {format_drawing_scale(scale)}"
 
 
+_DETAIL_PROFILE_CONTEXT_PAGE_MM = 2.0  # Draftwright policy, not a drafting-standard minimum.
+_DETAIL_PROFILE_MIN_WORLD_MM = 0.1  # Keep the Boolean crop wider than OCC's fuzzy edge.
+
+
+def supported_secondary_crop(
+    points: tuple[tuple[float, float, float], ...],
+    axis: Literal["x", "y", "z"],
+    full_lo: float,
+    full_hi: float,
+    detail_scale: float,
+) -> tuple[float, float] | None:
+    """Smallest supported band with page context where the body extent permits.
+
+    The caller must provide every controlled physical support point. Missing or
+    invalid evidence refuses the partial crop, leaving the full profile visible.
+    The bounded page-space margin is shared by turned, prismatic, and authored
+    details; no feature-family radius or fixed world-space threshold is needed.
+    """
+    if (
+        not points
+        or not math.isfinite(full_lo)
+        or not math.isfinite(full_hi)
+        or full_lo >= full_hi
+        or not math.isfinite(detail_scale)
+        or detail_scale <= 0
+    ):
+        return None
+    index = "xyz".index(axis)
+    if any(
+        len(point) != 3 or any(not math.isfinite(value) for value in point) for point in points
+    ):
+        return None
+    stations = [point[index] for point in points]
+    if min(stations) < full_lo - 1e-6 or max(stations) > full_hi + 1e-6:
+        return None
+    context = max(_DETAIL_PROFILE_MIN_WORLD_MM, _DETAIL_PROFILE_CONTEXT_PAGE_MM / detail_scale)
+    lo = max(full_lo, min(stations) - context)
+    hi = min(full_hi, max(stations) + context)
+    return (lo, hi) if lo < hi else None
+
+
 @dataclass(frozen=True)
 class _Projector:
     """Model → page coordinate projection for the orthographic views.

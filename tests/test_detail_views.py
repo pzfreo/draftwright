@@ -15,6 +15,23 @@ class TestDetailView:
         return _crowded_shoulder_part() - Pos(0, 0, 12) * Cylinder(2.5, 20)
 
     @pytest.mark.parametrize(
+        ("points", "scale", "expected"),
+        [
+            (((0.0, 0.0, 5.0), (1.0, 0.0, 7.0)), 2.0, (4.0, 8.0)),
+            (((0.0, 0.0, 5.0), (1.0, 0.0, 7.0)), 10.0, (4.8, 7.2)),
+            (((0.0, 0.0, 11.0),), 10.0, None),
+            ((), 10.0, None),
+            (((0.0, 0.0, 5.0),), float("inf"), None),
+        ],
+    )
+    def test_supported_secondary_crop_uses_witnesses_and_page_context(
+        self, points, scale, expected
+    ):
+        from draftwright._core import supported_secondary_crop
+
+        assert supported_secondary_crop(points, "z", 0.0, 10.0, scale) == expected
+
+    @pytest.mark.parametrize(
         ("kind", "cross_bounds", "partial"),
         [
             ("turned-head", (4.0, 10.0), True),
@@ -230,7 +247,13 @@ class TestDetailView:
         drawing = SimpleNamespace(
             draft=SimpleNamespace(font_size=3.0, pad_around_text=1.0, arrow_length=2.0)
         )
-        analysis = SimpleNamespace(SCALE=1.0)
+        analysis = SimpleNamespace(
+            SCALE=1.0,
+            bb=SimpleNamespace(
+                min=SimpleNamespace(Z=-5.0),
+                max=SimpleNamespace(Z=5.0),
+            ),
+        )
         ctx = SimpleNamespace(detail_requests=[])
 
         assert from_model.queue_step_detail(
@@ -255,7 +278,7 @@ class TestDetailView:
         )
         request.redraw(drawing, "detail_b", SimpleNamespace(pp=lambda *point: point), 2.0)
         assert (rendered[0].pa, rendered[0].pb) == request.profile_support_points
-        request.cross_lo = 5.1
+        request.cross_hi = 4.9
         assert not _render_detail(None, analysis, request, "detail_b", "B", ctx=None)
         assert request.failure_reason == "profile support 1 lies outside the Z detail crop"
 
@@ -275,6 +298,27 @@ class TestDetailView:
         )
         full = ctx.detail_requests.pop()
         assert (full.cross_axis, full.cross_lo, full.cross_hi) == (None, None, None)
+
+        # An inconsistent approved diameter cannot certify a narrow profile,
+        # but it must not silently erase the authored detail request either.
+        approved["diameter"] = ApprovedDimension(None, "20", 20.0, None, kind="diameter")
+        assert from_model.queue_step_detail(
+            drawing,
+            plan,
+            feature,
+            analysis,
+            ctx=ctx,
+            view_name="DETAIL D",
+            label="D",
+            factor=2.0,
+            source="test",
+        )
+        refused_crop = ctx.detail_requests.pop()
+        assert (refused_crop.cross_axis, refused_crop.cross_lo, refused_crop.cross_hi) == (
+            None,
+            None,
+            None,
+        )
 
     def test_crowded_shoulders_get_a_detail_view_automatically(self):
         from draftwright._core import _legible_steps
