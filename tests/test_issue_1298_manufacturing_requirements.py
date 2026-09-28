@@ -1608,6 +1608,10 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
         if isinstance(feature, ChamferFeature)
     ] == chamfers
     replayed = namespace["sheet"].build()
+    assert replayed._analysis.derived_view_boxes
+    assert replayed.detail_decisions[0]["status"] == "placed"
+    assert replayed.detail_decisions[0]["extent"] == drawing.detail_decisions[0]["extent"]
+    assert replayed.detail_decisions[0]["fit"]["within_reservation"] is True
     replayed_model = replayed.model()
     assert sum(isinstance(feature, GeneralTolerance) for feature in replayed_model.features) == 1
     assert (
