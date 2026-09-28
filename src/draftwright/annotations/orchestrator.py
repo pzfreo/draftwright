@@ -42,6 +42,7 @@ from draftwright._core import (
 from draftwright.analysis import _sizing_bores
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
+    DerivedViewReservation,
     PlacementContext,
     _annotation_hole_features,
     _discard_attempt_annotations,
@@ -313,6 +314,7 @@ def _queue_authored_details(dwg, a, ctx, plan) -> None:
 # corridor drain order follows key-creation order, some registrations read strip
 # state, and post-drain fallbacks run in registration order.
 _PASS_SEQUENCE: tuple[str, ...] = (
+    "reserve_derived_views",
     "rotational",
     "centermarks",
     "reserve_section",
@@ -688,6 +690,16 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     ctx.dense_internal_section = any(section.internal_detail for section in _sections)
 
     # ── the stage thunks, run in _PASS_SEQUENCE order (#699 slice b) ─────────
+    detail_reservations = {}
+
+    def _s_reserve_derived_views():
+        for view_name, box in a.derived_view_boxes:
+            if not view_name.startswith("detail_"):
+                continue  # Section geometry has its own staged reservation path.
+            name = f"{view_name}_layout_reservation"
+            ctx.place(DerivedViewReservation(box), name)
+            detail_reservations[view_name] = name
+
     def _s_rotational():
         # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
         # renderer (#237), placed early like the engine's inline block it replaces.
@@ -980,7 +992,20 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         # crowded turned heads alike — through the one generic detailer, now that all
         # views and main-view annotations are placed (so the detail avoids them).
         _queue_authored_details(dwg, a, ctx, _compiled)
-        _resolve_details(dwg, a, ctx=ctx, identifiers=_derived_identifiers)
+        try:
+            _resolve_details(
+                dwg,
+                a,
+                ctx=ctx,
+                identifiers=_derived_identifiers,
+                reservations=detail_reservations,
+            )
+        finally:
+            # A planned demand that produced no request must not leak a private
+            # placeholder into the Drawing, lint, or an exported file.
+            for name in detail_reservations.values():
+                if name in dwg.annotations():
+                    dwg.remove(name)
 
     def _s_title_block():
         _add_title_block(dwg, a)
@@ -1024,6 +1049,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
 
     run_stages(
         {
+            "reserve_derived_views": _s_reserve_derived_views,
             "rotational": _s_rotational,
             "centermarks": _s_centermarks,
             "reserve_section": _s_reserve_section,

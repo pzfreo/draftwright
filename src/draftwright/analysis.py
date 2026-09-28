@@ -1460,6 +1460,7 @@ def _analyse(
         RV_X=_g.RV_X,
         RV_Y=_g.RV_Y,
         rv_zones=_build_rear_zones(_g, margin, PAGE_H),
+        derived_view_boxes=tuple(_g.derived_view_boxes.items()),
         planned_iso_scale=layout_iso_scale,
         planned_iso_scale_authored=layout_iso_scale_authored,
         view_constraints=_view_constraints,

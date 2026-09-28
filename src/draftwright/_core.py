@@ -1594,6 +1594,9 @@ class Analysis:
     RV_X: float = 0.0
     RV_Y: float = 0.0
     rv_zones: ViewZones | None = None
+    #: Planned hard page boxes for required derived views, carried from composition
+    #: to annotation placement. Empty until a supported pre-sheet demand exists.
+    derived_view_boxes: tuple[tuple[str, tuple[float, float, float, float]], ...] = ()
 
     sheet_margins: SheetMargins | None = None
     content_margins: SheetMargins | None = None

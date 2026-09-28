@@ -1391,7 +1391,11 @@ def _annotation_fixed_ink(dwg, name, annotation, *, max_components=None):
         # the strokes it will eventually draw. Keep it hard even in the bounded
         # feature-leader solve; optional section reservations use a separate
         # provisional flag and may yield to those leaders.
-        return (_FixedInkComponent(f"{name}:reserved", box=annotation.box),)
+        return (
+            _FixedInkComponent(
+                f"{name}:reserved", box=annotation.box, kind="DerivedViewReservation"
+            ),
+        )
 
     components: list[_FixedInkComponent] = []
     owner = dwg.registry.feature_of(name)

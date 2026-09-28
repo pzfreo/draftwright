@@ -49,7 +49,12 @@ from draftwright._core import (
     _tol_suffix,
     supported_secondary_crop,
 )
-from draftwright._geometry import _leader_ink_polygons, _scale_world, _stroke_polygon
+from draftwright._geometry import (
+    _boxes_overlap,
+    _leader_ink_polygons,
+    _scale_world,
+    _stroke_polygon,
+)
 from draftwright.annotations._common import carve_free_segments, strip_obstacles
 from draftwright.annotations.leaders import feature_leader_fixed_conflicts
 from draftwright.model import plan_sections
@@ -81,6 +86,16 @@ def _section_annotation_names(section, *, reservation=False) -> tuple[str, ...]:
         f"{prefix}_wing_right",
         f"{prefix}_{letter}_left",
         f"{prefix}_{letter}_right",
+    )
+
+
+def _reserved_detail_box_is_clear(drawable, obstacles, box) -> bool:
+    """Verify a pre-sheet detail box remains free after ordinary annotation passes."""
+    x0, y0, x1, y1 = box
+    return (
+        drawable[0] <= x0 < x1 <= drawable[2]
+        and drawable[1] <= y0 < y1 <= drawable[3]
+        and not any(_boxes_overlap(box, obstacle) for obstacle in obstacles)
     )
 
 
@@ -745,7 +760,7 @@ def _detail_secondary_crop_error(req: DetailRequest) -> str | None:
 
 
 def _render_detail(
-    dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx
+    dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx, reserved_box=None
 ) -> bool:
     """Generic detail renderer (#307) — the single crop → project → place → caption
     → mark machinery both the prismatic step detail (#42) and the turned-head detail
@@ -896,7 +911,14 @@ def _render_detail(
             _title_margins(a).bottom + _TB_H,
         )
     )
-    rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
+    if reserved_box is None:
+        rx0, ry0, rx1, ry1 = _largest_empty_rect(drawable, obstacles, target_size=min_footprint)
+    else:
+        rx0, ry0, rx1, ry1 = reserved_box
+        if not _reserved_detail_box_is_clear(drawable, obstacles, reserved_box):
+            req.failure_code = "reservation_occupied"
+            req.failure_reason = "planned detail space was occupied before projection"
+            return False
     rect_w, rect_h = rx1 - rx0, ry1 - ry0
     req.fit_evidence = {
         "minimum_footprint_mm": [float(min_footprint[0]), float(min_footprint[1])],
@@ -1083,13 +1105,14 @@ def _detail_decision_record(
     }
 
 
-def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
+def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None, reservations=None) -> None:
     """Resolve every queued :class:`DetailRequest` (#307) through the one generic
     detailer, lettering DETAIL A/B/… On a placement bail-out nothing is drawn for that
     request — the main view may carry only a synthetic head/block, so an automatic
     request that owns exact step lengths records their absence. Clears the queue."""
     reqs = list(ctx.detail_requests)
     ctx.detail_requests = []
+    reservations = {} if reservations is None else reservations
     if identifiers is None:
         identifiers = DerivedViewIdentifierPool(
             (req.label for req in reqs if req.label is not None),
@@ -1121,8 +1144,12 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
             dwg.detail_decisions.append(_detail_decision_record(req, None, None, False))
             continue
         view_name = req.view_name or f"detail_{letter.lower()}"
+        reservation_name = reservations.pop(view_name, None)
+        reserved_box = None
+        if reservation_name is not None:
+            reserved_box = dwg.remove(reservation_name).box
         issue_start = len(ctx.registry.issues)
-        placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
+        placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx, reserved_box=reserved_box)
         hname = (
             _overall_height_name(dwg, a)
             if not placed and req.failure_reason is None and req.kind == "prismatic-steps"
@@ -1137,7 +1164,9 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None) -> None:
             # explicit and logged) and retry the detail once.
             ident = dwg.registry.identity_of(hname)
             hobj = dwg.remove(hname)
-            placed = _render_detail(dwg, a, req, view_name, letter, ctx=ctx)
+            placed = _render_detail(
+                dwg, a, req, view_name, letter, ctx=ctx, reserved_box=reserved_box
+            )
             if placed:
                 _log.warning(
                     "%s demoted: the requested crowded-step detail view takes its room", hname
