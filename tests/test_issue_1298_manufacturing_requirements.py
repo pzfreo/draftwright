@@ -1454,6 +1454,10 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert drawing.get_annotation("detail_caption_A").label == (
         "DETAIL A — PARTIAL PROFILE — SCALE 10:1"
     )
+    assert len(drawing._analysis.derived_view_boxes) == 1
+    assert drawing._analysis.derived_view_boxes[0][0] == "detail_a"
+    assert drawing.detail_decisions[0]["status"] == "placed"
+    assert drawing.detail_decisions[0]["fit"]["within_reservation"] is True
     assert drawing.scale_decision["status"] != "invalid"
 
     expected_manufacturing = {

@@ -125,14 +125,18 @@ when a derived detail footprint is actually planned, so a no-detail drawing
 does not move its principal views solely because this reservation exists.
 
 The GRM03 AP242 fixture has one approved X-turned profile with a crowded run
-from X −3.2 to 5.5 mm. An analysis-only check (stopped before projection and
-annotation rendering) retains A4 at 1:1 and reserves an 87 × 62.13 mm partial
-head detail box. This proves pre-sheet fit, **not** that the finished detail ink,
-all PMI carriers, and scripts remain correct after the reservation. Those are
-still acceptance checks; the earlier #1871 rendered verification covered the
-old late-placement path, not this new pre-sheet path.
+from X −3.2 to 5.5 mm. A changed-head PMI-annotated build retains A4 at 1:1,
+reserves an 87 × 62.13 mm partial-head box, and places the detail at 10:1.
+Measured detail ink passes the reservation's 0.05 mm numeric tolerance; lint
+has only the two informational GD&T fallback decisions, with no drops or
+overlaps. Visual PDF inspection against current `main` found the same legible
+head dimensions and manufacturing callouts, though the detail moves to a
+different clear region. This is one rendered fixture, not proof for all parts.
 
 The same analysis-only GRM03 model was emitted to a Sheet script and compiled
 without building its drawing. Direct and emitted models independently produced
 the identical `detail_a` planning footprint, 87 × 62.128571 mm at 1:1. This
-checks the planning boundary, not rendered/exported script parity.
+checks the planning boundary, not rendered/exported script parity. The existing
+slow GRM03 manufacturing test now asserts the pre-sheet reservation and actual
+ink containment in the same drawing build it already performs, so CI will not
+build this expensive fixture a second time just for #1872.
