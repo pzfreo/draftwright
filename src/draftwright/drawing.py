@@ -46,7 +46,6 @@ from build123d import (
     Location,
 )
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
-from quiddity import analyse_cylinders
 
 from draftwright._core import (
     Analysis,
@@ -94,60 +93,13 @@ from draftwright.linting import (
     EXAMINABLE_DECLARED_KINDS,
     CoverageState,
     LintIssue,
-    _suggest_fix,
     is_dimension_like,
-    lint_angled_step_coverage,
-    lint_axial_coverage,
-    lint_blend_coverage,
-    lint_blend_leader_targets,
-    lint_boss_height_coverage,
-    lint_chamfer_coverage,
-    lint_channel_coverage,
-    lint_circular_blind_step_coverage,
-    lint_claimed_representations,
-    lint_declaration_reconciliation,
-    lint_declared_gear_coverage,
-    lint_drawing,
-    lint_feature_coverage,
-    lint_fillet_coverage,
-    lint_flat_coverage,
-    lint_groove_coverage,
-    lint_gusset_rib_coverage,
-    lint_hole_coverage,
-    lint_location_coverage,
-    lint_manufacturing_references,
-    lint_oriented_slot_coverage,
-    lint_pad_coverage,
-    lint_paired_ramp_step_coverage,
-    lint_plate_coverage,
-    lint_pmi_extraction,
-    lint_pmi_ignored,
-    lint_pmi_lowering,
-    lint_pmi_rendering,
-    lint_pmi_source_unknown,
-    lint_pmi_unreconciled,
-    lint_pocket_coverage,
-    lint_pocket_pattern_coverage,
-    lint_polygonal_boss_coverage,
-    lint_polygonal_stock_coverage,
-    lint_principal_profile_coverage,
-    lint_prismatic_coverage,
-    lint_profiled_bore_coverage,
-    lint_rectangular_blind_slot_coverage,
-    lint_round_bottom_blind_slot_coverage,
-    lint_slot_coverage,
-    lint_through_step_coverage,
-    lint_turned_profile_span,
     pmi_stage_summary,
 )
-from draftwright.linting.angular import lint_angular_supports, lint_profile_angle_coverage
+from draftwright.linting.evidence import compiled_display_precisions
 from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
+from draftwright.linting.orchestration import LintContext, lint_finished_drawing
 from draftwright.linting.quality import quality_components, review_explanation
-from draftwright.linting.section_recess_coverage import (
-    lint_circular_channel_coverage,
-    lint_hex_pocket_coverage,
-    lint_section_recess_coverage,
-)
 from draftwright.projection import (
     part_material_mesh,
     project_view_geometry,
@@ -4360,12 +4312,8 @@ class Drawing:
 
     def _lint(self, *, physical: bool = True, aggregation=None):
         """Internal lint path with an optional summary-scoped pair ledger (#1147)."""
-        # Drawable area (page minus the standard margin), passed explicitly to
-        # lint_drawing for bounds checks — draftwright owns linting now and no
-        # longer relies on the helpers set_page module-global (ADR 3 (was 0007)).
         page_bbox = self.drawable_bounds
-        # Formatting is a compiler policy, including an explicit coarser precision. It is
-        # needed by placement-only critique too, without acquiring physical recognition.
+        # The model compiler remains above linting's independent rank-2 boundary.
         model = self._part_model
         dimension_plan = None
         if model is not None:
@@ -4378,486 +4326,41 @@ class Drawing:
                 from draftwright.model.compiled import compile_dimensions
 
                 dimension_plan = compile_dimensions(model)
-        from draftwright.linting.evidence import compiled_display_precisions
-
         display_decimals = (
             compiled_display_precisions(self._registry, dimension_plan)
             if dimension_plan is not None
             else None
         )
-        # Names and shapes come out of ONE traversal. Two comprehensions over an
-        # unmutated dict would in fact agree — Python guarantees the iteration order —
-        # so this is defensive style, not a fixed hazard: it keeps the positional
-        # contract lint relies on visible in one line instead of implied across two.
-        view_items = list(self.views.items())
-        view_names = [name for name, _pair in view_items]
-        view_shapes = [vis for _name, (vis, _hidden) in view_items]
-        # Prune box-cache entries for objects no longer on the sheet, so replaced
-        # annotations (repair's _replace_dim swaps in a fresh object) don't keep
-        # their OCC geometry strongly referenced for the drawing's lifetime.
-        live = {id(i) for i in self.items} | {id(v) for v in view_shapes}
-        for stale in [k for k in self._ann_box_cache if k not in live]:
-            del self._ann_box_cache[stale]
-        # ONE call over every annotation. Most annotations are at sheet scale; a non-sheet-scale
-        # view (the enlarged detail view, #42) tags its dims with `_dw_scale`, and
-        # `_lint_dim` reads that tag per item so `label_vs_measured` still compares each
-        # annotation against ITS OWN scale.
-        #
-        # This used to pre-split the items by scale and call `lint_drawing` once per group. The
-        # split made the PAIRWISE checks — `annotation_overlap`, `label_centerline_overlap`,
-        # `leader_line_through_text` — blind across groups, because each call only ever saw one
-        # group's items. A detail view's dimensions and its own caption are always in different
-        # groups AND spatially adjacent by construction, so the pair most likely to collide was
-        # the one pair never compared (#1216).
-        #
-        # Collapsing it also retires #1204's first-group restriction: `view_overlap` and
-        # `view_out_of_bounds` compare views to each other and to the page, so passing the views
-        # to every group emitted their findings once PER GROUP and made `by_code`, the
-        # error/warning counts and the quality score a function of how annotations happened to be
-        # grouped. With a single call there are no groups to double-count.
-        issues = lint_drawing(
-            self.items,
+        ctx = LintContext(
+            drawing=self,
             page_bbox=page_bbox,
-            drawing_scale=self.scale,
-            view_shapes=view_shapes,
-            view_names=view_names,
+            views=self.views,
+            items=self.items,
+            scale=self.scale,
+            material_fields=self.material_fields,
+            registry=self._registry,
+            working_part=self._working_part,
+            analysis=self._analysis,
+            build=self._build,
+            model=model,
+            coverage=self._coverage,
+            assembly=self.assembly,
+            model_declared=self._model_declared,
             view_edge_cache=self._view_edge_cache,
             ann_box_cache=self._ann_box_cache,
-            view_material_fields=self.material_fields(),
-            _aggregation=aggregation,
-            display_decimals=display_decimals,
-            annotation_names={id(obj): name for name, obj in self._registry.iter_named()},
+            cyl_cache=self._cyl_cache,
         )
-        working_part = self._working_part
-        if physical and working_part is None:
-            issues += lint_angular_supports(self.items)
-        if working_part is not None and physical:
-            # Reuse the single feature inventory from the build (#244) when present,
-            # so lint does not re-detect holes/patterns/turned-steps; fall back to
-            # detecting when there is no analysis (a manually-built Drawing, or lint
-            # called mid-build before _analysis is attached).
-            a = self._analysis
-            holes: list | None
-            patterns: list | None
-            bosses: list | None
-            pads: list | None
-            recognition: RecognitionResult | None
-            prof_kw: dict
-            if a is not None and a.recognition is not None:
-                cyls = a.cyls
-                holes, patterns, bosses = a.holes, a.patterns, a.bosses
-                pads = a.pads
-                # The whole aggregate, not a level set: coverage projects the shared riser
-                # evidence over recognition's OWN levels, so no caller can narrow the
-                # shoulder inventory (#1025).
-                recognition = a.recognition
-                prof_kw = {"profiles": a.profiles}
-            elif a is not None:
-                # A DECLARED build recognised nothing (#1022), so `a.holes` and friends are
-                # empty because nothing looked — not because the part has none. Feeding that
-                # emptiness to coverage would report every real hole as uncovered, so critique
-                # recognises here instead: once per drawing, owned by BuildState.
-                rec = self._build.ensure_recognition(working_part, cylinders=a.cyls)
-                cyls = rec.cylinders
-                holes = list(rec.holes)
-                patterns = list(rec.hole_patterns)
-                bosses = list(rec.bosses)
-                pads = list(rec.pads)
-                # The aggregate, NOT anything off `Analysis`: its levels and risers are
-                # geometry-sourced, where the declared `Analysis` carries what the author
-                # declared. Critique taking its inventory from the model is what ADR 1 (was 0015)
-                # forbids — it would make lint blind to exactly the geometry a sparse
-                # declaration omitted, the case `unrecognised_defining_geometry` reports.
-                recognition = rec
-                # These profiles ARE declaration-sourced, and here that is right rather than a
-                # shortcut: axial critique judges each declared profile's dimensioning, so a
-                # declared turned part keeps them without importing detected coordinates.
-                prof_kw = {"profiles": a.profiles}
-            else:
-                if self._cyl_cache is None:
-                    self._cyl_cache = analyse_cylinders(working_part)
-                cyls = self._cyl_cache
-                holes = patterns = bosses = None
-                pads = recognition = None
-                prof_kw = {}
-            if recognition is None:
-                recognition = self._build.ensure_recognition(working_part, cylinders=cyls)
-            if dimension_plan is not None:
-                issues += lint_claimed_representations(self._registry, dimension_plan)
-            from draftwright.linting.schedule_evidence import verified_schedule_registry
-
-            physical_registry = verified_schedule_registry(self._registry, dimension_plan)
-            issues += lint_angular_supports(
-                self.items,
-                registry=self._registry,
-                evidence=self._build.recognition_evidence,
-                ownership=self._build.recognition_ownership,
-                to_page=self.at,
+        try:
+            return lint_finished_drawing(
+                ctx,
+                physical=physical,
+                aggregation=aggregation,
+                dimension_plan=dimension_plan,
+                display_decimals=display_decimals,
             )
-            issues += lint_profile_angle_coverage(
-                self._build.recognition_evidence,
-                self._build.recognition_ownership,
-                getattr(self._part_model, "features", ()),
-                physical_registry,
-                self._build.omissions,
-            )
-            profiled_bores = list(recognition.double_d_bores)
-            issues += lint_feature_coverage(
-                working_part,
-                self.items,
-                cyls=cyls,
-                exclude=self._coverage.dropped_diams,
-                assembly=self.assembly,
-                holes=holes,
-                bosses=bosses,
-                blends=recognition.blends,
-                recognition_evidence=self._build.recognition_evidence,
-                # The same profile set `detect` used, so the boss/blend absorption decision
-                # is one decision rather than two that can disagree. `prof_kw` is empty only
-                # where detect also falls back to the aggregate.
-                **({"turned_profiles": prof_kw["profiles"]} if "profiles" in prof_kw else {}),
-                registry=physical_registry,
-                # Counts belong to lint_hole_coverage's operation/ownership ledger.
-                check_hole_counts=False,
-            )
-            issues += lint_axial_coverage(
-                working_part,
-                self,
-                assembly=self.assembly,
-                registry=physical_registry,
-                recognition=recognition,
-                **prof_kw,
-            )
-            if model is not None:
-                issues += lint_boss_height_coverage(
-                    working_part,
-                    self,
-                    getattr(model, "features", ()),
-                    assembly=self.assembly,
-                    registry=physical_registry,
-                    omissions=self._build.omissions,
-                )
-            issues += lint_location_coverage(
-                working_part,
-                self,
-                cyls=cyls,
-                assembly=self.assembly,
-                holes=holes,
-                patterns=patterns,
-                profiled_bores=profiled_bores,
-                registry=physical_registry,
-            )
-            issues += lint_prismatic_coverage(
-                working_part,
-                self,
-                assembly=self.assembly,
-                registry=physical_registry,
-                pads=pads,
-                section_recesses=recognition.section_recesses,
-                bbox=a.bb if a is not None else None,
-                features=getattr(model, "features", ()) if model is not None else (),
-                recognition=recognition,
-            )
-            issues += lint_pad_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_plate_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_polygonal_boss_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_section_recess_coverage(recognition)
-            issues += lint_hex_pocket_coverage(
-                recognition,
-                getattr(model, "features", ()),
-                physical_registry,
-                self._build.omissions,
-            )
-            issues += lint_circular_channel_coverage(
-                recognition,
-                getattr(model, "features", ()),
-                physical_registry,
-                self._build.omissions,
-                bbox=a.bb if a is not None else None,
-            )
-            issues += lint_angled_step_coverage(recognition)
-            resolved_assembly = self.assembly
-            if resolved_assembly is None:
-                resolved_assembly = len(working_part.solids()) > 1
-            profile_cache = self._build.principal_profile_cache
-            if (
-                profile_cache is None
-                or profile_cache[0] is not working_part
-                or profile_cache[1] != resolved_assembly
-            ):
-                profile_issues = tuple(
-                    lint_principal_profile_coverage(
-                        working_part,
-                        assembly=resolved_assembly,
-                        double_d_bores=recognition.double_d_bores,
-                        section_recesses=recognition.section_recesses,
-                    )
-                )
-                profile_cache = (working_part, resolved_assembly, profile_issues)
-                self._build.principal_profile_cache = profile_cache
-            issues += list(profile_cache[2])
-            issues += lint_profiled_bore_coverage(
-                working_part,
-                self.items,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                dropped_profiles=self._coverage.dropped_profiles,
-                dropped_profile_evidence=self._coverage.dropped_profile_evidence,
-                assembly=self.assembly,
-            )
-            issues += lint_flat_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_groove_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_chamfer_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_fillet_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_blend_leader_targets(
-                registry=physical_registry,
-                cylinders=cyls,
-                project=self.at,
-                evidence=self._build.recognition_evidence,
-                ownership=self._build.recognition_ownership,
-            )
-            issues += lint_blend_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_paired_ramp_step_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_gusset_rib_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                evidence=self._build.recognition_evidence,
-                ownership=self._build.recognition_ownership,
-                assembly=self.assembly,
-            )
-            issues += lint_circular_blind_step_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_rectangular_blind_slot_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_round_bottom_blind_slot_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_oriented_slot_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_through_step_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-                plan=dimension_plan,
-            )
-            issues += lint_slot_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_hole_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-                project=self.at,
-                evidence=self._build.recognition_evidence,
-                ownership=self._build.recognition_ownership,
-                declared=self.model_declared,
-            )
-            issues += lint_channel_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_polygonal_stock_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_pocket_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_pocket_pattern_coverage(
-                working_part,
-                recognition=recognition,
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                omissions=self._build.omissions,
-                assembly=self.assembly,
-            )
-            issues += lint_declared_gear_coverage(
-                features=getattr(model, "features", ()) if model is not None else (),
-                registry=physical_registry,
-                profiles=getattr(recognition, "repeating_radial_profiles", None),
-                assembly=self.assembly,
-            )
-            # Reverse direction (#487): a DECLARED feature with no matching geometry (a stale
-            # phantom callout). Only for a caller-supplied model — detection can't over-declare.
-            # _part_model is typed `object` (deliberately loose, #397); read features duck-typed.
-            if self._model_declared and self._part_model is not None:
-                features = getattr(self._part_model, "features", ())
-                issues += lint_declaration_reconciliation(
-                    features,
-                    cyls,
-                    recognition=recognition,
-                )
-                # Declared-vs-geometry in the axial direction (#1132): a z-turned profile that
-                # leaves part of the body undescribed. Gated with the reconciliation check
-                # above because both are only meaningful for a caller-declared model — the
-                # detection path is NOT immune — it is scoped this way for a different reason.
-                #
-                # Measured on CADGenBench 132: a plain `build_drawing(<step file>)` detects
-                # z-steps covering 0..113 of a 140 mm body and reports nothing here, while this
-                # predicate applied to that same detected model returns the warning. Same part,
-                # same shortfall, one door silent. It is scoped to the declared model because
-                # that is where the raise it replaces lived, so this change alters no automatic
-                # drawing. Widening it is a real question and a separate one.
-                issues += lint_turned_profile_span(
-                    features,
-                    (self._analysis.bb.min.Z, self._analysis.bb.max.Z),
-                    orientation=getattr(self._part_model, "orientation", None),
-                    single_solid=len(self._analysis.part.solids()) == 1,
-                )
-        if physical and self._analysis is not None:
-            issues += lint_pmi_ignored(
-                self._analysis.pmi_report,
-                self._analysis.pmi_mode,
-                defaulted=self._analysis.pmi_defaulted,
-            )
-            issues += lint_pmi_extraction(self._analysis.pmi_report, self._analysis.pmi_mode)
-            issues += lint_pmi_lowering(
-                self._analysis.pmi_report,
-                getattr(self._part_model, "features", ()),
-                self._analysis.pmi_mode,
-                decorations=getattr(self._part_model, "decorations", {}),
-            )
-            issues += lint_pmi_rendering(
-                getattr(self._part_model, "features", ()),
-                self._registry,
-                self._analysis.pmi_mode,
-                decorations=getattr(self._part_model, "decorations", {}),
-            )
-            # The two directions the four checks above cannot cover, because each of them
-            # reasons FROM the census: content whose census is missing entirely, and content
-            # claiming an identity the census does not contain (#1563). Both take the report
-            # itself rather than the mode — an absent census is the condition, not a setting.
-            issues += lint_pmi_unreconciled(
-                self._analysis.pmi_report,
-                getattr(self._part_model, "features", ()),
-                decorations=getattr(self._part_model, "decorations", {}),
-            )
-            issues += lint_pmi_source_unknown(
-                self._analysis.pmi_report,
-                getattr(self._part_model, "features", ()),
-                decorations=getattr(self._part_model, "decorations", {}),
-            )
-        issues += lint_manufacturing_references(self._registry)
-        issues += list(self._registry.issues)
-        # Attach a ready-to-paste fix snippet where one is computable (#29).
-        # str | None — None when no concrete repair can be inferred.
-        for i in issues:
-            i.suggestion = _suggest_fix(i, self)
-        return issues
+        finally:
+            if ctx.cyl_cache is not self._cyl_cache:
+                self._cyl_cache = ctx.cyl_cache
 
     def layout_utilization(self) -> dict:
         """Conservative page-space utilization evidence for layout decisions.

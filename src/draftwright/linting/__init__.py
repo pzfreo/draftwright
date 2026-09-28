@@ -9,6 +9,7 @@ library. This package is the single home for it:
   from ``build123d_drafting.helpers``; upstream copy frozen and deprecated.
 - :mod:`.coverage` — ``lint_feature_coverage`` + ``CoverageState``: the
   feature-coverage completeness check and the signal the passes record.
+- :mod:`.orchestration` — ordered finished-drawing critique over explicit inputs.
 - :mod:`.suggest` — ``_suggest_fix``: ready-to-paste fix snippets (#29).
 
 Import the public surface from here, not the submodules.

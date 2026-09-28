@@ -444,6 +444,14 @@ def test_build_state_has_a_single_construction_and_fill_site():
     def _attr_root(node):
         # dwg._build.part_model → ("_build", "part_model"); dwg._analysis → ("_analysis", None)
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Attribute):
+            if (
+                isinstance(node.value.value, ast.Name)
+                and node.value.value.id == "ctx"
+                and node.value.attr == "build"
+            ):
+                # The lint orchestrator receives BuildState explicitly, never by
+                # reaching through a Drawing private. Its cache write is still owned.
+                return f"build.{node.attr}"
             if node.value.attr in watched:
                 return f"{node.value.attr}.{node.attr}"
         if isinstance(node, ast.Attribute) and node.attr in watched:
@@ -521,16 +529,15 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # views from it — the topology and the drawing's record of the topology cannot disagree
         # because one statement produces both. `Drawing.view_plan` is read-only with no setter,
         # so this list staying at one entry is what stops a second writer appearing.
-        # drawing.py owns the lazy #1058 principal-profile critique cache; linting returns
-        # the physical result through an explicit function and never reaches into Drawing.
+        # The lint orchestrator owns the lazy #1058 principal-profile critique cache;
+        # Drawing supplies BuildState explicitly and linting never reaches its private state.
         # drawing.py still writes _build.trace via the deprecated attach_solve_trace
         # shim/primitive (kept until 0.5.0) — no engine caller reaches it now. The
         # recorder also participates in finalize()'s #647 transaction: finalize
         # snapshots it beside the registry/coverage snapshots and restores it on
         # rollback, so a failed drain leaves no trace records for placements that no
         # longer exist.
-        # _build.material_mesh: the #798 filled-material tessellation, memoised here for
-        # the same reason as principal_profile_cache above — it is a lazy cache Drawing
+        # _build.material_mesh: the #798 filled-material tessellation is a lazy cache Drawing
         # owns, computed on first use because the routing stage needs it mid-build and
         # lint needs it after. No engine module writes it; placers reach it through
         # `Drawing.material_fields()` / `leaders.view_material`.
@@ -540,8 +547,8 @@ def test_build_state_has_a_single_construction_and_fill_site():
             "_build.part_model",
             "_build.trace",
             "_build.material_mesh",
-            "_build.principal_profile_cache",
         ],
+        "orchestration.py": ["build.principal_profile_cache"],
     }, writers
 
     builder_tree = ast.parse((src / "builder.py").read_text(encoding="utf-8"))
