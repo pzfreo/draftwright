@@ -373,7 +373,10 @@ def test_hard_layout_precedes_completeness_in_automatic_page_scale_verdict(monke
     assert "violations" not in attempts[1]
 
 
-def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(monkeypatch):
+@pytest.mark.parametrize("page_bound", [False, True])
+def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(
+    monkeypatch, page_bound
+):
     """Validity recovery stays bounded by complete drawing compiles, not ladder length."""
 
     overlap = LintIssue(
@@ -407,13 +410,17 @@ def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(mo
         **_kwargs,
     ):
         assert not _include_iso
-        _analysis_sink(
-            SimpleNamespace(
-                arrangement=builder.ARRANGEMENTS[0],
-                part=object(),
-                prof=object(),
-            )
+        analysis = SimpleNamespace(
+            arrangement=builder.ARRANGEMENTS[0],
+            part=object(),
+            prof=object(),
         )
+        if page_bound:
+            analysis.bb = SimpleNamespace(
+                min=SimpleNamespace(X=0, Y=0, Z=0),
+                max=SimpleNamespace(X=100, Y=80, Z=20),
+            )
+        _analysis_sink(analysis)
         calls.append((scale, page))
         candidate_scale = 2.0 if scale is None else scale
         if page == "A3":
@@ -428,7 +435,7 @@ def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(mo
     assert calls == [
         (None, None),
         (1.0, (297.0, 210.0)),
-        (5.0, (297.0, 210.0)),
+        *([] if page_bound else [(5.0, (297.0, 210.0))]),
         (None, "A3"),
     ]
     assert [
@@ -437,9 +444,19 @@ def test_hard_layout_recovery_probes_one_scale_each_way_before_spending_paper(mo
     ] == [
         (2.0, "layout_validity_recovery", None),
         (1.0, "scale_retry_after_hard_layout", "structural_error"),
-        (5.0, "scale_retry_after_hard_layout", "structural_error"),
+        (
+            5.0,
+            "scale_retry_after_hard_layout",
+            "principal_view_exceeds_page" if page_bound else "structural_error",
+        ),
         (2.0, "page_escalation_after_hard_layout", None),
     ]
+    if page_bound:
+        skipped = drawing.scale_decision["attempts"][2]
+        assert skipped["status"] == "skipped"
+        assert "blockers" not in skipped
+        assert "views" not in skipped
+        assert 5.0 not in drawing.scale_decision["attempted_scales"]
 
 
 def test_optional_iso_page_recovery_may_introduce_a_required_detail(monkeypatch):

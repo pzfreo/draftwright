@@ -2365,8 +2365,10 @@ def _scale_attempt(
     views: Iterable[str] | None = None,
     page: tuple[float, float] | None = None,
 ) -> dict:
-    """One plain-data trial in an explicit-scale decision."""
-    attempt = {"scale": scale, "status": status, "blockers": tuple(blockers)}
+    """One plain-data scale trial, or a prebuild skip with no candidate evidence."""
+    attempt: dict[str, object] = {"scale": scale, "status": status}
+    if status != "skipped":
+        attempt["blockers"] = tuple(blockers)
     if error is not None:
         attempt["error"] = error
     if reason is not None:
@@ -2385,23 +2387,14 @@ def _scale_attempt(
 def _blocks_all_smaller_scales(blockers) -> bool:
     """Whether fixed paper-space legibility already rules out every smaller scale.
 
-    These messages come from world-space separations multiplied by the candidate scale
-    and compared with a fixed page-mm floor. Shrinking the scale cannot clear any of
-    them. Other placement losses may be repaired by more paper room and stay eligible
-    for the measured fallback ladder.
+    The prismatic step-spacing drop is emitted only when detail recovery is disabled.
+    Its world-space separation shrinks against a fixed page-mm floor. Hole-location
+    spacing is different: a smaller scale may let a replacement table fit and clear
+    the drop, so it must remain eligible for the measured fallback ladder.
     """
     return any(
-        (
-            item["code"] == "step_dim_dropped"
-            and "too closely spaced to dimension at this scale" in item["message"]
-        )
-        or (
-            item["code"] == "location_ref_dropped"
-            and (
-                "project to less than 1 mm" in item["message"]
-                or "too closely spaced to dimension legibly" in item["message"]
-            )
-        )
+        item["code"] == "step_dim_dropped"
+        and "too closely spaced to dimension at this scale" in item["message"]
         for item in blockers
     )
 
@@ -3046,11 +3039,9 @@ def build_drawing(
                     if _blocks_all_smaller_scales(original_blockers):
                         _record_attempt(
                             candidate_scale,
-                            "rejected",
-                            original_blockers,
+                            "skipped",
                             reason=reason,
                             rejection="smaller_scale_cannot_clear_legibility",
-                            views=drawing.views,
                             page=original_page,
                         )
                         continue
@@ -3063,10 +3054,9 @@ def build_drawing(
                 ):
                     _record_attempt(
                         candidate_scale,
-                        "rejected",
+                        "skipped",
                         reason=reason,
                         rejection="principal_view_exceeds_page",
-                        views=drawing.views,
                         page=original_page,
                     )
                     continue
@@ -3527,7 +3517,9 @@ def build_drawing(
             effective=drawing.scale,
             status="automatic_replanned" if replanned else "automatic",
             attempted=tuple(
-                item["scale"] for item in replan_attempts if item["scale"] is not None
+                item["scale"]
+                for item in replan_attempts
+                if item["scale"] is not None and item["status"] != "skipped"
             ),
             attempts=replan_attempts,
         )

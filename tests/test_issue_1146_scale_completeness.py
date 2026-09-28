@@ -403,25 +403,14 @@ def test_corrective_candidate_failure_filter_is_narrow():
     assert builder._AUTOMATIC_UPSCALE_TRIAL_LIMIT == 2
 
 
-@pytest.mark.parametrize(
-    ("code", "message"),
-    [
-        ("step_dim_dropped", "5 step height(s) too closely spaced to dimension at this scale"),
-        ("location_ref_dropped", "1 X location dim(s) project to less than 1 mm"),
-        (
-            "location_ref_dropped",
-            "2 Y location dim(s) too closely spaced to dimension legibly",
-        ),
-    ],
-)
-def test_monotone_legibility_failure_does_not_rebuild_smaller_scales(monkeypatch, code, message):
+def test_monotone_step_failure_does_not_rebuild_smaller_scales(monkeypatch):
     import draftwright.builder as builder
 
     calls = []
     drop = LintIssue(
         severity="warning",
-        code=code,
-        message=message,
+        code="step_dim_dropped",
+        message="5 step height(s) too closely spaced to dimension at this scale",
     )
 
     def fake_build(*args, scale, **kwargs):
@@ -448,16 +437,15 @@ def test_legibility_floor_discovered_on_retry_stops_later_builds(monkeypatch):
 
     def fake_build(*args, scale, **kwargs):
         calls.append(scale)
+        code = "step_dim_dropped" if scale == 0.5 else "location_ref_dropped"
         message = (
-            "1 X location dim(s) project to less than 1 mm"
+            "1 step height(s) too closely spaced to dimension at this scale"
             if scale == 0.5
             else "required location did not fit"
         )
         return SimpleNamespace(
             scale=scale,
-            lint=lambda **_: [
-                LintIssue(severity="warning", code="location_ref_dropped", message=message)
-            ],
+            lint=lambda **_: [LintIssue(severity="warning", code=code, message=message)],
             recognition=lambda: None,
             _analysis=None,
         )
@@ -471,15 +459,23 @@ def test_legibility_floor_discovered_on_retry_stops_later_builds(monkeypatch):
     assert calls == [1.0, 0.5]
     assert caught.value.decision["attempted_scales"] == (1.0, 0.5)
     assert caught.value.decision["blockers"][0]["message"] == (
-        "1 X location dim(s) project to less than 1 mm"
+        "1 step height(s) too closely spaced to dimension at this scale"
     )
 
 
-def test_location_space_shortage_still_tries_smaller_scale():
+@pytest.mark.parametrize(
+    "message",
+    (
+        "required location did not fit",
+        "1 X location dim(s) project to less than 1 mm",
+        "2 Y location dim(s) too closely spaced to dimension legibly",
+    ),
+)
+def test_location_loss_can_be_recovered_at_a_smaller_scale(message):
     import draftwright.builder as builder
 
     assert not builder._blocks_all_smaller_scales(
-        ({"code": "location_ref_dropped", "message": "required location did not fit"},)
+        ({"code": "location_ref_dropped", "message": message},)
     )
 
 
@@ -497,24 +493,7 @@ def test_principal_projection_must_fit_inside_the_physical_page():
 
 
 @pytest.mark.slow
-@pytest.mark.timeout(300)
-def test_ctc02_scale_ladder_stops_at_the_location_legibility_floor_issue_1941():
-    source = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap203.stp"
-    with pytest.raises(ScaleIncompatibilityError) as caught:
-        build_drawing(source, page="A2", scale=0.2)
-
-    decision = caught.value.decision
-    assert decision["status"] == "no_complete_scale"
-    assert decision["attempted_scales"] == (0.2,)
-    assert any(
-        blocker["code"] == "location_ref_dropped"
-        and "too closely spaced to dimension legibly" in blocker["message"]
-        for blocker in decision["blockers"]
-    )
-
-
-@pytest.mark.slow
-@pytest.mark.timeout(600)
+@pytest.mark.timeout(900)
 def test_ctc02_automatic_recovery_has_a_bounded_build_budget_issue_1941():
     source = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap203.stp"
     events = []
@@ -530,8 +509,14 @@ def test_ctc02_automatic_recovery_has_a_bounded_build_budget_issue_1941():
         for blocker in decision["blockers"]
     )
     retries = [event for event in events if event.phase == "retry"]
-    assert len(retries) <= 3
-    assert {dict(event.details)["scale"] for event in retries} == {None, 0.5}
+    assert len(retries) <= 4
+    assert {dict(event.details)["scale"] for event in retries} == {None, 0.1, 0.5}
+    skipped = [attempt for attempt in decision["attempts"] if attempt["status"] == "skipped"]
+    assert [(attempt["scale"], attempt["rejection"]) for attempt in skipped] == [
+        (1.0, "principal_view_exceeds_page")
+    ]
+    assert all("blockers" not in attempt and "views" not in attempt for attempt in skipped)
+    assert 1.0 not in decision["attempted_scales"]
 
 
 def test_scale_warning_category_remains_a_dependency_free_user_warning():
