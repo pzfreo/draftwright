@@ -48,7 +48,7 @@ import pytest
 _FMT_BUDGET: dict[str, tuple[int, str]] = {
     # --- The turned step chain composes its labels while collapsing repeat runs, so the
     # text is decided by the collapse rather than per approved entry.
-    "from_model.render_step_lengths": (3, "labels decided during the repeat-run collapse"),
+    "_step_lengths._render_y_profile": (3, "labels decided during the repeat-run collapse"),
     "from_model._draw_step_chain": (1, "default repeat collapse preserves legacy mean text"),
     "from_model._step_value_text": (1, "synthetic block segments have no approved entry"),
     # --- `hole_callout_spec` hands the callout builder floats, and the #261 invariant
