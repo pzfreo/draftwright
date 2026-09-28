@@ -176,6 +176,38 @@ def test_candidate_preview_chooses_one_build_without_gutters_when_views_are_off_
     )
 
 
+def test_off_page_profile_fallback_cannot_erase_required_detail_space(monkeypatch):
+    import draftwright.builder as builder
+
+    original_choice = builder.choose_pre_render_profile
+    original_reservation_check = builder.lost_required_derived_view_reservations
+    checked_profiles = []
+
+    def dense_choice(*args, **kwargs):
+        return {**original_choice(*args, **kwargs), "profile": "columns"}
+
+    def check_reservations(before, after):
+        checked_profiles.append(after)
+        if len(checked_profiles) == 2:
+            return ("detail_a",)
+        return original_reservation_check(before, after)
+
+    monkeypatch.setattr(builder, "choose_pre_render_profile", dense_choice)
+    monkeypatch.setattr(builder, "lost_required_derived_view_reservations", check_reservations)
+    drawing = build_drawing(
+        Box(190, 5, 279),
+        page="A3",
+        scale=1,
+        scale_policy="permissive",
+        annotation_layout="candidate-preview",
+    )
+
+    assert len(checked_profiles) == 2
+    choice = drawing.annotation_scheme_decision["pre_render_choice"]
+    assert choice["profile"] == "columns"
+    assert choice["reason"] != "protected_gutters_worsen_off_page_views"
+
+
 def test_conservative_profile_does_not_inherit_rejected_arrangement(monkeypatch):
     import draftwright.builder as builder
 

@@ -1795,7 +1795,14 @@ def _build_drawing_once(
                     conservative_overflow.get(view, 0.0) < overflow.get(view, 0.0) - 1e-6
                     for view in views_to_compare
                 )
-                if no_worse and strictly_better:
+                # The overflow comparison protects principal geometry, but a
+                # different profile must also retain required derived space.
+                # Otherwise this second pre-render choice can undo the guard
+                # above without ever building a drawing for the lost detail.
+                lost_conservative_derived = lost_required_derived_view_reservations(
+                    pre_profile_analysis, conservative_analysis
+                )
+                if no_worse and strictly_better and not lost_conservative_derived:
                     selected_profile = conservative_profile
                     a = conservative_analysis
                     pre_render_choice = {
