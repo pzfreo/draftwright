@@ -9700,10 +9700,23 @@ def _pmi_source_ids(item) -> tuple[str, ...]:
 
 def render_document_notes(dwg, model, *, exclude=()) -> int:
     """Place source-proven drawing-wide requirements in one solver-owned notes block."""
+    placed_datum_sources = {
+        source_id
+        for feature in model.features
+        if feature.kind == "datum_ref"
+        and dwg.registry.names_for_feature(getattr(feature, "origin", None) or feature)
+        for source_id in _pmi_source_ids(feature)
+    }
     notes = [
         feature
         for feature in model.features
-        if feature.kind == "document_note" and feature.on_drawing and id(feature) not in exclude
+        if feature.kind == "document_note"
+        and (
+            feature.on_drawing
+            or bool(feature.represented_by_source_ids)
+            and not set(feature.represented_by_source_ids) <= placed_datum_sources
+        )
+        and id(feature) not in exclude
     ]
     if not notes:
         return 0

@@ -20,6 +20,7 @@ from draftwright.model.ir import (
     BossFeature,
     ChamferFeature,
     CylindricalReference,
+    DatumRef,
     DefaultSurfaceFinish,
     DocumentNote,
     Feature,
@@ -1152,6 +1153,128 @@ def lower_ap242_chamfer_requirements(
     )
 
 
+_DATUM_AXIS_STATEMENT = re.compile(
+    r"datum (?P<letter>[A-Z]) is the axis derived from DIA (?P<diameter>\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+_DATUM_SHOULDER_STATEMENT = re.compile(
+    r"datum (?P<letter>[A-Z]) is the DIA (?P<first>\d+(?:\.\d+)?)-to-DIA "
+    r"(?P<second>\d+(?:\.\d+)?) shoulder face",
+    re.IGNORECASE,
+)
+
+
+def _datum_scheme_represented_by_symbols(model: PartModel, text: str) -> tuple[str, ...]:
+    """Prove a narrow imported prose scheme is wholly conveyed by typed datum symbols.
+
+    An unrecognised clause, missing source-owned symbol, or geometry mismatch retains
+    the source text on the sheet.  This is deliberately not a natural-language guess.
+    """
+    clauses = [clause.strip() for clause in text.split(";")]
+    if not clauses or any(not clause for clause in clauses):
+        return ()
+    datums = [feature for feature in model.features if isinstance(feature, DatumRef)]
+    steps = [feature for feature in model.features if isinstance(feature, StepFeature)]
+    represented: list[str] = []
+    for clause in clauses:
+        axis_match = _DATUM_AXIS_STATEMENT.fullmatch(clause)
+        shoulder_match = _DATUM_SHOULDER_STATEMENT.fullmatch(clause)
+        match = axis_match or shoulder_match
+        if match is None:
+            return ()
+        candidates = [
+            datum
+            for datum in datums
+            if datum.letter.upper() == match["letter"].upper()
+            and datum.source_ids
+            and isinstance(datum.origin, PmiFeature)
+            and datum.origin.source_category == "datum"
+            and datum.origin.reference_item_ids
+            and datum.origin.ref_bbox is not None
+        ]
+        if len(candidates) != 1:
+            return ()
+        datum = candidates[0]
+        origin = datum.origin
+        if not isinstance(origin, PmiFeature) or origin.ref_bbox is None:
+            return ()
+        axis = origin.reference_axis.lower()
+        if axis not in "xyz" or len(axis) != 1 or datum.frame.axis != axis:
+            return ()
+        axial = "xyz".index(axis)
+        transverse = [index for index in range(3) if index != axial]
+        bbox = origin.ref_bbox
+        extents = [bbox[index + 3] - bbox[index] for index in range(3)]
+        tol = 0.02  # STEP face bboxes carry ~1e-7 mm numeric padding.
+        if axis_match is not None:
+            diameter = float(axis_match["diameter"])
+            if not (
+                extents[axial] > tol
+                and all(abs(extents[index] - diameter) <= tol for index in transverse)
+                and any(
+                    step.frame.axis == axis
+                    and abs(step.diameter - diameter) <= tol
+                    and min(point[axial] for point in step.span) >= bbox[axial] - tol
+                    and max(point[axial] for point in step.span) <= bbox[axial + 3] + tol
+                    for step in steps
+                )
+            ):
+                return ()
+        else:
+            if shoulder_match is None:
+                return ()
+            first, second = float(shoulder_match["first"]), float(shoulder_match["second"])
+            plane = (bbox[axial] + bbox[axial + 3]) / 2
+            if extents[axial] > tol or not all(
+                min(first, second) - tol <= extents[index] <= max(first, second) + tol
+                for index in transverse
+            ):
+                return ()
+            # The datum face must sit at a real adjacent turned-step transition.
+            # A small gap is allowed for the intervening head-edge chamfer.
+            ordered = sorted(
+                (step for step in steps if step.frame.axis == axis),
+                key=lambda step: min(point[axial] for point in step.span),
+            )
+            chamfers = [
+                feature
+                for feature in model.features
+                if isinstance(feature, ChamferFeature) and feature.turned and feature.axis == axis
+            ]
+
+            def _verified_transition(left: StepFeature, right: StepFeature) -> bool:
+                left_end = max(point[axial] for point in left.span)
+                right_start = min(point[axial] for point in right.span)
+                gap = right_start - left_end
+                return (
+                    gap >= -tol
+                    and min(abs(left_end - plane), abs(right_start - plane)) <= tol
+                    and (
+                        gap <= tol
+                        or any(
+                            abs(chamfer.frame.origin[axial] - (left_end + right_start) / 2) <= tol
+                            and abs(chamfer.leg1 - gap) <= tol
+                            for chamfer in chamfers
+                        )
+                    )
+                )
+
+            if not any(
+                (
+                    abs(left.diameter - first) <= tol
+                    and abs(right.diameter - second) <= tol
+                    or abs(left.diameter - second) <= tol
+                    and abs(right.diameter - first) <= tol
+                )
+                and (left.profile == right.profile)
+                and _verified_transition(left, right)
+                for left, right in zip(ordered, ordered[1:])
+            ):
+                return ()
+        represented.extend(datum.source_ids)
+    return tuple(dict.fromkeys(represented))
+
+
 def lower_ap242_document_requirements(model: PartModel) -> PartModel:
     """Lower source-proven document defaults that have an existing drafting carrier."""
     tolerance_candidates = [
@@ -1249,13 +1372,19 @@ def lower_ap242_document_requirements(model: PartModel) -> PartModel:
         if not item.label.strip():
             features[index] = _block_requirement(item, "document requirement text is empty")
             continue
+        represented_by = (
+            _datum_scheme_represented_by_symbols(model, item.label)
+            if item.pmi_kind == "datum_scheme"
+            else ()
+        )
         features[index] = DocumentNote(
             frame=item.frame,
             text=item.label,
             note_kind=item.pmi_kind,
             source_id=item.source_id,
             part21_id=item.part21_id,
-            on_drawing=item.pmi_kind != "model_representation",
+            on_drawing=item.pmi_kind != "model_representation" and not represented_by,
+            represented_by_source_ids=represented_by,
         )
     return replace(model, features=features)
 

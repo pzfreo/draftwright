@@ -259,6 +259,12 @@ If it cannot be placed, full direct callouts remain. Lint reports a short refere
 source-matched table row is removed or altered. This does not apply to `pmi="off"` or
 replace an authored feature schedule.
 
+An imported datum-scheme sentence is omitted from the sheet only when its whole
+meaning is proven by placed, source-owned datum symbols on the matching geometry.
+The original AP242 text and the symbol source IDs remain in the model. A missing
+symbol, unmatched geometry, or extra instruction keeps the note (or produces a
+source-coverage lint error if a previously proven symbol is later removed).
+
 ## Grooves on coaxial bodies
 
 When different turned bodies share an axis line, give their steps distinct `profile_group`

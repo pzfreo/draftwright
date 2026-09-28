@@ -2487,6 +2487,7 @@ class Sheet:
         source_id: str = "",
         part21_id: str = "",
         on_drawing: bool = True,
+        represented_by_source_ids: tuple[str, ...] = (),
     ) -> _Params:
         """Declare a document statement, optionally retained as model-only metadata."""
         bbox = self._part.bounding_box()
@@ -2499,6 +2500,7 @@ class Sheet:
                 source_id=source_id,
                 part21_id=part21_id,
                 on_drawing=on_drawing,
+                represented_by_source_ids=represented_by_source_ids,
             )
         )
         return _Params(self, len(self._features) - 1)

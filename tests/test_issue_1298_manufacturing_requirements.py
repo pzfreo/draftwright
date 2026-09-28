@@ -3,12 +3,14 @@
 import hashlib
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos
 
 from draftwright import Drawing, Sheet, build_drawing
 from draftwright.analysis import _import_step
+from draftwright.annotations.from_model import render_document_notes
 from draftwright.linting.issues import LintIssue
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
 from draftwright.model.detect import build_part_model
@@ -17,6 +19,7 @@ from draftwright.model.ir import (
     BossFeature,
     ChamferFeature,
     CylindricalReference,
+    DatumRef,
     DefaultSurfaceFinish,
     DocumentNote,
     Frame,
@@ -298,6 +301,125 @@ def test_document_requirements_lower_to_unattached_typed_notes():
     ]
     assert all(isinstance(note, DocumentNote) for note in lowered.features)
     assert [note.on_drawing for note in lowered.features] == [True, False]
+
+
+def _source_datum(letter, entity, bbox, at):
+    origin = PmiFeature(
+        frame=Frame((at, 0.0, 0.0), "x"),
+        pmi_kind="datum",
+        value=0.0,
+        label=letter,
+        dominant_axis="X",
+        ref_bbox=bbox,
+        source_id=f"datum_definition:{entity}",
+        source_ids=(f"datum_definition:{entity}",),
+        source_category="datum",
+        reference_item_ids=(f"{entity}:face",),
+        reference_axis="X",
+    )
+    return DatumRef(
+        frame=origin.frame,
+        letter=letter,
+        view="front",
+        side="above",
+        origin=origin,
+        source_id=origin.source_id,
+        source_ids=origin.source_ids,
+    )
+
+
+def _datum_scheme_model(*, statement=None, include_b=True, include_chamfer=True):
+    statement = statement or (
+        "Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face"
+    )
+    datums = [
+        _source_datum("A", "#A", (2.5, -2.5, -2.5, 5.5, 2.5, 2.5), 4.0),
+    ]
+    if include_b:
+        datums.append(_source_datum("B", "#B", (2.5, -4.7, -4.7, 2.5, 4.7, 4.7), 2.5))
+    features = [_step(10.0, 0.8, 2.2), _step(5.0, 2.5, 5.5)]
+    if include_chamfer:
+        features.append(
+            ChamferFeature(Frame((2.35, 0.0, 4.85), "x"), "x", 0.3, 0.3, 45.0, turned=True)
+        )
+    return _model(*features, *datums, _document_note("#note", "datum_scheme", statement))
+
+
+def test_source_datum_explanation_is_omitted_only_while_both_symbols_are_placed():
+    from draftwright.linting.pmi_coverage import lint_pmi_rendering
+    from draftwright.registry import AnnotationRegistry
+
+    model = lower_ap242_document_requirements(_datum_scheme_model())
+    note = model.features[-1]
+    assert isinstance(note, DocumentNote)
+    assert note.on_drawing is False
+    assert note.represented_by_source_ids == ("datum_definition:#A", "datum_definition:#B")
+
+    registry = AnnotationRegistry()
+    for datum in (feature for feature in model.features if isinstance(feature, DatumRef)):
+        registry.add(object(), datum.letter, "front", feature=datum.origin)
+    assert lint_pmi_rendering(model.features, registry, "annotate") == []
+
+    registry.remove("B")
+    assert {
+        issue.source_ids for issue in lint_pmi_rendering(model.features, registry, "annotate")
+    } == {
+        ("manufacturing_requirement:#note",),
+        ("datum_definition:#B",),
+    }
+
+
+def test_unplaced_datum_symbol_restores_the_source_note_as_a_fallback():
+    model = lower_ap242_document_requirements(_datum_scheme_model())
+    added = []
+
+    class Registry:
+        def __init__(self, placed):
+            self.placed = placed
+
+        def names_for_feature(self, feature):
+            return ["datum"] if feature.source_id in self.placed else []
+
+    def add_table(rows, **kwargs):
+        added.append((rows, kwargs))
+        return object()
+
+    dwg = SimpleNamespace(
+        registry=Registry({"datum_definition:#A", "datum_definition:#B"}),
+        add_table=add_table,
+    )
+    assert render_document_notes(dwg, model) == 0
+    assert added == []
+
+    dwg.registry.placed.remove("datum_definition:#B")
+    assert render_document_notes(dwg, model) == 1
+    assert added[0][1]["_source_ids"] == ("manufacturing_requirement:#note",)
+    assert "datum B is the DIA 10-to-DIA 5 shoulder face" in " ".join(
+        " ".join(cell.split()) for row in added[0][0] for cell in row
+    )
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        _datum_scheme_model(include_b=False),
+        _datum_scheme_model(include_chamfer=False),
+        _datum_scheme_model(
+            statement="Datum A is the axis derived from DIA 6; datum B is the DIA 10-to-DIA 5 shoulder face"
+        ),
+        _datum_scheme_model(
+            statement="Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face; inspect B first"
+        ),
+        _datum_scheme_model(
+            statement="Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 6 shoulder face"
+        ),
+    ],
+)
+def test_unproven_or_additional_datum_claim_keeps_its_document_note(model):
+    note = lower_ap242_document_requirements(model).features[-1]
+    assert isinstance(note, DocumentNote)
+    assert note.on_drawing is True
+    assert note.represented_by_source_ids == ()
 
 
 def test_imported_model_metadata_keeps_provenance_without_a_drawing_obligation():
@@ -1462,7 +1584,11 @@ def test_exact_grm03_lowers_all_three_supported_manufacturing_requirements():
         ("datum_scheme", "manufacturing_requirement:#2020"),
         ("model_representation", "manufacturing_requirement:#2028"),
     ]
-    assert [note.on_drawing for note in document_notes] == [True, False]
+    assert [note.on_drawing for note in document_notes] == [False, False]
+    assert document_notes[0].represented_by_source_ids == (
+        "datum_definition:#777",
+        "datum_definition:#810",
+    )
     chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
     assert [(feature.leg1, feature.source_ids) for feature in chamfers] == [
         (0.3, ("manufacturing_requirement:#2024",)),
@@ -1668,14 +1794,9 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     assert drawing.registry.feature_of("default_surface_finish") is default_finish
     document_notes = [feature for feature in model.features if isinstance(feature, DocumentNote)]
-    assert [note.on_drawing for note in document_notes] == [True, False]
-    assert drawing.get_annotation("general_notes").table_rows == (
-        ("GENERAL NOTES",),
-        ("1  Datum A is the axis derived from DIA 5; datum B",),
-        ("   is the DIA 10-to-DIA 5 shoulder face",),
-    )
-    assert drawing.registry.features_of("general_notes") == (document_notes[0],)
-    assert drawing.registry.names_for_feature(document_notes[1]) == []
+    assert [note.on_drawing for note in document_notes] == [False, False]
+    assert "general_notes" not in drawing.annotations()
+    assert all(drawing.registry.names_for_feature(note) == [] for note in document_notes)
     chamfers = [feature for feature in model.features if isinstance(feature, ChamferFeature)]
     assert [drawing.registry.names_for_feature(feature) for feature in chamfers] == [
         ["m_chamfer_x0"],
@@ -1726,10 +1847,7 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     )
     assert sum(isinstance(feature, DocumentNote) for feature in replayed_model.features) == 2
     assert sum(isinstance(feature, ChamferFeature) for feature in replayed_model.features) == 3
-    assert (
-        replayed.get_annotation("general_notes").table_rows
-        == drawing.get_annotation("general_notes").table_rows
-    )
+    assert "general_notes" not in replayed.annotations()
     assert replayed.registry.feature_of("title_block").source_id == general_tolerance.source_id
     assert (
         replayed.registry.feature_of("default_surface_finish").source_id

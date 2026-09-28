@@ -481,12 +481,26 @@ def lint_pmi_rendering(features, registry, mode: str, *, decorations=None) -> li
     if mode != "annotate":
         return []
 
+    features = tuple(features)
+    placed_datums = {
+        source_id
+        for feature in features
+        if getattr(feature, "kind", None) == "datum_ref"
+        and _registry_names_for_feature(registry, feature)
+        for source_id in _source_ids(feature)
+    }
     by_source: dict[str, list[object]] = {}
     for feature in features:
-        # Model-representation metadata is retained in typed IR for provenance,
-        # but is not a drawing requirement and has no annotation to reconcile.
-        if getattr(feature, "kind", None) == "document_note" and not getattr(
-            feature, "on_drawing", True
+        # Model-only metadata has no drawing carrier. A redundant datum-scheme
+        # statement may take that path only while every proven substitute symbol
+        # remains on the finished sheet; removing a datum reopens its source gap.
+        if (
+            getattr(feature, "kind", None) == "document_note"
+            and not getattr(feature, "on_drawing", True)
+            and (
+                not getattr(feature, "represented_by_source_ids", ())
+                or set(feature.represented_by_source_ids) <= placed_datums
+            )
         ):
             continue
         if getattr(feature, "kind", None) != "pmi":
