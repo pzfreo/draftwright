@@ -120,6 +120,11 @@ def test_sheet_layout_control_changes_run_the_declaration_contract():
     assert "test_dimension_lane_canary_issue_1757.py" not in modules
 
 
+def test_pmi_changes_run_structured_reader_failure_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/pmi.py"])
+    assert "test_pmi_records.py" in selected
+
+
 def test_nonproduction_changes_do_not_expand_the_core():
     assert set(pr_modules(_TESTS, ["docs/guide.md"])) == (
         set(PR_CORE_MODULES) | set(PR_POLICY_MODULES) | set(UNIT_MODULES)

@@ -1496,47 +1496,6 @@ class TestExtractPmi:
         assert record.part21_id == expected_part21_id
         assert reasons == (f"tolerance magnitude is unavailable ({expected_reason})",)
 
-    def test_report_returns_structured_reader_failures(self, monkeypatch):
-        import draftwright.pmi as pmi_module
-
-        monkeypatch.setattr(pmi_module, "_PMI_AVAILABLE", False)
-        assert "SetGDTMode" in pmi_module.extract_pmi_report("missing.step").error
-
-        class FakeReader:
-            def __init__(self, *, status=1, transfer=True):
-                self.status = status
-                self.transfer = transfer
-
-            def SetGDTMode(self, _enabled):
-                pass
-
-            def SetNameMode(self, _enabled):
-                pass
-
-            def ReadFile(self, _path):
-                if isinstance(self.status, Exception):
-                    raise self.status
-                return self.status
-
-            def Transfer(self, _doc):
-                if isinstance(self.transfer, Exception):
-                    raise self.transfer
-                return self.transfer
-
-        monkeypatch.setattr(pmi_module, "_PMI_AVAILABLE", True)
-        monkeypatch.setattr(pmi_module, "IFSelect_RetDone", 1)
-        monkeypatch.setattr(pmi_module, "TCollection_ExtendedString", lambda value: value)
-        monkeypatch.setattr(pmi_module, "TDocStd_Document", lambda _name: object())
-
-        for reader, expected in (
-            (FakeReader(status=RuntimeError("read exploded")), "read exploded"),
-            (FakeReader(status=0), "ReadFile failed"),
-            (FakeReader(transfer=RuntimeError("transfer exploded")), "transfer exploded"),
-            (FakeReader(transfer=False), "Transfer failed"),
-        ):
-            monkeypatch.setattr(pmi_module, "STEPCAFControl_Reader", lambda: reader)
-            assert expected in pmi_module.extract_pmi_report("broken.step").error
-
     def test_part21_failure_keeps_each_xcaf_tolerance_explicitly_partial(self, monkeypatch):
         import draftwright.pmi as pmi_module
 
