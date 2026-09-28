@@ -27,74 +27,19 @@ changing the engine.
 `build_drawing` → `_auto_annotate`; there is no second engine.
 
 The module graph is a strict layered DAG, **machine-enforced** by
-`tests/test_import_boundaries.py` — the `_LAYERS` table there is the authoritative
-ranked map (an upward module-level import or a cycle fails CI). The detailed
-module-by-module prose map lives in [`docs/architecture.md`](docs/architecture.md);
-keep `_LAYERS`, that document, and this compact map in step.
+`tests/test_import_boundaries.py`: the `_LAYERS` table there is the authoritative
+ranked map (an upward module-level import or a cycle fails CI), and
+[`docs/architecture.md`](docs/architecture.md) is the module-by-module map. Keep the two
+in step; do not restate the module list here.
 
-Compact map, bottom to top:
-
-- **Leaf modules** — `progress.py` (headless activity and cooperative cancellation; no drawing policy), `layout.py` (the deterministic placement solvers: 1D PAVA strip
-  solve, `fit_box`, balloon band flow), `registry.py` (annotation identity/pins/issues),
-  `obligations.py` (pure semantic survival classes shared by demand and placement),
-  `layout_scheme.py` (typed, render-free annotation topology and corridor demand planning),
-  `annotation_layout_profile.py` (build-scoped candidate options and corridor caps),
-  `leader_policy.py` (typed feature-leader candidate-region policy),
-  `_geometry.py` (page-plane maths + the ADR 2 (was 0014 Amdt 3) material field; the DAG's
-  bottom leaf), `fonts.py` (pinned IBM Plex, ADR 5 (was 0006)), `fits.py` (ISO 286),
-  `intents.py` (deferred-edit low IR), `recognition_cache.py` (ADR 3 (was 0017) one-result
-  lifecycle), `recognition_ownership.py` (run-local accepted-occurrence outcomes, including
-  final-IR binding, group/pattern absorption, shared bolt-circle corroboration, and settled ownerless consumer policy),
-  `plate_correspondence.py` (pure shared Plate-record/final-IR correspondence predicates),
-  `measurement_support.py` (producer-issued exact measurement and member witnesses),
-  `location_contract.py` (shared pocket/pad datum reference and coincidence rules),
-  `profile_angles.py` (face-profile drafting requirements from issued ordered supports),
-  `angular_geometry.py` (analytic angular ink boxes shared by sizing and rendering),
-  `recogniser_policy.py` (single Draftwright-owned unsupported/deferred/evidence-only policy),
-  `recogniser_schema.py` (consumer-owned public record schema versions shared by validation and
-  reporting),
-  `recognition_frame.py` (ADR 3 (was 0020) prepared local-frame boundary and fail-closed
-  body-local occurrence joins), `blend_contract.py` (strict released-Blend schema and
-  occurrence identity),
-  `oriented_slot_contract.py` (released free-axis slot validation and exact pattern membership),
-  `section_recess_contract.py` (published recess grammar and exact inventory pattern joins),
-  `feature_identity.py` (registered exact oriented-slot and envelope IR types for independent lint),
-  `_warnings.py`, and `_pmi_part21.py`.
-- **`_core.py`** — shared primitives: the `Analysis` namespace, dim/format helpers,
-  page/slot/margin constants.
-- **`document_input.py`** — common source/analysis authority and sealed physical membership,
-  beside `_core`; member models copy authoring containers while retaining exact owners.
-- **Stage modules** — `analysis.py` (classification + one-shot feature inventory),
-  `projection.py` (HLR + material lowering), `auxiliary_layout.py` (shared measured
-  note/section/detail block spacing and hard-fit fallback), `compose.py` (the ADR 2 (was 0004) outer
-  compose-then-pack layout), `export.py` (SVG→PDF→PNG chain, DXF), `repair.py`
-  (the ADR 5 (was 0002) lint→repair safety net), `pmi.py` (STEP AP242 PMI), `linting/`
-  (draftwright-owned lint and recognition requirement ledgers, ADR 3 (was 0007)), `reporting.py`
-  (versioned projection over explicitly supplied finished-build state and those ledgers),
-  `document_evidence.py` (confirmed claim binding, engineering agreement and dependency proofs),
-  `model/` (the ADR 1 (was 0015) IR waist: `ir`/`detect`/`planner`/`declare`/`compiled`),
-  `drawing.py` (the `Drawing` result object; single-owner `BuildState`), and
-  `annotations/` (the render passes; `orchestrator.py` owns `_PASS_SEQUENCE`, the one
-  canonical stage order; `_common.py` owns the corridor solve + late-furniture seam).
-- **`builder.py` / `layout_selection.py` / `layout_safety.py`** — build orchestration,
-  finished-drawing semantic comparison, and provisional independent candidate safety
-  evidence: `build_drawing`, `make_drawing`, guarded layout selection.
-- **Facades / top layer** — `make_drawing.py` + `annotate.py` (thin compat),
-  `sheet.py` (the fluent `Sheet` facade, ADR 4 (was 0011)),
-  `document.py` (explicit member sheets over a common source and conversion authority), `sheet_emit.py` (the `--script`
-  emitter — it also writes the `inspection.py` document as a sidecar from its own
-  single detect run), `replay_assessment.py` (atomic exact-script/source/output evidence over
-  that replay's one finalized Drawing; no build or recognition), `cli.py` (Typer; engine
-  imported lazily inside command bodies, #313),
-  `_build_profile.py` (developer-only pytest/runner profiling support),
-  `evaluation/` (the versioned STEP-analysis benchmark — production code must never
-  depend on benchmark expectations or scores), `recogniser_contract.py` (the
-  fail-closed cross-repository capability join), `inspection_contract.py` (the
-  separate fail-closed declared-geometry inspection join), and `inspection.py`
-  (`inspect_step`: versioned read-only STEP evidence over one hashed byte snapshot and the
-  one-run detect seam — no drawing, placement, render, export, or lint path).
-- `score.py` / `recognition/` — temporary identity-preserving re-exports of
-  `quiddity`; removal scheduled for 0.6.0.
+In outline, by `_LAYERS` rank: **0** leaves — placement solvers, geometry maths, registry,
+recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) → **1**
+`_core` / `document_input` → **2** `projection`, `compose`, `export`, `repair`, `pmi`,
+`linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
+passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` → **6**
+`builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
+`inspection`, `cli`, the recogniser/inspection contract joins). `make_drawing` / `annotate`
+are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
 
 Key invariants — each is machine-enforced, and the guard test is the authority:
 
@@ -166,32 +111,17 @@ checks. Target is 100% passing. Tiers (#153):
   local "did I break something obvious" check.
 - **`uv run pytest`** — full fast tier (`-m 'not slow'`; nearly every test does a
   real OCC build). Prefer **targeted** selections (`-k`, node ids) locally;
-  `scripts/pr-check --full` uses **`-n auto --dist worksteal`** to balance the long
-  tail on many-core developer machines. At the 4,734 tests the fast tier
-  collected then, this measured 159–172 s across three green 18-core runs,
-  versus 266 s with `loadscope` (2026-08, #1311); the tier collects 8,760 as of
-  2026-09-14, so those wall-clock figures are historical. On the same 18-core
-  host, limiting pytest to four workers measured 358 s with `worksteal` versus
-  348 s with `loadscope`; that does not
-  model CPU affinity or a hosted runner. CI deliberately retains its established
-  class/module scope grouping with `loadscope`. The tier grows with every
-  trust fix; a critique-style test should share a module-scoped built drawing,
-  not mint a new dense fixture.
+  `scripts/pr-check --full` uses `-n auto --dist worksteal`, CI keeps `loadscope`. A
+  critique-style test should share a module-scoped built drawing, not mint a new dense
+  fixture.
 - **`-m slow`** (integration builds, including CTC fixtures) — full tier in post-merge CI.
   The bounded `-m real_part_canary` tuner STEP test also runs once before merge (#827).
 
-The suite may not grow by CLONING. `tests/test_clone_budget.py` compares test bodies
-with identifiers, attributes and literals erased — the shape — across modules, and
-fails when the count of cross-module copies rises above `CLONE_BUDGET`. It counts only
-shapes recurring in at least `_MIN_GROUP_MEMBERS` modules, because a bare pair is usually
-coincidence — templated cloning shows up as a family. It exists because the two natural
-checks both miss this codebase's cloning style: identical test NAMES miss it (each copy is
-renamed for its family) and identical ASTs miss it (each copy substitutes its family's
-symbols). Thirteen copies of one three-statement body went unnoticed that way, each paying
-for a real `build_drawing` on every CI run.
-When it fails, parametrize over the symbol that varies — `tests/_evidence_contract.py`
-is the worked example — and ratchet `CLONE_BUDGET` down. Raising it needs a reason in
-the PR body, like `fail_under`.
+The suite may not grow by CLONING. `tests/test_clone_budget.py` compares test bodies by
+*shape* (identifiers, attributes and literals erased) across modules, because renamed,
+symbol-substituted copies evade both name and AST comparison. When it fails, parametrize
+over the symbol that varies (`tests/_evidence_contract.py` is the worked example) and
+ratchet `CLONE_BUDGET` down; raising it needs a reason in the PR body, like `fail_under`.
 
 The suite may not grow by ACCRETING issue-named files. `tests/test_suite_shape.py`
 pins the number of `tests/test_issue_*` modules and lets it only shrink. A regression
@@ -199,123 +129,66 @@ test goes in the module named after the behaviour it defends, as
 `test_<behaviour>_issue_NNNN` (maintainer decision, 2026-09-13); the existing
 issue-named modules fold into behaviour modules over time (#1637).
 
-For reproducible build-cost profiling, use a fresh output directory and state the expected
-collection census explicitly:
+For reproducible build-cost profiling, run `scripts/profile-builds` with a fresh output
+directory and `--expect-collected N`, where N is today's `uv run pytest --collect-only -q`
+count (never a number copied from a doc); see the script's `--help`.
 
-```bash
-scripts/profile-builds --output /tmp/draftwright-profile \
-  --expect-collected 8760 -- tests/ -n auto --dist loadscope
-```
+Coverage is kept out of the default addopts; CI passes `--cov` in two shards combined for
+the Codecov upload and the `fail_under` gate. PR CI runs the fast tier across supported
+Python versions plus macOS/Windows canaries and the real-part canary; the **full slow tier
+runs post-merge on `main`** (#153, #827). The `full-matrix` PR label runs the wider matrix.
 
-8,760 is the fast-tier census on 2026-09-14; re-measure it with
-`uv run pytest --collect-only -q` rather than copying the number forward.
-
-The runner passes every module/option as a literal argv entry, writes one JSON file per xdist
-worker, and refuses to report success when any worker's collected count differs. It times the
-public builder binding, `Sheet`'s import-time builder binding, and `_build_drawing_once`, and
-records pytest phases of at least 5 ms for attribution. Do not reuse an output directory that
-already contains worker profiles.
-
-Coverage is kept out of the default addopts (it adds ~13% locally); the CI
-workflow passes the `--cov` flags, in the two `coverage` shards whose data
-`coverage-report` combines for the single Codecov upload and the `fail_under`
-gate. PRs requiring normal CI run the full fast tier across supported Python versions,
-each split into two pytest-split shards, plus smaller macOS/Windows platform
-canaries. One real-part canary checks fixed tuner-fixture measurements and
-exports before merge; the **full slow tier runs post-merge on `main`** (#153,
-#827). The wider platform matrix remains available weekly, manually, or with the
-`full-matrix` PR label.
-
-Exact next-patch development-version bumps use a short metadata path on PRs, the
-post-release dispatch and the resulting main push. The base commit's
-`scripts/check-version-bump` must prove that the entire Git diff changes only the
-matching Draftwright version records in `pyproject.toml` and `uv.lock`, including
-unchanged file modes and all other bytes. It then checks the lock and builds the
-package without installing CAD dependencies. Codecov's `empty-upload` supplies
-its no-code-change status; branch protection still requires Codecov and `ci-ok`.
-Mixed edits or unavailable proof use normal CI. Schedules and ordinary manual
-runs keep the full matrix. The classifier requires Python 3.11+ (`tomllib`).
+A PR that only bumps the next-patch development version takes a short metadata-only CI
+path, proved byte-exact by `scripts/check-version-bump`; anything mixed runs normal CI.
 
 ## Working practices — evidence, not confidence
 
-These are not style preferences. Each one is here because its absence produced a
-defect that shipped, or a claim that was believed and false. Epic #1202 alone
-produced roughly twenty-five confidently-written false statements in commit
-messages, comments, docstrings and PR bodies — several written *inside the fix
-for the previous one*, twice as a PR's own headline.
+These are not style preferences. Each exists because its absence shipped a defect or a
+believed-and-false claim; epic #1202 alone produced about twenty-five confidently written
+false statements in commits, comments, docstrings and PR bodies, several inside the fix for
+the previous one.
 
 ### Reproduce every prose claim by execution before committing it
 
-If a sentence in a commit message, comment, docstring or PR body asserts a fact
-about this codebase — a count, a behaviour, "no caller does X", "this is the only
-Y" — run the thing that proves it. Not "I read the code and it looks true".
-
-Real examples, all of which passed review-by-reading and failed on execution:
-
-- *"`label_vs_measured` is currently the only such code"* — there were five.
-- *"any permutation fails"* — one passed all 4,092 tests.
-- *"the union of these registers is exactly the set of codes the engine emits"* —
-  41 against 55.
-- *"`representation_features` is populated by nothing"* — true of the field, but
-  the reason given was wrong, and the neighbouring live parameter was nearly
-  deleted with it.
-- *"156 claims, 156 confirmed across every STEP fixture"* — the script globbed
-  `*.step` and half the fixtures are `*.stp`. The corrected figure was **also**
-  wrong: it mixed repo fixtures with files from a local directory and used
-  `build123d.import_step` instead of the engine's `analysis._import_step`.
+If a commit message, comment, docstring or PR body asserts a fact about this codebase — a
+count, a behaviour, "no caller does X", "this is the only Y" — run the thing that proves it.
+Real claims that passed review-by-reading and failed on execution: *"`label_vs_measured` is
+the only such code"* (there were five); *"any permutation fails"* (one passed all 4,092
+tests); *"156 claims confirmed across every STEP fixture"* (the glob missed every `*.stp`,
+and the corrected figure mixed in local files and used `build123d.import_step`).
 
 **When measuring a corpus, say which files and through which entry point.**
-`build_drawing(path)` and `build123d.import_step(path)` are not the same code
-path — the first uses `STEPControl_Reader` specifically to avoid an XCAF segfault
-the second hits on CTC-02 AP242.
+`build_drawing(path)` uses `STEPControl_Reader` to avoid an XCAF segfault that
+`build123d.import_step` hits on CTC-02 AP242; they are not the same code path.
 
 ### A green suite is not evidence that a guard is load-bearing
 
-Break the rule on purpose and confirm a named test fails. Assert the substitution
-applied — a run that collects no tests, or a `sed` that matched nothing, is a
-broken harness reporting success.
-
-Guards that survived the **entire** suite until mutated, each with a test sitting
-next to it: three of five `_FIDELITY_CODES` deleted outright; `_owner_drawn`
-replaced with `return True`; `_PLANE_TOL` widened from `1e-6` to **2.0**; both
-halves of an availability predicate *and* its fail-safe override.
-
-**Mutation results expire when the code changes.** Re-run them for anything a
-later commit touches. And beware tests that pass for the wrong reason: a
-determinism test comparing runs *within one process* passes on unsorted code,
-because string hashing is stable for a given `PYTHONHASHSEED`.
+Break the rule on purpose and confirm a named test fails, and assert the substitution
+applied — a run that collects nothing, or a `sed` that matched nothing, is a broken harness
+reporting success. Guards that survived the entire suite until mutated: three of five
+`_FIDELITY_CODES` deleted; `_owner_drawn` replaced with `return True`; `_PLANE_TOL` widened
+from `1e-6` to 2.0. **Mutation results expire when the code changes.** Beware tests that pass
+for the wrong reason: a determinism test comparing runs *within one process* passes on
+unsorted code, because string hashing is stable for a given `PYTHONHASHSEED`.
 
 ### Every fixture asserts its own precondition
 
-A test that the defect is present, before asserting it is handled. Four tests in
-#1202 passed against completely unfixed code because their fixtures never
-contained the defect — a "this thickness is now printed once" test whose geometry
-produced no duplicate in the first place; an "everything else is unaffected"
-generator that was empty.
-
-A precondition is necessary and often not sufficient: a candidate can exist and be
-refused by a *different* mechanism than the one under test. Where that is possible,
-also assert that relaxing the named mechanism changes the outcome.
+Assert the defect is present before asserting it is handled — four #1202 tests passed on
+unfixed code because their fixtures never contained the defect. A precondition is necessary,
+not always sufficient: where a *different* mechanism could refuse the candidate, also
+assert that relaxing the named mechanism changes the outcome.
 
 ### Fix it, or state a reason you could not have manufactured
 
-When work turns up a defect, the default is to fix it. Filing needs a reason that
-does not reduce to a choice you just made:
-
-- it needs a **decision that is the maintainer's**; or
-- you **attempted** it and found it larger than it looked.
-
-**"It is in a different file" and "it is a different subsystem" are not reasons.**
-You choose which files a change touches, so citing that boundary is circular — it
-lets any defect be deferred by declining to open the file. Look first; decide
-after. A reason produced before looking is a justification for what you already
-did.
+When work turns up a defect, the default is to fix it. Filing needs a reason that does not
+reduce to a choice you just made: a **decision that is the maintainer's**, or you
+**attempted** it and found it larger than it looked. "It is in a different file" or "a
+different subsystem" is not a reason — you chose the boundary. Look first; decide after.
 
 ### Read a gate's exit code, never its output
 
-`scripts/pr-check --static` exits non-zero on failure. Grepping its text for
-`error` once hid ruff-format's "Would reformat" for several commits, so a real
-failure read as a pass.
+`scripts/pr-check --static` exits non-zero on failure. Grepping its text for `error` once
+hid ruff-format's "Would reformat" for several commits, so a real failure read as a pass.
 
 ## License
 

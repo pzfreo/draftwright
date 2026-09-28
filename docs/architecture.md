@@ -1,10 +1,9 @@
 # Architecture — the detailed module map
 
-The module-by-module map of the draftwright engine, moved out of `AGENTS.md`
-(which keeps the compact map and the working rules). The machine-enforced
-authority for the layering is `tests/test_import_boundaries.py` (`_LAYERS`);
-keep that table, this document, and `AGENTS.md`'s compact map in step. The
-*why* behind every shape here lives in `docs/adr/`.
+The module-by-module map of the draftwright engine (`AGENTS.md` keeps only the
+working rules and a one-paragraph summary). The machine-enforced authority for the
+layering is `tests/test_import_boundaries.py` (`_LAYERS`); keep that table and this
+document in step. The *why* behind every shape here lives in `docs/adr/`.
 
 ## The module map
 
@@ -67,6 +66,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     so `builder` no longer imports `cli`.)*
   - **`layout_safety.py`** — rank-6 observational safety evidence for a finished
     candidate, using reporting and settled view geometry without a baseline drawing.
+  - **`layout_selection.py`** — rank-6 finished-drawing annotation layout evidence and
+    safe semantic comparison between the default and alternative layouts (guarded layout
+    selection).
   - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
     `--version`, shell completion, `--format`, rich help. The engine (build123d)
     is imported **lazily inside the command body** so completion/`--help`/
@@ -243,6 +245,16 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`measurement_support.py`** — run-local producer-issued measurement, interval and member witnesses.
 - **`location_contract.py`** — shared pocket/pad datum reference and coincidence predicates.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
+- **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in
+  Draftwright's drafting vocabulary (pocket, channel and hex fields) and the exact inventory
+  pattern joins, shared by detection and independent completeness lint.
+- **`annotation_layout_profile.py`** — build-scoped options for the alternative annotation
+  layout (candidate options and corridor caps), so a candidate is built without mutating
+  process state.
+- **`view_plan.py`** — the ADR 2 planning vocabulary for *which views a drawing requests and
+  resolves*; a drawing-independent leaf.
+- **`audit.py`** — compares finished drawings and captured measurement claims
+  (`diff_builds`: named annotation losses, gains, changed labels and substitutions).
 - **`profile_angles.py`** — bounded face-profile angle requirements projected from Quiddity's
   ordered supports, with issued body/profile identity retained outside the IR. The detection
   adapter creates the ordinary declared angle feature and records its owner in
