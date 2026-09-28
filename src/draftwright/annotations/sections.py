@@ -1,6 +1,6 @@
 """Section A-A and detail views (#138 / ADR 1 (was 0005), P5a).
 
-The cutting-plane section (ISO 128-44 arrows, ISO 128-50 hatching via
+The cutting-plane section (named arrows and hatched cut faces via
 `_section_hatch_edges`/`_fuzzy_cut`) and the enlarged detail view. Pass
 functions take the drawing duck-typed as `dwg`; imports stay below annotate.
 """
@@ -113,7 +113,7 @@ def feature_hole_keys(model, a: Analysis) -> set[HoleRef]:
 
 
 def add_section(dwg, model, a, *, ctx) -> list[str]:
-    """Add the automatic full **section A–A** (ISO 128-44 arrows + ISO 128-50 hatch)
+    """Add the automatic full **section A–A** (cut-plane arrows and hatch)
     — the #420 ``section()`` add verb.
 
     Part-level, not per-feature: a section fires for a Z-axis bore with a hidden
@@ -155,7 +155,7 @@ def _has_rendered_section(dwg, section) -> bool:
 
 
 def _section_hatch_edges(face, SX, SZ, spacing):
-    """Return 45° ISO 128-50 hatch Edge objects for one cut face in page coords.
+    """Return 45° hatch Edge objects for one cut face in page coords.
 
     Uses the even-odd rule: all boundary wires (outer + inner) are traversed;
     intersections of each hatch line with the boundary are sorted and filled in
@@ -285,8 +285,8 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx) -> bool:
     which let one remote occupant veto a band the section fitted in (#1190). When no
     gap qualifies the section is skipped and the outcome is RECORDED, on
     ``Drawing.section_decision`` and as a ``section_dropped`` lint issue, never only
-    logged. Captioned, marked with ISO 128-44 cutting-plane arrows and 'A' letters on
-    the plan view, and filled with ISO 128-50 45° hatching on the cut face.
+    logged. Captioned, marked with cutting-plane arrows and 'A' letters on
+    the plan view, and filled with 45° hatching on the cut face.
     """
     y_star = section.cut_y
     label, view_name, prefix = _section_identity(section)
@@ -459,7 +459,7 @@ def _add_section_view(dwg, a: Analysis, section, *, ctx) -> bool:
         f"{prefix}_caption",
     )
 
-    # ISO 128-50: 45° hatching on the cut face, in page coordinates. The section
+    # 45° hatching on the cut face, in page coordinates. The section
     # is drawn in its own frame: X is offset to the section's page slot (pos_x),
     # while the height axis matches the front view — so SZ is exactly front_z.
     def SX(wx):
@@ -491,7 +491,7 @@ def _place_cutting_plane(dwg, y_page, x0, x1, *, section, ctx):
 
 
 def _add_cutting_plane_arrows(dwg, y_page, x0, x1, *, section, ctx):
-    """ISO 128-44 cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
+    """Cutting-plane end indicators at ``(x0, y_page)``/``(x1, y_page)`` —
     thick wing stubs with solid filled arrowheads pointing in the viewing direction
     (+Y in the plan projection). Named ``section_arrow_{left,right}``/``section_wing_{left,right}``, shared
     between the early row reservation (:func:`_reserve_section_row`) and the final
