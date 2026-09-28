@@ -233,13 +233,17 @@ def test_repack_applies_a_small_move_when_ink_is_outside_the_page(monkeypatch):
     monkeypatch.setattr(builder, "_annotations_out_of_bounds", lambda *_: True)
     monkeypatch.setattr(builder, "_measure_blocks", lambda *_: {})
     assembled = []
+    title_block_cache = {}
 
     def assemble(chosen, *args, **kwargs):
         assembled.append(chosen)
+        assert kwargs["title_block_cache"] is title_block_cache
         return "corrected drawing"
 
     monkeypatch.setattr(builder, "_assemble", assemble)
-    drawing = SimpleNamespace(registry=AnnotationRegistry())
+    drawing = SimpleNamespace(
+        registry=AnnotationRegistry(), _build=SimpleNamespace(title_block_cache=title_block_cache)
+    )
     result = builder._repack(analysis, drawing, "small", None, False, scale=1, page="A3")
     assert result is not None
     corrected, output = result

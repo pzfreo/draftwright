@@ -529,6 +529,8 @@ class BuildState:
     #: The title block's deterministic page-space footprint, measured before it is
     #: drawn so strip placement can avoid it (#1593). None until the builder sets it.
     pending_title_block_box: tuple | None = None
+    #: Constructed title blocks shared by assembly and measured repack passes of this build.
+    title_block_cache: dict = dataclasses_field(default_factory=dict)
     #: Imported document default selected as the title-block tolerance carrier. ``None``
     #: when the caller supplied any explicit value, even identical display text.
     general_tolerance_source: object | None = None
@@ -1433,6 +1435,13 @@ class Drawing:
         (ADR 1 (was 0005 §2): the drawing is not the state bus).
         """
         return self._build.pending_title_block_box
+
+    def title_block_for(self, key, factory):
+        """Return the build-owned title block for its page, fields and typography."""
+        cache = self._build.title_block_cache
+        if key not in cache:
+            cache[key] = factory()
+        return cache[key]
 
     def suppressions(self) -> list[dict]:
         """Every measurement the compiler considered and did not approve, and why.

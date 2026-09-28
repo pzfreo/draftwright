@@ -1,7 +1,10 @@
 """The standard title block states the drawing units and effective sheet format."""
 
+from collections import Counter
+from dataclasses import replace
+
 import pytest
-from build123d import Box
+from build123d import Box, Cylinder, Location, Pos
 
 from draftwright import Sheet, build_drawing
 
@@ -58,3 +61,129 @@ def test_related_vertical_dividers_share_one_grid():
     tertiary = {block.cell_bbox(field)["min_x"] for field in ("format", "revision")}
 
     assert len(principal) == len(secondary) == len(tertiary) == 1
+
+
+def test_title_block_is_constructed_once_per_build_issue_1942(monkeypatch):
+    from draftwright import _core
+
+    original = _core._make_title_block
+    calls = []
+
+    def counted(drawing, analysis):
+        calls.append((analysis.PAGE_W, analysis.PAGE_H))
+        return original(drawing, analysis)
+
+    monkeypatch.setattr(_core, "_make_title_block", counted)
+    drawing = build_drawing(Box(30, 20, 10), page="A4", scale=1)
+    block = drawing.get_annotation("title_block")
+    bounds = block.bounding_box()
+
+    # The measured reservation and the placed block are both exercised by this build.
+    assert drawing.pending_title_block_box() == pytest.approx(
+        (bounds.min.X, bounds.min.Y, bounds.max.X, bounds.max.Y)
+    )
+    assert block.pdf_text_specs
+    assert calls == [(297.0, 210.0)]
+
+
+def test_title_block_is_shared_across_page_retries_issue_1942(monkeypatch):
+    from draftwright import _core
+    from draftwright.drawing import Drawing
+
+    part = Box(120, 80, 10)
+    for i in range(3):
+        for j in range(3):
+            part -= Pos(-45 + i * 15, -15 + j * 15, 0) * Cylinder(2.5, 10)
+    for i in range(2):
+        for j in range(3):
+            part -= Pos(25 + i * 20, -20 + j * 18, 0) * Cylinder(4, 10)
+
+    original_for = Drawing.title_block_for
+    original_make = _core._make_title_block
+    request_drawings = {}
+    built = []
+    calls = []
+
+    def cached(drawing, key, factory):
+        # Retain the instances: an id-only record could be recycled after a
+        # discarded retry, making one Drawing look like two (or vice versa).
+        request_drawings.setdefault(key, []).append(drawing)
+
+        def counted_factory():
+            built.append(key)
+            return factory()
+
+        return original_for(drawing, key, counted_factory)
+
+    def counted_make(drawing, analysis):
+        calls.append((analysis.PAGE_W, analysis.PAGE_H))
+        return original_make(drawing, analysis)
+
+    monkeypatch.setattr(Drawing, "title_block_for", cached)
+    monkeypatch.setattr(_core, "_make_title_block", counted_make)
+    drawing = build_drawing(part)
+
+    # Repeated calls on one Drawing are insufficient: this must cross a build retry.
+    assert any(
+        len({id(drawing) for drawing in drawings}) > 1 for drawings in request_drawings.values()
+    )
+    assert Counter(built) == Counter(request_drawings.keys())
+    assert len(calls) == len(built)
+    assert drawing.get_annotation("title_block") is not None
+
+
+def test_cached_title_block_annotations_have_independent_ownership_issue_1942(monkeypatch):
+    from draftwright import _core
+    from draftwright._core import SheetMargins
+    from draftwright.analysis import _analyse
+    from draftwright.builder import _assemble
+
+    part = Box(30, 20, 10)
+    analysis = _analyse(
+        part, title="OWNED", number="DWG-1", tolerance=None, drawn_by="A", out="owned", pmi="off"
+    )
+    moved_analysis = replace(analysis, title_block_margins=SheetMargins(right=20, bottom=20))
+    original_make = _core._make_title_block
+    calls = []
+
+    def counted(drawing, candidate):
+        calls.append((candidate.PAGE_W, candidate.PAGE_H))
+        return original_make(drawing, candidate)
+
+    monkeypatch.setattr(_core, "_make_title_block", counted)
+    cache = {}
+    first = _assemble(analysis, "owned", None, False, auto_dims=False, title_block_cache=cache)
+    second = _assemble(
+        moved_analysis, "owned", None, False, auto_dims=False, title_block_cache=cache
+    )
+    first_block = first.get_annotation("title_block")
+    second_block = second.get_annotation("title_block")
+    first_bbox = first_block.bounding_box()
+    first_bounds = (first_bbox.min.X, first_bbox.min.Y, first_bbox.max.X, first_bbox.max.Y)
+    first_rect = first_block.draftwright_link_rect
+    first_specs = first_block.pdf_text_specs
+
+    assert len(calls) == 1
+    assert first_block is not second_block
+    offset_x = second_block.draftwright_link_rect[0] - first_rect[0]
+    offset_y = second_block.draftwright_link_rect[1] - first_rect[1]
+    assert (offset_x, offset_y) == pytest.approx((-9, 9))
+    assert [
+        (text, x - offset_x, y - offset_y, size, font)
+        for text, x, y, size, font in second_block.pdf_text_specs
+    ] == list(first_specs)
+    second_block.draftwright_link_rect = (0, 0, 1, 1)
+    second_block.locate(Location((0, 0, 0)))
+    assert second_block.bounding_box().min.X != pytest.approx(first_bounds[0])
+    second.remove("title_block")
+
+    assert first.get_annotation("title_block") is first_block
+    first_bbox_after = first_block.bounding_box()
+    assert (
+        first_bbox_after.min.X,
+        first_bbox_after.min.Y,
+        first_bbox_after.max.X,
+        first_bbox_after.max.Y,
+    ) == pytest.approx(first_bounds)
+    assert first_block.draftwright_link_rect == first_rect
+    assert first_block.pdf_text_specs == first_specs

@@ -499,6 +499,7 @@ def test_build_state_has_a_single_construction_and_fill_site():
         # not an excuse to reintroduce the pattern. The first cut of #996 did exactly that
         # and these guards caught it.
         "builder.py": [
+            "_build.title_block_cache",
             "_build.analysis",
             # #1593: the title block's footprint, measured at this same construction
             # site because placement must avoid a block that is not drawn yet. ONE
