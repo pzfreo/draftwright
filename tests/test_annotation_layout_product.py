@@ -176,6 +176,64 @@ def test_candidate_preview_chooses_one_build_without_gutters_when_views_are_off_
     )
 
 
+def test_conservative_profile_does_not_inherit_rejected_arrangement(monkeypatch):
+    import draftwright.builder as builder
+
+    original_analyse = builder._analyse
+    original_choice = builder.choose_pre_render_profile
+    initial_arrangements = []
+    proposed_arrangements = []
+
+    def observe_analyse(*args, **kwargs):
+        analysis = original_analyse(*args, **kwargs)
+        if kwargs.get("_reuse") is None and not initial_arrangements:
+            initial_arrangements.append(analysis.arrangement)
+        elif kwargs.get("_arrangements") == ("staggered-side",):
+            proposed_arrangements.append(analysis.arrangement)
+        return analysis
+
+    def propose_planned(*args, **kwargs):
+        return {**original_choice(*args, **kwargs), "profile": "planned"}
+
+    monkeypatch.setattr(builder, "_analyse", observe_analyse)
+    monkeypatch.setattr(builder, "choose_pre_render_profile", propose_planned)
+    drawing = build_drawing(
+        Box(190, 5, 279),
+        page="A3",
+        scale=1,
+        scale_policy="permissive",
+        annotation_layout="demand-guided",
+    )
+
+    choice = drawing.annotation_scheme_decision["pre_render_choice"]
+    assert choice["proposed_profile"] == "planned"
+    assert choice["profile"] == "iso-growth"
+    assert proposed_arrangements == ["staggered-side"]
+    assert drawing._analysis.arrangement == initial_arrangements[0]
+
+
+def test_frame_conservative_profile_preserves_required_location_and_iso():
+    fixture = Path(__file__).parent / "fixtures" / "issue_1595_whistle_key_frame.step"
+    drawing = build_drawing(
+        fixture,
+        title="frame-a3-2to1",
+        number="frame-a3-2to1",
+        pmi="annotate",
+        page="A3",
+        scale=2,
+        scale_policy="permissive",
+        _views=("front", "plan", "side"),
+        annotation_layout="demand-guided",
+    )
+
+    assert drawing.annotation_scheme_decision["pre_render_choice"]["profile"] == "iso-growth"
+    assert drawing._analysis.arrangement == "columns"
+    assert drawing.get_annotation("m_locx1").label == "27.8"
+    assert drawing.view_bounds("plan")[3] <= drawing.page_h
+    iso_x0, _, iso_x1, _ = drawing.view_bounds("iso")
+    assert iso_x1 - iso_x0 > 150  # The regressed staggered-side result was only 114 mm wide.
+
+
 def test_candidate_preview_without_automatic_annotations_does_not_apply_profile():
     drawing = build_drawing(
         Box(20, 10, 5),
