@@ -7,6 +7,37 @@ from draftwright import build_drawing
 from draftwright.linting import LintIssue
 
 
+def test_layout_evidence_uses_clipped_union_and_ignores_sheet_furniture():
+    from types import SimpleNamespace
+
+    from draftwright.drawing_evidence import layout_utilization
+
+    def annotation_box(x0, y0, x1, y1):
+        return SimpleNamespace(
+            bounding_box=lambda: SimpleNamespace(
+                min=SimpleNamespace(X=x0, Y=y0),
+                max=SimpleNamespace(X=x1, Y=y1),
+            )
+        )
+
+    # The two content boxes overlap over 3×3. Counting their areas separately
+    # would report 50%, while the paper actually covered is 25 + 25 - 9 = 41%.
+    result = layout_utilization(
+        (0, 0, 10, 10),
+        {"plan": object()},
+        lambda name: (0, 0, 5, 5),
+        lambda: iter(
+            [
+                ("dimension", annotation_box(2, 2, 7, 7)),
+                ("title_block", annotation_box(0, 0, 10, 10)),
+            ]
+        ),
+    )
+    assert result["footprint_fraction"] == pytest.approx(0.41)
+    assert result["content_bounds"] == (0, 0, 7, 7)
+    assert result["quadrants"]["right-top"]["footprint_fraction"] == pytest.approx(0.16)
+
+
 def test_lint_orchestration_keeps_issue_stage_order_and_placement_gate(fresh_drawing, monkeypatch):
     from draftwright.linting import orchestration
 

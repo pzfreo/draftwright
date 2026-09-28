@@ -383,3 +383,31 @@ def test_the_feature_key_distinguishes_two_instances_of_one_kind():
 
     assert feature_key(_NoFrame()) == "mystery"
     assert feature_key(_NoOrigin()) == "mystery/z"
+
+
+def test_suppression_projection_retains_distinct_consolidated_owner():
+    from types import SimpleNamespace
+
+    from draftwright.drawing_evidence import suppression_rows
+
+    omitted = object()
+    owner = object()
+    omission = SimpleNamespace(
+        feature=omitted,
+        parameter_id="diameter.size",
+        value=6.0,
+        reason="coincident support",
+        authored=False,
+        conveyed_by=SimpleNamespace(feature=owner, parameter="diameter.size"),
+    )
+    keys = {omitted: "omitted", owner: "owner"}
+    assert suppression_rows((omission,), keys.__getitem__) == [
+        {
+            "feature": "omitted",
+            "parameter_id": "diameter.size",
+            "value": 6.0,
+            "reason": "coincident support",
+            "authored": False,
+            "conveyed_by": {"feature": "owner", "parameter_id": "diameter.size"},
+        }
+    ]
