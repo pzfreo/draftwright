@@ -167,6 +167,7 @@ _LAYERS: dict[str, int] = {
     "builder": 6,
     "build_once": 6,
     "build_policy": 6,
+    "explicit_scale": 6,
     "layout_selection": 6,
     "layout_safety": 6,
     # 7 — the user-facing surfaces

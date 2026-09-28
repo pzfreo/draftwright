@@ -217,10 +217,11 @@ def test_default_fallback_returns_largest_complete_standard_scale_and_reports_de
     events = []
     with (
         observe_build(events.append),
-        pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 0.5"),
+        pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 0.5") as warning,
     ):
         drawing = build_drawing(_scale_sensitive_plate(), page="A4", scale=1.0, repair=False)
 
+    assert warning[0].filename == __file__
     (retry,) = [event for event in events if event.phase == "retry"]
     assert dict(retry.details) == {
         "reason": "scale_completeness",
@@ -275,7 +276,9 @@ def test_strict_policy_fails_with_machine_readable_required_outcomes(
 def test_permissive_policy_is_explicit_warns_and_preserves_degraded_request(
     exterior_only_dimension_failures,
 ):
-    with pytest.warns(ScaleCompletenessWarning, match="returning the incomplete drawing"):
+    with pytest.warns(
+        ScaleCompletenessWarning, match="returning the incomplete drawing"
+    ) as warning:
         drawing = build_drawing(
             _scale_sensitive_plate(),
             page="A4",
@@ -285,6 +288,7 @@ def test_permissive_policy_is_explicit_warns_and_preserves_degraded_request(
         )
 
     assert drawing.scale == 1.0
+    assert warning[0].filename == __file__
     assert drawing.scale_decision["status"] == "degraded"
     assert drawing.scale_decision["policy"] == "permissive"
     assert {item.code for item in _placement_drops(drawing)} == {"location_ref_dropped"}

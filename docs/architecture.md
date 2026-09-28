@@ -78,7 +78,10 @@ and re-exports the existing private helper names.
     so `builder` no longer imports `cli`.)*
   - **`build_policy.py`** — rank-6 finished-drawing scale and arrangement decisions:
     required-outcome blockers, structural validity, candidate quality, and stable
-    decision records. `builder.py` keeps the retry ladder and its constants.
+    decision records. `builder.py` keeps the automatic retry ladder and its constants.
+  - **`explicit_scale.py`** — rank-6 resolution of a caller-requested scale:
+    automatic-view veto, strict and permissive decisions, and bounded standard-scale
+    fallback. The builder supplies its build and critique seams and current scale ladder.
   - **`build_once.py`** — rank-6 owner of one compile attempt: analysis, view
     preflight, pre-render profile choice, assembly, measured repack, repair, and
     the returned view decision. `builder._build_drawing_once` passes its stage
