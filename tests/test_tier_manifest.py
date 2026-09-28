@@ -28,6 +28,7 @@ _TESTS = Path(__file__).resolve().parent
 def test_each_named_contract_group_resolves_to_existing_modules():
     all_modules = {path.name for path in _TESTS.glob("test_*.py")}
     probes = {
+        "pmi_support": "src/draftwright/_pmi_support_blockers.py",
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
@@ -59,6 +60,19 @@ def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
 def test_turned_step_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_turned_step_evidence.py"])
     assert "test_issue_1374_turned_step_completeness_evidence.py" in selected
+
+
+def test_pmi_support_change_runs_source_and_rendering_contracts():
+    source = "src/draftwright/_pmi_support_blockers.py"
+    assert selected_groups([source]) == {"pmi_support"}
+    assert selected_groups(["src/draftwright/pmi.py"]) == {"pmi_support"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_issue_1209_linear_pmi_witnesses.py",
+        "test_pmi.py",
+        "test_pmi_gtol_lowering.py",
+        "test_pmi_records.py",
+    } <= selected
 
 
 def test_from_model_change_runs_through_step_placement_contract():

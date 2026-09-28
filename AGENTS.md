@@ -39,7 +39,7 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 (ADR 1) → **1**
 `_core` / `document_input` / the stable `location_contract` import path → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
-`_pmi_linear_geometry`, `pmi`,
+`_pmi_linear_geometry`, `_pmi_support_blockers`, `pmi`,
 `linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
 `annotations/` (the render passes, including feature-family `_slots` and
 `_step_lengths` owners; `orchestrator._PASS_SEQUENCE` is the one stage order)
