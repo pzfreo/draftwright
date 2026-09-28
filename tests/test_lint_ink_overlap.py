@@ -28,6 +28,7 @@ from draftwright.linting.ink_overlap import (
     shorter_side,
     warn_if_untight,
 )
+from draftwright.linting.structural import lint_drawing
 
 _LOGGER = "draftwright.linting.ink_overlap"
 
@@ -99,6 +100,25 @@ class _Annotation:
     def __init__(self, segments, label="?"):
         self.segments = segments
         self.label = label
+
+
+class _ZoneBounds:
+    def __init__(self, box):
+        self.min = type("P", (), {"X": box[0], "Y": box[1], "Z": 0.0})()
+        self.max = type("P", (), {"X": box[2], "Y": box[3], "Z": 0.0})()
+
+
+class _ZoneAnnotation(_Annotation):
+    """The duck-typed annotation surface used by the zone-label ink check."""
+
+    def __init__(self, label, label_bbox, segments, full=None):
+        super().__init__(segments, label)
+        self.label_bbox = label_bbox
+        self._full = full or label_bbox
+        self.elbow = None
+
+    def bounding_box(self):
+        return _ZoneBounds(self._full)
 
 
 class TestLengthInside:
@@ -725,3 +745,40 @@ class TestTheMemoKeyIsAValue:
             warn_if_untight(box, seen, _DiagonalDim())
             warn_if_untight(box, seen, _DiagonalDim())
         assert len(records) == 1
+
+
+def _zone_crossing_pair():
+    target = _ZoneAnnotation("75.5", (10.0, 10.0, 20.0, 12.2), [])
+    crosser = _ZoneAnnotation(
+        "35",
+        (30.0, 30.0, 35.0, 32.2),
+        [((0.0, 11.0), (40.0, 11.0))],
+        (0.0, 11.0, 40.0, 32.2),
+    )
+    return target, crosser
+
+
+def _zone_labels():
+    # The narrow one-character boxes once lowered the sheet-wide median below a label's height.
+    return [
+        _ZoneAnnotation(chr(65 + index % 26), (100 + 5 * index, 100, 101 + 5 * index, 102.2), [])
+        for index in range(28)
+    ]
+
+
+def _zone_crossings(annotations):
+    return sorted(
+        issue.message
+        for issue in lint_drawing(annotations)
+        if issue.code == "annotation_ink_overlap"
+    )
+
+
+def test_zone_label_fixture_reports_a_crossing_issue_1332():
+    assert _zone_crossings(list(_zone_crossing_pair()))
+
+
+def test_zone_labels_preserve_crossing_findings_issue_1332():
+    without_zones = _zone_crossings(list(_zone_crossing_pair()))
+    with_zones = _zone_crossings([*_zone_crossing_pair(), *_zone_labels()])
+    assert with_zones == without_zones
