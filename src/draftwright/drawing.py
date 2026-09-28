@@ -3139,6 +3139,7 @@ class Drawing:
         # record at all — a caller branches on this field precisely because it is
         # supposed to be the reliable one.
         section_snap = dict(self.section_decision)
+        detail_snap = list(self.detail_decisions)
 
         model, a = self._part_model, self._analysis
         if a is not None and "iso" in self.views and "iso" in self._coords:
@@ -3186,6 +3187,7 @@ class Drawing:
             self._coords = coords_snap
             self._coverage.restore(coverage_snap)
             self.section_decision = section_snap
+            self.detail_decisions = detail_snap
             if sv_above is not None:
                 sv_above.outer_limit = sv_above_limit
             if trace_snap is not None:  # roll the failed drain's records out of the trace

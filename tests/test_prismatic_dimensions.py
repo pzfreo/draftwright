@@ -222,6 +222,7 @@ class TestStepPosition:
         coverage_before = dwg.coverage.snapshot()
         issues_before = dwg.registry.issues
         suppressions_before = dwg.suppressions()
+        details_before = list(dwg.detail_decisions)
 
         calls = {"n": 0}
         real = _common.drain_corridors
@@ -235,6 +236,7 @@ class TestStepPosition:
                 dwg.registry.record_issue(
                     LintIssue(severity="warning", message="mid-drain", code="injected")
                 )
+                dwg.detail_decisions.append({"status": "placed", "view": "rolled_back_detail"})
                 raise RuntimeError("injected drain failure")
             return real(ctx, d)
 
@@ -247,6 +249,7 @@ class TestStepPosition:
         assert len(dwg._intents) == intents_before
         assert dwg.coverage.snapshot() == coverage_before  # coverage restored (#647 review)
         assert dwg.registry.issues == issues_before  # the mid-drain issue rolled out too
+        assert dwg.detail_decisions == details_before  # no view-free detail claim survives
         # The audit ledger (#996) is NOT part of the transaction, and that is the guarantee
         # rather than an oversight: finalize recompiles the same immutable model and never
         # writes _build.omissions, so there is nothing to roll back. Asserted explicitly
