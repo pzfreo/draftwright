@@ -23,8 +23,16 @@ CONTRACT_GROUPS = {
         ("test_issue_1370_double_d_completeness_evidence.py",),
     ),
     "through_step_placement": ContractGroup(
-        ("src/draftwright/annotations/from_model.py",),
-        ("test_through_step_semantics.py",),
+        (
+            "src/draftwright/annotations/from_model.py",
+            "src/draftwright/annotations/_step_lengths.py",
+        ),
+        (
+            "test_through_step_semantics.py",
+            "test_turned_lengths.py",
+            "test_issue_1505_short_axial_chains.py",
+            "test_issue_1357_plural_turned_profiles.py",
+        ),
     ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),

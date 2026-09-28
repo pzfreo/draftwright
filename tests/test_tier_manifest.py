@@ -60,6 +60,18 @@ def test_from_model_change_runs_through_step_placement_contract():
     assert "test_through_step_semantics.py" in selected
 
 
+def test_step_length_owner_selects_its_placement_contract():
+    source = "src/draftwright/annotations/_step_lengths.py"
+    assert selected_groups([source]) == frozenset({"through_step_placement", "placement"})
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_through_step_semantics.py",
+        "test_turned_lengths.py",
+        "test_issue_1505_short_axial_chains.py",
+        "test_issue_1357_plural_turned_profiles.py",
+    } <= selected
+
+
 def test_hole_location_source_selects_its_behavior_and_evidence_contracts():
     source = "src/draftwright/annotations/hole_locations.py"
     assert selected_groups([source]) == frozenset({"hole_locations", "placement"})
