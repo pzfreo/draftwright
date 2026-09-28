@@ -146,6 +146,7 @@ _LAYERS: dict[str, int] = {
     "document_evidence": 2,
     "_pmi_schema": 2,
     "_pmi_linear_geometry": 2,
+    "_pmi_support_blockers": 2,
     "pmi": 2,
     "export": 2,
     "pdf_text": 2,

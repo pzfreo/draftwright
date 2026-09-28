@@ -506,6 +506,8 @@ retains the observer registry and re-exports the existing private helper names.
   the AP242 extractor.
 - **`_pmi_linear_geometry.py`** — proves authored linear reference stations and their
   principal projection before the PMI extractor lowers dimensions.
+- **`_pmi_support_blockers.py`** — pure XCAF source-geometry blocker policy and the
+  exact Part21-overlay filters used by the PMI extractor.
 - **`pmi.py`** — PMI (product manufacturing information) extraction from STEP AP242.
   Defines the public record and source-census types at their established import path,
   owns the XCAF source census, and overlays `_pmi_part21` facts only after exact

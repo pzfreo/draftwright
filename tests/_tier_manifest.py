@@ -18,6 +18,18 @@ class ContractGroup:
 
 
 CONTRACT_GROUPS = {
+    "pmi_support": ContractGroup(
+        (
+            "src/draftwright/pmi.py",
+            "src/draftwright/_pmi_support_blockers.py",
+        ),
+        (
+            "test_issue_1209_linear_pmi_witnesses.py",
+            "test_pmi.py",
+            "test_pmi_gtol_lowering.py",
+            "test_pmi_records.py",
+        ),
+    ),
     "double_d_evidence": ContractGroup(
         ("src/draftwright/evaluation/_double_d_evidence.py",),
         ("test_issue_1370_double_d_completeness_evidence.py",),
