@@ -263,8 +263,8 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
         # A detail view is defining content outside the composed iso zone. It
         # limits growth to sheet scale and participates in the obstacle search;
         # it must not freeze the temporary 65% seed as the delivered size.
-        # The probe measures each real OCC projection, including its translation,
-        # and stops at either the zone boundary or an annotation.
+        # The search transforms the already measured view footprint about its projection
+        # origin and stops at either the zone boundary or an annotation.
         ratios = [
             available / extent
             for extent, available in (
@@ -312,8 +312,7 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
                 dwg, a, ceiling, growth_obstacles, bb, lo=initial, region=region
             )
             factor = math.floor(clear * 10000) / 10000
-            # The search leaves the drawing at its last probe. Restore the
-            # intended scale even if the gain is too small to use.
+            # Project once at the selected scale, even if the gain is too small to use.
             factor = factor if factor > initial * 1.05 else initial
             _project_iso(dwg, a, a.SCALE * factor)
             if abs(factor - 1.0) < 1e-6:

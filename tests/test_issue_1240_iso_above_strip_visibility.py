@@ -74,66 +74,34 @@ def _plate_with_locations():
     return part
 
 
-def test_the_clear_factor_search_measures_the_real_projection(monkeypatch):
-    """The search must not believe a page-centre linear model of re-projection.
+def test_the_clear_factor_search_uses_measured_box_and_actual_scale_issue_1946(monkeypatch):
+    """#1946: the origin and the *actual* starting scale govern the box transform.
 
-    Its first version predicted the grown bbox as a scale about the page centre. The real
-    projected bbox is affine in the factor but carries a TRANSLATION term as well, so the
-    prediction drifts — measured on macOS at +7.35 mm for `Cylinder(20, 60)` at f=1.3 — and the
-    "capped" iso grew through the obstacle it was capped by.
-
-    Driven against a SYNTHETIC projection rather than a real part. The first version of this
-    test used `Cylinder(20, 60)`, whose drift comes from the Location the engine gives
-    `a.part` — and that is platform-dependent: 7.35 mm on macOS, exactly **zero** on Linux, so
-    CI failed on its own "the fixture stopped drifting" precondition (which is the precondition
-    doing its job, and the fixture failing at it). A fake map pins the contract the search
-    exists to satisfy, identically everywhere:
-
-        half(f) = 10 f              — a scale about the centre, which a linear model gets right
-        drift(f) = 25 (f - 1)       — a translation, which it does not
-
-    so the top edge is `100 + 35f - 25`, reaching the obstacle at f = 1.1428 while a
-    page-centre model puts it at f = 1.5 and would return the full 1.3.
+    The box is measured at factor 0.6, although the growth corridor starts at 0.65. This
+    happened on CTC-01 after an earlier zone-fit shrink. A ten-mm half-extent reaches the
+    planted obstacle at factor 0.9; using ``lo`` as the denominator reaches it at 0.975.
+    A page-centre transform also changes the result because the iso origin is off-centre.
     """
     from draftwright import projection as projection_mod
 
-    centre, half_at_one, drift_rate = 100.0, 10.0, 25.0
-    state = {"factor": 1.0}
-
-    def fake_project(_dwg, analysis, scale):
-        state["factor"] = scale / analysis.SCALE
-
-    def fake_bbox(_dwg):
-        factor = state["factor"]
-        half = half_at_one * factor
-        drift = drift_rate * (factor - 1.0)
-        return (centre - half, centre - half + drift, centre + half, centre + half + drift)
-
-    monkeypatch.setattr(projection_mod, "_project_iso", fake_project)
-    monkeypatch.setattr(projection_mod, "_iso_bbox", fake_bbox)
-
     drawing, analysis = _built_with_analysis(Box(40, 30, 8), title="T", number="N")
-    base = fake_bbox(drawing)
-    obstacle = (centre - 5.0, 115.0, centre + 5.0, 118.0)
-    assert not _overlap(base, obstacle), "precondition: the obstacle is not clear at f=1"
-
-    # The precondition that makes this a test of measurement: a page-centre model says the
-    # whole corridor is clear, so a predictive search would return `hi` unchanged.
-    predicted_top_at_hi = centre + half_at_one * 1.3
-    assert predicted_top_at_hi < obstacle[1], (
-        f"the linear model already hits the obstacle ({predicted_top_at_hi} >= {obstacle[1]}), "
-        "so this fixture cannot tell measurement from prediction"
+    ox, oy = analysis.ISO_X, analysis.ISO_Y
+    assert abs(ox - drawing.page_w / 2) > 10  # wrong page origin is distinguishable
+    base = (ox - 10, oy - 10, ox + 10, oy + 10)
+    obstacle = (ox - 5, oy + 15, ox + 5, oy + 18)
+    assert not _overlap(base, obstacle)
+    assert _overlap((ox - 20, oy - 20, ox + 20, oy + 20), obstacle)
+    drawing.set_iso_projection_scale(analysis.SCALE * 0.6)
+    monkeypatch.setattr(
+        projection_mod,
+        "_project_iso",
+        lambda *_args, **_kwargs: pytest.fail("clearance search reprojected the solid"),
     )
 
-    factor = _largest_clear_factor(drawing, analysis, 1.3, [obstacle], base)
-    assert 1.10 < factor < 1.15, (
-        f"expected the search to stop near the true onset 1.1428, got {factor} — 1.3 means it "
-        "predicted rather than measured"
-    )
-    state["factor"] = factor
-    assert not _overlap(fake_bbox(drawing), obstacle), (
-        f"the returned factor {factor} does not actually clear the obstacle"
-    )
+    factor = _largest_clear_factor(drawing, analysis, 1.3, [obstacle], base, lo=0.65)
+    assert factor == pytest.approx(0.89375)
+    half = 10 * factor / 0.6
+    assert not _overlap((ox - half, oy - half, ox + half, oy + half), obstacle)
 
 
 def test_the_returned_factor_clears_the_obstacle_on_a_real_projection():
