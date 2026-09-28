@@ -379,6 +379,74 @@ def test_plan_strip_selection_drops_lowest_priority():
     assert set(res.placed) == {"hi", "mid"}
 
 
+def test_plan_strip_preserves_required_meaning_before_optional_ink():
+    # Local numeric ranks remain useful within a semantic class, but cannot
+    # make a redundant generated mark displace an approved obligation.
+    candidates = [
+        StripCandidate("optional", (0.0, 0.0), (6, 3), priority=100, obligation_class="optional"),
+        StripCandidate("unknown", (0.0, 0.0), (6, 3), priority=50),
+        StripCandidate("required", (0.0, 0.0), (6, 3), obligation_class="required"),
+    ]
+    first = plan_strip(candidates, lo=0, hi=0, min_gap=5)
+    reverse = plan_strip(list(reversed(candidates)), lo=0, hi=0, min_gap=5)
+    assert first == reverse
+    assert first.dropped == ("optional", "unknown")
+    assert set(first.placed) == {"required"}
+
+
+def test_plan_strip_rejects_unrecognized_obligation_class():
+    candidate = StripCandidate("invalid", (0.0, 0.0), (6, 3), obligation_class="sometimes")
+    with pytest.raises(ValueError, match="invalid annotation obligation class"):
+        plan_strip([candidate], lo=0, hi=10, min_gap=5)
+
+
+def test_corridor_candidate_cannot_downgrade_approved_measurement():
+    from draftwright.annotations._common import CorridorCandidate
+
+    common = dict(
+        name="dim_a",
+        build=lambda _pos: None,
+        order=(0, "dim_a"),
+        on_place=lambda _name: None,
+        on_drop=lambda _name: None,
+    )
+    measured = CorridorCandidate(**common, measurement=object())
+    assert measured.effective_obligation_class == "required"
+    with pytest.raises(ValueError, match="cannot be optional"):
+        CorridorCandidate(
+            **common, measurement=object(), obligation_class="optional"
+        ).effective_obligation_class
+
+
+def test_shared_corridor_passes_semantic_classes_to_existing_placer(monkeypatch):
+    from types import SimpleNamespace
+
+    import draftwright.annotations._common as common
+
+    seen = []
+
+    def capture(_dwg, _strip, _view, _axis, _pairs, _tier, **kwargs):
+        seen.append(kwargs["obligation_classes"])
+        return []  # both candidates placed; no geometry needed for this adapter test
+
+    monkeypatch.setattr(common, "place_strip_candidates", capture)
+    base = dict(
+        build=lambda _pos: None,
+        on_place=lambda _name: None,
+        on_drop=lambda _name: None,
+    )
+    candidates = [
+        common.CorridorCandidate(
+            name="generated", order=(0, "generated"), obligation_class="optional", **base
+        ),
+        common.CorridorCandidate(
+            name="approved", order=(0, "approved"), measurement=object(), **base
+        ),
+    ]
+    common.solve_corridor(SimpleNamespace(), object(), "front", "y", candidates, 5.0)
+    assert seen == [{"generated": "optional", "approved": "required"}]
+
+
 def test_plan_strip_selection_drops_are_lowest_first_and_deterministic():
     # a zero-width strip fits exactly one → drop the two lowest priorities, in
     # lowest-first order; the highest-priority survivor is kept

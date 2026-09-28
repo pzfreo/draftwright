@@ -54,6 +54,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Literal, NamedTuple
 
+from draftwright.obligations import ObligationClass, obligation_rank
+
 Axis = Literal["x", "y"]
 _LAYOUT_EPSILON = 1e-9
 _FLOW_COST_SCALE = 1000
@@ -860,7 +862,7 @@ class StripCandidate:
             strip-axis coordinates** (sites sharing that coordinate are a tie — see
             :func:`plan_strip`).
         size: the label box ``(width, height)`` in page-mm.
-        priority: higher wins when the strip is over capacity — the *selection*
+        priority: higher wins within one obligation class when the strip is over capacity — the *selection*
             step's ranking (P2, #322). A magnitude (e.g. a hole's diameter), so it
             is a ``float``; ``int`` ranks remain valid (the numeric tower). Unused by
             the P0 seam (all-or-nothing).
@@ -884,6 +886,9 @@ class StripCandidate:
     size: tuple[float, float]
     priority: float = 0
     anchored: bool = False
+    # Semantic survival class; required meaning beats optional ink regardless of
+    # local numeric priority. Unknown fails closed and is never treated as optional.
+    obligation_class: ObligationClass = "unknown"
 
 
 class StripPlacement(NamedTuple):
@@ -911,8 +916,9 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     described below.
 
     **Selection (P2, #322):** when the strip cannot hold everything, the
-    lowest-priority candidates are dropped (ties by key, deterministic) until the
-    rest fit — keeping the most important. Returns a :class:`StripPlacement`
+    optional candidates are dropped before unknown, then required; within each
+    class, lowest-priority candidates drop first (ties by key, deterministic)
+    until the rest fit. Returns a :class:`StripPlacement`
     (``placed`` {key: position}, ``dropped`` keys). This is the ranked, priority-
     aware replacement for the engine's arrival-order / prefix drops.
 
@@ -942,6 +948,8 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
     keys = [c.key for c in candidates]
     if len(set(keys)) != len(keys):  # a collision would silently drop a candidate
         raise ValueError("plan_strip: candidate keys must be unique")
+    for candidate in candidates:
+        obligation_rank(candidate.obligation_class)
     idx = 1 if axis == "y" else 0
 
     keep = list(candidates)
@@ -958,8 +966,8 @@ def plan_strip(candidates, lo, hi, min_gap, *, axis: Axis = "y"):
         if positions is not None:
             placed = {c.key: p for c, p in zip(ordered, positions, strict=True)}
             return StripPlacement(placed, tuple(dropped))
-        # over capacity → drop the lowest-priority candidate (ties by key) and retry
-        victim = min(keep, key=lambda c: (c.priority, c.key))
+        # Over capacity: protect semantic obligations before applying local rank.
+        victim = min(keep, key=lambda c: (obligation_rank(c.obligation_class), c.priority, c.key))
         keep.remove(victim)
         dropped.append(victim.key)
     return StripPlacement({}, tuple(dropped))

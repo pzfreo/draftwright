@@ -95,6 +95,14 @@ checks.
    reasons as well as visual legibility. Reuse saved baseline evidence where the
    placement code has not changed; do not demand a perfect one-page CTC result.
 
+The shared strip/corridor over-capacity solve now consumes a conservative
+semantic class before its numeric rank: optional, then unknown, then required.
+Approved measurements and declared items cannot be downgraded to optional;
+source-owned linear PMI is marked required at its collector. This is only one
+local solve, not yet the drawing-wide coordinator or common decision trace.
+No production collector asserts optionality yet, so this guard does not claim
+that generated ink has been safely pruned.
+
 ## Extra sheets reuse the explicit document boundary
 
 `Document`/`DocumentResult` already provide explicitly authored sheets over one

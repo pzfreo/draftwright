@@ -9061,6 +9061,7 @@ def _pmi_queue_options(dwg, ctx, options, ax, label, rec):
             ),
             on_drop=_drop,
             priority=_PMI_CORRIDOR_PRIORITY,
+            obligation_class="required",  # imported source-owned PMI, not optional ink
             force=True,
             require_clear_ink=True,
             feature=rec,

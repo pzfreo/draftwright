@@ -92,6 +92,7 @@ def _solve(
     committed=(),
     outer_limit=50.0,
     dimension_priority=0.0,
+    obligation_classes=None,
     trace=None,
 ):
     monkeypatch.setattr(_common, "strip_obstacles", lambda *_args, **_kwargs: [])
@@ -113,6 +114,7 @@ def _solve(
             "frame": _common.PRIORITY.AUTHORED,
             "dimension": dimension_priority,
         },
+        obligation_classes=obligation_classes,
         ink_repair_candidates=(
             {"frame": lambda original: (_frame(original.pos + 8.0),)} if repair else {}
         ),
@@ -173,6 +175,27 @@ def test_mandatory_dimension_does_not_yield_to_frame(monkeypatch):
     )
     assert [name for name, _item in drawing.added] == ["dimension"]
     assert [name for name, _build in remaining] == ["frame"]
+
+
+def test_required_dimension_outlasts_optional_frame_in_same_batch(monkeypatch):
+    drawing, remaining = _solve(
+        monkeypatch,
+        repair=False,
+        obligation_classes={"dimension": "required", "frame": "optional"},
+    )
+    assert [name for name, _item in drawing.added] == ["dimension"]
+    assert [name for name, _build in remaining] == ["frame"]
+
+    # The segment-cap preselection must use the same semantic order as the
+    # exact-ink displacement decision above.
+    cramped, cramped_remaining = _solve(
+        monkeypatch,
+        repair=False,
+        outer_limit=18.0,
+        obligation_classes={"dimension": "required", "frame": "optional"},
+    )
+    assert [name for name, _item in cramped.added] == ["dimension"]
+    assert [name for name, _build in cramped_remaining] == ["frame"]
 
 
 def test_frame_leader_shaft_conflict_cannot_be_hidden_by_outward_repair(monkeypatch):
