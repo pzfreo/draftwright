@@ -47,6 +47,20 @@ from draftwright import Document, Sheet
 from draftwright.model import ControlFrame, Frame, HoleFeature
 
 _SRC = Path(__file__).resolve().parent.parent / "src" / "draftwright" / "sheet.py"
+_VIEW_SRC = _SRC.with_name("sheet_views.py")
+
+
+def _sheet_method_nodes():
+    """Inspect both pieces of Sheet's implementation so the identity ratchets stay closed."""
+    for path, class_name in ((_SRC, "Sheet"), (_VIEW_SRC, "_SheetViewMethods")):
+        tree = ast.parse(path.read_text())
+        (owner,) = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        ]
+        yield from (node for node in owner.body if isinstance(node, ast.FunctionDef))
+
 
 #: Every class `Sheet` hands back that outlives the call which made it. A new entry here is a new
 #: opportunity for the #910 bug, so each must appear in a scenario below.
@@ -707,10 +721,8 @@ class TestCopySemantics:
 
 def _handle_returning_verbs() -> set[str]:
     """Public `Sheet` methods that construct and return one of `_HANDLE_CLASSES`."""
-    tree = ast.parse(_SRC.read_text())
-    (sheet,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Sheet"]
     found = set()
-    for fn in [n for n in sheet.body if isinstance(n, ast.FunctionDef)]:
+    for fn in _sheet_method_nodes():
         if fn.name.startswith("_"):
             continue
         for node in ast.walk(fn):
@@ -791,10 +803,8 @@ def _sheet_state_fields() -> set[str]:
     deliberate acts rather than oversights: ``setattr``/``__dict__`` writes, and burying a
     reference inside a field classified here as reference-free (``_opts``).
     """
-    tree = ast.parse(_SRC.read_text())
-    (sheet,) = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Sheet"]
     fields = set()
-    for fn in [n for n in sheet.body if isinstance(n, ast.FunctionDef)]:
+    for fn in _sheet_method_nodes():
         for node in ast.walk(fn):
             if isinstance(node, ast.Assign):
                 fields |= {
@@ -897,14 +907,15 @@ def test_the_handle_class_roster_is_closed():
     """The second level of the ratchet: a new KIND of retained object. `_Control` was missed in
     #910 precisely because it derives from none of the classes the migration swept, so a roster
     keyed on the verb alone would not have caught it either."""
-    tree = ast.parse(_SRC.read_text())
     classes = {
         n.name
-        for n in tree.body
-        if isinstance(n, ast.ClassDef) and n.name not in ("Sheet", "_FeatureView")
+        for path in (_SRC, _VIEW_SRC)
+        for n in ast.parse(path.read_text()).body
+        if isinstance(n, ast.ClassDef)
+        and n.name not in ("Sheet", "_FeatureView", "_SheetViewMethods")
     }
     assert classes == _HANDLE_CLASSES, (
-        "a class in sheet.py is neither Sheet, the feature view, nor a known handle — if it is "
+        "a class in the Sheet facade or view owner is not a known handle — if it is "
         "retained by a caller it needs a scenario in _SCENARIOS and an entry in _HANDLE_CLASSES"
     )
 

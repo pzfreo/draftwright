@@ -410,6 +410,10 @@ observer registry and re-exports its existing private helper names.
   `sheet.py` re-exports `_FeatureView` for existing private imports and pickles.
 - **`sheet_layout_controls.py`** — declaration ID lookup and bounded side/lane layout
   control policy behind `Sheet`'s stable query, validation and override methods.
+- **`sheet_views.py`** — private `Sheet` view declaration, relation and constraint
+  materialisation methods. `Sheet` inherits these methods and `sheet.py` re-exports
+  `_View` for existing private imports and pickles. Caller locations skip both facade
+  files so a declared constraint still points to its author.
 - **`sheet_object_source.py`** — live-object import seams and mutual one-to-one
   geometry correspondence for script generation. This facade-rank owner keeps the
   existing private `sheet_emit` import paths available to callers.
