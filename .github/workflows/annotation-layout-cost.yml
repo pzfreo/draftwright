@@ -8,6 +8,11 @@ on:
         type: choice
         options: [fixed15, ftc09]
         default: fixed15
+      measurement:
+        description: Candidate-only observation or explicit offline pair
+        type: choice
+        options: [candidate-only, paired]
+        default: candidate-only
   pull_request:
     types: [labeled]
 
@@ -46,23 +51,33 @@ jobs:
         shell: bash
         env:
           REQUESTED_COHORT: ${{ inputs.cohort }}
+          REQUESTED_MEASUREMENT: ${{ inputs.measurement }}
           PR_LABEL: ${{ github.event.label.name }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             cohort="$REQUESTED_COHORT"
+            measurement="$REQUESTED_MEASUREMENT"
           elif [ "$PR_LABEL" = annotation-layout-cost-ftc09 ]; then
             cohort=ftc09
+            measurement=paired
           else
             cohort=fixed15
+            measurement=paired
           fi
           case "$cohort" in
             fixed15) manifest=tests/fixtures/annotation-layout-corpus-v2.json ;;
             ftc09) manifest=tests/fixtures/annotation-layout-holdout-ftc09-v1.json ;;
             *) echo "Unsupported cost cohort: $cohort" >&2; exit 2 ;;
           esac
+          case "$measurement" in
+            candidate-only|paired) ;;
+            *) echo "Unsupported cost measurement: $measurement" >&2; exit 2 ;;
+          esac
           printf 'cohort=%s\n' "$cohort" >> "$GITHUB_OUTPUT"
+          printf 'measurement=%s\n' "$measurement" >> "$GITHUB_OUTPUT"
           printf 'LAYOUT_COST_COHORT=%s\n' "$cohort" >> "$GITHUB_ENV"
           printf 'LAYOUT_COST_MANIFEST=%s\n' "$manifest" >> "$GITHUB_ENV"
+          printf 'LAYOUT_COST_MEASUREMENT=%s\n' "$measurement" >> "$GITHUB_ENV"
       - name: Record source provenance before CAD work
         shell: bash
         run: |
@@ -89,11 +104,13 @@ jobs:
               "run_id": os.environ["GITHUB_RUN_ID"],
               "runner_os": os.environ["RUNNER_OS"],
               "cohort": os.environ["LAYOUT_COST_COHORT"],
+              "measurement": os.environ["LAYOUT_COST_MEASUREMENT"],
               "manifest": str(manifest),
               "manifest_sha256": sha256(manifest_blob).hexdigest(),
           }, indent=2) + "\n", encoding="utf-8")
           PY
       - name: Measure candidate-first and offline baseline workers
+        if: steps.cohort.outputs.measurement == 'paired'
         shell: bash
         run: |
           echo "source_sha=$(git rev-parse HEAD) cohort=$LAYOUT_COST_COHORT"
@@ -113,11 +130,32 @@ jobs:
               "candidate_cost": summary["cost"],
           }, indent=2))
           PY
+      - name: Measure one-build candidate workers only
+        if: steps.cohort.outputs.measurement == 'candidate-only'
+        shell: bash
+        run: |
+          echo "source_sha=$(git rev-parse HEAD) cohort=$LAYOUT_COST_COHORT measurement=candidate-only"
+          uv run --no-sync python scripts/annotation-scheme-corpus \
+            --manifest "$LAYOUT_COST_MANIFEST" \
+            --output layout-cost-cases --candidate-only --jobs 1 \
+            --worker-timeout-seconds 900 \
+            > layout-cost-report.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          summary = json.loads(Path("layout-cost-report.json").read_text(encoding="utf-8"))["summary"]
+          print(json.dumps({
+              "rendered_candidate": summary["rendered_candidate"],
+              "failed_candidate": summary["failed_candidate"],
+              "candidate_cost": summary["cost"],
+          }, indent=2))
+          PY
       - name: Keep the machine- and case-level evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-${{ matrix.os }}
+          name: annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-${{ steps.cohort.outputs.measurement }}-${{ matrix.os }}
           path: |
             layout-cost-report.json
             layout-cost-provenance.json

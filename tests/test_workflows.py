@@ -141,6 +141,19 @@ def test_opt_in_annotation_cost_run_bounds_each_isolated_worker():
     assert "--worker-timeout-seconds 900" in job
 
 
+def test_annotation_cost_manual_candidate_only_does_not_build_baseline():
+    workflow = _workflow("annotation-layout-cost.yml")
+    job = _job(workflow, "candidate-first-cost")
+
+    assert "options: [candidate-only, paired]" in workflow
+    assert "default: candidate-only" in workflow
+    assert "REQUESTED_MEASUREMENT: ${{ inputs.measurement }}" in job
+    assert "measurement=paired" in job  # existing PR labels retain offline comparison
+    assert "if: steps.cohort.outputs.measurement == 'candidate-only'" in job
+    assert "--candidate-only --jobs 1" in job
+    assert '"failed_candidate": summary["failed_candidate"]' in job
+
+
 def test_annotation_cost_real_part_cohort_is_explicit_and_does_not_rerun_fixed15():
     workflow = _workflow("annotation-layout-cost.yml")
     job = _job(workflow, "candidate-first-cost")
@@ -152,7 +165,10 @@ def test_annotation_cost_real_part_cohort_is_explicit_and_does_not_rerun_fixed15
     assert '--manifest "$LAYOUT_COST_MANIFEST"' in job
     assert '["git", "show", f"HEAD:{manifest.as_posix()}"]' in job
     assert '"manifest_sha256": sha256(manifest_blob).hexdigest()' in job
-    assert "annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-${{ matrix.os }}" in job
+    assert (
+        "annotation-layout-cost-${{ steps.cohort.outputs.cohort }}-"
+        "${{ steps.cohort.outputs.measurement }}-${{ matrix.os }}"
+    ) in job
 
 
 def test_compatibility_jobs_use_the_pr_manifest_and_keep_the_full_tier_reachable():

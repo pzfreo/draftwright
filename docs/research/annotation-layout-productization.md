@@ -126,6 +126,10 @@ records the Git commit and tracked-worktree cleanliness alongside the aggregate.
 It summarizes candidate cost and failures but deliberately reports neither
 semantic parity nor relative visual wins; those still require separate paired
 evidence against a valid baseline.
+The opt-in `Annotation layout cost evidence` workflow offers this as the default
+manual `measurement=candidate-only` choice on fixed15 or FTC09, one worker at a
+time on Linux, macOS, and Windows. Its `paired` choice (and the existing PR
+labels) keep the baseline comparison available only when explicitly requested.
 Linux/macOS use `resource.ru_maxrss`; Windows uses `psutil`'s peak working set. The isolated
 process time includes interpreter startup and report transfer; build time does not. Comparisons
 must use the same fixed page/scale, export formats, and host class, and must record the runner's
