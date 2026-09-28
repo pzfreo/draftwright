@@ -31,6 +31,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
+        "intent_drain": "src/draftwright/intent_drain.py",
         "reporting": "src/draftwright/reporting.py",
         "export": "src/draftwright/export.py",
     }

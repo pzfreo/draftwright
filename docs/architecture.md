@@ -16,7 +16,7 @@ topology and corridor demand planning), `leader_policy.py`, `registry.py`, `font
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
 `_core.py` → stage modules (`export.py`, `pdf_text.py`,
-`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `reporting.py`,
+`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
@@ -92,13 +92,18 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     slice d the state-bus guard covers the WHOLE engine: no module but
     `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
     fill site only).)*
+  - **`intent_drain.py`** — rank-5 deferred intent stage execution. `Drawing.finalize()`
+    owns the snapshot, rollback and trace commit; its thin `_drain_intents` facade
+    supplies an explicit intent list, detail setting and callbacks. The drain uses
+    the public drawing surface and the shared `PlacementContext` to execute the
+    orchestrator's canonical stage order without importing `Drawing`.
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 1 (was 0005), P5):
   - **`annotations/orchestrator.py`** — `_auto_annotate`, the single entry point
     (called by `build_drawing`); classifies the part and drives the render passes
     + title block. Owns **`_PASS_SEQUENCE`** — the ONE canonical stage order
-    (#699 slice b): `_auto_annotate` and `Drawing._drain_intents` (the finalize
+    (#699 slice b): `_auto_annotate` and `intent_drain.drain_intents` (the finalize
     drain) both hand name→thunk dicts to the shared `run_stages`, so the two
     build paths cannot diverge in sequencing (the drain step itself is the
     shared `drain_and_reconcile`). The current ADR 1 (was 0015) shape is

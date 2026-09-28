@@ -84,6 +84,14 @@ CONTRACT_GROUPS = {
             "test_view_plan.py",
         ),
     ),
+    "intent_drain": ContractGroup(
+        ("src/draftwright/intent_drain.py",),
+        (
+            "test_detail_views.py",
+            "test_pocket_pattern.py",
+            "test_slot_pattern.py",
+        ),
+    ),
     "reporting": ContractGroup(
         (
             "src/draftwright/audit.py",
