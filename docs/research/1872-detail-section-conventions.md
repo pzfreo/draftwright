@@ -55,3 +55,49 @@ Implementation evidence: `DetailRequest`, `supported_secondary_crop` and
 
 The context margin, crop preference, and decision to say `PARTIAL PROFILE` are
 Draftwright policies. They are not attributed to ISO or ASME here.
+
+## Planning contract for the remaining implementation
+
+The pre-sheet result must be a *derived-view demand*, not a second rendered
+`Drawing`. It is compiled from the same approved measurements and feature
+support that the detail or section renderer will consume. Each demand names its
+source view, controlled measurement identities, model-space axial and secondary
+extent, minimum legible detail scale, bounded annotation pads, caption footprint,
+and whether the view is full, partial/detail, or a true section. A demand whose
+required witness/support geometry cannot be established remains explicitly
+unplanned; it must not be treated as zero-size optional furniture.
+
+The sequence is:
+
+1. Compile derived-view demands alongside the ordinary dimension/view plan,
+   before `choose_scale`. Share the chain-legibility and crop-support policy with
+   the renderer; do not duplicate a second set of feature-family thresholds in
+   `analysis.py`.
+2. For each candidate `(view set, scale, page, arrangement)`, convert each
+   demand's **post-crop** model span and paper-space pads/caption into a box.
+   Reserve those boxes against principal-view footprints, title block, tables,
+   and isometric view in the same compose-then-pack decision. Spend only the
+   *remaining* slack on the preferred 12 mm view gutter; the 6 mm safety gutter
+   remains a hard floor. Search uses box arithmetic, never an OCC bbox.
+3. Carry the chosen reservation and its semantic identity into the one render
+   pass. Ordinary annotation placement treats it as occupied; `_render_detail`
+   or the section renderer projects once and validates the real cropped geometry,
+   witnesses, annotation ink and caption inside the reserved footprint. A
+   measured mismatch enters the existing bounded repack/refusal path, not a
+   second annotation engine or a silent crop relaxation.
+4. Record planned-versus-measured footprint and any refusal on
+   `detail_decisions`/section decisions and in exported evidence. An approved
+   dimension left without a view remains a named withheld outcome; automatic
+   sheet selection must not call that result complete merely because the
+   principal blocks fit. Explicit-scale builds retain their existing
+   caller-constraint policy: a `step_dim_withheld` finding is reported by lint,
+   but does not itself make the requested scale a rejected placement outcome.
+
+The current `test_pre_drain_y_diameter_uses_the_shared_analytical_producer_floor`
+is a useful adversarial fixture: at fixed A4/1:1 it needs a 108.16 × 44.19 mm
+Y-chain detail, but the settled layout leaves only 102.96 × 45.30 mm. It must
+keep the exact 4 and 6 mm step measurements, or report genuine infeasibility
+under the caller's fixed constraints. It must not be made green by weakening
+the measurement assertion or by stealing the minimum gutter. GRM03 and a
+non-turned detail/section remain separate acceptance fixtures; success on this
+Y-chain alone is not completion of #1872.
