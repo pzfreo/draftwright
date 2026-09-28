@@ -72,7 +72,7 @@ _LEGIBILITY_CODES = frozenset(
         "leader_line_through_text",
         # The overall extents' own placement failure. Separate from `placement_unsatisfiable`
         # because that code is a required *scale* drop and reporting through it refused to
-        # build drawings that previously built (#1216 review r9); the sheet is equally less
+        # build drawings that previously built (#1216); the sheet is equally less
         # readable either way, so it scores the same.
         "overall_dim_withheld",
         "placement_unsatisfiable",
@@ -87,7 +87,7 @@ _LEGIBILITY_CODES = frozenset(
 # recognised by their ``*_dropped`` suffix rather than by a listed vocabulary. A list has to
 # be remembered; the suffix cannot be forgotten, so a drop code introduced tomorrow counts
 # against legibility on the day it is introduced instead of scoring as perfectly legible
-# until somebody notices (#1127 review). Codes that cannot be read off their suffix carry an
+# until somebody notices (#1127). Codes that cannot be read off their suffix carry an
 # explicit ``outcome_stage`` from their producers instead (see ``is_placement_drop``); there
 # the inventory is enumerated in :data:`_STAGE_ROUTED_CODES` and
 # :data:`_UNSCORED_CODES` — and the suffix shortcut turned
@@ -294,7 +294,7 @@ _FIDELITY_CODES = frozenset(
 
 
 #: Every lint code that scores on NO quality component, named so that a new one cannot
-#: arrive unclassified (#1176 review r3).
+#: arrive unclassified (#1176).
 #:
 #: Nothing here is a bug by itself. Most are omissions — completeness's territory, and it
 #: builds its ledger from requirement outcomes rather than from lint codes, so it never
@@ -307,7 +307,7 @@ _FIDELITY_CODES = frozenset(
 #: ``_FIDELITY_CODES`` note above admits to and, before this, only admitted to.
 #:
 #: Stated that carefully because the first version of this sentence claimed the union was
-#: "exactly the set of codes the engine emits", which was 41 against 55 (#1176 review r5).
+#: "exactly the set of codes the engine emits", which was 41 against 55 (#1176).
 #:
 #: Membership is not an endorsement: several of these arguably SHOULD score somewhere, and
 #: this register is what makes that visible instead of implicit.
@@ -388,8 +388,8 @@ _UNSCORED_CODES = frozenset(
         # on its own. `is_placement_drop` consults `outcome_stage` FIRST and only falls back
         # to the suffix, and every `_skip_section` emission is `outcome_stage="validation"`
         # — a deliberate choice, because a placement stage would make an optional section's
-        # absence a scale blocker. So the section-A–A loss reaches no component (#1176
-        # review r4). `sections.py` said the opposite four lines above the call that makes
+        # absence a scale blocker. So the section-A–A loss reaches no component (#1176).
+        # `sections.py` said the opposite four lines above the call that makes
         # it false; that comment is corrected.
         "section_dropped",
         "profiled_bore_not_dimensioned",
@@ -412,7 +412,7 @@ _UNSCORED_CODES = frozenset(
 #: have the `section_dropped` shape. Several were invisible to the first audit,
 #: which read only codes written as literals AT a producer call, and were new to these
 #: registers; `callout_dropped` was neither — it is also written as a
-#: literal at three producer calls, so the audit always saw it (#1176 review r5, corrected
+#: literal at three producer calls, so the audit always saw it (#1176, corrected
 #: twice after numeric inventories drifted). Keep this explanation structural rather than
 #: restating a count that changes whenever a machined leader family is added.
 _STAGE_ROUTED_CODES = frozenset(
@@ -490,7 +490,7 @@ def _is_unscored_issue(issue) -> bool:
 
 
 def _unscored_component(issues) -> dict:
-    """The findings NO quality component scored, as data (#1176 review r4).
+    """The findings NO quality component scored, as data (#1176).
 
     Reported for the same reason completeness reports ``excludes``: a caller reading four
     components all saying "fine" would otherwise have no way to see that a third of this
@@ -510,7 +510,7 @@ def _unscored_component(issues) -> dict:
         # `available`/`score` so a caller can walk `quality.values()` uniformly. This is an
         # inventory, not a fifth axis: it is always computable, and it is deliberately not a
         # number — pricing "how much went unscored" would be a fifth score nobody asked for
-        # (#1176 review r5, which found `for c in quality.values(): c["available"]` raising).
+        # (#1176, which found `for c in quality.values(): c["available"]` raising).
         "available": True,
         "score": None,
         "issues": len(unscored),
@@ -533,10 +533,8 @@ def _is_legibility_issue(issue) -> bool:
     :data:`_LEGIBILITY_CODES`. `is_placement_drop` accepts any issue carrying
     ``outcome_stage="placement"`` whatever its code, so a truth defect that also reported a
     placement outcome would be penalised on both axes and make two independent observations
-    look correlated. Comparing the two SETS cannot prevent that, and the guard that claimed
-    to was inert because its probe left `outcome_stage` at its `None` default (#1176 review
-    r4). The precedence is stated here instead, where it is a fact about the code rather
-    than about the registers.
+    look correlated. Comparing the two code sets cannot prevent that because placement
+    classification also reads `outcome_stage`. Fidelity must take precedence here.
     """
     if _is_fidelity_issue(issue):
         return False
@@ -627,15 +625,15 @@ def _issue_component(
     # predicate is an approximation of the checks' domains, while the finding is the check
     # having fired. The first cut let the argument win, and a `declared_feature_absent` on a
     # 20 mm box was reported as `{available: False, score: None}`: the gate fell closed over
-    # a detected falsehood (#1176 review r3).
+    # a detected falsehood (#1176).
     #
     # A FAIL-SAFE, not a live branch: once the predicate covers the checks' domains, an issue
     # cannot arise while it is False, so no drawing reaches this line with work to do. Kept
-    # because the predicate has drifted from those domains three times in this issue's
-    # review history, and this is the difference between a drift that misreports and a drift
+    # because the predicate can drift from those domains, and this is the difference
+    # between a drift that misreports and a drift
     # that loses a finding. Guarded by a direct test of this function rather than through
     # `lint_summary()` for exactly that reason — a consumer-level test of it would have to
-    # reproduce the drift it exists to survive (#1176 review r5).
+    # reproduce the drift it exists to survive (#1176).
     available = available or bool(issues)
     errors = sum(issue.severity == "error" for issue in issues)
     warnings = sum(issue.severity == "warning" for issue in issues)

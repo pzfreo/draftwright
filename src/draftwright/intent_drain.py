@@ -297,7 +297,7 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
             # Projected to what was RECORDED. Passing the whole compiled plan once either
             # intent was present meant `overall_height()` alone also rebuilt the step
             # rungs — a dimension nobody asked for, and live/deferred divergence in the
-            # one change relying on their equivalence (#934 review).
+            # one change relying on their equivalence (#934).
             #
             # `include_overall` is drawing state, so it is an input to the COMPILE
             # (whether the overall height is in the set) rather than something the
@@ -391,9 +391,9 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
     # Machined-feature leader callouts (#148): each recorded callout intent draws exactly
     # its own feature — the renderer is restricted to the surviving intents' features via
     # only= (the render_slots #426 Ph2b subset idiom), so commenting one dwg.callout line
-    # drops that one feature (Codex #811) while the full script reproduces the auto pass.
+    # drops that one feature (#811) while the full script reproduces the auto pass.
     # Each kind places directly at its own _PASS_SEQUENCE slot (after the drain). Plate is
-    # NOT here — it is a spanned corridor dimension, not a direct leader (#811 review).
+    # NOT here — it is a spanned corridor dimension, not a direct leader (#811).
     def _s_machined(kind, render):
         ids = r.machined_ids_by_kind.get(kind, set())
         feats = {it.feature for it in state.intents if id(it) in ids}
@@ -653,7 +653,7 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
     # auto path alone made the two fail in OPPOSITE directions: auto retracted, declared
     # never did, and `_crowded_staircase` finalised with every rung on the sheet and the
     # build still claiming one was withheld. That is an ADR 4 (was 0011) round-trip parity break
-    # (#1216 review r10, F3).
+    # (#1216).
     if model is not None:
         retract_resolved_withholdings(target, ctx, compile_dimensions(model))
     return state.intents

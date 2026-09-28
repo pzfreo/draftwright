@@ -893,7 +893,7 @@ def _drawing_consumer_outcomes(holes, drawing) -> list[Outcome]:
     # draws no text at all, and an `unresolved` one claims a measurement the compiler never
     # approved (the ADR 4 (was 0016 Amdt 1) violation). Crediting either was the PR body's own
     # sentence — "and the annotation carrying it renders that value" — being false of the
-    # code beneath it (#1223 review).
+    # code beneath it (#1223).
     unconfirmed = {
         claim.measurement
         for claim in verify_measurement_claims(drawing.registry, plan)
@@ -3880,7 +3880,7 @@ def _pocket_drawing_outcomes(pockets, drawing) -> list[Outcome]:
                 }
             # A feature-level Z-normal location id has two rendered members.  Join each
             # directional physical fact to the exact annotation that bears its value so
-            # one correct axis cannot confirm corrupted ink on the other (#1372 review).
+            # one correct axis cannot confirm corrupted ink on the other (#1372).
             if parameter.startswith("location_pocket.location."):
                 matching_claims &= location_names.get(
                     (feature, parameter, outcome.source_at), set()

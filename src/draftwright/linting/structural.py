@@ -152,12 +152,12 @@ def is_dimension_like(item) -> bool:
     drawing assert anything measurable?" gets the same answer as the check that would
     contradict it. Spelling it a second time in ``drawing.py`` is what let the quality gate
     read ``label_bbox`` — text presence on ANY annotation, a title block included — and call
-    it asserted content (#1176 review r3).
+    it asserted content (#1176).
 
     Both dispatch sites call it. Naming a shared predicate and leaving its callers spelling
     the condition out is the same defect one step further back: it would make a change here
     silently stop matching what lint actually does, which is exactly what the paragraph above
-    is about (#1176 review r4).
+    is about (#1176).
 
     Deliberately narrow: ``measured_length`` is a plain attribute on the helper's dimension
     types, so this needs none of :func:`_label_bbox`'s raising-property discipline.
@@ -175,7 +175,7 @@ def _label_bbox(item, warned=None):
     *warned* is the per-``lint_drawing``-run set of already-warned item ids —
     several checks read the same item's label_bbox (per centreline pair, per
     view), so an unmemoised warning would flood the log O(n²) on one bad item
-    (#711 review). Run-local, not module-global (Codex sweep review): ids are
+    (#711). Run-local, not module-global: ids are
     only meaningful while the run holds the items alive, and a shared global
     would cross-talk between overlapping runs. ``None`` (a direct helper call)
     just warns every time.
@@ -414,12 +414,12 @@ def lint_drawing(
     _lint_derived_view_identifiers(view_names or (), issues)
     names = {} if annotation_names is None else annotation_names
     box_cache = {} if ann_box_cache is None else ann_box_cache
-    # Per-run label_bbox warning memo (#711 review / Codex sweep): threaded to every
+    # Per-run label_bbox warning memo (#711): threaded to every
     # check so one bad item warns once per lint run, with no cross-run global state.
     warned_label_bbox: set[int] = set()
     # Opaque primary-subject tokens exist only for this call. Every input object remains live
     # in ``items`` while the map is used, so its id cannot be recycled; the summary ledger gets
-    # only the tokens, never annotation ids or CAD graphs (#1147 review).
+    # only the tokens, never annotation ids or CAD graphs (#1147).
     pair_tokens = {id(item): object() for item in items} if _aggregation is not None else {}
 
     # Resolve page bounds: explicit arg beats module-level context.
@@ -1188,7 +1188,7 @@ def _lint_view_shapes(
     # once PER GROUP. #1216 removed the split — `_lint_dim` reads each annotation's own
     # `_dw_scale`, so there is one call — which removes the double-count at its source and
     # leaves nothing for the suppression to do. The `check_view_placement` parameter went with
-    # it; a flag no caller sets is a branch no test can reach (#1216 review r9, F6).
+    # it; a flag no caller sets is a branch no test can reach (#1216).
 
     # #160 — view shape vs view shape bounding box overlaps
     for i, (aname, abb, _) in enumerate(named_views):
@@ -1480,7 +1480,7 @@ def _lint_dim(
                             # applied. Printing the sheet scale here said `÷5.0 = 15.000` for a
                             # 45 mm measurement divided by an item scale of 3.0, and omitted
                             # the clause entirely on a 1:1 sheet — so the percentage could not
-                            # be derived from any number in the message (#1216 review r9, F4).
+                            # be derived from any number in the message (#1216).
                             + (
                                 f" (÷{item_scale} = {effective_measured:.3f})"
                                 if item_scale != 1.0

@@ -196,13 +196,8 @@ _GEOMETRY_AWARE_CODES = frozenset(
         "pmi_not_extracted",
         "placement_unsatisfiable",
         "pmi_dropped",
-        # The withholding pair (#1216). Registered for exactly the reason the note above
-        # gives: `step_dim_withheld` and `overall_dim_withheld` REPLACE a silence, not a
-        # different finding, and the content is equally missing — an approved dimension that
-        # is not on the sheet. Omitting them let a drawing with no overall width report
-        # `geometry_issues: 0` alongside `passed: True`, which is the same mistake that note
-        # was written about, in the change that quotes it (#1216 review r10, F4).
-        # `missing_principal_dimension`, the direct analogue, is three lines up.
+        # A withheld approved dimension is missing content, so both codes count as geometry
+        # issues, like `missing_principal_dimension` above.
         "step_dim_withheld",
         "overall_dim_withheld",
     }
@@ -313,7 +308,7 @@ def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
 # renderer, restricted to that feature (only=), at the canonical _PASS_SEQUENCE slot. Each
 # name is BOTH the feature.kind and the stage/sequence key. Plate is deliberately EXCLUDED —
 # it IS a spanned dimension (corridor-registered + drained, not a direct leader), so it
-# reconstructs through dimension(f, "length", role="thickness"), not callout() (#811 review).
+# reconstructs through dimension(f, "length", role="thickness"), not callout().
 _MACHINED_CALLOUT_KINDS = (
     "chamfer",
     "circular_blind_step",
@@ -369,9 +364,8 @@ class _IntentRouting:
 
 
 #: Size scalars appended to a feature key when present, in this order. Position alone is not
-#: identity: two holes at ONE origin with different bores keyed the same, and that is exactly
-#: the coincident-dedup case where the ledger most needs to say which instance lost its
-#: location (Codex #996 r4). Rounded, so float noise from a rebuild does not change the key.
+#: identity: coincident holes with different bores need distinct ledger keys. Rounded, so
+#: float noise from a rebuild does not change the key.
 _KEY_SCALARS = ("diameter", "depth", "width", "length", "radius")
 
 
@@ -380,7 +374,7 @@ def feature_key(f) -> str | None:
 
     ``kind@(x,y,z)/axis`` plus whichever of :data:`_KEY_SCALARS` the feature carries. The type
     name alone made two holes indistinguishable, so a diff of two builds could not say which
-    one lost a measurement, or whether a suppression had moved between instances (Codex r1).
+    one lost a measurement, or whether a suppression moved between instances.
     Derived from the geometry, so it survives a rebuild that reorders the feature list — list
     position would not.
 
@@ -551,8 +545,7 @@ class BuildState:
         A declared build performs no recognition (ADR 4 (was 0011) / #1022), so critique on that path
         has no inventory to judge against and must produce one.  It is built **here**, in the
         typed build state, and at most once per drawing: a lint-side or ``Drawing``-side memo
-        would make critique a second recognition owner, which is exactly what ADR 3 (was 0017) exists
-        to remove (and what review of #1021 rejected).
+        would make critique a second recognition owner, contrary to ADR 3.
 
         On a detected build ``recognition`` is already filled by the builder, so this returns
         it and recognises nothing.
@@ -1232,7 +1225,7 @@ class Drawing:
         return write_json_document(self.report(), path)
 
     # --- build-context compat properties (#639): one BuildState, thin views.
-    # _part_model and the two caches are GETTER-ONLY by design (#691 review):
+    # _part_model and the two caches are GETTER-ONLY by design:
     # zero assignment sites exist in src/ or tests/, and a future wholesale
     # replacement must go through BuildState (attach_part_model / the caches'
     # in-place mutation) so it fails loudly instead of silently forking the
@@ -1414,8 +1407,8 @@ class Drawing:
         Returns plain dicts so a harness, a script or an LLM can diff two builds without
         importing IR types. ``feature`` is a **stable key**, not just the type name: a bare
         ``"HoleFeature"`` made two holes indistinguishable, so a diff could not say *which*
-        one lost its location, or whether a suppression had moved between instances (Codex
-        #996 r1). The key is ``kind@(x,y,z)/axis``, which survives a rebuild because it is
+        one lost its location, or whether a suppression moved between instances. The key is
+        ``kind@(x,y,z)/axis``, which survives a rebuild because it is
         derived from the geometry rather than from list position.
         """
 
@@ -1445,7 +1438,7 @@ class Drawing:
         ``{"feature": <stable key>, "parameter_id": ...}`` — so a drawn measurement and a
         suppressed one are directly comparable. Without it the two halves of the audit could
         only be joined by matching an engine-assigned annotation name against a parameter id
-        by substring, which attributed losses to unrelated suppressions (Codex #1001 r1).
+        by substring, which attributed losses to unrelated suppressions.
 
         A **list**, because one annotation can draw several independently suppressible
         measurements — a compound hole callout renders bore diameter, depth and counterbore
@@ -1674,11 +1667,8 @@ class Drawing:
         "Drawing.dimension(feature, param, ..., pin=True) or "
         "Drawing.locate(feature, ..., pin=True) for feature-backed edits. "
         "place_dim() remains only as a raw page-coordinate escape hatch. "
-        # Not dated with the #817 plumbing: ADR 4 (was 0012) makes this the sanctioned escape hatch
-        # until the full auto-plus-user recompose lands, so it has no replacement to point at.
-        # But a bare "not before 0.5.0" is a lower bound, not an exit — and §4's complaint is
-        # precisely about surfaces with no exit (Codex #987 r1). So it names BOTH: the
-        # prerequisite and a target release, the latter to be revised if #707 slips.
+        # ADR 4 permits this raw-coordinate escape hatch until full recompose is available.
+        # Name both the prerequisite and target release so callers know its planned exit.
         "Removal gated on #707 (full recompose); target 0.6.0."
     )
     def place_dim(
@@ -1791,22 +1781,10 @@ class Drawing:
         # no label is given, which is scale-too-big at non-1:1 scales. Supply the
         # real-world length (page distance ÷ drawing scale) unless the caller set
         # an explicit label.
-        # The suffix goes into the LABEL, and it has to. Injecting a label is exactly what makes
-        # `tolerance=` unreachable: helpers do
-        # `rendered = label if label is not None else …`, so an explicit label discards it.
-        # Both public verbs that reach here — the deprecated `place_dim` and the preferred
-        # `dimension` — documented `tolerance=` as forwarded while it silently vanished
-        # (#1234 review r3). Composing it here closes both.
-        #
-        # Popped UNCONDITIONALLY, and composed onto whichever label is used. Doing it only in
-        # the inject branch left the defect alive for a caller passing BOTH `label=` and
-        # `tolerance=`: the tolerance stayed in kwargs and `Dimension` discarded it, which is
-        # the very thing being fixed, surviving in one branch (#1234 review r4).
+        # Compose the tolerance into either an explicit or generated label. Helpers render an
+        # explicit label verbatim, so forwarding `tolerance=` would silently discard it.
         tolerance = kwargs.pop("tolerance", None)
-        # `.get(...) is None`, not `not in`: an explicit `label=None` is helpers' documented
-        # "auto", and testing membership composed the suffix onto the literal `None`, so the
-        # sheet printed the string "None". A public API made to print garbage by the fix for a
-        # public API that printed nothing (#1234 review r5).
+        # An explicit `label=None` requests the automatic label too.
         if kwargs.get("label") is None:
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             kwargs["label"] = _fmt(page_len / self.scale)
@@ -2114,15 +2092,10 @@ class Drawing:
             for k, v in it.kwargs.items()
             if k not in {"param", "role", "side", "view", "name", "pin", "priority", "slot"}
         }
-        # The same composition as `_place_dim`, and for the same reason: this is the DEFERRED
-        # twin of that function, so a tolerance reaching it must go into the label or helpers
-        # discard it. Without this the identical public call rendered `80 +0.2 -0.1` live and a
-        # bare `80` the moment the author added `pin=True` or `priority=` — a divergence #1215
-        # INTRODUCED, since before it neither path rendered anything. `pin=True` is ADR 2 (was 0012)'s
-        # first-class corridor candidate, so it was the going-forward surface that lost the
-        # requirement (#1234 review r4).
+        # Match `_place_dim`: the deferred corridor path must keep authored tolerance in its
+        # label even when `pin=True` or `priority=` selects this route.
         tolerance = dim_kwargs.pop("tolerance", None)
-        if dim_kwargs.get("label") is None:  # `None` is "auto"; see `_place_dim` (#1234 r5)
+        if dim_kwargs.get("label") is None:  # `None` is "auto"; see `_place_dim`.
             page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
             dim_kwargs["label"] = _fmt(page_len / self.scale)
         dim_kwargs["label"] = _font_safe_text(
@@ -2333,7 +2306,7 @@ class Drawing:
         (pocket/pad-height/circular-blind-step/fillet/blend/paired-ramp/flat/chamfer/groove) is
         auto-named and placed in its characteristic view by the kind's renderer, so
         ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
-        than being silently ignored (Codex #811). Placed reasonably, not via the auto-pass's
+        than being silently ignored. Placed reasonably, not via the auto-pass's
         whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the
         rest. A step/boss diameter that finds no room returns ``""`` (a warning-level drop,
         like the auto-pass), rather than raising, so a reconstruction script never aborts.
@@ -2348,13 +2321,9 @@ class Drawing:
             )
         # There is deliberately NO authored-omission pre-check here.
         #
-        # Three versions of one lived at this point, each a hand-written prediction of what
-        # a callout would draw given the plan, and each wrong for some kind (#921 rounds
-        # 6–8). The last asked "does this feature have ANY approved dimension?", which is
-        # sound only in one direction: a turned step with its length authored and its
-        # diameter omitted answered yes, and the live path then drew the omitted diameter
-        # (#925 review). Adding a fourth prediction would rebuild the per-kind table this
-        # boundary exists to delete.
+        # A pre-check for ANY approved dimension cannot prove this callout has approved
+        # content: a turned step can have its length authored and diameter omitted. The
+        # renderer must decide from the compiled plan what it can draw.
         #
         # The renderers below now consume approved content, so "draws nothing" is what they
         # DO rather than something to forecast — and both paths reach it the same way: the
@@ -2418,11 +2387,11 @@ class Drawing:
                 "pad": render_pad_heights,
                 "groove": render_grooves,
             }
-            # Return the placed annotation's name (Codex #811) so pin()/drop() can address it.
+            # Return the placed annotation's name so pin()/drop() can address it.
             # only={feature} places exactly one callout, so at most one name changes. Diff by
             # object IDENTITY, not just the name set, so re-placing over an existing canonical
             # name (or a grouped callout collapsing to an already-present name) is still detected
-            # as the placed name (Codex #811 r3). A drop (no clear room) changes nothing and
+            # as the placed name. A drop (no clear room) changes nothing and
             # returns "" — the same empty-string drop signal the step/boss diameter branch gives.
             before = {n: id(o) for n, o in self.iter_annotations()}
             # Migrated renderers consume the compiled plan and select by opaque reference.
@@ -2519,8 +2488,7 @@ class Drawing:
             # 30 mm height TWICE, while the reverse order and the deferred route drew it once
             # (`explicit_envelope_height` removes the overall ladder from the compile). Order-
             # dependent live and live ≠ deferred, from composing two public spellings of one
-            # measurement — the "three spellings of pin" problem (#906) in miniature (#934
-            # review). One measurement, one verb.
+            # measurement. One measurement, one verb.
             raise ValueError(
                 "overall_height(): this model declares an envelope, so its height has a "
                 'feature to name — use dimension(envelope, "length", role="height"). This '
@@ -2547,7 +2515,7 @@ class Drawing:
         )
         # ONLY the overall height: the renderer also draws the step ladder, which is a
         # different intent with its own verb. The drain projects the plan with the same
-        # helper, so the two routes cannot disagree about what was asked for (#934 review).
+        # helper, so the two routes cannot disagree about what was asked for.
         plan = ladder_plan_for(compile_dimensions(model), step_height=False, overall=True)
         if plan.ladder("overall_height") is not None:
             render_height_ladder(
@@ -3053,7 +3021,7 @@ class Drawing:
         path), so ``export()`` calls it unconditionally. **Resilient:** a live-replayed
         intent is removed only after it places, so a verb that raises surfaces the error
         and leaves the rest recorded. A record → finalize → record-more → finalize
-        sequence drains each batch (#428 review).
+        sequence drains each batch.
         """
         # Nothing recorded → nothing to replay (the live/auto-pass path). The corridor batch is
         # a per-run local built below from these intents (#639), so an empty intent list has no
@@ -3078,7 +3046,7 @@ class Drawing:
             feature_leaders=[],
             interior_dimensions=[],
         )
-        # The solve trace joins the transaction (#736 review): the recorder appends during
+        # The solve trace joins the transaction: the recorder appends during
         # the drain, so a rolled-back finalize must also truncate those records — else the
         # trace (and a rewritten file) would describe placements that no longer exist.
         # Snapshot BEFORE opening the finalize phase: the phase counter is trace state too.
@@ -3121,7 +3089,7 @@ class Drawing:
         coverage_snap = self._coverage.snapshot()
         # render_locations narrows the side-above strip's outer_limit IN PLACE on the shared
         # Analysis (from_model.py) — the one Analysis field a replay mutates. Capture + restore it
-        # too, else a raised drain leaves the retry solving against a stale cap (#647 review).
+        # too, else a raised drain leaves the retry solving against a stale cap.
         sv_above = a.sv_zones.above if a is not None else None
         sv_above_limit = sv_above.outer_limit if sv_above is not None else None
         deferred, self._defer_intents = self._defer_intents, False  # replay must place
@@ -3478,7 +3446,7 @@ class Drawing:
         # registration below already keys it. A table row IS a dimension — `⌀ 8 ±0.05` in a
         # cell states exactly what `⌀8 ±0.05` states beside a leader — but this verb formatted
         # its own numbers off the recognised geometry, so an authored tolerance was approved,
-        # claimed by the table's provenance, and never printed (#1216 review r9). Read from
+        # claimed by the table's provenance, and never printed. Read from
         # `_part_model` rather than `model()`: an attribute, so a declared build is not made
         # to recognise anything by adding a table (ADR 3 (was 0017)).
         approved: dict = {}
@@ -3494,11 +3462,8 @@ class Drawing:
                 for dim in group.dims
             }
             # What the compiler REFUSED, separately from what it merely has no entry for.
-            # `Omission.authored` is the author's own `dimension(...)` set leaving a
-            # measurement out — ADR 4 (was 0016)'s suppression-by-omission — and printing it anyway
-            # is the compiled-plan boundary broken from the other side: not "a renderer
-            # rebuilt a suppressed value" but "a renderer printed one the author deleted"
-            # (#1216 review r10, F6).
+            # `Omission.authored` means the author left a measurement out. Printing it here
+            # would violate the compiled plan's suppression decision.
             omitted = {
                 (omission.feature, omission.parameter_id)
                 for omission in _plan.diagnostics
@@ -3916,14 +3881,9 @@ class Drawing:
             # actually EXAMINES for the other four — `EXAMINABLE_DECLARED_KINDS`, owned by
             # `linting/coverage.py` beside the check that uses it.
             #
-            # Three earlier cuts got this wrong in three different ways. The first asked
-            # whether any item had a `label_bbox` — true of a title block — so it meant
-            # "this sheet has text on it", and it discarded a real `declared_feature_absent`
-            # (#1176 review r3). The second narrowed to drawn measurements alone and then
-            # reported "asserts no measurable content" over a ⌀6 THRU callout whose
-            # declaration had just been checked and passed (r4). The third accepted ANY
-            # declared feature, so a declared slot — which no truth check looks at — was
-            # certified "nothing false said" by a drawing that said nothing (r5).
+            # A title block label does not assert geometric content. Drawn measurements and
+            # declared features examined by a truth check do; an unexamined declared slot
+            # alone does not establish fidelity.
             has_asserted_content=(
                 any(is_dimension_like(item) for item in self.items)
                 or (
@@ -4114,7 +4074,7 @@ class Drawing:
         # Normalise ONCE, here, before anything reads it. `formats` may be a one-shot iterable,
         # and the mixed-API warning below used to build its message with `tuple(formats)` —
         # which consumed a generator, leaving the export loop nothing to iterate: it warned
-        # that it would write SVG+DXF and then wrote nothing (Codex #987 r4). Normalising early
+        # that it would write SVG+DXF and then wrote nothing. Normalising early
         # also makes the message say `('svg',)` rather than `('s', 'v', 'g')` for `formats="svg"`.
         want: list[str] | None = None
         if formats is not None:
@@ -4130,7 +4090,7 @@ class Drawing:
                 )
             # Beside the format check, not down at the PNG render: EVERY reason this call
             # cannot succeed belongs before the work, or the "validate first" rule holds for
-            # whichever argument someone remembered (Codex #1029 r2).
+            # whichever argument was validated first.
             if "png" in want and dpi <= 0:
                 raise ValueError(f"png export needs dpi > 0, got {dpi}")
 
@@ -4165,7 +4125,7 @@ class Drawing:
                 # Name the formats THIS call selected, not a fixed ('svg', 'dxf') pair: the
                 # booleans can deselect, so `export(out, svg=False, dxf=True)` writes DXF only
                 # and a canned suggestion would tell the caller to start writing an SVG they
-                # had switched off — advice that changes behaviour (Codex #987 r1).
+                # had switched off — advice that changes behaviour.
                 _wanted = tuple(
                     f for f, on in (("svg", svg is None or svg), ("dxf", dxf is None or dxf)) if on
                 )
@@ -4200,7 +4160,7 @@ class Drawing:
         # Intermediates — the SVG behind a PDF/PNG, the PDF behind a PNG — go to a temp dir when
         # not themselves requested, NEVER the user's <out>.svg/.pdf. Otherwise a later
         # `export(out, formats="png")` would overwrite then delete an <out>.svg/.pdf an earlier
-        # export wrote (#677 review). The temp dir + its contents are removed when the stack closes.
+        # export wrote. The temp dir + its contents are removed when the stack closes.
         with contextlib.ExitStack() as stack:
             tmpdir: str | None = None
 

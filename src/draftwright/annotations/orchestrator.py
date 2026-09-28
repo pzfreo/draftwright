@@ -409,7 +409,7 @@ def _place_manufacturing_schedule(dwg, schedule, ctx) -> bool:
 def run_stages(stages: dict, sequence: tuple[str, ...] | None = None) -> None:
     """Run the *stages* a path implements in the canonical *sequence* order
     (``_PASS_SEQUENCE``, resolved at call time so a test/instrumentation rebinding
-    is honoured — Codex review).
+    is honoured).
 
     The shared executor of the one pass list (#699 slice b): both build paths hand
     their name→thunk dict here, so neither can run a stage the sequence does not
@@ -642,7 +642,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # Plan the dimensions ONCE and thread the groups to every renderer that reads them
     # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
     _groups = plan_dimensions(_model, planned_views=a.planned_views)
-    # ONE compiled plan, shared by every migrated consumer (#923 review round 4).
+    # ONE compiled plan, shared by every migrated consumer (#923).
     # Compiling per stage ran the compiler three times and, worse, let the direct
     # ladder, the shoulders and the detail escalation each hold a separately
     # derived decision — three chances to disagree about one drawing.
@@ -786,7 +786,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
             dwg,
             # `groups=` so the planner runs ONCE per build: the orchestrator already
             # planned, and a compiler re-planning behind it would create a second
-            # product that can drift while the migration is partial (#923 review).
+            # product that can drift while the migration is partial (#923).
             _compiled,
             layout_frame(a),
             ctx=ctx,
@@ -1161,7 +1161,7 @@ def _approved_per_measurement(plan) -> dict:
     id is the canonical spelling, and a per-level identity does not exist). So "this id is
     claimed by some annotation" cannot mean "this measurement is on the sheet" for a ladder,
     and a retraction written that way withdraws the whole report as soon as ONE rung places
-    (#1216 review r10, F1). Counting is what the collapse leaves available.
+    (#1216). Counting is what the collapse leaves available.
 
     The MAXIMUM over containers, not the sum: the plan represents the same five step heights
     twice, once as a `step_height` ladder and once as five `step_level` group dims, so summing
@@ -1192,7 +1192,7 @@ def retract_resolved_withholdings(dwg, ctx, plan) -> None:
     in the front-right strip may still be dimensioned in an enlarged detail. Reported at record
     time and never revisited, `step_dim_withheld` fired on `_crowded_staircase` — a part whose
     five approved rungs are ALL claimed, by `dim_detail_a_step0..2` and `dim_step_0..1` — and
-    said they "are not dimensioned at this scale", which was false (#1216 review r9, F5).
+    said they "are not dimensioned at this scale", which was false (#1216).
 
     The same shape as the `callout_dropped` and `location_ref_dropped` retractions above, and
     the same rule `solve_corridor` applies to a deduped loser: a drop is only a drop if the
@@ -1202,7 +1202,7 @@ def retract_resolved_withholdings(dwg, ctx, plan) -> None:
     "as many annotations claim this id as the plan approved entries under it", not "some
     annotation claims it": with one id per ladder the second retracts a five-rung withholding
     on the strength of one drawn rung, which is the silent omission the report exists to end,
-    restored by its own fix (#1216 review r10, F1).
+    restored by its own fix (#1216).
     """
     approved = _approved_per_measurement(plan)
     drawn: dict = {}
@@ -1394,7 +1394,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         # Measured across the guard corpus, decorating every parameter of every feature through
         # both key shapes: 204 compiled locations, 0 with a tolerance. The first cut of this
         # composed the suffix here anyway — a reader with no writer, which is precisely the
-        # dead-code defect this PR filed against #1234's `depth_tol` (#1216 review r9, F3).
+        # dead-code defect this PR filed against #1234's `depth_tol` (#1216).
         approved_locations = {
             (resolve_feature(location.ref), tuple(location.span[1]), location.discriminator): (
                 location.value_text
@@ -1404,7 +1404,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         }
 
         def _approved_hole_text(hole, parameter):
-            """A table cell's text, authored tolerance included (#1216 review r9).
+            """A table cell's text, authored tolerance included (#1216).
 
             A table row is a dimension: `⌀ 8` in a hole-table cell states the same
             requirement `⌀8` states beside a leader, so it carries the same ±. Escalating

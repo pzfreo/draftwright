@@ -797,7 +797,7 @@ def _classify_steps(step_zs, bb_min_z, scale, *, allow_short=False):
     delegates here, so the "which steps are dimensioned" rule cannot be stated twice and
     drift; the third list exists because it was previously stated ZERO times.
 
-    ``too_short`` is the silent case (#1216 review r9). A step whose page distance from the
+    ``too_short`` is the silent case (#1216). A step whose page distance from the
     part's base cannot carry a dimension is skipped, and unlike ``too_close`` the skip
     incremented no counter, raised no escalation and produced no lint — so a blind hole in a
     plate had its ``step_height`` approved by the compiler, dropped here, and the drawing
@@ -1322,8 +1322,7 @@ class LayoutFrame:
     drawn, this says where there is room to draw it. So a dimensional renderer takes a
     `LayoutFrame` instead of the full :class:`Analysis`, which carries the feature
     inventory, the part, and the raw bounding box — everything needed to reconstruct a
-    dimension the compiler decided not to approve, which is precisely what eight review
-    rounds on #921 found renderers doing.
+    dimension the compiler decided not to approve (#921).
 
     What is deliberately absent: ``part``, ``bb``, the recognised-feature lists, the sizes.
     A renderer that needs a part-space coordinate gets it from its approved entry's

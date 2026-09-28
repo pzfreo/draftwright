@@ -211,8 +211,7 @@ def _first(group: DimensionGroup, kind: str, *roles: str) -> float | None:
     Suppression is applied per role, BEFORE the precedence between them. The roles are ordered
     as a fallback chain (counterbore, then spotface), so a suppressed counterbore must fall
     through to an unsuppressed spotface rather than swallowing it — the first draft resolved
-    precedence first and then nulled the winner, which silently dropped the spotface (#920
-    review)."""
+    precedence first and then nulled the winner, which silently dropped the spotface (#920)."""
     for role in roles:
         pd = _planned(group, kind, role)
         if pd is not None and not pd.suppressed:
@@ -233,7 +232,7 @@ def _display_decimals(group: DimensionGroup, kind: str, *roles: str) -> int | No
 #: The compound callout's segments: ``(name, head, dependents)``.
 #:
 #: Each segment has a HEAD term — always its ⌀ — and terms that only mean something beside it.
-#: The relation is ASYMMETRIC, which two review rounds were needed to pin down:
+#: The relation is ASYMMETRIC:
 #:
 #: - ``⌴ ⌀32`` is a readable counterbore; its depth is optional detail. Suppressing the depth
 #:   while the ⌀ survives is a legitimate authoring choice, not an error.
@@ -275,7 +274,7 @@ def _pattern_suffix(group: DimensionGroup) -> str | None:
     Shared by the spec and the dependency rule, because the rule has to know exactly what WOULD
     print. Listing the multiplier and thread as head-dependents but not this was invisible while
     every fixture used ``count > 1``: with ``count=1`` the multiplier check does not fire, and a
-    one-member bolt circle lost its ``EQ SP ON ø50 BC`` in silence (#920 review).
+    one-member bolt circle lost its ``EQ SP ON ø50 BC`` in silence (#920).
 
     The BCD is a planned, addressable dimension (``bolt_circle.diameter``), so suppressing it
     stops the suffix printing — the value is a fact off the feature, but WHETHER it prints is
@@ -304,7 +303,7 @@ def _shadowed(group: DimensionGroup, name: str) -> bool:
     recess slot in the callout string. A shadowed segment is not rendered before OR after a
     suppression, so suppressing part of it orphans nothing and must not raise: the first version
     validated every role and refused `spotface.diameter` on a hole whose counterbore was intact,
-    which is a spurious error about a term the drawing never carried (#920 review).
+    which is a spurious error about a term the drawing never carried (#920).
     """
     if name != "spotface":
         return False
@@ -353,7 +352,7 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     #
     # A **rider** lives on the FEATURE with no parameter to suppress — the thread spec, the
     # `n×` multiplier, a grid's `(3×3)` — so it survives any amount of parameter suppression
-    # and has no existence outside the string (#920 review).
+    # and has no existence outside the string (#920).
     feat = group.feature
     suffix = _pattern_suffix(group)
     bcd_suffix = (
@@ -379,11 +378,11 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
     # manufacturing intent, and #920's refusal stands; an author who omits the bore is
     # declining the string, not orphaning its prefix. Refusing there made a pattern the one
     # feature whose callout could not be omitted at all, so `dimension(pattern, "pitch")`
-    # raised instead of drawing a pitch dim (#925 review).
+    # raised instead of drawing a pitch dim (#925).
     #
     # A DEPENDENT is never waived. Doing so let an authored set naming `bolt_circle.diameter`
     # and omitting `bore.diameter` produce neither the 50 mm BCD nor a diagnostic — the
-    # requested dimension vanished (#925 review).
+    # requested dimension vanished (#925).
     riders: list[str] = []
     if not authored_omission_in(group) and not any(
         dimension.suppressed and dimension.reason == _SCHEDULE_REPRESENTATION
@@ -394,7 +393,7 @@ def _refuse_headless_callout(group: DimensionGroup) -> None:
         if thread:
             riders.append(f"the thread spec {thread}")
         # A plain `HoleFeature` may also carry a count — `4× ⌀6 THRU` — so the multiplier is a
-        # dependent of the head for both feature kinds, not just for patterns (#920 review).
+        # dependent of the head for both feature kinds, not just for patterns (#920).
         multiplier = getattr(feat, "count", 0) or 0
         if multiplier > 1:
             riders.append(f"the {multiplier}× multiplier")
@@ -517,7 +516,7 @@ _AUTHORED_OMISSION = "not in the authored dimension set"
 # the callout text. A dimension outside this set belongs to some other mark: a pattern's
 # `pitch` is a linear dim drawn between members, not a term in the callout, so a pattern
 # whose pocket size is omitted has an undrawable callout even though its pitch survives
-# (#921 review round 7). Kinds absent here fall back to "any un-suppressed dim will do".
+# (#921). Kinds absent here fall back to "any un-suppressed dim will do".
 _AUTHORED_OMISSION = "not in the authored dimension set"
 
 
@@ -572,7 +571,7 @@ def hole_callout_spec(
     # was threaded, so `s.hole(...).cbore(...).tolerance(0.05)` — which `_decorated` folds onto
     # EVERY parameter of that kind — printed `⌀8 ±0.1 THRU ⌴ ⌀14`: one ± shown, one silently
     # gone, and a machinist reads the bare ⌀14 as falling under the general block
-    # (#1215, #1234 review r7).
+    # (#1234).
     #
     # Through `_recess_plan` rather than a second lookup, so the tolerance comes from the SAME
     # segment that won the counterbore/spotface precedence — resolving them independently is
@@ -635,7 +634,7 @@ def hole_callout_spec(
         # counterbore precedence, spotface fallback — the engine's mapping
         # ONE role, both terms. Reading ⌀ and depth through independent fallbacks let a
         # drawing pair the counterbore's ⌀32 with the spotface's 0.5 depth — a recess that
-        # exists on neither feature (#920 review). The chain picks a segment, not a value.
+        # exists on neither feature (#920). The chain picks a segment, not a value.
         "cbore_dia": cbore_dia,
         "cbore_depth": cbore_depth,
         "cbore_dia_decimals": getattr(recess_dia_pd, "display_decimals", None),
@@ -652,10 +651,10 @@ def hole_callout_spec(
         "pattern_suffix": pattern_suffix,
         "tolerance": bore_tol,  # P2a: ± on the bore ⌀, baked into the callout string below
         "diameter_limits": bore_pd.param.limit_bounds if bore_pd is not None else None,
-        # ...and one per remaining term, baked in the same way (#1234 review r7).
+        # ...and one per remaining term, baked in the same way (#1234).
         # A BLIND hole's own depth tolerance. `callout_from_spec` and `compose.py` were both
         # given readers for this key and the spec never wrote it, so the reader always resolved
-        # to None — dead code shipped alongside the fix it belonged to (#1234 review r8).
+        # to None — dead code shipped alongside the fix it belonged to (#1234).
         "depth_tol": _tol_of(depth_pd),
         "cbore_dia_tol": _tol_of(recess_dia_pd),
         "cbore_depth_tol": _tol_of(recess_depth_pd),

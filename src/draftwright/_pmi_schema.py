@@ -34,7 +34,7 @@ _DIM_TYPE: dict[int, str] = {
 
 # Type 31 is graphical presentation only. Type 30 (CommonLabel) can carry authored meaning
 # despite having no numeric GetValue, so it must fail visibly until supported rather than be
-# discarded with presentation geometry (#623 review).
+# discarded with presentation geometry (#623).
 _PRESENTATION_TYPES = {31}
 
 _LENGTH_DIMENSION_KINDS = frozenset(

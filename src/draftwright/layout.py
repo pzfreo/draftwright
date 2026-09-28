@@ -802,7 +802,7 @@ def _assign_balloon_bands(
             used_edges[(i, band)] = add_edge(member0 + i, band0 + j, 1, cost)
 
     # Give the first balloon in each preferred band a bounded distance credit.
-    # Unlike the old lexicographically dominant activation bonus (#901 review),
+    # Unlike the old lexicographically dominant activation bonus (#901),
     # this cannot justify a leader more than `preference_limit` longer merely to
     # occupy another side. SPFA supports the negative residual edges.
     preferred = set(prefer_bands)
@@ -1061,7 +1061,7 @@ def fit_box(size, region, obstacles, prefer="br", *, clearance=0.0, trace=None):
     ``{edge, edge - boxsize}`` per axis — O(n) each, O(n²) positions, each
     checked against the obstacles in O(n). That is O(n³), tractable for the
     dozens-of-annotations obstacle sets the hole table feeds it (the old
-    rectangle-enumeration form was O(n⁴) and blew up — #93 review). Candidate
+    rectangle-enumeration form was O(n⁴) and blew up (#93)). Candidate
     pairs are streamed rather than materialised, keeping live memory O(n).
     Deterministic (ascending candidates, first minimum wins).
     """
@@ -1110,7 +1110,7 @@ def fit_box(size, region, obstacles, prefer="br", *, clearance=0.0, trace=None):
     cy = ry1 if top else ry0
     # Scores separate into X + Y terms.  Merge one sorted Y stream per X via a
     # heap so candidates arrive in exact ``(score, bx, by)`` order without ever
-    # materialising the O(len(xs) * len(ys)) Cartesian product (#1145 review).
+    # materialising the O(len(xs) * len(ys)) Cartesian product (#1145).
     ranked_y = sorted(
         ((((by + h if top else by) - cy) ** 2, by) for by in ys),
         key=lambda candidate: (candidate[0], candidate[1]),
@@ -1131,7 +1131,7 @@ def fit_box(size, region, obstacles, prefer="br", *, clearance=0.0, trace=None):
         else:
             # Once the bounded diagnostic sample is full, only collision truth is
             # needed. Preserve the former solver's early exit instead of sorting
-            # every blocker name for every remaining O(n²) candidate (#1145 review).
+            # every blocker name for every remaining O(n²) candidate (#1145).
             blockers = ()
             blocked = any(_boxes_overlap(candidate_box, o) for _name, o in obs)
         if trace is not None:

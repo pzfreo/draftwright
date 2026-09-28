@@ -4,7 +4,7 @@ Deliberately its own module rather than living in :mod:`draftwright._core`. `_co
 build123d, so a category defined there costs the full CAD kernel (~6 s) to reach — and the
 pytest ``filterwarnings`` entry that names it pays that on **every** invocation, including
 ``--collect-only`` and the ~30 s smoke tier. A warning class is the last thing that should
-drag a geometry kernel behind it (#1043 review).
+drag a geometry kernel behind it (#1043).
 
 Nothing here imports anything.
 """

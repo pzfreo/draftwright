@@ -165,7 +165,7 @@ def _resolve_object_source(spec: str) -> _ObjectSource:
         # guard can't reorder a dir that's ALREADY on the path (e.g. a driver run as
         # `python tools/driver.py` puts the helper dir on sys.path), so cwd could otherwise land
         # ahead of it and win the clash, AND the in-process build would diverge from the standalone
-        # re-run seam (#491 review). Removing then front-inserting makes the order deterministic and
+        # re-run seam (#491). Removing then front-inserting makes the order deterministic and
         # identical between build and re-run; the seam bakes both as resolve-time absolute literals.
         file_dir = str(path.parent)
         cwd = os.getcwd()

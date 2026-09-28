@@ -6,7 +6,7 @@ The front-end of the compiler. Each detector is an existing recognition heuristi
 shape is normalised into the waist. New shapes plug in here as new detectors
 emitting new `Feature` types.
 
-Turned profile and bosses are complementary, not competing (the #191 review): a
+Turned profile and bosses are complementary, not competing: a
 turned part is described by its `StepFeature`s (length + OD per segment); a
 non-turned part's external diameters come from `BossFeature`s. Holes are detected
 for any part.
@@ -265,7 +265,7 @@ def _groups_by_diameter(bosses, tol: float = 0.15):
 def _boss_is_groove_floor(b, grooves) -> bool:
     """A recognised boss coinciding with a groove floor — same turning axis and (floor) ø — is
     that floor. The groove callout already dimensions it, so it must not also get a boss ø
-    (#148c review; applies whether or not the part read as a turned profile)."""
+    (applies whether or not the part read as a turned profile)."""
     return bool(_boss_groove_floor_candidates(b, grooves))
 
 
@@ -2582,7 +2582,7 @@ def build_part_model(
     # an upright wall, i.e. an L/T/U bracket) — is dimensioned this way. A single-axis
     # stack (a base slab under a smaller stacked block) is a *staircase*, owned by the
     # step-height ladder; treating its base as a "plate" would wrongly suppress the step
-    # dim (#559 review). This keeps the plate feature to the issue's stated domain.
+    # dim (#559). This keeps the plate feature to the issue's stated domain.
     if not profiles and rotational is None:
         plates = recognise_plates(part) if plates is None else plates
         if multi_plate:

@@ -686,7 +686,7 @@ def _reserve_section_row(dwg, a: Analysis, section, *, ctx) -> None:
     A no-op when *section* is ``None`` (no section triggers) — nothing is reserved,
     and ``_add_section_view`` is never called either.
 
-    **Known residual (review finding, #351 P5 strand 3, filed as #366):** the
+    **Known residual (#366):** the
     un-widened reservation is a real gap, not just a conservative approximation
     — for a part whose bolt-circle centreline crosses this exact Y-row, the
     FINAL arrow can widen beyond what was reserved, and the callout carve never
@@ -1241,14 +1241,14 @@ def _resolve_details(dwg, a: Analysis, *, ctx, identifiers=None, reservations=No
                     "%s demoted: the requested crowded-step detail view takes its room", hname
                 )
             else:
-                # Transactional (#689 review): the detail may fail for reasons other
+                # Transactional (#689): the detail may fail for reasons other
                 # than the height dim's room — restore it rather than losing BOTH.
                 # remove() also forgot the feature provenance + pin (#89), so restore
-                # them (user review): without the feature the restored dim drops off
+                # them: without the feature the restored dim drops off
                 # annotations_of(envelope) / drop(feature), and a later finalize's
                 # _overall_height_name can no longer rediscover it. Restored as one
                 # unit (#1002) — enumerating the axes here is what left the measurement
-                # behind when it was added (Codex r2).
+                # behind when it was added.
                 ctx.place(hobj, hname)
                 dwg.registry.reapply(hname, ident)
         if not placed and (req.keep_without_annotations or req.view_name is not None):
@@ -1302,7 +1302,7 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
     portrait too, so the footprint alone cannot single the height out), and a label
     equal to the part's overall height.
 
-    The generalised path is demotion-safe, not best-effort (Codex review): a
+    The generalised path is demotion-safe, not best-effort: a
     **pinned** name is never a candidate — a pin is the user's "this stays put"
     (ADR 4 (was 0012)), which outranks the demotion heuristic — and the match must be
     **unambiguous**: zero or several surviving candidates (e.g. a hand-authored
@@ -1313,13 +1313,13 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
     # `'10 ±0.1'` and an exact-equality match against a re-derived numeric silently found
     # nothing — in both the canonical branch and the generalised fallback. The failure is
     # quiet by design ("no demotion, the safe outcome"), so a toleranced part would simply
-    # stop retrying and drop its detail view instead (#1234 review r4).
+    # stop retrying and drop its detail view instead (#1234).
     height_label = _fmt(a.z_size)
 
     def _is_height(obj) -> bool:
         # No `is None` guard: a missing label stringifies to "None", which cannot equal a
         # formatted number, so that branch had no outcome of its own — only an uncoverable
-        # partial, which codecov correctly flagged (#1234 review r6).
+        # partial, which codecov correctly flagged (#1234).
         #
         # The suffix is appended, so the value is the leading token. `_tol_suffix` emits
         # " ±t", " +hi -lo" and a fit class's " h6" — all space-separated — and a bare label
@@ -1327,7 +1327,7 @@ def _overall_height_name(dwg, a: Analysis) -> str | None:
         return str(getattr(obj, "label", None)).split(" ", 1)[0] == height_label
 
     # The auto pass names the overall height `dim_height`; subject it to the SAME
-    # demotion-safety guards as the generalised names (user review, #661): never
+    # demotion-safety guards as the generalised names (#661): never
     # demote a PINNED dim (a pin is the user's "this stays put", ADR 2 (was 0012)), and
     # reject a replacement whose label no longer equals the part height (identity —
     # guards a user-substituted annotation under the canonical name). A guard
@@ -1376,7 +1376,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     at the enlarged scale. The escalation carries those exact compiled objects; this
     resolver does not re-decide which rungs failed.
 
-    That was the last dimensional bypass of ADR 4 (was 0016)'s boundary (#923 review). This
+    That was the last dimensional bypass of ADR 4 (was 0016)'s boundary (#923). This
     function used to re-derive the step feature from ``dwg.model()`` and rebuild the ladder
     out of ``step.levels`` against ``a.bb.min.Z``, so a rung the compiler withheld still
     reached the detail view: an approved three-rung plan drew five. Restricting the direct
@@ -1409,7 +1409,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
     s_zs = sorted(approved_levels)
     min_gap = min(b - aa for aa, b in zip(s_zs, s_zs[1:]))
     # World→page scale that renders the closest gap at the legibility floor — no sheet
-    # factor (detail_scale is itself an absolute world→page scale). (#307 review)
+    # factor (detail_scale is itself an absolute world→page scale). (#307)
     scale_needed = _MIN_STEP_SEP_MM / min_gap if min_gap > 0 else float("inf")
     # Ladder columns only need one text tier horizontally; the vertical
     # shoulder-separation threshold is larger because it also protects the two
@@ -1490,7 +1490,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
             # contradict itself: the levels the legibility gate moved here are dimensioned ONLY
             # in the detail, so three of five authored ± requirements vanished while two showed
             # — a machinist reads the bare ones as falling under the general block
-            # (#1234 review r6).
+            # (#1234).
             label = rung.final_label + _tol_suffix(rung.tolerance, dwg.draft)
             try:
                 if has_level_supports:
@@ -1525,7 +1525,7 @@ def _request_prismatic_detail(dwg, a: Analysis, *, ctx, plan) -> None:
                     view=view,
                     feature=rung.id.feature if rung.id is not None else None,
                     measurement=rung.id,
-                )  # view-scoped name (#307 review)
+                )  # view-scoped name (#307)
                 ladder += step_pad
                 placed += 1
             except Exception as exc:  # noqa: BLE001 — placement may fail on degenerate geometry

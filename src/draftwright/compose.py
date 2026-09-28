@@ -296,7 +296,7 @@ def _est_planned_bore_callout_width(
         include_source_pmi=include_source_pmi,
         manufacturing_tags=manufacturing_tags,
     ):
-        # ONE reading of the plan, shared with the renderer (#875 review). This function used to
+        # ONE reading of the plan, shared with the renderer (#875). This function used to
         # re-derive bore/depth/cbore/suffix itself, and the two drifted: the copy here inferred
         # THRU from a missing depth (the inference #868 removed from the renderer) and ignored
         # `suppressed` entirely, so a callout could be reserved 33 mm and rendered at 14 mm.
@@ -320,7 +320,7 @@ def _est_planned_bore_callout_width(
         # the callout will DRAW: reserving the bare width of a toleranced recess made the
         # placement check reject a callout the reservation said would fit, and the whole
         # annotation was dropped with `callout_dropped: no room beside the view` — a wrong
-        # drawing produced from a right one (#1234 review r7).
+        # drawing produced from a right one (#1234).
         def _term(value, tol_key, decimals_key):
             return _text_width(
                 f"{_fmt(value, spec.get(decimals_key))}{_tol_suffix(spec.get(tol_key), draft)}",
@@ -1180,7 +1180,7 @@ def choose_scale(
     if scale is not None and not float(scale) > 0:
         # `not x > 0` rather than `x <= 0` so NaN is refused: `nan <= 0` is False, and a NaN
         # scale is not merely wrong but unrecoverable — it reaches `project_to_viewport` and
-        # the build hangs rather than raising (#1395 review).
+        # the build hangs rather than raising (#1395).
         raise ValueError(f"scale must be positive, got {scale!r}")
     if scale is not None and page is not None:
         pw, ph, tb = _parse_page(page)
@@ -1317,7 +1317,7 @@ def choose_scale(
         return LayoutCandidate(
             # What `_fits` actually evaluates, not the fixed three: a candidate whose
             # first-class infeasibility data disagreed with the layout it was judged on
-            # would be worse than no data (#1130 review).
+            # would be worse than no data (#1130).
             views=tuple(views) if views is not None else third_angle_view_names(),
             scale=float(cand[0]),
             page=(cand[1], cand[2]),
@@ -1821,7 +1821,7 @@ def _layout_geometry(
     # nothing — the drawing lost a view and stayed on the same paper, the opposite of the
     # point. Every term below is conditioned on the view being present, not just the plan:
     # a set omitting front or side reserved its paper too, and only the plan case was
-    # handled when this first landed (#1130 review).
+    # handled when this first landed (#1130).
     if has_front and has_plan:
         # Stacked, sharing the gap between them.
         column_h = fv.bottom + 2 * fv.hh + base_gap + 2 * pv.hh + pv.top

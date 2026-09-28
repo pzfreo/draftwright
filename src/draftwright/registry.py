@@ -171,7 +171,7 @@ class AnnotationRegistry:
         renderers that hold an `ApprovedDimension`, and the rest answer empty. Which
         renderers those are is enumerated and enforced by the ratchet in
         `tests/test_audit_differential.py` rather than described here — the prose version of
-        that set was wrong when first written (Codex #1002 r1)."""
+        that set was wrong when first written (#1002)."""
         ids: tuple = self._anno_measurement.get(name, ())
         return ids + tuple(cell.measurement for cell in self.cells_of(name))
 
@@ -307,7 +307,7 @@ class AnnotationRegistry:
         hand-rolled that axis by axis, and every axis added since broke the sites nobody
         updated: the hole-table fallback still restored view alone, losing the feature added
         in #398; the detail-view retry carried view/feature/pin but not the measurement added
-        here (Codex #1002 r2). Reading and reapplying the axes as a UNIT, in the class that
+        here (#1002). Reading and reapplying the axes as a UNIT, in the class that
         owns them, is the only version of this a *fourth* axis cannot silently break.
 
         The keys mirror the ``_anno_*`` map names on purpose — that is what lets
@@ -498,7 +498,7 @@ class AnnotationRegistry:
         """The recorded build-time :class:`LintIssue`\\s, as an immutable snapshot
         (read surface, #720 — callers stop reaching through ``dwg._build_issues``;
         ``Drawing.lint()`` already merges these into its report). A tuple, not the
-        live list (Codex review): mutation must go through :meth:`record_issue` /
+        live list: mutation must go through :meth:`record_issue` /
         :meth:`drop_issues` / :meth:`reset_issues`, or the alias exit would just
         recreate the state-bus reach-through under a public name."""
         return tuple(self._build_issues)
