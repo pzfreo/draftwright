@@ -143,6 +143,7 @@ _LAYERS: dict[str, int] = {
     "document_evidence": 2,
     "pmi": 2,
     "export": 2,
+    "pdf_text": 2,
     "repair": 2,
     "projection": 2,
     "compose": 2,

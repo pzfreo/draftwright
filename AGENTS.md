@@ -34,7 +34,7 @@ in step; do not restate the module list here.
 
 In outline, by `_LAYERS` rank: **0** leaves — placement solvers, geometry maths, registry,
 recognition-boundary contracts and ownership, and the `model/` IR waist (ADR 1) → **1**
-`_core` / `document_input` → **2** `projection`, `compose`, `export`, `repair`, `pmi`,
+`_core` / `document_input` → **2** `projection`, `compose`, `export`, `pdf_text`, `repair`, `pmi`,
 `linting/`, `reporting` and peers → **3** `analysis` → **4** `annotations/` (the render
 passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing` → **6**
 `builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
