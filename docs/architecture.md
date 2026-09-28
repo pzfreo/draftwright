@@ -118,6 +118,10 @@ and re-exports the existing private helper names.
     supplies an explicit intent list, detail setting and callbacks. The drain uses
     the public drawing surface and the shared `PlacementContext` to execute the
     orchestrator's canonical stage order without importing `Drawing`.
+  - **`intent_routing.py`** — rank-5 classification of recorded edits into the
+    canonical stage routes. `Drawing` supplies its intent list and span-validation
+    callback; the classifier returns route identities and feature sets without
+    modifying drawing state or placing annotations.
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 1 (was 0005), P5):
