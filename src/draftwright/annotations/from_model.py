@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, replace
+from functools import partial
 from itertools import groupby, tee
 from typing import Any, Literal, cast
 
@@ -88,6 +89,7 @@ from draftwright.annotations._common import (
     CorridorCandidate,
     Escalation,
     InteriorDimensionJob,
+    PlacementContext,
     _anno_box,
     _box_hits,
     _geom_box,
@@ -3669,6 +3671,94 @@ def _render_circular_recesses(dwg, plan, a, *, ctx, only, kind, drop_code) -> in
     )
 
 
+@dataclass(frozen=True)
+class _ThroughStepLegPlacement:
+    """One approved leg's render and post-drain opposite-corridor retry."""
+
+    dwg: Any
+    ctx: PlacementContext
+    draft: Any
+    tier: float
+    view: str
+    stack: str
+    side: str
+    alternate_side: str
+    alternate_strip: Any
+    pa: tuple[float, float, float]
+    pb: tuple[float, float, float]
+    edge: float
+    label: str
+    value: float
+    feature: FeatureRef
+    measurement: DimensionId
+
+    def build(self, position: float) -> Dimension:
+        return _dim(
+            self.pa, self.pb, self.side, position - self.edge, self.draft, label=self.label
+        )
+
+    def footprint(self, position: float) -> tuple[float, float, float, float]:
+        return cast(
+            tuple[float, float, float, float],
+            dim_footprint(
+                self.pa, self.pb, self.side, position - self.edge, self.draft, self.label
+            ),
+        )
+
+    def drop(self, dropped_name: str) -> None:
+        self.ctx.post_drain.append(partial(self.retry, dropped_name))
+
+    def alternate_build(self, position: float) -> Dimension:
+        return _dim(
+            self.pa,
+            self.pb,
+            self.alternate_side,
+            position - self.edge,
+            self.draft,
+            label=self.label,
+        )
+
+    def alternate_footprint(self, position: float) -> tuple[float, float, float, float]:
+        return cast(
+            tuple[float, float, float, float],
+            dim_footprint(
+                self.pa,
+                self.pb,
+                self.alternate_side,
+                position - self.edge,
+                self.draft,
+                self.label,
+            ),
+        )
+
+    def retry(self, dropped_name: str) -> None:
+        if self.alternate_strip is not None:
+            left = place_strip_candidates(
+                self.dwg,
+                self.alternate_strip,
+                self.view,
+                self.stack,
+                [(dropped_name, self.alternate_build)],
+                self.tier,
+                ctx=self.ctx,
+                force=True,
+                features={dropped_name: self.feature},
+                measurements={dropped_name: self.measurement},
+                footprints={dropped_name: self.alternate_footprint},
+                trace=self.ctx.trace,
+                trace_label=f"through_step_{self.alternate_side}_fallthrough",
+            )
+            if not left:
+                return
+        self.ctx.record_issue(
+            "warning",
+            "through_step_dim_dropped",
+            f"through-step leg {_fmt(self.value)} not dimensioned "
+            f"({self.view} {self.side}/{self.alternate_side}-strips full)",
+            measurement=self.measurement,
+        )
+
+
 def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
     """Render both defining legs of each rectangular through step (#1382).
 
@@ -3727,17 +3817,13 @@ def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
             discriminator = approved.discriminator or "leg"
             name = f"dim_through_step_{facts.axis}{index}_{discriminator}"
 
-            def _build(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
-                return _dim(pa, pb, side, pos - edge, draft, label=label)
-
-            def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
-                return dim_footprint(pa, pb, side, pos - edge, draft, label)
-
-            def _drop(
-                dropped_name,
-                *,
-                value=approved.value,
+            placement = _ThroughStepLegPlacement(
+                dwg=dwg,
+                ctx=ctx,
+                draft=draft,
+                tier=tier,
                 view=view,
+                stack=stack,
                 side=side,
                 alternate_side=alternate_side,
                 alternate_strip=alternate_strip,
@@ -3745,59 +3831,10 @@ def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
                 pb=pb,
                 edge=edge,
                 label=label,
-                stack=stack,
+                value=approved.value,
                 feature=group.ref,
                 measurement=approved.id,
-            ):
-                def _retry() -> None:
-                    if alternate_strip is not None:
-
-                        def _alternate_build(position):
-                            return _dim(
-                                pa,
-                                pb,
-                                alternate_side,
-                                position - edge,
-                                draft,
-                                label=label,
-                            )
-
-                        def _alternate_foot(position):
-                            return dim_footprint(
-                                pa,
-                                pb,
-                                alternate_side,
-                                position - edge,
-                                draft,
-                                label,
-                            )
-
-                        left = place_strip_candidates(
-                            dwg,
-                            alternate_strip,
-                            view,
-                            stack,
-                            [(dropped_name, _alternate_build)],
-                            tier,
-                            ctx=ctx,
-                            force=True,
-                            features={dropped_name: feature},
-                            measurements={dropped_name: measurement},
-                            footprints={dropped_name: _alternate_foot},
-                            trace=ctx.trace,
-                            trace_label=f"through_step_{alternate_side}_fallthrough",
-                        )
-                        if not left:
-                            return
-                    ctx.record_issue(
-                        "warning",
-                        "through_step_dim_dropped",
-                        f"through-step leg {_fmt(value)} not dimensioned "
-                        f"({view} {side}/{alternate_side}-strips full)",
-                        measurement=measurement,
-                    )
-
-                ctx.post_drain.append(_retry)
+            )
 
             register_corridor(
                 ctx,
@@ -3808,14 +3845,14 @@ def render_through_steps(dwg, plan, a, *, ctx, only=None) -> int:
                 tier,
                 CorridorCandidate(
                     name=name,
-                    build=_build,
+                    build=placement.build,
                     order=(_SIZE_SUBCHAIN, index, discriminator, name),
                     on_place=lambda _name: None,
-                    on_drop=_drop,
+                    on_drop=placement.drop,
                     force=True,
                     feature=group.ref,
                     measurement=approved.id,
-                    footprint=_foot,
+                    footprint=placement.footprint,
                 ),
             )
             count += 1
