@@ -68,7 +68,11 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
     candidate, using reporting and settled view geometry without a baseline drawing.
   - **`layout_selection.py`** — rank-6 finished-drawing annotation layout evidence and
     safe semantic comparison between the default and alternative layouts (guarded layout
-    selection).
+    selection). Its manifest gets raw witnesses and their summary in one
+    `lint_snapshot(drawing)` call from `drawing.py`, so it critiques one finished state once
+    without exposing a reusable scope to callers. A persistent
+    cache remains a follow-on for #1945: live annotation, view and registry mutations need
+    a complete generation contract before a cached result can be trusted.
   - **`cli.py`** — the Typer command-line interface (#289): argument parsing,
     `--version`, shell completion, `--format`, rich help. The engine (build123d)
     is imported **lazily inside the command body** so completion/`--help`/

@@ -17,11 +17,29 @@ from draftwright.annotation_layout_profile import (
 )
 from draftwright.cli import app
 from draftwright.layout_selection import (
+    _manifest,
     pre_render_view_page_overflow,
     select_best_annotation_layout,
 )
 from draftwright.linting import LintIssue
 from draftwright.sheet_emit import generate_sheet_script
+
+
+def test_layout_manifest_lints_one_state_once_issue_1945(monkeypatch):
+    # Mutation "duplicate-layout-lint": restore the old explicit lint() followed by
+    # lint_summary() in _manifest. This guard must then observe [True, True].
+    drawing = build_drawing(Box(20, 15, 10), annotation_layout="baseline")
+    expected = _manifest(drawing)
+    original_lint = drawing.lint
+    calls = []
+
+    def counted_lint(*, physical=True):
+        calls.append(physical)
+        return original_lint(physical=physical)
+
+    monkeypatch.setattr(drawing, "lint", counted_lint)
+    assert _manifest(drawing) == expected
+    assert calls == [True], "the manifest must critique this Drawing state once"
 
 
 def test_candidate_profile_rejects_unknown_names():
