@@ -2383,15 +2383,48 @@ def _scale_attempt(
 
 
 def _blocks_all_smaller_scales(blockers) -> bool:
-    """True when a blocker is mathematically monotone under scale reduction.
+    """Whether fixed paper-space legibility already rules out every smaller scale.
 
-    A step separation already below the fixed paper-space legibility threshold only shrinks
-    further at every smaller scale. Rebuilding the whole ISO ladder cannot remove it; stopping
-    here is both exact and keeps an impossible fallback bounded (#1146).
+    These messages come from world-space separations multiplied by the candidate scale
+    and compared with a fixed page-mm floor. Shrinking the scale cannot clear any of
+    them. Other placement losses may be repaired by more paper room and stay eligible
+    for the measured fallback ladder.
     """
     return any(
-        item["code"] == "step_dim_dropped" and "too closely spaced" in item["message"]
+        (
+            item["code"] == "step_dim_dropped"
+            and "too closely spaced to dimension at this scale" in item["message"]
+        )
+        or (
+            item["code"] == "location_ref_dropped"
+            and (
+                "project to less than 1 mm" in item["message"]
+                or "too closely spaced to dimension legibly" in item["message"]
+            )
+        )
         for item in blockers
+    )
+
+
+def _principal_view_exceeds_page(scale, page, bounds, views) -> bool:
+    """Rule out a fixed-scale build whose unannotated principal cannot fit.
+
+    This uses only the part's world-space bounding box and the full page, leaving
+    margins and annotation footprints out of the bound. A rejected candidate
+    therefore cannot be rescued by a different arrangement or ink placement.
+    """
+    extents = {
+        "x": bounds.max.X - bounds.min.X,
+        "y": bounds.max.Y - bounds.min.Y,
+        "z": bounds.max.Z - bounds.min.Z,
+    }
+    axes = {"front": ("x", "z"), "plan": ("x", "y"), "side": ("y", "z")}
+    page_w, page_h = page
+    return any(
+        extents[horizontal] * scale > page_w + 1e-9 or extents[vertical] * scale > page_h + 1e-9
+        for view in views
+        if (pair := axes.get(view)) is not None
+        for horizontal, vertical in (pair,)
     )
 
 
@@ -3005,7 +3038,38 @@ def build_drawing(
 
         def _try_scales_on_selected_page(candidate_scales, *, reason, require_axial_coverage):
             """Try a bounded scale sequence on the already selected sheet."""
+            original_blockers = None
             for candidate_scale in candidate_scales:
+                if candidate_scale < original_scale:
+                    if original_blockers is None:
+                        _, original_blockers = _automatic_assessment(drawing)
+                    if _blocks_all_smaller_scales(original_blockers):
+                        _record_attempt(
+                            candidate_scale,
+                            "rejected",
+                            original_blockers,
+                            reason=reason,
+                            rejection="smaller_scale_cannot_clear_legibility",
+                            views=drawing.views,
+                            page=original_page,
+                        )
+                        continue
+                if (
+                    latest_analysis is not None
+                    and hasattr(latest_analysis, "bb")
+                    and _principal_view_exceeds_page(
+                        candidate_scale, original_page, latest_analysis.bb, settled_principal_views
+                    )
+                ):
+                    _record_attempt(
+                        candidate_scale,
+                        "rejected",
+                        reason=reason,
+                        rejection="principal_view_exceeds_page",
+                        views=drawing.views,
+                        page=original_page,
+                    )
+                    continue
                 candidate_drawing = selected_page_scale_candidates.get(candidate_scale)
                 failure = selected_page_scale_failures.get(candidate_scale)
                 if candidate_drawing is None and failure is None:
@@ -3641,6 +3705,8 @@ def build_drawing(
             attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))
             last_effective_scale = fallback.scale
             last_blockers = candidate_blockers
+            if _blocks_all_smaller_scales(candidate_blockers):
+                break
             continue
         attempts.append(_scale_attempt(candidate, "complete"))
         fallback.scale_decision = _scale_decision(

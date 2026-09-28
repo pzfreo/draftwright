@@ -403,14 +403,25 @@ def test_corrective_candidate_failure_filter_is_narrow():
     assert builder._AUTOMATIC_UPSCALE_TRIAL_LIMIT == 2
 
 
-def test_monotone_step_separation_failure_does_not_rebuild_smaller_scales(monkeypatch):
+@pytest.mark.parametrize(
+    ("code", "message"),
+    [
+        ("step_dim_dropped", "5 step height(s) too closely spaced to dimension at this scale"),
+        ("location_ref_dropped", "1 X location dim(s) project to less than 1 mm"),
+        (
+            "location_ref_dropped",
+            "2 Y location dim(s) too closely spaced to dimension legibly",
+        ),
+    ],
+)
+def test_monotone_legibility_failure_does_not_rebuild_smaller_scales(monkeypatch, code, message):
     import draftwright.builder as builder
 
     calls = []
     drop = LintIssue(
         severity="warning",
-        code="step_dim_dropped",
-        message="5 step height(s) too closely spaced to dimension at this scale",
+        code=code,
+        message=message,
     )
 
     def fake_build(*args, scale, **kwargs):
@@ -428,6 +439,99 @@ def test_monotone_step_separation_failure_does_not_rebuild_smaller_scales(monkey
     assert calls == [1.0]
     assert caught.value.decision["status"] == "no_complete_scale"
     assert caught.value.decision["attempted_scales"] == (1.0,)
+
+
+def test_legibility_floor_discovered_on_retry_stops_later_builds(monkeypatch):
+    import draftwright.builder as builder
+
+    calls = []
+
+    def fake_build(*args, scale, **kwargs):
+        calls.append(scale)
+        message = (
+            "1 X location dim(s) project to less than 1 mm"
+            if scale == 0.5
+            else "required location did not fit"
+        )
+        return SimpleNamespace(
+            scale=scale,
+            lint=lambda **_: [
+                LintIssue(severity="warning", code="location_ref_dropped", message=message)
+            ],
+            recognition=lambda: None,
+            _analysis=None,
+        )
+
+    monkeypatch.setattr(builder, "_SCALES", (1.0, 0.5, 0.2, 0.1))
+    monkeypatch.setattr(builder, "_build_drawing_once", fake_build)
+
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        builder.build_drawing(Box(10, 10, 10), scale=1.0)
+
+    assert calls == [1.0, 0.5]
+    assert caught.value.decision["attempted_scales"] == (1.0, 0.5)
+    assert caught.value.decision["blockers"][0]["message"] == (
+        "1 X location dim(s) project to less than 1 mm"
+    )
+
+
+def test_location_space_shortage_still_tries_smaller_scale():
+    import draftwright.builder as builder
+
+    assert not builder._blocks_all_smaller_scales(
+        ({"code": "location_ref_dropped", "message": "required location did not fit"},)
+    )
+
+
+def test_principal_projection_must_fit_inside_the_physical_page():
+    import draftwright.builder as builder
+
+    bounds = SimpleNamespace(
+        min=SimpleNamespace(X=-340, Y=-40, Z=-360),
+        max=SimpleNamespace(X=340, Y=820, Z=40),
+    )
+    page = (1189.0, 841.0)
+    assert not builder._principal_view_exceeds_page(0.5, page, bounds, ("front", "plan", "side"))
+    assert builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "plan", "side"))
+    assert not builder._principal_view_exceeds_page(1.0, page, bounds, ("front", "side"))
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(300)
+def test_ctc02_scale_ladder_stops_at_the_location_legibility_floor_issue_1941():
+    source = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap203.stp"
+    with pytest.raises(ScaleIncompatibilityError) as caught:
+        build_drawing(source, page="A2", scale=0.2)
+
+    decision = caught.value.decision
+    assert decision["status"] == "no_complete_scale"
+    assert decision["attempted_scales"] == (0.2,)
+    assert any(
+        blocker["code"] == "location_ref_dropped"
+        and "too closely spaced to dimension legibly" in blocker["message"]
+        for blocker in decision["blockers"]
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(600)
+def test_ctc02_automatic_recovery_has_a_bounded_build_budget_issue_1941():
+    source = Path(__file__).parent / "fixtures" / "nist_ctc_02_asme1_ap203.stp"
+    events = []
+    with observe_build(events.append), pytest.warns(ScaleCompletenessWarning):
+        drawing = build_drawing(source)
+
+    decision = drawing.scale_decision
+    assert decision["status"] == "invalid"
+    assert decision["violations"]
+    assert any(
+        blocker["code"] == "location_ref_dropped"
+        and "too closely spaced to dimension legibly" in blocker["message"]
+        for blocker in decision["blockers"]
+    )
+    retries = [event for event in events if event.phase == "retry"]
+    assert len(retries) <= 3
+    assert {dict(event.details)["scale"] for event in retries} == {None, 0.5}
 
 
 def test_scale_warning_category_remains_a_dependency_free_user_warning():
