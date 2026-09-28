@@ -113,9 +113,10 @@ producer is wired through hard occupancy and measured validation; other
 families remain unplanned. The fixed-A4 adversarial fixture exposes a harder
 tradeoff: its exact measured 108.16 × 44.19 mm detail box can be reserved and
 recovers the 4 and 6 mm steps. Reserving the front-below Y-hole leader band
-also retains the ø4 callout. However, two plan-view pad-length dimensions then
-drop with `pad_dim_dropped`/`strip_full`. Although the pads have equal nominal
-sizes, no grouped or quantified carrier proves those two feature requirements
-are represented by the surviving dimensions. Passing the step and callout
+also retains the ø4 callout. Both plan-view pad-length dimensions lose their
+preferred upper strip, but one lands in the opposite strip; the other drops
+with `pad_dim_dropped`/`strip_full`. Although the pads have equal nominal
+sizes, no grouped or quantified carrier proves that remaining feature requirement
+is represented by a surviving dimension. Passing the step and callout
 assertions is therefore not a passing semantic result. The conflict needs a
 requirement-aware placement/page choice, not unbounded overlap or raw placement.
