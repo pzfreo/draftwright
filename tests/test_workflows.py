@@ -601,7 +601,7 @@ def test_version_updater_accepts_pep440_rc_but_not_tag_spelling():
     assert not module._VERSION.fullmatch("0.5.0-rc1")
 
 
-@pytest.mark.parametrize("target", ("0.4.12", "0.4.12.dev0", "0.4.12.dev123"))
+@pytest.mark.parametrize("target", ("0.4.12", "0.4.12.dev0", "0.4.12.dev123", "0.5.0rc1"))
 def test_version_updater_changes_only_project_and_lock_identity(tmp_path: Path, target: str):
     for relative in ("pyproject.toml", "uv.lock"):
         shutil.copyfile(ROOT / relative, tmp_path / relative)
@@ -614,12 +614,56 @@ def test_version_updater_changes_only_project_and_lock_identity(tmp_path: Path, 
     assert spec is not None
     module = module_from_spec(spec)
     loader.exec_module(module)
+    before_project = (tmp_path / "pyproject.toml").read_text()
+    before_lock = (tmp_path / "uv.lock").read_text()
+    current = module._single_version(
+        before_project, module._PROJECT_VERSION, "pyproject.toml"
+    ).group("version")
     module.update(tmp_path, target)
 
-    assert f'version = "{target}"' in (tmp_path / "pyproject.toml").read_text()
-    lock = (tmp_path / "uv.lock").read_text()
-    package = lock.split('[[package]]\nname = "draftwright"', 1)[1].split("[[package]]", 1)[0]
-    assert f'version = "{target}"' in package
+    assert (tmp_path / "pyproject.toml").read_text() == before_project.replace(
+        f'version = "{current}"', f'version = "{target}"', 1
+    )
+    assert (tmp_path / "uv.lock").read_text() == before_lock.replace(
+        f'[[package]]\nname = "draftwright"\nversion = "{current}"',
+        f'[[package]]\nname = "draftwright"\nversion = "{target}"',
+        1,
+    )
+
+
+@pytest.mark.parametrize("broken_lock", ("mismatch", "duplicate", "missing"))
+def test_version_updater_rejects_ambiguous_lock_without_writes(tmp_path: Path, broken_lock: str):
+    for relative in ("pyproject.toml", "uv.lock"):
+        shutil.copyfile(ROOT / relative, tmp_path / relative)
+
+    loader = SourceFileLoader(
+        "draftwright_version_update", str(ROOT / "scripts" / "update-draftwright-version")
+    )
+    spec = spec_from_loader(loader.name, loader)
+    assert spec is not None
+    module = module_from_spec(spec)
+    loader.exec_module(module)
+
+    lock_path = tmp_path / "uv.lock"
+    lock = lock_path.read_text()
+    identity = module._single_version(lock, module._LOCK_VERSION, "uv.lock").group()
+    if broken_lock == "mismatch":
+        lock = lock.replace(identity, identity.replace('version = "', 'version = "9.'), 1)
+    elif broken_lock == "duplicate":
+        lock += "\n" + identity + "\n"
+    else:
+        lock = lock.replace(
+            identity, identity.replace('name = "draftwright"', 'name = "elsewhere"'), 1
+        )
+    lock_path.write_text(lock)
+    before = [(tmp_path / relative).read_bytes() for relative in ("pyproject.toml", "uv.lock")]
+
+    with pytest.raises(RuntimeError):
+        module.update(tmp_path, "0.5.0rc1")
+
+    assert [
+        (tmp_path / relative).read_bytes() for relative in ("pyproject.toml", "uv.lock")
+    ] == before
 
 
 @pytest.mark.parametrize("event_name", ["pull_request", "push", "workflow_dispatch"])
