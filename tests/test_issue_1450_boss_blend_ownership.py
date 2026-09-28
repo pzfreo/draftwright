@@ -279,11 +279,15 @@ def test_detect_and_lint_decide_absorption_from_one_shared_predicate() -> None:
     assert "turned_profiles" in signature.parameters
     # Read the module file, not `Drawing._lint`: `test_private_test_attr_reads` ratchets
     # private-attribute reads from tests downward, and this needs no such read.
-    drawing_source = (
-        Path(__file__).resolve().parent.parent / "src" / "draftwright" / "drawing.py"
+    lint_source = (
+        Path(__file__).resolve().parent.parent
+        / "src"
+        / "draftwright"
+        / "linting"
+        / "orchestration.py"
     ).read_text(encoding="utf-8")
-    assert "turned_profiles" in drawing_source, (
-        "drawing.py must hand lint the profile set it gave detect"
+    assert "turned_profiles" in lint_source, (
+        "lint orchestration must hand coverage the profile set detect used"
     )
 
     # And the predicate itself refuses on any one of the three grounds.

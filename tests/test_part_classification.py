@@ -4,12 +4,12 @@ import math
 
 import pytest
 from build123d import Box, Compound, Cylinder, Pos
+from quiddity import analyse_cylinders
 
 from draftwright import build_drawing
 from draftwright.analysis import (
     _is_rotational,
 )
-from draftwright.drawing import analyse_cylinders
 
 
 class TestIsRotational:

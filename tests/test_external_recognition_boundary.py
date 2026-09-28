@@ -162,7 +162,9 @@ def test_manual_drawing_reuses_its_lazy_cylinder_inventory(monkeypatch) -> None:
     observed = None
     original = external_evidence.build_recognition_evidence
 
-    monkeypatch.setattr("draftwright.linting.orchestration.analyse_cylinders", lambda source: cylinders)
+    monkeypatch.setattr(
+        "draftwright.linting.orchestration.analyse_cylinders", lambda source: cylinders
+    )
 
     def recording_build(source, *, cylinders=None, rotational=False):
         nonlocal observed
