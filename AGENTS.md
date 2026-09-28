@@ -151,6 +151,11 @@ believed-and-false claim; epic #1202 alone produced about twenty-five confidentl
 false statements in commits, comments, docstrings and PR bodies, several inside the fix for
 the previous one.
 
+### Comment convention
+
+Comments explain why the current code is as it is. Cite at most one relevant issue
+when it identifies a current invariant; omit review-round citations and move history.
+
 ### Reproduce every prose claim by execution before committing it
 
 If a commit message, comment, docstring or PR body asserts a fact about this codebase — a
