@@ -40,7 +40,8 @@ passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing
 `builder` and guarded layout selection → **7** facades (`sheet`, `document`, `sheet_emit`,
 `inspection`, `cli`, the recogniser/inspection contract joins). `make_drawing` / `annotate`
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
-Shared three-decimal correspondence rounding lives in the rank-0 `contract_values` leaf;
+Shared three-decimal correspondence rounding and exact built-in finite-real validation live in
+the rank-0 `contract_values` leaf;
 shared registry evidence and outcome checks live inside rank-2 `linting/_coverage_common`.
 
 Key invariants — each is machine-enforced, and the guard test is the authority:

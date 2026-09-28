@@ -246,7 +246,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`measurement_support.py`** — run-local producer-issued measurement, interval and member witnesses.
 - **`location_contract.py`** — shared pocket/pad datum reference and coincidence predicates.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
-- **`contract_values.py`** — the three-decimal value rounding shared by correspondence checks.
+- **`contract_values.py`** — shared three-decimal correspondence rounding and exact built-in finite-real validation for record contracts.
 - **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in
   Draftwright's drafting vocabulary (pocket, channel and hex fields) and the exact inventory
   pattern joins, shared by detection and independent completeness lint.
