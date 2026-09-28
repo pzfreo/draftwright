@@ -21,41 +21,54 @@ import pytest
 
 from draftwright.model import DimensionParameterId
 
-_IR = Path(__file__).resolve().parents[1] / "src" / "draftwright" / "model" / "ir.py"
+_MODEL = Path(__file__).resolve().parents[1] / "src" / "draftwright" / "model"
+_IR_SOURCES = (_MODEL / "ir.py", _MODEL / "ir_foundation.py")
 
 #: Reachable through `dimension(...)` but not a `DimParameter`: synthesised from the planner
 #: plus a datum, and only on features `planner.location_datum` deems eligible (#876).
 _SYNTHESISED = {"location"}
 
 
-def _ir_parameters() -> set[tuple[str, str, bool]]:
-    """``(role, kind, discriminated)`` for every `DimParameter(kind, role, ...)` in `ir.py`."""
+def _parameter_calls(path: Path) -> tuple[ast.Call, ...]:
+    """Literal `DimParameter(kind, role, ...)` producers in one IR owner."""
+    return tuple(
+        node
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "DimParameter"
+        and len(node.args) >= 2
+        and all(isinstance(arg, ast.Constant) for arg in node.args[:2])
+    )
+
+
+def _parameters_in(path: Path) -> set[tuple[str, str, bool]]:
     out: set[tuple[str, str, bool]] = set()
-    for node in ast.walk(ast.parse(_IR.read_text(encoding="utf-8"))):
-        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "DimParameter"):
-            continue
-        if len(node.args) >= 2 and all(isinstance(a, ast.Constant) for a in node.args[:2]):
-            disc = any(kw.arg == "discriminator" for kw in node.keywords) or len(node.args) >= 4
-            out.add((node.args[1].value, node.args[0].value, disc))
+    for node in _parameter_calls(path):
+        disc = any(kw.arg == "discriminator" for kw in node.keywords) or len(node.args) >= 4
+        out.add((node.args[1].value, node.args[0].value, disc))
     return out
+
+
+def _ir_parameters() -> set[tuple[str, str, bool]]:
+    """``(role, kind, discriminated)`` from every IR record owner."""
+    return set().union(*(_parameters_in(path) for path in _IR_SOURCES))
 
 
 def _discriminated_ids() -> set[str]:
     """Full ids for discriminated parameters (`grid_pitch.length.row`)."""
     out = set()
-    for node in ast.walk(ast.parse(_IR.read_text(encoding="utf-8"))):
-        if not (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "DimParameter"):
-            continue
-        d = next(
-            (
-                kw.value.value
-                for kw in node.keywords
-                if kw.arg == "discriminator" and isinstance(kw.value, ast.Constant)
-            ),
-            None,
-        )
-        if d and len(node.args) >= 2:
-            out.add(f"{node.args[1].value}.{node.args[0].value}.{d}")
+    for path in _IR_SOURCES:
+        for node in _parameter_calls(path):
+            d = next(
+                (
+                    kw.value.value
+                    for kw in node.keywords
+                    if kw.arg == "discriminator" and isinstance(kw.value, ast.Constant)
+                ),
+                None,
+            )
+            if d:
+                out.add(f"{node.args[1].value}.{node.args[0].value}.{d}")
     return out
 
 
@@ -73,9 +86,15 @@ def test_the_extraction_finds_the_construction_sites():
     """Guard the guard. If the `DimParameter(...)` call shape changes, this walk silently
     finds nothing and every assertion below passes vacuously — which is the failure mode a
     derived-truth test has to rule out first."""
-    pairs = _ir_parameters()
-    assert len(pairs) > 20, f"only found {len(pairs)} parameters — has DimParameter changed?"
-    assert ("bore", "diameter", False) in pairs
+    by_owner = {path.name: _parameters_in(path) for path in _IR_SOURCES}
+    assert len(by_owner["ir.py"]) >= 20
+    assert len(by_owner["ir_foundation.py"]) >= 20
+    assert {("blend", "radius", False), ("through_step_leg", "length", True)} <= by_owner["ir.py"]
+    assert {
+        ("counterbore", "depth", False),
+        ("slot_width", "length", False),
+        ("pocket_width", "length", False),
+    } <= by_owner["ir_foundation.py"]
 
 
 def test_every_ir_measurement_is_nameable():

@@ -358,12 +358,14 @@ observer registry and re-exports its existing private helper names.
   physical lint path runs. The engine imports the builder lazily inside the function so
   `from draftwright import inspect_step` stays sub-second (#313). `sheet_emit` imports it at
   the same rank to write its sidecar; nothing below rank 7 depends on it.
-- **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
-  `Datum`/`PartModel` types — the one inventory), `oriented_slot_geometry.py` (private
-  passage and feature geometry validation, with the public dataclasses retained in `ir.py`),
-  `dimension_intent.py` (the authored
+- **`model/`** — the ADR 1 (was 0015) IR waist: `ir_foundation.py` owns the
+  foundational values, protocol and common feature records; `ir.py` re-exports those
+  records at their historical qualified names and owns `PartModel` and the remaining
+  feature records (the one inventory); `oriented_slot_geometry.py` holds private
+  passage and feature geometry validation, with the public dataclasses retained in `ir.py`;
+  `dimension_intent.py` holds the authored
   measurement selector vocabulary and semantic view/strip validation, with stable
-  forwarding functions in `ir.py`), `detect.py` (detectors →
+  forwarding functions in `ir.py`; `detect.py` (detectors →
   `Feature` objects, adapting `quiddity` records), `planner.py`
   (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,
