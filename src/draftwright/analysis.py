@@ -65,6 +65,7 @@ from draftwright._geometry import (
     dedup_diams as dedup_diams,
 )
 from draftwright.annotation_layout_profile import cap_planned_strips
+from draftwright.auxiliary_layout import document_note_rows
 from draftwright.compose import (
     StripDepths,
     _build_rear_zones,
@@ -79,7 +80,14 @@ from draftwright.compose import (
 )
 from draftwright.model.compiled import compile_dimensions
 from draftwright.model.detect import _build_part_model_from_recognition
-from draftwright.model.ir import Datum, GrooveFeature, PartModel, StepFeature, StepLevelFeature
+from draftwright.model.ir import (
+    Datum,
+    DocumentNote,
+    GrooveFeature,
+    PartModel,
+    StepFeature,
+    StepLevelFeature,
+)
 from draftwright.model.manufacturing_schedule import manufacturing_schedule
 from draftwright.model.planner import annotation_groups, plan_dimensions
 from draftwright.progress import observed_stage
@@ -1584,6 +1592,27 @@ def _analyse(
             (
                 _est_table_size(
                     planned_manufacturing_schedule.rows,
+                    font_size=_FONT_SIZE,
+                    pad_around_text=_pad_around_text,
+                ),
+                "tr",
+            ),
+        )
+    # Drawing-wide source requirements are late furniture, but their text is
+    # already known here. Give the page chooser the same measured rows the
+    # renderer will draw, after the less-flexible detail/section reservations.
+    # A redundant datum description is deliberately not a visible note; its
+    # late safety fallback remains checked by the ordinary table fit/lint path.
+    visible_document_notes = tuple(
+        feature
+        for feature in sizing_model.features
+        if isinstance(feature, DocumentNote) and feature.on_drawing
+    )
+    if visible_document_notes and (_document_input is None or pmi_mode == "annotate"):
+        layout_required_tables += (
+            (
+                _est_table_size(
+                    document_note_rows(visible_document_notes),
                     font_size=_FONT_SIZE,
                     pad_around_text=_pad_around_text,
                 ),

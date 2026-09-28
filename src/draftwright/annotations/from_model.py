@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import math
 import re
-import textwrap
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
 from typing import Any, Literal, cast
@@ -125,6 +124,7 @@ from draftwright.annotations.leaders import (
     view_material,
 )
 from draftwright.annotations.routed import RoutedLeader
+from draftwright.auxiliary_layout import document_note_rows
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
 from draftwright.linting.ink_overlap import segments_of
@@ -9720,18 +9720,7 @@ def render_document_notes(dwg, model, *, exclude=()) -> int:
     ]
     if not notes:
         return 0
-    rows = [("GENERAL NOTES",)]
-    for index, note in enumerate(notes, 1):
-        lines = textwrap.wrap(
-            _font_safe_text(note.text),
-            width=48,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        rows.extend(
-            (f"{index}  {line}" if line_index == 0 else f"   {line}",)
-            for line_index, line in enumerate(lines or [""])
-        )
+    rows = document_note_rows(notes)
     placed = dwg.add_table(
         rows,
         prefer="tr",

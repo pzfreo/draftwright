@@ -127,6 +127,14 @@ solve still measures the whole notes block and checks all occupied regions. If i
 page; do not remove engineering content merely to silence a diagnostic. General notes remain
 uncredited text: they do not automatically satisfy missing dimensions or unsupported features.
 
+Page selection also measures visible imported general notes before choosing a sheet. Derived
+sections and details claim their less-flexible space first; notes and tables take remaining
+regions. The late block placer prefers 6 mm of separation but retries the existing minimum
+ink clearance when necessary. An automatic section likewise prefers a wider gap from its
+parent row, and an unreserved detail prefers space around its complete footprint only when
+that keeps its requested scale. These are readability preferences, not permission to shrink,
+omit, or overlap required content.
+
 ### Dimension position and reading direction
 
 Position and reading direction are independent drawing-wide settings:

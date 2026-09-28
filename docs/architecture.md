@@ -323,6 +323,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   a feature's size off the build123d object — a second, *declared* front-end into
   the same IR the detectors fill). The narrow middle of the compiler hourglass;
   consumed by `annotations/from_model.py`.
+- **`auxiliary_layout.py`** — measured note rows and discretionary page-block gutters
+  shared by sheet selection and late placement. It retries the hard fit whenever
+  preferred whitespace is infeasible; it never weakens content survival.
 - **`compose.py`** — the ADR 2 (was 0004) **outer** compose-then-pack layout engine
   (`choose_scale`, `ViewBlock`, zone/strip depths). Née `sheet.py`; renamed
   (#640) so the layout engine stops shadowing the user-facing `Sheet` facade
