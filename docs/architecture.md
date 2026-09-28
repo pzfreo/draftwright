@@ -353,7 +353,9 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   `from draftwright import inspect_step` stays sub-second (#313). `sheet_emit` imports it at
   the same rank to write its sidecar; nothing below rank 7 depends on it.
 - **`model/`** — the ADR 1 (was 0015) IR waist: `ir.py` (the `Feature`/`DimParameter`/
-  `Datum`/`PartModel` types — the one inventory), `detect.py` (detectors →
+  `Datum`/`PartModel` types — the one inventory), `dimension_intent.py` (the authored
+  measurement selector vocabulary and semantic view/strip validation, with stable
+  forwarding functions in `ir.py`), `detect.py` (detectors →
   `Feature` objects, adapting `quiddity` records), `planner.py`
   (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,

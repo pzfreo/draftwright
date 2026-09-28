@@ -8,6 +8,8 @@ Proves the architecture's claims on real geometry:
    feature grouping is preserved and redundancy is feature-aware, not value-blind.
 """
 
+import inspect
+import pickle
 from dataclasses import dataclass
 
 from build123d import Box, Cylinder, Pos
@@ -25,6 +27,23 @@ from draftwright.model import (
     display,
     plan_dimensions,
 )
+
+
+def test_dimension_intent_exports_keep_ir_pickle_and_source_paths():
+    from draftwright.model import ir
+    from draftwright.model.dimension_intent import _linear_projection_view
+
+    for name in (
+        "validate_placement_intent",
+        "validate_authored_dimension_placement",
+        "authored_dimension_target_view",
+        "AuthoredDimension",
+    ):
+        value = getattr(ir, name)
+        assert value.__module__ == "draftwright.model.ir"
+        assert inspect.getsourcefile(value) == ir.__file__
+        assert pickle.loads(pickle.dumps(value)) is value
+    assert ir._linear_projection_view is _linear_projection_view
 
 
 def _z_stepped_bored():

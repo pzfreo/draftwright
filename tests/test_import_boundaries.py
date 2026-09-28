@@ -130,7 +130,7 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    "model": 0,  # the ADR 1 (was 0008) IR waist — depends only on rank-0 leaves (guarded below too)
+    "model": 0,  # IR waist and dimension-intent vocabulary; leaf imports guarded below too
     # 1 — the shared drawing/layout primitives
     "_core": 1,
     "build_options": 1,
