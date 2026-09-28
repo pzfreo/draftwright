@@ -81,7 +81,7 @@ def _tree(path: Path) -> ast.Module:
 # same source of truth, and test_every_module_is_ranked fails if a module here is missing so
 # the table can't silently drift from the tree.
 _LAYERS: dict[str, int] = {
-    # 0 — leaves: import nothing from draftwright (or only same-rank leaves / the IR waist)
+    # 0 — transitional bottom layer: same-rank imports remain until the leaf-only epic exit.
     "_geometry": 0,
     # Structured ISO 10303-21 facts only; XCAF correspondence remains in rank-2 pmi.py.
     "_pmi_part21": 0,
@@ -114,7 +114,6 @@ _LAYERS: dict[str, int] = {
     "plate_correspondence": 0,
     "contract_values": 0,
     "measurement_support": 0,
-    "location_contract": 0,
     "profile_angles": 0,
     "angular_geometry": 0,
     "recogniser_policy": 0,
@@ -136,6 +135,8 @@ _LAYERS: dict[str, int] = {
     "_core": 1,
     "build_options": 1,
     "document_input": 1,
+    # Historical import path for the pocket/pad predicates owned by measurement_support.
+    "location_contract": 1,
     # 2 — core-consumers: depend on _core, sit below the stages
     "linting": 2,
     # Schema-v1 projection over explicitly supplied finished-build state. It consumes linting's
@@ -516,14 +517,14 @@ _MODEL_MAY_IMPORT = {
     "feature_identity",
     "fonts",
     "layout",
+    # Shared pocket/pad datum geometry and requirement witnesses.
+    "measurement_support",
     "model",
     "plate_correspondence",
     "recognition",
     "recognition_frame",
     "oriented_slot_contract",
     "section_recess_contract",
-    # Shared pure pocket/pad datum geometry used by both compiler and ledger producers.
-    "location_contract",
     # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
     # conversion site. The leaf ledger depends on neither the model nor any upper stage.
     "recognition_ownership",

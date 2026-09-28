@@ -31,8 +31,11 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.location_contract import datum_location_exclusion
-from draftwright.measurement_support import RequirementCarrier, RequirementExclusion
+from draftwright.measurement_support import (
+    RequirementCarrier,
+    RequirementExclusion,
+    datum_location_exclusion,
+)
 
 _PAD_LOCATION_DATUM_COINCIDENT_CODE = "pad_location_coincident_with_datum"
 _PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}

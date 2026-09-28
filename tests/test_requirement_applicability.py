@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from build123d import Box, Pos
 
+from draftwright import location_contract, measurement_support
 from draftwright.builder import _detect_part_model_analysis
 from draftwright.linting.requirements import recognized_requirement_outcomes
 from draftwright.model.compiled import compile_dimensions
@@ -15,6 +16,16 @@ from draftwright.reporting import (
     build_requirement_catalog,
     match_requirement_catalog,
 )
+
+
+def test_location_contract_keeps_its_existing_import_surface():
+    for name in (
+        "pocket_location_reference",
+        "coincident_location_axes",
+        "datum_location_exclusion",
+    ):
+        assert getattr(location_contract, name) is getattr(measurement_support, name)
+    assert location_contract.RequirementExclusion is measurement_support.RequirementExclusion
 
 
 @pytest.fixture(scope="module", params=("pad", "pocket"))
