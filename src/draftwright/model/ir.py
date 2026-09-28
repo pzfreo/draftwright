@@ -25,6 +25,7 @@ from math import atan2, cos, hypot, isclose, isfinite, pi
 from numbers import Real
 from typing import TYPE_CHECKING, ClassVar, Literal, Protocol, cast, runtime_checkable
 
+from draftwright import contract_values
 from draftwright._geometry import (
     _axis_direction_is_aligned,
     _canonical_axis_direction,
@@ -222,15 +223,7 @@ def _finite_point3(name: str, value) -> Point:
 
 def _strict_finite_real(name: str, value) -> float:
     """Return one public numeric fact without accepting coercible impostors."""
-    if type(value) not in (int, float):
-        raise ValueError(f"{name} must be a finite real number")
-    try:
-        result = float(value)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite real number") from exc
-    if not isfinite(result):
-        raise ValueError(f"{name} must be a finite real number")
-    return result
+    return contract_values.finite_real(value, name=name)
 
 
 def _strict_finite_point3(name: str, value) -> Point:

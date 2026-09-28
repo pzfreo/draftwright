@@ -7,6 +7,7 @@ UNIT_MODULES = frozenset(
         "test_burden_report.py",
         "test_corpus_cover.py",
         "test_counting_calls.py",
+        "test_contract_values.py",
         "test_fit_calculations.py",
         "test_inspection_contract.py",
         "test_label_provenance.py",

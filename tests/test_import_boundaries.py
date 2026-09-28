@@ -508,6 +508,7 @@ _MODEL_MAY_IMPORT = {
     "profile_angles",
     "_geometry",
     "blend_contract",
+    "contract_values",
     "fits",
     # Exact compiler type branding without a linting -> model edge (#1432).
     "feature_identity",

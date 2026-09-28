@@ -7,7 +7,7 @@ preserving ADR 1 (was 0015)'s rule that ``linting`` must not import the compiler
 
 from __future__ import annotations
 
-from math import dist, hypot, isfinite
+from math import dist, hypot
 
 from quiddity import (
     OrientedSlot,
@@ -21,17 +21,11 @@ from quiddity import (
     recognise_oriented_slot_patterns,
 )
 
+from draftwright import contract_values
+
 
 def _real(value, *, name: str, positive: bool = False) -> float:
-    if type(value) not in (int, float):
-        raise ValueError(f"{name} must be a finite real number")
-    try:
-        result = float(value)
-    except (OverflowError, TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite real number") from exc
-    if not isfinite(result) or (positive and result <= 0.0):
-        raise ValueError(f"{name} must be a finite real number")
-    return result
+    return contract_values.finite_real(value, name=name, positive=positive)
 
 
 def _integer(value, *, name: str, minimum: int = 1) -> int:
