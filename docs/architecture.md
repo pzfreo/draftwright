@@ -406,6 +406,8 @@ observer registry and re-exports its existing private helper names.
   alias shim was deleted at 0.4.0, #720).
 - **`sheet_features.py`** — the facade's private token-preserving feature-list view;
   `sheet.py` re-exports `_FeatureView` for existing private imports and pickles.
+- **`sheet_layout_controls.py`** — declaration ID lookup and bounded side/lane layout
+  control policy behind `Sheet`'s stable query, validation and override methods.
 - **`sheet_object_source.py`** — live-object import seams and mutual one-to-one
   geometry correspondence for script generation. This facade-rank owner keeps the
   existing private `sheet_emit` import paths available to callers.

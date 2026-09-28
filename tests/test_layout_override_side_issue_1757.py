@@ -11,7 +11,13 @@ from jsonschema.validators import validator_for
 
 from draftwright import Sheet
 from draftwright.model import ControlFrame, DatumRef, Frame, LayoutOverride
+from draftwright.model.ir import PLACEMENT_SIDES as IR_PLACEMENT_SIDES
+from draftwright.sheet import PLACEMENT_SIDES as SHEET_PLACEMENT_SIDES
 from draftwright.sheet_emit import emit_sheet_script, mirror_model
+
+
+def test_sheet_placement_sides_import_path_stays_available() -> None:
+    assert SHEET_PLACEMENT_SIDES is IR_PLACEMENT_SIDES
 
 
 def _sheet() -> Sheet:

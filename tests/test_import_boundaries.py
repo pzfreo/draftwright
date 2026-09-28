@@ -168,6 +168,7 @@ _LAYERS: dict[str, int] = {
     "make_drawing": 7,
     "sheet": 7,
     "sheet_features": 7,
+    "sheet_layout_controls": 7,
     "document": 7,
     "sheet_emit": 7,
     "sheet_object_source": 7,
