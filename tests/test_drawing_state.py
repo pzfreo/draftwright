@@ -224,3 +224,50 @@ class TestViewBounds:
                     look_at=(0, 0, 0),
                     scaled=True,
                 )
+
+    def test_projection_reuses_exact_source_bounds_within_one_assembly(self):
+        bounds = Box(20, 10, 5, align=Align.CENTER).bounding_box()
+        edge = Edge.make_line((-10, -5, 0), (10, -5, 0))
+        calls = []
+
+        def boxed():
+            calls.append(True)
+            return bounds
+
+        shape = SimpleNamespace(
+            bounding_box=boxed,
+            project_to_viewport=lambda *_args: ((edge,), ()),
+            faces=lambda: [],
+        )
+        cache = {}
+        for name in ("front", "plan"):
+            project_view_geometry(
+                1,
+                name,
+                shape,
+                (0, 0, 100),
+                (0, 1, 0),
+                (50, 40),
+                look_at=(0, 0, 0),
+                scaled=True,
+                bounds_cache=cache,
+            )
+        assert len(calls) == 1
+
+        other = SimpleNamespace(
+            bounding_box=boxed,
+            project_to_viewport=shape.project_to_viewport,
+            faces=shape.faces,
+        )
+        project_view_geometry(
+            1,
+            "other",
+            other,
+            (0, 0, 100),
+            (0, 1, 0),
+            (50, 40),
+            look_at=(0, 0, 0),
+            scaled=True,
+            bounds_cache=cache,
+        )
+        assert len(calls) == 2
