@@ -52,6 +52,51 @@ def hole_candidate_rows(
 
 
 @dataclass(frozen=True)
+class FrontHoleLeaderCandidateAdapter:
+    """Build a front/rear strip candidate from its physical rim and solved row.
+
+    The strip remains responsible for choosing a row and committing the leader.
+    Keeping the geometry here makes that same candidate available to a later
+    shared-inventory migration without reimplementing the rim attachment.
+    """
+
+    centre: tuple[float, float]
+    diameter: float
+    side: str
+    callout: Any
+    location: tuple[float, float, float]
+    scale: float
+    draft: Any
+    to_page: Callable
+    rim_tip: Callable
+    build_leader: Callable
+
+    def physical(self, row: float) -> tuple[tuple[float, float], tuple[float, float]]:
+        elbow = (self.centre[0], row)
+        tip = self.rim_tip(
+            self.centre,
+            elbow,
+            self.diameter,
+            self.scale,
+            callout=self.callout,
+            location=self.location,
+            to_page=self.to_page,
+        )
+        return tip, elbow
+
+    def build(self, row: float):
+        tip, elbow = self.physical(row)
+        return self.build_leader(
+            tip=(tip[0], tip[1], 0),
+            elbow=(elbow[0], elbow[1], 0),
+            label="",
+            draft=self.draft,
+            text_side=self.side,
+            callout=self.callout,
+        )
+
+
+@dataclass(frozen=True)
 class HoleLeaderCandidateAdapter:
     """Supply one hole job's physical alternatives to the shared leader solver.
 
