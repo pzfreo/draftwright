@@ -15,7 +15,7 @@ import math
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import cast
+from typing import Any, cast
 
 from build123d import Compound, Shape
 from OCP.IFSelect import IFSelect_ReturnStatus
@@ -1066,65 +1066,161 @@ def _validate_explicit_scale(
             warnings.warn(message)
 
 
-def _analyse(
-    step_file,
-    title,
-    number,
-    tolerance,
-    drawn_by,
-    out,
-    scale=None,
-    page=None,
-    pmi=None,
-    source=None,
-    model=None,
-    decorations=None,
-    authored=None,
-    requested=None,
-    material="",
-    date="",
-    revision="A",
-    company="",
-    approved_by="",
-    document_type="",
-    sheet="",
-    frame: bool = False,
-    projection: str | None = None,
-    projection_symbol: bool = True,
-    text_position: str = "inline",
-    text_orientation: str = "aligned",
-    leader_region: str = "auto",
-    zones: bool = False,
-    _reuse: Analysis | None = None,
-    _required_tables=(),
-    _arrangements: tuple[str, ...] | None = None,
-    _views: tuple[str, ...] | None = None,
-    _include_iso: bool = True,
-    _view_constraints=None,
-    _plan_automatic_details: bool = True,
-    _framed_recognition: bool = False,
-    _document_input=None,
-    _scale_from_prior_analysis: bool = False,
-    margin_left: float | None = None,
-    margin_right: float | None = None,
-    margin_top: float | None = None,
-    margin_bottom: float | None = None,
-    title_block_width: float | None = None,
-) -> Analysis:
-    """Load STEP or use a build123d Shape, analyse geometry, compute layout.
+@dataclass(frozen=True)
+class _AnalysisRequest:
+    step_file: Any
+    title: Any
+    number: Any
+    tolerance: Any
+    drawn_by: Any
+    out: Any
+    scale: Any
+    page: Any
+    pmi: Any
+    source: Any
+    model: Any
+    decorations: Any
+    authored: Any
+    requested: Any
+    material: Any
+    date: Any
+    revision: Any
+    company: Any
+    approved_by: Any
+    document_type: Any
+    sheet: Any
+    frame: Any
+    projection: Any
+    projection_symbol: Any
+    text_position: Any
+    text_orientation: Any
+    leader_region: Any
+    zones: Any
+    _reuse: Any
+    _required_tables: Any
+    _arrangements: Any
+    _views: Any
+    _include_iso: Any
+    _view_constraints: Any
+    _plan_automatic_details: Any
+    _framed_recognition: Any
+    _document_input: Any
+    _scale_from_prior_analysis: Any
+    margin_left: Any
+    margin_right: Any
+    margin_top: Any
+    margin_bottom: Any
+    title_block_width: Any
 
-    Returns an :class:`Analysis`.
-    """
-    if _document_input is not None:
-        if model is None or _framed_recognition:
-            raise ValueError("document members require their sealed raw model")
-        _document_input.validate(
-            step_file, model.features if isinstance(model, PartModel) else model
-        )
-        if _reuse is None:
-            _reuse = _document_input.analysis
-        elif _reuse.part is not _document_input.analysis.part:
-            raise ValueError("document analysis reuse names a foreign working solid")
+
+@dataclass(frozen=True)
+class _SourceState:
+    reuse: Analysis | None
+    convention: Any
+    frame: Any
+    sheet_margins: Any
+    content_margins: Any
+    title_block_width: Any
+    margin: Any
+    title_block_margins: Any
+    part: Any
+    source_part: Any
+    recognition_frame: Any
+    recognition_frame_decision: Any
+    pmi_defaulted: Any
+    pmi_mode: Any
+    pmi_report: Any
+    pmi_records: Any
+    bb: Any
+    x_size: Any
+    y_size: Any
+    z_size: Any
+    cx: Any
+    cy: Any
+    cz: Any
+    bbox_max: Any
+    z_cyls: Any
+    cross_cyls: Any
+    z_diams: Any
+    cross_diams: Any
+    od_diam: Any
+    od_axis: Any
+    is_rotational: Any
+    layout_model: Any
+    recognition: Any
+    recognition_evidence: Any
+
+
+@dataclass(frozen=True)
+class _ModelState:
+    recognition_evidence: RecognitionEvidence | None
+    _turned: Any
+    _profiles: Any
+    step_zs: Any
+    shared_cyls: Any
+    _draft_est: Any
+    _arrow_length: Any
+    _pad_around_text: Any
+    holes: Any
+    patterns: Any
+    bosses: Any
+    slots: Any
+    pads: Any
+    sizing_model: Any
+    recognition_ownership: Any
+
+
+@dataclass(frozen=True)
+class _DemandState:
+    strip_sizing_model: Any
+    planned_manufacturing_schedule: Any
+    bore_callout_width: Any
+    layout_section: Any
+    detail_footprints_for_scale: Any
+    layout_table_sizes: Any
+    layout_required_tables: Any
+    planned_iso_scale: Any
+    layout_step_zs: Any
+
+
+@dataclass(frozen=True)
+class _PlacementState:
+    layout_advisories: Any
+    ARRANGEMENT: Any
+    layout_iso_scale: Any
+    layout_iso_scale_authored: Any
+    SCALE: Any
+    PAGE_W: Any
+    PAGE_H: Any
+    TB_W: Any
+    n_steps: Any
+    strips: Any
+    _g: Any
+    fv_zones: Any
+    pv_zones: Any
+    sv_zones: Any
+
+
+@dataclass(frozen=True)
+class _SheetOptions:
+    convention: str
+    frame: bool
+    sheet_margins: SheetMargins
+    content_margins: SheetMargins
+    title_block_width: float | None
+    margin: SheetMargins | float
+    title_block_margins: SheetMargins | None
+
+
+def _sheet_options(r: _AnalysisRequest) -> _SheetOptions:
+    projection = r.projection
+    frame = r.frame
+    zones = r.zones
+    margin_left = r.margin_left
+    margin_right = r.margin_right
+    margin_top = r.margin_top
+    margin_bottom = r.margin_bottom
+    title_block_width = r.title_block_width
     convention = projection or "third"
     # The zone-grid ruler (#768) draws its ticks on the frame, so it implies one.
     frame = frame or zones
@@ -1150,6 +1246,71 @@ def _analyse(
         title_block_margins = replace(
             sheet_margins, right=sheet_margins.right + 1.0, bottom=sheet_margins.bottom + 1.0
         )
+    return _SheetOptions(
+        convention=convention,
+        frame=frame,
+        sheet_margins=sheet_margins,
+        content_margins=content_margins,
+        title_block_width=title_block_width,
+        margin=margin,
+        title_block_margins=title_block_margins,
+    )
+
+
+def _extract_source_pmi(step_file, source, pmi_mode, recognition_frame):
+    pmi_report = None
+    pmi_records = []
+    pmi_source = None if isinstance(step_file, Shape) else step_file
+    if pmi_source is None and source is not None:
+        pmi_source = source
+    if pmi_source is not None:
+        from draftwright.pmi import PmiExtractionReport, extract_pmi_report
+
+        try:
+            pmi_report = extract_pmi_report(pmi_source, frame=recognition_frame)
+            if pmi_mode != "off":
+                pmi_records = list(pmi_report.records)
+        except Exception as exc:
+            _log.warning("PMI extraction failed: %s", exc)
+            pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
+
+    return pmi_report, pmi_records
+
+
+def _prepare_source(r: _AnalysisRequest) -> _SourceState:
+    step_file = r.step_file
+    pmi = r.pmi
+    source = r.source
+    model = r.model
+    decorations = r.decorations
+    frame = r.frame
+    _reuse = r._reuse
+    _framed_recognition = r._framed_recognition
+    _document_input = r._document_input
+    margin_left = r.margin_left
+    margin_right = r.margin_right
+    margin_top = r.margin_top
+    margin_bottom = r.margin_bottom
+    title_block_width = r.title_block_width
+    if _document_input is not None:
+        if model is None or _framed_recognition:
+            raise ValueError("document members require their sealed raw model")
+        _document_input.validate(
+            step_file, model.features if isinstance(model, PartModel) else model
+        )
+        if _reuse is None:
+            _reuse = _document_input.analysis
+        elif _reuse.part is not _document_input.analysis.part:
+            raise ValueError("document analysis reuse names a foreign working solid")
+    options = _sheet_options(r)
+    convention = options.convention
+    frame = options.frame
+    sheet_margins = options.sheet_margins
+    content_margins = options.content_margins
+    title_block_width = options.title_block_width
+    any(value is not None for value in (margin_left, margin_right, margin_top, margin_bottom))
+    margin = options.margin
+    title_block_margins = options.title_block_margins
     recognition: RecognitionResult | None
     recognition_evidence: RecognitionEvidence | None = None
     recognition_frame: PartFrame | None = None
@@ -1277,19 +1438,9 @@ def _analyse(
         # import_step(...)` line, so the emitter can state it. It is the caller's claim, not a
         # proof the bytes produced this solid, so `pmi_source` records name and digest and the
         # stage summary reports them rather than leaving the link assumed.
-        pmi_source = None if isinstance(step_file, Shape) else step_file
-        if pmi_source is None and source is not None:
-            pmi_source = source
-        if pmi_source is not None:
-            from draftwright.pmi import PmiExtractionReport, extract_pmi_report
-
-            try:
-                pmi_report = extract_pmi_report(pmi_source, frame=recognition_frame)
-                if pmi_mode != "off":
-                    pmi_records = list(pmi_report.records)
-            except Exception as exc:
-                _log.warning("PMI extraction failed: %s", exc)
-                pmi_report = PmiExtractionReport(error=f"{type(exc).__name__}: {exc}")
+        pmi_report, pmi_records = _extract_source_pmi(
+            step_file, source, pmi_mode, recognition_frame
+        )
 
         bb = part.bounding_box()
         x_size = bb.max.X - bb.min.X
@@ -1306,6 +1457,64 @@ def _analyse(
         z_diams, cross_diams = _gc.z_diams, _gc.cross_diams
         od_diam, od_axis, is_rotational = _gc.od_diam, _gc.od_axis, _gc.is_rotational
 
+    return _SourceState(
+        reuse=_reuse,
+        convention=convention,
+        frame=frame,
+        sheet_margins=sheet_margins,
+        content_margins=content_margins,
+        title_block_width=title_block_width,
+        margin=margin,
+        title_block_margins=title_block_margins,
+        part=part,
+        source_part=source_part,
+        recognition_frame=recognition_frame,
+        recognition_frame_decision=recognition_frame_decision,
+        pmi_defaulted=pmi_defaulted,
+        pmi_mode=pmi_mode,
+        pmi_report=pmi_report,
+        pmi_records=pmi_records,
+        bb=bb,
+        x_size=x_size,
+        y_size=y_size,
+        z_size=z_size,
+        cx=cx,
+        cy=cy,
+        cz=cz,
+        bbox_max=bbox_max,
+        z_cyls=z_cyls,
+        cross_cyls=cross_cyls,
+        z_diams=z_diams,
+        cross_diams=cross_diams,
+        od_diam=od_diam,
+        od_axis=od_axis,
+        is_rotational=is_rotational,
+        layout_model=layout_model,
+        recognition=recognition,
+        recognition_evidence=recognition_evidence,
+    )
+
+
+def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
+    text_position = r.text_position
+    text_orientation = r.text_orientation
+    _reuse = s.reuse
+    _document_input = r._document_input
+    part = s.part
+    pmi_mode = s.pmi_mode
+    pmi_records = s.pmi_records
+    bb = s.bb
+    cx = s.cx
+    cy = s.cy
+    z_cyls = s.z_cyls
+    cross_cyls = s.cross_cyls
+    z_diams = s.z_diams
+    od_diam = s.od_diam
+    od_axis = s.od_axis
+    is_rotational = s.is_rotational
+    layout_model = s.layout_model
+    recognition = s.recognition
+    recognition_evidence = s.recognition_evidence
     # Step Z-levels feed both the step-height ladder and the page-sizing step
     # count. For a vertical (Z-axis) turned part, take them from the unified
     # turned-step model (ADR 1 (was 0008) step 1): it filters shoulders by the OD
@@ -1466,6 +1675,42 @@ def _analyse(
         # the original conversion authority rather than acquiring another recognition run.
         recognition_evidence = _document_input.analysis.recognition_evidence
         recognition_ownership = _document_input.analysis.recognition_ownership
+    return _ModelState(
+        recognition_evidence=recognition_evidence,
+        _turned=_turned,
+        _profiles=_profiles,
+        step_zs=step_zs,
+        shared_cyls=shared_cyls,
+        _draft_est=_draft_est,
+        _arrow_length=_arrow_length,
+        _pad_around_text=_pad_around_text,
+        holes=holes,
+        patterns=patterns,
+        bosses=bosses,
+        slots=slots,
+        pads=pads,
+        sizing_model=sizing_model,
+        recognition_ownership=recognition_ownership,
+    )
+
+
+def _plan_sheet_demand(r: _AnalysisRequest, s: _SourceState, m: _ModelState) -> _DemandState:
+    authored = r.authored
+    requested = r.requested
+    _required_tables = r._required_tables
+    _views = r._views
+    _view_constraints = r._view_constraints
+    _plan_automatic_details = r._plan_automatic_details
+    _document_input = r._document_input
+    pmi_mode = s.pmi_mode
+    bb = s.bb
+    cx = s.cx
+    cy = s.cy
+    is_rotational = s.is_rotational
+    _profiles = m._profiles
+    _draft_est = m._draft_est
+    _pad_around_text = m._pad_around_text
+    sizing_model = m.sizing_model
     # Dimension feasibility and annotation footprints consume the authored set.
     # Derived-view dependencies still use sizing_model below; omitting an unrelated
     # envelope extent must not force its view back onto an authored sheet.
@@ -1625,6 +1870,64 @@ def _analyse(
     # just as a declared replay does (#1592). Keep step_zs as the recognition diagnostic.
     layout_step_zs = _declared_step_zs(sizing_model, _profiles, bb)
 
+    return _DemandState(
+        strip_sizing_model=strip_sizing_model,
+        planned_manufacturing_schedule=planned_manufacturing_schedule,
+        bore_callout_width=bore_callout_width,
+        layout_section=layout_section,
+        detail_footprints_for_scale=detail_footprints_for_scale,
+        layout_table_sizes=layout_table_sizes,
+        layout_required_tables=layout_required_tables,
+        planned_iso_scale=planned_iso_scale,
+        layout_step_zs=layout_step_zs,
+    )
+
+
+@dataclass(frozen=True)
+class _ScaleState:
+    advisories: tuple[tuple[str, str], ...]
+    scale: float
+    page_w: float
+    page_h: float
+    title_block_width: float
+    arrangement: str
+    iso_scale: float | None
+    iso_scale_authored: bool
+
+
+def _select_sheet(
+    r: _AnalysisRequest, s: _SourceState, m: _ModelState, d: _DemandState
+) -> _ScaleState:
+    scale = r.scale
+    page = r.page
+    text_position = r.text_position
+    text_orientation = r.text_orientation
+    _reuse = s.reuse
+    _arrangements = r._arrangements
+    _views = r._views
+    _include_iso = r._include_iso
+    _view_constraints = r._view_constraints
+    _scale_from_prior_analysis = r._scale_from_prior_analysis
+    title_block_width = r.title_block_width
+    convention = s.convention
+    title_block_width = s.title_block_width
+    margin = s.margin
+    title_block_margins = s.title_block_margins
+    bb = s.bb
+    x_size = s.x_size
+    y_size = s.y_size
+    z_size = s.z_size
+    _arrow_length = m._arrow_length
+    _pad_around_text = m._pad_around_text
+    strip_sizing_model = d.strip_sizing_model
+    bore_callout_width = d.bore_callout_width
+    layout_section = d.layout_section
+    detail_footprints_for_scale = d.detail_footprints_for_scale
+    layout_table_sizes = d.layout_table_sizes
+    layout_required_tables = d.layout_required_tables
+    planned_iso_scale = d.planned_iso_scale
+    layout_step_zs = d.layout_step_zs
+
     # Choose scale/page, iterating so the reserved step corridor matches the
     # number of steps the legibility gate will actually place (#1) — not the raw
     # face count. Otherwise a part with many sub-legible faces (e.g. a staircase
@@ -1728,7 +2031,58 @@ def _analyse(
         iso_scale_factor=layout_iso_scale,
         convention=convention,
     )
-    DIM_PAD = _DIM_PAD
+    return _ScaleState(
+        advisories=tuple(layout_advisories),
+        scale=SCALE,
+        page_w=PAGE_W,
+        page_h=PAGE_H,
+        title_block_width=TB_W,
+        arrangement=ARRANGEMENT,
+        iso_scale=layout_iso_scale,
+        iso_scale_authored=layout_iso_scale_authored,
+    )
+
+
+def _place_sheet(
+    r: _AnalysisRequest, s: _SourceState, m: _ModelState, d: _DemandState
+) -> _PlacementState:
+    _reuse = s.reuse
+    _arrangements = r._arrangements
+    _views = r._views
+    _include_iso = r._include_iso
+    _view_constraints = r._view_constraints
+    _scale_from_prior_analysis = r._scale_from_prior_analysis
+    convention = s.convention
+    margin = s.margin
+    title_block_margins = s.title_block_margins
+    bb = s.bb
+    x_size = s.x_size
+    y_size = s.y_size
+    z_size = s.z_size
+    cx = s.cx
+    cy = s.cy
+    cz = s.cz
+    _arrow_length = m._arrow_length
+    _pad_around_text = m._pad_around_text
+    strip_sizing_model = d.strip_sizing_model
+    bore_callout_width = d.bore_callout_width
+    layout_section = d.layout_section
+    detail_footprints_for_scale = d.detail_footprints_for_scale
+    layout_table_sizes = d.layout_table_sizes
+    layout_required_tables = d.layout_required_tables
+    layout_step_zs = d.layout_step_zs
+
+    picked = _select_sheet(r, s, m, d)
+    layout_advisories = list(picked.advisories)
+    SCALE, PAGE_W, PAGE_H, TB_W = (
+        picked.scale,
+        picked.page_w,
+        picked.page_h,
+        picked.title_block_width,
+    )
+    ARRANGEMENT = picked.arrangement
+    layout_iso_scale = picked.iso_scale
+    layout_iso_scale_authored = picked.iso_scale_authored
     # margin was computed up front (_content_margin(frame)) so scale selection already saw it.
     # Refine: apply the same legibility gate _auto_annotate uses for dim_step.
     n_steps = len(_legible_steps(layout_step_zs, bb.min.Z, SCALE)[0])
@@ -1787,22 +2141,12 @@ def _analyse(
                 relation.validate(
                     places[relation.subject].bounds, places[relation.reference].bounds
                 )
-    fv_hw = _g.fv_hw
-    fv_hh = _g.fv_hh
-    pv_hh = _g.pv_hh
-    sv_hw = _g.sv_hw
-    x_offset = _g.x_offset
     FV_X = _g.FV_X
     FV_Y = _g.FV_Y
     PV_X = _g.PV_X
     PV_Y = _g.PV_Y
     SV_X = _g.SV_X
     SV_Y = _g.SV_Y
-    sv_right = _g.sv_right
-    iso_left_limit = _g.iso_left
-    iso_bottom_limit = _g.iso_bottom
-    iso_right_limit = _g.iso_right
-    iso_top_limit = _g.iso_top
     ISO_X = _g.ISO_X
     ISO_Y = _g.ISO_Y
 
@@ -1841,107 +2185,226 @@ def _analyse(
         ISO_Y,
     )
 
-    return Analysis(
-        layout_advisories=tuple(layout_advisories),
-        arrangement=ARRANGEMENT,
-        planned_views=_views,
-        planned_iso=_include_iso,
-        RV_X=_g.RV_X,
-        RV_Y=_g.RV_Y,
-        rv_zones=_build_rear_zones(_g, margin, PAGE_H),
-        derived_view_boxes=tuple(_g.derived_view_boxes.items()),
-        planned_iso_scale=layout_iso_scale,
-        planned_iso_scale_authored=layout_iso_scale_authored,
-        view_constraints=_view_constraints,
-        part=part,
-        source_part=source_part,
-        recognition_frame=recognition_frame,
-        recognition_frame_decision=recognition_frame_decision,
-        pmi_working_records=(
-            tuple(pmi_records) if recognition_frame is not None and pmi_mode != "off" else None
-        ),
-        recognition=recognition,
-        recognition_evidence=recognition_evidence,
-        recognition_ownership=recognition_ownership,
-        bb=bb,
-        x_size=x_size,
-        y_size=y_size,
-        z_size=z_size,
-        cx=cx,
-        cy=cy,
-        cz=cz,
-        bbox_max=bbox_max,
-        holes=holes,
-        patterns=patterns,
-        bosses=bosses,
-        slots=slots,
-        pads=pads,
-        z_diams=z_diams,
-        cross_diams=cross_diams,
-        cyls=shared_cyls,
-        prof=_turned,
-        profiles=_profiles,
-        od_diam=od_diam,
-        is_rotational=is_rotational,
-        od_axis=od_axis,
-        step_zs=step_zs,
-        layout_strips=strips,
-        layout_n_steps=n_steps,
-        layout_section=layout_section,
-        layout_table_sizes=layout_table_sizes,
-        layout_required_tables=layout_required_tables,
-        sv_right=sv_right,
-        iso_right_limit=iso_right_limit,
+    return _PlacementState(
+        layout_advisories=layout_advisories,
+        ARRANGEMENT=ARRANGEMENT,
+        layout_iso_scale=layout_iso_scale,
+        layout_iso_scale_authored=layout_iso_scale_authored,
         SCALE=SCALE,
         PAGE_W=PAGE_W,
         PAGE_H=PAGE_H,
         TB_W=TB_W,
-        DIM_PAD=DIM_PAD,
-        margin=_content_margin(frame),
-        sheet_margins=sheet_margins,
-        content_margins=content_margins,
-        title_block_width=title_block_width,
-        title_block_margins=title_block_margins,
-        x_offset=x_offset,
-        FV_X=FV_X,
-        FV_Y=FV_Y,
-        PV_X=PV_X,
-        PV_Y=PV_Y,
-        SV_X=SV_X,
-        SV_Y=SV_Y,
-        proj=_Projector(
-            fv_x=FV_X,
-            fv_y=FV_Y,
-            sv_x=SV_X,
-            sv_y=SV_Y,
-            pv_x=PV_X,
-            pv_y=PV_Y,
-            rv_x=_g.RV_X,
-            rv_y=_g.RV_Y,
-            cx=cx,
-            cy=cy,
-            cz=cz,
-            scale=SCALE,
-        ),
-        ISO_X=ISO_X,
-        ISO_Y=ISO_Y,
-        iso_left_limit=iso_left_limit,
-        iso_bottom_limit=iso_bottom_limit,
-        iso_top_limit=iso_top_limit,
-        # View half-extents in page units (convenient for strip arithmetic)
-        fv_hw=fv_hw,
-        fv_hh=fv_hh,
-        pv_hh=pv_hh,
-        sv_hw=sv_hw,
-        # Strip / zone layout model — the per-view strips ADR 2 (was 0009) placement reads
+        n_steps=n_steps,
+        strips=strips,
+        _g=_g,
         fv_zones=fv_zones,
         pv_zones=pv_zones,
         sv_zones=sv_zones,
+    )
+
+
+def _assemble_analysis(
+    r: _AnalysisRequest, s: _SourceState, m: _ModelState, d: _DemandState, p: _PlacementState
+) -> Analysis:
+    return Analysis(
+        layout_advisories=tuple(p.layout_advisories),
+        arrangement=p.ARRANGEMENT,
+        planned_views=r._views,
+        planned_iso=r._include_iso,
+        RV_X=p._g.RV_X,
+        RV_Y=p._g.RV_Y,
+        rv_zones=_build_rear_zones(p._g, s.margin, p.PAGE_H),
+        derived_view_boxes=tuple(p._g.derived_view_boxes.items()),
+        planned_iso_scale=p.layout_iso_scale,
+        planned_iso_scale_authored=p.layout_iso_scale_authored,
+        view_constraints=r._view_constraints,
+        part=s.part,
+        source_part=s.source_part,
+        recognition_frame=s.recognition_frame,
+        recognition_frame_decision=s.recognition_frame_decision,
+        pmi_working_records=(
+            tuple(s.pmi_records)
+            if s.recognition_frame is not None and s.pmi_mode != "off"
+            else None
+        ),
+        recognition=s.recognition,
+        recognition_evidence=m.recognition_evidence,
+        recognition_ownership=m.recognition_ownership,
+        bb=s.bb,
+        x_size=s.x_size,
+        y_size=s.y_size,
+        z_size=s.z_size,
+        cx=s.cx,
+        cy=s.cy,
+        cz=s.cz,
+        bbox_max=s.bbox_max,
+        holes=m.holes,
+        patterns=m.patterns,
+        bosses=m.bosses,
+        slots=m.slots,
+        pads=m.pads,
+        z_diams=s.z_diams,
+        cross_diams=s.cross_diams,
+        cyls=m.shared_cyls,
+        prof=m._turned,
+        profiles=m._profiles,
+        od_diam=s.od_diam,
+        is_rotational=s.is_rotational,
+        od_axis=s.od_axis,
+        step_zs=m.step_zs,
+        layout_strips=p.strips,
+        layout_n_steps=p.n_steps,
+        layout_section=d.layout_section,
+        layout_table_sizes=d.layout_table_sizes,
+        layout_required_tables=d.layout_required_tables,
+        sv_right=p._g.sv_right,
+        iso_right_limit=p._g.iso_right,
+        SCALE=p.SCALE,
+        PAGE_W=p.PAGE_W,
+        PAGE_H=p.PAGE_H,
+        TB_W=p.TB_W,
+        DIM_PAD=_DIM_PAD,
+        margin=_content_margin(s.frame),
+        sheet_margins=s.sheet_margins,
+        content_margins=s.content_margins,
+        title_block_width=s.title_block_width,
+        title_block_margins=s.title_block_margins,
+        x_offset=p._g.x_offset,
+        FV_X=p._g.FV_X,
+        FV_Y=p._g.FV_Y,
+        PV_X=p._g.PV_X,
+        PV_Y=p._g.PV_Y,
+        SV_X=p._g.SV_X,
+        SV_Y=p._g.SV_Y,
+        proj=_Projector(
+            fv_x=p._g.FV_X,
+            fv_y=p._g.FV_Y,
+            sv_x=p._g.SV_X,
+            sv_y=p._g.SV_Y,
+            pv_x=p._g.PV_X,
+            pv_y=p._g.PV_Y,
+            rv_x=p._g.RV_X,
+            rv_y=p._g.RV_Y,
+            cx=s.cx,
+            cy=s.cy,
+            cz=s.cz,
+            scale=p.SCALE,
+        ),
+        ISO_X=p._g.ISO_X,
+        ISO_Y=p._g.ISO_Y,
+        iso_left_limit=p._g.iso_left,
+        iso_bottom_limit=p._g.iso_bottom,
+        iso_top_limit=p._g.iso_top,
+        # View half-extents in page units (convenient for strip arithmetic)
+        fv_hw=p._g.fv_hw,
+        fv_hh=p._g.fv_hh,
+        pv_hh=p._g.pv_hh,
+        sv_hw=p._g.sv_hw,
+        # Strip / zone layout model — the per-view strips ADR 2 (was 0009) placement reads
+        fv_zones=p.fv_zones,
+        pv_zones=p.pv_zones,
+        sv_zones=p.sv_zones,
+        step_file=r.step_file,
+        title=r.title,
+        number=r.number,
+        tolerance=r.tolerance,
+        drawn_by=r.drawn_by,
+        material=r.material,
+        date=r.date,
+        revision=r.revision,
+        company=r.company,
+        approved_by=r.approved_by,
+        document_type=r.document_type,
+        sheet=r.sheet,
+        frame=s.frame,
+        projection=r.projection,
+        projection_symbol=r.projection_symbol,
+        text_position=r.text_position,
+        text_orientation=r.text_orientation,
+        leader_region=r.leader_region,
+        projection_convention=s.convention,
+        zones=r.zones,
+        out=r.out,
+        pmi_report=s.pmi_report,
+        pmi_mode=s.pmi_mode,
+        pmi_defaulted=s.pmi_defaulted,
+        manufacturing_schedule=d.planned_manufacturing_schedule,
+        document_member=r._document_input is not None,
+        document_source_annotations=(
+            r._document_input.source_annotations() if r._document_input is not None else ()
+        ),
+        # The sizing model IS the render model when detection ran (identical inputs by
+        # construction — #584 WP1 A); store it so the pipeline never detects twice
+        # (ADR 1 (was 0008 Amdt 5), #602). A declared model (layout_model) is NOT stored: the
+        # builder coerces + decorates the caller's model itself.
+        model=m.sizing_model if s.layout_model is None else None,
+    )
+
+
+def _analyse(
+    step_file,
+    title,
+    number,
+    tolerance,
+    drawn_by,
+    out,
+    scale=None,
+    page=None,
+    pmi=None,
+    source=None,
+    model=None,
+    decorations=None,
+    authored=None,
+    requested=None,
+    material="",
+    date="",
+    revision="A",
+    company="",
+    approved_by="",
+    document_type="",
+    sheet="",
+    frame: bool = False,
+    projection: str | None = None,
+    projection_symbol: bool = True,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
+    leader_region: str = "auto",
+    zones: bool = False,
+    _reuse: Analysis | None = None,
+    _required_tables=(),
+    _arrangements: tuple[str, ...] | None = None,
+    _views: tuple[str, ...] | None = None,
+    _include_iso: bool = True,
+    _view_constraints=None,
+    _plan_automatic_details: bool = True,
+    _framed_recognition: bool = False,
+    _document_input=None,
+    _scale_from_prior_analysis: bool = False,
+    margin_left: float | None = None,
+    margin_right: float | None = None,
+    margin_top: float | None = None,
+    margin_bottom: float | None = None,
+    title_block_width: float | None = None,
+) -> Analysis:
+    """Load STEP or use a build123d Shape, analyse geometry, compute layout.
+
+    Returns an :class:`Analysis`.
+    """
+    r = _AnalysisRequest(
         step_file=step_file,
         title=title,
         number=number,
         tolerance=tolerance,
         drawn_by=drawn_by,
+        out=out,
+        scale=scale,
+        page=page,
+        pmi=pmi,
+        source=source,
+        model=model,
+        decorations=decorations,
+        authored=authored,
+        requested=requested,
         material=material,
         date=date,
         revision=revision,
@@ -1955,20 +2418,25 @@ def _analyse(
         text_position=text_position,
         text_orientation=text_orientation,
         leader_region=leader_region,
-        projection_convention=convention,
         zones=zones,
-        out=out,
-        pmi_report=pmi_report,
-        pmi_mode=pmi_mode,
-        pmi_defaulted=pmi_defaulted,
-        manufacturing_schedule=planned_manufacturing_schedule,
-        document_member=_document_input is not None,
-        document_source_annotations=(
-            _document_input.source_annotations() if _document_input is not None else ()
-        ),
-        # The sizing model IS the render model when detection ran (identical inputs by
-        # construction — #584 WP1 A); store it so the pipeline never detects twice
-        # (ADR 1 (was 0008 Amdt 5), #602). A declared model (layout_model) is NOT stored: the
-        # builder coerces + decorates the caller's model itself.
-        model=sizing_model if layout_model is None else None,
+        _reuse=_reuse,
+        _required_tables=_required_tables,
+        _arrangements=_arrangements,
+        _views=_views,
+        _include_iso=_include_iso,
+        _view_constraints=_view_constraints,
+        _plan_automatic_details=_plan_automatic_details,
+        _framed_recognition=_framed_recognition,
+        _document_input=_document_input,
+        _scale_from_prior_analysis=_scale_from_prior_analysis,
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+        title_block_width=title_block_width,
     )
+    s = _prepare_source(r)
+    m = _build_sizing_model(r, s)
+    d = _plan_sheet_demand(r, s, m)
+    p = _place_sheet(r, s, m, d)
+    return _assemble_analysis(r, s, m, d, p)
