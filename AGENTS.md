@@ -44,7 +44,8 @@ passes; `orchestrator._PASS_SEQUENCE` is the one stage order) → **5** `drawing
 `sheet_object_source`, `inspection`, `cli`, the recogniser/inspection contract joins).
 `make_drawing` / `annotate`
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
-Shared three-decimal correspondence rounding and exact built-in finite-real validation live in
+Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
+common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
 shared registry evidence, outcome checks, and blind-slot value validation live inside
 rank-2 `linting/_coverage_common`.

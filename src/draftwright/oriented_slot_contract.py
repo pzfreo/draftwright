@@ -22,6 +22,7 @@ from quiddity import (
 )
 
 from draftwright import contract_values
+from draftwright.contract_values import cross3 as _cross
 
 
 def _real(value, *, name: str, positive: bool = False) -> float:
@@ -54,14 +55,6 @@ def _unit(value, *, name: str, length_tolerance: float = 2e-5) -> tuple[float, f
 
 def _dot(first: tuple[float, ...], second: tuple[float, ...]) -> float:
     return float(sum(left * right for left, right in zip(first, second, strict=True)))
-
-
-def _cross(first, second) -> tuple[float, float, float]:
-    return (
-        first[1] * second[2] - first[2] * second[1],
-        first[2] * second[0] - first[0] * second[2],
-        first[0] * second[1] - first[1] * second[0],
-    )
 
 
 def _normalised(value) -> tuple[float, float, float]:

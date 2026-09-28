@@ -268,7 +268,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`location_contract.py`** — stable rank-1 import path for those predicates; the
   implementation is owned by `measurement_support.py` and this path is not deprecated.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
-- **`contract_values.py`** — shared three-decimal correspondence rounding and exact built-in finite-real validation for record contracts.
+- **`contract_values.py`** — shared three-decimal correspondence rounding, exact built-in finite-real validation, and the common compensated dot product and 3D cross product used by profile and frame checks.
 - **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in
   Draftwright's drafting vocabulary (pocket, channel and hex fields) and the exact inventory
   pattern joins, shared by detection and independent completeness lint.

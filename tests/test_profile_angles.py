@@ -21,8 +21,18 @@ from quiddity.evidence import ProfileLine, build_recognition_evidence
 
 from draftwright import Sheet
 from draftwright.model import AngularReference, angle
-from draftwright.profile_angles import profile_angle_repetitions, profile_angle_requirements
+from draftwright.profile_angles import (
+    _cross,
+    _dot,
+    profile_angle_repetitions,
+    profile_angle_requirements,
+)
 from draftwright.recognition_ownership import RecognitionOwnershipBuilder
+
+
+def test_profile_vector_helpers_accept_original_keyword_names():
+    assert _dot(a=(1, 2, 3), b=(4, 5, 6)) == 32
+    assert _cross(a=(1, 2, 3), b=(4, 5, 6)) == (-3, 6, -3)
 
 
 @pytest.fixture(scope="module", params=[(0, 0, 0), (90, 0, 0), (0, 90, 0)])
