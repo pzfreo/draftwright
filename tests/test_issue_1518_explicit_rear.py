@@ -567,6 +567,7 @@ def test_short_rear_location_is_a_reported_loss_and_strict_refusal(axis, point, 
         )
     drops = [issue for issue in drawing.lint() if issue.code == "off_axis_location_dropped"]
     assert len(drops) == 1 and "shorter than 1 mm" in drops[0].message
+    assert drops[0].evidence_reason == "off_axis_span_below_1_mm"
     assert any(identity.parameter.endswith(f".{axis}") for identity in drops[0].measurement_ids)
     assert not [issue for issue in drawing.lint() if issue.code == "hole_requirement_missing"]
 

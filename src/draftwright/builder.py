@@ -1952,6 +1952,23 @@ def _is_required_scale_drop(issue) -> bool:
     return True
 
 
+def _short_off_axis_span_blocks_smaller_scales(blockers) -> bool:
+    """A placed-model location already below 1 mm cannot recover by shrinking.
+
+    The off-axis pass emits this typed evidence only after an approved, nonzero
+    location span fails its paper-space gate. Explicit retries reuse the same model
+    and principal views. The off-axis loss has no table replacement or retraction,
+    so every smaller scale would report the same required loss. Other drop reasons
+    have no such implication.
+    """
+    return any(
+        blocker["code"] == "off_axis_location_dropped"
+        and blocker.get("evidence_reason") == "off_axis_span_below_1_mm"
+        and blocker["measurements"]
+        for blocker in blockers
+    )
+
+
 #: Placement failures a different sheet or scale can repair, which must NOT refuse an
 #: explicitly requested one.
 #:
@@ -2023,21 +2040,23 @@ def _scale_blockers_from_issues(issues) -> tuple[dict, ...]:
     for issue in issues:
         if not _is_required_scale_drop(issue):
             continue
-        blockers.append(
-            {
-                "severity": issue.severity,
-                "code": issue.code,
-                "message": issue.message,
-                "measurements": tuple(
-                    _scale_requirement(mid) for mid in getattr(issue, "measurement_ids", ())
-                ),
-                "hole_requirements": tuple(
-                    _hole_scale_requirement(req)
-                    for req in getattr(issue, "hole_requirement_ids", ())
-                ),
-                "source_ids": tuple(getattr(issue, "source_ids", ())),
-            }
-        )
+        blocker = {
+            "severity": issue.severity,
+            "code": issue.code,
+            "message": issue.message,
+            "measurements": tuple(
+                _scale_requirement(mid) for mid in getattr(issue, "measurement_ids", ())
+            ),
+            "hole_requirements": tuple(
+                _hole_scale_requirement(req) for req in getattr(issue, "hole_requirement_ids", ())
+            ),
+            "source_ids": tuple(getattr(issue, "source_ids", ())),
+        }
+        if issue.code == "off_axis_location_dropped" and (
+            issue.evidence_reason == "off_axis_span_below_1_mm"
+        ):
+            blocker["evidence_reason"] = issue.evidence_reason
+        blockers.append(blocker)
     return tuple(blockers)
 
 
@@ -2742,16 +2761,24 @@ def build_drawing(
             _document_input.validate(built.working_part, built.model().features)
         return _post_build(built) if _post_build is not None else built
 
-    def scale_blockers_for(built: Drawing) -> tuple[dict, ...]:
+    def scale_blockers_for(built: Drawing, expected_scale: float) -> tuple[tuple[dict, ...], bool]:
         nonlocal critique_recognition_cache
         found = _scale_blockers(built)
+        # A caller's post-build hook may add a different representation. Require
+        # the candidate's effective scale to be its requested rung as well: the
+        # next requested rung must actually be smaller than the proved one.
+        short_off_axis_span = (
+            _post_build is None
+            and built.scale == expected_scale
+            and _short_off_axis_span_blocks_smaller_scales(found)
+        )
         if critique_recognition_cache is None:
             evidence_reader = getattr(built, "recognition_evidence", None)
             critique_recognition_cache = RecognitionCache(
                 result=built.recognition(),
                 evidence=evidence_reader() if callable(evidence_reader) else None,
             )
-        return found
+        return found, short_off_axis_span
 
     views_are_automatic = _view_constraints is None or (
         isinstance(_view_constraints, ViewConstraints) and _view_constraints.is_automatic_only
@@ -3586,7 +3613,10 @@ def build_drawing(
         candidate.view_decision = settled_view_decision
         return candidate
 
-    blockers = assessed_blockers if assessed_blockers is not None else scale_blockers_for(drawing)
+    if assessed_blockers is None:
+        blockers, short_off_axis_span = scale_blockers_for(drawing, requested_scale)
+    else:
+        blockers, short_off_axis_span = assessed_blockers, False
     if not blockers:
         drawing.scale_decision = _scale_decision(
             policy=scale_policy,
@@ -3631,13 +3661,22 @@ def build_drawing(
         )
 
     attempted = [requested_scale]
-    attempts = [_scale_attempt(requested_scale, "incomplete", blockers)]
+    attempts = [
+        _scale_attempt(
+            requested_scale,
+            "incomplete",
+            blockers,
+            reason="off_axis_span_below_1_mm" if short_off_axis_span else None,
+        )
+    ]
     last_effective_scale = drawing.scale
     last_blockers = blockers
     # ``_SCALES`` is descending and contains the preferred ISO 5455 reductions. The
     # requested non-standard scale is evaluated first above; fallback candidates must be
     # standard and no greater than it.
     for candidate in (item for item in _SCALES if item < requested_scale):
+        if short_off_axis_span:
+            break
         attempted.append(candidate)
         try:
             fallback = _build(
@@ -3651,9 +3690,16 @@ def build_drawing(
                 break
             raise
         fallback = _retain_explicit_view_decision(fallback)
-        candidate_blockers = scale_blockers_for(fallback)
+        candidate_blockers, short_off_axis_span = scale_blockers_for(fallback, candidate)
         if candidate_blockers:
-            attempts.append(_scale_attempt(candidate, "incomplete", candidate_blockers))
+            attempts.append(
+                _scale_attempt(
+                    candidate,
+                    "incomplete",
+                    candidate_blockers,
+                    reason="off_axis_span_below_1_mm" if short_off_axis_span else None,
+                )
+            )
             last_effective_scale = fallback.scale
             last_blockers = candidate_blockers
             continue
