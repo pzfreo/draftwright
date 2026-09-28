@@ -53,6 +53,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "slot_rendering": "src/draftwright/annotations/_slots.py",
         "drawing_edits": "src/draftwright/drawing_edits.py",
         "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
+        "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -242,6 +243,18 @@ def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():
         "test_tolerances.py",
     } <= selected
     assert "test_pad_rendering.py" in selected
+
+
+def test_pocket_pad_owner_runs_its_label_and_placement_contracts():
+    source = "src/draftwright/annotations/_pocket_pad.py"
+    assert selected_groups([source]) == {"pocket_pad_leaders", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_pad_rendering.py",
+        "test_tolerances.py",
+        "test_refactor_golden.py",
+        "test_issue_740_leader_assignment.py",
+    } <= selected
 
 
 def test_unknown_production_module_selects_every_contract_group():

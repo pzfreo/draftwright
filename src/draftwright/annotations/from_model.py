@@ -113,6 +113,10 @@ from draftwright.annotations._common import (
     strip_occupants,
     view_label_clearance,
 )
+from draftwright.annotations._pocket_pad import _POCKET_LEAD_DIRS as _POCKET_LEAD_DIRS
+from draftwright.annotations._pocket_pad import _pocket_label as _pocket_label
+from draftwright.annotations._pocket_pad import pad_height_jobs as _pad_height_jobs
+from draftwright.annotations._pocket_pad import pocket_jobs as _pocket_jobs
 
 # The slot-family implementation owns witness geometry and corridor candidates. Keep
 # the public pass here; the late radius jobs join the shared machined-leader solve.
@@ -3532,34 +3536,6 @@ def _groove_label(width_text, diameter_text, wsfx="", dsfx="") -> str:
     return f"{width_text}{wsfx} WIDE × ø{diameter_text}{dsfx}"
 
 
-def _pocket_label(
-    width_text, length_text, depth_text, wsfx="", lsfx="", dsfx="", *, maximum_depth=False
-) -> str:
-    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The values
-    are the PLANNED ones (``pd.param.value``, #728); *wsfx*/*lsfx*/*dsfx* are each value's
-    pre-formatted tolerance suffix, interleaved so a tolerance rides its own number. (All
-    three params share kind ``"length"``, so today one authored decoration folds onto all
-    three — the per-value suffixes render that honestly; independent tolerancing needs an
-    authoring-surface change, #698.) The ISO depth glyph (↧) is drawn as geometry by the
-    helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
-    to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
-    Formatting lives in the render layer (ADR 3 (was 0013 §7))."""
-    depth_word = "MAX DEEP" if maximum_depth else "DEEP"
-    if all(value is not None for value in (width_text, length_text, depth_text)):
-        label = f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} {depth_word}"
-    else:
-        label = "POCKET " + ", ".join(
-            f"{value}{suffix} {role}"
-            for value, suffix, role in (
-                (width_text, wsfx, "WIDE"),
-                (length_text, lsfx, "LONG"),
-                (depth_text, dsfx, depth_word),
-            )
-            if value is not None
-        )
-    return label
-
-
 def _rectangular_blind_slot_label(
     width_text=None, length_text=None, depth_text=None, wsfx="", lsfx="", dsfx=""
 ) -> str:
@@ -3595,11 +3571,6 @@ def _round_bottom_blind_slot_label(flat_width, radius, length, draft) -> str:
     return "ROUND-BOTTOM OPEN SLOT " + " × ".join(terms)
 
 
-def _pad_height_label(height_text, suffix="") -> str:
-    """The font-safe attachment-axis height callout for a side-normal pad."""
-    return f"{height_text}{suffix} HIGH"
-
-
 def _slot_label(width_text, length_text, wsfx="", lsfx="") -> str:
     """The grouped slot-array callout string: ``SLOT {width} × {length}`` (#841). A slot has no
     depth, so — unlike :func:`_pocket_label` — there is no ``× depth DEEP``; the ``SLOT`` prefix
@@ -3617,19 +3588,6 @@ def _oriented_slot_label(width, length, draft) -> str:
     return "ORIENTED SLOT " + " × ".join(terms)
 
 
-# Unit lead directions. Diagonals remain first as the stable tie-break, while
-# within-pass assignment normally selects the shortest jointly compatible ray.
-_POCKET_LEAD_DIRS = (
-    (1, 1),
-    (-1, 1),
-    (-1, -1),
-    (1, -1),
-    (1, 0),
-    (0, 1),
-    (-1, 0),
-    (0, -1),
-)
-
 # Independently owned coaxial diameters can exhaust the eight pocket directions.
 # This bounded circular fan supplies additional rim targets to the same solver;
 # every candidate remains radial and is ranked for clearance from projected bores.
@@ -3643,19 +3601,6 @@ _END_DIAMETER_LEAD_DIRS = (
 # footprint into adjacent-view ink; the diagonal set keeps auto, live and deferred placement
 # on the same local wall corridor.
 _CIRCULAR_STEP_LEAD_DIRS = _POCKET_LEAD_DIRS[:4]
-
-# A side-view pad height belongs in the exterior upper-right quadrant.  Keeping its
-# leader there prevents it from entering the adjacent front view, which a view-scoped
-# feature-leader solve deliberately does not own.  The lower-right ray is excluded too:
-# the side-below overall/location ladder can otherwise run through the HIGH label even
-# though the shared solver legitimately retains the required leader under Policy B.
-# Front and plan pads retain the established full fan; those views already participate in
-# the fixed-ink solve without the side/front adjacency that motivated this constraint.
-_PAD_HEIGHT_LEAD_DIRS = {
-    "x": ((1, 1), (1, 0)),
-    "y": _POCKET_LEAD_DIRS,
-    "z": _POCKET_LEAD_DIRS,
-}
 
 
 def _circular_step_candidates(dwg, view, bounds, feature, reach, label, *, provenance=None):
@@ -3871,26 +3816,6 @@ def _round_bottom_blind_slot_candidates(
         yield (tip, elbow, provenance)
 
 
-def _rectangular_rim_bounds(
-    dwg, view, feature, *, long_axis: str, width_axis: str, length: float, width: float
-) -> tuple[float, float, float, float]:
-    """Projected bounds of a rectangular opening in its face-on view."""
-    centre = list(feature.frame.origin)
-    points = []
-    for long_sign in (-1, 1):
-        for width_sign in (-1, 1):
-            corner = centre.copy()
-            corner["xyz".index(long_axis)] += long_sign * length / 2
-            corner["xyz".index(width_axis)] += width_sign * width / 2
-            points.append(dwg.at(view, *corner))
-    return (
-        min(point[0] for point in points),
-        min(point[1] for point in points),
-        max(point[0] for point in points),
-        max(point[1] for point in points),
-    )
-
-
 def _ray_polygon_exit_dist(origin, direction, polygon) -> float | None:
     """Nearest non-negative intersection of a ray from inside a projected polygon."""
     ox, oy = origin[:2]
@@ -3971,80 +3896,14 @@ def _leader_hole_clearance(
 
 
 def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
-    """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
-    ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
-    reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
-    mid-face, so — unlike a corner chamfer — it contributes alternatives toward each margin
-    to the shared within-pass assignment; the callout is dropped (lint, not silently) if none
-    lands in clear room. Returns the count placed.
-
-    Planner-fed (#728 / #698): the multi-parameter case — width, length AND depth in one
-    label — so EACH value + its tolerance is bound explicitly by its ``(role, kind)``
-    (``pocket_width``/``pocket_length``/``pocket_depth``, all kind ``"length"``), never
-    positionally, never ``dims[0]``. Formatting ``pk.width``… directly dropped an authored
-    tolerance (the #629 class). The pass KEEPS its own axis→view map: ``g.view`` keys on
-    the frame axis, which is the pocket's LONG axis, but the callout reads in the view
-    normal to the DEPTH axis — not identical, so the map stays."""
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    view_of = _END_ON
-    pocket_groups = list(plan.of_kind("pocket"))
-    jobs = []
-    for i, g in enumerate(
-        sorted(pocket_groups, key=lambda g: (g.facts.width_axis, g.facts.frame.origin))
-    ):
-        pk = g.facts
-        if only is not None and g.ref not in only:
-            continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
-        by_key = {(pd.role, pd.kind): pd for pd in g.dims}
-        wpd = by_key.get(("pocket_width", "length"))
-        lpd = by_key.get(("pocket_length", "length"))
-        dpd = by_key.get(("pocket_depth", "length")) or by_key.get(("pocket_max_depth", "length"))
-        dimensions = tuple(d for d in (wpd, lpd, dpd) if d is not None)
-        if not dimensions:
-            continue
-        view = view_of.get(pk.depth_axis)
-        if view is None:
-            continue
-        vb = dwg.view_bounds(view)
-        if vb is None:
-            continue
-        jobs.append(
-            (
-                f"m_pocket_{pk.width_axis}{pk.long_axis}{i}",
-                view,
-                vb,
-                _pocket_label(
-                    wpd.value_text if wpd is not None else None,
-                    lpd.value_text if lpd is not None else None,
-                    dpd.value_text if dpd is not None else None,
-                    wsfx=_tol_suffix(wpd.tolerance, draft) if wpd is not None else "",
-                    lsfx=_tol_suffix(lpd.tolerance, draft) if lpd is not None else "",
-                    maximum_depth=dpd is not None and dpd.role == "pocket_max_depth",
-                    dsfx=_tol_suffix(dpd.tolerance, draft) if dpd is not None else "",
-                ),
-                _radial_candidates(
-                    dwg,
-                    view,
-                    vb,
-                    pk,
-                    reach,
-                    source_bounds=_rectangular_rim_bounds(
-                        dwg,
-                        view,
-                        pk,
-                        long_axis=pk.long_axis,
-                        width_axis=pk.width_axis,
-                        length=lpd.value,
-                        width=wpd.value,
-                    )
-                    if wpd is not None and lpd is not None
-                    else None,
-                    provenance=g.ref,
-                ),
-                tuple(d.id for d in dimensions),
-            )
-        )
+    """Submit compiler-approved pocket leader jobs to the shared late assignment."""
+    jobs = _pocket_jobs(
+        dwg,
+        plan,
+        only=only,
+        leader_callout_reach=_leader_callout_reach,
+        radial_candidates=_radial_candidates,
+    )
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -4254,76 +4113,14 @@ def render_round_bottom_blind_slots(dwg, plan, a, *, ctx, only=None) -> int:
 
 
 def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
-    """Place pad heights as solver-owned leaders in each pad's end-on view.
-
-    The existing footprint dimensions remain linear corridor candidates.  The arrow targets
-    the terminal footprint boundary and every printed value comes from the compiled plan
-    (ADR 1 (was 0015) / ADR 4 (was 0016)).  A Z profile level is datum-to-attachment evidence, not the pad's local
-    terminal-to-attachment height, so Z pads reach this pass too.
-    """
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    jobs = []
-    groups = sorted(
-        plan.of_kind("pad"), key=lambda group: (group.facts.frame.axis, group.facts.frame.origin)
+    """Submit compiler-approved pad-height jobs to the shared late assignment."""
+    jobs = _pad_height_jobs(
+        dwg,
+        plan,
+        only=only,
+        leader_callout_reach=_leader_callout_reach,
+        radial_candidates=_radial_candidates,
     )
-    for index, group in enumerate(groups):
-        if only is not None and group.ref not in only:
-            continue
-        by_key = {(item.role, item.kind): item for item in group.dims}
-        height = by_key.get(("pad_height", "length"))
-        if height is None:
-            continue
-        # Structural placement facts come through the compiled boundary.  Resolving the
-        # opaque provenance handle here would let this renderer recover measurements the
-        # compiler withheld under authored intent (ADR 1 (was 0015) / ADR 4 (was 0016)).
-        pad = group.facts
-        view = _END_ON[pad.frame.axis]
-        bounds = dwg.view_bounds(view)
-        if bounds is None:
-            continue
-        # An authored set may request the independently addressable height while omitting
-        # both footprint measurements.  In that case the terminal face centre is still a
-        # complete structural leader target; do not recover the suppressed sizes through
-        # provenance merely to move the arrow to the rim (ADR 1 (was 0015) / ADR 4 (was 0016)).  When both approved
-        # sizes are present, their values may refine that same target to the footprint edge.
-        width = by_key.get(("pad_width", "length"))
-        length = by_key.get(("pad_length", "length"))
-        source_bounds = (
-            _rectangular_rim_bounds(
-                dwg,
-                view,
-                pad,
-                long_axis=pad.long_axis,
-                width_axis=pad.width_axis,
-                length=length.value,
-                width=width.value,
-            )
-            if width is not None and length is not None
-            else None
-        )
-        jobs.append(
-            (
-                f"m_pad_height_{pad.frame.axis}{index}",
-                view,
-                bounds,
-                _pad_height_label(
-                    height.value_text,
-                    _tol_suffix(height.tolerance, draft),
-                ),
-                _radial_candidates(
-                    dwg,
-                    view,
-                    bounds,
-                    pad,
-                    reach,
-                    source_bounds=source_bounds,
-                    directions=_PAD_HEIGHT_LEAD_DIRS[pad.frame.axis],
-                    provenance=group.ref,
-                ),
-                (height.id,),
-            )
-        )
     return place_machined_leader_jobs(
         dwg,
         a,

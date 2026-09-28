@@ -303,6 +303,40 @@ def test_authored_pad_height_does_not_require_suppressed_footprint_measurements(
     assert rebuilt.get_annotation(rebuilt_height).label == "5 ±0.1 HIGH"
 
 
+def test_authored_pad_width_does_not_restore_omitted_height():
+    part = _signed_pad("x", 1)
+    automatic = build_drawing(part)
+    source_pad = next(feature for feature in automatic.model().features if feature.kind == "pad")
+    assert "pad_height.length" in {parameter.parameter_id for parameter in source_pad.parameters()}
+    x0, x1 = source_pad.bounds("x")
+    y0, y1 = source_pad.bounds("y")
+    z0, z1 = source_pad.bounds("z")
+
+    sheet = Sheet(part).authored_dimensions()
+    handle = sheet.pad(
+        x0=x0,
+        x1=x1,
+        y0=y0,
+        y1=y1,
+        z0=z0,
+        z1=z1,
+        axis="x",
+        direction=1,
+        at=source_pad.frame.origin,
+    )
+    sheet.dimension(handle, "pad_width.length")
+    drawing = sheet.build()
+    pad = next(feature for feature in drawing.model().features if feature.kind == "pad")
+    placed = {
+        key["parameter_id"]
+        for name in drawing.annotations_of(pad)
+        for key in drawing.measurement_keys(name)
+    }
+    assert "pad_width.length" in placed
+    assert "pad_height.length" not in placed
+    assert not [name for name in drawing.annotations() if name.startswith("m_pad_height")]
+
+
 def test_authored_pad_height_does_not_reserve_suppressed_side_pad_bands(monkeypatch):
     """Suppressed footprint/location marks cannot reduce the selected drawing scale."""
     measured_side_strips = []

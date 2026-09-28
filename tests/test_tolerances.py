@@ -425,6 +425,34 @@ class TestSheetTolerance:
         self._pocket_handle(s).tolerance(0.2, on="depth")
         assert self._deep_label(s.build()) == "18 × 30 × 5 ±0.2 DEEP"
 
+    def test_authored_pocket_width_keeps_omitted_values_off_the_label(self):
+        part = self._pocket_part()
+        automatic = build_drawing(part)
+        pocket = next(
+            feature for feature in automatic.model().features if feature.kind == "pocket"
+        )
+        assert {parameter.parameter_id for parameter in pocket.parameters()} >= {
+            "pocket_width.length",
+            "pocket_length.length",
+            "pocket_depth.length",
+        }
+
+        sheet = Sheet(part, title="P").authored_dimensions()
+        handle = self._pocket_handle(sheet)
+        sheet.dimension(handle, "pocket_width.length")
+        drawing = sheet.build()
+        labels = [
+            (name, drawing.get_annotation(name).label)
+            for name in drawing.annotations()
+            if name.startswith("m_pocket")
+        ]
+        assert len(labels) == 1
+        name, label = labels[0]
+        assert label == "POCKET 18 WIDE"
+        assert {key["parameter_id"] for key in drawing.measurement_keys(name)} == {
+            "pocket_width.length"
+        }
+
     def test_pocket_whole_feature_tolerance_folds_onto_all(self):
         # A bare .tolerance() (no on=) on the handle folds onto every parameter — the
         # kind-keyed back-compat form.

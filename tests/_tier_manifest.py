@@ -233,6 +233,15 @@ CONTRACT_GROUPS = {
             "test_tolerances.py",
         ),
     ),
+    "pocket_pad_leaders": ContractGroup(
+        ("src/draftwright/annotations/_pocket_pad.py",),
+        (
+            "test_pad_rendering.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_issue_740_leader_assignment.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (
