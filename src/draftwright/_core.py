@@ -407,7 +407,7 @@ def _table_metrics(rows, font_size, pad_around_text, block_cols=None):
     return lefts, rights, cursor, row_h * len(rows), row_h, bc
 
 
-def _build_table(rows, draft, block_cols=None):
+def _build_table(rows, draft, block_cols=None, left_align_cols=()):
     """Build a generic data-table annotation at the origin (bottom-left ``(0, 0)``).
 
     *rows* is a list of equal-length string tuples; ``rows[0]`` is the header,
@@ -443,12 +443,15 @@ def _build_table(rows, draft, block_cols=None):
             display = _font_safe_text(cell)
             if not display:
                 continue
-            cx = (lefts[ci] + rights[ci]) / 2
+            left_aligned = ci in left_align_cols
+            cx = (
+                lefts[ci] + draft.pad_around_text if left_aligned else (lefts[ci] + rights[ci]) / 2
+            )
             text = Text(
                 txt=display,
                 font_size=fs,
                 font_path=PLEX_MONO,
-                align=(Align.CENTER, Align.CENTER),
+                align=(Align.MIN if left_aligned else Align.CENTER, Align.CENTER),
                 mode=Mode.PRIVATE,
             ).locate(Location((cx, cy, 0)))
             children.extend(text.faces())

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import re
+import textwrap
 from dataclasses import dataclass, replace
 from itertools import groupby, tee
 from typing import Any, Literal, cast
@@ -9706,9 +9707,18 @@ def render_document_notes(dwg, model, *, exclude=()) -> int:
     ]
     if not notes:
         return 0
-    rows = [("GENERAL NOTES",)] + [
-        (f"{index}  {_font_safe_text(note.text)}",) for index, note in enumerate(notes, 1)
-    ]
+    rows = [("GENERAL NOTES",)]
+    for index, note in enumerate(notes, 1):
+        lines = textwrap.wrap(
+            _font_safe_text(note.text),
+            width=48,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        rows.extend(
+            (f"{index}  {line}" if line_index == 0 else f"   {line}",)
+            for line_index, line in enumerate(lines or [""])
+        )
     placed = dwg.add_table(
         rows,
         prefer="tr",
@@ -9717,6 +9727,7 @@ def render_document_notes(dwg, model, *, exclude=()) -> int:
         _features=tuple(notes),
         _drop_code="pmi_dropped",
         _drop_severity="error",
+        _left_align_cols=(0,),
     )
     return len(notes) if placed is not None else 0
 

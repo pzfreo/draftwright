@@ -61,7 +61,7 @@ class ManufacturingSchedule:
         return tuple(rows)
 
 
-def _wrap_requirement(text: str, *, width: int = 52) -> tuple[str, ...]:
+def _wrap_requirement(text: str, *, width: int = 44) -> tuple[str, ...]:
     """Break at words without changing any source term or punctuation."""
     lines: list[str] = []
     current = ""

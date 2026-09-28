@@ -3965,6 +3965,7 @@ class Drawing:
         _drop_code: str = "table_dropped",
         _drop_severity: Literal["error", "warning", "info"] = "warning",
         _cells=(),
+        _left_align_cols=(),
     ):
         """Add a generic data table in the preferred available sheet region (#93/#1145).
 
@@ -3983,7 +3984,9 @@ class Drawing:
             return None
         if _cells and name in self._registry:
             raise ValueError(f"measured schedule name {name!r} already belongs to an annotation")
-        table = _build_table(rows, self.draft, block_cols=block_cols)
+        table = _build_table(
+            rows, self.draft, block_cols=block_cols, left_align_cols=_left_align_cols
+        )
         # Keep the rows the table draws, so its content is readable back off the annotation
         # (#1217). A table renders as compound geometry with no `label`, so without this a
         # hole table's measurement claims can be neither confirmed nor refuted — and the

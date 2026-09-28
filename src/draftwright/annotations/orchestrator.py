@@ -393,6 +393,7 @@ def _place_manufacturing_schedule(dwg, schedule, ctx) -> bool:
         _features=schedule.owners,
         _drop_code="pmi_dropped",
         _drop_severity="error",
+        _left_align_cols=(1,),
     )
     if table is None:
         # This was an *alternative* presentation.  No short references were

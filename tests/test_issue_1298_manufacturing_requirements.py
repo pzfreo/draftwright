@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 from build123d import Align, Axis, Box, Cylinder, Pos
 
-from draftwright import Sheet, build_drawing
+from draftwright import Drawing, Sheet, build_drawing
 from draftwright.analysis import _import_step
+from draftwright.linting.issues import LintIssue
 from draftwright.linting.pmi_coverage import lint_pmi_lowering
 from draftwright.model.detect import build_part_model
 from draftwright.model.ir import (
@@ -843,6 +844,57 @@ def test_typed_manufacturing_row_keeps_plain_sibling_diameters_in_the_shared_sol
     }
 
 
+def test_unplaced_manufacturing_table_keeps_complete_direct_labels(monkeypatch):
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Cylinder(5.0, 2.0, align=align).rotate(Axis.Y, 90) + (
+        Pos(2.0, 0, 0) * Cylinder(1.5, 20.0, align=align).rotate(Axis.Y, 90)
+    )
+    model = lower_ap242_manufacturing_requirements(
+        PartModel(
+            part.bounding_box(),
+            "x",
+            [
+                _step(10.0, 0.0, 2.0),
+                _step(3.0, 2.0, 22.0),
+                _raw(
+                    "knurl",
+                    KNURL_TEXT,
+                    _reference(diameter=10.0, interval=(0.3, 1.7), sense="external"),
+                    "#2008",
+                ),
+                _raw(
+                    "external_thread",
+                    EXTERNAL_TEXT,
+                    _reference(diameter=3.0, interval=(2.5, 21.5), sense="external"),
+                    "#2000",
+                ),
+            ],
+        )
+    )
+    original_add_table = Drawing.add_table
+
+    def refuse_manufacturing_table(self, rows, **kwargs):
+        if kwargs.get("name") == "manufacturing_requirements":
+            self.registry.record_issue(
+                LintIssue("error", "pmi_dropped", "simulated full table", source_ids=("x",))
+            )
+            return None
+        return original_add_table(self, rows, **kwargs)
+
+    monkeypatch.setattr(Drawing, "add_table", refuse_manufacturing_table)
+    drawing = build_drawing(part, model=model, pmi="annotate", page="A2")
+
+    assert drawing.registry.named("manufacturing_requirements") is None
+    labels = [
+        drawing.get_annotation(name).label
+        for name in drawing.annotations()
+        if name.startswith("m_dia_x")
+    ]
+    assert any("FULL AVAILABLE LENGTH" in label for label in labels)
+    assert any("STRAIGHT KNURL P1 FULL WIDTH" in label for label in labels)
+    assert not [issue for issue in drawing.lint(physical=False) if issue.code == "pmi_dropped"]
+
+
 def test_identical_typed_threads_on_distinct_owners_keep_two_owned_annotations():
     align = (Align.CENTER, Align.CENTER, Align.MIN)
     segments = [
@@ -1619,9 +1671,8 @@ def test_exact_grm03_renders_complete_source_owned_manufacturing_drawing_once():
     assert [note.on_drawing for note in document_notes] == [True, False]
     assert drawing.get_annotation("general_notes").table_rows == (
         ("GENERAL NOTES",),
-        (
-            "1  Datum A is the axis derived from DIA 5; datum B is the DIA 10-to-DIA 5 shoulder face",
-        ),
+        ("1  Datum A is the axis derived from DIA 5; datum B",),
+        ("   is the DIA 10-to-DIA 5 shoulder face",),
     )
     assert drawing.registry.features_of("general_notes") == (document_notes[0],)
     assert drawing.registry.names_for_feature(document_notes[1]) == []

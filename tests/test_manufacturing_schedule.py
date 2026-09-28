@@ -3,11 +3,10 @@
 from dataclasses import replace
 from types import SimpleNamespace
 
-from draftwright.annotations.orchestrator import _place_manufacturing_schedule
 from draftwright.linting.pmi_coverage import lint_manufacturing_references
 from draftwright.model.ir import CylindricalReference, KnurlRequirement, ThreadRequirement
 from draftwright.model.manufacturing_schedule import (
-    manufacturing_callout_suffix,
+    _wrap_requirement,
     manufacturing_schedule,
 )
 
@@ -97,6 +96,15 @@ def test_one_requirement_or_pmi_off_keeps_direct_callouts():
     )
 
 
+def test_long_requirement_wrap_keeps_the_final_phrase_together():
+    assert _wrap_requirement(
+        "M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118° CONVENTIONAL DRILL POINT"
+    ) == (
+        "M2 x 0.4-6H RH; 6 MIN FULL THREAD; 118°",
+        "CONVENTIONAL DRILL POINT",
+    )
+
+
 def test_ambiguous_source_identity_fails_closed_to_direct_callouts():
     thread = _thread()
     knurl = replace(_knurl(), source_ids=thread.source_ids)
@@ -112,42 +120,6 @@ def test_ambiguous_source_identity_fails_closed_to_direct_callouts():
         )
         is None
     )
-
-
-def test_failed_table_fit_keeps_full_leaders_and_retracts_speculative_drop():
-    thread = _thread()
-    schedule = manufacturing_schedule(
-        SimpleNamespace(
-            features=[
-                SimpleNamespace(thread=thread, knurl=None),
-                SimpleNamespace(thread=None, knurl=_knurl()),
-            ]
-        ),
-        include_source_pmi=True,
-    )
-
-    class Registry:
-        issues = ("earlier",)
-
-        def named(self, _name):
-            return None
-
-        def restore_issues(self, issues):
-            self.issues = issues
-
-    registry = Registry()
-
-    def no_room(*_args, **_kwargs):
-        registry.issues = ("earlier", "speculative table drop")
-        return None
-
-    ctx = SimpleNamespace(registry=registry, manufacturing_tags=None)
-    dwg = SimpleNamespace(add_table=no_room)
-
-    assert _place_manufacturing_schedule(dwg, schedule, ctx) is False
-    assert registry.issues == ("earlier",)
-    assert ctx.manufacturing_tags is None
-    assert manufacturing_callout_suffix(thread, ctx.manufacturing_tags) == thread.callout_suffix
 
 
 def test_free_text_mention_of_manufacturing_reference_is_not_engine_claim():
