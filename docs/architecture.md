@@ -12,7 +12,7 @@ top: leaf modules (`progress.py`, `layout.py`, `obligations.py` (pure semantic s
 topology and corridor demand planning), `leader_policy.py`, `registry.py`, `fonts.py`,
 `_geometry.py`,
 `fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `location_contract.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary) →
 `_core.py` → stage modules (`export.py`,
@@ -215,6 +215,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
   asserted by `test_the_expired_compat_aliases_stay_deleted`.
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `coverage.py` (`lint_feature_coverage` + `CoverageState`),
+  `_coverage_common.py` (shared registry evidence and outcome checks),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink, with explicit unavailable
   physical-support evidence),
@@ -245,6 +246,7 @@ IR, generation, and drawing code must not depend on benchmark expectations or sc
 - **`measurement_support.py`** — run-local producer-issued measurement, interval and member witnesses.
 - **`location_contract.py`** — shared pocket/pad datum reference and coincidence predicates.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
+- **`contract_values.py`** — the three-decimal value rounding shared by correspondence checks.
 - **`section_recess_contract.py`** — the published `SectionRecess` grammar interpreted in
   Draftwright's drafting vocabulary (pocket, channel and hex fields) and the exact inventory
   pattern joins, shared by detection and independent completeness lint.

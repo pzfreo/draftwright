@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from collections import Counter
 
+from draftwright.contract_values import rounded as _rounded
 from draftwright.measurement_support import MeasurementSupport, RequirementAlternative
 
 Point = tuple[float, float, float]
-
-
-def _rounded(value) -> float:
-    return round(float(value), 3)
 
 
 def plate_center(plate) -> Point:

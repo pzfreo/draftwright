@@ -10,15 +10,17 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Literal
 
 from quiddity import RecognitionResult, SectionRecess
 
 from draftwright._core import _decode_hole_location_fact
+from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import location_state
 from draftwright.linting._registry import (
     RequirementCarrierEvidence,
     satisfaction_ids,
-    satisfaction_of,
 )
 from draftwright.linting.issues import (
     UNJOINED_PARAMETER_ID,
@@ -60,10 +62,6 @@ class PocketRequirementOutcome:
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     intrinsic_exclusion: RequirementExclusion | None = field(default=None, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _rounded(value) -> float:
-    return round(float(value), 3)
 
 
 def _point(value) -> tuple[float, float, float]:
@@ -138,17 +136,6 @@ def _parameter_ids(feature) -> tuple[str, ...] | None:
     return (*ids, *locations)
 
 
-def _evidence_parameter(parameter: str) -> str:
-    # Location is one feature-level authored intent (ADR 4 (was 0016)), even when its rendered
-    # evidence has directional identities.  Z-normal pockets use
-    # ``location_pocket.location.x/y`` facts while side/front-opening pockets use
-    # ``location_pocket.<axis>`` measurements, but omission from an authored set is
-    # recorded once as ``location_pocket.location`` for both forms.
-    if parameter.startswith("location_pocket."):
-        return "location_pocket.location"
-    return parameter
-
-
 def _is_location(parameter: str) -> bool:
     return parameter.startswith("location_pocket.")
 
@@ -196,57 +183,7 @@ def _index_evidence(registry, *, carriers=None):
     return placed, locations, satisfied, dropped
 
 
-def _state(
-    feature,
-    parameter,
-    *,
-    point,
-    placed,
-    locations,
-    satisfied,
-    suppressed,
-    inapplicable,
-    dropped,
-    registry,
-    carriers=None,
-):
-    evidence_parameter = _evidence_parameter(parameter)
-    if (feature, parameter) in inapplicable:
-        return "inapplicable"
-    location = _is_location(parameter)
-    point_placed = location and point in locations.get((feature, parameter), ())
-    exact_placed = (feature, parameter) in placed
-    note_parameter = "location" if location else parameter
-    note_satisfied = (feature, note_parameter) in satisfied
-    if carriers is not None:
-        carriers.accept(
-            feature,
-            parameter,
-            "placed",
-            parameters=(parameter,) if exact_placed else (),
-            physical=carriers.locations[(feature, parameter, point)] if point_placed else (),
-        )
-        carriers.accept(
-            feature,
-            parameter,
-            "satisfied_by_structured_note",
-            parameters=(note_parameter,) if note_satisfied else (),
-        )
-    if point_placed or exact_placed:
-        return "placed"
-    if note_satisfied:
-        return "satisfied_by_structured_note"
-    if (feature, evidence_parameter) in suppressed:
-        return "suppressed"
-    if (feature, parameter) in dropped or (feature, evidence_parameter) in dropped:
-        return "dropped"
-    associated = registry.names_for_feature(feature)
-    if any(
-        not registry.measurement_of(name) and not satisfaction_of(registry, name)
-        for name in associated
-    ):
-        return "unverifiable"
-    return "missing"
+_state = partial(location_state, location_prefix="location_pocket")
 
 
 def _physical_requirement_count(source) -> int:
