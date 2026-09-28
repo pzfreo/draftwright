@@ -28,6 +28,7 @@ _TESTS = Path(__file__).resolve().parent
 def test_each_named_contract_group_resolves_to_existing_modules():
     all_modules = {path.name for path in _TESTS.glob("test_*.py")}
     probes = {
+        "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
@@ -41,6 +42,11 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         selected = set(pr_modules(_TESTS, [path]))
         assert selected <= all_modules
         assert selected - PR_CORE_MODULES - PR_POLICY_MODULES - UNIT_MODULES, name
+
+
+def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
+    assert "test_issue_1370_double_d_completeness_evidence.py" in selected
 
 
 def test_unknown_production_module_selects_every_contract_group():
