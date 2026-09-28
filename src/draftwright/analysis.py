@@ -1508,6 +1508,17 @@ def _analyse(
     # Preserve the long-standing public diagnostic shape for the common zero/one case while
     # carrying an integer only when authored constraints genuinely reserve multiple sections.
     layout_section = section_count if section_count > 1 else bool(section_count)
+    # Generated Sheet scripts may author the settled principal view *set* while
+    # leaving derived views automatic. That is not a request to disable the
+    # automatic detail's pre-sheet footprint. Only an authored/augmented derived
+    # view or a page-position constraint makes this reservation unsafe to infer.
+    automatic_detail_space = _view_constraints is None or (
+        _view_constraints.derived_source in (None, "automatic")
+        and not _view_constraints.derived
+        and not _view_constraints.added_derived
+        and not _view_constraints.relations
+        and not _view_constraints.pins
+    )
     y_detail_footprints_for_scale = (
         _automatic_y_chain_detail_footprints(
             approved_for_sizing,
@@ -1516,9 +1527,7 @@ def _analyse(
             section_count=section_count,
             planned_views=_views,
         )
-        if approved_for_sizing is not None
-        and needs_step_detail_plan
-        and (_view_constraints is None or _view_constraints.is_automatic_only)
+        if approved_for_sizing is not None and needs_step_detail_plan and automatic_detail_space
         else None
     )
     x_detail_footprints_for_scale = (
@@ -1529,9 +1538,7 @@ def _analyse(
             section_count=section_count,
             planned_views=_views,
         )
-        if approved_for_sizing is not None
-        and needs_step_detail_plan
-        and (_view_constraints is None or _view_constraints.is_automatic_only)
+        if approved_for_sizing is not None and needs_step_detail_plan and automatic_detail_space
         else None
     )
 

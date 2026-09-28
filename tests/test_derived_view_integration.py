@@ -6,7 +6,7 @@ from draftwright import analysis as analysis_module
 from draftwright import build_drawing
 from draftwright.annotations._common import DerivedViewReservation
 from draftwright.builder import detect_part_model
-from draftwright.view_plan import ViewConstraints
+from draftwright.view_plan import ViewConstraint, ViewConstraints, ViewSpec
 
 
 def _y_chain_part():
@@ -53,6 +53,26 @@ def test_explicit_automatic_view_source_still_plans_the_required_detail():
         _view_constraints=ViewConstraints(
             principal_source="automatic", derived_source="automatic"
         ),
+        scale=1.0,
+        scale_policy="permissive",
+        _include_iso=False,
+    )
+    assert drawing.detail_decisions[0]["status"] == "placed"
+    assert drawing.detail_decisions[0]["fit"]["within_reservation"] is True
+
+
+def test_authored_principal_set_with_automatic_details_still_reserves_detail():
+    part = _y_chain_part()
+    drawing = build_drawing(
+        part,
+        model=detect_part_model(part),
+        _view_constraints=ViewConstraints(
+            principal_source="authored",
+            principals=tuple(
+                ViewConstraint(ViewSpec(name, "principal")) for name in ("front", "plan", "side")
+            ),
+        ),
+        _views=("front", "plan", "side"),
         scale=1.0,
         scale_policy="permissive",
         _include_iso=False,
