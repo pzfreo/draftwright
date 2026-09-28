@@ -341,21 +341,28 @@ def test_candidate_only_worker_failure_is_persisted_and_fails_the_run(
     assert json.loads(saved.read_text(encoding="utf-8")) == report["results"][0]
 
 
-def test_candidate_only_rejects_incomplete_worker_evidence(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "stdout",
+    [json.dumps({"mode": "candidate-preview", "cost": {}}), "not JSON", "[]"],
+)
+def test_candidate_only_records_invalid_worker_evidence(monkeypatch, tmp_path, stdout):
     script = _load_script()
     monkeypatch.setattr(
         script.subprocess,
         "run",
         lambda *_args, **_kwargs: SimpleNamespace(
-            stdout=json.dumps({"mode": "candidate-preview", "cost": {}}),
+            stdout=stdout,
             stderr="",
             returncode=0,
         ),
     )
     case = script._load_manifest(MANIFEST)["cases"][0]
+    case_report_dir = tmp_path / "case-reports"
 
-    with pytest.raises(ValueError, match="incomplete candidate report"):
-        script._run_case(case, tmp_path, candidate_only=True)
+    result = script._run_case(case, tmp_path, candidate_only=True, case_report_dir=case_report_dir)
+    assert result["status"] == "failed"
+    assert result["candidate"]["error"] == "invalid_worker_report"
+    assert json.loads((case_report_dir / f"{case['id']}.json").read_text()) == result
 
 
 def test_candidate_only_refuses_source_changed_during_build(monkeypatch, tmp_path):

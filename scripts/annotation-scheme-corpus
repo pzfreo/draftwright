@@ -352,21 +352,35 @@ def _run_case(
                     },
                 }
             else:
-                worker = json.loads(completed.stdout)
-                if (
-                    worker.get("mode") != "candidate-preview"
-                    or not isinstance(worker.get("manifest"), dict)
-                    or not isinstance(worker.get("layout_decision"), dict)
-                    or not isinstance(worker.get("cost"), dict)
+                try:
+                    worker = json.loads(completed.stdout)
+                except json.JSONDecodeError:
+                    worker = None
+                if not (
+                    isinstance(worker, dict)
+                    and worker.get("mode") == "candidate-preview"
+                    and isinstance(worker.get("manifest"), dict)
+                    and isinstance(worker.get("layout_decision"), dict)
+                    and isinstance(worker.get("cost"), dict)
                 ):
-                    raise ValueError(f"{case['id']} returned an incomplete candidate report")
-                worker.setdefault("cost", {})["process_seconds"] = elapsed
-                result = {
-                    "case_id": case["id"],
-                    "source_sha256": source_sha,
-                    "status": "rendered",
-                    "candidate": worker,
-                }
+                    result = {
+                        "case_id": case["id"],
+                        "source_sha256": source_sha,
+                        "status": "failed",
+                        "candidate": {
+                            "mode": "candidate-preview",
+                            "error": "invalid_worker_report",
+                            "cost": {"process_seconds": elapsed},
+                        },
+                    }
+                else:
+                    worker["cost"]["process_seconds"] = elapsed
+                    result = {
+                        "case_id": case["id"],
+                        "source_sha256": source_sha,
+                        "status": "rendered",
+                        "candidate": worker,
+                    }
         if _sha256_file(source) != source_sha:
             raise RuntimeError(f"{case['id']} source changed during candidate build")
     else:
