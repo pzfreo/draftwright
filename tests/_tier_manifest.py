@@ -38,6 +38,14 @@ CONTRACT_GROUPS = {
         ("src/draftwright/model/oriented_slot_geometry.py",),
         ("test_issue_1432_oriented_slot_semantics.py",),
     ),
+    "sheet_layout_controls": ContractGroup(
+        ("src/draftwright/sheet_layout_controls.py",),
+        (
+            "test_layout_override_side_issue_1757.py",
+            "test_sheet_identity_invariant.py",
+            "test_declare.py",
+        ),
+    ),
     "recognition": ContractGroup(
         (
             "src/draftwright/recogn*",

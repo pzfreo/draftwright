@@ -32,6 +32,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
+        "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
@@ -83,6 +84,14 @@ def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
     changed = ["src/draftwright/sheet_features.py"]
     assert selected_groups(changed) == {"compilation"}
     assert "test_sheet_identity_invariant.py" in pr_modules(_TESTS, changed)
+
+
+def test_sheet_layout_control_changes_run_the_declaration_contract():
+    changed = ["src/draftwright/sheet_layout_controls.py"]
+    assert selected_groups(changed) == {"sheet_layout_controls"}
+    modules = pr_modules(_TESTS, changed)
+    assert "test_layout_override_side_issue_1757.py" in modules
+    assert "test_sheet_identity_invariant.py" in modules
 
 
 def test_nonproduction_changes_do_not_expand_the_core():
