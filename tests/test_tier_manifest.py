@@ -31,6 +31,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "pmi_support": "src/draftwright/_pmi_support_blockers.py",
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
+        "pocket_evidence": "src/draftwright/evaluation/_pocket_evidence.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
@@ -72,6 +73,14 @@ def test_pmi_support_change_runs_source_and_rendering_contracts():
         "test_pmi.py",
         "test_pmi_gtol_lowering.py",
         "test_pmi_records.py",
+    } <= selected
+
+
+def test_pocket_evidence_change_runs_both_occurrence_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/_pocket_evidence.py"]))
+    assert {
+        "test_pocket_completeness_evidence.py",
+        "test_pocket_pattern_completeness_evidence.py",
     } <= selected
 
 
