@@ -36,7 +36,7 @@ import ezdxf
 import pytest
 from build123d import Box, Edge, Face, Rectangle, Wire
 
-import draftwright.drawing as drawing_mod
+import draftwright.drawing_export as drawing_export_mod
 from draftwright import build_drawing
 from draftwright._core import draft_preset
 from draftwright.builder import make_drawing
@@ -541,9 +541,9 @@ def _spy(monkeypatch):
     """Record what the export path was actually asked to do."""
     seen = {"canonicalized": 0, "ordered": set(), "pinned": set()}
     real_canon, real_shape, real_dxf = (
-        drawing_mod.canonicalize_svg,
-        drawing_mod._export_shape,
-        drawing_mod.write_dxf,
+        drawing_export_mod.canonicalize_svg,
+        drawing_export_mod._export_shape,
+        drawing_export_mod.write_dxf_file,
     )
 
     def canon(path):
@@ -558,9 +558,9 @@ def _spy(monkeypatch):
         seen["pinned"].add(reproducible)
         return real_dxf(dxf, path, page_w, page_h, reproducible=reproducible)
 
-    monkeypatch.setattr(drawing_mod, "canonicalize_svg", canon)
-    monkeypatch.setattr(drawing_mod, "_export_shape", export_shape)
-    monkeypatch.setattr(drawing_mod, "write_dxf", write)
+    monkeypatch.setattr(drawing_export_mod, "canonicalize_svg", canon)
+    monkeypatch.setattr(drawing_export_mod, "_export_shape", export_shape)
+    monkeypatch.setattr(drawing_export_mod, "write_dxf_file", write)
     return seen
 
 
