@@ -13,7 +13,7 @@ breaks its claimed contract (#1018 rule).
 
 | Guard | Verdict | Why |
 |---|---|---|
-| `test_import_boundaries.py` | **keep** | `_LAYERS` is the authoritative DAG map (CLAUDE.md defers to it); upward imports were the pre-#640 norm, not a hypothetical. |
+| `test_import_boundaries.py` | **keep** | `_LAYERS` is the authoritative DAG map (AGENTS.md defers to it); upward imports were the pre-#640 norm, not a hypothetical. |
 | `test_drawing_encapsulation.py` | **keep** | Single-owner build state (ADR 1 (was 0005)). The stay-deleted halves guard against reintroduction of removed surfaces — a failure mode LLM sessions are *specifically* prone to (regenerating deleted code from stale context). |
 | `test_compiled_plan_boundary.py` | **keep** | ADR 4 (was 0016 Amdt 1): suppression-by-omission is unenforceable without it. |
 | `test_label_provenance.py` | **keep** | Active drawdown ratchet (#927, 26 sites). Re-audit when the budget reaches zero — at zero it becomes a simple boundary test. |
@@ -31,7 +31,7 @@ breaks its claimed contract (#1018 rule).
 Audit finding: the structural guards individually earn their keep — most cite the
 concrete regression they exist to prevent, and the two AST detectors prove their own
 detection. The guard *tax* identified by #1221 is the aggregate context cost, which
-is addressed by CLAUDE.md pointing here instead of restating each guard, not by
+is addressed by AGENTS.md pointing here instead of restating each guard, not by
 deleting guards.
 
 ## B. Runtime budgets/caps — pending

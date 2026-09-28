@@ -106,7 +106,7 @@ def test_issue_915_hole_callouts_share_one_spacing_solve():
 def detail_dwg(request):
     """The A1 and A2 detail builds, once each for the whole module.
 
-    CLAUDE.md: "a critique-style test should share a module-scoped built drawing,
+    AGENTS.md: "a critique-style test should share a module-scoped built drawing,
     not mint a new dense fixture." Each build of this sheet costs ~3.1 s and it is
     in the PR-gate tier.
     """

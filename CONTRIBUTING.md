@@ -31,7 +31,7 @@ scripts/pr-check              # final preflight: full coverage plus changed-line
 For the faster local final preflight, use `scripts/pr-check --full`; it spreads
 the fast tier across available workers with work stealing. To reproduce the
 hosted fast-tier distribution instead, use
-`uv run pytest -n auto --dist loadscope`. See [CLAUDE.md](CLAUDE.md) for the test
+`uv run pytest -n auto --dist loadscope`. See [AGENTS.md](AGENTS.md) for the test
 tiers and the architecture overview, and `docs/adr/` for the design decisions
 behind layout, scaling, and annotation placement — please read the relevant ADRs
 before changing those areas.

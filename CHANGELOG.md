@@ -86,6 +86,11 @@
   `make_drawing`, and the CLI, including generated-script replay (#1612, #1589). Sergio's
   25/10/10/10 mm margins and 175 mm block are explicit options; existing defaults remain.
 
+### Changed
+
+- The agent usage guide moved from `AGENTS.md` to `docs/using-draftwright.md`; `AGENTS.md`
+  now holds the contributor instructions formerly in `CLAUDE.md` (#1938).
+
 ### Fixed
 
 - Assessment comparison now rejects an apparent resolution of measurement uncertainty when the
