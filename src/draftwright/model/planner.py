@@ -1,7 +1,7 @@
 """planner — the dimensioning back-end over the IR (ADR 1 (was 0008)).
 
 One rule set over `DimParameter`s, regardless of which feature produced them. The
-contract was tightened twice under adversarial review of the counterbore work:
+contract has these rules for compound features:
 
 - **Grouping with an anchor and one view.** A feature's parameters form one
   `DimensionGroup` carrying the feature's `anchor` (so it can be placed) and a
@@ -141,13 +141,13 @@ _CONVENTION = {
     ("round_bottom_blind_slot_flat_width", "length"): "leader",
     ("round_bottom_blind_slot_radius", "radius"): "leader",
     # A plate thickness is a linear Dimension. That IS the table default, but the
-    # entry is explicit anyway (#744 review): this table is the one convention
+    # entry is explicit anyway (#744): this table is the one convention
     # registry, and a planner-fed kind relying on the implicit default would erode
     # that — unknown pairs should eventually fail loudly, not silently go linear.
     ("thickness", "length"): "linear",
     # A slot's width + length are linear Dimensions with witness lines (#730); a proved
     # obround end radius is a normal-to-arc leader (#1752) —
-    # again the table default, entered explicitly per the #744 review rule above.
+    # again the table default, entered explicitly per the #744 rule above.
     ("slot_width", "length"): "linear",
     ("slot_length", "length"): "linear",
     ("slot_end_radius", "radius"): "leader",
@@ -554,12 +554,12 @@ def overall_height_withheld(model: PartModel) -> bool:
     owner of "is the overall height drawn", as its own docstring insists. They live here, and
     that function calls *them* rather than re-testing either, because :func:`_owner_drawn`
     needs the same answer and re-deriving half of it beside a docstring warning against
-    exactly that split is how the split happened the first time (#1154 review).
+    exactly that split is how the split happened the first time (#1154).
 
     Split into two named predicates rather than one, because the compiler needs them
     separately: polygonal stock withholds the height outright, while the rotational case
     returns a richer `Omission` naming the OD. Collapsing them into one early return deleted
-    that diagnostic for a rotational part with no envelope feature (#1154 review r2).
+    that diagnostic for a rotational part with no envelope feature (#1154).
 
     NOT settled here: ``include_overall``, which is drawing state. It is safe to ignore for
     consolidation — it is False only when an explicit ``role="height"`` intent draws the same
@@ -598,7 +598,7 @@ def _decorated(model: PartModel, feature: Feature, param: DimParameter) -> DimPa
     One owner, because :func:`_consolidated_owner` has to compare a candidate against the
     extent that would take its fact over, and comparing a decorated parameter with an
     undecorated one made a toleranced boss height look interchangeable with a plain overall
-    thickness (#1154 review).
+    thickness (#1154).
     """
     from draftwright.model.ir import NominalRequirement, ToleranceDecoration
 
@@ -685,7 +685,7 @@ def _owner_drawn(model: PartModel, envelope: Feature, extent: DimParameter) -> b
     and — for the overall HEIGHT specifically — `compiled._compile_overall_height`, whose
     model-derivable half is :func:`overall_height_withheld`. The first cut consulted only the
     first, so a declared X-rotational part consolidated its boss height onto an overall
-    height that same compiler was independently withholding (#1154 review).
+    height that same compiler was independently withholding (#1154).
 
     Not consulted: an `add_dimension(...)` request, which un-suppresses an owner in
     `plan_dimensions` but not here, so a caller who explicitly asks for a withheld extent
@@ -799,7 +799,7 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
 #: A dict comprehension over the declarations was the first attempt, and it was an
 #: import-time SNAPSHOT: renaming a declaration afterwards left the snapshot stale, so the
 #: mint site kept the old name while the declaration said something else — the same
-#: two-owners defect in a new place (Codex #1010 r2). A membership set plus a live read
+#: two-owners defect in a new place (#1010). A membership set plus a live read
 #: cannot go stale.
 #:
 #: Membership is by EXACT type, not `isinstance`, matching the `dict[type, str]` this
@@ -1140,7 +1140,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     datum = next((d for d in model.datums if d.id == "datum_xy"), None)
     if datum is None:
         # No datum to measure from — but every otherwise-eligible feature still HAD a location
-        # to lose, so say so rather than returning nothing (#996, Codex r3).
+        # to lose, so say so rather than returning nothing (#996).
         #
         # This bare `return []` broke the same guarantee as the edge-anchored pocket:
         # `_check_authored_targets` accepts `dimension(hole, "location")` on feature
@@ -1190,7 +1190,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         # hole/pattern/pad ladder is Z-normal; a pocket's two in-plane coordinates belong
         # in the view normal to its opening, for every orientation) — is `location_datum`'s
         # single answer. This loop used to restate the orientation half inline, which is
-        # how it came to disagree with the kind table (#925 review).
+        # how it came to disagree with the kind table (#925).
         role = location_role(f)
         if role is None or location_datum(f) != "datum_xy":
             continue
@@ -1206,7 +1206,7 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
                 # datum location is planned. A RULE decision, and it used to `continue`
                 # silently — so an authored `dimension(pocket, "location")` that
                 # `_check_authored_targets` had ACCEPTED produced nothing at all, with no
-                # diagnostic to say why (Codex #996 r2).
+                # diagnostic to say why (#996).
                 dropped.append((f, role, "edge-anchored; the edge conveys the position"))
                 continue
             # An ordinary pocket keeps its established in-plane centre location. When
@@ -1299,7 +1299,7 @@ def _authored_addresses(authored, feature, param) -> bool:
     entry. Asking "did this FEATURE match anything" let one valid entry vouch for every
     invalid one beside it: `dimension(pattern, "bore.diameter")` plus
     `dimension(pattern, "location")` passed the check because the bore matched, and the
-    unmatched location then silently produced nothing (#925 review)."""
+    unmatched location then silently produced nothing (#925)."""
     if authored.feature is not feature:
         return False
     if "." in authored.role:
@@ -1540,7 +1540,7 @@ def _check_authored_targets(model: PartModel) -> None:
     An authored entry that hits nothing is not a no-op the way a stray `add_dimension`
     is: `dimension(...)` DECLARES the set, so an entry matching no parameter leaves that
     feature — potentially the whole drawing — silently blank, and the caller sees a clean
-    build with no dimensions rather than an error (#921 review round 4). This is the
+    build with no dimensions rather than an error (#921). This is the
     failure mode #630/#631/#632 rank as worse than a visible raise.
 
     The `Sheet` façade cannot reach this: it resolves the role when the verb is called

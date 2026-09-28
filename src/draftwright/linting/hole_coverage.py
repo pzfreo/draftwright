@@ -138,7 +138,7 @@ def _members(source, *, rounded: bool = True) -> tuple[tuple[float, float, float
     # spec, because rounding makes the components an exact tie and `max` takes the first.
     # Five holes then had no ledger member at all and reached `unknown` through a lookup
     # default rather than through `unverifiable` — the silent join failure
-    # `canonical_hole_sites` exists to prevent, inside `canonical_hole_sites` (#1223 review).
+    # `canonical_hole_sites` exists to prevent, inside `canonical_hole_sites` (#1223).
     recognised = getattr(source, "holes", None)
     if recognised is not None:
         points = tuple(hole.location for hole in recognised)

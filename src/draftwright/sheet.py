@@ -277,8 +277,8 @@ class _FeatureView(MutableSequence):
       feature at the new position rather than silently naming a neighbour;
     - ``del`` drops the token, so a handle for a removed feature raises when used.
 
-    Before this, everything addressed by index into a plain list, and seven review rounds
-    on #872 found seven ways for a long-lived reference — a tolerance, a GD&T origin, a
+    Before this, everything addressed by index into a plain list, and #872 found ways
+    for a long-lived reference — a tolerance, a GD&T origin, a
     section, a dimension intent — to end up pointing at the wrong feature. Each fix
     detected one route and opened another. Carrying identity makes the class impossible
     instead of detectable.
@@ -399,13 +399,13 @@ class _Nameable:
 
     Named for what it returns. An earlier cut called this `roles()` and the alias below
     `DimensionRole`, which described neither: both carry parameter IDS, and the bare role is
-    the deprecated family spelling they deliberately exclude (#965 review). Both names were
+    the deprecated family spelling they deliberately exclude (#965). Both names were
     new, so renaming cost nothing here and would have been a compat burden a release later.
     The `role` PARAMETER keeps its name — it predates this change, so moving it would break
     keyword callers; it exits with the other 0.4.0 renames (#720, #966).
 
     The runtime answer to "what can I write here", and the reason the generated script can
-    point at something that works (#963/#965 review). A handle is not an IR `Feature`, so
+    point at something that works (#963/#965). A handle is not an IR `Feature`, so
     `feature.parameters()` — the route the header first advertised — raises on one; the
     working alternative went through a private index. Returns the CANONICAL spellings, so
     what it lists is what `dimension()` wants: the parameter id for every measurement —
@@ -416,7 +416,7 @@ class _Nameable:
     Every entry must resolve. That is the whole contract, and it was broken once: this
     listed a bare `"grid_pitch"` for a grid pattern, which `dimension()` then refused as
     ambiguous, while the guard test passed because it reconstructed the expected answer
-    instead of calling this method (#965 review).
+    instead of calling this method (#965).
     """
 
     # Declared, not defined: every handle already implements these — `_i` as a token-resolved
@@ -498,7 +498,7 @@ class _Hole(_Nameable):
         # A prior bore-only fit is the role-specific override of this generic diameter key.
         # Remove it so the later call wins for the bore, preserving the fluent API's existing
         # last-writer contract. In the other order, a later fit intentionally overrides only
-        # the bore while this hole-wide tolerance remains on recess diameters (#1360 review).
+        # the bore while this hole-wide tolerance remains on recess diameters (#1360).
         self._sheet._tolerances.pop((self._token, "diameter", "bore"), None)
         self._sheet._tolerances[(self._token, "diameter")] = _tolerance_decoration(
             lo,
@@ -569,7 +569,7 @@ class _Hole(_Nameable):
             depth = rdp if depth is None else depth
         if diameter is None or depth is None:
             raise ValueError(f"{kind} needs a tool object, or explicit diameter= and depth=")
-        # same positivity guard declare.hole() applies to cbore/spotface (#452/#462 review)
+        # same positivity guard declare.hole() applies to cbore/spotface (#452/#462)
         _require_positive(**{f"{kind} diameter": diameter, f"{kind} depth": depth})
         return (diameter, depth)
 
@@ -815,7 +815,7 @@ class _Params(_Nameable):
 
     Every other attribute forwards to the owning :class:`Sheet`, so these verbs stay
     chainable (``sheet.pocket(...).hole(...).build()``) despite returning a handle —
-    the module's declare-then-chain contract holds (#807 review)."""
+    the module's declare-then-chain contract holds (#807)."""
 
     def __init__(self, sheet: Sheet, index: int) -> None:
         self._sheet = sheet
@@ -831,7 +831,7 @@ class _Params(_Nameable):
         # Only reached for attributes _Params doesn't define (every Sheet verb): forward
         # to the owning sheet so the fluent chain is unbroken. Guard the two real fields:
         # if they aren't set yet (an instance built WITHOUT __init__ — copy/pickle), raise
-        # rather than recurse forever resolving self._sheet (#807 review).
+        # rather than recurse forever resolving self._sheet (#807).
         if name in ("_sheet", "_token"):
             raise AttributeError(name)
         return getattr(self._sheet, name)
@@ -877,8 +877,7 @@ class _Params(_Nameable):
             # this codebase ranks below a visible raise (#630/#631). Reachable since #922
             # made every declaration verb hand back a handle: `add(PmiFeature(...))` and
             # `measured_dimension(...)` both produce parameterless features, and before that
-            # they returned the Sheet so `.tolerance()` could not be called at all (Codex
-            # review of #931).
+            # they returned the Sheet so `.tolerance()` could not be called at all (#931).
             kind = self._sheet._features[self._i].kind
             extra = (
                 " — a measured dimension carries its own tolerance: pass upper_tol=/lower_tol="
@@ -891,7 +890,7 @@ class _Params(_Nameable):
             )
         if on is None:
             # A whole-feature tolerance supersedes any earlier per-role override on this
-            # feature — bare means "all alike", so it is order-independent (#807 review):
+            # feature — bare means "all alike", so it is order-independent (#807):
             # drop this feature's role-keyed (3-tuple) entries, then set the kind keys.
             for key in [
                 k
@@ -1300,8 +1299,8 @@ class Sheet:
         #
         # One tri-state rather than a flag plus an "was it explicit" flag: the pair could
         # be set to a combination that means nothing, and clearing the source then took two
-        # assignments — which is how the first cut of this broke the identity suite (#921
-        # review round 7). Only ``"explicit"`` conflicts with an authored set.
+        # assignments — which is how the first cut of this broke the identity suite (#921).
+        # Only ``"explicit"`` conflicts with an authored set.
         self._auto_dimensions: str | None = None
         # ADR 2 (was 0018) authored view input.  These mutable declaration records are private
         # construction state; :attr:`view_constraints` exposes a fresh immutable snapshot so
@@ -1424,7 +1423,7 @@ class Sheet:
         `dimension(...)` declarations **overrides** it rather than conflicting: detect the
         features, then declare exactly which of their measurements to draw. That is the
         natural way to take over a detected drawing, and requiring the caller to redeclare
-        every feature by hand to reach it would be a poor trade (#921 review round 6). An
+        every feature by hand to reach it would be a poor trade (#921). An
         explicit `auto_dimensions()` still conflicts — there the script has said both things.
         """
         sheet = cls(part, **opts)
@@ -1509,7 +1508,7 @@ class Sheet:
         `DimensionIntent` return a caller sees (#963) — without the dual shape.
 
         One thing it does NOT restore: `**removed` means a type checker accepts any keyword
-        rather than rejecting an unknown one (Codex #720 r1). That is the price of catching the
+        rather than rejecting an unknown one (#720). That is the price of catching the
         legacy call at runtime to name its replacement; the alternative is a static error whose
         text is about argument counts. Worth revisiting once the break is old news, at which
         point `**removed` can go and the signature becomes exact.
@@ -3043,7 +3042,7 @@ class Sheet:
             # Through `_replace_feature`, not a raw write: this is a legitimate internal
             # rebind, and a raw write would desync the identity shadow and make an
             # ordinary `hole.note(...)` + `add_dimension(...)` script look like an
-            # unsupported list edit (#872 review, round 6).
+            # unsupported list edit (#872).
             self._replace_feature(gi, replace(self._features[gi], origin=self._features[si]))
 
     def _validate_datums(self) -> None:
@@ -3526,7 +3525,7 @@ class Sheet:
                 f"({', '.join(bases)}) — the role is the family, not one of them. Name the "
                 f"one you mean, or declare each."
             )
-        # A DISCRIMINATED parameter is named by its full id like any other (#965 review). It
+        # A DISCRIMINATED parameter is named by its full id like any other (#965). It
         # was the one exception — the bare role plus `axis=` — which meant `dimension_ids()` listed a
         # spelling that then raised "ambiguous", breaking the contract the generated header
         # points people at. The id already carries the variant, so it is self-sufficient; the
@@ -3576,8 +3575,7 @@ class Sheet:
 
         A plain slot write: :class:`_FeatureView` keeps that slot's token, so every
         reference naming it — a tolerance, a GD&T origin, a dimension intent — follows
-        the replacement without bookkeeping. Before #908 this method had to advance each
-        intent by hand, and getting that wrong was two of the seven #872 review findings.
+        the replacement without per-intent bookkeeping (#872).
         """
         self._features._rebind(index, feature)
 
@@ -3689,7 +3687,7 @@ class Sheet:
             return float(self._part.bounding_box().center().Y)  # bare section() → part centre
         # An explicit at= is untrusted: a plane outside the part's Y extent leaves the body
         # uncut (a plain projection mislabelled "SECTION A–A") or clears it (a section dropped
-        # after layout already reserved its row). Reject it here (#841 review).
+        # after layout already reserved its row). Reject it here (#841).
         cut_y = float(payload)
         bb = self._part.bounding_box()
         if not (bb.min.Y < cut_y < bb.max.Y):  # strictly inside — a grazing plane cuts nothing
@@ -3855,7 +3853,7 @@ class Sheet:
         ``formats=None`` means "unspecified", so it takes this method's default rather than
         being forwarded. On :meth:`Drawing.export` a ``None`` selects the deprecated legacy
         path, which would have returned a *tuple* — breaking the dict return documented above —
-        and raised its warning against this line instead of the caller's (#987, Codex r5). Same
+        and raised its warning against this line instead of the caller's (#987). Same
         attribution problem that moved ``make_drawing`` off that path.
         """
         stem = stem or self._opts["out"] or self._opts["number"].lower()

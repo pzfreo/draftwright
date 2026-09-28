@@ -553,7 +553,7 @@ def _check_dimension_sources(model: PartModel) -> None:
     Checked against the **effective** model rather than the arguments of any one call,
     because either source can arrive two ways — as a keyword, or already carried by a
     supplied `PartModel` — and an argument-level guard sees only half of each
-    combination (#921 review). Validating the merged result covers all four."""
+    combination (#921). Validating the merged result covers all four."""
     if model.requested_dimensions and model.authored_dimensions is not None:
         raise ValueError(
             "requested= augments the planner's automatic set and authored= replaces it — a "
@@ -897,7 +897,7 @@ def _assemble(
         # the iso overlap an "obstacle" at every factor and `--frame` disabled the fit
         # altogether — no growth, no NTS caption, fast tier green. It also broke script/CLI
         # parity, since the `auto_dims=False` branch below computes its obstacles before the
-        # frame is added and so kept growing (#1240 review r2).
+        # frame is added and so kept growing (#1240).
         _nts_bb = None
         if a.planned_iso:
             _nts_bb = _settle_iso_view(dwg, a, obstacles=annotation_ink_obstacles(dwg))
@@ -926,7 +926,7 @@ def _assemble(
                 # possibly-overflowing iso; the above strips have no such pre-existing
                 # over-tightening to undo, and restoring would DISCARD the `m_locy` approach-buffer
                 # clamp (`from_model`), which is a different constraint that must survive
-                # (#1240 review F4). Same anchor guard as the initial clamp: an iso x-overlapping
+                # (#1240). Same anchor guard as the initial clamp: an iso x-overlapping
                 # the view from BELOW must not push the limit beneath the anchor and kill the strip.
                 if _x0 < _ix1 and _ix0 < _x1 and _iso_y_lim > _strip.anchor:
                     _strip.outer_limit = min(_strip.outer_limit, _iso_y_lim)
@@ -969,7 +969,7 @@ def _assemble(
     # return; `auto_dims=False` draws no automatic dimensions, so it compiles for the
     # diagnostics alone — the plan is discarded, only the record kept. That branch reported an
     # EMPTY ledger while the compiler really had suppressed measurements, which is precisely
-    # the false confidence this surface exists to remove (Codex #996 r1).
+    # the false confidence this surface exists to remove (#996).
     #
     # Assigned once rather than in each branch: two fill sites for one BuildState field is
     # what #830's single-construction rule exists to stop, and the guard caught the first
@@ -1535,7 +1535,7 @@ def _build_drawing_once(
         # dimension() with no effect and no diagnostic — the failure mode this project
         # treats as worse than a visible error (#630/#631/#632). An authored set is the
         # worse of the two to drop: the build would quietly revert to the automatic
-        # dimensions the author was replacing (#921 review).
+        # dimensions the author was replacing (#921).
         verb = "requested=" if requested else "authored="
         raise ValueError(
             f"{verb} names declared features, so it needs model= too; a detected "
@@ -1985,7 +1985,7 @@ def _short_off_axis_span_blocks_smaller_scales(blockers) -> bool:
 #: scale the CALLER asked for? — and these codes deliberately answer no to it. Reporting a
 #: withheld overall extent through `placement_unsatisfiable` made `build_drawing(part,
 #: scale=...)` raise `ScaleIncompatibilityError` on parts that had built for as long as the
-#: defect had existed, because that predicate matches by code name (#1216 review r9); the
+#: defect had existed, because that predicate matches by code name (#1216); the
 #: comment in `annotations/from_model.py` records the measurement.
 #:
 #: Choosing a sheet AUTOMATICALLY is a different question. There is no caller request to
@@ -2328,7 +2328,7 @@ def _preserve_requirements_under_arrangement(drawing, chosen, build, blockers_fo
     # DIFFERENT loss: if the preferred layout drops requirement B and the alternative drops
     # requirement A, both have one blocker, and a `<` test keeps the alternative even though
     # the default preserved A. That is the opposite of "preserve every supported requirement
-    # or reject the candidate" (#1130 review).
+    # or reject the candidate" (#1130).
     #
     # The rule is therefore one-sided, and deliberately so: the alternative may not introduce
     # any blocker the preferred result did not already have. It is free to preserve MORE, and

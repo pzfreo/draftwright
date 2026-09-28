@@ -254,7 +254,7 @@ def reconcile_witness_labels(dwg) -> int:
         return segs
 
     pad = 1.0  # keep-clear each side of a crossing stroke
-    pinned_ids = dwg.registry.pinned_object_ids()  # a pin is deliberate — never moved (#693 r1)
+    pinned_ids = dwg.registry.pinned_object_ids()  # a pin is deliberate — never moved (#693)
     dims = [
         (name, o)
         for name, o in dwg.iter_annotations()
@@ -269,7 +269,7 @@ def reconcile_witness_labels(dwg) -> int:
         dx, dy = s.p2[0] - s.p1[0], s.p2[1] - s.p1[1]
         if min(abs(dx), abs(dy)) > 0.1:
             # A diagonal dim's label_offset_x moves BOTH page coordinates — the
-            # axis-aligned solve below cannot describe it (#693 r2). Skip, same
+            # axis-aligned solve below cannot describe it (#693). Skip, same
             # tolerance as the stroke rule; the diagonal pitch fallback already
             # places with its own clearance search.
             continue
@@ -280,7 +280,7 @@ def reconcile_witness_labels(dwg) -> int:
         half = (lb[ax + 2] - lb[ax]) / 2.0
         # Threats = EVERY axis-aligned transverse stroke whose fixed-axis extent
         # reaches the label's band, across the WHOLE span — not just those crossing
-        # the label's current position (#693 r1: a shift must not land ON another
+        # the label's current position (#693: a shift must not land ON another
         # witness further along the line). Diagonal strokes (leader shafts) are
         # skipped: a single travel coordinate does not describe them, and moving a
         # label off an AABB-midpoint guess produced false positives; they were

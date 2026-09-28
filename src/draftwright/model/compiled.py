@@ -8,7 +8,7 @@ would need to decide differently.
 The rule exists because the previous arrangement made honouring suppression a convention.
 `plan_dimensions` marked a `PlannedDimension` suppressed, handed the whole group to a
 renderer that also held the `PartModel` and the `Analysis`, and trusted it to check. Eight
-adversarial review rounds on #921 found eight renderers that did not — the height ladder and
+#921 exposed eight renderers that did not — the height ladder and
 step positions rebuilding their marks from the feature and `a.bb`, the entire turned family
 selecting parameters with no suppression check at all. Each was a real omission reaching a
 real drawing, and each was fixed locally, which is how the fourth mechanism for saying the
@@ -109,7 +109,7 @@ class FeatureRef:
 
     Carrying the `Feature` itself on an approved entry would have left the whole bypass
     one attribute access away: a renderer could read `.levels`, `.base` or `.shoulders`
-    off it and rebuild exactly the content the compiler withheld (#923 review). The AST
+    off it and rebuild exactly the content the compiler withheld (#923). The AST
     guard proved only that today's renderer does not; the type still permitted it, and a
     boundary that relies on renderers not doing the thing they can trivially do is the
     convention this work exists to replace.
@@ -707,7 +707,7 @@ class AddressableIntent:
     and a `representable` property that every construction site left unset — machinery
     documenting a capability that did not exist, while unrepresentability was still discovered
     downstream from `_feature_line`. #939's comment floor is what would populate it; it can
-    arrive with that work rather than ahead of it (Codex review of #975).
+    arrive with that work rather than ahead of it (#975).
     """
 
     ref: FeatureRef | None
@@ -819,7 +819,7 @@ class RenderableDimensionPlan:
         # Dispatched THROUGH the roster, not merely documented by it: the first cut hard-coded
         # three loops and listed the field names beside them, so adding a field and adding its
         # name passed the guard while the method never traversed it — confidence without
-        # enforcement (Codex review of #975).
+        # enforcement (#975).
         for name in self._ADDRESSABLE:
             out += getattr(self, f"_addressable_{name}")()
         return tuple(_deduplicated(out))
@@ -850,7 +850,7 @@ class RenderableDimensionPlan:
             # Identity and addressability are different questions here, and this is the one
             # place where the answers differ — worth stating rather than leaving the reader to
             # find a comment that says no feature is ever invented, eight lines from where one
-            # is (#1233 review).
+            # is (#1233).
             if lad.kind not in _LADDER_ROLE:
                 continue
             out.append(AddressableIntent(lad.ref, _LADDER_ROLE[lad.kind]))
@@ -942,8 +942,7 @@ def _suppressed_dims(model: PartModel, groups=None):
 
     *groups* lets a caller that has already planned pass the result in. The engine plans
     once per build (ADR 1 (was 0008 Amdt 5)); a compiler that re-planned would both cost a second
-    pass and create two products that can drift while the migration is partial (#923
-    review)."""
+    pass and create two products that can drift while the migration is partial (#923)."""
     out = {}
     for group in groups if groups is not None else plan_dimensions(model):
         for pd in group.dims:
@@ -961,7 +960,7 @@ def _dim_id(feature, parameter_id: str) -> DimensionId | None:
     Minted here rather than left ``None``: `DimensionId` is already the stable addressable
     identity the ADR defines, and a renderer-facing result that discards it would create
     identity debt on the very boundary meant to remove it — provenance, edits, diagnostics
-    and later de-duplication all key on it (#923 review)."""
+    and later de-duplication all key on it (#923)."""
     if feature is None:
         return None
     return DimensionId(feature, parameter_id)
@@ -1031,7 +1030,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
     # The seventh site of #1215's discard, and the last: a bare `.tolerance()` on a step level
     # reached `model.decorations` and was dropped here, so `dim_step_0` printed `14` where the
     # author wrote `14 ±0.05`. `sheet.py` promises a bare tolerance "folds onto every parameter
-    # of that kind" (#1234 review r5).
+    # of that kind" (#1234).
     step_height_param = next((pm for pm in step.parameters() if pm.role == "step_height"), None)
     step_tol = (
         _decorated(model, step, step_height_param).tolerance
@@ -1105,7 +1104,7 @@ def _compile_step_ladders(model: PartModel, marked) -> tuple[list[ApprovedLadder
     # `plan.groups` with a tolerance (via `_compile_groups`) and in `plan.ladders` without one,
     # and `evidence.compiled_values` merges both into one multimap — a one-owner violation of
     # the same shape as #1154, five lines below where #1215 added the height rungs'
-    # (#1234 review r6).
+    # (#1234).
     shoulder_param = next((pm for pm in step.parameters() if pm.role == "step_position"), None)
     shoulder_tol = (
         _decorated(model, step, shoulder_param).tolerance if shoulder_param is not None else None
@@ -1196,7 +1195,7 @@ def _compile_overall_height(
     # needs the same answers (#1154), and the paragraph above about two owners of this
     # decision applies to a second owner in either direction. Each CONDITION is consulted
     # where it belongs — collapsing both into one early return here deleted the rotational
-    # case's `Omission` for a part with no envelope feature (#1154 review r2).
+    # case's `Omission` for a part with no envelope feature (#1154).
     if polygonal_stock_conveys_height(model):
         return None, None, []
     env = next((f for f in model.features if isinstance(f, EnvelopeFeature)), None)
@@ -1220,7 +1219,7 @@ def _compile_overall_height(
         # this one measurement: `Drawing.measurement_keys` says it is "deliberately the SAME row
         # shape … so a drawn measurement and a suppressed one are directly comparable", and
         # `audit._correspondence` keys on the feature string — so it attributes a lost `dim_od`
-        # and `ldr_z0` but not a lost `dim_height` (#1233 review, F3/R4).
+        # and `ldr_z0` but not a lost `dim_height` (#1233).
         #
         # Not closed here, and the reason is measured rather than chosen. Passing the same
         # identity to both omissions is three lines and does work — but `height.length` is the
@@ -1252,7 +1251,7 @@ def _compile_overall_height(
     # Amendment 1 is about renderers emitting content the plan does not contain. The plan DID
     # contain this: the rung existed with the right value, and `from_model` builds the label
     # from the compiler's own `rendered_label`. Nothing was renderer-derived. What was missing
-    # was the identity, so nothing could claim it (#1233 review).
+    # was the identity, so nothing could claim it (#1233).
     #
     # The discriminator is having no envelope feature, NOT being rotational: `grm03` is neither
     # rotational nor enveloped and escaped. (`if_step_flat_across_cylinder` was cited as the
@@ -1273,7 +1272,7 @@ def _compile_overall_height(
         # own comment calls the hand-rolled version "the fourth instance of #977's signature".
         # Measured, the literal made the direct and mirrored paths mint UNEQUAL ids for the
         # same measurement on an off-centre part — breaking exactly the ADR 4 (was 0011) round trip
-        # `mirror_model` exists for (#1233 review).
+        # `mirror_model` exists for (#1233).
         from draftwright.model.declare import _envelope_from_bbox
 
         identity = _envelope_from_bbox(bb)
@@ -1328,7 +1327,7 @@ def _compile_overall_height(
                 # compiler cannot build the string. Today the overall-height rung has exactly
                 # one consumer (`render_height_ladder`), which does compose it; a second
                 # consumer trusting the docstring would silently drop the tolerance
-                # (#1234 review, F8/finding 6).
+                # (#1234).
                 rendered_label=_value_text(model, env, "height.length", value),
             ),
         ),
@@ -1613,7 +1612,7 @@ def _compile_off_axis_hole_locations(
     The gap this closes: `location_role` said a hole is locatable, `plan_locations` said
     only a Z-normal one is, and `_locate_off_axis_holes` drew the X/Y ones anyway from the
     raw IR. Three statements of one fact, so an authored set naming only a side-drilled
-    bore's ⌀ still produced its 35 mm offset and 12 mm height (#925 review).
+    bore's ⌀ still produced its 35 mm offset and 12 mm height (#925).
 
     **Two entries per member, not one.** `dim_loc_side_y3500` and `dim_loc_front_z1200` are
     separate dimensions on the page; collapsing them into a single "this hole is located"
@@ -1756,7 +1755,7 @@ def _compile_slot_positions(model: PartModel) -> tuple[list[ApprovedDimension], 
         # accepted a SlotFeature SUBCLASS, which inherits `LOCATION_STEM`, so the subclass
         # minted its position under the parent's name while the planner (exact type)
         # refused to plan one. The collision the declaration exists to prevent, reached by
-        # the one path that did not ask (Codex #1010 r4).
+        # the one path that did not ask (#1010).
         if not isinstance(f, SlotFeature) or location_datum(f) != "bbox":
             continue
         datum = float(getattr(bb.min, f.long_axis.upper()))
@@ -1947,7 +1946,7 @@ def compile_dimensions(
 
     *groups* accepts a `plan_dimensions` result the caller already has, so the engine's
     plan-once invariant holds through the migration instead of the compiler quietly
-    re-planning behind it (#923 review).
+    re-planning behind it (#923).
 
     *planned_views* is the ADR 2 (was 0018) pre-projection constraint used only when the compiler
     must plan for itself.  Callers supplying *groups* have already resolved that constraint;
@@ -2431,7 +2430,7 @@ def _dedupe_omissions(*sources: list[Omission]) -> tuple[Omission, ...]:
     deliberately emits one omission per member, and every member of a grouped hole shares the
     same `HoleFeature` — so a naive key of (feature, parameter, reason) collapses four real
     member facts into one and silently loses positions. Losing a real row is worse than the
-    duplicate it was meant to fix (Codex #996 r6).
+    duplicate it was meant to fix (#996).
 
     Hence: cross-source only. Each source keeps its own repetitions; a key already seen in an
     EARLIER source is dropped from a later one.

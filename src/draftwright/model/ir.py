@@ -2831,7 +2831,7 @@ class RotationalFeature:
         `render_rotational` leaders them in that branch alone — on a part turned about X or Y
         the bore is dimensioned by the hole pass instead. A non-Z `bores=` therefore produced
         `bore.diameter` parameters that planned, mirrored into a generated script, and drew
-        nothing, with lint clean (#949 review r4/r5).
+        nothing, with lint clean (#949).
 
         It started life in `declare.rotational`, which left the sanctioned ADR 4 (was 0011) route —
         a hand-built `PartModel` through `Sheet.add` or `build_drawing(model=…)` — wide open,
@@ -3072,7 +3072,7 @@ class AuthoredDimension:
     lowering_blockers: tuple[str, ...] = ()
     # Geometry-evidence failures that prevent truthful rendering. These are distinct from
     # ``lowering_blockers``: failure to correlate to a canonical owner still permits the
-    # standalone authored-dimension fallback promised by #1116 (#1209 review).
+    # standalone authored-dimension fallback promised by #1116 (#1209).
     rendering_blockers: tuple[str, ...] = ()
     # Finite-cylinder topology proven by the STEP extractor for Size_Diameter. A single
     # value is enough to render or correlate a diameter; generic linear dimensions still

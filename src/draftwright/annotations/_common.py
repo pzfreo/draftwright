@@ -484,7 +484,7 @@ class Escalation:
 
 
 def _never_aborts(method):
-    """Recording can never abort a build (#736 review): any exception inside a
+    """Recording can never abort a build (#736): any exception inside a
     :class:`SolveTrace` recording method logs ONE warning, disarms the recorder
     (sets ``_broken`` — every later guarded call no-ops), and returns ``None``.
     A recorder bug degrades to "no trace", never a failed drawing/export. The
@@ -841,7 +841,7 @@ class SolveTrace:
     def write(self) -> None:
         """Dump the trace JSON to :attr:`path` (once per build; a successful finalize
         re-writes). **Recording-only, so it must never abort a build** — with the two
-        documented degradations kept distinct (final review): an *unwritable path* is
+        documented degradations kept distinct: an *unwritable path* is
         environmental and possibly transient, so it warns per attempt WITHOUT
         disarming (a later finalize rewrite may succeed); a *serialisation failure*
         is an internal recorder bug, so the strict no-``default=`` ``dumps`` raises
@@ -1457,7 +1457,7 @@ def clear_label_of_centerlines(label_bbox, centerlines, gap):
     it barely grazed at the ORIGINAL position can end up squarely inside the
     NEW one — this joint carve accounts for all of them in one pass, so moving
     to clear one can never expose a violation against another (the bug class
-    an earlier per-centre-line local-search design had, #129 second review). A
+    an earlier per-centre-line local-search design had (#129). A
     thin **horizontal** line can't be cleared by an X shift at all, so it is
     excluded and left to the lint/repair safety net."""
     if label_bbox is None:
@@ -1534,7 +1534,7 @@ def occupancy_boxes(o, stroke_pad=None):
 
 # Fallback stroke inflation for decomposed occupancy: line_width/2 (~0.08) plus the
 # arrowhead half-width at stroke junctions at DEFAULT presets. Arrow geometry scales
-# with font_size (#688 review), so callers that know the draft derive the pad as
+# with font_size (#688), so callers that know the draft derive the pad as
 # max(_STROKE_PAD, draft.arrow_length / 2) — arrow half-LENGTH bounds the head's
 # half-width (aspect < 1) AND its protrusion past an inside-arrow shaft trim (al/2).
 _STROKE_PAD = 1.2
@@ -1543,8 +1543,8 @@ _STROKE_PAD = 1.2
 #: Annotations whose Compound bounding box spans the whole page. They carry no ``.segments``
 #: to decompose, so :func:`annotation_obstacle_boxes` falls back to the full geometry box and
 #: they swallow the sheet — any occupancy test that includes them is a silent no-op. Filtered
-#: by `late_furniture_obstacles` (#1145), by three checks in `linting/structural`, and — since
-#: #1240 review round 2 — by `annotation_ink_obstacles`, because the iso fit had picked
+#: by `late_furniture_obstacles` (#1145), by three checks in `linting/structural`, and by
+#: `annotation_ink_obstacles`, because the iso fit had picked
 #: `strip_obstacles` instead and `--frame` therefore disabled the fit entirely.
 _PAGE_SPANNING_RIDERS = ("is_sheet_frame", "is_zone_grid")
 
@@ -1554,7 +1554,7 @@ def is_page_spanning_rider(annotation) -> bool:
 
     One predicate, because the filter has been written out by hand in five places and the
     sixth site got it wrong: the fit's obstacle set omitted it and a framed sheet's iso stopped
-    growing, silently, with the whole fast tier green (#1240 review r2).
+    growing, silently, with the whole fast tier green (#1240).
     """
     return any(getattr(annotation, rider, False) for rider in _PAGE_SPANNING_RIDERS)
 
@@ -1988,7 +1988,7 @@ def balloon_geometry_hits_annotation_labels(glyph_boxes, segments, label_boxes) 
 def box_within_page_and_clear(bb, page_box, obstacles) -> bool:
     """True when ``bb`` is fully inside *page_box* and hits none of *obstacles*
     (:func:`_box_hits`) — the safety check a shifted label must pass before a
-    caller accepts it over an unshifted fallback (#129 review: this was inline
+    caller accepts it over an unshifted fallback (#129: this was inline
     in ``holes.py``'s ``_clear_and_validate`` and untestable in isolation)."""
     return (
         bb is not None
@@ -2955,7 +2955,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             # there is no visible annotation to restore, so queue the aggregated
             # identity immediately behind the retry that creates it.  This mirrors the
             # deferred winner path below and keeps a promoted survivor from retaining
-            # only its own measurement (#1372 exact-head review).
+            # only its own measurement (#1372).
             if pending is not None and len(pending) > n_deferred:
                 pending.append(
                     lambda _c=dropped_winner, _name=loser.name: _restore_shared_identity(
@@ -3152,7 +3152,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 # A deduped winner that did not place hands its measurement to the best
                 # surviving loser — but ONLY if the measurement is genuinely absent.
                 # `on_drop` may have rescued it onto the opposite strip, and promoting
-                # then draws the same span twice (#894 review: observed on CTC-03, where
+                # then draws the same span twice (#894: observed on CTC-03, where
                 # m_pocket0_pos_long fell through cleanly and its coincident twin was
                 # promoted anyway).
                 #
@@ -3191,7 +3191,7 @@ class PlacementContext:
     escalations: list = field(default_factory=list)
     detail_requests: list = field(default_factory=list)
     # Fallthrough callbacks a pass's on_drop queues to run AFTER every corridor has
-    # drained (#684 review): a mid-drain carve could occupy space a later sibling
+    # drained (#684): a mid-drain carve could occupy space a later sibling
     # corridor's force candidate needs; deferral makes "post-drain" literally true.
     post_drain: list = field(default_factory=list)
     # Whole dimensions whose ordinary exterior corridor was genuinely full.
@@ -3694,7 +3694,7 @@ def drain_corridors(ctx, dwg):
     # A deferred winner retry can fail and promote a coincident loser whose own
     # opposite-strip retry is also deferred.  Drain in waves until no callback remains:
     # every wave still runs after all corridors, while a second-generation fallback
-    # cannot be stranded in ``ctx.post_drain`` (#1372 exact-head review).
+    # cannot be stranded in ``ctx.post_drain`` (#1372).
     while ctx.post_drain:
         pending, ctx.post_drain = ctx.post_drain, []
         for cb in pending:
@@ -3806,7 +3806,7 @@ def place_strip_candidates(
     # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
     # the dim-LINE position, but the label extends outward from it — so without this the last
     # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
-    # Strip.allocate which checked `start + tier <= outer_limit` (#338 review). A plain dim's
+    # Strip.allocate which checked `start + tier <= outer_limit` (#338). A plain dim's
     # label extends one `tier` outward (one-sided). A GD&T glyph (#61) hangs off a Leader that
     # CENTRES it on the elbow for an above/below strip (real outward extent = height/2) but
     # places it one-sided for a left/right strip (extent = full width). Reserve the MAX real
@@ -3875,7 +3875,7 @@ def place_strip_candidates(
     # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
     # carve below by design — but that makes the band prediction itself load-bearing: a
     # candidate whose real geometry exceeds its predicted band could land on one with no
-    # check ever seeing it (review #679). Keep the filtered-out set: the post-build
+    # check ever seeing it (#679). Keep the filtered-out set: the post-build
     # validation re-checks each survivor's REAL box against it. In-band overlaps are NOT
     # validated — witness lines legitimately cross the boxes of dims stacked further in
     # (ISO 129-1), which is exactly why the carve projects onto the stacking axis only.

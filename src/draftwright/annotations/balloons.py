@@ -366,8 +366,8 @@ def render_balloons(
         required_count=required_count,
     )
     # A band too crowded to hold every balloon drops its tail (the strip solver's
-    # prefix fallback) — record it instead of letting the balloons vanish silently
-    # (review follow-up). The resolver keeps the callout_dropped lint for a pattern
+    # prefix fallback) — record it instead of letting the balloons vanish silently.
+    # The resolver keeps the callout_dropped lint for a pattern
     # whose balloon did not land, so a missing pattern balloon is still a coverage gap.
     if dropped:
         ctx.record_issue(
@@ -1053,7 +1053,7 @@ def _place_band(
     beyond ``[lo, hi]`` drops the tail rather than running balloons off-page.
     Returns the number of members dropped, so the caller can surface it as lint
     (a silently truncated balloon leaves a hole undocumented — the resolver
-    must know, review follow-up).
+    must know).
     """
     if not members:
         return 0

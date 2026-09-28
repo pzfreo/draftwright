@@ -78,7 +78,7 @@ class _IssueAggregation:
     def __init__(self) -> None:
         # Retain the small plain-data issue value for this summary scope so its address cannot
         # be recycled onto an unrelated custom issue. This never retains the annotation/CAD
-        # graph: public ``LintIssue`` values carry no aggregation subject (#1147 review).
+        # graph: public ``LintIssue`` values carry no aggregation subject (#1147).
         self._issues_and_tokens: dict[int, tuple[LintIssue, object, str]] = {}
 
     def record_pair(self, issue: LintIssue, token: object) -> None:

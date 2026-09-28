@@ -11,12 +11,6 @@ callout names and so scored every hole on a table-escalated sheet as lost. The *
 then read ``covers_hole_representations_by_feature``, a rider no caller populates, and looked
 correct only because a hand-built stub in the tests supplied it.
 
-(An earlier draft of this paragraph said the dead rider caused the inversion, and that it went
-unnoticed "for months". Neither is true: the rider made the attempted fix look correct, and it
-existed for four days — introduced 2026-08-14, caught by the next review cycle. Corrected here
-because a module explaining why claims must be checked is a poor place to leave an unchecked
-one.)
-
 So the ledger becomes a **pointer to the claimed representation, not final proof** (#1206). This
 module resolves each pointer against the built drawing and checks the rendered content carries
 the value the compiler approved.
@@ -77,8 +71,8 @@ def _expected_numbers(approved, *, location_component=None) -> frozenset[float]:
     Narrowed to the approved ``axis`` where the compiler declares one. Accepting all three
     components repeated the mistake this docstring already rejects for the 3-D distance ("a
     number no renderer draws"): on a pocket located in a Z-normal plane the Z component is
-    drawn by nothing, and admitting it confirmed a deliberately relabelled X offset (#1218
-    review). Never the 3-D distance, for the original reason.
+    drawn by nothing, and admitting it confirmed a deliberately relabelled X offset (#1218).
+    Never the 3-D distance, for the original reason.
 
     All three remain acceptable when no axis is declared, because then nothing says which the
     renderer took. That residue is named in :func:`verify_measurement_claims`'s limits rather
@@ -105,7 +99,7 @@ def _expected_numbers(approved, *, location_component=None) -> frozenset[float]:
     # component — those are safe today solely because they set a numeric `value_text` and
     # return above. A future producer that emits an empty `value_text` with a measured-axis
     # `axis` would break silently here, so the discriminator wants to be the producer's
-    # intent rather than this inference (#1218 review round 2).
+    # intent rather than this inference (#1218).
     excluded = "xyz".index(axis) if axis in ("x", "y", "z") else None
     indices = [i for i in range(3) if i != excluded]
     if location_component is not None:
@@ -181,12 +175,12 @@ def _expected_presentations(approved, *, location_component=None) -> tuple[froze
 #: ``value_text``; measured, no producer emits one, and the sign turned ordinary hyphenated text
 #: into numbers — the gear table's ``ISO 21771-2:2025`` yielded ``-2.0`` where the drawn glyph is
 #: ``2``. Should a producer ever emit a negative value it reports `value_absent` rather than
-#: silently confirming, which is the safe direction to be wrong in (#1218 review round 2).
+#: silently confirming, which is the safe direction to be wrong in (#1218).
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 #: A leading ``4× ⌀`` repeat count, stripped before numbers are read. A count is not a
 #: measurement, and leaving it in let ``4× ⌀9 THRU`` confirm a claimed bore diameter of 4
-#: (#1218 review). Unlike the compound-label residue below, this was never within the stated
+#: (#1218). Unlike the compound-label residue below, this was never within the stated
 #: limit — the number is not a measurement at all.
 #:
 #: The ⌀/R lookahead is load-bearing and is `structural._label_value`'s own discriminator:
@@ -276,8 +270,8 @@ def compiled_display_precisions(registry, plan) -> dict[int, int]:
 #: ``QTY`` is the reason this exists. `add_hole_table` emits ``TAG | ⌀ | DEPTH | QTY``, and a
 #: table drawing ``ø99`` for a ⌀4 hole was confirmed by its own quantity cell — the same defect
 #: `_REPEAT_RE` fixes for ``4× ⌀9 THRU``, surviving in the path this module calls the one that
-#: matters most, because the strip was applied to the label and not to row cells (#1218 review
-#: round 2). ``TAG`` carries no digits today and is listed so a future numeric tag cannot
+#: matters most, because the strip was applied to the label and not to row cells (#1218).
+#: ``TAG`` carries no digits today and is listed so a future numeric tag cannot
 #: quietly become a measurement.
 _NON_MEASURING_COLUMNS = frozenset({"QTY", "TAG", "ITEM", "REF"})
 
@@ -314,7 +308,7 @@ def rendered_numbers(annotation) -> frozenset[float] | None:
         # `table_rows` only. A gear table carries `gear_requirement_rows` AND no measurement
         # claim at all (measured: `claims: ()`), so this is never called on one — and it now
         # carries `table_rows` regardless. Reading both was a second field read by nobody,
-        # added inside the fix for the first one (#1218 review).
+        # added inside the fix for the first one (#1218).
         rows = getattr(annotation, "table_rows", None)
     except Exception:  # noqa: BLE001 — a raising property on a caller's item must not kill lint
         return None
@@ -383,8 +377,7 @@ def verify_measurement_claims(registry, plan, *, location_components=None) -> li
     evidence. A missing cell address cannot downgrade a known schedule to the legacy
     numeric-pool check below. This still reads renderer-recorded text, not exported glyphs.
 
-    **Legacy annotation limits, all measured rather than reasoned about** (#1218 review found each of them
-    by relabelling a real drawing and watching this function stay silent):
+    **Legacy annotation limits, measured on real drawings (#1218):**
 
     1. **Presence, not attribution.** It proves the approved value appears among the numbers
        the annotation draws, not that it appears in the right *position*. Relabelling

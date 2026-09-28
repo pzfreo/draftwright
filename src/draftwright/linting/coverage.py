@@ -102,7 +102,7 @@ def _location_ref(owner, point) -> HoleRef:
 # Declared feature kinds with a single defining cylinder to confirm against geometry, mapped to the
 # cylinder polarity that confirms them: a hole is a bore (external=False); a boss / turned step is
 # external material (external=True). Checking polarity stops a phantom hole being silenced by a
-# coaxial boss/OD of the same ⌀ (and vice-versa) — a callout over the wrong material (#487 review).
+# coaxial boss/OD of the same ⌀ (and vice-versa) — a callout over the wrong material (#487).
 # Envelope always exists; patterns/slots and aspects are out of scope (#499).
 _RECON_EXTERNAL = {"hole": False, "boss": True, "step": True}
 _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polarity map in sync
@@ -111,12 +111,12 @@ _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polari
 #: `_RECON_KINDS`, plus the gear that `gear_coverage` reconciles. Exported because
 #: `lint_summary`'s fidelity component must know whether a declaration is examinable at all,
 #: and re-listing the kinds there let it report "checked, nothing false" over a declared slot
-#: no check looks at (#1176 review r5).
+#: no check looks at (#1176).
 #:
 #: A first cut also listed ``"double_d_bore"``. There is no such `kind`: `declare.double_d_bore`
 #: returns a `HoleFeature`, and `lint_declaration_reconciliation` reaches it as
 #: ``kind == "hole" and profile == "double_d"``. Dead data, and the docstring's "plus the
-#: profiled bores" described a distinction the tuple did not make (#1176 review r6).
+#: profiled bores" described a distinction the tuple did not make (#1176).
 #:
 #: `_RECON_KINDS` is derived; ``"external_spur_gear"`` is a literal that must match
 #: `gear_coverage`'s own filter. A new gear kind there would narrow this silently — in the
@@ -152,7 +152,7 @@ def _pt(p) -> tuple[float, float]:
     """A 2-D page point from either a ``(x, y, ...)`` tuple/sequence or a build123d
     ``Vector`` (``.X``/``.Y``). Lets coverage read ``_dw_spec`` endpoints regardless of
     how the caller constructed the dimension (the public ``place_dim`` DSL may pass
-    ``Vector``s, which are not subscriptable — #307 review)."""
+    ``Vector``s, which are not subscriptable — #307)."""
     try:
         return (p[0], p[1])
     except (TypeError, KeyError, IndexError):
@@ -399,7 +399,7 @@ def lint_feature_coverage(
     # One physical owner can carry the same requirement in several representations (for
     # example, both a callout and a manufacturing note). Union those authorities by exact
     # owner/value before counting them; summing annotations lets one documented bore certify
-    # an identical undocumented sibling (#1351 review).
+    # an identical undocumented sibling (#1351).
     owned_provided: dict[tuple[int, float], int] = {}
     unowned_provided: dict[float, int] = {}
 
@@ -1687,7 +1687,7 @@ def lint_prismatic_coverage(
     # Fail-closed on the TYPE, not just the name: `recognition=` replaced the old `step_zs=`,
     # and a duck-typed stand-in (`SimpleNamespace(risers=(), step_levels=())`) would silence
     # this check exactly as `step_zs=[]` did — the same false-negative door wearing a new
-    # parameter (Codex #1031 r1). Only recognition's own frozen result is accepted.
+    # parameter (#1031). Only recognition's own frozen result is accepted.
     if recognition is not None and not isinstance(recognition, RecognitionResult):
         raise TypeError(
             f"lint_prismatic_coverage(recognition=) takes the run's RecognitionResult, got "
@@ -1943,7 +1943,7 @@ def _axial_covered_from_drawing(
                 # (the collapse fires only when all steps are equal). Credit a step whose
                 # both shoulders fall within the dim's span — but ONLY for an actual
                 # step-length chain dim (name contains "steplen"), never an unrelated
-                # "n× pitch" hole-array dim that happens to span the shoulders (#307 review).
+                # "n× pitch" hole-array dim that happens to span the shoulders (#307).
                 if (
                     "steplen" in name
                     and re.match(r"^\s*\d+\s*×", label)

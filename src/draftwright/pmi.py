@@ -366,7 +366,7 @@ def _dimension_geometry_blockers(
     relationship is complete when another referenced shape was unavailable. Keep those XCAF
     extraction failures in ``lowering_blockers`` for source accounting *and* in this distinct
     render gate. Correlation blockers added later by model lowering never pass through here,
-    so #1116's standalone fallback remains drawable (#1209 re-review).
+    so #1116's standalone fallback remains drawable (#1209).
     """
     if kind not in ("linear", "thickness"):
         return ()

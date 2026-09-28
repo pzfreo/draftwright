@@ -52,7 +52,7 @@ _LAZY = {
     "ViewConstraints": "draftwright.view_plan",
     "ViewSpec": "draftwright.view_plan",
     # A warning category users are told to filter must be importable without reaching into a
-    # private module (#1043 review) — and without paying for the CAD kernel. It lives in the
+    # private module (#1043) — and without paying for the CAD kernel. It lives in the
     # dependency-free `_warnings` leaf for that second reason: defined in `_core` it cost ~6 s
     # to reach, and the pytest filterwarnings entry naming it paid that on every invocation.
     "SoftDeprecationWarning": "draftwright._warnings",

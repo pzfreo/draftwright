@@ -217,7 +217,7 @@ def _classify_rotational_cylinders(
                 # equal-diameter bands) or detached bodies as one turned part after frame
                 # normalisation. The provider inventory already carries both facts, so keep
                 # this framed-path policy local and fail closed without another topology scan
-                # (#1357 review). The raw path retains its historical same-diameter rule.
+                # (#1357). The raw path retains its historical same-diameter rule.
                 radial = tuple(index for index, letter in enumerate("xyz") if letter != axis)
                 candidate_axis = candidate["axis_xyz"]
                 if any(
@@ -293,7 +293,7 @@ def _turned_profile_site(site, axis: str, view: str, cylinders) -> tuple[float, 
     axis. Rank the shared cylinder substrate by the site's distance from each finite cylinder
     patch (radial surface gap plus axial-span gap), then rotate about that cylinder's own
     ``axis_xyz``.  The finite span matters for compounds: an unrelated cylinder at a remote
-    axial station can coincidentally have the exact radial distance (#1276 review).
+    axial station can coincidentally have the exact radial distance (#1276).
     When no matching external cylinder exists, preserve the physical site: inventing an axis
     would be worse than retaining a possibly edge-on circumferential anchor.
     """
@@ -663,7 +663,7 @@ def _segment_crosses_box(p1, p2, box) -> bool:
     coordinate with an edge), unlike the strict form's own known gap — a
     segment passing exactly through two opposite corners is a measure-zero
     event for the continuous, non-integer leader positions this computes over
-    (review finding, #351 P5 strand 3: tried the inclusive form, reverted).
+    (#351).
 
     Its sibling :func:`_segment_clips_box` is the *inclusive* (Liang–Barsky)
     form lint uses — boundary semantics differ by design; pick per the caller's

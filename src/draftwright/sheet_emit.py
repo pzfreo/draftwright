@@ -387,7 +387,7 @@ def _member_hole_str(m, *, exact_parameter: str | None = None) -> str:
         # A THROUGH member's measured depth is a fact too, exactly as on the standalone verb
         # — and this template was the sibling that still dropped it after `_hole_line` was
         # fixed, which the model-fidelity oracle missed because its corpus carried no hole
-        # pattern (#967 review). The two templates diverging is the recurring shape here.
+        # pattern (#967). The two templates diverging is the recurring shape here.
         kw.append(f"depth={_n(m.depth)}")
     if m.through_indicator is not None:
         kw.append(f"through_indicator={m.through_indicator!r}")
@@ -779,7 +779,7 @@ def _feature_line(
         # The SPAN too, not just the height. Detection reports `frame.origin` as the boss TOP
         # while `declare.boss` reads `at` as its CENTRE, so round-tripping the origin alone
         # shifted the height dimension by half the boss — same value, wrong witness lines
-        # (#947 review, found by a boss fixture the corpus previously lacked). Emitting the
+        # (#947, found by a boss fixture the corpus previously lacked). Emitting the
         # span states the geometry outright instead of relying on the two ends agreeing about
         # a coordinate convention.
         span = (
@@ -953,14 +953,14 @@ def _feature_line(
             if f.direction:
                 # Redundant for the LAYOUT, since `members=` below is spelled out — but it is
                 # a field on the feature, and leaving it None made the declared pattern differ
-                # from the detected one (#967 review). The emitted script is a representation
+                # from the detected one (#967). The emitted script is a representation
                 # of the model, not only a program that reproduces its positions.
                 parts.append(f"direction={_pt(f.direction)}")
         elif f.pattern == "grid" and f.grid:
             parts.append(f"grid=({_n(f.grid[0])}, {_n(f.grid[1])}), rows={f.rows}, cols={f.cols}")
             # `is not None`, not truthiness: 0.0 is a MEANINGFUL angle (an
             # unrotated grid) and `if f.angle:` silently dropped it, so a grid
-            # pattern came back with angle=None (#967 r2).
+            # pattern came back with angle=None (#967).
             if f.angle is not None:
                 parts.append(f"angle={_n(f.angle)}")
         if f.members:
@@ -1083,7 +1083,7 @@ def _feature_line(
         # `axis_line`/`stock_span` are the stock identity (#1013). Emitted ALWAYS, not only
         # when non-default: they are what stops two same-sized flats on separate stock
         # collapsing into one callout, and a script that omits them regenerates the very
-        # drawing the detection was fixing (Codex #1035 r1). The declared defaults reproduce
+        # drawing the detection was fixing (#1035). The declared defaults reproduce
         # pre-#1013 grouping, so silence here is not neutral — it is the old bug.
         principal = tuple(1.0 if letter == f.axis else 0.0 for letter in "xyz")
         direction = (
@@ -1384,7 +1384,7 @@ def mirror_model(model):
     env = _envelope_from_bbox(model.bbox)
     # Returned ALONGSIDE the model rather than stamped onto it. The first cut set a private
     # marker on the frozen `EnvelopeFeature` and rediscovered it later by position and size —
-    # emitter bookkeeping masquerading as model state, on a public IR type (#944 review).
+    # emitter bookkeeping masquerading as model state, on a public IR type (#944).
     # Which feature the emitter synthesised is the emitter's own fact; it travels out-of-band.
     identities = (*model.declaration_identities, None) if model.declaration_identities else ()
     return replace(
@@ -1403,7 +1403,7 @@ def unmirrored_dimensions(model) -> list[str]:
     which misses every dimension created OUTSIDE `plan_dimensions`. Locations already prove
     such paths exist, so a compiled location or ladder on an otherwise nameable feature left
     the script printing "THIS IS THE COMPLETE SET" while silently omitting it: a real
-    user-facing third state, not merely a missing diagnostic (#947 review).
+    user-facing third state, not merely a missing diagnostic (#947).
 
     Compares the compiled approved set against the requests the emitter would actually write,
     so a new compiler-owned dimension is caught by construction rather than by someone
@@ -1588,7 +1588,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # WHY, specifically. `_is_mirrorable` now fails for any dimension the compiler
         # approved and no line can name — not only the no-declarative-verb case — so blaming
         # #945 unconditionally would misdirect a reader whenever the cause is something else,
-        # and could print an empty kind list (#947 review).
+        # and could print an empty kind list (#947).
         missing = unmirrored_dimensions(model)
         unnameable = sorted(
             {f.kind for f in model.features if _feature_line(f).lstrip().startswith("#")}
@@ -1657,7 +1657,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # The VERB, not just the comment above it. `dimension(...)` lines imply this source
         # on their own, so writing it was optional for a non-empty set — but an EMPTY
         # authored set has no line to imply it from, and the script then said its source in a
-        # comment only and failed the mandatory-source check at build (#933 review). Emitting
+        # comment only and failed the mandatory-source check at build (#933). Emitting
         # it unconditionally also means an authored script states its source the same way an
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
@@ -1679,7 +1679,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # (`axis="z"`); `!r` would render single and make the file read as two dialects.
         # A full discriminated id already names the variant, so restating it as `axis=`
         # would be redundant — and would make the emitted line the only place two spellings
-        # of one thing appear side by side (#965 review).
+        # of one thing appear side by side (#965).
         axis = (
             f', axis="{discriminator}"'
             if discriminator and "." not in role[role.find(".") + 1 :]
@@ -1863,7 +1863,7 @@ def _feature_block(
             # requirement validates. Object-reference matching intentionally admits the
             # generated-script rounding quantum, so a close source cylinder can be a valid
             # ordinary convenience reference yet disagree with the lossless imported value.
-            # Keep the numeric declaration for exact-owned parameters (#1296 review).
+            # Keep the numeric declaration for exact-owned parameters (#1296).
             object_ref = (
                 None
                 if exact_parameter is not None or exact_step_length
@@ -2336,7 +2336,7 @@ def _model_constructor_imports(model):
     # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
     # rejects `members=` and recomputes the layout — so the member constructor is a name the
     # generated file uses, and a missing entry is a NameError on the first line that runs
-    # (#957 review; pocket/slot patterns were emitting unrunnable scripts).
+    # (#957; pocket/slot patterns were emitting unrunnable scripts).
     model_imports = set()
     if any(f.kind == "angle" and getattr(f, "members", ()) for f in model.features):
         model_imports.add("AngularReference")

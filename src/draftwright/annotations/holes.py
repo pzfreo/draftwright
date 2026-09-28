@@ -208,7 +208,7 @@ def add_feature_callout(
     draft = dwg.draft
     members = feature.members or (feature.frame.origin,)
     # count comes from the spec (== feat.count) — the same source the auto-pass's
-    # bare path uses — not re-derived from len(members) (#414 review).
+    # bare path uses — not re-derived from len(members) (#414).
     callout = callout_from_spec(spec, draft, spec["count"])
     assert callout is not None  # spec is non-None here, so callout_from_spec returns one
     view = view or (group.view if group is not None else _END_ON[feature.frame.axis])
@@ -515,7 +515,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         # Scan for a free furniture slot j across all three name shapes: a bolt-circle
         # centre-cross (bc_{view}{j}), a linear pitch (dim_pitch_{view}{j}), and a grid's
         # two suffixed pitch dims (dim_pitch_{view}{j}_0/_1) — the bare key is never used
-        # by a grid, so probing it alone would collide on a second grid (#419 review F4).
+        # by a grid, so probing it alone would collide on a second grid (#419).
         j = 0
         while any(
             nm in (f"bc_{view}{j}", f"dim_pitch_{view}{j}")
@@ -559,7 +559,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     # From the COMPILED plan, not `plan_dimensions`. Reading the planned parameter meant
     # reading past its `suppressed` flag, so a live `callout()` drew a diameter the authored
     # set had omitted while the deferred path (through the migrated `render_diameters`) drew
-    # nothing — the two disagreeing about the same edit (#925 review).
+    # nothing — the two disagreeing about the same edit (#925).
     plan = compile_dimensions(model)
     group = plan.group_for(FeatureRef(feature))
     dpd = group.dim(kind="diameter") if group is not None else None
@@ -618,7 +618,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     ]
     # The row/column placers name leaders m_dia_{x,z}{start+i} — pass the first FREE
     # index so a second callout() (or a call on an already-annotated turned part) never
-    # collides on m_dia_x0/z0 and clobbers an existing leader (#419 review F1).
+    # collides on m_dia_x0/z0 and clobbers an existing leader (#419).
     prefix = "m_dia_x" if axis == "x" else "m_dia_z"
     start = 0
     while f"{prefix}{start}" in ctx.registry:
@@ -632,7 +632,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     if not new:
         # No room — degrade like the auto-pass (render_diameters places what fits and drops
         # the overflow to feature_not_dimensioned), NOT a raise: the emitted reconstruction
-        # calls callout() per step, so a crowded turned shaft must not abort (#427 review).
+        # calls callout() per step, so a crowded turned shaft must not abort (#427).
         _log.info("Step/boss ø%s callout skipped (no room)", _fmt(dia))
         return ""
     return str(new[0])
@@ -805,8 +805,8 @@ def _furnish_uncalled_patterns(dwg, a: Analysis, view_of_axis, plan, *, ctx, fur
     Furniture has always been a side effect of placing a bore callout, which was fine while
     the two stood or fell together. An authored set separates them: `dimension(pattern,
     "pitch")` names the pitch and nothing else, so there is no callout to hang the furniture
-    off and the measurement the script explicitly asked for was silently not drawn (#925
-    review) — the blank-drawing failure `_check_authored_targets` exists to prevent, arriving
+    off and the measurement the script explicitly asked for was silently not drawn (#925) —
+    the blank-drawing failure `_check_authored_targets` exists to prevent, arriving
     by a different route.
 
     Additive by construction: it runs only for patterns `_add_furniture` did not already
@@ -1013,7 +1013,7 @@ def _add_grid_pitch_dims(
         # is a slice of the IR's member order, which on a grid walks the lattice in neither
         # direction: on a 3x2 grid it hands `_pitch_text` five points whose consecutive gaps
         # are a mix of row and column spacing, so every uniform grid read as jittered and had
-        # its authored tolerance withheld (#1216 review r9).
+        # its authored tolerance withheld (#1216).
         spanned = [members[idx] for idx in sorted(line, key=along)]
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
@@ -1045,8 +1045,7 @@ def _pitch_text(pitch, members, draft, *, ctx) -> str:
     precision. The recogniser admits jitter (`_PATTERN_REL_TOL = 0.02`, `_PATTERN_ABS_TOL =
     0.1 mm`), so "identical by construction" is false: holes at x = −30, −10, 10.3, 30 collapse
     to one pitch dim, and composing the suffix there printed `3× 20 ±0.1` over a gap of 20.3 —
-    0.3 mm out against an authored ±0.05, a claim six times tighter than the part (#1216 review
-    of #1234 r8).
+    0.3 mm out against an authored ±0.05, a claim six times tighter than the part (#1216).
 
     This is the rule the engine already applies to the step chain — "a per-step ± would be a
     false claim on N equal steps, so the collapse carries NO tolerance" — and the one the detail
@@ -1132,7 +1131,7 @@ def _place_pitch_dim(
     # sites), because an explicit label discards a forwarded `tolerance=` — #1215's mechanism.
     # A uniform array's ± applies to each identical gap, so `4× 20 ±0.05` is coherent; that is
     # unlike the STEP representative, whose levels merely fall within 10% of each other, where
-    # a ± would claim the tolerance of values that differ (#1234 review r6).
+    # a ± would claim the tolerance of values that differ (#1234).
     label = f"{n - 1}× {pitch_text}"
 
     def _make(off, side_vec=side, label_offset_x=0.0):
@@ -1155,7 +1154,7 @@ def _place_pitch_dim(
         # pattern's CenterlineCircle can still be missed; #129 only covers the
         # cases verified reachable (this dim's own pattern + any turned-axis line).
         # Returns (final, unshifted): `_make` builds real OCC geometry (a boolean
-        # fuse per dim, #129 review — a production part hit a 120s single-op
+        # fuse per dim, #129 — a production part hit a 120s single-op
         # timeout after this went from one build to three per placement), so a
         # caller that already has the unshifted dim passes it in as `dim` rather
         # than have it rebuilt here.
@@ -1413,11 +1412,11 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     for i, g, view, name in furniture:
         # Skip the pitch furniture whose grouped size/depth callout dropped for want of room:
         # orphan pitch dims with no `N× W×L×D` leader are an incomplete, misleading spec
-        # (Codex #848 r3). Members are computed by _pattern_members (declare rejects explicit
+        # (#848). Members are computed by _pattern_members (declare rejects explicit
         # members=), so for a linear array they are already ordered along the direction —
         # members[0]/[-1] are the true extrema and the (n-1)× pitch label is truthful. Distinct
         # name prefix (dim_pocketpat_pitch, not the hole pattern's dim_pitch) so a plan-view
-        # hole pattern and pocket pattern do not collide on dim_pitch_plan0 (Codex #848 r2).
+        # hole pattern and pocket pattern do not collide on dim_pitch_plan0 (#848).
         if name not in placed_names:
             continue
         feat = g.facts
@@ -1563,7 +1562,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     placed_names = dwg.annotations()
     for i, g, view, name in furniture:
         # Skip the pitch furniture whose grouped size callout dropped (orphan pitch dims are a
-        # misleading spec, Codex #848 r3). Distinct name prefix (dim_slotpat_pitch) so a plan-view
+        # misleading spec). Distinct name prefix (dim_slotpat_pitch) so a plan-view
         # slot pattern and hole/pocket pattern do not collide.
         if name not in placed_names:
             for dimension in (
@@ -1976,7 +1975,7 @@ def _hc_name(only, view, i, hc_used):
     The auto-pass (only is None) numbers callouts positionally hc_{view}{i} — the
     historical byte-identical scheme. The #426 finalize path (only set) may run after
     a prior batch already placed hc_ names on this view, so it allocates the first FREE
-    index to avoid Drawing.add silently replacing an earlier callout (#430 review).
+    index to avoid Drawing.add silently replacing an earlier callout (#430).
     *hc_used* is mutated in the finalize path exactly as the old closure did.
     """
     if only is None:

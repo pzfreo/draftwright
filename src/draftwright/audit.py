@@ -1109,7 +1109,7 @@ def compare_assessments(
 
 #: Sheet FURNITURE — the annotation types that carry no measurement. Everything else counts.
 #:
-#: A denylist, not an allowlist, and the polarity is the point (Codex #1001). An allowlist of
+#: A denylist, not an allowlist, and the polarity is the point (#1001). An allowlist of
 #: {"Dimension", "Leader"} silently dropped `SafeDimension`, a real measurement-bearing class,
 #: and would drop every future dimensional type and subclass the same way. For a tool whose
 #: one job is not to hide a loss, an unknown type must fail toward NOISE — reported and
@@ -1155,7 +1155,7 @@ def _correspondence(feature, parameter) -> tuple:
     feature's ORIGIN AND SCALARS — by design, so two holes in one drawing are distinct. That
     makes it useless for comparing two DIFFERENT builds, which is the only thing this module
     does: widen a box 40→50 and the envelope's key changes, so an exact join finds nothing
-    and every real suppression reads "nothing claims it" (Codex #1002 r1, reproduced).
+    and every real suppression reads "nothing claims it" (#1002, reproduced).
 
     The kind survives the perturbation; the parameter is already stable. Weaker than full
     identity — two features of one kind share a key — but a weak key that MATCHES ACROSS
@@ -1168,7 +1168,7 @@ def _correspondence(feature, parameter) -> tuple:
 def _identities(dwg, name) -> Counter:
     """Cross-build correspondence keys for everything *name* draws; empty if unrecorded.
 
-    A **multiset**, not a set (Codex #1002 r5). The whole reason the registry stores a tuple
+    A **multiset**, not a set (#1002). The whole reason the registry stores a tuple
     is that one annotation can draw several measurements — a grouped ``4× R5`` fillet callout
     draws four. Deduplicating them here threw that away: a grouped callout dropping from four
     members to three keeps the same *distinct* key, so the change vanished and every result
@@ -1276,8 +1276,8 @@ def diff_builds(before, after) -> dict:
     # Attribution, on the cross-build correspondence key. The first cut matched a
     # suppression's parameter stem against the annotation's NAME by substring, so a
     # newly-suppressed `width.length` claimed every lost annotation whose name contained
-    # "width" — across unrelated features (Codex #1001 r1). The second joined on the exact
-    # ledger key, which cannot match across two builds at all (Codex #1002 r1). This joins
+    # "width" — across unrelated features (#1001). The second joined on the exact
+    # ledger key, which cannot match across two builds at all (#1002). This joins
     # on what the two builds genuinely share: the feature's kind and the parameter.
     candidates: dict[str, list[str]] = {}
     for name in lost:

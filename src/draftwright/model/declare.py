@@ -589,7 +589,7 @@ def _read_chamfer_face(face) -> tuple[str, float, float, Point]:
         raise ValueError("chamfer(face=...) needs an oblique planar bevel face") from None
     c = face.center()
     # No angle: it is always derivable from the legs, so returning it would let a leg-only
-    # override leave a stale, contradicting angle (#580 review). chamfer() derives it.
+    # override leave a stale, contradicting angle (#580). chamfer() derives it.
     return "xyz"[edge_i], round(hi, 3), round(lo, 3), (round(c.X, 4), round(c.Y, 4), round(c.Z, 4))
 
 
@@ -1086,7 +1086,7 @@ def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
     part CLASSIFICATION (`analysis._classify_geometry` / `_sizing_bores`), which also decides
     which concentric bores are sizing bores. A declare-side reimplementation would be a second
     inference path for one fact, and the first cut proved the point — it silently dropped
-    every bore and picked the wrong axis for a cylinder as long as it is wide (#949 review).
+    every bore and picked the wrong axis for a cylinder as long as it is wide (#949).
     A convenient object form that quietly changes the drawing is worse than an explicit one.
     Restoring it needs the classification factored into something both sides call — #950.
 
@@ -1102,7 +1102,7 @@ def rotational(*, od, bores=(), at=None, axis=None) -> RotationalFeature:
         _positive("rotational() bores=", b)
     axis = _norm_axis(axis if axis is not None else "z")
     # Bores-are-Z-only is NOT restated here: `RotationalFeature.__post_init__` owns it, so the
-    # raw-IR route through `Sheet.add`/`build_drawing(model=…)` gets the same answer (#949 r5).
+    # raw-IR route through `Sheet.add`/`build_drawing(model=…)` gets the same answer (#949).
     origin = (0.0, 0.0, 0.0) if at is None else at
     _require_point("at", origin)
     return RotationalFeature(
@@ -1849,7 +1849,7 @@ def _pattern_members(
         # math.hypot is over/underflow-stable: a hand-rolled sqrt(sum(c*c)) overflows to inf
         # for a huge direction (normalizing it to (0,0,0) → coincident centres under a nonzero
         # pitch label) and underflows to 0 for a denormal (falling back to 1.0, leaving the tiny
-        # vector unnormalized). Identical to the old norm for normal-magnitude inputs (Codex #848 r6).
+        # vector unnormalized). Identical to the old norm for normal-magnitude inputs (#848).
         n = math.hypot(*d) or 1.0
         d = tuple(c / n for c in d)
         p = pitch or 0.0
@@ -2009,8 +2009,8 @@ def pocket_pattern(
         # A DECLARED pocket pattern is always computed from count + pitch/grid + layout;
         # explicit members= could contradict the grouped size/pitch labels without a full
         # lattice / pitch / centroid validation (linear must be collinear + constant-pitch;
-        # a grid must match grid=/rows=/cols=/at), so it is rejected outright (Codex #848
-        # r2/r3). The detector builds the IR dataclass directly with real member geometry,
+        # a grid must match grid=/rows=/cols=/at), so it is rejected outright (#848).
+        # The detector builds the IR dataclass directly with real member geometry,
         # bypassing this constructor, so the override costs nothing here — and irregular
         # points are not a pattern.
         raise ValueError(
@@ -2030,7 +2030,7 @@ def pocket_pattern(
         if count < 2:
             # A single pocket is not an array — the callout would read `1× …` and the pitch
             # dim would have coincident endpoints (silently dropped). Grids already need
-            # rows>=2 and cols>=2 (count>=4); the linear path needs count>=2 (Codex #848 r4).
+            # rows>=2 and cols>=2 (count>=4); the linear path needs count>=2 (#848).
             raise ValueError(
                 "pocket_pattern(kind='linear') needs count>=2 — a single pocket is not an "
                 "array; declare it with pocket()"
@@ -2039,10 +2039,10 @@ def pocket_pattern(
             _require_point("direction", direction)
             # Test the NORMALIZED depth component: _pattern_members normalizes direction, so a
             # raw absolute tolerance lets e.g. (1e-12, 0, 1e-10) pass yet normalize to mostly
-            # depth. A relative (scale-independent) test rejects any real depth tilt (Codex #848
-            # r4). math.hypot is over/underflow-stable — a hand-rolled sum-of-squares norm
+            # depth. A relative (scale-independent) test rejects any real depth tilt.
+            # math.hypot is over/underflow-stable — a hand-rolled sum-of-squares norm
             # underflows to 0 on denormals (ZeroDivisionError) and overflows to inf on huge
-            # inputs (hiding the depth tilt); require a finite, nonzero norm (Codex #848 r5).
+            # inputs (hiding the depth tilt); require a finite, nonzero norm (#848).
             norm = math.hypot(*direction)
             if not (math.isfinite(norm) and norm > 0):
                 raise ValueError(
@@ -2064,7 +2064,7 @@ def pocket_pattern(
         _positive("pocket_pattern() grid col pitch", grid[1])
         # rows>=2 and cols>=2: a single-row/column grid has only one populated lattice axis,
         # so _add_grid_pitch_dims (which needs two orthogonal bases) would silently drop its
-        # one meaningful pitch dim — such an array IS linear, so route it there (Codex #848 r3).
+        # one meaningful pitch dim — such an array IS linear, so route it there (#848).
         if not (isinstance(rows, int) and isinstance(cols, int) and rows >= 2 and cols >= 2):
             raise ValueError(
                 "pocket_pattern(kind='grid') needs rows>=2 and cols>=2 (a single-row or "
@@ -2154,7 +2154,7 @@ def slot_pattern(
         if direction is not None:
             _require_point("direction", direction)
             # NORMALIZED, over/underflow-stable through-plane test — identical to pocket_pattern
-            # (Codex #848 r4/r5), only the axis source differs (the slot's through axis).
+            # (#848), only the axis source differs (the slot's through axis).
             norm = math.hypot(*direction)
             if not (math.isfinite(norm) and norm > 0):
                 raise ValueError(

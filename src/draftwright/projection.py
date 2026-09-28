@@ -607,7 +607,7 @@ def _fit_iso_view(dwg, a: Analysis, obstacles=()):
         #
         # This branch has no choice: the iso overflows its page region, so it must shrink
         # whatever else is nearby. A resulting collision is reported by
-        # `view_annotation_overlap` rather than prevented here (#1240 review F3).
+        # `view_annotation_overlap` rather than prevented here (#1240).
         factor = math.floor(needed * 0.98 * 10000) / 10000
     if not factor > 0.0:
         # One guard, at the boundary it protects. `extent > 0` filters the ratio's DENOMINATOR;

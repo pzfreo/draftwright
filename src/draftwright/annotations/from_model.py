@@ -194,7 +194,7 @@ def callout_from_spec(spec, draft, count) -> HoleCallout | None:
         """A formatted term with its own authored tolerance baked in.
 
         Every term of a compound callout can be toleranced, not just the bore. `.get()`
-        because hand-built specs in tests omit the keys (#1234 review r7).
+        because hand-built specs in tests omit the keys (#1234).
         """
         text = f(value, spec.get(decimals_key))
         return None if text is None else text + _tol_suffix(spec.get(key), draft)
@@ -1650,7 +1650,7 @@ def render_centermarks(dwg, furniture_groups, *, ctx) -> int:
     normal to the hole's axis (`_END_ON`), sized by its diameter — the IR migration
     of the engine's inline centre-mark loop. Returns the count placed.
 
-    The size comes off the FEATURE, not the planned bore parameter (ADR 4 (was 0016) / #875 review).
+    The size comes off the FEATURE, not the planned bore parameter (ADR 4 (was 0016) / #875).
     A centre mark is furniture derived from the hole's physical size; it is not a displayed
     value, so suppressing the bore dimension must not shrink it. Reading the parameter here
     made a suppressed ⌀20 collapse from a 42 mm mark to the 2.5 mm floor — the governing rule
@@ -3288,7 +3288,7 @@ def _collapsed_tolerance(members, *, ctx=None, noun=""):
     tolerance of each of them. That is only true when they ALL carry it. This used to be
     "first-AUTHORED tolerance wins" — scan the members and take the first non-``None`` — so
     tolerancing ONE of four fillets printed `4× R5 ±0.1` and claimed the author's band of the
-    three they said nothing about (#1216 review r10, F8).
+    three they said nothing about (#1216).
 
     The rule `_pitch_text` applies to a pattern's collapsed pitch and `render_height_ladder`
     applies to its `N× rise` representative ("a ± here would claim the author's tolerance of
@@ -5666,7 +5666,7 @@ def _env_label(approved, draft) -> str:
     so an explicit label DISCARDS the tolerance. Every dimension here passes a label, because
     the compiler owns the value text. Measured then: `label`, glyph count and label width were
     byte-identical with and without a tolerance, and the exported SVG had the same 115 paths
-    (#1234 review).
+    (#1234).
 
     `_tol_suffix` also renders a `FitClass`, which the ink path's `_number_with_units` raises
     on — so composing the label is the only route that satisfies #1215's fit-class line.
@@ -5675,7 +5675,7 @@ def _env_label(approved, draft) -> str:
     helpers' own `_number_with_units` formatting is unreachable. That is why the sheet is
     internally consistent on limit-pair ORDER — `_tol_suffix` renders `+upper -lower` for an
     envelope extent and a hole callout alike, while `_number_with_units` would render the
-    opposite. The consistency is real but it rests on that unreachability (#1234 review r2).
+    opposite. The consistency is real but it rests on that unreachability (#1234).
     """
     return f"{approved.value_text}{_tol_suffix(approved.tolerance, draft)}"
 
@@ -6043,8 +6043,8 @@ def _draw_step_chain(
     ``detail_scale`` tags the dims for label-vs-measured lint when
     drawing inside a scaled detail view. ``allow_collapse=False`` disables the ``N× v``
     collapse — used when the chain mixes a synthetic head-*block* with real steps, where
-    a uniform-staircase representative would be a false claim of N equal steps (#307
-    review). ``profile_bounds`` narrows the placement edge to one body's projected silhouette
+    a uniform-staircase representative would be a false claim of N equal steps (#307).
+    ``profile_bounds`` narrows the placement edge to one body's projected silhouette
     when a compound contains multiple turned profiles. Returns the count placed."""
     if not segs:
         return 0
@@ -7112,7 +7112,7 @@ def ladder_plan_for(plan, *, step_height: bool, overall: bool):
     draws more than was asked for: the #889 drain passed the whole compiled plan once either
     intent was recorded, so `overall_height()` alone also rebuilt the step rungs — a
     dimension nobody recorded, and live/deferred divergence in the one PR relying on their
-    equivalence (#934 review).
+    equivalence (#934).
 
     Exists so the live verb and the finalize drain project the plan the SAME way. Two
     spellings of "which ladders did they ask for" is how they diverged in the first place.
@@ -7182,8 +7182,8 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
     `Analysis`. Everything it used to decide about WHAT to draw — which rungs exist, their
     values and labels, whether a uniform staircase collapses to one ``n×`` mark, whether the
     overall height is drawn at all and what its value is — now arrives already decided. It
-    could previously reach `StepLevelFeature.levels` and `a.bb` and rebuild all of it, and
-    for four review rounds it did exactly that in defiance of the plan.
+    could previously reach `StepLevelFeature.levels` and `a.bb` and rebuild all of it,
+    bypassing the plan.
 
     What stays here is placement, and it is a real job: legibility at this scale, the
     leapfrog chain, corridor registration, the left-strip escape for short rises, and the
@@ -7202,8 +7202,8 @@ def _render_height_ladder_in_view(dwg, plan, frame, *, ctx, detail_view, view) -
         Anchoring every rung at the view's bottom edge instead was wrong the moment the
         compiler started measuring from `StepLevelFeature.base`: a declared base above the
         part's bottom made the drawn line span the full part while the label read the
-        shorter distance, so the dimension said one thing and measured another (#923
-        review). The span is the compiler's statement of what is being measured; projecting
+        shorter distance, so the dimension said one thing and measured another (#923).
+        The span is the compiler's statement of what is being measured; projecting
         both ends of it is what keeps line and label the same claim."""
         return (
             frame.project(view, entry.span[0])[1],
@@ -8004,7 +8004,7 @@ def _record_pmi_drop(ctx, dwg, ax, label, rec):
     is placed in the view where the bore appears as a circle (Z→plan, X→side,
     Y→front — the bbox-perpendicular view), while a linear dim follows the
     dominant-axis table above (X/Z→front, Y→side primary). Conflating the two
-    mislabels every dropped bore diameter/radius (review finding, #351 PR-4a).
+    mislabels every dropped bore diameter/radius (#351).
     """
     selected_view = authored_dimension_target_view(
         rec.pmi_kind,
