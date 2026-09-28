@@ -8,10 +8,10 @@ surface and the shared placement context.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import Any
 
 from draftwright.annotations._common import annotation_ink_obstacles
-from draftwright.annotations.leaders import drain_feature_leaders
 from draftwright.intents import Intent
 
 
@@ -24,64 +24,22 @@ class IntentDrainState:
     record_issue: Callable[..., None]
 
 
-def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Intent]:
-    """The mutating half of :meth:`finalize` (#638): the drain stages, keyed by the
-    orchestrator's canonical ``_PASS_SEQUENCE`` and executed in ITS order via the shared
-    :func:`~draftwright.annotations.orchestrator.run_stages` (#699 slice b) — so the
-    finalize path can no longer silently diverge from the auto-pass sequencing (the
-    pre-#699 hand-mirrored order drained the corridor BEFORE diameters/step lengths and
-    registered the ladder before the callouts; both now follow the one list, giving the
-    auto-pass's obstacle visibility). ``r`` = the :class:`_IntentRouting` from
-    :meth:`_classify_intents`; finalize wraps this call in the snapshot/rollback/finally,
-    so a raise here still rolls the drawing back as before."""
-    from draftwright.annotations.from_model import (
-        render_blends,
-        render_chamfers,
-        render_circular_blind_steps,
-        render_circular_channels,
-        render_diameters,
-        render_fillets,
-        render_flats,
-        render_grooves,
-        render_height_ladder,
-        render_hex_pockets,
-        render_local_turned_centerlines,
-        render_locations,
-        render_oriented_slots,
-        render_pad_heights,
-        render_paired_ramp_steps,
-        render_pockets,
-        render_rectangular_blind_slots,
-        render_rotational,
-        render_round_bottom_blind_slots,
-        render_slots,
-        render_step_lengths,
-        render_step_positions,
-    )
-    from draftwright.annotations.holes import (
-        _annotate_holes,
-        _coalesce_aligned_linear_pitch_dims,
-        _locate_off_axis_holes,
-        build_view_of_axis,
-        render_pocket_patterns,
-        render_slot_patterns,
-    )
-    from draftwright.annotations.orchestrator import (
-        _maybe_tabulate_holes,
-        drain_and_reconcile,
-        retract_resolved_withholdings,
-        run_stages,
-    )
-    from draftwright.annotations.sections import (
-        _add_section_view,
-        _has_rendered_section,
-        _request_prismatic_detail,
-        _reserve_section_row,
-        _resolve_details,
-        feature_hole_keys,
-    )
-    from draftwright.model import PartModel, plan_dimensions
-    from draftwright.model.compiled import compile_dimensions
+@dataclass
+class _DrainRun:
+    target: Any
+    ctx: Any
+    model: Any
+    analysis: Any
+    routing: Any
+    state: IntentDrainState
+    routable: bool
+    queued_dim_ids: set[int]
+    derived_identifiers: Any
+    section: Any
+
+
+def _prepare_drain(target, ctx, model, a, r, state: IntentDrainState) -> _DrainRun:
+    from draftwright.annotations.sections import _has_rendered_section
     from draftwright.view_plan import DerivedViewIdentifierPool, derived_view_identifier
 
     routable = model is not None and a is not None
@@ -103,48 +61,84 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
     if section is not None and _has_rendered_section(target, section):
         section = None
     elif section is not None:
-        from dataclasses import replace
-
         section_label = derived_identifiers.allocate()
         if section_label is None:
             raise ValueError(
                 "recorded section cannot be named: derived-view identifiers exhausted"
             )
         section = replace(section, label=section_label)
+    return _DrainRun(
+        target,
+        ctx,
+        model,
+        a,
+        r,
+        state,
+        routable,
+        queued_dim_ids,
+        derived_identifiers,
+        section,
+    )
 
-    def _report_authored_omissions(features, before) -> None:
-        """Say so when a recorded edit drew nothing because the AUTHOR omitted it.
 
-        The round-6 defect (#921) was silence: the drain recorded the intent, drew
-        nothing, dropped the intent unconditionally and reported success, so the edit
-        vanished with no annotation, no pending intent and no warning. #925 replaced the
-        pre-check that fixed it — a fourth hand-written prediction of what a callout
-        would draw, and wrong for a feature with some measurements authored and some not
-        — so the report has to move here, where "drew nothing" is observed rather than
-        forecast, and matches what the live path records at the same moment.
-        """
-        if not features or model is None or model.authored_dimensions is None:
-            return
-        drawn = set(target.annotations()) - before
-        for feature in features:
-            if drawn & set(target.annotations_of(feature)):
-                continue
-            omission = next(
-                (
-                    o
-                    for o in compile_dimensions(model).diagnostics
-                    if o.feature is feature and o.authored
-                ),
-                None,
+def _report_authored_omissions(run: _DrainRun, features, before) -> None:
+    """Say so when a recorded edit drew nothing because the AUTHOR omitted it.
+
+    The round-6 defect (#921) was silence: the drain recorded the intent, drew
+    nothing, dropped the intent unconditionally and reported success, so the edit
+    vanished with no annotation, no pending intent and no warning. #925 replaced the
+    pre-check that fixed it — a fourth hand-written prediction of what a callout
+    would draw, and wrong for a feature with some measurements authored and some not
+    — so the report has to move here, where "drew nothing" is observed rather than
+    forecast, and matches what the live path records at the same moment.
+    """
+    from draftwright.model.compiled import compile_dimensions
+
+    target, model, state = run.target, run.model, run.state
+    if not features or model is None or model.authored_dimensions is None:
+        return
+    drawn = set(target.annotations()) - before
+    for feature in features:
+        if drawn & set(target.annotations_of(feature)):
+            continue
+        omission = next(
+            (
+                o
+                for o in compile_dimensions(model).diagnostics
+                if o.feature is feature and o.authored
+            ),
+            None,
+        )
+        if omission is not None:
+            state.record_issue(
+                "info",
+                "authored_omission",
+                f"the recorded edit for this {feature.kind} drew nothing: "
+                f"{omission.parameter_id} is not in the authored dimension set — "
+                "add a dimension(feature, role) line",
             )
-            if omission is not None:
-                state.record_issue(
-                    "info",
-                    "authored_omission",
-                    f"the recorded edit for this {feature.kind} drew nothing: "
-                    f"{omission.parameter_id} is not in the authored dimension set — "
-                    "add a dimension(feature, role) line",
-                )
+
+
+def _early_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
+    from draftwright.annotations.from_model import (
+        render_local_turned_centerlines,
+        render_locations,
+        render_rotational,
+    )
+    from draftwright.annotations.holes import _annotate_holes, build_view_of_axis
+    from draftwright.annotations.sections import _reserve_section_row, feature_hole_keys
+    from draftwright.model import PartModel, plan_dimensions
+    from draftwright.model.compiled import compile_dimensions
+
+    target, ctx, model, a, r, state = (
+        run.target,
+        run.ctx,
+        run.model,
+        run.analysis,
+        run.routing,
+        run.state,
+    )
+    routable, section = run.routable, run.section
 
     def _s_rotational():
         # Rotational furniture — OD dim + axis centrelines + concentric-bore leaders —
@@ -217,7 +211,7 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
                 only=r.only_callout,
                 place_furniture=False,
             )
-        _report_authored_omissions(r.only_callout, before_callouts)
+        _report_authored_omissions(run, r.only_callout, before_callouts)
         # Drop the placed callout intents NOW — before the fallible later stages — so
         # a raise there can't re-route (and, via first-free hc_ naming, duplicate)
         # them on a retry.
@@ -238,6 +232,39 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
                 only=r.only_loc,
                 pinned=r.pinned_loc,
             )
+
+    return {
+        "rotational": _s_rotational,
+        "reserve_section": _s_reserve_section,
+        "live_replay": _s_live_replay,
+        "hole_callouts": _s_hole_callouts,
+        "locations": _s_locations,
+    }
+
+
+def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
+    from draftwright.annotations.from_model import (
+        render_diameters,
+        render_height_ladder,
+        render_slots,
+        render_step_lengths,
+        render_step_positions,
+    )
+    from draftwright.annotations.holes import _locate_off_axis_holes
+    from draftwright.annotations.sections import _request_prismatic_detail
+    from draftwright.model import PartModel
+    from draftwright.model.compiled import compile_dimensions
+
+    target, ctx, model, a, r, state = (
+        run.target,
+        run.ctx,
+        run.model,
+        run.analysis,
+        run.routing,
+        run.state,
+    )
+
+    routable = run.routable
 
     def _s_off_axis_across():
         # Side-drilled holes' in-plane (side-below) locations — REGISTER-only, whole-model
@@ -356,7 +383,7 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
                 ctx=ctx,
                 only={_DiaRef(_cast_dia(_DiaFeature, f)) for f in r.only_dia},
             )
-        _report_authored_omissions(r.only_dia, before_dia)
+        _report_authored_omissions(run, r.only_dia, before_dia)
         state.intents = [it for it in state.intents if id(it) not in r.dia_ids]
 
     def _s_step_lengths():
@@ -387,6 +414,51 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
         if r.slot_feats:
             assert a is not None and isinstance(model, PartModel)  # ⟹ routable
             render_slots(target, compile_dimensions(model), a, ctx=ctx, only=r.slot_feats)
+
+    return {
+        "off_axis_across": _s_off_axis_across,
+        "off_axis_along": _s_off_axis_along,
+        "height_ladder": _s_height_ladder,
+        "step_positions": _s_step_positions,
+        "detail_request": _s_detail_request,
+        "diameters": _s_diameters,
+        "step_lengths": _s_step_lengths,
+        "slots": _s_slots,
+    }
+
+
+def _feature_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
+    from draftwright.annotations.from_model import (
+        render_blends,
+        render_chamfers,
+        render_circular_blind_steps,
+        render_circular_channels,
+        render_fillets,
+        render_flats,
+        render_grooves,
+        render_hex_pockets,
+        render_oriented_slots,
+        render_pad_heights,
+        render_paired_ramp_steps,
+        render_pockets,
+        render_rectangular_blind_slots,
+        render_round_bottom_blind_slots,
+    )
+    from draftwright.annotations.holes import render_pocket_patterns, render_slot_patterns
+    from draftwright.annotations.leaders import drain_feature_leaders
+    from draftwright.annotations.orchestrator import drain_and_reconcile
+    from draftwright.model import PartModel
+
+    target, ctx, model, a, r, state = (
+        run.target,
+        run.ctx,
+        run.model,
+        run.analysis,
+        run.routing,
+        run.state,
+    )
+
+    routable, queued_dim_ids = run.routable, run.queued_dim_ids
 
     # Machined-feature leader callouts (#148): each recorded callout intent draws exactly
     # its own feature — the renderer is restricted to the surviving intents' features via
@@ -549,6 +621,44 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
             )
         ]
 
+    return {
+        "chamfers": _s_chamfers,
+        "circular_blind_steps": _s_circular_blind_steps,
+        "circular_channels": _s_circular_channels,
+        "hex_pockets": _s_hex_pockets,
+        "fillets": _s_fillets,
+        "blends": _s_blends,
+        "paired_ramp_steps": _s_paired_ramp_steps,
+        "flats": _s_flats,
+        "pockets": _s_pockets,
+        "rectangular_blind_slots": _s_rectangular_blind_slots,
+        "round_bottom_blind_slots": _s_round_bottom_blind_slots,
+        "oriented_slots": _s_oriented_slots,
+        "pad_heights": _s_pad_heights,
+        "grooves": _s_grooves,
+        "feature_leaders": _s_feature_leaders,
+        "pocket_patterns": _s_pocket_patterns,
+        "slot_patterns": _s_slot_patterns,
+        "user_dims": _s_user_dims,
+        "drain": _s_drain,
+    }
+
+
+def _late_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
+    from draftwright.annotations.orchestrator import _maybe_tabulate_holes
+    from draftwright.annotations.sections import _add_section_view, _resolve_details
+    from draftwright.model.compiled import compile_dimensions
+
+    target, ctx, model, a, state = (
+        run.target,
+        run.ctx,
+        run.model,
+        run.analysis,
+        run.state,
+    )
+    routable, section = run.routable, run.section
+    derived_identifiers = run.derived_identifiers
+
     def _s_section():
         # Render the section, reusing the reserved plan. The room check carves the
         # view row into free segments and takes the leftmost that fits and clears
@@ -606,45 +716,26 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
             assert a is not None
             _maybe_tabulate_holes(target, a, ctx=ctx, plan=compile_dimensions(model))
 
-    run_stages(
-        {
-            "rotational": _s_rotational,
-            "off_axis_across": _s_off_axis_across,
-            "off_axis_along": _s_off_axis_along,
-            "reserve_section": _s_reserve_section,
-            "live_replay": _s_live_replay,
-            "hole_callouts": _s_hole_callouts,
-            "locations": _s_locations,
-            "height_ladder": _s_height_ladder,
-            "step_positions": _s_step_positions,
-            "detail_request": _s_detail_request,
-            "diameters": _s_diameters,
-            "step_lengths": _s_step_lengths,
-            "slots": _s_slots,
-            "pocket_patterns": _s_pocket_patterns,
-            "slot_patterns": _s_slot_patterns,
-            "user_dims": _s_user_dims,
-            "drain": _s_drain,
-            "chamfers": _s_chamfers,
-            "circular_blind_steps": _s_circular_blind_steps,
-            "circular_channels": _s_circular_channels,
-            "hex_pockets": _s_hex_pockets,
-            "fillets": _s_fillets,
-            "blends": _s_blends,
-            "paired_ramp_steps": _s_paired_ramp_steps,
-            "flats": _s_flats,
-            "pockets": _s_pockets,
-            "rectangular_blind_slots": _s_rectangular_blind_slots,
-            "round_bottom_blind_slots": _s_round_bottom_blind_slots,
-            "oriented_slots": _s_oriented_slots,
-            "pad_heights": _s_pad_heights,
-            "grooves": _s_grooves,
-            "feature_leaders": _s_feature_leaders,
-            "section": _s_section,
-            "details": _s_details,
-            "tabulate": _s_tabulate,
-        }
-    )
+    return {
+        "section": _s_section,
+        "details": _s_details,
+        "tabulate": _s_tabulate,
+    }
+
+
+def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Intent]:
+    """Run deferred annotation stages in the canonical order.
+
+    Drawing owns the snapshot, rollback, and transaction lifetime. This mutating
+    half keeps the same staged intent drops and corridor drain as the auto pass.
+    """
+    from draftwright.annotations.holes import _coalesce_aligned_linear_pitch_dims
+    from draftwright.annotations.orchestrator import retract_resolved_withholdings, run_stages
+    from draftwright.model.compiled import compile_dimensions
+
+    run = _prepare_drain(target, ctx, model, a, r, state)
+    stages = _early_stages(run) | _dimension_stages(run) | _feature_stages(run) | _late_stages(run)
+    run_stages(stages)
     if a is not None:
         _coalesce_aligned_linear_pitch_dims(target, a, ctx=ctx)
     # The same close-out the auto pass runs. A withholding is recorded by the pass that
