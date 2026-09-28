@@ -493,11 +493,16 @@ def test_step_spacing_drop_on_retry_keeps_later_scales_eligible(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("post_build", "settled_scale", "stops"),
-    [(False, 0.5, True), (True, 0.5, False), (False, 0.1, False)],
+    ("post_build", "short_at", "settled_scale", "stops"),
+    [
+        (False, 1.0, 1.0, True),
+        (False, 0.5, 0.5, True),
+        (True, 0.5, 0.5, False),
+        (False, 0.5, 0.1, False),
+    ],
 )
 def test_certified_short_off_axis_span_stops_explicit_fallback_issue_1949(
-    monkeypatch, post_build, settled_scale, stops
+    monkeypatch, post_build, short_at, settled_scale, stops
 ):
     import draftwright.builder as builder
 
@@ -513,7 +518,7 @@ def test_certified_short_off_axis_span_stops_explicit_fallback_issue_1949(
                 measurement_ids=("side_hole_y",),
                 evidence_reason="off_axis_span_below_1_mm",
             )
-            if scale == 0.5
+            if scale == short_at
             else LintIssue(
                 severity="warning",
                 code="location_ref_dropped",
@@ -521,7 +526,7 @@ def test_certified_short_off_axis_span_stops_explicit_fallback_issue_1949(
             )
         )
         return SimpleNamespace(
-            scale=settled_scale if scale == 0.5 else scale,
+            scale=settled_scale if scale == short_at else scale,
             lint=lambda **_: (issue,),
             recognition=lambda: None,
             _analysis=None,
@@ -537,7 +542,8 @@ def test_certified_short_off_axis_span_stops_explicit_fallback_issue_1949(
             _post_build=(lambda drawing: drawing) if post_build else None,
         )
 
-    assert calls == ([1.0, 0.5] if stops else [1.0, 0.5, 0.2, 0.1])
+    expected_calls = ([1.0] if short_at == 1.0 else [1.0, 0.5]) if stops else [1.0, 0.5, 0.2, 0.1]
+    assert calls == expected_calls
     decision = caught.value.decision
     assert decision["status"] == "no_complete_scale"
     assert decision["attempted_scales"] == tuple(calls)
