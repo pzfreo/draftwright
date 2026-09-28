@@ -82,6 +82,7 @@ from draftwright.annotations.from_model import (
     place_machined_leader_jobs,
 )
 from draftwright.annotations.hole_leader_candidates import (
+    FrontHoleLeaderCandidateAdapter,
     HoleLeaderCandidateAdapter,
     hole_candidate_rows,
 )
@@ -2709,34 +2710,19 @@ def _place_front_callouts(
 
         name = _hc_name(only, view, i, hc_used)
 
-        def _build(
-            pos,
-            _centre=centre,
-            _dia=dia,
-            _side=side,
-            _callout=callout,
-            _rep=rep,
-        ):
-            elbow = (_centre[0], pos)
-            tip = _rim_tip(
-                _centre,
-                elbow,
-                _dia,
-                a.SCALE,
-                callout=_callout,
-                location=_rep,
-                to_page=to_page,
-            )
-            return _profiled_callout_leader(
-                tip=(tip[0], tip[1], 0),
-                elbow=(elbow[0], elbow[1], 0),
-                label="",
-                draft=draft,
-                text_side=_side,
-                callout=_callout,
-            )
-
-        cands.append((name, _build))
+        adapter = FrontHoleLeaderCandidateAdapter(
+            centre=centre,
+            diameter=dia,
+            side=side,
+            callout=callout,
+            location=rep,
+            scale=a.SCALE,
+            draft=draft,
+            to_page=to_page,
+            rim_tip=_rim_tip,
+            build_leader=_profiled_callout_leader,
+        )
+        cands.append((name, adapter.build))
         features[name] = _callout_member_owner(callout, rep, feat_of_callout.get(id(callout)))
         priorities[name] = dia
         forbid[name] = tb_box
