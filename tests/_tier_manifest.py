@@ -18,6 +18,20 @@ class ContractGroup:
 
 
 CONTRACT_GROUPS = {
+    "drawing_edits": ContractGroup(
+        ("src/draftwright/drawing_edits.py",),
+        (
+            "test_add_dimension.py",
+            "test_compiled_plan_boundary.py",
+            "test_deferred_edits.py",
+            "test_feature_edit_corridors.py",
+            "test_feature_edit_replay.py",
+            "test_feature_edit_verbs.py",
+            "test_issue_563_placement_intent.py",
+            "test_refactor_golden.py",
+            "test_script_detail_parity.py",
+        ),
+    ),
     "scale_policy": ContractGroup(
         (
             "src/draftwright/build_policy.py",
