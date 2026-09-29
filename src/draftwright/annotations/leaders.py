@@ -1771,6 +1771,36 @@ def _pair_conflicts(jobs, viable_by_job) -> _LeaderPairConflicts:
     return _LeaderPairConflicts(conflicts, pair_probes, False)
 
 
+def _greedy_boundary_blockers(candidate, job, page, title_block) -> tuple[str, ...]:
+    blockers = []
+    label = candidate.label_box
+    if candidate.failure_reason is not None:
+        blockers.append(candidate.failure_reason)
+    elif label is None:
+        blockers.append("unmeasurable_label")
+    else:
+        if label[0] < page[0] or label[1] < page[1] or label[2] > page[2] or label[3] > page[3]:
+            blockers.append("page")
+        if view_blocker := _view_region_blocker(candidate, job):
+            blockers.append(view_blocker)
+    if _ink_hits_box(candidate, title_block):
+        blockers.append("title_block:reserved")
+    return tuple(blockers)
+
+
+def _greedy_terminal_reason(rejected) -> str:
+    return (
+        "geometry_validation"
+        if rejected
+        and all(
+            "geometry_validation" in entry["blockers"]
+            and set(entry["blockers"]) <= {"geometry_validation", "fixed_probe_budget"}
+            for entry in rejected
+        )
+        else "no_clear_room"
+    )
+
+
 @dataclass(frozen=True)
 class _ProvisionalRefinementInput:
     jobs: list[FeatureLeaderJob]
@@ -2320,43 +2350,6 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             for view in dict.fromkeys(job.view for job in jobs)
         }
 
-        def boundary_blockers(candidate, job):
-            blockers = []
-            label = candidate.label_box
-            if candidate.failure_reason is not None:
-                blockers.append(candidate.failure_reason)
-            elif label is None:
-                blockers.append("unmeasurable_label")
-            else:
-                if (
-                    label[0] < page[0]
-                    or label[1] < page[1]
-                    or label[2] > page[2]
-                    or label[3] > page[3]
-                ):
-                    blockers.append("page")
-                if view_blocker := _view_region_blocker(candidate, job):
-                    blockers.append(view_blocker)
-            if _ink_hits_box(candidate, title_block):
-                blockers.append("title_block:reserved")
-            return tuple(blockers)
-
-        def terminal_reason(rejected):
-            return (
-                "geometry_validation"
-                if rejected
-                and all(
-                    "geometry_validation" in entry["blockers"]
-                    and set(entry["blockers"])
-                    <= {
-                        "geometry_validation",
-                        "fixed_probe_budget",
-                    }
-                    for entry in rejected
-                )
-                else "no_clear_room"
-            )
-
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
             blockers_by_raw = []
@@ -2399,7 +2392,10 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     # Replay preserves the producer floor when exact
                     # classification exceeds its work budget. Boundary/title
                     # constraints remain hard and the uncertainty is explicit.
-                    blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
+                    blockers = (
+                        *_greedy_boundary_blockers(candidate, job, page, title_block),
+                        "fixed_probe_budget",
+                    )
                     if candidate.region is LeaderCandidateRegion.INTERIOR:
                         blockers = (
                             *blockers,
@@ -2502,7 +2498,10 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                         actual_fixed_probes += len(fixed_components)
                     else:
                         fixed_verified = False
-                        blockers = (*boundary_blockers(candidate, job), "fixed_probe_budget")
+                        blockers = (
+                            *_greedy_boundary_blockers(candidate, job, page, title_block),
+                            "fixed_probe_budget",
+                        )
                     if _hard_fixed_blockers(blockers) or not (
                         job.fallback_accept(candidate, legacy_boxes[job.view], page)
                         if job.fallback_accept is not None
@@ -2561,7 +2560,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
             )
             if selected is None:
-                drop_reason = terminal_reason(fallback_rejected)
+                drop_reason = _greedy_terminal_reason(fallback_rejected)
                 if recovery_for(job_index) is not None:
                     pending_recoveries.append(
                         (
