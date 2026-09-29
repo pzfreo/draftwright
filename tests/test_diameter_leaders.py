@@ -1,8 +1,11 @@
 """Diameter-leader anchoring and silhouette-crossing behavior."""
 
+import json
+import math
 from pathlib import Path
 
 import pytest
+from _parts import x_stepped_shaft as _x_stepped_shaft
 from build123d import Box, Cylinder, Pos, Rotation
 
 from draftwright import build_drawing
@@ -14,6 +17,104 @@ def _ctx_for(dwg):
     from draftwright.annotations._common import PlacementContext
 
     return PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
+
+
+def test_render_diameters_uses_live_strip_solver_binding(monkeypatch):
+    # Assert the patched entry point is actually called; preserving only its
+    # attribute would leave the fallback test green for the wrong reason.
+    import sys
+
+    m = sys.modules["draftwright.annotations.from_model"]
+    attempts = []
+
+    def fail_strip(*args, **kwargs):
+        attempts.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(m, "_solve_strip_ys", fail_strip)
+    monkeypatch.setattr(m, "_greedy_strip_ys", fail_strip)
+    dwg = build_drawing(_x_stepped_shaft())
+    assert attempts
+    labels = {item.label for name, item in dwg.iter_annotations() if name.startswith("m_dia")}
+    assert labels == {"ø30", "ø16"}
+
+
+def test_y_axis_diameter_leaders_keep_owners_and_clear_the_bore():
+    # A through bore occupies the centre of the end-on view. Each step still needs
+    # its own approved diameter, and its leader shaft must miss the bore circle.
+    part = Rotation(0, 0, 90) * _x_stepped_shaft() - Rotation(90, 0, 0) * Cylinder(2, 120)
+    dwg = build_drawing(part)
+    steps = [feature for feature in dwg.model().features if feature.kind == "step"]
+    holes = [feature for feature in dwg.model().features if feature.kind == "hole"]
+    assert {(feature.frame.axis, feature.diameter) for feature in steps} == {
+        ("y", 30.0),
+        ("y", 16.0),
+    }
+    assert len(holes) == 1 and holes[0].frame.axis == "y" and holes[0].diameter == 4.0
+
+    leaders = [(name, item) for name, item in dwg.iter_annotations() if name.startswith("m_dia_y")]
+    assert {item.label for _, item in leaders} == {"ø30", "ø16"}
+    cx, cy, *_ = dwg.at("front", *holes[0].frame.origin)
+    radius = holes[0].diameter * dwg.scale / 2
+    for name, leader in leaders:
+        (identity,) = dwg.registry.measurement_of(name)
+        assert any(identity.feature is step for step in steps)
+        assert identity.parameter == "step.diameter"
+        assert leader.label == f"ø{identity.feature.diameter:g}"
+        ax, ay = leader.tip[:2]
+        bx, by = leader.elbow[:2]
+        vx, vy = bx - ax, by - ay
+        t = max(0.0, min(1.0, ((cx - ax) * vx + (cy - ay) * vy) / (vx * vx + vy * vy)))
+        assert math.hypot(cx - (ax + t * vx), cy - (ay + t * vy)) > radius
+
+
+def test_end_on_diameter_rays_rank_clearance_along_the_whole_shaft():
+    from draftwright.annotations._diameters import _leader_hole_clearance
+
+    circle = [(5.0, 0.0, 1.0)]
+    crossing = ((0.0, 0.0), (10.0, 0.0, 0.0), None)
+    clear = ((0.0, 0.0), (10.0, 10.0, 0.0), None)
+    # Both rays start at the same distance from the off-axis hole. A tip-only
+    # measure cannot rank them; the crossing shaft passes through the hole.
+    assert _leader_hole_clearance(crossing, circle) == -1.0
+    assert _leader_hole_clearance(clear, circle) > 2.0
+    assert _leader_hole_clearance(clear, circle) > _leader_hole_clearance(crossing, circle)
+
+
+def test_partial_x_row_keeps_each_diameter_after_squeezing_out_smallest(tmp_path):
+    from build123d import Align
+
+    def cyl(radius, height, z):
+        return Pos(0, 0, z) * Cylinder(
+            radius, height, align=(Align.CENTER, Align.CENTER, Align.MIN)
+        )
+
+    part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(5, 1.7, 0.5) + cyl(4, 2.0, 2.2))
+    trace_path = tmp_path / "partial_diameter_row.json"
+    dwg = build_drawing(part, trace=trace_path)
+    events = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "diameter_row_below"
+    ]
+    assert any(
+        {item["label"] for item in event["items"] if item["outcome"] == "placed"} == {"ø10", "ø8"}
+        and any(
+            item["label"] == "ø6"
+            and item["outcome"] == "dropped"
+            and item["reason"] == "squeezed_out"
+            for item in event["items"]
+        )
+        for event in events
+    )
+    marks = [(name, item) for name, item in dwg.iter_annotations() if name.startswith("m_dia")]
+    assert {item.label for _, item in marks} == {"ø10", "ø8", "ø6"}
+    for name, item in marks:
+        (identity,) = dwg.registry.measurement_of(name)
+        assert identity.parameter.endswith(".diameter")
+        assert item.label == f"ø{identity.feature.diameter:g}"
+        assert dwg.registry.feature_of(name) is identity.feature
+    assert not [issue for issue in dwg.lint() if issue.code == "feature_not_dimensioned"]
 
 
 class TestDiameterStepAnchor:

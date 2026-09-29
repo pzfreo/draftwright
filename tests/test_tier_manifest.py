@@ -56,6 +56,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
         "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
         "thin_profiles": "src/draftwright/annotations/_thin_profiles.py",
+        "diameter_family": "src/draftwright/annotations/_diameters.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -179,6 +180,15 @@ def test_thin_profile_change_runs_plate_and_channel_contracts():
         "test_prismatic_dimensions.py",
         "test_issue_917_open_channel.py",
         "test_tolerances.py",
+    } <= selected
+
+
+def test_diameter_family_change_runs_rendering_and_ownership_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_diameters.py"]))
+    assert {
+        "test_diameter_leaders.py",
+        "test_prismatic_boss_diameter.py",
+        "test_issue_1505_diameter_coverage.py",
     } <= selected
 
 

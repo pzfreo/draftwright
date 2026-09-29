@@ -270,6 +270,19 @@ CONTRACT_GROUPS = {
             "test_script_detail_parity.py",
         ),
     ),
+    "diameter_family": ContractGroup(
+        ("src/draftwright/annotations/_diameters.py",),
+        (
+            "test_diameter_leaders.py",
+            "test_prismatic_boss_diameter.py",
+            "test_issue_1505_diameter_coverage.py",
+            "test_turned_steps.py",
+            "test_issue_798_material_field.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_compiled_plan_boundary.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (
