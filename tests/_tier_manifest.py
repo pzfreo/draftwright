@@ -138,6 +138,15 @@ CONTRACT_GROUPS = {
         ("src/draftwright/annotations/solve_trace.py",),
         ("test_solve_trace.py", "test_compiled_plan_boundary.py"),
     ),
+    "dimension_ink": ContractGroup(
+        ("src/draftwright/annotations/_dimension_ink.py",),
+        (
+            "test_pitch_dim_footprint.py",
+            "test_issue_1334_prevent_ink.py",
+            "test_issue_1516_dimension_text.py",
+            "test_issue_1601_flat_precision.py",
+        ),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (

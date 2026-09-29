@@ -210,6 +210,10 @@ and re-exports the existing private helper names.
   - **`annotations/gears.py`** — standards-backed data-table presentation for the
     declaration-only metric external spur gear; the table flows through the generic
     solver-owned late-furniture path (#1086).
+  - **`annotations/_dimension_ink.py`** — analytical dimension label sizes,
+    candidate footprints, and straight-stroke probes used by the corridor solve
+    before selected annotations are built. It uses lower-layer typography and
+    arrow bounds; `_common.py` retains the existing helper import paths.
   - **`annotations/_common.py`** — the ADR 2 (was 0014) corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
