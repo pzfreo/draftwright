@@ -8,7 +8,7 @@ and detail-recovery override remains effective.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Literal, cast
+from typing import Any, Literal, NamedTuple, cast
 
 from build123d_drafting.helpers import Centerline, Leader
 
@@ -32,6 +32,7 @@ from draftwright.annotations._common import (
     CROSSABLE_TYPES,
     CorridorCandidate,
     Escalation,
+    PlacementContext,
     _anno_box,
     _geom_box,
     prevent_dimension_label_ink,
@@ -43,7 +44,7 @@ from draftwright.annotations._height_ladder import (
     register_height_ladder_candidates as _register_height_ladder_candidates,
 )
 from draftwright.layout import StripCandidate, plan_strip
-from draftwright.model.compiled import FeatureRef
+from draftwright.model.compiled import ApprovedDimension, FeatureRef
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,42 @@ class _StepChainSegment:
     label: str | None = None
     value_text: str | None = None
     display_decimals: int | None = None
+
+
+class _StepPositionCandidate(NamedTuple):
+    """One approved shoulder position's deferred corridor callbacks."""
+
+    p1: tuple[float, float]
+    p2: tuple[float, float]
+    label: str
+    direction: str
+    view: str
+    rung: ApprovedDimension
+    draft: Any
+    ctx: PlacementContext
+
+    def build(self, pos: float) -> Any:
+        edge = self.p1[1]
+        dim = _dim(
+            (self.p1[0], edge, 0),
+            (self.p2[0], edge, 0),
+            self.direction,
+            pos - edge if self.direction == "above" else edge - pos,
+            self.draft,
+            label=self.label,
+        )
+        dim._dw_measurement_span = self.rung.span
+        return dim
+
+    def drop(self, _name: str) -> None:
+        self.ctx.record_issue(
+            "warning",
+            "step_position_dropped",
+            f"step position {self.rung.final_label} not dimensioned "
+            f"({self.view} {self.direction}-strip full)",
+            measurement=self.rung.id,
+            measurement_span=self.rung.span,
+        )
 
 
 def _step_value_text(segment: _StepChainSegment) -> str:
@@ -735,48 +772,22 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
             view, strip, direction = "plan", frame.pv_zones.above, "above"
             p1 = (frame.project(view, lo)[0], plan_top)
             p2 = (frame.project(view, hi)[0], plan_top)
-        edge = p1[1]
         name = f"dim_shoulder_{axis}{i}"
 
         # The compiler's label plus its tolerance — a shoulder states a position the author can
         # tolerance like any other.
         shoulder_label = rung.final_label + _tol_suffix(rung.tolerance, draft)
 
-        def _build(
-            pos,
-            p1=p1,
-            p2=p2,
-            edge=edge,
-            label=shoulder_label,
-            direction=direction,
-            measurement_span=rung.span,
-        ):
-            dim = _dim(
-                (p1[0], edge, 0),
-                (p2[0], edge, 0),
-                direction,
-                pos - edge if direction == "above" else edge - pos,
-                draft,
-                label=label,
-            )
-            dim._dw_measurement_span = measurement_span
-            return dim
-
-        def _drop(
-            nm,
-            label=rung.final_label,
-            view=view,
-            direction=direction,
-            measurement=rung.id,
-            measurement_span=rung.span,
-        ):
-            ctx.record_issue(
-                "warning",
-                "step_position_dropped",
-                f"step position {label} not dimensioned ({view} {direction}-strip full)",
-                measurement=measurement,
-                measurement_span=measurement_span,
-            )
+        candidate_state = _StepPositionCandidate(
+            p1,
+            p2,
+            shoulder_label,
+            direction,
+            view,
+            rung,
+            draft,
+            ctx,
+        )
 
         # ADR 2 (was 0009) corridor candidate: a shoulder position is a datum-referenced
         # location dim — force-kept in the datum-distance ladder, co-solving with the hole
@@ -795,10 +806,10 @@ def render_step_positions(dwg, plan, frame, *, ctx) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=_build,
+                build=candidate_state.build,
                 order=(_LOC_SUBCHAIN, val, name),
                 on_place=lambda nm: None,
-                on_drop=_drop,
+                on_drop=candidate_state.drop,
                 force=True,
                 # The opaque provenance handle, passed straight through.
                 feature=ladder.ref,
