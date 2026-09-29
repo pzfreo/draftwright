@@ -1,5 +1,6 @@
 """Diameter-leader anchoring and silhouette-crossing behavior."""
 
+import json
 import math
 from pathlib import Path
 
@@ -78,6 +79,42 @@ def test_end_on_diameter_rays_rank_clearance_along_the_whole_shaft():
     assert _leader_hole_clearance(crossing, circle) == -1.0
     assert _leader_hole_clearance(clear, circle) > 2.0
     assert _leader_hole_clearance(clear, circle) > _leader_hole_clearance(crossing, circle)
+
+
+def test_partial_x_row_keeps_each_diameter_after_squeezing_out_smallest(tmp_path):
+    from build123d import Align
+
+    def cyl(radius, height, z):
+        return Pos(0, 0, z) * Cylinder(
+            radius, height, align=(Align.CENTER, Align.CENTER, Align.MIN)
+        )
+
+    part = Rotation(0, 90, 0) * (cyl(3, 0.5, 0.0) + cyl(5, 1.7, 0.5) + cyl(4, 2.0, 2.2))
+    trace_path = tmp_path / "partial_diameter_row.json"
+    dwg = build_drawing(part, trace=trace_path)
+    events = [
+        event
+        for event in json.loads(trace_path.read_text())["pass_events"]
+        if event["label"] == "diameter_row_below"
+    ]
+    assert any(
+        {item["label"] for item in event["items"] if item["outcome"] == "placed"} == {"ø10", "ø8"}
+        and any(
+            item["label"] == "ø6"
+            and item["outcome"] == "dropped"
+            and item["reason"] == "squeezed_out"
+            for item in event["items"]
+        )
+        for event in events
+    )
+    marks = [(name, item) for name, item in dwg.iter_annotations() if name.startswith("m_dia")]
+    assert {item.label for _, item in marks} == {"ø10", "ø8", "ø6"}
+    for name, item in marks:
+        (identity,) = dwg.registry.measurement_of(name)
+        assert identity.parameter.endswith(".diameter")
+        assert item.label == f"ø{identity.feature.diameter:g}"
+        assert dwg.registry.feature_of(name) is identity.feature
+    assert not [issue for issue in dwg.lint() if issue.code == "feature_not_dimensioned"]
 
 
 class TestDiameterStepAnchor:
