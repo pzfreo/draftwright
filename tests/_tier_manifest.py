@@ -240,6 +240,8 @@ CONTRACT_GROUPS = {
             "test_tolerances.py",
             "test_refactor_golden.py",
             "test_issue_740_leader_assignment.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_interior_label_placement.py",
         ),
     ),
     "edge_callouts": ContractGroup(
@@ -254,6 +256,8 @@ CONTRACT_GROUPS = {
             "test_tolerances.py",
             "test_refactor_golden.py",
             "test_script_detail_parity.py",
+            "test_issue_1308_machined_leader_analytics.py",
+            "test_interior_label_placement.py",
         ),
     ),
     "thin_profiles": ContractGroup(

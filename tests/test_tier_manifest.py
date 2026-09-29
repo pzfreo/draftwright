@@ -182,6 +182,22 @@ def test_thin_profile_change_runs_plate_and_channel_contracts():
     } <= selected
 
 
+def test_pocket_pad_change_runs_joint_leader_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_pocket_pad.py"]))
+    assert {
+        "test_issue_1166_cross_pass_feature_leaders.py",
+        "test_interior_label_placement.py",
+    } <= selected
+
+
+def test_edge_callout_change_runs_joint_leader_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_edge_callouts.py"]))
+    assert {
+        "test_issue_1308_machined_leader_analytics.py",
+        "test_interior_label_placement.py",
+    } <= selected
+
+
 def test_from_model_change_runs_through_step_placement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/annotations/from_model.py"])
     assert "test_through_step_semantics.py" in selected
