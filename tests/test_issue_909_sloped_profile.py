@@ -121,7 +121,7 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint(monkey
 
 
 def test_case_study_detail_rungs_keep_their_compiled_measurement_identity():
-    drawing = build_drawing(_ISSUE_909)
+    drawing = build_drawing(_ISSUE_909, annotation_layout="estimated-strips")
     step = next(feature for feature in drawing.model().features if feature.kind == "step_level")
     detail_names = {name for name in drawing.annotations() if name.startswith("dim_detail_a_step")}
     ladder = compile_dimensions(drawing.model()).ladder("step_height")
