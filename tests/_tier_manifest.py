@@ -295,6 +295,22 @@ CONTRACT_GROUPS = {
             "test_refactor_golden.py",
         ),
     ),
+    "gdt_family": ContractGroup(
+        ("src/draftwright/annotations/_gdt.py",),
+        (
+            "test_gdt_placement.py",
+            "test_gdt_ink_shared.py",
+            "test_document_build.py",
+            "test_sheet_gdt.py",
+            "test_sheet_notes.py",
+            "test_issue_1276_turned_leader_targets.py",
+            "test_issue_1352_searchable_pdf_text.py",
+            "test_declare.py",
+            "test_compiled_plan_boundary.py",
+            "test_refactor_golden.py",
+            "test_solve_trace.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (

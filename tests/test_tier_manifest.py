@@ -58,6 +58,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "thin_profiles": "src/draftwright/annotations/_thin_profiles.py",
         "diameter_family": "src/draftwright/annotations/_diameters.py",
         "location_family": "src/draftwright/annotations/_locations.py",
+        "gdt_family": "src/draftwright/annotations/_gdt.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -362,6 +363,25 @@ def test_feature_leader_owner_runs_greedy_floor_and_joint_assignment_contracts()
         "test_issue_740_leader_assignment.py",
         "test_issue_798_floor_cardinality.py",
         "test_issue_1166_cross_pass_feature_leaders.py",
+    } <= selected
+
+
+def test_gdt_owner_runs_declaration_ink_and_fallback_contracts():
+    source = "src/draftwright/annotations/_gdt.py"
+    assert selected_groups([source]) == {"gdt_family", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_gdt_placement.py",
+        "test_gdt_ink_shared.py",
+        "test_document_build.py",
+        "test_sheet_gdt.py",
+        "test_sheet_notes.py",
+        "test_issue_1276_turned_leader_targets.py",
+        "test_issue_1352_searchable_pdf_text.py",
+        "test_declare.py",
+        "test_compiled_plan_boundary.py",
+        "test_refactor_golden.py",
+        "test_solve_trace.py",
     } <= selected
 
 
