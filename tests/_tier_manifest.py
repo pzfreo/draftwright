@@ -480,6 +480,10 @@ CONTRACT_GROUPS = {
             "test_issue_1190_section_decision.py",
             "test_issue_1530_section_provenance.py",
             "test_issue_1604_internal_section.py",
+            "test_through_step_semantics.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_issue_1215_envelope_tolerance.py",
+            "test_audit_differential.py",
         ),
     ),
     "hole_pattern_rendering": ContractGroup(
