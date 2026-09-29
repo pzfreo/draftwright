@@ -380,13 +380,16 @@ def test_every_ranked_module_is_named_in_architecture():
     """Every DAG entry needs its exact code-spanned module name in the architecture map."""
     architecture = (_SRC.parent.parent / "docs" / "architecture.md").read_text(encoding="utf-8")
     code_spans = set(re.findall(r"(?<!`)`([^`\n]+)`(?!`)", architecture))
-    names = {
-        name: ("__init__.py",) if name == "__init__" else (f"{name}.py", f"{name}/")
-        for name in _LAYERS
-    }
-    missing = sorted(
-        name for name, spellings in names.items() if not code_spans.intersection(spellings)
-    )
+    names = {}
+    for name in _LAYERS:
+        source_file = _SRC / f"{name}.py"
+        package_init = _SRC / name / "__init__.py"
+        if source_file.is_file():
+            names[name] = source_file.name
+        else:
+            assert package_init.is_file(), f"Ranked module has no source: {name}"
+            names[name] = f"{name}/"
+    missing = sorted(name for name, spelling in names.items() if spelling not in code_spans)
     assert not missing, f"Ranked module(s) missing from docs/architecture.md: {missing}"
 
 
