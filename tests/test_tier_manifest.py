@@ -53,6 +53,9 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "slot_rendering": "src/draftwright/annotations/_slots.py",
         "drawing_edits": "src/draftwright/drawing_edits.py",
         "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
+        "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
+        "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
+        "thin_profiles": "src/draftwright/annotations/_thin_profiles.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -170,6 +173,31 @@ def test_step_observer_change_runs_every_family_contract():
     assert set(CONTRACT_GROUPS["step_observers"].test_patterns) <= selected
 
 
+def test_thin_profile_change_runs_plate_and_channel_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_thin_profiles.py"]))
+    assert {
+        "test_prismatic_dimensions.py",
+        "test_issue_917_open_channel.py",
+        "test_tolerances.py",
+    } <= selected
+
+
+def test_pocket_pad_change_runs_joint_leader_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_pocket_pad.py"]))
+    assert {
+        "test_issue_1166_cross_pass_feature_leaders.py",
+        "test_interior_label_placement.py",
+    } <= selected
+
+
+def test_edge_callout_change_runs_joint_leader_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_edge_callouts.py"]))
+    assert {
+        "test_issue_1308_machined_leader_analytics.py",
+        "test_interior_label_placement.py",
+    } <= selected
+
+
 def test_from_model_change_runs_through_step_placement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/annotations/from_model.py"])
     assert "test_through_step_semantics.py" in selected
@@ -242,6 +270,31 @@ def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():
         "test_tolerances.py",
     } <= selected
     assert "test_pad_rendering.py" in selected
+
+
+def test_pocket_pad_owner_runs_its_label_and_placement_contracts():
+    source = "src/draftwright/annotations/_pocket_pad.py"
+    assert selected_groups([source]) == {"pocket_pad_leaders", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_pad_rendering.py",
+        "test_tolerances.py",
+        "test_refactor_golden.py",
+        "test_issue_740_leader_assignment.py",
+    } <= selected
+
+
+def test_edge_callout_owner_selects_physical_and_script_contracts():
+    source = "src/draftwright/annotations/_edge_callouts.py"
+    assert selected_groups([source]) == {"edge_callouts", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_machined_feature_callouts.py",
+        "test_issue_1433_blend_semantics.py",
+        "test_issue_1374_chamfer_completeness_evidence.py",
+        "test_issue_1374_fillet_completeness_evidence.py",
+        "test_script_detail_parity.py",
+    } <= selected
 
 
 def test_unknown_production_module_selects_every_contract_group():

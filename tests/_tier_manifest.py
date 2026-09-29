@@ -233,6 +233,43 @@ CONTRACT_GROUPS = {
             "test_tolerances.py",
         ),
     ),
+    "pocket_pad_leaders": ContractGroup(
+        ("src/draftwright/annotations/_pocket_pad.py",),
+        (
+            "test_pad_rendering.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_issue_740_leader_assignment.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_interior_label_placement.py",
+        ),
+    ),
+    "edge_callouts": ContractGroup(
+        ("src/draftwright/annotations/_edge_callouts.py",),
+        (
+            "test_machined_feature_callouts.py",
+            "test_issue_1433_blend_semantics.py",
+            "test_issue_1254_turned_chamfers.py",
+            "test_issue_1281_turned_fillets.py",
+            "test_issue_1374_chamfer_completeness_evidence.py",
+            "test_issue_1374_fillet_completeness_evidence.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_script_detail_parity.py",
+            "test_issue_1308_machined_leader_analytics.py",
+            "test_interior_label_placement.py",
+        ),
+    ),
+    "thin_profiles": ContractGroup(
+        ("src/draftwright/annotations/_thin_profiles.py",),
+        (
+            "test_prismatic_dimensions.py",
+            "test_issue_917_open_channel.py",
+            "test_tolerances.py",
+            "test_refactor_golden.py",
+            "test_script_detail_parity.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (

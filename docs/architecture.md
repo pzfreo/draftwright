@@ -160,6 +160,15 @@ and re-exports the existing private helper names.
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
     placer remains in `from_model` for immediate/deferred detail recovery.
+  - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
+    labels, projected rim bounds, direction policy, and leader job construction. The public passes in
+    `from_model` submit those jobs to the existing late feature-leader assignment.
+  - **`annotations/_edge_callouts.py`** — owns compiler-approved chamfer, fillet,
+    and Blend labels, physical attachment sites, and leader candidate jobs. The
+    public passes in `from_model` retain the shared late assignment and outcomes.
+  - **`annotations/_thin_profiles.py`** — owns compiler-approved plate thickness
+    and open-channel width corridor candidates. `from_model.render_plates`
+    retains the public pass and registers them in the established order.
   - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
     in-plane dimension witnesses, corridor candidates, and obround-radius
     candidates. `from_model.render_slots` retains the public pass and submits

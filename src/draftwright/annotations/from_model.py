@@ -71,13 +71,9 @@ from draftwright._core import (
     supported_secondary_crop,
 )
 from draftwright._geometry import (
-    _blend_profile_arcs,
-    _fmt_chamfer,
     _segment_clips_box,
     _segments_cross_or_overlap,
-    _straight_blend_faces,
     _turned_profile_site,
-    material_span,
 )
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._common import (
@@ -113,6 +109,15 @@ from draftwright.annotations._common import (
     strip_occupants,
     view_label_clearance,
 )
+from draftwright.annotations._edge_callouts import _chamfer_label as _chamfer_label
+from draftwright.annotations._edge_callouts import _corner_candidates as _corner_candidates
+from draftwright.annotations._edge_callouts import _fillet_label as _fillet_label
+from draftwright.annotations._edge_callouts import chamfer_jobs as _edge_chamfer_jobs
+from draftwright.annotations._edge_callouts import radius_jobs as _edge_radius_jobs
+from draftwright.annotations._pocket_pad import _POCKET_LEAD_DIRS as _POCKET_LEAD_DIRS
+from draftwright.annotations._pocket_pad import _pocket_label as _pocket_label
+from draftwright.annotations._pocket_pad import pad_height_jobs as _pad_height_jobs
+from draftwright.annotations._pocket_pad import pocket_jobs as _pocket_jobs
 
 # The slot-family implementation owns witness geometry and corridor candidates. Keep
 # the public pass here; the late radius jobs join the shared machined-leader solve.
@@ -128,6 +133,7 @@ from draftwright.annotations._slots import (
 from draftwright.annotations._slots import (
     _slot_end_radius_candidates as _slot_end_radius_candidates,
 )
+from draftwright.annotations._thin_profiles import register_channel_width, register_plate_thickness
 from draftwright.annotations.angular import AngularDimension, AngularInk
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
@@ -160,7 +166,6 @@ from draftwright.model.callout import hole_callout_suffix as hole_callout_suffix
 from draftwright.model.compiled import (
     ApprovedDimension,
     DimensionId,
-    FeatureInstanceIndex,
     FeatureRef,
     resolve_feature,
     shared_location_text,
@@ -1847,22 +1852,6 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     return rerouted
 
 
-def _chamfer_label(leg_text, leg, ch) -> str:
-    """The chamfer callout string: ``C{leg}`` for an equal-leg 45° chamfer, else
-    ``{leg} × {angle}°`` (#560).
-
-    Takes the leg TWICE, on purpose, because printing it and testing its form are different
-    jobs: *leg_text* is the compiler's own `value_text` and is what appears on the sheet,
-    while *leg* is the number the equal-leg comparison needs. The feature supplies only the
-    geometric form discriminators (``leg2``/``angle``), and a ``ChamferFeature`` stays pure
-    data (ADR 3 (was 0013 §7))."""
-    # `ch.angle` is a form discriminator, not a planned parameter.
-    # `ChamferFeature.parameters()` emits only the leg, so the angle has no approved
-    # text to consume. That is the IR gap `_FACTS` records, and it is why this
-    # line stays in the provenance budget.
-    return _fmt_chamfer(leg_text, leg, ch.leg2, ch.angle)
-
-
 # ── Shared machined-feature leader-callout pass  ──────────────────────────────────
 # render_chamfers/_fillets/_flats/_pockets/_grooves were the same function five times: pick
 # the view an edge/face reads in, lead a diagonal Leader out to a label, and keep it only if
@@ -1876,277 +1865,6 @@ def _leader_callout_reach(draft) -> float:
     line height plus six text-pads. Shared so all five callout passes reach the same distance
     into the margin."""
     return float(draft.font_size + 6 * draft.pad_around_text)
-
-
-def _corner_candidates(
-    dwg, view, vb, members, reach, *, provenances=None, cylinders=None, sites=None
-):
-    """Lead candidates for a corner-sitting feature (chamfer/fillet/flat): from each member's
-    projected origin (or supplied semantic surface site), a diagonal from the view centre out
-    through the corner, *reach* beyond the tip — a corner clears the silhouette this way. Yields
-    ``(tip, elbow, member)`` in the given member order, which is the stable tie-break after #740's
-    cardinality/length solve; a single-feature callout passes a one-element *members*."""
-    x0, y0, x1, y1 = vb
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    members = list(members)
-    owners = list(provenances if provenances is not None else members)
-    candidate_sites = list(sites if sites is not None else (m.frame.origin for m in members))
-    for m, owner, site in zip(members, owners, candidate_sites, strict=True):
-        if cylinders is not None and getattr(m, "turned", False):
-            site = _turned_profile_site(site, m.axis, view, cylinders)
-        tip = dwg.at(view, *site)
-        dx, dy = tip[0] - cx, tip[1] - cy
-        d = math.hypot(dx, dy) or 1.0
-        elbow = (tip[0] + dx / d * reach, tip[1] + dy / d * reach, 0)
-        yield (tip, elbow, owner)
-
-
-def _corner_escape_candidates(
-    dwg, view, vb, members, reach, *, provenances=None, cylinders=None, sites=None
-):
-    """Corner leaders plus silhouette-outward horizontal/vertical escapes.
-
-    The diagonal remains the stable first choice.  The two axis-aligned rays
-    leave the same corner away from the view centre, so they add boundary/lane
-    alternatives without introducing #798's through-silhouette routing problem.
-    """
-
-    members = list(members)
-    owners = list(provenances if provenances is not None else members)
-    candidate_sites = list(sites if sites is not None else (m.frame.origin for m in members))
-    yield from _corner_candidates(
-        dwg,
-        view,
-        vb,
-        members,
-        reach,
-        provenances=owners,
-        cylinders=cylinders,
-        sites=candidate_sites,
-    )
-    x0, y0, x1, y1 = vb
-    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
-    for member, owner, site in zip(members, owners, candidate_sites, strict=True):
-        if cylinders is not None and getattr(member, "turned", False):
-            site = _turned_profile_site(site, member.axis, view, cylinders)
-        tip = dwg.at(view, *site)
-        # Limit each site to two axis escapes. More routes consume the
-        # per-view candidate budget and can prevent the joint solve from running.
-        directions = (
-            (1.0 if tip[0] >= cx else -1.0, 0.0),
-            (0.0, 1.0 if tip[1] >= cy else -1.0),
-        )
-        for ux, uy in directions:
-            exit_distance = _ray_exit_dist(tip[0], tip[1], ux, uy, vb)
-            yield (
-                tip,
-                (
-                    tip[0] + ux * (exit_distance + reach),
-                    tip[1] + uy * (exit_distance + reach),
-                    0,
-                ),
-                owner,
-            )
-
-
-def _surface_normal_candidates(dwg, view, members, sizes, reach, *, kind, provenances):
-    """Prove a visible bevel/arc tangent before offering straight normal leaders.
-
-    The physical attachment remains the compiled feature's projected site. A
-    matching projected edge supplies its local normal; the filled material field
-    chooses the outward sign. If that evidence is absent, the caller retains the
-    established corner candidates instead of guessing a surface direction.
-    """
-    placed = dwg.views.get(view)
-    if not placed or placed[0] is None:
-        return []
-    field = view_material(dwg, view)
-    edges = tuple(placed[0].edges())
-    result = []
-    for member, size, owner in zip(members, sizes, provenances, strict=True):
-        if getattr(member, "turned", False):
-            continue
-        tip = dwg.at(view, *member.frame.origin)
-        matches = []
-        for edge in edges:
-            if kind == "fillet" and edge.geom_type.name == "CIRCLE":
-                try:
-                    centre = edge.arc_center
-                    radius = float(edge.radius)
-                except Exception:  # noqa: BLE001 — an unmeasurable edge is not evidence
-                    continue
-                expected = float(size) * float(dwg.scale)
-                residual = abs(radius - expected) + abs(
-                    math.hypot(tip[0] - centre.X, tip[1] - centre.Y) - radius
-                )
-                if residual <= 0.1 and edge.distance_to((tip[0], tip[1], 0)) <= 0.05:
-                    matches.append((residual, (tip[0] - centre.X, tip[1] - centre.Y)))
-            elif kind == "chamfer" and edge.geom_type.name == "LINE":
-                vertices = edge.vertices()
-                if len(vertices) != 2:
-                    continue
-                first, second = vertices
-                dx, dy = second.X - first.X, second.Y - first.Y
-                length2 = dx * dx + dy * dy
-                if length2 <= 1e-9:
-                    continue
-                station = ((tip[0] - first.X) * dx + (tip[1] - first.Y) * dy) / length2
-                residual = math.hypot(
-                    tip[0] - first.X - station * dx,
-                    tip[1] - first.Y - station * dy,
-                )
-                expected = math.hypot(size, member.leg2) * float(dwg.scale)
-                if (
-                    0.1 <= station <= 0.9
-                    and residual <= 0.05
-                    and abs(math.sqrt(length2) - expected) <= 0.1
-                ):
-                    matches.append((residual, (-dy, dx)))
-        if not matches:
-            continue
-        _, direction = min(matches, key=lambda item: item[0])
-        length = math.hypot(*direction)
-        if length <= 1e-9:
-            continue
-        nx, ny = direction[0] / length, direction[1] / length
-        if field:
-            origin = (tip[0], tip[1])
-            positive = material_span(origin, (tip[0] + nx * reach, tip[1] + ny * reach), field)
-            negative = material_span(origin, (tip[0] - nx * reach, tip[1] - ny * reach), field)
-            if negative < positive:
-                nx, ny = -nx, -ny
-        for distance in (reach, reach * 1.5, reach * 2.0):
-            result.append((tip, (tip[0] + nx * distance, tip[1] + ny * distance, 0), owner))
-    return result
-
-
-_BLEND_POINT_TOL = 2e-3
-_BLEND_DIRECTION_TOL = 2e-6
-
-
-def _blend_faces_by_ref(analysis):
-    """Index exact run-local Blend faces by the compiler's opaque provenance handle.
-
-    ``RecognitionOwnership`` is the only lawful accepted-occurrence -> IR join. Add its exact
-    owner to ``FeatureInstanceIndex`` and query that index with the opaque ``FeatureRef`` already
-    carried by each approved dimension. Structural ``FeatureRef`` equality deliberately merges
-    equal-valued marks, so it is not physical occurrence authority. Dimensional renderers still
-    never resolve that handle back to model content.
-    """
-    evidence = analysis.recognition_evidence
-    ownership = analysis.recognition_ownership
-    if evidence is None or ownership is None or ownership.evidence is not evidence:
-        return None
-    indexed = FeatureInstanceIndex()
-    for binding in ownership.bindings:
-        if evidence.family(binding.occurrence) != "blends":
-            continue
-        faces = tuple(evidence.face(ref) for ref in evidence.defining_faces(binding.occurrence))
-        for feature in binding.features:
-            indexed.extend(feature, faces)
-    return indexed
-
-
-def _blend_surface_sites(
-    blend,
-    cylinders,
-    rolling_radius: float,
-    *,
-    defining_faces=None,
-) -> tuple[tuple[float, float, float], ...]:
-    """Return natural sites on a straight profile arc or circular Blend surface.
-
-    A circular path stores the rolling-ball centre trajectory, not a surface point. Its proved
-    supports include one coaxial finite cylinder whose radius differs from the path radius by
-    the rolling radius. Reuse the analysis-owned cylinder inventory to find candidate tangencies,
-    then use the accepted occurrence's exact defining face to select the physical one. A declared
-    build has no occurrence authority: one unambiguous support remains usable, but competing
-    support radii refuse placement rather than borrowing another body's cylinder. A declaration
-    without a matching support retains the outer analytic fallback; completeness independently
-    exposes any source mismatch. These are part-space facts, not page coordinates: the shared
-    solve still owns placement.
-    """
-    if blend.path_kind != "circular":
-        faces = _straight_blend_faces(
-            blend, cylinders, rolling_radius, defining_faces=defining_faces
-        )
-        arcs = _blend_profile_arcs(faces, rolling_radius)
-        if not arcs:
-            return ()
-        arc = min(arcs, key=lambda edge: (-edge.length, tuple(edge.position_at(0.5))))
-        return tuple(tuple(arc.position_at(fraction)) for fraction in (0.5, 0.25, 0.75))
-    origin = blend.frame.origin
-    normal: tuple[float, float, float] = blend.axis_direction
-    seed_index = min(range(3), key=lambda index: (abs(normal[index]), index))
-    seed = tuple(1.0 if index == seed_index else 0.0 for index in range(3))
-    radial = (
-        normal[1] * seed[2] - normal[2] * seed[1],
-        normal[2] * seed[0] - normal[0] * seed[2],
-        normal[0] * seed[1] - normal[1] * seed[0],
-    )
-    length = math.hypot(*radial)
-    unit = tuple(component / length for component in radial)
-    path_radius: float | None = blend.path_radius
-    assert path_radius is not None  # validated by BlendFeature
-    outer_radius = path_radius + rolling_radius
-    inner_radius = path_radius - rolling_radius
-    matches = []
-    for family in cylinders:
-        for cylinder in family:
-            direction = cylinder["dir_xyz"]
-            alignment = abs(sum(normal[index] * direction[index] for index in range(3)))
-            # Blend points/radii are released at 0.001 and directions at 0.000001. These
-            # bounds cover their worst coordinate/vector round-trip without admitting a
-            # materially different support.
-            if abs(alignment - 1.0) > _BLEND_DIRECTION_TOL:
-                continue
-            axis_point = cylinder["axis_xyz"]
-            delta = tuple(origin[index] - axis_point[index] for index in range(3))
-            cross = (
-                delta[1] * direction[2] - delta[2] * direction[1],
-                delta[2] * direction[0] - delta[0] * direction[2],
-                delta[0] * direction[1] - delta[1] * direction[0],
-            )
-            if math.hypot(*cross) > _BLEND_POINT_TOL:
-                continue
-            radius = cylinder["diameter"] / 2.0
-            radius_error = abs(abs(radius - path_radius) - rolling_radius)
-            along = sum(origin[index] * direction[index] for index in range(3))
-            end_error = min(abs(along - cylinder["s_lo"]), abs(along - cylinder["s_hi"]))
-            if radius_error <= _BLEND_POINT_TOL and end_error <= _BLEND_POINT_TOL:
-                matches.append((radius_error, end_error, radius))
-
-    def site(radius: float) -> tuple[float, float, float]:
-        return (
-            origin[0] + radius * unit[0],
-            origin[1] + radius * unit[1],
-            origin[2] + radius * unit[2],
-        )
-
-    if defining_faces is not None:
-        # Automatic recognition has an exact face authority. If its ownership or surface is
-        # absent, fail closed; scalar cylinders must not silently replace missing evidence.
-        if not defining_faces:
-            return ()
-        radii = sorted(
-            {
-                *(candidate[2] for candidate in matches),
-                *(radius for radius in (inner_radius, outer_radius) if radius >= 0.0),
-            }
-        )
-        candidates = [
-            (min(float(face.distance_to(site(radius))) for face in defining_faces), radius)
-            for radius in radii
-        ]
-        distance, surface_radius = min(candidates)
-        return (site(surface_radius),) if distance <= _BLEND_POINT_TOL else ()
-
-    if matches:
-        support_radii = sorted(candidate[2] for candidate in matches)
-        if support_radii[-1] - support_radii[0] > _BLEND_POINT_TOL:
-            return ()
-        return (site(min(matches)[2]),)
-    return (site(outer_radius),)
 
 
 def _flat_candidates(dwg, view, vb, members, reach, *, provenances):
@@ -2551,128 +2269,15 @@ def place_machined_leader_jobs(
 
 
 def render_chamfers(dwg, plan, a, *, ctx, only=None) -> int:
-    """Chamfer callouts (#560/#1254): a leader from each distinct chamfer specification to
-    its ``C{leg}`` / ``{leg}×{angle}°`` label. Equal specifications share one ``n×`` callout,
-    as fillets do; one placed annotation carries every collapsed member's measurement
-    identity. The leader runs diagonally out of a representative visible corner into clear
-    margin and is dropped (lint, not silently) if it would overprint placed geometry.
-
-    Planner-fed (#724 / #698): the leg VALUE + its tolerance come from the planner's
-    ``DimParameter`` (as in ``render_boss_diameters``), never raw geometry — formatting
-    ``ch.leg1`` directly dropped an authored chamfer tolerance (the #629 class). The dim
-    is bound explicitly by ``(role, kind)``, never positionally. Only the C-vs-leg×angle
-    *form* discriminators (``leg2``/``angle``) read off the feature. For prismatic chamfers,
-    ``g.view`` follows the bevel-edge axis and ``_END_ON`` preserves the established
-    z→plan / x→side / y→front map. A turned conical feature instead carries the shaft axis
-    plus ``turned=True``; the planner selects ``_PROFILE`` and this renderer rotates the
-    physical edge anchor about its actual shaft axis onto that view while the shared leader
-    solve chooses its page position (#1276).
-    Grouping stays renderer-side: the IR remains one semantic feature per physical chamfer
-    (ADR 3 (was 0013)), while the annotation registry records all N measurement identities
-    (ADR 3 (was 0017) / #1002)."""
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    collapse: dict = {}
-    for g in plan.of_kind("chamfer"):
-        pd = next(
-            (d for d in g.dims if (d.role, d.kind) == ("chamfer", "length")),
-            None,
-        )
-        if pd is None:
-            continue
-        ch = g.facts
-        if ctx.document_member and a.pmi_mode != "annotate" and ch.source_ids:
-            continue
-        # Equal printed values are not enough: two chamfers with the same first leg but a
-        # different second leg/angle state different manufacturing requirements.
-        # A tolerance is part of the rendered requirement. Splitting by its rendered suffix
-        # lets one authored member keep its precision without claiming that band for otherwise
-        # identical untoleranced siblings. Values that print identically may safely share ink.
-        spec = (
-            round(pd.value, 3),
-            round(ch.leg2, 3),
-            round(ch.angle, 2),
-            _tol_suffix(pd.tolerance, draft),
-        )
-        collapse.setdefault(spec, []).append((g, pd))
-
-    jobs = []
-    source_ids_by_name = {}
-    straight_only_names = set()
-    for gi, (_spec, members) in enumerate(sorted(collapse.items())):
-        if only is not None:
-            # Filter after enumerating the full collapse so a surviving group keeps the same
-            # public annotation name during deferred or subset finalization.
-            members = [gp for gp in members if gp[0].ref in only]
-            if not members:
-                continue
-        # A grouped label may count identical chamfers on several axes. Point its leader at
-        # one coherent visible set: the most populous axis/view pair, with deterministic
-        # tie-breaking. Turned and prismatic treatments can share an axis but not a view.
-        by_presentation: dict[tuple[str, str], list] = {}
-        for gp in members:
-            key = (gp[0].facts.axis, gp[0].view)
-            by_presentation.setdefault(key, []).append(gp)
-        (axis, _view), visible = min(
-            by_presentation.items(), key=lambda item: (-len(item[1]), item[0])
-        )
-        ordered = sorted(visible, key=lambda gp: gp[0].facts.frame.origin)
-        representative, representative_pd = ordered[0]
-        ch = representative.facts
-        view = representative.view
-        vb = dwg.view_bounds(view)
-        if vb is None:
-            continue
-        label = _chamfer_label(representative_pd.value_text, representative_pd.value, ch)
-        if len(members) > 1:
-            label = f"{len(members)}× {label}"
-        name = f"m_chamfer_{axis}{gi}"
-        facts = [g.facts for g, _ in ordered]
-        provenances = [g.ref for g, _ in ordered]
-        candidates = _corner_escape_candidates(
-            dwg, view, vb, facts, reach, provenances=provenances, cylinders=a.cyls
-        )
-        if layout_flag("normal_feature_leaders", "DRAFTWRIGHT_EXPERIMENT_NORMAL_LEADERS"):
-            normal = _surface_normal_candidates(
-                dwg,
-                view,
-                facts,
-                [pd.value for _, pd in ordered],
-                reach,
-                kind="chamfer",
-                provenances=provenances,
-            )
-            if normal:
-                candidates = [
-                    *(
-                        FeatureLeaderCandidate(tip=tip, elbow=elbow, feature=owner)
-                        for tip, elbow, owner in normal
-                    ),
-                    *(
-                        FeatureLeaderCandidate(
-                            tip=tip, elbow=elbow, feature=owner, preference_penalty=50.0
-                        )
-                        for tip, elbow, owner in candidates
-                    ),
-                ]
-                straight_only_names.add(name)
-        source_ids_by_name[name] = tuple(
-            dict.fromkeys(
-                source_id
-                for member, _pd in members
-                for source_id in getattr(member.facts, "source_ids", ())
-            )
-        )
-        jobs.append(
-            (
-                name,
-                view,
-                vb,
-                label + _tol_suffix(representative_pd.tolerance, draft),
-                candidates,
-                tuple(pd.id for _, pd in members),
-            )
-        )
+    """Submit compiler-approved chamfer jobs to the shared late assignment."""
+    jobs, source_ids_by_name, straight_only_names = _edge_chamfer_jobs(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        only=only,
+        leader_callout_reach=_leader_callout_reach,
+    )
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -2722,13 +2327,6 @@ def _collapsed_tolerance(members, *, ctx=None, noun=""):
             )
         return None
     return first
-
-
-def _fillet_label(radius_text, count) -> str:
-    """The fillet callout string: ``R{radius}``, prefixed ``{count}×`` when a set of equal
-    fillets shares one callout (#561). Formatting lives in the render layer (ADR 3 (was 0013 §7))."""
-    r = f"R{radius_text}"
-    return f"{count}× {r}" if count > 1 else r
 
 
 def render_fillets(dwg, plan, a, *, ctx, only=None) -> int:
@@ -2801,137 +2399,21 @@ def _render_radius_callouts(
     noun: str,
     drop_code: str,
 ) -> int:
-    """Shared solver path for one-radius rounded-feature families."""
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    blend_faces = _blend_faces_by_ref(a) if kind == "blend" else None
-    collapse: dict = {}
-    for g in plan.of_kind(kind):
-        pd = next(
-            (d for d in g.dims if (d.role, d.kind) == (role, "radius")),
-            None,
-        )
-        if pd is None:
-            continue
-        # Group by what the drawing will actually print. Authored Blend radii can carry
-        # more precision than provider geometry, and two distinct display values must
-        # never share one n× label while receiving separate measurement credit.
-        collapse.setdefault((pd.value_text, _tol_suffix(pd.tolerance, draft)), []).append((g, pd))
-    jobs = []
-    straight_only_names = set()
-    ordered_groups = sorted(
-        collapse.items(),
-        key=lambda item: (min(pd.value for _g, pd in item[1]), item[0]),
+    """Submit rounded-edge jobs to the shared late feature-leader assignment."""
+    jobs, straight_only_names = _edge_radius_jobs(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        only=only,
+        kind=kind,
+        role=role,
+        name_stem=name_stem,
+        noun=noun,
+        drop_code=drop_code,
+        collapsed_tolerance=_collapsed_tolerance,
+        leader_callout_reach=_leader_callout_reach,
     )
-    for gi, (_value_text, members) in enumerate(ordered_groups):
-        if only is not None:
-            # Filter a finalize subset AFTER enumerating the collapse so
-            # gi stays the full-drawing group index — a survivor keeps its m_fillet name even
-            # when a sibling group is dropped. The n× count reflects survivors.
-            members = [gp for gp in members if gp[0].ref in only]
-            if not members:
-                continue
-        tol = _collapsed_tolerance(members, ctx=ctx, noun=noun)
-        callout_label = _fillet_label(members[0][1].value_text, len(members)) + _tol_suffix(
-            tol, draft
-        )
-        # Point the leader at one coherent visible set. Members on other edge axes/views still
-        # contribute to the printed count and semantic measurements, but mixing their 3-D
-        # origins into this view could point at unrelated projected corners. An ineligible Blend
-        # surface is one lost alternative, not grounds to discard safe siblings before ADR 2 (was 0014)'s
-        # shared solve. Prefer the most populous remaining axis/view pair; ties are deterministic.
-        by_presentation: dict[tuple[str, str], list] = {}
-        for group, dimension in members:
-            site = None
-            if kind == "blend":
-                defining_faces = None if blend_faces is None else blend_faces.values_for(group.ref)
-                site = _blend_surface_sites(
-                    group.facts,
-                    a.cyls,
-                    dimension.value,
-                    defining_faces=defining_faces,
-                )
-                if not site:
-                    continue
-            key = (group.facts.axis, group.view)
-            by_presentation.setdefault(key, []).append((group, dimension, site))
-        if not by_presentation:
-            ctx.record_issue(
-                "warning",
-                drop_code,
-                f"{noun} callout {callout_label} not placed "
-                "(physical surface could not be selected without guessing)",
-                measurement=tuple(pd.id for _, pd in members),
-                outcome_stage="placement",
-            )
-            continue
-        (axis, _view), visible = min(
-            by_presentation.items(), key=lambda item: (-len(item[1]), item[0])
-        )
-        visible.sort(key=lambda item: item[0].facts.frame.origin)
-        if kind == "blend":
-            visible = [
-                (group, dimension, point)
-                for group, dimension, points in visible
-                for point in points
-            ]
-        ordered = [(group, dimension) for group, dimension, _site in visible]
-        sites = [site for _group, _dimension, site in visible] if kind == "blend" else None
-        view = ordered[0][0].view
-        vb = dwg.view_bounds(view)
-        if vb is None:
-            continue
-        name = f"m_{name_stem}_{axis}{gi}"
-        facts = [g.facts for g, _ in ordered]
-        provenances = [g.ref for g, _ in ordered]
-        candidates = _corner_escape_candidates(
-            dwg,
-            view,
-            vb,
-            facts,
-            reach,
-            provenances=provenances,
-            cylinders=a.cyls,
-            sites=sites,
-        )
-        if kind == "fillet" and layout_flag(
-            "normal_feature_leaders", "DRAFTWRIGHT_EXPERIMENT_NORMAL_LEADERS"
-        ):
-            normal = _surface_normal_candidates(
-                dwg,
-                view,
-                facts,
-                [pd.value for _, pd in ordered],
-                reach,
-                kind="fillet",
-                provenances=provenances,
-            )
-            if normal:
-                candidates = [
-                    *(
-                        FeatureLeaderCandidate(tip=tip, elbow=elbow, feature=owner)
-                        for tip, elbow, owner in normal
-                    ),
-                    *(
-                        FeatureLeaderCandidate(
-                            tip=tip, elbow=elbow, feature=owner, preference_penalty=50.0
-                        )
-                        for tip, elbow, owner in candidates
-                    ),
-                ]
-                straight_only_names.add(name)
-        jobs.append(
-            (
-                name,
-                view,
-                vb,
-                callout_label,
-                candidates,
-                # One `n× R` callout stands for EVERY collapsed member, so it draws all of
-                # their radii — the tuple storage exists for exactly this.
-                tuple(pd.id for _, pd in members),
-            )
-        )
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -3532,34 +3014,6 @@ def _groove_label(width_text, diameter_text, wsfx="", dsfx="") -> str:
     return f"{width_text}{wsfx} WIDE × ø{diameter_text}{dsfx}"
 
 
-def _pocket_label(
-    width_text, length_text, depth_text, wsfx="", lsfx="", dsfx="", *, maximum_depth=False
-) -> str:
-    """The pocket callout string: ``{width} × {length} × {depth} DEEP`` (#148a). The values
-    are the PLANNED ones (``pd.param.value``, #728); *wsfx*/*lsfx*/*dsfx* are each value's
-    pre-formatted tolerance suffix, interleaved so a tolerance rides its own number. (All
-    three params share kind ``"length"``, so today one authored decoration folds onto all
-    three — the per-value suffixes render that honestly; independent tolerancing needs an
-    authoring-surface change, #698.) The ISO depth glyph (↧) is drawn as geometry by the
-    helper's hole callouts, not as font text — a plain :class:`Leader` label has no access
-    to it, so this uses the font-safe ``DEEP`` word (the vendored Plex Mono lacks ↧).
-    Formatting lives in the render layer (ADR 3 (was 0013 §7))."""
-    depth_word = "MAX DEEP" if maximum_depth else "DEEP"
-    if all(value is not None for value in (width_text, length_text, depth_text)):
-        label = f"{width_text}{wsfx} × {length_text}{lsfx} × {depth_text}{dsfx} {depth_word}"
-    else:
-        label = "POCKET " + ", ".join(
-            f"{value}{suffix} {role}"
-            for value, suffix, role in (
-                (width_text, wsfx, "WIDE"),
-                (length_text, lsfx, "LONG"),
-                (depth_text, dsfx, depth_word),
-            )
-            if value is not None
-        )
-    return label
-
-
 def _rectangular_blind_slot_label(
     width_text=None, length_text=None, depth_text=None, wsfx="", lsfx="", dsfx=""
 ) -> str:
@@ -3595,11 +3049,6 @@ def _round_bottom_blind_slot_label(flat_width, radius, length, draft) -> str:
     return "ROUND-BOTTOM OPEN SLOT " + " × ".join(terms)
 
 
-def _pad_height_label(height_text, suffix="") -> str:
-    """The font-safe attachment-axis height callout for a side-normal pad."""
-    return f"{height_text}{suffix} HIGH"
-
-
 def _slot_label(width_text, length_text, wsfx="", lsfx="") -> str:
     """The grouped slot-array callout string: ``SLOT {width} × {length}`` (#841). A slot has no
     depth, so — unlike :func:`_pocket_label` — there is no ``× depth DEEP``; the ``SLOT`` prefix
@@ -3617,19 +3066,6 @@ def _oriented_slot_label(width, length, draft) -> str:
     return "ORIENTED SLOT " + " × ".join(terms)
 
 
-# Unit lead directions. Diagonals remain first as the stable tie-break, while
-# within-pass assignment normally selects the shortest jointly compatible ray.
-_POCKET_LEAD_DIRS = (
-    (1, 1),
-    (-1, 1),
-    (-1, -1),
-    (1, -1),
-    (1, 0),
-    (0, 1),
-    (-1, 0),
-    (0, -1),
-)
-
 # Independently owned coaxial diameters can exhaust the eight pocket directions.
 # This bounded circular fan supplies additional rim targets to the same solver;
 # every candidate remains radial and is ranked for clearance from projected bores.
@@ -3643,19 +3079,6 @@ _END_DIAMETER_LEAD_DIRS = (
 # footprint into adjacent-view ink; the diagonal set keeps auto, live and deferred placement
 # on the same local wall corridor.
 _CIRCULAR_STEP_LEAD_DIRS = _POCKET_LEAD_DIRS[:4]
-
-# A side-view pad height belongs in the exterior upper-right quadrant.  Keeping its
-# leader there prevents it from entering the adjacent front view, which a view-scoped
-# feature-leader solve deliberately does not own.  The lower-right ray is excluded too:
-# the side-below overall/location ladder can otherwise run through the HIGH label even
-# though the shared solver legitimately retains the required leader under Policy B.
-# Front and plan pads retain the established full fan; those views already participate in
-# the fixed-ink solve without the side/front adjacency that motivated this constraint.
-_PAD_HEIGHT_LEAD_DIRS = {
-    "x": ((1, 1), (1, 0)),
-    "y": _POCKET_LEAD_DIRS,
-    "z": _POCKET_LEAD_DIRS,
-}
 
 
 def _circular_step_candidates(dwg, view, bounds, feature, reach, label, *, provenance=None):
@@ -3871,26 +3294,6 @@ def _round_bottom_blind_slot_candidates(
         yield (tip, elbow, provenance)
 
 
-def _rectangular_rim_bounds(
-    dwg, view, feature, *, long_axis: str, width_axis: str, length: float, width: float
-) -> tuple[float, float, float, float]:
-    """Projected bounds of a rectangular opening in its face-on view."""
-    centre = list(feature.frame.origin)
-    points = []
-    for long_sign in (-1, 1):
-        for width_sign in (-1, 1):
-            corner = centre.copy()
-            corner["xyz".index(long_axis)] += long_sign * length / 2
-            corner["xyz".index(width_axis)] += width_sign * width / 2
-            points.append(dwg.at(view, *corner))
-    return (
-        min(point[0] for point in points),
-        min(point[1] for point in points),
-        max(point[0] for point in points),
-        max(point[1] for point in points),
-    )
-
-
 def _ray_polygon_exit_dist(origin, direction, polygon) -> float | None:
     """Nearest non-negative intersection of a ray from inside a projected polygon."""
     ox, oy = origin[:2]
@@ -3971,80 +3374,14 @@ def _leader_hole_clearance(
 
 
 def render_pockets(dwg, plan, a, *, ctx, only=None) -> int:
-    """Blind-recess callouts (#148a): a leader from each floored slot/pocket to its
-    ``W × L × D DEEP`` label, in the view normal to the recess opening (a Z-depth pocket
-    reads in the plan, an X-depth in the side, a Y-depth in the front). A pocket sits
-    mid-face, so — unlike a corner chamfer — it contributes alternatives toward each margin
-    to the shared within-pass assignment; the callout is dropped (lint, not silently) if none
-    lands in clear room. Returns the count placed.
-
-    Planner-fed (#728 / #698): the multi-parameter case — width, length AND depth in one
-    label — so EACH value + its tolerance is bound explicitly by its ``(role, kind)``
-    (``pocket_width``/``pocket_length``/``pocket_depth``, all kind ``"length"``), never
-    positionally, never ``dims[0]``. Formatting ``pk.width``… directly dropped an authored
-    tolerance (the #629 class). The pass KEEPS its own axis→view map: ``g.view`` keys on
-    the frame axis, which is the pocket's LONG axis, but the callout reads in the view
-    normal to the DEPTH axis — not identical, so the map stays."""
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    view_of = _END_ON
-    pocket_groups = list(plan.of_kind("pocket"))
-    jobs = []
-    for i, g in enumerate(
-        sorted(pocket_groups, key=lambda g: (g.facts.width_axis, g.facts.frame.origin))
-    ):
-        pk = g.facts
-        if only is not None and g.ref not in only:
-            continue  # #426 Ph2b subset (finalize): skip in place — i stays the model index
-        by_key = {(pd.role, pd.kind): pd for pd in g.dims}
-        wpd = by_key.get(("pocket_width", "length"))
-        lpd = by_key.get(("pocket_length", "length"))
-        dpd = by_key.get(("pocket_depth", "length")) or by_key.get(("pocket_max_depth", "length"))
-        dimensions = tuple(d for d in (wpd, lpd, dpd) if d is not None)
-        if not dimensions:
-            continue
-        view = view_of.get(pk.depth_axis)
-        if view is None:
-            continue
-        vb = dwg.view_bounds(view)
-        if vb is None:
-            continue
-        jobs.append(
-            (
-                f"m_pocket_{pk.width_axis}{pk.long_axis}{i}",
-                view,
-                vb,
-                _pocket_label(
-                    wpd.value_text if wpd is not None else None,
-                    lpd.value_text if lpd is not None else None,
-                    dpd.value_text if dpd is not None else None,
-                    wsfx=_tol_suffix(wpd.tolerance, draft) if wpd is not None else "",
-                    lsfx=_tol_suffix(lpd.tolerance, draft) if lpd is not None else "",
-                    maximum_depth=dpd is not None and dpd.role == "pocket_max_depth",
-                    dsfx=_tol_suffix(dpd.tolerance, draft) if dpd is not None else "",
-                ),
-                _radial_candidates(
-                    dwg,
-                    view,
-                    vb,
-                    pk,
-                    reach,
-                    source_bounds=_rectangular_rim_bounds(
-                        dwg,
-                        view,
-                        pk,
-                        long_axis=pk.long_axis,
-                        width_axis=pk.width_axis,
-                        length=lpd.value,
-                        width=wpd.value,
-                    )
-                    if wpd is not None and lpd is not None
-                    else None,
-                    provenance=g.ref,
-                ),
-                tuple(d.id for d in dimensions),
-            )
-        )
+    """Submit compiler-approved pocket leader jobs to the shared late assignment."""
+    jobs = _pocket_jobs(
+        dwg,
+        plan,
+        only=only,
+        leader_callout_reach=_leader_callout_reach,
+        radial_candidates=_radial_candidates,
+    )
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -4254,76 +3591,14 @@ def render_round_bottom_blind_slots(dwg, plan, a, *, ctx, only=None) -> int:
 
 
 def render_pad_heights(dwg, plan, a, *, ctx, only=None) -> int:
-    """Place pad heights as solver-owned leaders in each pad's end-on view.
-
-    The existing footprint dimensions remain linear corridor candidates.  The arrow targets
-    the terminal footprint boundary and every printed value comes from the compiled plan
-    (ADR 1 (was 0015) / ADR 4 (was 0016)).  A Z profile level is datum-to-attachment evidence, not the pad's local
-    terminal-to-attachment height, so Z pads reach this pass too.
-    """
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    jobs = []
-    groups = sorted(
-        plan.of_kind("pad"), key=lambda group: (group.facts.frame.axis, group.facts.frame.origin)
+    """Submit compiler-approved pad-height jobs to the shared late assignment."""
+    jobs = _pad_height_jobs(
+        dwg,
+        plan,
+        only=only,
+        leader_callout_reach=_leader_callout_reach,
+        radial_candidates=_radial_candidates,
     )
-    for index, group in enumerate(groups):
-        if only is not None and group.ref not in only:
-            continue
-        by_key = {(item.role, item.kind): item for item in group.dims}
-        height = by_key.get(("pad_height", "length"))
-        if height is None:
-            continue
-        # Structural placement facts come through the compiled boundary.  Resolving the
-        # opaque provenance handle here would let this renderer recover measurements the
-        # compiler withheld under authored intent (ADR 1 (was 0015) / ADR 4 (was 0016)).
-        pad = group.facts
-        view = _END_ON[pad.frame.axis]
-        bounds = dwg.view_bounds(view)
-        if bounds is None:
-            continue
-        # An authored set may request the independently addressable height while omitting
-        # both footprint measurements.  In that case the terminal face centre is still a
-        # complete structural leader target; do not recover the suppressed sizes through
-        # provenance merely to move the arrow to the rim (ADR 1 (was 0015) / ADR 4 (was 0016)).  When both approved
-        # sizes are present, their values may refine that same target to the footprint edge.
-        width = by_key.get(("pad_width", "length"))
-        length = by_key.get(("pad_length", "length"))
-        source_bounds = (
-            _rectangular_rim_bounds(
-                dwg,
-                view,
-                pad,
-                long_axis=pad.long_axis,
-                width_axis=pad.width_axis,
-                length=length.value,
-                width=width.value,
-            )
-            if width is not None and length is not None
-            else None
-        )
-        jobs.append(
-            (
-                f"m_pad_height_{pad.frame.axis}{index}",
-                view,
-                bounds,
-                _pad_height_label(
-                    height.value_text,
-                    _tol_suffix(height.tolerance, draft),
-                ),
-                _radial_candidates(
-                    dwg,
-                    view,
-                    bounds,
-                    pad,
-                    reach,
-                    source_bounds=source_bounds,
-                    directions=_PAD_HEIGHT_LEAD_DIRS[pad.frame.axis],
-                    provenance=group.ref,
-                ),
-                (height.id,),
-            )
-        )
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -4740,145 +4015,16 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
 
 
 def render_plates(dwg, plan, a, *, ctx) -> int:
-    """Plate/wall thicknesses and open-channel widths (#559/#917).
-
-    Plate thickness is the thin extent of each recognised slab
-    (`PlateFeature`), placed in the view where its thin axis is characteristic — a Z
-    plate (horizontal slab) as a vertical dim left of the front elevation, a Y plate
-    (upright wall) as a horizontal dim above the side (end) view where the L-profile
-    shows it edge-on, an X plate below the front view. Base and wall land in different
-    views so the two legs of a multi-plate prismatic read as distinct features rather
-    than the overall envelope. A slab whose strip is full is dropped with a lint code
-    (like the step ladder), not silently. Returns the count placed.
-
-    Planner-fed (#729 / #698): the thickness VALUE + its tolerance come from the
-    planner's ``DimParameter``, bound explicitly by ``(role, kind)`` —
-    ``("thickness", "length")`` — never ``dims[0]``. Formatting ``hi - lo``
-    directly dropped an authored tolerance (the #629 class). Placement mechanics
-    (strips, tier stacking, the allowlisted carve fallthrough) are untouched. The
-    pass KEEPS its own axis→view map: ``g.view`` is ``_END_ON`` (z→plan / y→front /
-    x→side), not the edge-on profile view a thickness dim reads in (z→front-left,
-    y→side-above, x→front-below)."""
+    """Register plate thickness and open-channel width candidates in that order."""
     draft = dwg.draft
     tier = draft.font_size + 2 * draft.pad_around_text
-    # Use only approved entries (ADR 4 (was 0016)); the plate's `lo`/`hi`
-    # come from the thickness dim's SPAN rather than the feature — they are the two ends of
-    # the measurement, so the span is where they belong. `axis` stays a fact because no span
-    # says which way a slab is thin.
-    n = 0
-    counts: dict = {"x": 0, "y": 0, "z": 0}
-    plate_groups = [
-        (g, pd)
-        for g in plan.of_kind("plate")
-        if (pd := g.dim(role="thickness", kind="length")) is not None and pd.span is not None
-    ]
 
-    # Sort identities by axis, then the plate's lower and
-    # upper coordinates ALONG that thin axis. Sorting whole points would compare their
-    # in-plane coordinates first and silently swap dim_plate_{axis}{i} names when two
-    # same-axis plates move sideways.
-    def _plate_order(gp):
-        axis = gp[0].facts.axis
-        idx = "xyz".index(axis)
-        return (axis, gp[1].span[0][idx], gp[1].span[1][idx])
-
-    for g, pd in sorted(plate_groups, key=_plate_order):
-        axis = g.facts.axis
-        # The span's two ends ARE the plate's lo/hi along its thin axis, and its other two
-        # coordinates are the in-plane centroids the witness sits at — `PlateFeature._span`
-        # builds it from exactly those. So the renderer reads points, not a feature.
-        lo_pt, hi_pt = pd.span
-        oi = [j for j in (0, 1, 2) if j != "xyz".index(axis)]
-        lo, hi = lo_pt["xyz".index(axis)], hi_pt["xyz".index(axis)]
-        u, v = lo_pt[oi[0]], lo_pt[oi[1]]
-        val = pd.value
-        lbl = pd.value_text + _tol_suffix(pd.tolerance, draft)
-        i = counts[axis]
-        counts[axis] += 1
-        if axis == "z":
-            # Horizontal slab (base plate): vertical dim on the front-elevation left strip.
-            # For a Z plate the in-plane centroids are (u=X, v=Y); the front view discards
-            # Y, so the depth arg is inert, but pass the Y-centroid (v) for correctness.
-            view, strip, stack, side = "front", a.fv_zones.left, "x", "left"
-            p1 = dwg.at(view, a.bb.min.X, v, lo)
-            p2 = dwg.at(view, a.bb.min.X, v, hi)
-            edge = p1[0]
-            pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
-            # Right-strip fallthrough anchors (helpers ≥0.14): a tight-span thickness
-            # dim's witness hull overlaps the below strip's at the view corner at EVERY
-            # position (AABB artifact — the ink never touches), so a full left strip
-            # retries on the opposite side before dropping.
-            q1 = dwg.at(view, a.bb.max.X, v, lo)
-            s1 = dwg.at("side", a.bb.min.X, a.bb.max.Y, lo)
-            s2 = dwg.at("side", a.bb.min.X, a.bb.max.Y, hi)
-            alt = [
-                (
-                    "front",
-                    "right",
-                    a.fv_zones.right,
-                    "x",
-                    (q1[0], p1[1], 0),
-                    (q1[0], p2[1], 0),
-                    q1[0],
-                ),
-                (
-                    "side",
-                    "right",
-                    a.sv_zones.right,
-                    "x",
-                    (s1[0], s1[1], 0),
-                    (s1[0], s2[1], 0),
-                    s1[0],
-                ),
-            ]
-        elif axis == "y":
-            # Upright wall: horizontal dim above the side (end) view, which shows the
-            # wall edge-on on the L-profile — a different view from the Z base plate.
-            # Witness from the view's top edge (like the Z/X plates anchor at their view
-            # outline) so the extension lines don't originate mid-view.
-            view, strip, stack, side = "side", a.sv_zones.above, "y", "above"
-            p1 = dwg.at(view, a.bb.min.X, lo, a.bb.max.Z)
-            p2 = dwg.at(view, a.bb.min.X, hi, a.bb.max.Z)
-            edge = p1[1]
-            pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
-            alt = None
-        else:  # x — thin wall along X → horizontal dim below the front view
-            view, strip, stack, side = "front", a.fv_zones.below, "y", "below"
-            p1 = dwg.at(view, lo, u, a.bb.min.Z)
-            p2 = dwg.at(view, hi, u, a.bb.min.Z)
-            edge = p1[1]
-            pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
-            alt = None
-        name = f"dim_plate_{axis}{i}"
-
-        def _build_plate(
-            pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl, measurement_span=pd.span
-        ):
-            dim = _dim(pa, pb, side, pos - edge, draft, label=lbl)
-            dim._dw_measurement_span = measurement_span
-            return dim
-
-        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
-            return dim_footprint(pa, pb, side, pos - edge, draft, lbl)
-
-        def _drop(
-            nm,
-            val=val,
-            lbl=lbl,
-            view=view,
-            stack=stack,
-            alt=alt,
-            feat=g.ref,
-            mid=pd.id,
-            measurement_span=pd.span,
-        ):  # noqa: B008
+    def drop_factory(*, val, lbl, view, stack, alt, feat, mid, measurement_span):
+        def _drop(nm):
             # Defer opposite-strip fallthrough, as GD&T does, to
             # ctx.post_drain so it runs after EVERY corridor has drained:
             # a mid-drain carve could occupy a corner a later sibling's force candidate
             # needs; post-drain, carve_free_position sees all placed annotations.
-            # `mid` is bound as a DEFAULT like every sibling here: `pd` is the enclosing
-            # loop's variable and these retries run post-drain, so reading it live would
-            # record the LAST plate's identity on every one of them.
             def _retry(
                 nm=nm,
                 val=val,
@@ -4932,116 +4078,11 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
             # suboptimally when several plates compete for the same alternates.
             ctx.post_drain.append(_retry)
 
-        # ADR 2 (was 0009) corridor candidate: a plate thickness is a size dim bound to one
-        # view/strip (no alternate view), so it is force-kept and dropped only when the strip
-        # is physically full. Co-solve it with the locations and steps sharing the strip.
-        register_corridor(
-            ctx,
-            (view, side),
-            strip,
-            view,
-            stack,
-            tier,
-            CorridorCandidate(
-                name=name,
-                build=_build_plate,
-                order=(_SIZE_SUBCHAIN, i, name),
-                on_place=lambda nm: None,
-                on_drop=_drop,
-                force=True,
-                feature=g.ref,  # opaque provenance handle
-                measurement=pd.id,
-                footprint=_foot,  # analytical measure — no probe build
-            ),
-        )
-        n += 1
+        return _drop
 
-    channel_groups = [
-        (g, pd)
-        for g in plan.of_kind("channel")
-        if (pd := g.dim(role="channel_width", kind="length")) is not None and pd.span is not None
-    ]
-    channel_counts: dict[str, int] = {"x": 0, "y": 0, "z": 0}
-    view_for_long_axis = _END_ON  # looking down the long axis IS reading it end-on
-    zones_for_view = {"front": a.fv_zones, "side": a.sv_zones, "plan": a.pv_zones}
-    for g, pd in sorted(
-        channel_groups,
-        key=lambda gp: (
-            gp[0].facts.long_axis,
-            gp[0].facts.width_axis,
-            gp[1].span[0],
-            gp[1].span[1],
-        ),
-    ):
-        facts = g.facts
-        view = view_for_long_axis[facts.long_axis]
-        p1 = dwg.at(view, *pd.span[0])
-        p2 = dwg.at(view, *pd.span[1])
-
-        outward = list(pd.span[0])
-        depth_index = "xyz".index(facts.depth_axis)
-        outward[depth_index] += facts.open_sign
-        q = dwg.at(view, *outward)
-        depth_dx, depth_dy = q[0] - p1[0], q[1] - p1[1]
-        width_dx, width_dy = p2[0] - p1[0], p2[1] - p1[1]
-        if abs(width_dx) >= abs(width_dy):
-            side = "above" if depth_dy > 0 else "below"
-            stack = "y"
-            edge = p1[1]
-            pa, pb = (p1[0], edge, 0), (p2[0], edge, 0)
-        else:
-            side = "right" if depth_dx > 0 else "left"
-            stack = "x"
-            edge = p1[0]
-            pa, pb = (edge, p1[1], 0), (edge, p2[1], 0)
-        strip = getattr(zones_for_view[view], side)
-        if strip is None:
-            # Some sheet layouts abut one side of a view directly against its sibling and
-            # therefore expose no corridor on the channel's opening side. The opposite
-            # profile corridor still dimensions the same two wall witnesses; use it rather
-            # than treating an unavailable strip as a physically full one.
-            side = {"above": "below", "below": "above", "left": "right", "right": "left"}[side]
-            strip = getattr(zones_for_view[view], side)
-        label = pd.value_text + _tol_suffix(pd.tolerance, draft)
-        index = channel_counts[facts.width_axis]
-        channel_counts[facts.width_axis] += 1
-        name = f"dim_channel_{facts.width_axis}{index}"
-
-        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
-            return _dim(pa, pb, side, pos - edge, draft, label=label)
-
-        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
-            return dim_footprint(pa, pb, side, pos - edge, draft, label)
-
-        def _drop_channel(_name, value=pd.value, view=view, side=side, mid=pd.id):
-            ctx.record_issue(
-                "warning",
-                "channel_width_dropped",
-                f"channel width {_fmt(value)} not dimensioned ({view} {side}-strip full)",
-                measurement=mid,
-            )
-
-        register_corridor(
-            ctx,
-            (view, side),
-            strip,
-            view,
-            stack,
-            tier,
-            CorridorCandidate(
-                name=name,
-                build=_build,
-                order=(_SIZE_SUBCHAIN, index, name),
-                on_place=lambda _name: None,
-                on_drop=_drop_channel,
-                force=True,
-                feature=g.ref,
-                measurement=pd.id,
-                footprint=_foot,
-            ),
-        )
-        n += 1
-    return n
+    return register_plate_thickness(
+        dwg, plan, a, ctx=ctx, drop_factory=drop_factory
+    ) + register_channel_width(dwg, plan, a, ctx=ctx)
 
 
 def _env_label(approved, draft) -> str:
