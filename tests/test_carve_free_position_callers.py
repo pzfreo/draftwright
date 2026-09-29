@@ -39,7 +39,9 @@ _ALLOWED_CALLERS = {
     # axis-aligned strip tier, so it cannot be a solve candidate at all.
     ("holes.py", "_place_pitch_dim"),
     # Post-drain fallbacks retained explicitly by ADR 2 (was 0014):
-    ("from_model.py", "render_gdt"),  # alt-strip fallback DEFERRED via ctx.post_drain (#636)
+    # The same GD&T post-drain exemption moved to its rank-4 owner. The public
+    # wrapper passes the live carve binding for existing test and caller seams.
+    ("_gdt.py", "_gdt_drop_callback"),
     # Beyond render_gdt's pattern (helpers ≥0.14): the primary placement IS the
     # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
     # after EVERY corridor has drained (#684 review — a mid-drain carve could preempt
@@ -78,6 +80,8 @@ def _carve_callers(path: Path) -> set[str]:
     trips the test."""
     tree = ast.parse(path.read_text(), filename=str(path))
     names = _carve_local_names(tree)
+    if path.name == "_gdt.py":
+        names.add("carve_position")  # injected live from from_model.render_gdt
     callers: set[str] = set()
 
     def visit(node: ast.AST, owner: str | None) -> None:
@@ -145,6 +149,24 @@ def test_migrated_passes_have_no_carve_caller():
     # render_plates' PRIMARY placement stays corridor-registered; its allowlisted carve
     # is the post-drain on_drop fallthrough only (as render_gdt) — helpers ≥0.14.
     assert "render_step_positions" not in callers
+
+
+def test_gdt_exemption_stays_on_the_deferred_fallback():
+    source = _ANNO_DIR / "_gdt.py"
+    assert _carve_callers(source) == {"_gdt_drop_callback"}
+    wrapper = ast.parse((_ANNO_DIR / "from_model.py").read_text())
+    render = next(
+        node
+        for node in wrapper.body
+        if isinstance(node, ast.FunctionDef) and node.name == "render_gdt"
+    )
+    assert any(
+        isinstance(node, ast.keyword)
+        and node.arg == "carve_position"
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "carve_free_position"
+        for node in ast.walk(render)
+    )
 
 
 def test_carve_callers_covers_methods_qualified_aliased_and_module_scope(tmp_path):

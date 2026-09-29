@@ -746,13 +746,13 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("_diameters.py", "_reroute_crossing_diameters"): "reapplies the saved identity",
         ("sections.py", "_resolve_details"): "reapplies the saved identity",
         # -- not a measurement (ADR 4 (was 0011)) -------------------------------------------
-        ("from_model.py", "_drop._retry"): "GD&T relaxed-side retry places a control frame",
+        ("_gdt.py", "_drop._retry"): "GD&T relaxed-side retry places a control frame",
         ("from_model.py", "_pmi_queue_options"): "PMI records are not compiled dimensions",
         (
             "from_model.py",
             "_pmi_queue_options._drop",
         ): "sheet fallback preserves the same source-authored PMI record",
-        ("from_model.py", "render_gdt"): "a control frame is not a measurement",
+        ("_gdt.py", "render_gdt"): "a control frame is not a measurement",
     }
 
     unrecorded, used = [], set()

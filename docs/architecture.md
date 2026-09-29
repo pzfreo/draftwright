@@ -177,6 +177,10 @@ and re-exports the existing private helper names.
     datum locations, axis furniture, and X/Y corridor candidates. The public
     `from_model` passes retain their signatures and supply live dimension,
     corridor-registration, and iso-boundary bindings.
+  - **`annotations/_gdt.py`** — owns declared GD&T glyphs, source provenance,
+    and shared-corridor candidates with deferred side and sheet fallback.
+    `from_model.render_gdt` keeps the public pass and supplies live leader,
+    carving, and sheet-fallback bindings.
   - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
     in-plane dimension witnesses, corridor candidates, and obround-radius
     candidates. `from_model.render_slots` retains the public pass and submits
