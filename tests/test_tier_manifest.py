@@ -34,6 +34,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
         "pocket_evidence": "src/draftwright/evaluation/_pocket_evidence.py",
         "prismatic_evidence": "src/draftwright/evaluation/_prismatic_evidence.py",
+        "groove_evidence": "src/draftwright/evaluation/_groove_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",

@@ -90,6 +90,10 @@ CONTRACT_GROUPS = {
             "test_issue_1373_plate_completeness_evidence.py",
         ),
     ),
+    "groove_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_groove_evidence.py",),
+        ("test_groove_completeness_evidence.py",),
+    ),
     "step_observers": ContractGroup(
         ("src/draftwright/evaluation/step_analysis.py",),
         (
