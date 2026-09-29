@@ -172,7 +172,7 @@ def add_feature_callout(
     draft = dwg.draft
     members = feature.members or (feature.frame.origin,)
     # count comes from the spec (== feat.count) — the same source the auto-pass's
-    # bare path uses — not re-derived from len(members) (#414).
+    # bare path uses — not re-derived from len(members).
     callout = callout_from_spec(spec, draft, spec["count"])
     assert callout is not None  # spec is non-None here, so callout_from_spec returns one
     view = view or (group.view if group is not None else _END_ON[feature.frame.axis])
@@ -303,17 +303,16 @@ def add_feature_location(
 
     # A feature with no datum-referenced ref — a concentric/on-axis bore (located by a
     # centre mark) or an on-datum hole — has nothing to dimension here. An honest empty
-    # result (as the docstring promises), not an error, so the verb composes: the emitted
-    # #400 Ph2 script calls locate() on every hole and this no-ops the ones the auto-pass
+    # result (as the docstring promises), not an error, so the verb composes: a
+    # script can call locate() on every hole and no-op where the auto-pass
     # would also skip. Live placement handles this requested feature alone; automatic and
     # deferred rendering may coalesce truly coincident ordinates while retaining every
     # semantic owner.
     #
     # Sourced from the COMPILED plan, not the raw planner list: `locate()` is an edit verb,
     # and an edit verb that drew a position the authored set omitted would put the live path
-    # and the deferred path back in disagreement — the #925 defect, in the one place a user
-    # is most likely to notice. Asking the plan is not a per-kind refusal rule; it is the
-    # same question every migrated renderer asks.
+    # and the deferred path in disagreement. Asking the plan uses the same content
+    # decision as the other renderers.
     mine = [loc for loc in compile_dimensions(model).locations if loc.ref == FeatureRef(feature)]
     if not mine:
         return []
@@ -353,7 +352,7 @@ def add_feature_location(
             nm,
             view=view,
             feature=feature,
-            measurement=mid,  # the compiled location this dim draws (#1002)
+            measurement=mid,  # the compiled location this dim draws
         )
         if pin:
             dwg.pin(nm)
@@ -479,7 +478,7 @@ def add_feature_furniture(dwg, feature, model, a, *, view: str | None = None, ct
         # Scan for a free furniture slot j across all three name shapes: a bolt-circle
         # centre-cross (bc_{view}{j}), a linear pitch (dim_pitch_{view}{j}), and a grid's
         # two suffixed pitch dims (dim_pitch_{view}{j}_0/_1) — the bare key is never used
-        # by a grid, so probing it alone would collide on a second grid (#419).
+        # by a grid, so probing it alone would collide on a second grid.
         j = 0
         while any(
             nm in (f"bc_{view}{j}", f"dim_pitch_{view}{j}")
@@ -523,7 +522,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     # From the COMPILED plan, not `plan_dimensions`. Reading the planned parameter meant
     # reading past its `suppressed` flag, so a live `callout()` drew a diameter the authored
     # set had omitted while the deferred path (through the migrated `render_diameters`) drew
-    # nothing — the two disagreeing about the same edit (#925).
+    # nothing — the two disagreeing about the same edit.
     plan = compile_dimensions(model)
     group = plan.group_for(FeatureRef(feature))
     dpd = group.dim(kind="diameter") if group is not None else None
@@ -559,10 +558,9 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
             "(only X- and Z-turned parts)"
         )
     # 7-tuple (anchor, dia, value_text, feature, tolerance, thread, mids): a manual callout
-    # honours the compiler-approved display text, a declared ± tolerance (P2a, #28), and an
-    # external thread aspect (#859), like the auto-pass — and carries the same ADR 5 (was 0010) claim,
-    # so a hand-placed ø callout is verifiable on exactly the terms an auto-placed one is
-    # (#1227).
+    # honours the compiler-approved display text, a declared ± tolerance, and an
+    # external thread aspect, like the auto-pass. It carries the same ADR 5 (was 0010)
+    # claim, so a hand-placed ø callout is verifiable like an auto-placed one.
     items = [
         (
             group.anchor,
@@ -582,7 +580,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     ]
     # The row/column placers name leaders m_dia_{x,z}{start+i} — pass the first FREE
     # index so a second callout() (or a call on an already-annotated turned part) never
-    # collides on m_dia_x0/z0 and clobbers an existing leader (#419).
+    # collides on m_dia_x0/z0 and clobbers an existing leader.
     prefix = "m_dia_x" if axis == "x" else "m_dia_z"
     start = 0
     while f"{prefix}{start}" in ctx.registry:
@@ -596,7 +594,7 @@ def add_feature_diameter(dwg, feature, model, *, ctx) -> str:
     if not new:
         # No room — degrade like the auto-pass (render_diameters places what fits and drops
         # the overflow to feature_not_dimensioned), NOT a raise: the emitted reconstruction
-        # calls callout() per step, so a crowded turned shaft must not abort (#427).
+        # calls callout() per step, so a crowded turned shaft must not abort.
         _log.info("Step/boss ø%s callout skipped (no room)", _fmt(dia))
         return ""
     return str(new[0])
@@ -653,7 +651,7 @@ def _record_callout_drop(
         source=getattr(callout, "source_ids", ()),
         outcome_stage=outcome_stage,
     )
-    # First-class escalation object alongside the lint code (ADR 2 (was 0009 Amdt 1), #351 PR-2).
+    # A first-class escalation accompanies the lint code (ADR 2 (was 0009 Amdt 1)).
     # The resolver (`_maybe_tabulate_holes`) triggers on these; the lint code stays for
     # coverage. 1:1 with the code emit, so the object trigger is byte-identical.
     ctx.escalations.append(
@@ -704,14 +702,14 @@ def _add_furniture(
     members = feat.members or (feat.frame.origin,)  # guard a declared pattern's empty members
     # Remember the bore-callout name AND the holes it documents (by position), so a
     # later hole-table escalation leaves the grouped pattern callout standing and
-    # tabulates only the holes no *placed* pattern callout covers (#92).
+    # tabulates only the holes no *placed* pattern callout covers.
     if cover:
         ctx.coverage.cover_pattern(f"hc_{view}{j}", [HoleRef.of(m) for m in members])
     if feat.pattern == "bolt_circle":
         assert feat.bcd is not None  # a bolt circle always carries its BCD
         cx = sum(to_page(m)[0] for m in members) / len(members)
         cy = sum(to_page(m)[1] for m in members) / len(members)
-        # Furniture provenance (#408): the pattern owns its centre line + pitch dims.
+        # Furniture provenance: the pattern owns its centre line and pitch dims.
         ctx.place(
             CenterlineCircle((cx, cy), feat.bcd * a.SCALE),
             f"bc_{view}{j}",
@@ -962,7 +960,7 @@ def _add_grid_pitch_dims(
             )
         # Of the holes sharing the selected perpendicular coordinate, take both extremes
         # along u. Picking the global max-projection hole instead lands on the opposite
-        # diagonal corner and draws the pitch dim diagonally across the grid (#92).
+        # diagonal corner and draws the pitch dim diagonally across the grid.
         # Tolerance must be below the PERPENDICULAR lattice-line spacing — which
         # is the *other* axis' pitch, so use the smaller of the two pitches.
         # (pitch_page * 0.25 fails on a high-aspect grid: for the long axis the
@@ -977,7 +975,7 @@ def _add_grid_pitch_dims(
         # is a slice of the IR's member order, which on a grid walks the lattice in neither
         # direction: on a 3x2 grid it hands `_pitch_text` five points whose consecutive gaps
         # are a mix of row and column spacing, so every uniform grid read as jittered and had
-        # its authored tolerance withheld (#1216).
+        # its authored tolerance withheld.
         spanned = [members[idx] for idx in sorted(line, key=along)]
         span = along(hi) - along(lo)
         n = round(span / pitch_page) + 1
@@ -1024,8 +1022,7 @@ def _pitch_text(pitch, members, draft, *, ctx) -> str:
     if pitch.tolerance is None:
         return text
     # Compared at the drawn precision, never FORMATTED here: the printed value is the compiler's
-    # `value_text` and this function must not mint a second one. The label-provenance ratchet
-    # caught exactly that in the first cut of this (#1002).
+    # `value_text`; this function must not mint a second printed value.
     places = draft.decimal_precision
     nominal = round(pitch.value, places)
     gaps = [math.dist(tuple(a), tuple(b)) for a, b in zip(members, members[1:], strict=False)]
@@ -1092,10 +1089,10 @@ def _place_pitch_dim(
     fallback_sides = [(side, reach)] + [c for c in cands if c[0] != side]
 
     # `pitch_text` arrives already carrying its authored tolerance (composed at the call
-    # sites), because an explicit label discards a forwarded `tolerance=` — #1215's mechanism.
+    # sites), because an explicit label discards a forwarded `tolerance=`.
     # A uniform array's ± applies to each identical gap, so `4× 20 ±0.05` is coherent; that is
     # unlike the STEP representative, whose levels merely fall within 10% of each other, where
-    # a ± would claim the tolerance of values that differ (#1234).
+    # a ± would claim the tolerance of values that differ.
     label = f"{n - 1}× {pitch_text}"
 
     def _make(off, side_vec=side, label_offset_x=0.0):
@@ -1112,14 +1109,12 @@ def _place_pitch_dim(
     def _clear(off, side_vec, dim=None):
         # Nudge the LABEL (not the line — a dim line crossing a centre line is
         # fine, ISO 128) off any centre line / bolt-circle already placed in this
-        # view (#129): a turned part's axis Centerline, or a pattern's own
+        # view: a turned part's axis Centerline, or a pattern's own
         # CenterlineCircle. Not a complete guarantee — furniture for OTHER
         # patterns sharing this view may render after this dim, so a sibling
-        # pattern's CenterlineCircle can still be missed; #129 only covers the
-        # cases verified reachable (this dim's own pattern + any turned-axis line).
-        # Returns (final, unshifted): `_make` builds real OCC geometry (a boolean
-        # fuse per dim, #129 — a production part hit a 120s single-op
-        # timeout after this went from one build to three per placement), so a
+        # pattern's CenterlineCircle can still be missed. This checks the
+        # dim's own pattern and any turned-axis line already placed.
+        # Returns (final, unshifted): `_make` builds real OCC geometry, so a
         # caller that already has the unshifted dim passes it in as `dim` rather
         # than have it rebuilt here.
         dim = dim if dim is not None else _make(off, side_vec)
@@ -1167,7 +1162,7 @@ def _place_pitch_dim(
         )
         return True
 
-    # Place onto the zone strip for the chosen side (#374): each side is its own strip, so the
+    # Place onto the zone strip for the chosen side: each side is its own strip, so the
     # obstacle-aware carve stacks this dim clear of placed content — where an arbitrary-direction
     # 1-D search would be defeated by a dim on a *different* side (rotated/two-axis grids). An
     # axis-aligned side maps to a populated strip; a diagonal side, the side view's absent left
@@ -1211,7 +1206,7 @@ def _place_pitch_dim(
 
     # Fallback: diagonal side / absent strip / full strip. This cannot cleanly occupy an
     # axis-aligned strip tier, so search bounded offsets along the chosen outward vector and
-    # test the full generated dimension footprint against this view's placed obstacles (#514).
+    # test the full generated dimension footprint against this view's placed obstacles.
     # Rotated grids can need the two perpendicular pitch dims on opposite sides, so try the
     # preferred side first and then its opposite before declaring the row genuinely full.
     step = max(2.5, dwg.draft.font_size)
@@ -1239,7 +1234,7 @@ def _place_pitch_dim(
                 ):
                     break
                 continue
-            # Analytical footprint, not built geometry (#602): a rejected offset must not
+            # Analytical footprint, not built geometry: a rejected offset must not
             # pay the ~0.4 s OCC boolean-fuse cost of a full Dimension build.
             bb = dim_footprint(
                 (p1[0], p1[1], 0), (p2[0], p2[1], 0), side_vec, offset, dwg.draft, label
@@ -1332,7 +1327,7 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     ):
         feat = g.facts
         if only is not None and g.ref not in only:
-            continue  # #426 finalize subset — skip in place so i stays the model index
+            continue  # filtered subset: skip in place so i stays the model index
         by_key = {(pd.role, pd.kind): pd for pd in g.dims}
         wpd = by_key.get(("pocket_width", "length"))
         lpd = by_key.get(("pocket_length", "length"))
@@ -1375,12 +1370,12 @@ def render_pocket_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     placed_names = dwg.annotations()
     for i, g, view, name in furniture:
         # Skip the pitch furniture whose grouped size/depth callout dropped for want of room:
-        # orphan pitch dims with no `N× W×L×D` leader are an incomplete, misleading spec
-        # (#848). Members are computed by _pattern_members (declare rejects explicit
+        # orphan pitch dims with no `N× W×L×D` leader are an incomplete, misleading spec.
+        # Members are computed by _pattern_members (declare rejects explicit
         # members=), so for a linear array they are already ordered along the direction —
         # members[0]/[-1] are the true extrema and the (n-1)× pitch label is truthful. Distinct
         # name prefix (dim_pocketpat_pitch, not the hole pattern's dim_pitch) so a plan-view
-        # hole pattern and pocket pattern do not collide on dim_pitch_plan0 (#848).
+        # hole pattern and pocket pattern do not collide on dim_pitch_plan0.
         if name not in placed_names:
             continue
         feat = g.facts
@@ -1452,7 +1447,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
     ):
         feat = g.facts
         if only is not None and g.ref not in only:
-            continue  # #426 finalize subset — skip in place so i stays the model index
+            continue  # filtered subset: skip in place so i stays the model index
         through_axis = next(
             axis for axis in "xyz" if axis not in (feat.member_width_axis, feat.member_long_axis)
         )
@@ -1484,7 +1479,7 @@ def render_slot_patterns(dwg, plan, a, *, ctx, only=None) -> int:
                 vb,
                 label,
                 _radial_candidates(dwg, view, vb, feat, reach, provenance=g.ref),
-                (wpd.id, lpd.id),  # width × length, one callout (#1002)
+                (wpd.id, lpd.id),  # width × length, one callout
             )
         )
         if rpd is not None:
@@ -1833,11 +1828,9 @@ def _carve_and_place(cands_in, intervals, key_prefix_local, ctx: _StripCtx, *, a
 
     # Selection (ADR 2 (was 0009) P2) must be GLOBAL across every carved segment,
     # not per-segment — a candidate that overflows its nearest segment may
-    # still fit a farther one with spare room (#381: the retired banded-DP
-    # tried this but approximated feasibility by placed-count alone, which
-    # lost track of *where* things were placed; this instead re-runs the
-    # real per-segment solve on each trial, so it can't reintroduce that
-    # bug). Process candidates highest-priority-first so a segment already
+    # still fit a farther one with spare room. Re-run the real per-segment
+    # solve on each trial so feasibility includes where things are placed.
+    # Process candidates highest-priority-first so a segment already
     # holding only >= priority members can, on overflow, only ever be
     # asked to drop the newcomer being tried — never evict a prior
     # commitment — which is exactly what "trial has zero drops" verifies
@@ -1973,7 +1966,7 @@ def _place_front_callouts(
     """Front-view (vertical-shaft) hole callouts, placed below the view through the strip
     solver (#638). Emits names via ``_hc_name`` and drops anything the strip can't hold."""
     # Below the view, vertical shafts. Rows are solved as one strip batch rather
-    # than assigned by `i * min_gap` (#513). Candidate order stays right-to-left
+    # than assigned by `i * min_gap`. Candidate order stays right-to-left
     # so inner-to-outer rows preserve the historical crossing guard shape, but
     # over-capacity is now priority-ranked by bore diameter.
     specs.sort(key=lambda s: max(to_page(loc)[0] for loc in s[0]), reverse=True)
@@ -2058,7 +2051,7 @@ def _place_front_callouts(
             _log.info("Hole callout ø%s skipped (front strip full)", _fmt(dia))
             _record_callout_drop(ctx, dwg, view, dia, "front strip full", feat, callout=callout)
             continue
-        if place_furniture:  # #426: finalize's furniture() replay owns furniture
+        if place_furniture:  # deferred furniture replay owns furniture when false
             idx, feat = furniture[name]
             _add_furniture(
                 dwg, a, view, idx, feat, to_page, ctx=ctx, plan=plan, furnished=furnished
@@ -2403,14 +2396,14 @@ def _place_immediate_queue(
             feature=_callout_member_owner(callout, s[5], feat_of_callout.get(id(callout))),
             measurement=callout.measurements,
         )
-        # A plain (unpatterned) plan callout is a scattered-hole-table candidate
-        # (#351): record its coverage against the ACTUAL placed name, regardless of
+        # A plain (unpatterned) plan callout is a scattered-hole-table candidate:
+        # record its coverage against the actual placed name, regardless of
         # place_furniture, so finalize (place_furniture=False) still lets
-        # _maybe_tabulate_holes find + replace it (#426 Ph4c). Coverage-only, so the
-        # auto-pass (place_furniture=True) set is unchanged → byte-identical.
+        # _maybe_tabulate_holes find and replace it. Coverage registration does not
+        # change the automatic placement path.
         if view == "plan" and feat is None:
             ctx.coverage.cover_scattered_hole_doc(name)
-        if place_furniture:  # #426: finalize's furniture() replay owns furniture
+        if place_furniture:  # deferred furniture replay owns furniture when false
             _add_furniture(dwg, a, view, i, feat, to_page, ctx=ctx, plan=plan, furnished=furnished)
         i += 1
     return i
@@ -2462,14 +2455,13 @@ def _place_queue(
     base_y, base_dropped = _carve_and_place(queue, band_intervals, key_prefix, sctx)
 
     # Carve around drawing-level obstacles this column's leaders would
-    # cross too (e.g. the section cutting-plane arrow — #351 P5 strand
-    # 3): a Y-only solve can't see an obstacle it never measures, the
-    # textbook invisible-occupant defect. Probed at each candidate's OWN
+    # cross too (e.g. the section cutting-plane arrow): a Y-only solve cannot
+    # see an obstacle it never measures. Probe at each candidate's own
     # natural Y, not a shared reference — a callout's leader shaft is
     # position-dependent geometry (it runs from the fixed hole location
     # to the elbow), so probing everyone at one far-away Y badly
     # misjudges it.
-    cache = getattr(dwg, "box_cache", None)  # measure each callout once (#1138)
+    cache = getattr(dwg, "box_cache", None)  # reuse measured callout boxes
     vb = dwg.view_bounds(view)
     assert vb is not None
     probe_boxes = []
@@ -2565,8 +2557,8 @@ def _place_queue(
         preferred.append((s, y))
 
     # ``base_y`` and ``seg_y`` are each valid whole-queue layouts. Choosing between them per
-    # candidate can interleave their rows into a third layout that neither solve spacing-checked
-    # (#915). Use those choices as preferred anchors, then reconcile every survivor through one
+    # candidate can interleave their rows into a third layout that neither solve spacing-checked.
+    # Use those choices as preferred anchors, then reconcile every survivor through one
     # final bands-only solve. Obstacle crossings remain the explicit policy-B fallback below.
     targets = [(s[0], s[1], s[2], s[3], y, s[5]) for s, y in preferred]
     source_by_target = {id(target): s for target, (s, _y) in zip(targets, preferred, strict=True)}
@@ -2574,7 +2566,7 @@ def _place_queue(
 
     # Automatic annotation and deferred finalize collect these compatible
     # side/plan leaders into the same late inventory as the machined-feature
-    # callouts (#1166).  Keep the established queue solve as candidate zero,
+    # callouts. Keep the established queue solve as candidate zero,
     # then expose bounded alternatives from its baseline/carved solutions and
     # strip/obstacle boundaries.  The shared solve rechecks every alternative
     # against the fully drained dimension/witness inventory before committing.
@@ -2582,12 +2574,9 @@ def _place_queue(
     # inventory: furniture is staged before the corridor solve, coverage waits
     # for on_place, and on_drop removes only that pattern's staged furniture.
     # Dense loose-hole inventories eligible for table replacement remain in the
-    # established immediate whole-queue solve. Profiled bores retain their
-    # established cross-view compatibility until robust
-    # silhouette-aware routing lands (#1187 — this deferred to #798, which closed
-    # WITHOUT delivering it; ADR 2 (was 0018)'s "Why now" records that ten leaders still cut
-    # the part after #798 and #1188, and #1187 is the live successor).  The shared late inventory is therefore for
-    # compatible sparse ordinary-hole and pattern callouts only.
+    # immediate whole-queue solve. Profiled bores keep their cross-view placement
+    # contract while the shared late inventory handles compatible sparse ordinary-hole
+    # and pattern callouts only.
     model_features = getattr(getattr(ctx, "part_model", None), "features", ())
     scattered_plan_holes = sum(
         len(feature.members or (feature.frame.origin,))
@@ -2704,14 +2693,14 @@ def _place_planside_callouts(
     view_cx = a.PV_X if view == "plan" else a.SV_X
     view_cy = a.PV_Y if view == "plan" else a.SV_Y
 
-    # Keep-out bands (ADR 2 (was 0009 Amendment 5)/9, P4c, #318/#381) `(centre, half_width)` — page rows
+    # Keep-out bands (ADR 2 (was 0009 Amendment 5)) `(centre, half_width)` — page rows
     # a callout's "⌀… ↓…" text may not sit on, folded into `_place_queue`'s obstacle carve so the
     # spacing solve avoids them by construction. Two causes, keyed on the crossing line:
     #  - location-dim extension-line rows where `_locate_off_axis_holes` will draw the off-axis
     #    bores' dims (from hole geometry; patterned holes skipped to match it — no per-hole loc
     #    dim). A conservative superset guard: over-reserved rows are still valid, never under; and
     #  - the centre line of a turned/rotational round view — a coaxial bore led out along it has
-    #    its callout crossed by the centre mark / centreline (#305). Near-centre callouts only.
+    #    its callout crossed by the centre mark / centreline. Near-centre callouts only.
     clr = draft.font_size + 3 * draft.pad_around_text  # clearance off a crossing line
     off_axis_letter = {"side": "x", "front": "y"}.get(view)
     # Sourced from the plan, like the pass that draws them. Reserving from raw IR was a
@@ -2733,7 +2722,7 @@ def _place_planside_callouts(
         # bottom datum. Its label sits midway along that span, well below the
         # hole-centre row reserved above. Without this second approved-plan band
         # the spring-socket callout can be solved straight through the future
-        # "14.2" label even though every hole-centre band is clear (#1601).
+        # "14.2" label even though every hole-centre band is clear.
         datum_row = a.proj.side_z(a.bb.min.Z)
         reserved_rows.extend(
             (datum_row + to_page(h.location)[1]) / 2
@@ -2881,7 +2870,7 @@ def _annotate_holes(
     # Minimum vertical separation between stacked bore-callout labels: one label
     # height (font_size) plus pad_around_text clearance above and below, so
     # adjacent labels never touch.  Derived from text metrics rather than a bare
-    # font-size ratio (#31).
+    # font-size ratio.
     min_gap = draft.font_size + 2 * gap
 
     _, iso_y0, _, _ = _iso_bbox(dwg)
@@ -2907,7 +2896,7 @@ def _annotate_holes(
         a, view_of_axis, groups, feature_keys, only, draft, ctx=ctx
     )
 
-    # One shared name pool across every view + both branches (#430): built once and
+    # One shared name pool across every view and both branches: built once and
     # mutated by `_hc_name`'s finalize path — never copied.
     hc_used = set(ctx.registry.names())
     # Which patterns got their furniture, so the sweep below can find the ones that did not.
@@ -2916,7 +2905,7 @@ def _annotate_holes(
     for view, view_groups in by_view.items():
         to_page = partial(layout_frame(a).project, view)
         specs = list(view_groups)  # (locs, dia, callout, feat), from the IR groups
-        # No fixed cap (#36): every spec is attempted; the per-view placement
+        # No fixed cap: every spec is attempted; the per-view placement
         # bounds below (front-view shaft rows, plan/side strip Y-solver) are the
         # real limit, and any callout that genuinely doesn't fit surfaces as
         # callout_dropped. Largest diameters first so the most significant
