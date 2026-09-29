@@ -39,6 +39,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
+        "dimension_ink": "src/draftwright/annotations/_dimension_ink.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
@@ -233,6 +234,12 @@ def test_sheet_layout_control_changes_run_the_declaration_contract():
 def test_pmi_changes_run_structured_reader_failure_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/pmi.py"])
     assert "test_pmi_records.py" in selected
+
+
+def test_analytical_dimension_ink_runs_its_geometry_contract():
+    selected = pr_modules(_TESTS, ["src/draftwright/annotations/_dimension_ink.py"])
+    assert "test_pitch_dim_footprint.py" in selected
+    assert "test_issue_1334_prevent_ink.py" in selected
 
 
 def test_nonproduction_changes_do_not_expand_the_core():
