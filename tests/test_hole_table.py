@@ -613,7 +613,8 @@ class TestPatternGroupBalloon:
         before = set(drawing.annotations())
         prior_issues = len(drawing.registry.issues)
 
-        _maybe_tabulate_holes(drawing, drawing._analysis, ctx=ctx)
+        # Name reservation refuses this attempt before analysis is consulted.
+        _maybe_tabulate_holes(drawing, None, ctx=ctx)
 
         assert drawing.get_annotation(name) is reserved
         assert set(drawing.annotations()) == before
