@@ -255,6 +255,19 @@ def test_from_model_change_runs_through_step_placement_contract():
     assert "test_through_step_semantics.py" in selected
 
 
+def test_axial_owner_change_runs_chain_ladder_and_trace_contracts():
+    source = "src/draftwright/annotations/_axial_render.py"
+    assert selected_groups([source]) == {"through_step_placement", "height_ladder", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_turned_lengths.py",
+        "test_issue_1505_short_axial_chains.py",
+        "test_compiled_plan_boundary.py",
+        "test_refactor_golden.py",
+        "test_solve_trace.py",
+    } <= selected
+
+
 def test_height_ladder_owner_runs_compiler_and_corridor_contracts():
     source = "src/draftwright/annotations/_height_ladder.py"
     assert selected_groups([source]) == {"height_ladder", "placement"}

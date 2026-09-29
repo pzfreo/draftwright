@@ -49,8 +49,8 @@ _FMT_BUDGET: dict[str, tuple[int, str]] = {
     # --- The turned step chain composes its labels while collapsing repeat runs, so the
     # text is decided by the collapse rather than per approved entry.
     "_step_lengths._render_y_profile": (3, "labels decided during the repeat-run collapse"),
-    "from_model._draw_step_chain": (1, "default repeat collapse preserves legacy mean text"),
-    "from_model._step_value_text": (1, "synthetic block segments have no approved entry"),
+    "_axial_render._draw_step_chain": (1, "default repeat collapse preserves legacy mean text"),
+    "_axial_render._step_value_text": (1, "synthetic block segments have no approved entry"),
     # --- `hole_callout_spec` hands the callout builder floats, and the #261 invariant
     # ("every value crosses as a _fmt string") is enforced there. Fixing it means the spec
     # carrying approved text — the hole-callout migration ADR 4 (was 0016) still names as pending.

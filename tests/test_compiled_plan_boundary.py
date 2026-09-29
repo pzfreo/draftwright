@@ -1127,7 +1127,7 @@ class TestTheBoundaryIsLoadBearing:
         an assumption.
         """
         by_contract: dict[str, list[str]] = {"plan": [], "groups": [], "model": []}
-        for mod in ("from_model", "holes"):
+        for mod in ("from_model", "_axial_render", "holes"):
             src = (
                 pathlib.Path(__file__).resolve().parents[1]
                 / "src"

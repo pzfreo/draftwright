@@ -151,6 +151,7 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/annotations/from_model.py",
             "src/draftwright/annotations/_step_lengths.py",
+            "src/draftwright/annotations/_axial_render.py",
         ),
         (
             "test_through_step_semantics.py",
@@ -160,7 +161,10 @@ CONTRACT_GROUPS = {
         ),
     ),
     "height_ladder": ContractGroup(
-        ("src/draftwright/annotations/_height_ladder.py",),
+        (
+            "src/draftwright/annotations/_height_ladder.py",
+            "src/draftwright/annotations/_axial_render.py",
+        ),
         (
             "test_compiled_plan_boundary.py",
             "test_location_dimensions.py",
