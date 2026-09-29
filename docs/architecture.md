@@ -217,6 +217,10 @@ and re-exports the existing private helper names.
     `Drawing.add_table` and by `place_iso_nts_note`, the iso's NTS caption, which
     lives here rather than in `projection` because rank-2 cannot reach that
     occupancy and a hand-rolled substitute was wrong twice.
+  - **`annotations/solve_trace.py`** — the optional, recording-only corridor and
+    pass event recorder. `_common.SolveTrace` remains the same class for existing
+    callers and trace pickle identities; its JSON schema and failure isolation stay
+    owned here, below Drawing and builder.
   Submodules import only down or sideways — `_core`/`layout`/`analysis`/
   `projection`/the `model/` IR/`linting.structural`/third-party, never
   `annotate`/`make_drawing`/`drawing` (the drawing is duck-typed as `dwg`) — so

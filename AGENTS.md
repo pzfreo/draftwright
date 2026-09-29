@@ -42,7 +42,8 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 `_pmi_linear_geometry`, `_pmi_support_blockers`, `pmi`,
 `linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
 `annotations/` (the render passes, including feature-family `_slots` and
-`_step_lengths` owners; `orchestrator._PASS_SEQUENCE` is the one stage order)
+`_step_lengths` owners, plus the optional `solve_trace` recorder;
+`orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
 `intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
 `builder`, one-attempt compilation, explicit-scale resolution, finished-drawing build policy and guarded layout selection → **7** facades

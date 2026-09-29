@@ -36,6 +36,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "prismatic_evidence": "src/draftwright/evaluation/_prismatic_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
+        "solve_trace": "src/draftwright/annotations/solve_trace.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
@@ -140,6 +141,11 @@ def test_drawing_edit_owner_runs_live_and_deferred_contracts():
         "test_issue_1613_circular_channel.py",
         "test_refactor_golden.py",
     } <= selected
+
+
+def test_solve_trace_owner_runs_recorder_and_boundary_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/solve_trace.py"]))
+    assert {"test_solve_trace.py", "test_compiled_plan_boundary.py"} <= selected
 
 
 def test_step_length_owner_selects_its_placement_contract():
