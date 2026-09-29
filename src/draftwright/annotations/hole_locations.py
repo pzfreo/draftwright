@@ -130,6 +130,25 @@ class _HeightFallback:
             )
 
 
+@dataclass(frozen=True)
+class _PlanAlternateBuild:
+    """The projected Y witness and approved coverage for one plan retry."""
+
+    p_lo: tuple[float, float, float]
+    p_hi: tuple[float, float, float]
+    edge: float
+    label: str
+    source_name: str
+    draft: Any
+    coverage_by_name: dict[str, list[Any]]
+
+    def __call__(self, pos: float) -> Any:
+        return _with_hole_location_coverage(
+            _dim(self.p_lo, self.p_hi, "right", pos - self.edge, self.draft, label=self.label),
+            self.coverage_by_name[self.source_name],
+        )
+
+
 def _approved_off_axis_holes(plan) -> list[_OffHole]:
     """Every side-drilled hole member the compiler approved a position for.
 
@@ -360,11 +379,8 @@ def _locate_across(dwg, ctx, a: Analysis, off):
             alt_name = f"dim_loc_plan_y{round(yo * 100)}"
             plan_alternates[name] = (
                 alt_name,
-                lambda pos, pl=plan_lo, ph=plan_hi, e=plan_edge, lb=label, nm=name: (
-                    _with_hole_location_coverage(
-                        _dim(pl, ph, "right", pos - e, draft, label=lb),
-                        coverage_by_name[nm],
-                    )
+                _PlanAlternateBuild(
+                    plan_lo, plan_hi, plan_edge, label, name, draft, coverage_by_name
                 ),
             )
     feats = {nm: _off_axis_owner(holes) for nm, holes in loc_by_name.items()}
