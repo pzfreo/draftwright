@@ -20,6 +20,24 @@ def test_build_drawing_returns_populated_drawing(tmp_path):
     assert not (tmp_path / "b.dxf").exists()
 
 
+def test_finished_attempt_reuses_placement_critique_issue_1945(monkeypatch):
+    source = Path(__file__).parent / "fixtures" / "evaluation" / "blind-hole.step"
+    original_lint = Drawing.lint
+    calls = []
+
+    def counted_lint(self, *, physical=True):
+        issues = original_lint(self, physical=physical)
+        calls.append((self, physical, tuple((issue.code, issue.severity) for issue in issues)))
+        return issues
+
+    monkeypatch.setattr(Drawing, "lint", counted_lint)
+    drawing = build_drawing(source)
+
+    placement = [row for row in calls if row[1] is False and row[0] is drawing]
+    assert len(placement) == 2  # repair and one shared builder assessment
+    assert placement[0][2] == placement[1][2]
+
+
 @pytest.mark.timeout(60)
 def test_build_drawing_export_writes_files(tmp_path):
     stem = str(tmp_path / "b")
