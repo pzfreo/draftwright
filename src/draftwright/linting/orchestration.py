@@ -146,6 +146,10 @@ def _lint_structure(ctx: LintContext, aggregation: Any, display_decimals: Any) -
         _aggregation=aggregation,
         display_decimals=display_decimals,
         annotation_names={id(obj): name for name, obj in ctx.registry.iter_named()},
+        annotation_regions={
+            id(obj): ctx.registry.candidate_region_of(name)
+            for name, obj in ctx.registry.iter_named()
+        },
     )
     return issues
 

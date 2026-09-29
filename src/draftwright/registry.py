@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from dataclasses import dataclass
+from enum import Enum
 from typing import Protocol
 
 
@@ -73,6 +74,13 @@ class SectionMark:
 
     cut_y: float
     view: str
+
+
+class CandidateRegion(str, Enum):
+    """Region proved by a placed annotation's shared candidate solve."""
+
+    EXTERIOR = "exterior"
+    INTERIOR = "interior"
 
 
 def _as_ids(measurement) -> tuple:
@@ -130,6 +138,7 @@ class AnnotationRegistry:
         # that distinction. Like every identity axis, this is snapshot/restored transactionally.
         self._anno_satisfaction: dict = {}
         self._anno_section: dict[str, SectionMark] = {}
+        self._anno_candidate_region: dict[str, CandidateRegion] = {}
         self._pinned: set = set()
         self._build_issues: list = []
 
@@ -199,6 +208,10 @@ class AnnotationRegistry:
         """The section mark on a live named line, if one was registered."""
         return self._anno_section.get(name)
 
+    def candidate_region_of(self, name) -> CandidateRegion | None:
+        """The solved region of a live named annotation, when recorded."""
+        return self._anno_candidate_region.get(name)
+
     def has_section(self, cut_y: float, views: Collection[str]) -> bool:
         """Whether a live line marks this cut and its derived view still exists."""
         return any(
@@ -260,6 +273,9 @@ class AnnotationRegistry:
             if obj is old:
                 self._named[name] = new
                 self._anno_section.pop(name, None)
+                # Repair changes the ink after the candidate solve. Its old
+                # interior-clearance proof does not apply to the new object.
+                self._anno_candidate_region.pop(name, None)
 
     def snapshot(self) -> dict:
         """An opaque snapshot of the annotation identity state — the name → object map
@@ -275,6 +291,7 @@ class AnnotationRegistry:
             "anno_cells": dict(self._anno_cells),
             "anno_satisfaction": dict(self._anno_satisfaction),
             "anno_section": dict(self._anno_section),
+            "anno_candidate_region": dict(self._anno_candidate_region),
             "pinned": set(self._pinned),
         }
 
@@ -296,6 +313,8 @@ class AnnotationRegistry:
         self._anno_satisfaction.update(snap.get("anno_satisfaction", {}))
         self._anno_section.clear()
         self._anno_section.update(snap.get("anno_section", {}))
+        self._anno_candidate_region.clear()
+        self._anno_candidate_region.update(snap.get("anno_candidate_region", {}))
         self._pinned.clear()
         self._pinned.update(snap["pinned"])
 
@@ -322,6 +341,7 @@ class AnnotationRegistry:
             "cells": self._anno_cells.get(name, ()),
             "satisfaction": self._anno_satisfaction.get(name, ()),
             "section": self._anno_section.get(name),
+            "candidate_region": self._anno_candidate_region.get(name),
             "pinned": name in self._pinned,
         }
 
@@ -337,6 +357,8 @@ class AnnotationRegistry:
         round-tripped it is a bug. The detail-view retry already re-pinned by hand; this makes
         the other two agree.
         """
+        region = identity.get("candidate_region")
+        normalized_region = CandidateRegion(region) if region is not None else None
         view, feature = identity.get("view"), identity.get("feature")
         declaration = identity.get("declaration")
         if view is not None:
@@ -371,6 +393,10 @@ class AnnotationRegistry:
             self._anno_section[name] = section
         else:
             self._anno_section.pop(name, None)
+        if normalized_region is not None:
+            self._anno_candidate_region[name] = normalized_region
+        else:
+            self._anno_candidate_region.pop(name, None)
         if identity.get("pinned"):
             self._pinned.add(name)
         else:
@@ -386,6 +412,7 @@ class AnnotationRegistry:
         satisfaction=None,
         cells=(),
         declaration=None,
+        candidate_region: CandidateRegion | str | None = None,
     ):
         """Register *obj* under *name* and record its owning *view* (and source *feature*).
 
@@ -395,6 +422,9 @@ class AnnotationRegistry:
         pin (#89) — and re-adding view-less clears any stale ownership tag so the
         view map never lags ``_named`` (#121).
         """
+        normalized_region = (
+            CandidateRegion(candidate_region) if candidate_region is not None else None
+        )
         displaced = None
         if name is not None and name in self._named:
             displaced = self._named[name]
@@ -434,6 +464,10 @@ class AnnotationRegistry:
             else:
                 self._anno_satisfaction.pop(name, None)
             self._anno_section.pop(name, None)
+            if normalized_region is not None:
+                self._anno_candidate_region[name] = normalized_region
+            else:
+                self._anno_candidate_region.pop(name, None)
         return displaced
 
     def remove(self, name):
@@ -448,6 +482,7 @@ class AnnotationRegistry:
             self._anno_cells.pop(name, None)
             self._anno_satisfaction.pop(name, None)
             self._anno_section.pop(name, None)
+            self._anno_candidate_region.pop(name, None)
         return obj
 
     def clear(self, keep) -> dict:
@@ -466,6 +501,9 @@ class AnnotationRegistry:
         self._anno_cells = {n: c for n, c in self._anno_cells.items() if n in keep_set}
         self._anno_satisfaction = {
             n: s for n, s in self._anno_satisfaction.items() if n in keep_set
+        }
+        self._anno_candidate_region = {
+            n: region for n, region in self._anno_candidate_region.items() if n in keep_set
         }
         self._anno_section = {n: s for n, s in self._anno_section.items() if n in keep_set}
         return kept_named

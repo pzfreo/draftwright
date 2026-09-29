@@ -60,7 +60,7 @@ def test_build_policy_selects_only_the_requested_proved_region(policy, expected_
 
     callout = drawing.get_annotation("hc_plan0")
     assert callout is not None
-    assert callout._dw_candidate_region == expected_region
+    assert drawing.registry.candidate_region_of("hc_plan0") == expected_region
     assert drawing.leader_region == policy
     assert not [issue for issue in drawing.lint() if issue.code == "callout_dropped"]
 
@@ -77,7 +77,7 @@ def test_sheet_dsl_forwards_exterior_compatibility_policy_to_the_shared_solve():
 
     callout = drawing.get_annotation("hc_plan0")
     assert callout is not None
-    assert callout._dw_candidate_region == "exterior"
+    assert drawing.registry.candidate_region_of("hc_plan0") == "exterior"
     assert drawing.leader_region == "exterior"
 
 
@@ -93,9 +93,10 @@ def test_authored_side_remains_exterior_under_an_interior_document_policy():
     hole = next(feature for feature in sheet.features if isinstance(feature, HoleFeature))
     sheet.dimension(hole, "bore.diameter", side="left")
 
-    callout = sheet.build().get_annotation("hc_plan0")
+    drawing = sheet.build()
+    callout = drawing.get_annotation("hc_plan0")
     assert callout is not None
-    assert callout._dw_candidate_region == "exterior"
+    assert drawing.registry.candidate_region_of("hc_plan0") == "exterior"
 
 
 def test_cli_forwards_the_region_policy_to_a_rendered_build(monkeypatch):
