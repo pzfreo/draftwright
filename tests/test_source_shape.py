@@ -64,3 +64,30 @@ def test_placement_mega_functions_stay_under_200_lines():
         if lines > _MAX_PLACEMENT_MEGA_FUNCTION_LINES:
             oversized.append(f"{module}:{node.lineno} {name}: {lines} lines")
     assert not oversized, "Placement functions at or over 200 lines:\n" + "\n".join(oversized)
+
+
+def test_nested_callbacks_capture_fewer_than_five_defaults():
+    oversized = []
+    for path in _source_files():
+        tree = ast.parse(path.read_text(), filename=str(path))
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            defaults = len(node.args.defaults) + sum(
+                value is not None for value in node.args.kw_defaults
+            )
+            if defaults < 5:
+                continue
+            parent = parents.get(node)
+            while parent is not None and not isinstance(
+                parent,
+                (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef, ast.Module),
+            ):
+                parent = parents.get(parent)
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                oversized.append(
+                    f"{path.relative_to(_SOURCE)}:{node.lineno} "
+                    f"{getattr(node, 'name', '<lambda>')}: {defaults} defaults"
+                )
+    assert not oversized, "Nested callbacks with five or more defaults:\n" + "\n".join(oversized)
