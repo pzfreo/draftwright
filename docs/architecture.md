@@ -15,8 +15,9 @@ topology and corridor demand planning), `registry.py`, `fonts/`,
 `fits.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
-`blend_contract.py` provider-record boundary, with the `model/` IR waist →
-`_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
+`blend_contract.py` provider-record boundary →
+the rank-1 `model/` IR waist and `_core.py` (beside rank-1
+`annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
 `repair.py`, `projection.py`, `compose.py`, `layout_scheme.py`, `analysis.py`,
@@ -47,15 +48,18 @@ corridor demand from approved model groups, and compose consumes that topology.
 recognition contracts, while `drawing_state.py` and `builder.py` consume the cache.
 The remaining rank-0 files that import within the package are enumerated by
 `test_rank_zero_leaf_exceptions_only_shrink`; every other rank-0 file is a strict
-package leaf across runtime, type-only and lazy imports. The exception set must shrink
-before rank 0 as a whole can mean an independent leaf.
+package leaf across runtime, type-only and lazy imports. `model/` shares a numerical
+rank with `_core` but its separate fail-closed import allowlist still prohibits any
+model-to-core edge. The exception set must shrink before rank 0 as a whole can mean
+an independent leaf.
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
 `_LAYERS` table there is the precise, ranked form of this section — a module-level
 import that points up a layer fails CI, as does an import cycle. The precise
 placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
 `projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
-IR-waist leaf it is guarded as). The `_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
+IR waist with a stricter import allowlist than its numerical rank). The
+`_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
 mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
 below); a new upward lazy import must earn an entry with a rationale. The remaining
 lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
