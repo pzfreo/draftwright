@@ -30,7 +30,7 @@ from _unit_manifest import UNIT_MODULES, unit_paths
 _TESTS = Path(__file__).resolve().parent
 
 # Measured with `_issue_named_modules()` after folding #1603. MAY ONLY SHRINK.
-_MAX_ISSUE_MODULES = 148
+_MAX_ISSUE_MODULES = 147
 
 
 def test_unit_manifest_names_existing_test_modules_once():
