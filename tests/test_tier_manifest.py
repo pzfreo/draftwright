@@ -152,6 +152,8 @@ def test_drawing_table_and_export_owners_select_their_behavior_contracts():
         "test_sheet_tables.py",
         "test_issue_1144_transactional_hole_table.py",
     } <= tables
+    escalation = set(pr_modules(_TESTS, ["src/draftwright/annotations/orchestrator.py"]))
+    assert {"test_hole_table.py", "test_issue_1144_transactional_hole_table.py"} <= escalation
     export = set(pr_modules(_TESTS, ["src/draftwright/drawing_export.py"]))
     assert {"test_export_reproducible.py", "test_issue_1533_review_diagnostics.py"} <= export
 

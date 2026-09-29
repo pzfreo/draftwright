@@ -504,6 +504,117 @@ def dense_plate_dwg():
 class TestEscalation:
     """#93: a too-dense plan view auto-escalates to a hole chart + balloons."""
 
+    def test_preparation_needs_a_relevant_escalation_and_dense_scattered_holes(self):
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import Escalation
+        from draftwright.annotations.orchestrator import _prepare_hole_table_run
+        from draftwright.model import Frame, HoleFeature
+
+        hole = HoleFeature(
+            frame=Frame(origin=(2.0, 3.0, 0.0), axis="z"),
+            diameter=4.0,
+            depth=None,
+            through=True,
+        )
+        ctx = SimpleNamespace(
+            part_model=SimpleNamespace(features=(hole,)),
+            escalations=[],
+        )
+        assert _prepare_hole_table_run(ctx) is None
+
+        ctx.escalations = [Escalation("location", "plan", hole, "illegible")]
+        assert len(ctx.part_model.features) == 1  # the density gate's precondition
+        assert _prepare_hole_table_run(ctx) is None
+
+    def test_prepared_tags_reserve_existing_table_and_grouped_balloon_names(self):
+        from types import SimpleNamespace
+
+        from draftwright.annotations._common import Escalation
+        from draftwright.annotations.orchestrator import (
+            _prepare_hole_table_run,
+            _reserve_hole_table_attempt_names,
+        )
+        from draftwright.model import Frame, HoleFeature, PatternFeature
+
+        members = tuple((float(index), 0.0, 0.0) for index in range(16))
+        scattered = HoleFeature(
+            frame=Frame(origin=(0.0, 0.0, 0.0), axis="z"),
+            diameter=4.0,
+            depth=None,
+            through=True,
+            count=len(members),
+            members=members,
+        )
+        member = HoleFeature(
+            frame=Frame(origin=(21.0, 0.0, 0.0), axis="z"),
+            diameter=6.0,
+            depth=None,
+            through=True,
+        )
+        pattern = PatternFeature(
+            frame=Frame(origin=(20.0, 0.0, 0.0), axis="z"),
+            pattern="bolt_circle",
+            count=6,
+            member=member,
+            members=(
+                (21.0, 0.0, 0.0),
+                (20.5, 0.866, 0.0),
+                (19.5, 0.866, 0.0),
+                (19.0, 0.0, 0.0),
+                (19.5, -0.866, 0.0),
+                (20.5, -0.866, 0.0),
+            ),
+        )
+        ctx = SimpleNamespace(
+            part_model=SimpleNamespace(features=(scattered, pattern)),
+            escalations=[
+                Escalation("location", "plan", scattered, "illegible"),
+                Escalation("callout", "front", pattern, "strip_full"),
+                Escalation("callout", "plan", pattern, "strip_full"),
+            ],
+        )
+        run = _prepare_hole_table_run(ctx)
+        assert run is not None
+        assert run.tabulate_scattered and len(run.holes) == 16
+        assert [hole.location for hole in run.holes] == list(members)
+        assert run.scattered_tags == list("ABCDEFGHIJKLMNOP")
+        assert run.pattern_tags == ["Q"]
+        assert run.pattern_specs[0][0] == "6×Q"
+        assert run.pattern_specs[0][2].location == pattern.members[0]
+        assert run.pattern_specs[0][2].location != pattern.frame.origin
+
+        issues = []
+        names = set()
+        drawing = SimpleNamespace(registry=SimpleNamespace(names=lambda: names))
+        ctx.record_issue = lambda *args: issues.append(args)
+        assert _reserve_hole_table_attempt_names(drawing, ctx, run)
+        assert not issues
+
+        names.add("hole_table_plan")
+        assert not _reserve_hole_table_attempt_names(drawing, ctx, run)
+        assert issues[-1][1] == "table_dropped"
+        assert "hole_table_plan" in issues[-1][2]
+
+        names.clear()
+        names.add("balloon_plan_6×Q_0")
+        assert not _reserve_hole_table_attempt_names(drawing, ctx, run)
+        assert issues[-1][1] == "table_dropped"
+        assert "balloon_plan_6×Q_0" in issues[-1][2]
+
+        pattern_only_ctx = SimpleNamespace(
+            part_model=SimpleNamespace(features=(pattern,)),
+            escalations=[Escalation("callout", "plan", pattern, "strip_full")],
+            record_issue=ctx.record_issue,
+        )
+        pattern_run = _prepare_hole_table_run(pattern_only_ctx)
+        assert pattern_run is not None and not pattern_run.tabulate_scattered
+        assert pattern_run.pattern_tags == ["A"]
+        names.clear()
+        names.add("balloon_plan_6×A_0")
+        assert not _reserve_hole_table_attempt_names(drawing, pattern_only_ctx, pattern_run)
+        assert issues[-1][1] == "balloon_dropped"
+
     def test_dense_part_groups_and_types(self, dense_plate_dwg):
         # Sized honestly for its real annotation footprint (#121, ADR 2 (was 0004)), the
         # sheet grows so the X-location dims + grouped spec-callouts fit — so this

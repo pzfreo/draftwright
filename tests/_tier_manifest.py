@@ -508,7 +508,10 @@ CONTRACT_GROUPS = {
         ),
     ),
     "drawing_tables": ContractGroup(
-        ("src/draftwright/drawing_tables.py",),
+        (
+            "src/draftwright/drawing_tables.py",
+            "src/draftwright/annotations/orchestrator.py",
+        ),
         (
             "test_hole_table.py",
             "test_sheet_tables.py",
