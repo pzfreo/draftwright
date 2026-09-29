@@ -35,7 +35,8 @@ def test_case_study_pad_reaches_the_drawing_with_complete_owned_footprint(monkey
         return candidate
 
     monkeypatch.setattr(builder, "_build_drawing_once", capture_attempt)
-    drawing = build_drawing(_ISSUE_909)
+    # This case study exercises the detail-bearing estimated-strip profile.
+    drawing = build_drawing(_ISSUE_909, annotation_layout="estimated-strips")
     # The angle and location requirements exceed the selected A4 corridor even
     # after the height detail succeeds. Recovery must keep searching for the
     # still-missing shoulder, rather than treating any detail as completion.

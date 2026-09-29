@@ -192,7 +192,9 @@ def test_every_nonempty_authored_parameter_subset_survives_rendering(
     parameters, expected_label
 ) -> None:
     source = _record()
-    sheet = Sheet(_part()).authored_dimensions()
+    # Give the three-parameter case room to exercise declaration/rendering without
+    # an unrelated A4 measured-repack limit.
+    sheet = Sheet(_part(), page="A3").authored_dimensions()
     handle = sheet.round_bottom_blind_slot(
         axis=declaration_fields(source, "round_bottom_blind_slot")["axis"],
         open_sign=declaration_fields(source, "round_bottom_blind_slot")["open_sign"],
