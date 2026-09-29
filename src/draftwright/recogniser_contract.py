@@ -13,7 +13,7 @@ import re
 from dataclasses import dataclass
 from importlib.metadata import version as distribution_version
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any
+from typing import Any, TypeGuard
 
 from quiddity import capability_manifest
 
@@ -730,6 +730,10 @@ def _evidence_reference_is_valid(path: object, root: Path | None) -> bool:
     return root is None or (root / candidate).is_file()
 
 
+def _exact_dict_keys(value: object, keys: set[str]) -> TypeGuard[dict[str, Any]]:
+    return isinstance(value, dict) and set(value) == keys
+
+
 def _validate_stage(stage: object, family_id: str, boundary: str, root: Path | None) -> None:
     context = f"family {family_id!r} boundary {boundary!r}"
     if not isinstance(stage, dict) or set(stage) - {
@@ -753,7 +757,7 @@ def _validate_stage(stage: object, family_id: str, boundary: str, root: Path | N
                 "state",
             }
         )
-        if set(stage) != expected:
+        if not _exact_dict_keys(stage, expected):
             raise RecogniserCapabilityError(f"{context} supported claim lacks required evidence")
         evidence = stage["evidence"]
         if not isinstance(evidence, list) or not evidence or evidence != sorted(set(evidence)):
@@ -772,13 +776,13 @@ def _validate_stage(stage: object, family_id: str, boundary: str, root: Path | N
             _resolve_implementation(implementation)
         return
     if state == "deferred":
-        if set(stage) != {"rationale", "state", "tracking"} or not _TRACKING.fullmatch(
-            str(stage.get("tracking", ""))
-        ):
+        if not _exact_dict_keys(
+            stage, {"rationale", "state", "tracking"}
+        ) or not _TRACKING.fullmatch(str(stage.get("tracking", ""))):
             raise RecogniserCapabilityError(
                 f"{context} deferred state needs rationale and tracking"
             )
-    elif set(stage) != {"rationale", "state"}:
+    elif not _exact_dict_keys(stage, {"rationale", "state"}):
         raise RecogniserCapabilityError(f"{context} {state} state needs only a rationale")
     if not isinstance(stage.get("rationale"), str) or not stage["rationale"].strip():
         raise RecogniserCapabilityError(f"{context} needs a non-empty rationale")
@@ -813,14 +817,17 @@ def validate_recogniser_capabilities(
     """Fail closed when installed package truth and Draftwright policy do not exactly join."""
     current = consumer_capability_declaration() if declaration is None else declaration
     manifest = capability_manifest(format_version=2) if package is None else package
-    if not isinstance(current, dict) or set(current) != {
-        "consumer",
-        "families",
-        "format",
-        "format_version",
-        "package_compatibility",
-        "transitions",
-    }:
+    if not _exact_dict_keys(
+        current,
+        {
+            "consumer",
+            "families",
+            "format",
+            "format_version",
+            "package_compatibility",
+            "transitions",
+        },
+    ):
         raise RecogniserCapabilityError(
             "consumer declaration has unknown or missing top-level fields"
         )
@@ -1024,15 +1031,18 @@ def validate_recogniser_capabilities(
     transition_keys: list[tuple[str, str]] = []
     family_by_id = {family["id"]: family for family in families}
     for transition in transitions:
-        if not isinstance(transition, dict) or set(transition) != {
-            "boundary",
-            "compatibility_evidence",
-            "family",
-            "from",
-            "release_notes",
-            "to",
-            "version",
-        }:
+        if not _exact_dict_keys(
+            transition,
+            {
+                "boundary",
+                "compatibility_evidence",
+                "family",
+                "from",
+                "release_notes",
+                "to",
+                "version",
+            },
+        ):
             raise RecogniserCapabilityError(
                 "state transition lacks version and compatibility evidence"
             )

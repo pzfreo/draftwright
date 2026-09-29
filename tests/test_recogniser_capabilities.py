@@ -1486,6 +1486,12 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
         ),
         (
             lambda declaration, _package: _families(declaration)["bosses"]["ir_adapter"].update(
+                {"rationale": "extra allowed-name field"}
+            ),
+            "supported claim lacks required evidence",
+        ),
+        (
+            lambda declaration, _package: _families(declaration)["bosses"]["ir_adapter"].update(
                 {"evidence": []}
             ),
             "evidence must be non-empty",
@@ -1519,6 +1525,10 @@ def test_state_transition_requires_version_release_notes_and_compatibility_evide
         ),
         (
             lambda declaration, _package: declaration.pop("transitions"),
+            "unknown or missing top-level fields",
+        ),
+        (
+            lambda declaration, _package: declaration.update({"unexpected": None}),
             "unknown or missing top-level fields",
         ),
         (
@@ -1624,6 +1634,7 @@ def _transition() -> dict[str, object]:
         ("release_notes", 7),
         ("release_notes", "docs/missing-release-notes.md"),
         ("version", "next"),
+        ("unexpected", None),
     ],
 )
 def test_each_unevidenced_transition_shape_fails_closed(field: str, value: object) -> None:
