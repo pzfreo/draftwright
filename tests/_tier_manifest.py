@@ -363,6 +363,8 @@ CONTRACT_GROUPS = {
         (
             "test_declared_recognition_gate.py",
             "test_external_recognition_boundary.py",
+            "test_issue_1596_bolt_circle_corroboration.py",
+            "test_issue_1612_frame_sergio_coverage.py",
             "test_nested_recognition_ownership.py",
             "test_occurrence_recognition_ownership.py",
             "test_part_classification.py",

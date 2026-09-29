@@ -81,6 +81,14 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         assert selected - PR_CORE_MODULES - PR_POLICY_MODULES - UNIT_MODULES, name
 
 
+def test_model_detection_change_runs_hole_pattern_refusal_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/model/detect.py"]))
+    assert {
+        "test_issue_1596_bolt_circle_corroboration.py",
+        "test_issue_1612_frame_sergio_coverage.py",
+    } <= selected
+
+
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected
