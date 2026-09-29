@@ -35,6 +35,16 @@ def _stock():
     return extrude(RegularPolygon(20, 6), 30)
 
 
+@pytest.fixture(scope="module")
+def stock_baseline():
+    from draftwright import build_drawing
+
+    drawing = build_drawing(_stock(), repair=False)
+    assert len(drawing.recognition().polygonal_stock) == 1
+    assert sum(feature.kind == "polygonal_stock" for feature in drawing.model().features) == 1
+    return drawing
+
+
 def _states(boundary: str, part=None) -> set[str]:
     observed = _default_observers()["polygonal-stock"](_stock() if part is None else part)
     assert len(observed) == 1
@@ -112,12 +122,12 @@ def test_every_principal_polygonal_stock_boundary_is_observed(axis) -> None:
     assert set(observed[0].downstream.values()) == {"supported"}
 
 
-def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline() -> None:
+def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline(stock_baseline) -> None:
     from draftwright import build_drawing
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model.compiled import compile_dimensions
 
-    baseline = build_drawing(_stock(), repair=False)
+    baseline = stock_baseline
     moved = build_drawing(
         Pos(91, -37, 48) * Rot(31, 47, 13) * Rot(0, 0, 17) * _stock(),
         framed_recognition=True,
@@ -150,13 +160,12 @@ def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline() -> None:
     ]
 
 
-def test_polygonal_stock_ledger_tracks_two_requirements_and_fails_closed() -> None:
-    from draftwright import build_drawing
+def test_polygonal_stock_ledger_tracks_two_requirements_and_fails_closed(stock_baseline) -> None:
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model.compiled import compile_dimensions
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_stock(), repair=False)
+    drawing = stock_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     outcomes = polygonal_stock_outcomes(
@@ -186,16 +195,15 @@ def test_polygonal_stock_ledger_tracks_two_requirements_and_fails_closed() -> No
     )
 
 
-def test_polygonal_stock_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
+def test_polygonal_stock_ledger_rejects_foreign_malformed_and_duplicate_ir(stock_baseline) -> None:
     from quiddity import build_raw_recognition_result
 
-    from draftwright import build_drawing
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.registry import AnnotationRegistry
 
     recognition = build_raw_recognition_result(_stock(), rotational=False)
     source = recognition.polygonal_stock[0]
-    drawing = build_drawing(_stock(), repair=False)
+    drawing = stock_baseline
     feature = next(item for item in drawing.model().features if item.kind == "polygonal_stock")
 
     class MalformedStock:
@@ -636,12 +644,13 @@ def test_exact_large_ring_cannot_borrow_unused_angular_slack(corruption, distanc
         "overflow_span",
     ),
 )
-def test_polygonal_stock_ledger_rejects_malformed_parameter_contract(corruption) -> None:
-    from draftwright import build_drawing
+def test_polygonal_stock_ledger_rejects_malformed_parameter_contract(
+    corruption, stock_baseline
+) -> None:
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_stock(), repair=False)
+    drawing = stock_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "polygonal_stock")
@@ -675,12 +684,13 @@ def test_polygonal_stock_ledger_rejects_malformed_parameter_contract(corruption)
     assert (outcomes[0].state, outcomes[0].requirement_count) == ("unverifiable", 2)
 
 
-def test_polygonal_stock_key_rejects_rotated_or_tangentially_shifted_foreign_supports() -> None:
-    from draftwright import build_drawing
+def test_polygonal_stock_key_rejects_rotated_or_tangentially_shifted_foreign_supports(
+    stock_baseline,
+) -> None:
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_stock(), repair=False)
+    drawing = stock_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "polygonal_stock")
@@ -790,14 +800,15 @@ def test_provider_hex_invariant_does_not_narrow_public_declared_stock() -> None:
     assert len(drawing.annotations()) >= 2
 
 
-def test_polygonal_stock_ledger_distinguishes_suppressed_dropped_structured_and_orphan() -> None:
-    from draftwright import build_drawing
+def test_polygonal_stock_ledger_distinguishes_suppressed_dropped_structured_and_orphan(
+    stock_baseline,
+) -> None:
     from draftwright.linting.issues import LintIssue
     from draftwright.linting.polygonal_stock_coverage import polygonal_stock_outcomes
     from draftwright.model.compiled import DimensionId
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_stock(), repair=False)
+    drawing = stock_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "polygonal_stock")
@@ -1023,11 +1034,12 @@ def test_finished_polygonal_stock_ink_fails_closed_on_malformed_evidence(
     ]
 
 
-def test_drawing_consumer_requires_both_compiler_approved_stock_dimensions(monkeypatch) -> None:
+def test_drawing_consumer_requires_both_compiler_approved_stock_dimensions(
+    monkeypatch, stock_baseline
+) -> None:
     import draftwright.model.compiled as compiled
-    from draftwright import build_drawing
 
-    drawing = build_drawing(_stock(), repair=False)
+    drawing = stock_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     original = compiled.compile_dimensions
@@ -1163,10 +1175,10 @@ def test_constant_canonical_values_cannot_pass_the_varied_positive_oracle(monkey
     assert damaged.parameter_fidelity.passed < damaged.parameter_fidelity.total
 
 
-def test_deleting_declared_stock_cannot_shrink_quality_denominator() -> None:
-    from draftwright import Sheet, build_drawing
+def test_deleting_declared_stock_cannot_shrink_quality_denominator(stock_baseline) -> None:
+    from draftwright import Sheet
 
-    complete = build_drawing(_stock(), repair=False)
+    complete = stock_baseline
     sparse = Sheet(_stock())
     sparse.authored_dimensions()
 

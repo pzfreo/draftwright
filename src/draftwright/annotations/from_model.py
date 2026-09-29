@@ -38,6 +38,7 @@ from draftwright._core import (
     _SLOT_DIM_WIDTH,
     _STRIP_SPACING,
     _WITNESS_LIFT_MM,
+    Strip,
     _dim,
     _drawing_bounds,
     _fmt,
@@ -208,6 +209,9 @@ from draftwright.annotations._pocket_pad import _POCKET_LEAD_DIRS as _POCKET_LEA
 from draftwright.annotations._pocket_pad import _pocket_label as _pocket_label
 from draftwright.annotations._pocket_pad import pad_height_jobs as _pad_height_jobs
 from draftwright.annotations._pocket_pad import pocket_jobs as _pocket_jobs
+from draftwright.annotations._polygonal_prisms import (
+    polygonal_prism_jobs as _polygonal_prism_jobs_owner,
+)
 
 # The slot-family implementation owns witness geometry and corridor candidates. Keep
 # the public pass here; the late radius jobs join the shared machined-leader solve.
@@ -255,6 +259,7 @@ from draftwright.model.ir import (
     HoleFeature,
     PatternFeature,
 )
+from draftwright.model.ir_foundation import Point
 from draftwright.view_plan import views_showing
 
 
@@ -2174,104 +2179,16 @@ def render_boss_diameters(dwg, plan, a, *, ctx) -> int:
     )
 
 
-def _polygonal_boss_candidates(dwg, view, vb, boss, reach, *, provenance):
-    """Leader candidates anchored on the recognised boss's physical side faces."""
-    origin = dwg.at(view, *boss.frame.origin)
-    for flat_centre, flat_direction in zip(boss.flat_centres, boss.flat_directions, strict=True):
-        tip = dwg.at(view, *flat_centre)
-        direction_end = dwg.at(
-            view,
-            boss.frame.origin[0] + flat_direction[0],
-            boss.frame.origin[1] + flat_direction[1],
-            boss.frame.origin[2] + flat_direction[2],
-        )
-        dx, dy = direction_end[0] - origin[0], direction_end[1] - origin[1]
-        distance = math.hypot(dx, dy)
-        if distance <= 1e-9:
-            continue
-        ux, uy = dx / distance, dy / distance
-        exit_distance = _ray_exit_dist(tip[0], tip[1], ux, uy, vb)
-        elbow = (
-            tip[0] + ux * (exit_distance + reach),
-            tip[1] + uy * (exit_distance + reach),
-            0,
-        )
-        yield (tip, elbow, provenance)
-
-
 def _polygonal_prism_jobs(dwg, plan, *, kind: str, name_prefix: str, only=None):
-    """Compile polygonal wall anchors and approved dimensions into shared leader jobs."""
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    jobs = []
-    groups = sorted(
-        plan.of_kind(kind),
-        key=lambda group: (group.facts.frame.axis, group.facts.frame.origin),
+    """Keep the shared leader reach bound to the live public render pass."""
+    return _polygonal_prism_jobs_owner(
+        dwg,
+        plan,
+        kind=kind,
+        name_prefix=name_prefix,
+        only=only,
+        leader_callout_reach=_leader_callout_reach,
     )
-    batches: dict[tuple, list] = {}
-    for index, group in enumerate(groups):
-        dimensions, text = [], []
-        across = group.dim(role="polygon_across_flats", kind="length")
-        if across is not None:
-            prefix = "HEX" if group.facts.side_count == 6 else f"{group.facts.side_count}-SIDED"
-            text.append(f"{prefix} {across.value_text}{_tol_suffix(across.tolerance, draft)} A/F")
-            dimensions.append(across)
-        if kind == "hex_pocket":
-            depth = group.dim(role="pocket_depth", kind="length")
-            if depth is not None:
-                text.append(f"{depth.value_text}{_tol_suffix(depth.tolerance, draft)} DEEP")
-                dimensions.append(depth)
-        if not dimensions:
-            continue
-        key: tuple = (index,)
-        if kind == "hex_pocket":
-            key = (
-                group.facts.frame.axis,
-                group.facts.open_sign,
-                tuple(
-                    (dimension.parameter_id, round(dimension.value, 12), label)
-                    for dimension, label in zip(dimensions, text, strict=True)
-                ),
-            )
-        batches.setdefault(key, []).append((index, group, dimensions, " × ".join(text)))
-    for members in batches.values():
-        index = members[0][0]
-        if only is not None:
-            members = [member for member in members if member[1].ref in only]
-            if not members:
-                continue
-        _, group, _, label = members[0]
-        view = _END_ON.get(group.facts.frame.axis)
-        if view is None:
-            continue
-        bounds = dwg.view_bounds(view)
-        if bounds is None:
-            continue
-        if len(members) > 1:
-            label = f"{len(members)}× {label}"
-
-        def candidates(members=members, view=view, bounds=bounds):
-            for _, member, _, _ in members:
-                yield from _polygonal_boss_candidates(
-                    dwg,
-                    view,
-                    bounds,
-                    member.facts,
-                    reach,
-                    provenance=member.ref if len(members) == 1 else None,
-                )
-
-        jobs.append(
-            (
-                f"{name_prefix}_{group.facts.frame.axis}{index}",
-                view,
-                bounds,
-                label,
-                candidates(),
-                tuple(dimension.id for _, _, dimensions, _ in members for dimension in dimensions),
-            )
-        )
-    return jobs
 
 
 def _render_polygonal_prisms(
@@ -2344,6 +2261,41 @@ def render_polygonal_stock(dwg, plan, a, *, ctx) -> int:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _BossLengthCandidateGeometry:
+    """One approved boss or stock length in its deferred profile corridor."""
+
+    dwg: Any
+    p1: Point
+    p2: Point
+    side: str
+    edge: float
+    label: str
+
+    def build(self, pos: float) -> Dimension:
+        return _dim(
+            self.p1,
+            self.p2,
+            self.side,
+            abs(pos - self.edge),
+            self.dwg.draft,
+            label=self.label,
+        )
+
+    def footprint(self, pos: float) -> tuple[float, float, float, float]:
+        return cast(
+            tuple[float, float, float, float],
+            dim_footprint(
+                self.p1,
+                self.p2,
+                self.side,
+                abs(pos - self.edge),
+                self.dwg.draft,
+                self.label,
+            ),
+        )
+
+
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
     """Queue approved boss heights and polygonal-stock lengths in a profile corridor."""
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
@@ -2379,11 +2331,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         prefix = "m_stocklength" if g.ref.kind == "polygonal_stock" else "m_bossheight"
         name = f"{prefix}_{b.frame.axis}{bi}"
 
-        def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
-            return _dim(p1, p2, side, abs(pos - edge), dwg.draft, label=label)
-
-        def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
-            return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
+        candidate_geometry = _BossLengthCandidateGeometry(dwg, p1, p2, side, edge, label)
 
         def dropped(_name, *, stock=g.ref.kind == "polygonal_stock", measurement=pd.id):
             if stock:
@@ -2403,7 +2351,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=build,
+                build=candidate_geometry.build,
                 order=(_SIZE_SUBCHAIN, bi, name),
                 on_place=lambda _nm: None,
                 # Boss heights use reconciliation-only outcomes. Stock
@@ -2413,11 +2361,70 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
                 force=True,
                 feature=g.ref,
                 measurement=pd.id,
-                footprint=footprint,
+                footprint=candidate_geometry.footprint,
             ),
         )
         n += 1
     return n
+
+
+@dataclass(frozen=True, slots=True)
+class _PlateDropRetry:
+    """One plate's deferred opposite-strip attempt and drop evidence."""
+
+    dwg: Any
+    ctx: PlacementContext
+    draft: Any
+    tier: float
+    value: float
+    label: str
+    view: str
+    stack: str
+    alternates: list[tuple[str, str, Strip | None, str, Point, Point, float]] | None
+    feature: FeatureRef | None
+    measurement: DimensionId | None
+    measurement_span: tuple[Point, Point] | None
+
+    def drop(self, name: str) -> None:
+        # Wait for every corridor to settle before an alternate occupies shared space.
+        # Queued retries retain registration order, including when plates contend.
+        self.ctx.post_drain.append(partial(self.retry, name))
+
+    def retry(self, name: str) -> None:
+        for view2, side2, strip2, axis2, qa, qb, edge2 in self.alternates or ():
+            if strip2 is None:
+                continue
+            foot0 = dim_footprint(qa, qb, side2, self.tier, self.draft, self.label)
+            perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
+            pos = carve_free_position(self.dwg, strip2, view2, axis2, self.tier, perp)
+            if pos is not None:
+                # Validate the rendered ink against live obstacles and page bounds.
+                dim = _dim(qa, qb, side2, pos - edge2, self.draft, label=self.label)
+                dim._dw_measurement_span = self.measurement_span
+                real = _geom_box(dim)
+                page = _drawing_bounds(self.dwg)
+                if real is None or (
+                    _box_hits(
+                        real, strip_obstacles(self.dwg, view=view2, crossable=CROSSABLE_TYPES)
+                    )
+                    or real[0] < page[0]
+                    or real[1] < page[1]
+                    or real[2] > page[2]
+                    or real[3] > page[3]
+                ):
+                    continue
+                self.ctx.place(
+                    dim, name, view=view2, feature=self.feature, measurement=self.measurement
+                )
+                return
+        self.ctx.record_issue(
+            "warning",
+            "plate_thickness_dropped",
+            f"plate thickness {_fmt(self.value)} not dimensioned "
+            f"({self.view} {self.stack}-strip full)",
+            measurement=self.measurement,
+            measurement_span=self.measurement_span,
+        )
 
 
 def render_plates(dwg, plan, a, *, ctx) -> int:
@@ -2426,65 +2433,20 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
     tier = draft.font_size + 2 * draft.pad_around_text
 
     def drop_factory(*, val, lbl, view, stack, alt, feat, mid, measurement_span):
-        def _drop(nm):
-            # Defer opposite-strip fallthrough, as GD&T does, to
-            # ctx.post_drain so it runs after EVERY corridor has drained:
-            # a mid-drain carve could occupy a corner a later sibling's force candidate
-            # needs; post-drain, carve_free_position sees all placed annotations.
-            def _retry(
-                nm=nm,
-                val=val,
-                lbl=lbl,
-                view=view,
-                stack=stack,
-                alt=alt,
-                feat=feat,
-                mid=mid,
-                measurement_span=measurement_span,
-            ):
-                for view2, side2, strip2, axis2, qa, qb, edge2 in alt or ():
-                    if strip2 is None:
-                        continue
-                    foot0 = dim_footprint(qa, qb, side2, tier, draft, lbl)
-                    perp = (foot0[1], foot0[3]) if axis2 == "x" else (foot0[0], foot0[2])
-                    pos = carve_free_position(dwg, strip2, view2, axis2, tier, perp)
-                    if pos is not None:
-                        # Accept-time validation: the carve accepted the
-                        # ANALYTICAL footprint — build once and re-check the real box
-                        # against live obstacles + the page before adding (the same
-                        # contract as the corridor's validation fallback). A miss
-                        # tries the next alternate.
-                        dim = _dim(qa, qb, side2, pos - edge2, draft, label=lbl)
-                        dim._dw_measurement_span = measurement_span
-                        real = _geom_box(dim)
-                        page = _drawing_bounds(dwg)
-                        if real is None or (
-                            _box_hits(
-                                real, strip_obstacles(dwg, view=view2, crossable=CROSSABLE_TYPES)
-                            )
-                            or real[0] < page[0]
-                            or real[1] < page[1]
-                            or real[2] > page[2]
-                            or real[3] > page[3]
-                        ):
-                            continue
-                        ctx.place(dim, nm, view=view2, feature=feat, measurement=mid)
-                        return
-                ctx.record_issue(
-                    "warning",
-                    "plate_thickness_dropped",
-                    f"plate thickness {_fmt(val)} not dimensioned ({view} {stack}-strip full)",
-                    measurement=mid,
-                    measurement_span=measurement_span,
-                )
-
-            # Queued retries run in registration order (deterministic; plates sort by
-            # axis/lo/hi) and pick their first viable alternate greedily — two plates
-            # contending for the same two alternates could in principle assign
-            # suboptimally when several plates compete for the same alternates.
-            ctx.post_drain.append(_retry)
-
-        return _drop
+        return _PlateDropRetry(
+            dwg=dwg,
+            ctx=ctx,
+            draft=draft,
+            tier=tier,
+            value=val,
+            label=lbl,
+            view=view,
+            stack=stack,
+            alternates=alt,
+            feature=feat,
+            measurement=mid,
+            measurement_span=measurement_span,
+        ).drop
 
     return register_plate_thickness(
         dwg, plan, a, ctx=ctx, drop_factory=drop_factory
@@ -2515,6 +2477,121 @@ def _env_label(approved, draft) -> str:
     opposite. The consistency is real but it rests on that unreachability (#1234).
     """
     return f"{approved.value_text}{_tol_suffix(approved.tolerance, draft)}"
+
+
+@dataclass(frozen=True, slots=True)
+class _EnvelopeDropRetry:
+    """One overall extent's deferred above/interior retry and refusal evidence."""
+
+    dwg: Any
+    ctx: PlacementContext
+    view: str
+    below: Strip | None
+    above: Strip | None
+    xs: tuple[float, float]
+    label: str
+    tier: float
+    feature: FeatureRef | None
+    measurement: DimensionId | None
+    measurement_span: tuple[Point, Point] | None
+
+    def report(self, name: str) -> None:
+        # Both settled strips explain why the approved overall extent is missing.
+        which = "width" if name.endswith("width") else "depth"
+        msg = (
+            f"overall {which} dimension not placed ({self.view}-view below and above strips full)"
+        )
+        for side_name, side_strip in (("below", self.below), ("above", self.above)):
+            occupants = strip_occupants(self.dwg, side_strip, self.view, "y") if side_strip else []
+            if occupants:
+                msg = f"{msg[:-1]}; {side_name} occupied by: {', '.join(occupants)})"
+        self.ctx.record_issue(
+            "error",
+            "overall_dim_withheld",
+            msg,
+            measurement=self.measurement,
+            measurement_span=self.measurement_span,
+        )
+
+    def drop(self, name: str) -> None:
+        # A mid-drain retry could occupy a later forced corridor candidate's space.
+        self.ctx.post_drain.append(partial(self.retry, name))
+
+    def retry(self, name: str) -> None:
+        bounds = self.dwg.view_bounds(self.view)
+        if bounds is not None:
+            lift = bounds[3] + _WITNESS_LIFT_MM
+
+            def _fallback_build(pos, _l=lift):
+                dim = _dim(
+                    (self.xs[0], _l, 0),
+                    (self.xs[1], _l, 0),
+                    "above",
+                    pos - _l,
+                    self.dwg.draft,
+                    label=self.label,
+                )
+                dim._dw_measurement_span = self.measurement_span
+                return dim
+
+            if self.above is not None:
+                if not place_strip_candidates(
+                    self.dwg,
+                    self.above,
+                    self.view,
+                    "y",
+                    [(name, _fallback_build)],
+                    self.tier,
+                    ctx=self.ctx,
+                    measurements={name: self.measurement},
+                    features={name: self.feature},
+                    trace=self.ctx.trace,
+                    trace_label=f"{name}_above_fallthrough",
+                ):
+                    return
+            interior_jobs = getattr(self.ctx, "interior_dimensions", None)
+            if interior_jobs is not None and not self.ctx.exterior_dimensions_only:
+
+                def _interior_build(pos, _l=lift):
+                    dim = _dim(
+                        (self.xs[0], _l, 0),
+                        (self.xs[1], _l, 0),
+                        "below",
+                        abs(pos - _l),
+                        self.dwg.draft,
+                        label=self.label,
+                    )
+                    dim._dw_measurement_span = self.measurement_span
+                    return dim
+
+                interior_jobs.append(
+                    InteriorDimensionJob(
+                        name=name,
+                        view=self.view,
+                        side="above",
+                        build=_fallback_build,
+                        on_place=lambda _name: None,
+                        on_drop=self.report,
+                        lane_step=(
+                            self.tier
+                            + (self.above.spacing if self.above is not None else _STRIP_SPACING)
+                        ),
+                        priority=_MANDATORY_OVERALL_PRIORITY,
+                        feature=self.feature,
+                        measurement=self.measurement,
+                        interior_build=_interior_build,
+                        analytical_geometry=lambda pos, _l=lift: dimension_candidate_geometry(
+                            (self.xs[0], _l, 0),
+                            (self.xs[1], _l, 0),
+                            "below",
+                            abs(pos - _l),
+                            self.dwg.draft,
+                            self.label,
+                        ),
+                    )
+                )
+                return
+        self.report(name)
 
 
 def render_envelope(dwg, plan, a, *, ctx) -> int:
@@ -2551,144 +2628,19 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
             dim._dw_measurement_span = _span
             return dim
 
-        def _report(
-            nm,
-            _view=view,
-            _strip=strip,
-            _above=above_strip,
-            _mid=measurement,
-            _span=measurement_span,
-        ):
-            # An unplaced overall extent must remain visible to the audit. Use an
-            # extent-specific issue code: `placement_unsatisfiable` triggers the
-            # required-scale failure path, while this drop can result from a
-            # view-scaled obstruction that a scale retry cannot clear. Error
-            # severity prevents a missing extent from reporting a clean drawing.
-            # Bind the issue to its measurement and name occupants of both strips,
-            # since both placement options were tried.
-            which = "width" if nm.endswith("width") else "depth"
-            msg = (
-                f"overall {which} dimension not placed ({_view}-view below and above strips full)"
-            )
-            for side_name, side_strip in (("below", _strip), ("above", _above)):
-                occupants = strip_occupants(dwg, side_strip, _view, "y") if side_strip else []
-                if occupants:
-                    msg = f"{msg[:-1]}; {side_name} occupied by: {', '.join(occupants)})"
-            ctx.record_issue(
-                "error",
-                "overall_dim_withheld",
-                msg,
-                measurement=_mid,
-                measurement_span=_span,
-            )
-
-        def _drop(
-            nm,
-            _view=view,
-            _above=above_strip,
-            _mid=measurement,
-            _xs=xs,
-            _label=label,
-            _span=measurement_span,
-        ):
-            # Opposite-strip fallthrough. A feature leader placed before the drain —
-            # a polygonal boss's A/F callout on CTC-01, slot width dims on CTC-04 — can span
-            # the whole below corridor, and no corridor-side fix reaches it: the leader is not
-            # a corridor candidate, so registration ORDER cannot arbitrate against it, and a
-            # reserved band would tax every drawing's leader placement to protect a rare
-            # starvation. What the engine already does for a starved slot or plate dim is
-            # retry on the opposite strip (`_far_or_drop`, `render_plates`); the overall
-            # extent now does the same. An overall dimension above the view is ordinary
-            # drafting; a missing one is not.
-
-            # DEFERRED to ctx.post_drain: this drop fires mid-drain, and
-            # placing onto the above strip immediately could occupy space a not-yet-solved
-            # corridor's force candidate needs. Post-drain, the above strip's occupants are
-            # final and `place_strip_candidates` spaces into what is genuinely free.
-            def _retry():
-                bounds = dwg.view_bounds(_view)
-                if bounds is not None:
-                    lift = bounds[3] + _WITNESS_LIFT_MM
-
-                    def _fallback_build(pos, _l=lift):
-                        dim = _dim(
-                            (_xs[0], _l, 0),
-                            (_xs[1], _l, 0),
-                            "above",
-                            pos - _l,
-                            dwg.draft,
-                            label=_label,
-                        )
-                        dim._dw_measurement_span = _span
-                        return dim
-
-                    if _above is not None:
-                        if not place_strip_candidates(
-                            dwg,
-                            _above,
-                            _view,
-                            "y",
-                            [
-                                (
-                                    nm,
-                                    _fallback_build,
-                                )
-                            ],
-                            tier,
-                            ctx=ctx,
-                            measurements={nm: _mid},
-                            features={nm: env.ref},
-                            trace=ctx.trace,
-                            trace_label=f"{nm}_above_fallthrough",
-                        ):
-                            return  # placed above — the measurement is on the sheet
-                    interior_jobs = getattr(ctx, "interior_dimensions", None)
-                    if interior_jobs is not None and not ctx.exterior_dimensions_only:
-
-                        def _interior_build(pos, _l=lift):
-                            dim = _dim(
-                                (_xs[0], _l, 0),
-                                (_xs[1], _l, 0),
-                                "below",
-                                abs(pos - _l),
-                                dwg.draft,
-                                label=_label,
-                            )
-                            dim._dw_measurement_span = _span
-                            return dim
-
-                        interior_jobs.append(
-                            InteriorDimensionJob(
-                                name=nm,
-                                view=_view,
-                                side="above",
-                                build=_fallback_build,
-                                on_place=lambda _name: None,
-                                on_drop=_report,
-                                lane_step=(
-                                    tier
-                                    + (_above.spacing if _above is not None else _STRIP_SPACING)
-                                ),
-                                priority=_MANDATORY_OVERALL_PRIORITY,
-                                feature=env.ref,
-                                measurement=_mid,
-                                interior_build=_interior_build,
-                                analytical_geometry=lambda pos, _l=lift: (
-                                    dimension_candidate_geometry(
-                                        (_xs[0], _l, 0),
-                                        (_xs[1], _l, 0),
-                                        "below",
-                                        abs(pos - _l),
-                                        dwg.draft,
-                                        _label,
-                                    )
-                                ),
-                            )
-                        )
-                        return
-                _report(nm)
-
-            ctx.post_drain.append(_retry)
+        state = _EnvelopeDropRetry(
+            dwg=dwg,
+            ctx=ctx,
+            view=view,
+            below=strip,
+            above=above_strip,
+            xs=xs,
+            label=label,
+            tier=tier,
+            feature=env.ref,
+            measurement=measurement,
+            measurement_span=measurement_span,
+        )
 
         register_corridor(
             ctx,
@@ -2702,7 +2654,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
                 build=_tagged_build,
                 order=(_OVERALL_SUBCHAIN, distance, name),
                 on_place=lambda _nm: None,
-                on_drop=_drop,
+                on_drop=state.drop,
                 priority=_MANDATORY_OVERALL_PRIORITY,
                 force=True,
                 feature=env.ref,

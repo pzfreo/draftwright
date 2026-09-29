@@ -9,9 +9,10 @@ shared placement helpers come from annotations._common. Below annotate, no cycle
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from functools import partial
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 from build123d_drafting.helpers import (
     CenterlineCircle,
@@ -92,6 +93,7 @@ from draftwright.annotations.hole_locations import (
     _locate_off_axis_holes as _locate_off_axis_holes,
 )
 from draftwright.annotations.leaders import (
+    FeatureLeaderCandidate,
     FeatureLeaderJob,
     LeaderRegionPolicy,
     collect_feature_leader,
@@ -2045,6 +2047,69 @@ def _place_front_callouts(
             )
 
 
+@dataclass(frozen=True)
+class _HoleLeaderCallbacks:
+    """One queued callout's recovery inputs and staged furniture transaction."""
+
+    raw_candidates: Callable[[], Iterator[FeatureLeaderCandidate]]
+    build_at: Callable[[Any, Any, Any], Any]
+    callout: Any
+    callout_box: tuple[float, float, float, float] | None
+    view: str
+    drawing: Any
+    draft: Any
+    context: Any
+    diameter: float
+    feature: Any
+    staged_furniture: tuple[str, ...]
+    staged_issues: tuple[Any, ...]
+    staged_furnished: bool
+    furnished: set[int] | None
+
+    def recover(self) -> tuple[Any, Any] | None:
+        return cast(
+            tuple[Any, Any] | None,
+            _recover_hole_leader(
+                self.raw_candidates,
+                self.build_at,
+                self.callout,
+                self.callout_box,
+                self.view,
+                self.drawing,
+                self.draft,
+            ),
+        )
+
+    def on_drop(self, reason: str) -> None:
+        _discard_attempt_annotations(self.drawing, self.staged_furniture)
+        if self.staged_furnished and self.furnished is not None and self.feature is not None:
+            self.furnished.discard(id(self.feature))
+        if self.staged_issues:
+            staged_issue_ids = {id(issue) for issue in self.staged_issues}
+            self.context.registry.restore_issues(
+                tuple(
+                    issue
+                    for issue in self.context.registry.issues
+                    if id(issue) not in staged_issue_ids
+                )
+            )
+        detail = (
+            "rendered geometry validation failed"
+            if reason == "geometry_validation"
+            else "shared leader inventory full"
+        )
+        _record_callout_drop(
+            self.context,
+            self.drawing,
+            self.view,
+            self.diameter,
+            detail,
+            self.feature,
+            callout=self.callout,
+            outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
+        )
+
+
 def _collect_shared_queue(
     queue,
     side,
@@ -2148,15 +2213,6 @@ def _collect_shared_queue(
         )
         _raw_candidates = adapter.raw
 
-        def _recover(
-            _raw=_raw_candidates,
-            _build_at=adapter.build,
-            _callout=callout,
-            _box=callout_box,
-            _view=view,
-        ):
-            return _recover_hole_leader(_raw, _build_at, _callout, _box, _view, dwg, draft)
-
         name = _hc_name(only, view, i, hc_used)
 
         # Pitch/BCD furniture is a separate non-leader requirement. Keep it
@@ -2203,41 +2259,22 @@ def _collect_shared_queue(
                     [HoleRef.of(member) for member in members],
                 )
 
-        def _on_drop(
-            reason,
-            *,
-            _dia=dia,
-            _feat=feat,
-            _callout=callout,
-            _staged_furniture=staged_furniture,
-            _staged_issues=staged_issues,
-            _staged_furnished=staged_furnished,
-        ):
-            _discard_attempt_annotations(dwg, _staged_furniture)
-            if _staged_furnished and furnished is not None and _feat is not None:
-                furnished.discard(id(_feat))
-            if _staged_issues:
-                staged_issue_ids = {id(issue) for issue in _staged_issues}
-                ctx.registry.restore_issues(
-                    tuple(
-                        issue for issue in ctx.registry.issues if id(issue) not in staged_issue_ids
-                    )
-                )
-            detail = (
-                "rendered geometry validation failed"
-                if reason == "geometry_validation"
-                else "shared leader inventory full"
-            )
-            _record_callout_drop(
-                ctx,
-                dwg,
-                view,
-                _dia,
-                detail,
-                _feat,
-                callout=_callout,
-                outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
-            )
+        callbacks = _HoleLeaderCallbacks(
+            _raw_candidates,
+            adapter.build,
+            callout,
+            callout_box,
+            view,
+            dwg,
+            draft,
+            ctx,
+            dia,
+            feat,
+            staged_furniture,
+            staged_issues,
+            staged_furnished,
+            furnished,
+        )
 
         collect_feature_leader(
             ctx,
@@ -2271,9 +2308,9 @@ def _collect_shared_queue(
                 require_clear_label_ink=True,
                 priority=float(dia),
                 on_place=_on_place,
-                on_drop=_on_drop,
+                on_drop=callbacks.on_drop,
                 recover=(
-                    _recover
+                    callbacks.recover
                     if layout_flag(
                         "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
                     )

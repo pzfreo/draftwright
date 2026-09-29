@@ -7,12 +7,36 @@ This rank-5 module neither constructs BuildState nor reads Drawing private attri
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from typing import Any
 
 from draftwright._core import _dim, _fmt, _font_safe_text, _tol_suffix
 from draftwright._geometry import _END_ON
 from draftwright.annotations._common import PlacementContext
 from draftwright.intent_routing import Intent
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES
+
+
+@dataclass(frozen=True)
+class _DimensionBuild:
+    """Inputs retained until a deferred dimension's corridor is solved."""
+
+    owner: EditOperations
+    p1: tuple[float, float, float]
+    p2: tuple[float, float, float]
+    side: str
+    axis_index: int
+    kwargs: dict[str, Any]
+    measurement_span: object
+
+    def __call__(self, pos: float) -> Any:
+        if self.side in ("right", "above"):
+            dist = pos - max(p[self.axis_index] for p in (self.p1, self.p2))
+        else:
+            dist = min(p[self.axis_index] for p in (self.p1, self.p2)) - pos
+        dim = _dim(self.p1, self.p2, self.side, max(dist, 4.0), self.owner.draft, **self.kwargs)
+        dim._dw_measurement_span = self.measurement_span
+        return dim
 
 
 class EditOperations:
@@ -279,23 +303,6 @@ class EditOperations:
         tier = self.draft.font_size + 2 * self.draft.pad_around_text
         p_lo, p_hi = sorted((p1[1 - ax], p2[1 - ax]))
 
-        def _build(
-            pos,
-            _p1=p1,
-            _p2=p2,
-            _side=side,
-            _ax=ax,
-            _kwargs=dim_kwargs,
-            _measurement_span=measurement_span,
-        ):
-            if _side in ("right", "above"):
-                dist = pos - max(p[_ax] for p in (_p1, _p2))
-            else:
-                dist = min(p[_ax] for p in (_p1, _p2)) - pos
-            dim = _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
-            dim._dw_measurement_span = _measurement_span
-            return dim
-
         def _placed(nm, _pin=it.kwargs.get("pin", False)):
             if _pin:
                 self.pin(nm)
@@ -321,7 +328,7 @@ class EditOperations:
             tier,
             CorridorCandidate(
                 name=name,
-                build=_build,
+                build=_DimensionBuild(self, p1, p2, side, ax, dim_kwargs, measurement_span),
                 order=(0, natural, name),
                 on_place=_placed,
                 on_drop=_drop,

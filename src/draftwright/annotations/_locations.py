@@ -29,6 +29,7 @@ from draftwright.model.compiled import (
     shared_location_text,
 )
 from draftwright.model.ir import CircularChannelFeature, HoleFeature, SlotFeature
+from draftwright.model.ir_foundation import Point
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +50,139 @@ class _CircularChannelLocationGeometry:
     def footprint(self, pos: float) -> Any:
         return dim_footprint(
             self.p1, self.p2, self.side, abs(pos - self.edge), self.dwg.draft, self.label
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _XLocationGeometry:
+    """Projected X witnesses and the exterior/interior label choices for one rung."""
+
+    project_x: Callable[[float], float]
+    project_y: Callable[[float], float]
+    datum_x: float
+    rx: float
+    ry: float
+    side: str
+    label: str
+    label_offset: float
+    draft: Any
+    dim_builder: Callable[..., Any]
+
+    def anchors(self) -> tuple[Point, Point]:
+        return (
+            (self.project_x(self.datum_x), self.project_y(self.ry), 0),
+            (self.project_x(self.rx), self.project_y(self.ry), 0),
+        )
+
+    def exterior_distance(self, pos: float) -> float:
+        y = self.project_y(self.ry)
+        return y - pos if self.side == "below" else pos - y
+
+    def build(self, pos: float) -> Any:
+        pa, pb = self.anchors()
+        return self.dim_builder(
+            pa,
+            pb,
+            self.side,
+            self.exterior_distance(pos),
+            self.draft,
+            label=self.label,
+            label_offset_x=self.label_offset,
+        )
+
+    def footprint(self, pos: float) -> Any:
+        pa, pb = self.anchors()
+        return dim_footprint(
+            pa,
+            pb,
+            self.side,
+            self.exterior_distance(pos),
+            self.draft,
+            self.label,
+            label_offset_x=self.label_offset,
+        )
+
+    def interior_build(self, pos: float) -> Any:
+        pa, pb = self.anchors()
+        return self.dim_builder(
+            pa,
+            pb,
+            "below",
+            abs(pos - self.project_y(self.ry)),
+            self.draft,
+            label=self.label,
+            label_offset_x=self.label_offset,
+        )
+
+    def interior_geometry(self, pos: float) -> Any:
+        pa, pb = self.anchors()
+        return dimension_candidate_geometry(
+            pa,
+            pb,
+            "below",
+            abs(pos - self.project_y(self.ry)),
+            self.draft,
+            self.label,
+            label_offset_x=self.label_offset,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _YLocationGeometry:
+    """Fixed Y witnesses and opposite-side interior candidate for one rung."""
+
+    pa: Point
+    pb: Point
+    side: str
+    interior_side: str
+    edge: float
+    label: str
+    label_offset: float
+    draft: Any
+    dim_builder: Callable[..., Any]
+
+    def build(self, pos: float) -> Any:
+        return self.dim_builder(
+            self.pa,
+            self.pb,
+            self.side,
+            abs(pos - self.edge),
+            self.draft,
+            label=self.label,
+            label_offset_x=self.label_offset,
+        )
+
+    def footprint(self, pos: float) -> Any:
+        return dim_footprint(
+            self.pa,
+            self.pb,
+            self.side,
+            abs(pos - self.edge),
+            self.draft,
+            self.label,
+            label_offset_x=self.label_offset,
+        )
+
+    def interior_build(self, pos: float) -> Any:
+        return self.dim_builder(
+            self.pa,
+            self.pb,
+            self.interior_side,
+            abs(pos - self.edge),
+            self.draft,
+            label=self.label,
+            label_offset_x=self.label_offset,
+        )
+
+    def interior_geometry(self, pos: float) -> Any:
+        return dimension_candidate_geometry(
+            self.pa,
+            self.pb,
+            self.interior_side,
+            abs(pos - self.edge),
+            self.draft,
+            self.label,
+            label_offset_x=self.label_offset,
         )
 
 
@@ -449,8 +583,8 @@ def render_locations(
         )
         x_side = "below" if x_below else "above"
         x_zone = a.pv_zones.below if x_below else a.pv_zones.above
-        x_offset = (
-            (lambda pos, _ry=ry: PY(_ry) - pos) if x_below else (lambda pos, _ry=ry: pos - PY(_ry))
+        geometry = _XLocationGeometry(
+            PX, PY, datum_x, rx, ry, x_side, label, label_offset, draft, dim_builder
         )
         register(
             ctx,
@@ -467,17 +601,7 @@ def render_locations(
                 span_key=(round(PX(datum_x), 1), round(PX(rx), 1)),
                 label=label,
                 distance=abs(rx - datum_x),
-                build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset, _side=x_side, _offset_fn=x_offset: (
-                    dim_builder(
-                        (PX(datum_x), PY(_ry), 0),
-                        (PX(_rx), PY(_ry), 0),
-                        _side,
-                        _offset_fn(pos),
-                        draft,
-                        label=_label,
-                        label_offset_x=_offset,
-                    )
-                ),
+                build=geometry.build,
                 feature=_xfeat,
                 measurement=_xmid,
                 location_coverage=location_facts,
@@ -485,39 +609,9 @@ def render_locations(
                     (feature, parameter) for feature, parameter, _point in location_facts
                 ),
                 pinned=pin_ref,
-                footprint=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset, _side=x_side, _offset_fn=x_offset: (
-                    dim_footprint(
-                        (PX(datum_x), PY(_ry), 0),
-                        (PX(_rx), PY(_ry), 0),
-                        _side,
-                        _offset_fn(pos),
-                        draft,
-                        _label,
-                        label_offset_x=_offset,
-                    )
-                ),
-                interior_build=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
-                    dim_builder(
-                        (PX(datum_x), PY(_ry), 0),
-                        (PX(_rx), PY(_ry), 0),
-                        "below",
-                        abs(pos - PY(_ry)),
-                        draft,
-                        label=_label,
-                        label_offset_x=_offset,
-                    )
-                ),
-                interior_geometry=lambda pos, _rx=rx, _ry=ry, _label=label, _offset=label_offset: (
-                    dimension_candidate_geometry(
-                        (PX(datum_x), PY(_ry), 0),
-                        (PX(_rx), PY(_ry), 0),
-                        "below",
-                        abs(pos - PY(_ry)),
-                        draft,
-                        _label,
-                        label_offset_x=_offset,
-                    )
-                ),
+                footprint=geometry.footprint,
+                interior_build=geometry.interior_build,
+                interior_geometry=geometry.interior_geometry,
             ),
         )
 
@@ -669,6 +763,9 @@ def _register_y_locations(
             "right": "left",
             "left": "right",
         }[direction]
+        geometry = _YLocationGeometry(
+            pa, pb, direction, interior_direction, edge, label, label_offset, draft, dim_builder
+        )
         register(
             ctx,
             (view, direction),
@@ -684,17 +781,7 @@ def _register_y_locations(
                 span_key=span_key,
                 label=label,
                 distance=abs(ry - datum_y),
-                build=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label, _offset=label_offset: (
-                    dim_builder(
-                        _pa,
-                        _pb,
-                        _direction,
-                        abs(pos - _edge),
-                        draft,
-                        label=_label,
-                        label_offset_x=_offset,
-                    )
-                ),
+                build=geometry.build,
                 feature=_yfeat,
                 measurement=_ymid,
                 location_coverage=location_facts,
@@ -703,39 +790,9 @@ def _register_y_locations(
                 ),
                 placement_side=direction,
                 pinned=pin_ref,
-                footprint=lambda pos, _pa=pa, _pb=pb, _direction=direction, _edge=edge, _label=label, _offset=label_offset: (
-                    dim_footprint(
-                        _pa,
-                        _pb,
-                        _direction,
-                        abs(pos - _edge),
-                        draft,
-                        _label,
-                        label_offset_x=_offset,
-                    )
-                ),
-                interior_build=lambda pos, _pa=pa, _pb=pb, _direction=interior_direction, _edge=edge, _label=label, _offset=label_offset: (
-                    dim_builder(
-                        _pa,
-                        _pb,
-                        _direction,
-                        abs(pos - _edge),
-                        draft,
-                        label=_label,
-                        label_offset_x=_offset,
-                    )
-                ),
-                interior_geometry=lambda pos, _pa=pa, _pb=pb, _direction=interior_direction, _edge=edge, _label=label, _offset=label_offset: (
-                    dimension_candidate_geometry(
-                        _pa,
-                        _pb,
-                        _direction,
-                        abs(pos - _edge),
-                        draft,
-                        _label,
-                        label_offset_x=_offset,
-                    )
-                ),
+                footprint=geometry.footprint,
+                interior_build=geometry.interior_build,
+                interior_geometry=geometry.interior_geometry,
             ),
         )
     return n

@@ -46,7 +46,7 @@ _ALLOWED_CALLERS = {
     # corridor candidate; the carve runs in a ctx.post_drain-DEFERRED drop fallthrough,
     # after EVERY corridor has drained (#684 review — a mid-drain carve could preempt
     # a later sibling's reserved corner), retrying the opposite/side-view strip.
-    ("from_model.py", "render_plates"),
+    ("from_model.py", "_PlateDropRetry.retry"),
     # Manual post-build verbs (the #426 half of the convergence): a single user-driven
     # annotation onto a FINISHED sheet, where every occupant is already placed — the
     # carve is the correct tool and there is no shared drain to join. Retained as an
@@ -75,7 +75,7 @@ def _carve_callers(path: Path) -> set[str]:
     call, wherever it lives, maps to a caller so the guard is genuinely fail-closed. A
     call is attributed to its OUTERMOST enclosing function within the current module or
     class scope: a nested closure's carve counts against the top-level function that owns
-    it (``render_plates``, not ``_build``), a class method's against the method name, and
+    it, a class method's against its class-qualified method name, and
     a bare module-scope call against ``"<module>"``. Any of these outside the allowlist
     trips the test."""
     tree = ast.parse(path.read_text(), filename=str(path))
@@ -84,16 +84,17 @@ def _carve_callers(path: Path) -> set[str]:
         names.add("carve_position")  # injected live from from_model.render_gdt
     callers: set[str] = set()
 
-    def visit(node: ast.AST, owner: str | None) -> None:
+    def visit(node: ast.AST, owner: str | None, class_name: str | None = None) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.ClassDef):
-                visit(child, None)  # a class body's methods each become their own owner
+                visit(child, None, child.name)  # methods have distinct qualified owners
             elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
-                visit(child, owner or child.name)  # the outermost fn owns nested closures
+                method_name = f"{class_name}.{child.name}" if class_name else child.name
+                visit(child, owner or method_name)  # the outermost fn owns nested closures
             else:
                 if _is_carve_call(child, names):
                     callers.add(owner or "<module>")
-                visit(child, owner)
+                visit(child, owner, class_name)
 
     visit(tree, None)
     return callers
@@ -149,6 +150,7 @@ def test_migrated_passes_have_no_carve_caller():
     # render_plates' PRIMARY placement stays corridor-registered; its allowlisted carve
     # is the post-drain on_drop fallthrough only (as render_gdt) — helpers ≥0.14.
     assert "render_step_positions" not in callers
+    assert "_PlateDropRetry.retry" in callers
 
 
 def test_gdt_exemption_stays_on_the_deferred_fallback():
@@ -188,4 +190,4 @@ def test_carve_callers_covers_methods_qualified_aliased_and_module_scope(tmp_pat
     )
     p = tmp_path / "probe.py"
     p.write_text(src)
-    assert _carve_callers(p) == {"<module>", "m", "render_outer", "render_aliased"}
+    assert _carve_callers(p) == {"<module>", "R.m", "render_outer", "render_aliased"}

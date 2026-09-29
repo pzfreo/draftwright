@@ -192,6 +192,10 @@ and re-exports the existing private helper names.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.
+  - **`annotations/_polygonal_prisms.py`** — owns compiler-approved hex-pocket,
+    polygonal-boss, and polygonal-stock labels and physical wall-anchor jobs. The
+    public passes in `from_model` supply the shared leader reach and submit those
+    jobs to the established late leader assignment.
   - **`annotations/_edge_callouts.py`** — owns compiler-approved chamfer, fillet,
     and Blend labels, physical attachment sites, and leader candidate jobs. The
     public passes in `from_model` retain the shared late assignment and outcomes.
