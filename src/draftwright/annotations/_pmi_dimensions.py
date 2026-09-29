@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
@@ -442,6 +443,26 @@ def _pmi_witness_from_bbox(rec, view: str, a):
     return p1, p2, avg_t
 
 
+@dataclass(frozen=True)
+class _PmiDimensionBuild:
+    q1: tuple[float, float, float]
+    q2: tuple[float, float, float]
+    side: str
+    witness: float
+    label: str
+    draft: Any
+
+    def __call__(self, pos: float):
+        # The helper draws one extension gap back toward the witnesses; the strip
+        # coordinate names the rendered dimension line and label instead.
+        dist = (
+            pos - self.witness + self.draft.extension_gap
+            if self.side in ("above", "right")
+            else self.witness - pos + self.draft.extension_gap
+        )
+        return _dim(self.q1, self.q2, self.side, dist, self.draft, label=self.label)
+
+
 def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallback=False):
     if strip is None:
         return None
@@ -461,21 +482,10 @@ def _pmi_dim_spec(p1, p2, strip, label, name, view, side, draft, *, leader_fallb
     if side in ("below", "left") and lo >= witness:
         return None
 
-    def _build(pos, _q1=q1, _q2=q2, _side=side, _w=witness, _label=label):
-        # Dimension's extension-gap convention places the actual line one gap back toward
-        # its witnesses. Compensate so the solver's stacking coordinate is the rendered
-        # line/label coordinate, keeping the first tier outside the view silhouette.
-        dist = (
-            pos - _w + draft.extension_gap
-            if _side in ("above", "right")
-            else _w - pos + draft.extension_gap
-        )
-        return _dim(_q1, _q2, _side, dist, draft, label=_label)
-
     order_coord = min(perp)
     spec = {
         "name": name,
-        "build": _build,
+        "build": _PmiDimensionBuild(q1, q2, side, witness, label, draft),
         "strip": strip,
         "view": view,
         "side": side,
