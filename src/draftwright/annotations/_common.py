@@ -2229,7 +2229,7 @@ def drain_corridors(ctx, dwg):
             b["cands"],
             b["tier"],
             corner_reserves=reserves,
-            key=key,  # corridor identity + trace threading ()
+            key=key,  # corridor identity + trace threading
             ctx=ctx,
         )
     ctx.corridor_batch = {}
