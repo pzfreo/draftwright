@@ -1764,6 +1764,24 @@ def _compare_annotation_layout(options: dict, auto_dims: bool) -> Drawing:
     return selected
 
 
+def _replay_structural_issues(issues, allowed_crossings=()) -> tuple[LintIssue, ...]:
+    """Keep every structural issue except a counted crossing from the settled drawing."""
+    remaining = collections.Counter(allowed_crossings)
+    retained = []
+    for issue in _structural_layout_issues(issues):
+        identity = (issue.annotation_name, issue.view)
+        if (
+            issue.code == "leader_crosses_silhouette"
+            and issue.severity == "info"
+            and None not in identity
+            and remaining[identity] > 0
+        ):
+            remaining[identity] -= 1
+        else:
+            retained.append(issue)
+    return tuple(retained)
+
+
 @build_operation
 def build_drawing(
     step_file: str | Path | Shape,
@@ -2150,7 +2168,11 @@ def build_drawing(
             )
 
         def _qualify_candidate(
-            candidate, *, require_axial_coverage=False, allow_recovery_detail=False
+            candidate,
+            *,
+            require_axial_coverage=False,
+            allow_recovery_detail=False,
+            allowed_informational_crossings=(),
         ):
             """Apply the settled-drawing verdict before semantic recovery constraints."""
             issues, blockers = _automatic_assessment(candidate)
@@ -2171,7 +2193,8 @@ def build_drawing(
                     return issues, blockers, "axial_coverage_incomplete"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"
-            if _structural_layout_issues(issues):
+            structural = _replay_structural_issues(issues, allowed_informational_crossings)
+            if structural:
                 return issues, blockers, "structural_error"
             return issues, blockers, None
 
@@ -2523,6 +2546,14 @@ def build_drawing(
             # replays (including detail-bearing step drawings) naturally recover the recorded
             # scale and must retain that measured history unchanged. Only a final scale drift
             # pays for one bounded rebuild under the already settled topology/arrangement.
+            settled_crossings = tuple(
+                (issue.annotation_name, issue.view)
+                for issue in _automatic_assessment(drawing)[0]
+                if issue.code == "leader_crosses_silhouette"
+                and issue.severity == "info"
+                and issue.annotation_name is not None
+                and issue.view is not None
+            )
             replayed = _build(
                 _replayed_scale,
                 arrangements=(settled_arrangement,),
@@ -2534,6 +2565,7 @@ def build_drawing(
                 replayed,
                 require_axial_coverage=False,
                 allow_recovery_detail=True,
+                allowed_informational_crossings=settled_crossings,
             )
             if rejection is not None:
                 raise ValueError(

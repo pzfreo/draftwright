@@ -712,6 +712,7 @@ def render_diameters(
                 drop_code="diameter_dropped",
                 ctx=ctx,
                 geom_clear=True,
+                cross_view_clearance=True,
             )
             # Internal concentric-circle leaders legitimately exit the outer
             # silhouette, like bore callouts. Retain their diameter coverage.

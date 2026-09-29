@@ -38,6 +38,8 @@ class MachinedLeaderBindings:
     analytical_leader_lands_clear: Callable
     collect_feature_leader: Callable
     place_feature_leader_jobs: Callable[..., int]
+    attribute_annotations: Callable
+    boxes_overlap: Callable
 
 
 @dataclass
@@ -59,6 +61,31 @@ class _MachinedJobContext:
     straight_only_names: frozenset
     late_inventory: bool
     interior_clearance_by_view: dict
+    cross_view_clearance: bool
+    foreign_boxes_by_view: dict
+
+    def foreign_label_clear(
+        self, view: str, label: tuple[float, float, float, float] | None
+    ) -> bool:
+        if label is None:
+            return False
+        if view not in self.foreign_boxes_by_view:
+            self.foreign_boxes_by_view[view] = tuple(
+                (box, has_label)
+                for _name, owner, box, has_label in self.bindings.attribute_annotations(
+                    self.dwg, self.a
+                )
+                if owner != view
+            )
+        pad = self.dwg.draft.pad_around_text
+        padded = (label[0] - pad, label[1] - pad, label[2] + pad, label[3] + pad)
+        return not any(
+            self.bindings.boxes_overlap(
+                padded,
+                (box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad) if has_label else box,
+            )
+            for box, has_label in self.foreign_boxes_by_view[view]
+        )
 
     def lower(self, row) -> FeatureLeaderJob:
         """Lower one semantic job in its own closure frame before the next is read."""
@@ -221,6 +248,9 @@ class _MachinedJobContext:
                 recovery_anchors, view, visible_label, (label_width, label_height), build, decorate
             )
 
+        def clear_foreign_label(box):
+            return self.foreign_label_clear(view, box)
+
         return FeatureLeaderJob(
             name=name,
             view=view,
@@ -236,6 +266,7 @@ class _MachinedJobContext:
             fallback_candidates=fallback_candidates,
             fallback_accept=fallback_accept,
             interior_label_clear=interior_label_clear,
+            foreign_label_clear=clear_foreign_label if self.cross_view_clearance else None,
             allow_policy_b_fixed=True,
             on_drop=(on_drop if source_ids or self.source_drop_severity == "source" else None),
             recover=None if straight_only else recover,
@@ -346,6 +377,10 @@ class _MachinedJobContext:
                 dwg, search_tip, view, build_at, build_routed, label_size
             )
             if annotation is not None:
+                if self.cross_view_clearance and not self.foreign_label_clear(
+                    view, annotation.label_bbox
+                ):
+                    continue
                 return annotation, feature
         return None
 
@@ -366,6 +401,7 @@ def place_machined_leader_jobs(
     source_drop_severity="warning",
     priority=0.0,
     straight_only_names=frozenset(),
+    cross_view_clearance=False,
     bindings: MachinedLeaderBindings,
 ) -> int:
     """Lower machined callouts into the shared immediate or late leader solve."""
@@ -388,6 +424,8 @@ def place_machined_leader_jobs(
         straight_only_names=straight_only_names,
         late_inventory=late_inventory,
         interior_clearance_by_view={},
+        cross_view_clearance=cross_view_clearance,
+        foreign_boxes_by_view={},
     )
     feature_jobs = [family.lower(row) for row in jobs]
     if family.late_inventory:

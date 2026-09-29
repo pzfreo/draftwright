@@ -61,6 +61,7 @@ from draftwright._core import (
     supported_secondary_crop,
 )
 from draftwright._geometry import (
+    _boxes_overlap,
     _segment_clips_box,
 )
 from draftwright.annotations._common import (
@@ -207,6 +208,7 @@ from draftwright.annotations.leaders import (
 )
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.auxiliary_layout import document_note_rows
+from draftwright.compose import _attribute_annotations
 from draftwright.layout import StripCandidate, plan_strip
 from draftwright.leader_policy import effective_leader_region_policy
 
@@ -644,6 +646,7 @@ def place_machined_leader_jobs(
     source_drop_severity="warning",
     priority=0.0,
     straight_only_names=frozenset(),
+    cross_view_clearance=False,
 ) -> int:
     """Submit feature callouts through the shared machined-leader owner."""
     return _place_machined_leader_jobs_owner(
@@ -661,6 +664,7 @@ def place_machined_leader_jobs(
         source_drop_severity=source_drop_severity,
         priority=priority,
         straight_only_names=straight_only_names,
+        cross_view_clearance=cross_view_clearance,
         bindings=MachinedLeaderBindings(
             wrap_callout_text=_wrap_callout_text,
             text_size=_text_size,
@@ -674,6 +678,8 @@ def place_machined_leader_jobs(
             analytical_leader_lands_clear=analytical_leader_lands_clear,
             collect_feature_leader=collect_feature_leader,
             place_feature_leader_jobs=place_feature_leader_jobs,
+            attribute_annotations=_attribute_annotations,
+            boxes_overlap=_boxes_overlap,
         ),
     )
 
