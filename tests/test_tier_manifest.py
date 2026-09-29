@@ -42,6 +42,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "dimension_ink": "src/draftwright/annotations/_dimension_ink.py",
         "dimension_ink_repair": "src/draftwright/annotations/_dimension_ink_repair.py",
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
+        "strip_postsolve": "src/draftwright/annotations/_strip_postsolve.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
@@ -251,6 +252,11 @@ def test_placement_geometry_runs_footprint_and_occupancy_contracts():
         "test_occupancy_boxes.py",
         "test_strip_layout.py",
     } <= selected
+
+
+def test_strip_postsolve_runs_required_ink_and_trace_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_strip_postsolve.py"]))
+    assert {"test_gdt_ink_shared.py", "test_strip_layout.py", "test_solve_trace.py"} <= selected
 
 
 def test_nonproduction_changes_do_not_expand_the_core():
