@@ -29,7 +29,7 @@ CONTRACT_GROUPS = {
         ),
     ),
     "drawing_edits": ContractGroup(
-        ("src/draftwright/drawing_edits.py",),
+        ("src/draftwright/drawing_edits.py", "src/draftwright/intent_routing.py"),
         (
             "test_add_dimension.py",
             "test_canonical_angles.py",

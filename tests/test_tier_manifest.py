@@ -229,6 +229,13 @@ def test_drawing_edit_owner_runs_live_and_deferred_contracts():
     } <= selected
 
 
+def test_intent_routing_owner_selects_deferred_placement_contracts():
+    source = "src/draftwright/intent_routing.py"
+    assert selected_groups([source]) == {"compilation", "drawing_edits"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {"test_deferred_edits.py", "test_issue_563_placement_intent.py"} <= selected
+
+
 def test_solve_trace_owner_runs_recorder_and_boundary_contracts():
     selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/solve_trace.py"]))
     assert {"test_solve_trace.py", "test_compiled_plan_boundary.py"} <= selected
