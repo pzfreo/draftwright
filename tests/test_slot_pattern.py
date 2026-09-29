@@ -8,26 +8,11 @@ composition, the grouped render (linear + grid), and the input guards.
 """
 
 import pytest
+from _pattern_contract import slot_member as _member
 from build123d import Box
 
-from draftwright.builder import build_drawing
 from draftwright.model import slot, slot_pattern
 from draftwright.sheet import Sheet
-
-
-def _member():
-    # one representative through-Z slot, 8 (y) wide × 20 (x) long, centred at the origin
-    return slot(
-        width=8.0,
-        length=20.0,
-        long_axis="x",
-        width_axis="y",
-        depth_axis="z",
-        lo=-10.0,
-        hi=10.0,
-        w_center=0.0,
-        at=(0.0, 0.0, 0.0),
-    )
 
 
 def _obround_member():
@@ -157,46 +142,3 @@ def test_direction_through_plane_rejected():
     m = _member()  # through axis z
     with pytest.raises(ValueError, match="face plane.*z-through|no z-through"):
         slot_pattern(m, kind="linear", count=3, pitch=10.0, direction=(0, 0, 1))
-
-
-def test_model_inspection_sees_the_pattern():
-    s = Sheet(Box(60, 161, 21)).auto_dimensions()
-    s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
-    model = s.model()
-    pats = [f for f in model.features if f.kind == "slot_pattern"]
-    assert len(pats) == 1 and pats[0].count == 4
-
-
-def test_manual_callout_verb_places_grouped_callout_and_pitch():
-    # the manual dwg.callout() edit verb for a slot pattern (#841 editable surface) draws the
-    # grouped size callout AND its pitch dim (render_slot_patterns bundles both), returning the
-    # grouped-callout name — mirroring the pocket-pattern editable surface.
-    part = Box(60, 161, 21)
-    s = Sheet(part).auto_dimensions()
-    s.envelope()
-    s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
-    dwg = build_drawing(part, model=s.model(), auto_dims=False)  # nothing auto-drawn
-    feat = next(f for f in dwg.model().features if f.kind == "slot_pattern")
-    name = dwg.callout(feat)
-    assert name.startswith("m_slotpat")
-    assert dwg.get_annotation(name).label == "4× SLOT 8 × 20"
-    assert [n for n in dwg.annotations() if n.startswith("dim_slotpat_pitch_")]
-
-
-def test_deferred_callout_reconstructs_the_pattern():
-    # The deferred-callout path: a callout intent recorded inside `with dwg.deferred()` drains
-    # through finalize's pre-drain "slot_patterns" stage, drawing the same grouped callout +
-    # pitch (#841 editable surface). This was the imperative script's reconstruction route;
-    # #940 retired that emitter, so what is covered here now is the `Drawing.deferred()` API
-    # itself, which remains hand-usable.
-    part = Box(60, 161, 21)
-    s = Sheet(part).auto_dimensions()
-    s.envelope()
-    s.slot_pattern(_member(), kind="linear", count=4, pitch=30.0, direction=(0, 1, 0))
-    dwg = build_drawing(part, model=s.model(), auto_dims=False)
-    with dwg.deferred():
-        dwg.callout(next(f for f in dwg.model().features if f.kind == "slot_pattern"))
-    names = dwg.annotations()
-    assert [n for n in names if n.startswith("m_slotpat")]
-    assert [n for n in names if n.startswith("dim_slotpat_pitch_")]
-    assert not [x for x in dwg.lint() if x.code == "annotation_out_of_bounds"]

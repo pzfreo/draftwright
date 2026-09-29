@@ -40,6 +40,7 @@ CONTRACT_GROUPS = {
             "test_feature_edit_verbs.py",
             "test_issue_563_placement_intent.py",
             "test_issue_1613_circular_channel.py",
+            "test_pattern_contract.py",
             "test_refactor_golden.py",
             "test_script_detail_parity.py",
         ),
@@ -280,6 +281,7 @@ CONTRACT_GROUPS = {
             "test_issue_1599_duplicate_slot_widths.py",
             "test_layout_override_lane_issue_1757.py",
             "test_pad_rendering.py",
+            "test_pattern_contract.py",
             "test_slot_completeness.py",
             "test_slot_pattern.py",
             "test_slot_recognition.py",
@@ -290,6 +292,7 @@ CONTRACT_GROUPS = {
         ("src/draftwright/annotations/_pocket_pad.py",),
         (
             "test_pad_rendering.py",
+            "test_pattern_contract.py",
             "test_tolerances.py",
             "test_refactor_golden.py",
             "test_issue_740_leader_assignment.py",
@@ -435,6 +438,7 @@ CONTRACT_GROUPS = {
             "test_issue_1466_dimension_options.py",
             "test_measurement_support.py",
             "test_model_ir.py",
+            "test_pattern_contract.py",
             "test_sheet_emit.py",
             "test_sheet_identity_invariant.py",
         ),
@@ -462,10 +466,15 @@ CONTRACT_GROUPS = {
             "test_view_plan.py",
         ),
     ),
+    "hole_pattern_rendering": ContractGroup(
+        ("src/draftwright/annotations/holes.py",),
+        ("test_pattern_contract.py",),
+    ),
     "intent_drain": ContractGroup(
         ("src/draftwright/intent_drain.py",),
         (
             "test_detail_views.py",
+            "test_pattern_contract.py",
             "test_pocket_pattern.py",
             "test_slot_pattern.py",
         ),
