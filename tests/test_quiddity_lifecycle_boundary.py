@@ -153,12 +153,12 @@ ALLOWED_STANDALONE_CALLS = {
     ): "standalone build_part_model fallback",
     (
         "model/detect.py",
-        "build_part_model",
+        "_append_hole_features",
         "recognise_holes",
     ): "standalone build_part_model fallback",
     (
         "model/detect.py",
-        "build_part_model",
+        "_append_hole_features",
         "recognise_countersinks",
     ): "standalone build_part_model fallback",
     (
@@ -168,7 +168,7 @@ ALLOWED_STANDALONE_CALLS = {
     ): "standalone build_part_model fallback",
     (
         "model/detect.py",
-        "build_part_model",
+        "_append_slot_features",
         "recognise_slots",
     ): "standalone build_part_model fallback",
     (
