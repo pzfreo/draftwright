@@ -1,5 +1,7 @@
 """Coverage selection keeps fast PRs cheap without weakening broad changes."""
 
+import subprocess
+import sys
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
@@ -97,3 +99,55 @@ def test_diff_parser_keeps_added_lines_that_resemble_file_headers():
     )
 
     assert diff_cover_moves._changed_lines(patch) == {"src/draftwright/sample.py": {2, 3}}
+
+
+@pytest.mark.parametrize(
+    ("name", "existing"),
+    [
+        ("with space.py", False),
+        ("café.py", False),
+        ("has\ttab.py", False),
+        ('has"quote.py', False),
+        ("space \t.py", False),
+        ("has\ttab.py", True),
+    ],
+)
+def test_quoted_git_paths_fail_closed_in_changed_line_gate(tmp_path, monkeypatch, name, existing):
+    def git(*args):
+        return subprocess.run(
+            ["git", *args], cwd=tmp_path, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.name", "Coverage Test")
+    git("config", "user.email", "coverage@example.test")
+    git("config", "core.quotePath", "true")
+    source = tmp_path / "src" / "draftwright" / name
+    source.parent.mkdir(parents=True)
+    (tmp_path / "README.md").write_text("baseline\n", encoding="utf-8")
+    if existing:
+        source.write_text("value = 0\n", encoding="utf-8")
+    git("add", ".")
+    git("commit", "-q", "-m", "base")
+    base = git("rev-parse", "HEAD")
+    source.write_text("value = 1\n", encoding="utf-8")
+    if not existing:
+        git("add", "--", str(source.relative_to(tmp_path)))
+
+    monkeypatch.setattr(diff_cover_moves, "ROOT", tmp_path)
+    patch = diff_cover_moves._git(
+        "diff", "--no-color", "--no-ext-diff", "--no-renames", "-U0", base
+    )
+    changed = diff_cover_moves._changed_lines(patch)
+    added, changed_old = diff_cover_moves._source_changes(base)
+    assert str(source.relative_to(tmp_path)) in (changed_old if existing else added)
+    assert changed == {}
+    with pytest.raises(ValueError, match="Git diff omitted changed production paths"):
+        diff_cover_moves._require_all_changed_sources(changed, added, changed_old)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["diff-cover-moves", "coverage.xml", "--compare-branch", base, "--fail-under=90"],
+    )
+    with pytest.raises(ValueError, match="Git diff omitted changed production paths"):
+        diff_cover_moves.main()
