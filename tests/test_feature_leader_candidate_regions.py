@@ -66,6 +66,33 @@ def _candidate(*, region, label=(40.0, 20.0, 50.0, 24.0)):
     )
 
 
+def test_hole_strip_plan_preserves_pava_winners_and_dropped_source_identity():
+    """Equal-valued queue entries can still have different solve outcomes."""
+
+    source_a = tuple(["hole", 6.0, None, None, 10.0, "owner"])
+    source_b = tuple(["hole", 6.0, None, None, 10.0, "owner"])
+    target_a = tuple([*source_a[:4], 11.0, source_a[5]])
+    target_b = tuple([*source_b[:4], 12.0, source_b[5]])
+    assert source_a == source_b and source_a is not source_b
+    plan = hole_candidates.HoleStripPlan(
+        targets=(target_a, target_b),
+        source_by_target={id(target_a): source_a, id(target_b): source_b},
+        final_y={id(target_a): 11.0},
+        final_dropped={id(target_b)},
+        base_y={id(source_a): 13.0, id(source_b): 14.0},
+        segment_y={},
+        winner_by_source={id(source_a): 11.0},
+    )
+
+    outcomes = list(plan.outcomes())
+    assert outcomes[0][0] is source_a and outcomes[0][1] == 11.0
+    assert outcomes[1][0] is source_b and outcomes[1][1] is None
+    assert plan.rows_for(source_a, 0.0, 30.0, [])[0] == 11.0
+    assert plan.rows_for(source_b, 0.0, 30.0, [])[0] is None
+    assert plan.rows_for(source_a, 0.0, 30.0, [])[1][:2] == (11.0, 13.0)
+    assert plan.rows_for(source_b, 0.0, 30.0, [])[1][0] == 14.0
+
+
 @pytest.mark.parametrize("authored_side", (None, "right"))
 def test_hole_candidate_adapter_keeps_row_order_and_authored_side(monkeypatch, authored_side):
     """Late fixed ink adds row choices without changing the producer's strip floor."""

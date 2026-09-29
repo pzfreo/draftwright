@@ -81,7 +81,7 @@ from draftwright.annotations.from_model import (
 from draftwright.annotations.hole_leader_candidates import (
     FrontHoleLeaderCandidateAdapter,
     HoleLeaderCandidateAdapter,
-    hole_candidate_rows,
+    HoleStripPlan,
 )
 from draftwright.annotations.hole_locations import (
     _approved_off_axis_holes as _approved_off_axis_holes,
@@ -2126,12 +2126,7 @@ def _collect_shared_queue(
     place_furniture,
     plan,
     furnished,
-    base_y,
-    seg_y,
-    source_by_target,
-    targets,
-    final_y,
-    final_dropped,
+    strip_plan,
     obstacle_intervals,
     leader_column_bands,
     vb,
@@ -2146,15 +2141,10 @@ def _collect_shared_queue(
     a = sctx.a
     to_page = sctx.to_page
     draft = sctx.draft
-    source_final_y = {
-        id(source_by_target[id(target)]): final_y[id(target)]
-        for target in targets
-        if id(target) in final_y and id(target) not in final_dropped
-    }
     projected_clear = view_label_clearance(dwg, view)
     i = start_i
     for s in queue:
-        locations, dia, callout, feat, natural_y, _rep = s
+        locations, dia, callout, feat, _natural_y, _rep = s
         owner = _callout_member_owner(callout, _rep, feat_of_callout.get(id(callout)))
         requested_side = side_of_callout.get(id(callout))
         # Hole callouts are one explicitly interior-capable semantic family.
@@ -2175,19 +2165,12 @@ def _collect_shared_queue(
             getattr(a, "leader_region", "auto"),
         )
         callout_box = _geom_box(callout, cache)
+        winner_y, rows = strip_plan.rows_for(s, y_min, y_max, obstacle_intervals)
         adapter = HoleLeaderCandidateAdapter(
             entry=s,
             locations=tuple(locations or ()),
-            rows=hole_candidate_rows(
-                source_final_y.get(id(s)),
-                base_y.get(id(s)),
-                seg_y.get(id(s)),
-                natural_y,
-                y_min,
-                y_max,
-                obstacle_intervals,
-            ),
-            legacy_y=source_final_y.get(id(s)),
+            rows=rows,
+            legacy_y=winner_y,
             owner=owner,
             requested_side=requested_side,
             region_policy=region_policy,
@@ -2331,10 +2314,7 @@ def _place_immediate_queue(
     view,
     dwg,
     ctx,
-    targets,
-    source_by_target,
-    final_y,
-    final_dropped,
+    strip_plan,
     dropped,
     occupied,
     elbow_dx,
@@ -2353,13 +2333,10 @@ def _place_immediate_queue(
     placed: list = []  # (s, elbow_y, leader) — leader built once, reused at emit
     crossing: list = []  # ditto, kept despite an obstacle crossing (policy B)
     text_dropped: list = []  # a label cannot be kept under a pitch witness
-    for target in targets:
-        tid = id(target)
-        s = source_by_target[tid]
-        if tid in final_dropped or tid not in final_y:
+    for s, y in strip_plan.outcomes():
+        if y is None:
             dropped.append(s)
             continue
-        y = final_y[tid]
         leader, tip, elbow = _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, a.SCALE)
         # Check the whole settled sheet; a foreign-view witness can enter this
         # column and the Policy-B fallback below must not cross its text.
@@ -2592,6 +2569,19 @@ def _place_queue(
     targets = [(s[0], s[1], s[2], s[3], y, s[5]) for s, y in preferred]
     source_by_target = {id(target): s for target, (s, _y) in zip(targets, preferred, strict=True)}
     final_y, final_dropped = _carve_and_place(targets, band_intervals, f"{key_prefix}final_", sctx)
+    strip_plan = HoleStripPlan(
+        targets=tuple(targets),
+        source_by_target=source_by_target,
+        final_y=final_y,
+        final_dropped=final_dropped,
+        base_y=base_y,
+        segment_y=seg_y,
+        winner_by_source={
+            id(source_by_target[id(target)]): final_y[id(target)]
+            for target in targets
+            if id(target) in final_y and id(target) not in final_dropped
+        },
+    )
 
     # Automatic annotation and deferred finalize collect these compatible
     # side/plan leaders into the same late inventory as the machined-feature
@@ -2637,12 +2627,7 @@ def _place_queue(
             place_furniture=place_furniture,
             plan=plan,
             furnished=furnished,
-            base_y=base_y,
-            seg_y=seg_y,
-            source_by_target=source_by_target,
-            targets=targets,
-            final_y=final_y,
-            final_dropped=final_dropped,
+            strip_plan=strip_plan,
             obstacle_intervals=obstacle_intervals,
             leader_column_bands=obstacles.columns,
             vb=obstacles.view_bounds,
@@ -2657,10 +2642,7 @@ def _place_queue(
         view=view,
         dwg=dwg,
         ctx=ctx,
-        targets=targets,
-        source_by_target=source_by_target,
-        final_y=final_y,
-        final_dropped=final_dropped,
+        strip_plan=strip_plan,
         dropped=dropped,
         occupied=obstacles.occupied,
         elbow_dx=elbow_dx,
