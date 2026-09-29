@@ -1078,9 +1078,17 @@ def test_hole_recovery_keeps_a_radial_tip_on_its_rim_and_its_owner(monkeypatch):
 
 
 def test_hole_recovery_keeps_routed_callout_claim_and_bounded_candidate_search(monkeypatch):
-    callout = SimpleNamespace(label="⌀8", measurements=("diameter",), source_ids=("hole-1",))
     first = FeatureLeaderCandidate((1.0, 2.0), (8.0, 2.0), "first")
     second = FeatureLeaderCandidate((3.0, 4.0), (9.0, 4.0), "second")
+    measurement = object()
+    requirement = object()
+    callout = SimpleNamespace(
+        label="⌀8",
+        source_ids=("hole-1",),
+        source_measurements=(measurement,),
+        covers_hole_requirements=(requirement,),
+        covers_hole_requirements_by_feature=((second.feature, (requirement,)),),
+    )
     attempts = []
 
     def fallback(_dwg, tip, _view, build_at, build_routed, size):
@@ -1110,6 +1118,9 @@ def test_hole_recovery_keeps_routed_callout_claim_and_bounded_candidate_search(m
     assert result is not None and result[1] == "second"
     assert result[0].label == "⌀8"
     assert result[0].source_ids == ("hole-1",)
+    assert result[0].source_measurements == (measurement,)
+    assert result[0].covers_hole_requirements == (requirement,)
+    assert result[0].covers_hole_requirements_by_feature == ((second.feature, (requirement,)),)
 
 
 def test_immediate_hole_queue_reports_each_loss_and_keeps_policy_b_survivors(monkeypatch):
