@@ -80,6 +80,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_classify_intents",
         "_clear_annotations",
         "_derive_span",
+        "_diagnostics",
         "_drain_intents",
         "_drop_view_coordinates",
         "_edit_ops",
