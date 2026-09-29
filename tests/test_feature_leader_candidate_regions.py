@@ -6,9 +6,9 @@ import pytest
 from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader, draft_preset
 
-from draftwright import Sheet
+from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
 from draftwright.annotations import _hole_leader_placement as hole_leader_placement
-from draftwright.annotations import from_model, holes, leaders
+from draftwright.annotations import from_model, holes, leaders, orchestrator
 from draftwright.annotations import hole_leader_candidates as hole_candidates
 from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
@@ -1113,89 +1113,47 @@ def test_hole_recovery_keeps_routed_callout_claim_and_bounded_candidate_search(m
 
 
 def test_immediate_hole_queue_reports_each_loss_and_keeps_policy_b_survivors(monkeypatch):
-    """A retained shaft crossing cannot hide either a strip or text-ink loss."""
-    labels = ("full", "text", "crossing", "clear")
-    entries = [
-        (
-            (),
-            float(index + 1),
-            SimpleNamespace(label=label, measurements=(label,)),
-            None,
-            float(index),
-            (float(index), 0.0, 0.0),
-        )
-        for index, label in enumerate(labels)
-    ]
-    targets = [object() for _ in entries]
-    source_by_target = {id(target): entry for target, entry in zip(targets, entries, strict=True)}
-    drops = []
-    placed = []
-    scattered = []
-    furniture = []
-    checks = []
-    context = SimpleNamespace(
-        place=lambda annotation, name, **kw: placed.append((annotation.label, name, kw)),
-        coverage=SimpleNamespace(cover_scattered_hole_doc=scattered.append),
-    )
+    """An immediate queue retains a shaft crossing but reports a text collision."""
+    original_annotate = holes._annotate_holes
+    original_ink_clear = holes.annotation_text_ink_clear
+    original_leader_hits = holes._leader_hits
+    contexts = []
+    checked_labels = []
+    crossing_labels = []
 
-    def build(entry, *_args):
-        label = entry[2].label
-        return SimpleNamespace(label=label), (0.0, 0.0), (1.0, 1.0)
+    def immediate(*args, ctx, **kwargs):
+        contexts.append(ctx.feature_leaders)
+        ctx.feature_leaders = None
+        return original_annotate(*args, ctx=ctx, **kwargs)
 
-    def ink_clear(_drawing, annotation):
-        checks.append(annotation.label)
-        return annotation.label != "text"
+    def ink_clear(drawing, leader):
+        checked_labels.append(leader.label)
+        return leader.label != "⌀4 THRU" and original_ink_clear(drawing, leader)
 
-    monkeypatch.setattr(holes, "_build_leader_at", build)
+    def leader_hits(leader, *args):
+        crossing_labels.append(leader.label)
+        return leader.label == "⌀8 THRU" or original_leader_hits(leader, *args)
+
+    monkeypatch.setattr(orchestrator, "_annotate_holes", immediate)
     monkeypatch.setattr(holes, "annotation_text_ink_clear", ink_clear)
-    monkeypatch.setattr(
-        holes, "_leader_hits", lambda annotation, *_args: annotation.label == "crossing"
-    )
-    monkeypatch.setattr(
-        holes,
-        "_record_callout_drop",
-        lambda _ctx, _dwg, _view, _dia, reason, *_args, **_kw: drops.append(reason),
-    )
-    monkeypatch.setattr(
-        holes,
-        "_add_furniture",
-        lambda _dwg, _a, _view, _index, feat, *_args, **_kw: furniture.append(feat),
-    )
+    monkeypatch.setattr(holes, "_leader_hits", leader_hits)
 
-    result = holes._place_immediate_queue(
-        entries,
-        "right",
-        3,
-        sctx=SimpleNamespace(
-            edge=100.0, a=SimpleNamespace(SCALE=1.0), to_page=lambda point: point, draft=object()
-        ),
-        view="plan",
-        dwg=object(),
-        ctx=context,
-        targets=targets,
-        source_by_target=source_by_target,
-        final_y={id(target): float(index) for index, target in enumerate(targets)},
-        final_dropped={id(targets[0])},
-        dropped=[],
-        occupied=(),
-        elbow_dx=2.0,
-        feat_of_callout={},
-        hc_used=set(),
-        only=None,
-        place_furniture=True,
-        plan=object(),
-        furnished=set(),
-    )
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Box(100, 80, 8, align=align)
+    for x, y, radius in ((-30, -20, 2), (-10, 20, 3), (15, -15, 4), (35, 20, 5)):
+        part -= Pos(x, y, 0) * Cylinder(radius, 8, align=align)
 
-    assert checks == ["text", "crossing", "clear"]
-    assert drops == [
-        "right strip full",
-        "no legible room: settled annotation ink crosses the callout text",
-    ]
-    assert [(label, name) for label, name, _kw in placed] == [
-        ("crossing", "hc_plan3"),
-        ("clear", "hc_plan4"),
-    ]
-    assert scattered == ["hc_plan3", "hc_plan4"]
-    assert furniture == [None, None]
-    assert result == 5
+    with pytest.warns(ScaleCompletenessWarning, match="callout_dropped"):
+        drawing = build_drawing(part, page="A4", scale=0.7, scale_policy="permissive")
+
+    assert len(contexts) == 1 and contexts[0] is not None
+    assert set(checked_labels) == {"⌀4 THRU", "⌀6 THRU", "⌀8 THRU", "⌀10 THRU"}
+    assert "⌀8 THRU" in crossing_labels
+    labels = {
+        annotation.label
+        for name, annotation in drawing.iter_annotations()
+        if name.startswith("hc_plan")
+    }
+    assert labels == {"⌀6 THRU", "⌀8 THRU", "⌀10 THRU"}
+    (dropped,) = [issue for issue in drawing.lint() if issue.code == "callout_dropped"]
+    assert "settled annotation ink crosses the callout text" in dropped.message
