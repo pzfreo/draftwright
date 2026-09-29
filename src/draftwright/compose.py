@@ -1641,6 +1641,84 @@ def _layout_geometry(
     step-count estimate (used during scale selection before strips are
     measured); otherwise the measured strip depths are used.
     """
+    state = SimpleNamespace(
+        x_size=x_size,
+        y_size=y_size,
+        z_size=z_size,
+        scale=scale,
+        page_w=page_w,
+        page_h=page_h,
+        tb_w=tb_w,
+        strips=strips,
+        n_steps=n_steps,
+        blocks=blocks,
+        section=section,
+        table_sizes=table_sizes,
+        required_tables=required_tables,
+        warn_no_iso=warn_no_iso,
+        margin=margin,
+        title_block_margins=title_block_margins,
+        arrangement=arrangement,
+        views=views,
+        include_iso=include_iso,
+        iso_scale_factor=iso_scale_factor,
+        convention=convention,
+        derived_view_footprints=derived_view_footprints,
+        _prefer_gutters=_prefer_gutters,
+    )
+    _prepare_layout_blocks(state)
+    _place_orthographic_layout(state)
+    if not _pack_auxiliary_layout(state):
+        return _layout_geometry(
+            x_size,
+            y_size,
+            z_size,
+            scale,
+            page_w,
+            page_h,
+            tb_w,
+            state.strips,
+            n_steps,
+            blocks,
+            section=section,
+            table_sizes=table_sizes,
+            required_tables=required_tables,
+            warn_no_iso=warn_no_iso,
+            margin=margin,
+            title_block_margins=title_block_margins,
+            arrangement=state.arrangement,
+            views=views,
+            include_iso=include_iso,
+            iso_scale_factor=iso_scale_factor,
+            convention=convention,
+            derived_view_footprints=derived_view_footprints,
+            _prefer_gutters=False,
+        )
+    return _layout_fit_result(state)
+
+
+def _prepare_layout_blocks(state: SimpleNamespace) -> None:
+    """Compose selected view blocks and their relative projection origins."""
+    _prefer_gutters = state._prefer_gutters
+    arrangement = state.arrangement
+    blocks = state.blocks
+    convention = state.convention
+    derived_view_footprints = state.derived_view_footprints
+    include_iso = state.include_iso
+    iso_scale_factor = state.iso_scale_factor
+    margin = state.margin
+    n_steps = state.n_steps
+    page_h = state.page_h
+    page_w = state.page_w
+    scale = state.scale
+    section = state.section
+    strips = state.strips
+    tb_w = state.tb_w
+    title_block_margins = state.title_block_margins
+    views = state.views
+    x_size = state.x_size
+    y_size = state.y_size
+    z_size = state.z_size
     # margin is a parameter (default _MARGIN) so a reserved content margin — e.g. the
     # #767 sheet-frame band — flows through BOTH scale selection and placement, which
     # share this one authority. Default keeps every existing caller byte-identical.
@@ -1812,6 +1890,83 @@ def _layout_geometry(
         if present
     ]
 
+    state.margins = margins
+    state.left = left
+    state.right = right
+    state.top = top
+    state.bottom = bottom
+    state.tb_right = tb_right
+    state.tb_bottom = tb_bottom
+    state.reserved_tb_bottom = reserved_tb_bottom
+    state.DIM_PAD = DIM_PAD
+    state.bbox_max = bbox_max
+    state.fv_hw = fv_hw
+    state.fv_hh = fv_hh
+    state.pv_hh = pv_hh
+    state.sv_hw = sv_hw
+    state.section_hw = section_hw
+    state.section_hh = section_hh
+    state.fv = fv
+    state.pv = pv
+    state.sv = sv
+    state.rv = rv
+    state.has_front = has_front
+    state.has_plan = has_plan
+    state.has_side = has_side
+    state.has_rear = has_rear
+    state.has_column = has_column
+    state.view_gutters = view_gutters
+    state.vertical_gutter = vertical_gutter
+    state.side_gutter = side_gutter
+    state.col_left = col_left
+    state.col_right = col_right
+    state.first_angle = first_angle
+    state.composed_origins = composed_origins
+    state.principal_origins = principal_origins
+    state.principal_boxes = principal_boxes
+    state.strips = strips
+
+
+def _place_orthographic_layout(state: SimpleNamespace) -> None:
+    """Resolve the arrangement and place the principal view origins."""
+    DIM_PAD = state.DIM_PAD
+    arrangement = state.arrangement
+    bbox_max = state.bbox_max
+    bottom = state.bottom
+    col_left = state.col_left
+    col_right = state.col_right
+    composed_origins = state.composed_origins
+    first_angle = state.first_angle
+    fv = state.fv
+    has_column = state.has_column
+    has_front = state.has_front
+    has_plan = state.has_plan
+    has_side = state.has_side
+    include_iso = state.include_iso
+    iso_scale_factor = state.iso_scale_factor
+    left = state.left
+    margins = state.margins
+    page_h = state.page_h
+    page_w = state.page_w
+    principal_boxes = state.principal_boxes
+    principal_origins = state.principal_origins
+    pv = state.pv
+    pv_hh = state.pv_hh
+    reserved_tb_bottom = state.reserved_tb_bottom
+    right = state.right
+    scale = state.scale
+    section = state.section
+    section_hw = state.section_hw
+    side_gutter = state.side_gutter
+    strips = state.strips
+    sv = state.sv
+    tb_bottom = state.tb_bottom
+    tb_w = state.tb_w
+    top = state.top
+    vertical_gutter = state.vertical_gutter
+    view_gutters = state.view_gutters
+    x_size = state.x_size
+    y_size = state.y_size
     # FV↔PV vertical gap = fv.top + blank gutter + pv.bottom. Estimated and
     # measured paths now use the same block footprint semantics: if the plan
     # view carries a bottom halo, that band is part of the stacked block layout
@@ -1995,6 +2150,73 @@ def _layout_geometry(
 
     drawable = margins.bounds(page_w, page_h)
 
+    state.fv = fv
+    state.pv = pv
+    state.sv = sv
+    state.arrangement = arrangement
+    state.total_content_w = total_content_w
+    state.x_offset = x_offset
+    state.y_offset = y_offset
+    state.iso_natural = iso_natural
+    state.iso_exact = iso_exact
+    state.section_count = section_count
+    state.FV_X = FV_X
+    state.FV_Y = FV_Y
+    state.PV_X = PV_X
+    state.PV_Y = PV_Y
+    state.SV_X = SV_X
+    state.SV_Y = SV_Y
+    state.RV_X = RV_X
+    state.RV_Y = RV_Y
+    state.outer_right_wall = outer_right_wall
+    state.sv_right_wall = sv_right_wall
+    state.sv_geometry_right = sv_geometry_right
+    state.sv_right = sv_right
+    state.SECTION_X = SECTION_X
+    state.SECTION_Y = SECTION_Y
+    state.drawable = drawable
+
+
+def _pack_auxiliary_layout(state: SimpleNamespace) -> bool:
+    """Reserve the pinned furniture, derived views, tables, and ISO gap."""
+    DIM_PAD = state.DIM_PAD
+    FV_X = state.FV_X
+    FV_Y = state.FV_Y
+    PV_X = state.PV_X
+    PV_Y = state.PV_Y
+    RV_X = state.RV_X
+    RV_Y = state.RV_Y
+    SECTION_X = state.SECTION_X
+    SECTION_Y = state.SECTION_Y
+    SV_X = state.SV_X
+    SV_Y = state.SV_Y
+    _prefer_gutters = state._prefer_gutters
+    blocks = state.blocks
+    bottom = state.bottom
+    derived_view_footprints = state.derived_view_footprints
+    drawable = state.drawable
+    fv = state.fv
+    fv_hh = state.fv_hh
+    fv_hw = state.fv_hw
+    has_front = state.has_front
+    has_plan = state.has_plan
+    has_rear = state.has_rear
+    has_side = state.has_side
+    page_w = state.page_w
+    pv = state.pv
+    pv_hh = state.pv_hh
+    required_tables = state.required_tables
+    rv = state.rv
+    section_count = state.section_count
+    section_hh = state.section_hh
+    section_hw = state.section_hw
+    sv = state.sv
+    sv_hw = state.sv_hw
+    tb_bottom = state.tb_bottom
+    tb_right = state.tb_right
+    tb_w = state.tb_w
+    view_gutters = state.view_gutters
+    warn_no_iso = state.warn_no_iso
     # Title block: a PINNED block.  Its lower-left corner sits _TB_CLEAR in from
     # the right page edge and _TB_CLEAR up from the bottom, _TB_H tall — the same
     # pin the renderer uses in _add_title_block.  Its clearance is the block's
@@ -2096,34 +2318,8 @@ def _layout_geometry(
         derived_obstacles.append(box)
         obstacles.append(box)
     if not derived_views_fit and _prefer_gutters and view_gutters:
-        # The preferred blank space is discretionary; a required derived view
-        # gets first claim on it. Recompose once with the six-mm safety gutter,
-        # still using only box arithmetic inside the sheet/scale search.
-        return _layout_geometry(
-            x_size,
-            y_size,
-            z_size,
-            scale,
-            page_w,
-            page_h,
-            tb_w,
-            strips,
-            n_steps,
-            blocks,
-            section=section,
-            table_sizes=table_sizes,
-            required_tables=required_tables,
-            warn_no_iso=warn_no_iso,
-            margin=margin,
-            title_block_margins=title_block_margins,
-            arrangement=arrangement,
-            views=views,
-            include_iso=include_iso,
-            iso_scale_factor=iso_scale_factor,
-            convention=convention,
-            derived_view_footprints=derived_view_footprints,
-            _prefer_gutters=False,
-        )
+        # Recompose with only the safety gutters before placing required tables.
+        return False
     for size, prefer in required_tables:
         position = fit_auxiliary_box(size, drawable, obstacles, prefer, clearance=2.0)
         if position is None:
@@ -2144,6 +2340,87 @@ def _layout_geometry(
         for o in obstacles
     )
 
+    state.title_block = title_block
+    state.tb_cx = tb_cx
+    state.tb_cy = tb_cy
+    state.section_blocks = section_blocks
+    state.derived_view_boxes = derived_view_boxes
+    state.derived_views_fit = derived_views_fit
+    state.required_tables_fit = required_tables_fit
+    state.required_table_boxes = required_table_boxes
+    state.iso_left = iso_left
+    state.iso_bottom = iso_bottom
+    state.iso_right = iso_right
+    state.iso_top = iso_top
+    state.iso_valid = iso_valid
+    return True
+
+
+def _layout_fit_result(state: SimpleNamespace) -> SimpleNamespace:
+    """Judge page fit from composed footprints and expose the layout contract."""
+    DIM_PAD = state.DIM_PAD
+    FV_X = state.FV_X
+    FV_Y = state.FV_Y
+    PV_X = state.PV_X
+    PV_Y = state.PV_Y
+    RV_X = state.RV_X
+    RV_Y = state.RV_Y
+    SECTION_X = state.SECTION_X
+    SECTION_Y = state.SECTION_Y
+    SV_X = state.SV_X
+    SV_Y = state.SV_Y
+    arrangement = state.arrangement
+    bottom = state.bottom
+    col_right = state.col_right
+    convention = state.convention
+    derived_view_boxes = state.derived_view_boxes
+    derived_views_fit = state.derived_views_fit
+    drawable = state.drawable
+    fv = state.fv
+    fv_hh = state.fv_hh
+    fv_hw = state.fv_hw
+    has_front = state.has_front
+    has_plan = state.has_plan
+    has_rear = state.has_rear
+    has_side = state.has_side
+    include_iso = state.include_iso
+    iso_bottom = state.iso_bottom
+    iso_exact = state.iso_exact
+    iso_left = state.iso_left
+    iso_natural = state.iso_natural
+    iso_right = state.iso_right
+    iso_top = state.iso_top
+    iso_valid = state.iso_valid
+    left = state.left
+    outer_right_wall = state.outer_right_wall
+    page_h = state.page_h
+    page_w = state.page_w
+    pv = state.pv
+    pv_hh = state.pv_hh
+    required_table_boxes = state.required_table_boxes
+    required_tables_fit = state.required_tables_fit
+    reserved_tb_bottom = state.reserved_tb_bottom
+    right = state.right
+    rv = state.rv
+    section_blocks = state.section_blocks
+    side_gutter = state.side_gutter
+    sv = state.sv
+    sv_geometry_right = state.sv_geometry_right
+    sv_hw = state.sv_hw
+    sv_right = state.sv_right
+    sv_right_wall = state.sv_right_wall
+    table_sizes = state.table_sizes
+    tb_bottom = state.tb_bottom
+    tb_cx = state.tb_cx
+    tb_cy = state.tb_cy
+    tb_w = state.tb_w
+    title_block = state.title_block
+    top = state.top
+    total_content_w = state.total_content_w
+    vertical_gutter = state.vertical_gutter
+    view_gutters = state.view_gutters
+    x_offset = state.x_offset
+    y_offset = state.y_offset
     # Does the packed disjoint layout actually fit the sheet? — the fitness the
     # (scale, page) search optimises (#121, ADR 2 (was 0004)).  The union of the three
     # view *footprints* (geometry + bands) must sit inside the drawable area; the
