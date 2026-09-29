@@ -173,6 +173,10 @@ and re-exports the existing private helper names.
     diameter grouping, row/column placement, radial leader jobs, and physical
     rerouting. `from_model.render_diameters` keeps the public pass and supplies
     the shared leader solve and live material predicate.
+  - **`annotations/_locations.py`** — owns compiler-approved hole and circular-seat
+    datum locations, axis furniture, and X/Y corridor candidates. The public
+    `from_model` passes retain their signatures and supply live dimension,
+    corridor-registration, and iso-boundary bindings.
   - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
     in-plane dimension witnesses, corridor candidates, and obround-radius
     candidates. `from_model.render_slots` retains the public pass and submits

@@ -57,6 +57,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
         "thin_profiles": "src/draftwright/annotations/_thin_profiles.py",
         "diameter_family": "src/draftwright/annotations/_diameters.py",
+        "location_family": "src/draftwright/annotations/_locations.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
