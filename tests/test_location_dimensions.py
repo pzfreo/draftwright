@@ -7,7 +7,52 @@ from _drawing_helpers import ink_crossings_named as _ink_crossings_named
 from build123d import Box, Compound, Cylinder, Edge, Pos
 
 from draftwright import build_drawing
-from draftwright.annotations import hole_locations
+from draftwright.annotations import from_model, hole_locations
+
+
+def test_location_facades_resolve_patched_helpers_when_called(monkeypatch):
+    """The stable from_model paths keep their live helper binding after extraction."""
+    captured = {}
+    monkeypatch.setattr(
+        from_model,
+        "_render_locations_owner",
+        lambda *args, **kwargs: captured.update(kwargs) or 0,
+    )
+    assert from_model.render_locations(None, None, None, ctx=None) == 0
+
+    calls = []
+    original_seat_pass = from_model.render_circular_channel_locations
+    monkeypatch.setattr(from_model, "_dim", lambda *args, **kwargs: calls.append("dimension"))
+    monkeypatch.setattr(
+        from_model,
+        "render_circular_channel_locations",
+        lambda *args, **kwargs: calls.append("seat") or 1,
+    )
+    monkeypatch.setattr(
+        from_model,
+        "_location_candidate",
+        lambda *args, **kwargs: calls.append("candidate"),
+    )
+    captured["dim_builder"]()
+    assert captured["seat_locations"]() == 1
+    captured["location_candidate"]()
+    assert calls == ["dimension", "seat", "candidate"]
+
+    captured.clear()
+    monkeypatch.setattr(from_model, "render_circular_channel_locations", original_seat_pass)
+    monkeypatch.setattr(
+        from_model,
+        "_render_circular_channel_locations_owner",
+        lambda *args, **kwargs: captured.update(kwargs) or 0,
+    )
+    assert from_model.render_circular_channel_locations(None, None, None, ctx=None) == 0
+    monkeypatch.setattr(
+        from_model,
+        "_circular_channel_axis_marks",
+        lambda *args, **kwargs: calls.append("axis"),
+    )
+    captured["axis_marks"]()
+    assert calls[-1] == "axis"
 
 
 @pytest.fixture(scope="module")

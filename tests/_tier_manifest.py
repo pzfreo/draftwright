@@ -283,6 +283,18 @@ CONTRACT_GROUPS = {
             "test_compiled_plan_boundary.py",
         ),
     ),
+    "location_family": ContractGroup(
+        ("src/draftwright/annotations/_locations.py",),
+        (
+            "test_location_dimensions.py",
+            "test_issue_1613_circular_channel.py",
+            "test_dynamic_corridors.py",
+            "test_feature_edit_corridors.py",
+            "test_tolerances.py",
+            "test_compiled_plan_boundary.py",
+            "test_refactor_golden.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (

@@ -341,7 +341,7 @@ class TestTheRendererCannotSeeContent:
             ("solve_trace", "SolveTrace.record_escalations"): 1,
             ("_common", "solve_corridor._group_owners"): 1,
             ("_common", "PlacementContext.place"): 1,
-            ("from_model", "render_locations"): 1,
+            ("_locations", "render_locations"): 1,
             # The shared-width prepass reads a second slot's witness geometry so
             # one physical span can carry both owners (#1599).
             # Slot geometry reads moved with the pass implementation; the public
