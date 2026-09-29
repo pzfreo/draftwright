@@ -58,6 +58,8 @@ def _annotation(document: dict[str, Any], name: str) -> dict[str, Any]:
 def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> None:
     assert hashlib.sha256(_FIXTURE.read_bytes()).hexdigest() == _FIXTURE_SHA256
     generated_prefix = tmp_path / "generated"
+    # The estimated-strip profile admits feature-relative interior lanes; the
+    # comparative exterior-only profile rejects them by design.
     generated_script = Path(
         generate_sheet_script(
             str(_FIXTURE),
@@ -66,6 +68,7 @@ def test_ctc01_feature_relative_lanes_preserve_clear_slot_widths(tmp_path) -> No
             page="A2",
             scale=0.2,
             scale_policy="permissive",
+            annotation_layout="estimated-strips",
             pmi="annotate",
             formats=("svg",),
         )

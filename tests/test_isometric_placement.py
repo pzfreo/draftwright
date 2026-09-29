@@ -263,7 +263,9 @@ def test_ctc01_iso_similarity_matches_search_projections_issue_1946(ctc01_iso_ca
         projection_mod._project_iso(drawing, analysis, analysis.SCALE * 1.3)
         grown = _iso_bbox(drawing)
         assert grown[3] > base[3] + 5, "precondition: CTC-01's iso has no upward growth"
-        obstacle = (base[0], (base[3] + grown[3]) / 2, base[2], grown[3])
+        # Keep the blocker off the exact bisection midpoint so the search checks
+        # clearance rather than a strict-overlap tangency.
+        obstacle = (base[0], (base[3] + grown[3]) / 2 + 0.25, base[2], grown[3])
         assert not _boxes_overlap(base, obstacle)
         projection_mod._project_iso(drawing, analysis, analysis.SCALE)
         expected = _assert_iso_search_matches_reprojection(

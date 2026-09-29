@@ -659,7 +659,7 @@ def test_issue915_candidate_covers_hole_routing_on_the_fixed_sheet(monkeypatch, 
 
 
 @pytest.mark.scheduled
-def test_ctc05_public_selector_preserves_routed_hole_claims_on_a2():
+def test_ctc05_public_selector_retains_hole_claims_when_trials_lose_requirements_on_a2():
     from draftwright import build_drawing
 
     drawing = build_drawing(
@@ -675,7 +675,21 @@ def test_ctc05_public_selector_preserves_routed_hole_claims_on_a2():
         annotation_layout="best",
     )
 
-    assert drawing.annotation_scheme_decision["status"] == "candidate"
+    decision = drawing.annotation_scheme_decision
+    assert decision["policy"] == "compare"
+    assert decision["trials"]
+    assert all(trial["verdict"] == "ineligible" for trial in decision["trials"])
+    assert all(not trial["semantic_parity"] for trial in decision["trials"])
+    assert all(
+        trial["quality_key"][1] > decision["baseline_quality_key"][1]
+        for trial in decision["trials"]
+    )
+    assert any(
+        trial["quality_key"][4] < decision["baseline_quality_key"][4]
+        for trial in decision["trials"]
+    )
+    assert decision["status"] == "retained_baseline"
+    assert decision["selected_trial"] is None
     labels = [
         str(annotation.label)
         for name, annotation in drawing.iter_annotations()
