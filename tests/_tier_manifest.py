@@ -165,6 +165,10 @@ CONTRACT_GROUPS = {
             "test_issue_740_leader_assignment.py",
         ),
     ),
+    "strip_postsolve": ContractGroup(
+        ("src/draftwright/annotations/_strip_postsolve.py",),
+        ("test_gdt_ink_shared.py", "test_strip_layout.py", "test_solve_trace.py"),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (

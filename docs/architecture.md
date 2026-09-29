@@ -221,6 +221,10 @@ and re-exports the existing private helper names.
     decomposed occupancy boxes, centerline label clearance, and the shared 1D
     obstacle carve. It owns `_box_hits`; `_common.py` retains the established
     helper import paths.
+  - **`annotations/_strip_postsolve.py`** — required exact-ink resolution after the
+    shared strip solve and final survivor commit with provenance and trace closure.
+    `_common.py` supplies its live placement helpers at call time and retains
+    the established private helper paths.
   - **`annotations/_common.py`** — the ADR 2 (was 0014) corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`), at the bottom of the
