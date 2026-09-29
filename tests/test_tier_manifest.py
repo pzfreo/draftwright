@@ -444,6 +444,17 @@ def test_model_detection_change_runs_turning_and_boss_ownership_contracts():
     } <= selected
 
 
+def test_feature_leader_candidate_owner_runs_region_and_assignment_contracts():
+    source = "src/draftwright/annotations/_leader_candidates.py"
+    assert selected_groups([source]) == {"feature_leader_assignment", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_issue_740_leader_assignment.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
+    } <= selected
+
+
 def test_gdt_owner_runs_declaration_ink_and_fallback_contracts():
     source = "src/draftwright/annotations/_gdt.py"
     assert selected_groups([source]) == {"gdt_family", "placement"}

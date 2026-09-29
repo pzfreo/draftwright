@@ -216,6 +216,10 @@ and re-exports the existing private helper names.
   - **`annotations/_leader_fixed_ink.py`** — exact fixed-annotation component
   lowering for the shared leader solve: metadata strokes, label boxes, and
   residual rendered faces retain bounded work and stable component identities.
+  - **`annotations/_leader_candidates.py`** — typed feature-leader regions and
+  bounded, deterministic interior/exterior expansion of physical anchors before
+  the shared late solve. The established `leaders` imports remain available to
+  feature renderers.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower

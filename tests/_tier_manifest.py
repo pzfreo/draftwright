@@ -207,7 +207,10 @@ CONTRACT_GROUPS = {
         ("test_gdt_ink_shared.py", "test_strip_layout.py", "test_solve_trace.py"),
     ),
     "feature_leader_assignment": ContractGroup(
-        ("src/draftwright/annotations/leaders.py",),
+        (
+            "src/draftwright/annotations/leaders.py",
+            "src/draftwright/annotations/_leader_candidates.py",
+        ),
         (
             "test_feature_leader_candidate_regions.py",
             "test_issue_740_leader_assignment.py",

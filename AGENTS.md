@@ -48,7 +48,8 @@ leader lowering in `_machined_leaders`, analytical dimension ink in `_dimension_
 bounded same-batch label repair in `_dimension_ink_repair`, shared page-space
 placement geometry in `_placement_geometry`, required strip-ink resolution and
 survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
-`_leader_fixed_ink`, plus the optional `solve_trace` recorder;
+`_leader_fixed_ink`, typed feature-leader region expansion in
+`_leader_candidates`, plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
 `intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the
