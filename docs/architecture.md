@@ -191,6 +191,9 @@ and re-exports the existing private helper names.
     routing, mandatory corridor candidates, and deferred above/interior retry with
     measurement-specific refusal evidence. `from_model.render_envelope` retains the
     public pass and supplies its live placement bindings.
+  - **`annotations/_circular_recesses.py`** — owns compiler-approved blind-step and
+    channel callout grouping and the bounded circular-wall leader candidates.
+    The public passes in `from_model` supply live radial and leader placement bindings.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.

@@ -93,6 +93,10 @@ from draftwright.annotations._axial_render import (
 from draftwright.annotations._axial_render import (
     render_step_positions as render_step_positions,
 )
+from draftwright.annotations._circular_recesses import (
+    circular_recess_jobs,
+    circular_step_candidates,
+)
 from draftwright.annotations._common import (
     _SIZE_SUBCHAIN,
     CROSSABLE_TYPES,
@@ -901,86 +905,15 @@ def render_circular_channels(dwg, plan, a, *, ctx, only=None) -> int:
 
 
 def _render_circular_recesses(dwg, plan, a, *, ctx, only, kind, drop_code) -> int:
-    draft = dwg.draft
-    reach = _leader_callout_reach(draft)
-    jobs = []
-    grammar = {
-        "circular_blind_step": (
-            ("circular_step_radius", "radius", "R", ""),
-            ("circular_step_depth", "length", "", " DEEP"),
-        ),
-        "circular_channel": (
-            ("seat_diameter", "diameter", "ø", ""),
-            ("seat_run", "length", "", " LONG"),
-            ("seat_sweep", "angle", "", "° ARC"),
-        ),
-    }[kind]
-    batches: dict[tuple, list] = {}
-    for index, group in enumerate(plan.of_kind(kind)):
-        if only is not None and group.ref not in only:
-            continue
-        dimensions = []
-        text = []
-        for role, dimension_kind, prefix, suffix in grammar:
-            dimension = group.dim(role=role, kind=dimension_kind)
-            if dimension is not None:
-                dimensions.append(dimension)
-                text.append(
-                    f"{prefix}{dimension.value_text}{_tol_suffix(dimension.tolerance, draft)}{suffix}"
-                )
-        if not dimensions or group.view is None:
-            continue
-        # Repeated coaxial seats project onto one arc. A counted callout preserves all
-        # approved dimensions without contesting that same wall with duplicate leaders.
-        key: tuple = (index,)
-        if kind == "circular_channel":
-            run = "xyz".index(group.facts.axis)
-            centre = tuple(value for i, value in enumerate(group.facts.axis_origin) if i != run)
-            key = (
-                group.view,
-                group.facts.axis,
-                centre,
-                tuple(
-                    # Provider interval subtraction can leave a few binary ULPs (6 vs
-                    # 5.999999999999996). Keep original values/ids; only the grouping
-                    # key ignores sub-picometre arithmetic residue. Text must still agree.
-                    (dimension.parameter_id, round(dimension.value, 12), rendered)
-                    for dimension, rendered in zip(dimensions, text, strict=True)
-                ),
-            )
-        batches.setdefault(key, []).append((index, group, dimensions, " × ".join(text)))
-    for members in batches.values():
-        index, group, _dimensions, label = members[0]
-        view = group.view
-        bounds = dwg.view_bounds(view)
-        if bounds is None:
-            continue
-        if len(members) > 1:
-            label = f"{len(members)}× {label}"
-
-        def candidates(members=members, view=view, bounds=bounds, label=label):
-            for _index, member, _dimensions, _text in members:
-                for tip, elbow, owner in _circular_step_candidates(
-                    dwg, view, bounds, member.facts, reach, label, provenance=member.ref
-                ):
-                    # Shared ink retains every measurement identity without making one
-                    # seat's drop erase its siblings' dimensions.
-                    yield tip, elbow, owner if len(members) == 1 else None
-
-        jobs.append(
-            (
-                f"m_{kind}_{group.facts.axis}{index}",
-                view,
-                bounds,
-                label,
-                candidates(),
-                tuple(
-                    dimension.id
-                    for _i, _g, dimensions, _text in members
-                    for dimension in dimensions
-                ),
-            )
-        )
+    jobs = circular_recess_jobs(
+        dwg,
+        plan,
+        only=only,
+        kind=kind,
+        reach=_leader_callout_reach(dwg.draft),
+        tol_suffix=_tol_suffix,
+        step_candidates=lambda *args, **kwargs: _circular_step_candidates(*args, **kwargs),
+    )
     return place_machined_leader_jobs(
         dwg,
         a,
@@ -1510,52 +1443,22 @@ _CIRCULAR_STEP_LEAD_DIRS = _POCKET_LEAD_DIRS[:4]
 
 
 def _circular_step_candidates(dwg, view, bounds, feature, reach, label, *, provenance=None):
-    """Yield solver candidates whose complete analytical leader clears every other view.
-
-    The shared feature-leader solve is deliberately decomposed by semantic view.  A live
-    single-feature replay therefore cannot rely on another view's annotations to represent
-    that view's footprint.  Circular-step end-view leaders are one bounded four-candidate
-    family, so reject routes whose label or shaft enters another composed view before handing
-    the survivors to the same solver used by automatic and deferred placement (#1382).
-    """
-    width, height = _text_size(
-        str(label),
-        float(dwg.draft.font_size),
-        getattr(dwg.draft, "font_path", DEFAULT_FONT_PATH),
-        getattr(dwg.draft, "font", "Arial"),
-    )
-    callout_box = (0.0, 0.0, width, height)
-    pad = max(float(dwg.draft.line_width), float(dwg.draft.arrow_length)) / 2
-    other_views = []
-    for other_view in dwg.views:
-        if other_view == view:
-            continue
-        other = dwg.view_bounds(other_view)
-        if other is not None:
-            other_views.append((other[0] - pad, other[1] - pad, other[2] + pad, other[3] + pad))
-
-    for tip, elbow, owner in _radial_candidates(
+    yield from circular_step_candidates(
         dwg,
         view,
         bounds,
         feature,
         reach,
+        label,
         provenance=provenance,
+        radial_candidates=_radial_candidates,
         directions=_CIRCULAR_STEP_LEAD_DIRS,
-    ):
-        geometry = leader_callout_geometry(tip, elbow, dwg.draft, callout_box=callout_box)
-        if geometry is None:
-            continue
-        label_box, segments = geometry
-        if label_box is None or _box_hits(label_box, other_views):
-            continue
-        if any(
-            _segment_clips_box(first, second, other)
-            for first, second in segments
-            for other in other_views
-        ):
-            continue
-        yield tip, elbow, owner
+        text_size=_text_size,
+        font_path=DEFAULT_FONT_PATH,
+        leader_geometry=leader_callout_geometry,
+        box_hits=_box_hits,
+        segment_clips_box=_segment_clips_box,
+    )
 
 
 def _radial_candidates(
