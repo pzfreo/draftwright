@@ -1,6 +1,7 @@
 """Public build_drawing and Drawing entry-point behavior."""
 
 from collections import Counter
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -112,7 +113,11 @@ def test_build_local_placement_critique_keeps_subclass_lint_dispatch_issue_1945(
 
 @pytest.mark.parametrize(
     "options, minimum_states",
-    [({"scale": 1.0, "scale_policy": "permissive"}, 1), ({"annotation_layout": "compare"}, 2)],
+    [
+        ({}, 1),
+        ({"scale": 1.0, "scale_policy": "permissive"}, 1),
+        ({"annotation_layout": "compare"}, 2),
+    ],
 )
 def test_finished_build_physical_critique_runs_once_per_state_issue_1945(
     monkeypatch, options, minimum_states
@@ -138,6 +143,32 @@ def test_finished_build_physical_critique_runs_once_per_state_issue_1945(
     assert len(after) == len(before) + 1
     assert after[-1].code == "edited_after_build"
     assert drawing.lint_summary()["by_code"]["edited_after_build"] == 1
+
+
+def test_finished_lint_scope_skips_default_and_spans_compare_issue_1945(monkeypatch):
+    import draftwright.builder as builder
+
+    original_scope = builder.reuse_finished_build_lint
+    entered = []
+    depth = 0
+
+    @contextmanager
+    def tracked_scope():
+        nonlocal depth
+        depth += 1
+        entered.append(depth)
+        try:
+            with original_scope():
+                yield
+        finally:
+            depth -= 1
+
+    monkeypatch.setattr(builder, "reuse_finished_build_lint", tracked_scope)
+    build_drawing(Box(30, 20, 10))
+    assert entered == []  # this default request avoids the finished cache scope
+
+    build_drawing(Box(30, 20, 10), annotation_layout="compare")
+    assert entered == [1, 2]  # outer comparison retains the nested explicit trial's evidence
 
 
 def test_post_build_edit_after_critique_gets_fresh_physical_evidence_issue_1945(monkeypatch):

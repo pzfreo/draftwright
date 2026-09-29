@@ -153,6 +153,9 @@ def reuse_finished_build_lint():
 @contextlib.contextmanager
 def suspend_finished_build_lint():
     """Keep attempt assembly and caller hooks outside the finished read scope."""
+    if _BUILD_LINT.get() is None:
+        yield
+        return
     token = _BUILD_LINT.set(None)
     try:
         yield
