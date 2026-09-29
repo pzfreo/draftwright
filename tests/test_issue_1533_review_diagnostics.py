@@ -56,6 +56,20 @@ def test_warning_penalty_is_explained_without_claiming_completeness(monkeypatch)
     json.dumps(summary, allow_nan=False)
 
 
+def test_fidelity_reads_items_after_lint_dispatch(monkeypatch):
+    drawing = build_drawing(Box(20, 15, 10))
+    original_lint = drawing.lint
+
+    def lint():
+        issues = original_lint()
+        drawing.items = []
+        return issues
+
+    monkeypatch.setattr(drawing, "lint", lint)
+
+    assert drawing.lint_summary()["quality"]["fidelity"]["available"] is False
+
+
 def test_explanations_retain_each_existing_outcome_and_bound(drawing):
     summary = drawing.lint_summary()
     coverage = summary["quality"]["completeness"]

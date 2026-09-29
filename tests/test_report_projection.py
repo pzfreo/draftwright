@@ -179,6 +179,21 @@ def test_raw_report_projects_recorded_detail_extent_without_claiming_coverage(fr
     json.dumps(report, allow_nan=False)
 
 
+def test_report_reads_detail_decisions_after_lint_dispatch(fresh_drawing, monkeypatch):
+    drawing = fresh_drawing("through_step_report")
+    original_lint = drawing.lint
+    decision = {"status": "skipped", "reason": "probe"}
+
+    def lint():
+        issues = original_lint()
+        drawing.detail_decisions = [decision]
+        return issues
+
+    monkeypatch.setattr(drawing, "lint", lint)
+
+    assert drawing.report()["layout"]["detail"]["requests"] == [decision]
+
+
 def test_grouped_occurrences_share_one_physical_requirement_ledger() -> None:
     report = build_drawing(_grouped_holes_part()).report()
     recognition = report["recognition"]

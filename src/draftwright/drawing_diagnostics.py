@@ -199,7 +199,6 @@ class DiagnosticOperations:
         self.page_w = drawing.page_w
         self.page_h = drawing.page_h
         self.drawable_bounds = drawing.drawable_bounds
-        self.detail_decisions = drawing.detail_decisions
         self.model = drawing.model
         self.recognition_evidence = drawing.recognition_evidence
         self.recognition_ownership = drawing.recognition_ownership
@@ -262,7 +261,7 @@ class DiagnosticOperations:
                     dimension_plan=snapshot.dimension_plan,
                     part=snapshot.part,
                     requirement_outcomes=snapshot.outcomes,
-                    detail_decisions=tuple(self.detail_decisions),
+                    detail_decisions=tuple(self.drawing.detail_decisions),
                 )
                 report["recognition"] = source_report["recognition"]
             return report
@@ -281,7 +280,7 @@ class DiagnosticOperations:
             dimension_plan=snapshot.dimension_plan,
             part=snapshot.part,
             requirement_outcomes=snapshot.outcomes,
-            detail_decisions=tuple(self.detail_decisions),
+            detail_decisions=tuple(self.drawing.detail_decisions),
         )
 
     def requirement_snapshot(self, *, include_lint=False):
@@ -459,7 +458,7 @@ class DiagnosticOperations:
             ownership=self.build.recognition_ownership,
             omissions=self.build.omissions,
             working_part=self.working_part,
-            items=self.items,
+            items=self.drawing.items,
             model_declared=self.model_declared,
             layout_utilization=self.drawing.layout_utilization,
             report_requirements=report_requirements,
