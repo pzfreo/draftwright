@@ -97,8 +97,6 @@ _LAYERS: dict[str, int] = {
     "layout": 0,
     # Stable import path only; semantic survival policy is owned by layout.
     "obligations": 1,
-    # Typed, render-free annotation topology consumed by compose/analysis and render ordering.
-    "layout_scheme": 0,
     "annotation_layout_profile": 1,
     # Stable import path; annotation_layout_profile owns the coordinate-free policy.
     "leader_policy": 1,
@@ -108,7 +106,6 @@ _LAYERS: dict[str, int] = {
     "view_plan": 0,
     "intents": 5,  # Stable import path; intent_routing owns the deferred record.
     "recognition": 0,
-    "recognition_cache": 0,
     "recognition_ownership": 0,
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
@@ -155,9 +152,15 @@ _LAYERS: dict[str, int] = {
     "repair": 2,
     "projection": 2,
     "compose": 2,
+    # Render-free corridor demand planning consumes the model's approved groups;
+    # compose and later stages consume its typed topology.
+    "layout_scheme": 2,
     "auxiliary_layout": 2,
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
+    # Recognition lifecycle state is used by analysis and later build owners; it imports
+    # the rank-0 progress observer, so it is not itself a bottom leaf.
+    "recognition_cache": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
     # Family (including imported authored PMI), machined leader lowering,
     # analytical ink/repair, placement geometry, strip postsolve, solve trace,
@@ -358,6 +361,49 @@ def _submodule(full: tuple[str, ...]) -> str:
 
 def _all_sources() -> list[Path]:
     return [p for p in sorted(_SRC.rglob("*.py")) if "__pycache__" not in p.parts]
+
+
+# Rank 0 still includes the IR waist and other shared helpers whose imports must be
+# untangled before the strict-leaf exit. Keep the exception set exact: a new rank-0
+# importer cannot appear silently, and removing one requires shrinking this set.
+_RANK_ZERO_TRANSITIONAL_IMPORTERS = frozenset(
+    {
+        "measurement_support.py",
+        "model/__init__.py",
+        "model/callout.py",
+        "model/compiled.py",
+        "model/declare.py",
+        "model/detect.py",
+        "model/dimension_intent.py",
+        "model/ir.py",
+        "model/ir_foundation.py",
+        "model/manufacturing_schedule.py",
+        "model/planner.py",
+        "model/pmi_lowering.py",
+        "oriented_slot_contract.py",
+        "plate_correspondence.py",
+        "profile_angles.py",
+        "recognition_frame.py",
+        "recognition_ownership.py",
+    }
+)
+
+
+def test_rank_zero_leaf_exceptions_only_shrink():
+    """Every rank-0 file outside the explicit transition set imports no package module.
+
+    Include runtime, type-only and lazy imports: the eventual strict leaf rule applies
+    to all three, even though only runtime edges participate in the module DAG.
+    """
+    importers = {
+        str(path.relative_to(_SRC))
+        for path in _all_sources()
+        if _LAYERS[_submodule(_module_full(path))] == 0 and any(_classify(path).values())
+    }
+    assert importers == _RANK_ZERO_TRANSITIONAL_IMPORTERS, (
+        "Rank-0 package importers changed; move new dependencies above rank 0 or shrink "
+        f"the transitional set after extraction: {sorted(importers ^ _RANK_ZERO_TRANSITIONAL_IMPORTERS)}"
+    )
 
 
 def test_every_module_is_ranked():
