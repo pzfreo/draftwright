@@ -172,7 +172,8 @@ class TestTheEvaluationModuleStaysCheapToImport:
 
         def module_scope_imports(node):
             for child in ast.iter_child_nodes(node):
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                # Class bodies execute at import time; only function bodies stay lazy.
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 if isinstance(child, (ast.Import, ast.ImportFrom)):
                     yield child
