@@ -211,7 +211,7 @@ class TestDetailView:
             return None
 
         monkeypatch.setattr(sections, "_fuzzy_cut", controlled_cut)
-        with caplog.at_level("INFO"):
+        with caplog.at_level("INFO", logger="draftwright._core"):
             assert not sections._render_detail(
                 drawing, analysis, request, "detail_a", "A", ctx=None
             )
