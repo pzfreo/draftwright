@@ -61,7 +61,11 @@ def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
 
 def test_scale_policy_change_runs_scale_and_arrangement_contracts():
     selected = set(pr_modules(_TESTS, ["src/draftwright/build_policy.py"]))
-    assert {"test_issue_1146_scale_completeness.py", "test_arrangement_gate.py"} <= selected
+    assert {
+        "test_issue_1146_scale_completeness.py",
+        "test_issue_1299_page_escalation.py",
+        "test_arrangement_gate.py",
+    } <= selected
 
 
 def test_turned_step_evidence_change_runs_its_physical_correspondence_contract():
