@@ -10,6 +10,7 @@ import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import tee
+from typing import Any
 
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
@@ -39,40 +40,31 @@ class MachinedLeaderBindings:
     place_feature_leader_jobs: Callable[..., int]
 
 
-def place_machined_leader_jobs(
-    dwg,
-    a,
-    jobs,
-    *,
-    noun,
-    drop_code,
-    ctx,
-    geom_clear=False,
-    joint=False,
-    expand_lanes=True,
-    region_policy=LeaderRegionPolicy.EXTERIOR,
-    source_ids_by_name=None,
-    source_drop_severity="warning",
-    priority=0.0,
-    straight_only_names=frozenset(),
-    bindings: MachinedLeaderBindings,
-) -> int:
-    """Lower every machined callout to the one shared ``FeatureLeaderJob`` path.
+@dataclass
+class _MachinedJobContext:
+    """Shared bindings and placement policy for one machined feature family."""
 
-    Post-drain families join the canonical late inventory.  Pre-drain families
-    are solved immediately through that same analytical machinery with its lazy
-    producer floor, preserving both their semantic stage and first-clear order.
-    ``region_policy`` lets a later compiler stage opt a complete feature family
-    into the shared region adapter without changing other producers.
-    """
+    dwg: Any
+    a: Any
+    ctx: Any
+    bindings: MachinedLeaderBindings
+    noun: str
+    drop_code: str
+    geom_clear: bool
+    expand_lanes: bool
+    region_policy: LeaderRegionPolicy
+    priority: float
+    source_ids_by_name: dict
+    source_drop_severity: str
+    straight_only_names: frozenset
+    late_inventory: bool
+    interior_clearance_by_view: dict
 
-    source_ids_by_name = source_ids_by_name or {}
-    family_region_policy = LeaderRegionPolicy(region_policy)
-    late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
-    feature_jobs = []
-    interior_clearance_by_view = {}
-    for name, view, silhouette, label, raw_candidates, measurement in jobs:
-        straight_only = name in straight_only_names
+    def lower(self, row) -> FeatureLeaderJob:
+        """Lower one semantic job in its own closure frame before the next is read."""
+        name, view, silhouette, label, raw_candidates, measurement = row
+        bindings, dwg = self.bindings, self.dwg
+        straight_only = name in self.straight_only_names
         visible_label = bindings.wrap_callout_text(str(label), dwg.draft.font_size)
         (
             joint_interior_anchors,
@@ -93,88 +85,20 @@ def place_machined_leader_jobs(
             else None
         )
 
-        def _analytical_geometry(tip, elbow, _feature, *, _label_box=label_box):
-            if _label_box is None:
+        def analytical_geometry(tip, elbow, _feature):
+            if label_box is None:
                 return None
-            return bindings.leader_callout_geometry(tip, elbow, dwg.draft, callout_box=_label_box)
+            return bindings.leader_callout_geometry(tip, elbow, dwg.draft, callout_box=label_box)
 
         effective_region_policy = bindings.effective_leader_region_policy(
-            family_region_policy,
-            getattr(a, "leader_region", "auto"),
+            self.region_policy, getattr(self.a, "leader_region", "auto")
         )
         if (
             effective_region_policy is not LeaderRegionPolicy.EXTERIOR
-            and view not in interior_clearance_by_view
+            and view not in self.interior_clearance_by_view
         ):
-            interior_clearance_by_view[view] = bindings.view_label_clearance(dwg, view)
-        interior_label_clear = interior_clearance_by_view.get(view)
-
-        def _lane_candidates(
-            _interior_anchors=joint_interior_anchors,
-            _exterior_anchors=joint_exterior_anchors,
-            _silhouette=silhouette,
-            _analytical_geometry=_analytical_geometry,
-            _interior_label_clear=interior_label_clear,
-            _region_policy=effective_region_policy,
-            _straight_only=straight_only,
-        ):
-            if _straight_only:
-                yield from _exterior_anchors
-                return
-            spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
-            interior_count = 0
-            if late_inventory and _region_policy is not LeaderRegionPolicy.EXTERIOR:
-                # Expand the complete semantic job in one call.  Calling the adapter
-                # once per physical anchor would turn its per-feature cap into
-                # ``anchors × cap`` for grouped fillets and polygonal bosses.
-                for candidate in bindings.feature_leader_candidates(
-                    _interior_anchors,
-                    region_policy=LeaderRegionPolicy.INTERIOR,
-                    silhouette=_silhouette,
-                    analytical_geometry=_analytical_geometry,
-                    draft=dwg.draft,
-                    interior_label_clear=_interior_label_clear,
-                ):
-                    yield candidate
-                    interior_count += 1
-                if _region_policy is LeaderRegionPolicy.INTERIOR:
-                    return
-            for tip, elbow, feature in _exterior_anchors:
-                if interior_count:
-                    # Once this job has proven projected-clear interior options,
-                    # retain one exterior alternative per semantic anchor instead
-                    # of multiplying every anchor by nine compatibility lanes.  A
-                    # job with no interior option keeps all exterior lanes below;
-                    # AUTO's resource fallback preserves those exterior options.
-                    yield (tip, elbow, feature)
-                    continue
-                dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
-                length = math.hypot(dx, dy)
-                if length <= 1e-12:
-                    yield (tip, elbow, feature)
-                    continue
-                ux, uy = dx / length, dy / length
-                px, py = -dy / length, dx / length
-                for outward, lane in (
-                    (0, 0),
-                    (0, 1),
-                    (0, -1),
-                    (0, 2),
-                    (0, -2),
-                    (1, 0),
-                    (2, 0),
-                    (1, 1),
-                    (1, -1),
-                ):
-                    yield (
-                        tip,
-                        (
-                            float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
-                            float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
-                            0,
-                        ),
-                        feature,
-                    )
+            self.interior_clearance_by_view[view] = bindings.view_label_clearance(dwg, view)
+        interior_label_clear = self.interior_clearance_by_view.get(view)
 
         source_features = tuple(
             {
@@ -184,21 +108,14 @@ def place_machined_leader_jobs(
             }.values()
         )
 
-        def _decorate(
-            leader,
-            *,
-            _source_features=source_features,
-            _measurement=measurement,
-            _semantic_label=label,
-            _visible_label=visible_label,
-        ):
-            if _semantic_label != _visible_label:
-                leader.label = _semantic_label
-                leader.pdf_text = _visible_label
-            leader.source_features = _source_features
+        def decorate(leader):
+            if label != visible_label:
+                leader.label = label
+                leader.pdf_text = visible_label
+            leader.source_features = source_features
             grouping_features = {
                 id(identity.feature): identity.feature
-                for identity in _measurement
+                for identity in measurement
                 if getattr(identity, "parameter", None) == "grouping.count"
                 and getattr(identity, "feature", None) is not None
             }
@@ -206,207 +123,277 @@ def place_machined_leader_jobs(
                 leader.covers_count = len(grouping_features)
             return leader
 
-        def _build(tip, elbow, _feature, *, _label=visible_label, _decorate_fn=_decorate):
-            return _decorate_fn(
+        def build(tip, elbow, _feature):
+            return decorate(
                 bindings.Leader(
-                    tip=(tip[0], tip[1], 0), elbow=elbow, label=_label, draft=dwg.draft
+                    tip=(tip[0], tip[1], 0), elbow=elbow, label=visible_label, draft=dwg.draft
                 )
             )
 
-        def _recover(
-            _anchors=recovery_anchors,
-            _view=view,
-            _label=visible_label,
-            _label_size=(label_width, label_height),
-            _build_fn=_build,
-            _decorate_fn=_decorate,
-        ):
-            for raw in _anchors:
-                candidate = (
-                    raw
-                    if isinstance(raw, FeatureLeaderCandidate)
-                    else FeatureLeaderCandidate(raw[0], raw[1], raw[2])
-                )
-                tip, original_elbow, feature = (
-                    candidate.tip,
-                    candidate.elbow,
-                    candidate.feature,
-                )
-                search_tip = tip
-                normal_stub = None
-                if candidate.radial_target is not None:
-                    dx = float(original_elbow[0]) - float(tip[0])
-                    dy = float(original_elbow[1]) - float(tip[1])
-                    length = math.hypot(dx, dy)
-                    if length <= 1e-9:
-                        continue
-                    stub_length = min(
-                        length,
-                        max(
-                            dwg.draft.arrow_length, dwg.draft.font_size + dwg.draft.pad_around_text
-                        ),
-                    )
-                    normal_stub = (
-                        float(tip[0]) + dx * stub_length / length,
-                        float(tip[1]) + dy * stub_length / length,
-                    )
-                    search_tip = normal_stub
-
-                def build_at(elbow, _tip=tip, _feature=feature):
-                    if normal_stub is not None:
-                        return _decorate_fn(
-                            bindings.RoutedLeader(_tip, (normal_stub,), elbow, _label, dwg.draft)
-                        )
-                    return _build_fn(_tip, (*elbow, 0), _feature)
-
-                def build_routed(bends, elbow, _tip=tip):
-                    route_bends = (normal_stub, *bends) if normal_stub is not None else bends
-                    return _decorate_fn(
-                        bindings.RoutedLeader(_tip, route_bends, elbow, _label, dwg.draft)
-                    )
-
-                annotation = bindings.sheet_leader_fallback(
-                    dwg,
-                    search_tip,
-                    _view,
-                    build_at,
-                    build_routed,
-                    _label_size,
-                )
-                if annotation is not None:
-                    return annotation, feature
-            return None
-
-        def _fallback_accept(
-            candidate,
-            obstacles,
-            page,
-            *,
-            _silhouette=silhouette,
-            _geom_clear=geom_clear,
-            _label=label,
-        ):
+        def fallback_accept(candidate, obstacles, page):
             if candidate.region is LeaderCandidateRegion.INTERIOR:
                 return True
             return bindings.analytical_leader_lands_clear(
-                candidate,
-                obstacles,
-                _silhouette,
-                page,
-                label=_label,
-                geom_clear=_geom_clear,
+                candidate, obstacles, silhouette, page, label=label, geom_clear=self.geom_clear
             )
 
-        source_ids = tuple(source_ids_by_name.get(name, ()))
-
-        def _exterior_floor(_anchors=fallback_exterior_anchors):
-            for raw in _anchors:
+        def exterior_floor():
+            for raw in fallback_exterior_anchors:
                 candidate = raw if isinstance(raw, FeatureLeaderCandidate) else None
                 if candidate is None or candidate.region is LeaderCandidateRegion.EXTERIOR:
                     yield raw
 
-        def _compact_candidates(
-            _anchors,
-            *,
-            _policy=effective_region_policy,
-        ):
-            for raw in _anchors:
+        def compact_candidates(anchors, policy):
+            for raw in anchors:
                 candidate = (
                     raw
                     if isinstance(raw, FeatureLeaderCandidate)
                     else FeatureLeaderCandidate(*raw)
                 )
                 if (
-                    _policy is LeaderRegionPolicy.AUTO
+                    policy is LeaderRegionPolicy.AUTO
                     or (
-                        _policy is LeaderRegionPolicy.INTERIOR
+                        policy is LeaderRegionPolicy.INTERIOR
                         and candidate.region is LeaderCandidateRegion.INTERIOR
                     )
                     or (
-                        _policy is LeaderRegionPolicy.EXTERIOR
+                        policy is LeaderRegionPolicy.EXTERIOR
                         and candidate.region is LeaderCandidateRegion.EXTERIOR
                     )
                 ):
                     yield candidate if isinstance(raw, FeatureLeaderCandidate) else raw
 
-        def _on_drop(
-            reason,
-            *,
-            _source_ids=source_ids,
-            _label=label,
-            _measurement=measurement,
-        ):
+        source_ids = tuple(self.source_ids_by_name.get(name, ()))
+
+        def on_drop(reason):
             validation = reason == "geometry_validation"
             detail = "rendered geometry validation failed" if validation else "no clear room"
             severity = (
-                ("error" if _source_ids else "warning")
-                if source_drop_severity == "source"
-                else source_drop_severity
+                ("error" if source_ids else "warning")
+                if self.source_drop_severity == "source"
+                else self.source_drop_severity
             )
-            ctx.record_issue(
+            self.ctx.record_issue(
                 severity,
-                drop_code,
-                f"{noun} callout {_label} not placed ({detail})",
-                measurement=_measurement,
-                source=_source_ids,
+                self.drop_code,
+                f"{self.noun} callout {label} not placed ({detail})",
+                measurement=measurement,
+                source=source_ids,
                 outcome_stage="validation" if validation else "placement",
             )
 
-        if late_inventory:
+        if self.late_inventory:
             candidates = (
-                _lane_candidates() if expand_lanes else _compact_candidates(joint_exterior_anchors)
+                self.lane_candidates(
+                    joint_interior_anchors,
+                    joint_exterior_anchors,
+                    silhouette,
+                    analytical_geometry,
+                    interior_label_clear,
+                    effective_region_policy,
+                    straight_only,
+                )
+                if self.expand_lanes
+                else compact_candidates(joint_exterior_anchors, effective_region_policy)
             )
             if effective_region_policy is LeaderRegionPolicy.INTERIOR:
                 fallback_candidates = (
-                    _lane_candidates(
-                        _interior_anchors=fallback_interior_anchors,
-                        _exterior_anchors=fallback_exterior_anchors,
-                    )
-                    if expand_lanes
-                    else _compact_candidates(
+                    self.lane_candidates(
+                        fallback_interior_anchors,
                         fallback_exterior_anchors,
-                        _policy=LeaderRegionPolicy.INTERIOR,
+                        silhouette,
+                        analytical_geometry,
+                        interior_label_clear,
+                        effective_region_policy,
+                        straight_only,
                     )
+                    if self.expand_lanes
+                    else compact_candidates(fallback_exterior_anchors, LeaderRegionPolicy.INTERIOR)
                 )
             else:
-                # AUTO's bounded-resource fallback remains the exact established
-                # exterior floor; extra interior anchors must not displace a complete
-                # incumbent. EXTERIOR naturally uses that same floor.
-                fallback_candidates = _exterior_floor()
+                fallback_candidates = exterior_floor()
         else:
             candidates = joint_exterior_anchors
-            fallback_candidates = _exterior_floor()
+            fallback_candidates = exterior_floor()
 
-        feature_jobs.append(
-            FeatureLeaderJob(
-                name=name,
-                view=view,
-                silhouette=silhouette,
-                label=label,
-                candidates=candidates,
-                build=_build,
-                analytical_geometry=_analytical_geometry,
-                measurement=tuple(measurement),
-                noun=noun,
-                drop_code=drop_code,
-                priority=priority,
-                fallback_candidates=fallback_candidates,
-                fallback_accept=_fallback_accept,
-                interior_label_clear=interior_label_clear,
-                allow_policy_b_fixed=True,
-                on_drop=(_on_drop if source_ids or source_drop_severity == "source" else None),
-                recover=None if straight_only else _recover,
+        def recover():
+            return self.recover(
+                recovery_anchors, view, visible_label, (label_width, label_height), build, decorate
             )
+
+        return FeatureLeaderJob(
+            name=name,
+            view=view,
+            silhouette=silhouette,
+            label=label,
+            candidates=candidates,
+            build=build,
+            analytical_geometry=analytical_geometry,
+            measurement=tuple(measurement),
+            noun=self.noun,
+            drop_code=self.drop_code,
+            priority=self.priority,
+            fallback_candidates=fallback_candidates,
+            fallback_accept=fallback_accept,
+            interior_label_clear=interior_label_clear,
+            allow_policy_b_fixed=True,
+            on_drop=(on_drop if source_ids or self.source_drop_severity == "source" else None),
+            recover=None if straight_only else recover,
         )
 
-    if late_inventory:
+    def lane_candidates(
+        self,
+        interior_anchors,
+        exterior_anchors,
+        silhouette,
+        analytical_geometry,
+        interior_label_clear,
+        region_policy,
+        straight_only,
+    ):
+        """Yield interior choices before the exact exterior compatibility lanes."""
+        if straight_only:
+            yield from exterior_anchors
+            return
+        dwg, bindings = self.dwg, self.bindings
+        spacing = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
+        interior_count = 0
+        if self.late_inventory and region_policy is not LeaderRegionPolicy.EXTERIOR:
+            for candidate in bindings.feature_leader_candidates(
+                interior_anchors,
+                region_policy=LeaderRegionPolicy.INTERIOR,
+                silhouette=silhouette,
+                analytical_geometry=analytical_geometry,
+                draft=dwg.draft,
+                interior_label_clear=interior_label_clear,
+            ):
+                yield candidate
+                interior_count += 1
+            if region_policy is LeaderRegionPolicy.INTERIOR:
+                return
+        for tip, elbow, feature in exterior_anchors:
+            if interior_count:
+                yield (tip, elbow, feature)
+                continue
+            dx, dy = float(elbow[0]) - float(tip[0]), float(elbow[1]) - float(tip[1])
+            length = math.hypot(dx, dy)
+            if length <= 1e-12:
+                yield (tip, elbow, feature)
+                continue
+            ux, uy = dx / length, dy / length
+            px, py = -dy / length, dx / length
+            for outward, lane in (
+                (0, 0),
+                (0, 1),
+                (0, -1),
+                (0, 2),
+                (0, -2),
+                (1, 0),
+                (2, 0),
+                (1, 1),
+                (1, -1),
+            ):
+                yield (
+                    tip,
+                    (
+                        float(elbow[0]) + ux * spacing * outward + px * spacing * lane,
+                        float(elbow[1]) + uy * spacing * outward + py * spacing * lane,
+                        0,
+                    ),
+                    feature,
+                )
+
+    def recover(self, anchors, view, label, label_size, build, decorate):
+        """Attempt the original local sheet route after the joint solve."""
+        bindings, dwg = self.bindings, self.dwg
+        for raw in anchors:
+            candidate = (
+                raw
+                if isinstance(raw, FeatureLeaderCandidate)
+                else FeatureLeaderCandidate(raw[0], raw[1], raw[2])
+            )
+            tip, original_elbow, feature = candidate.tip, candidate.elbow, candidate.feature
+            search_tip = tip
+            normal_stub = None
+            if candidate.radial_target is not None:
+                dx = float(original_elbow[0]) - float(tip[0])
+                dy = float(original_elbow[1]) - float(tip[1])
+                length = math.hypot(dx, dy)
+                if length <= 1e-9:
+                    continue
+                stub_length = min(
+                    length,
+                    max(dwg.draft.arrow_length, dwg.draft.font_size + dwg.draft.pad_around_text),
+                )
+                normal_stub = (
+                    float(tip[0]) + dx * stub_length / length,
+                    float(tip[1]) + dy * stub_length / length,
+                )
+                search_tip = normal_stub
+
+            def build_at(elbow, _tip=tip, _feature=feature):
+                if normal_stub is not None:
+                    return decorate(
+                        bindings.RoutedLeader(_tip, (normal_stub,), elbow, label, dwg.draft)
+                    )
+                return build(_tip, (*elbow, 0), _feature)
+
+            def build_routed(bends, elbow, _tip=tip):
+                route_bends = (normal_stub, *bends) if normal_stub is not None else bends
+                return decorate(bindings.RoutedLeader(_tip, route_bends, elbow, label, dwg.draft))
+
+            annotation = bindings.sheet_leader_fallback(
+                dwg, search_tip, view, build_at, build_routed, label_size
+            )
+            if annotation is not None:
+                return annotation, feature
+        return None
+
+
+def place_machined_leader_jobs(
+    dwg,
+    a,
+    jobs,
+    *,
+    noun,
+    drop_code,
+    ctx,
+    geom_clear=False,
+    joint=False,
+    expand_lanes=True,
+    region_policy=LeaderRegionPolicy.EXTERIOR,
+    source_ids_by_name=None,
+    source_drop_severity="warning",
+    priority=0.0,
+    straight_only_names=frozenset(),
+    bindings: MachinedLeaderBindings,
+) -> int:
+    """Lower machined callouts into the shared immediate or late leader solve."""
+    source_ids_by_name = source_ids_by_name or {}
+    family_region_policy = LeaderRegionPolicy(region_policy)
+    late_inventory = joint and getattr(ctx, "feature_leaders", None) is not None
+    family = _MachinedJobContext(
+        dwg=dwg,
+        a=a,
+        ctx=ctx,
+        bindings=bindings,
+        noun=noun,
+        drop_code=drop_code,
+        geom_clear=geom_clear,
+        expand_lanes=expand_lanes,
+        region_policy=family_region_policy,
+        priority=priority,
+        source_ids_by_name=source_ids_by_name,
+        source_drop_severity=source_drop_severity,
+        straight_only_names=straight_only_names,
+        late_inventory=late_inventory,
+        interior_clearance_by_view={},
+    )
+    feature_jobs = [family.lower(row) for row in jobs]
+    if family.late_inventory:
         for job in feature_jobs:
             bindings.collect_feature_leader(ctx, job)
         return 0
     return bindings.place_feature_leader_jobs(
-        dwg,
-        a,
-        ctx,
-        feature_jobs,
-        producer_floor=not late_inventory,
+        dwg, a, ctx, feature_jobs, producer_floor=not family.late_inventory
     )
