@@ -360,7 +360,10 @@ class TestTheRendererCannotSeeContent:
             ("holes", "_place_pitch_dim._place"): 1,
             ("leaders", "_candidate_hits_component"): 1,
             ("leaders", "place_feature_leader_jobs.place"): 1,
-            ("orchestrator", "_maybe_tabulate_holes_impl"): 7,
+            # Table completion owns the three existing registration reads after
+            # the hole-table stage split; the total inventory remains seven.
+            ("orchestrator", "_maybe_tabulate_holes_impl"): 4,
+            ("orchestrator", "_register_completed_hole_table"): 3,
         }
 
     def test_the_provenance_handle_exposes_no_measurement(self):
