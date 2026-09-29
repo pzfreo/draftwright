@@ -400,6 +400,7 @@ CONTRACT_GROUPS = {
             "test_boss_ownership.py",
             "test_declared_recognition_gate.py",
             "test_external_recognition_boundary.py",
+            "test_gusset_rib_semantics.py",
             "test_issue_1357_plural_turned_profiles.py",
             "test_issue_1596_bolt_circle_corroboration.py",
             "test_issue_1612_frame_sergio_coverage.py",
