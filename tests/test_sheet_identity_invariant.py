@@ -508,25 +508,28 @@ class TestDeliberateInvalidation:
         with pytest.raises(ValueError, match="no longer on the sheet"):
             s.model()
 
-    def test_replacing_through_the_public_view_raises(self):
-        """Assignment cannot tell "move this feature here" from "put a different feature here",
-        so it mints — and the old reference must fail rather than transfer to the newcomer."""
+    @pytest.mark.parametrize("oracle", ["decorations", "model"])
+    @pytest.mark.parametrize("mutation", ["tuple_swap", "slice_permutation", "replacement"])
+    def test_public_assignment_invalidates_references(self, mutation, oracle):
+        """Every public assignment mints identity; neither retained state path may retarget."""
         s, _a = self._two_holes()
-        s.features[0] = HoleFeature(Frame((9, 9, 9), "z"), 1.0, depth=None, through=True)
-        with pytest.raises(ValueError, match="no longer on the sheet"):
-            s.model()
 
-    def test_a_tuple_swap_raises(self):
-        s, _a = self._two_holes()
-        s.features[0], s.features[1] = s.features[1], s.features[0]
-        with pytest.raises(ValueError, match="no longer on the sheet"):
-            s.model()
+        def referenced_diameters():
+            if oracle == "decorations":
+                return [f.diameter for f, *_ in s._decorations() if hasattr(f, "diameter")]
+            return [k[0].diameter for k in s.model().decorations if hasattr(k[0], "diameter")]
 
-    def test_a_slice_permutation_raises(self):
-        s, _a = self._two_holes()
-        s.features[:] = s.features[::-1]
+        assert referenced_diameters() == [10.0], "the target must carry a live tolerance"
+        if mutation == "tuple_swap":
+            s.features[0], s.features[1] = s.features[1], s.features[0]
+        elif mutation == "slice_permutation":
+            s.features[:] = s.features[::-1]
+        else:
+            s.features[0] = HoleFeature(Frame((9, 9, 9), "z"), 1.0, depth=None, through=True)
+        assert s.features[0].diameter != 10.0, "the assignment must change the target slot"
+
         with pytest.raises(ValueError, match="no longer on the sheet"):
-            s.model()
+            referenced_diameters()
 
     def test_a_sanctioned_size_verb_does_not_invalidate(self):
         """The contrast case: `.depth()` replaces the frozen dataclass with an updated copy of
