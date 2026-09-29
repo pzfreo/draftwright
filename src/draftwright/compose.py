@@ -1334,16 +1334,8 @@ def choose_scale(
     if not candidates:
         raise ValueError("sheet margins and title-block width leave no feasible sheet area")
 
-    # ADR 2 (was 0018 §5): this loop is the planner's candidate evaluation, and it is now expressed as
-    # one. Each tuple becomes a `LayoutCandidate` carrying all four dimensions — view set,
-    # scale, sheet, arrangement — and is judged by `candidate_is_feasible`, which names the
-    # gates rather than returning a bare `False`.
-    #
-    # Two of the four are still singular: every candidate has the third-angle three and the
-    # `columns` arrangement, because nothing generates alternatives yet. That is the point of
-    # doing it in this order — varying them becomes an addition to the generator below, not a
-    # rewrite of the loop, and the rejections become a list a diagnostic can print instead of a
-    # warning about the last thing tried.
+    # ADR 2: evaluate each scale, sheet, arrangement, and view set as one candidate.
+    # The feasibility check names the gate that rejects a candidate.
     def _geometric_fit(candidate) -> bool:
         # Unpacked by name rather than starred: `*candidate.legacy_tuple` fills seven positional
         # parameters by arithmetic, and mypy could not see that it stops before `n_steps`.
@@ -1396,19 +1388,9 @@ def choose_scale(
     allowed = requested_arrangements
     preferred, alternatives = allowed[0], allowed[1:]
 
-    # Pass 1 — the scale. Only the preferred arrangement may decide it.
-    #
-    # ADR 2 (was 0018 §5) asks for the largest preferred scale admitted by a feasible candidate, and
-    # the ladder is ordered so the first fit is that scale. Letting the alternatives compete
-    # here lets a PACKING choice bid up a LEGIBILITY one, and #1130 measured what that buys:
-    # the dense plate reaches 2:1 under `stacked-iso` where `columns` reaches only 1:1, and
-    # the drawing at twice the size then drops `location_ref_dropped` + `feature_not_located`
-    # because the enlarged views leave its location dims nowhere to go. The candidate was
-    # geometrically feasible and lost requirements anyway — ADR 2 (was 0018)'s first hard gate, which
-    # `candidate_is_feasible` still cannot evaluate (#1250).
-    #
-    # So the alternatives are confined below to what they can support without that gate:
-    # composing the SAME scale more compactly. Scale is chosen exactly as it always was.
+    # Pass 1 chooses scale using only the preferred arrangement. A more compact
+    # arrangement may save paper at that scale, but must not bid up the scale
+    # before the finished drawing can prove every requirement survives (ADR 2).
     chosen = None
     for cand in candidates:
         verdict = candidate_is_feasible(_candidate(cand, preferred), _geometric_fit)
@@ -1418,12 +1400,8 @@ def choose_scale(
         rejected.append(verdict)
 
     if chosen is not None:
-        # Pass 2 — the sheet, at that scale. Candidates are ordered smallest sheet first, so
-        # every candidate BEFORE the winner at the same scale is a smaller sheet that the
-        # preferred arrangement could not fit. An alternative that fits one of them yields
-        # the same drawing at the same scale on less paper, which is ADR 2 (was 0018 §5)'s "at that
-        # scale, the smallest standard sheet" — and cannot cost a requirement the preferred
-        # arrangement would have kept, because the views are identically sized.
+        # Pass 2 checks smaller sheets at the chosen scale. An alternative
+        # arrangement can reduce paper size while keeping the view scale fixed.
         for cand in candidates:
             if cand is chosen:
                 break
