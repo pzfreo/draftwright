@@ -589,40 +589,6 @@ class TestPatternGroupBalloon:
             members=members,
         )
 
-    def test_pattern_only_reserved_balloon_name_is_preserved(self):
-        from dataclasses import replace
-
-        from draftwright.annotations._common import Escalation, PlacementContext
-        from draftwright.annotations.orchestrator import _maybe_tabulate_holes
-
-        drawing = build_drawing(_multi_hole_plate())
-        pattern = self._fake_pattern(count=6, diameter=5.0)
-        model = replace(drawing.model(), features=(pattern,))
-        ctx = PlacementContext(
-            registry=drawing.registry,
-            coverage=drawing.coverage,
-            items=drawing.items,
-            part_model=model,
-            escalations=[Escalation("callout", "plan", pattern, "strip_full")],
-        )
-        name = "balloon_plan_6×A_0"
-        assert all(feature.kind != "hole" for feature in model.features)
-        assert name not in drawing.annotations()
-        drawing.note("USER KEEP", at=(5.0, 5.0), view="plan", name=name)
-        reserved = drawing.get_annotation(name)
-        before = set(drawing.annotations())
-        prior_issues = len(drawing.registry.issues)
-
-        # Name reservation refuses this attempt before analysis is consulted.
-        _maybe_tabulate_holes(drawing, None, ctx=ctx)
-
-        assert drawing.get_annotation(name) is reserved
-        assert set(drawing.annotations()) == before
-        issues = drawing.registry.issues[prior_issues:]
-        assert len(issues) == 1
-        assert issues[0].code == "balloon_dropped"
-        assert name in issues[0].message
-
     def test_dropped_pattern_gets_one_grouped_balloon(self, monkeypatch):
         from dataclasses import replace
 
@@ -654,6 +620,33 @@ class TestPatternGroupBalloon:
         )
         dwg.registry.record_issue(issue)
         analysis = dwg._analysis
+
+        # Pattern-only escalation must refuse an occupied deterministic balloon name
+        # before it can replace a user annotation. Reuse this drawing's analysis so
+        # the later successful/failed pattern paths exercise the same placement seam.
+        pattern_only = replace(dwg.model(), features=(feat,))
+        assert all(feature.kind != "hole" for feature in pattern_only.features)
+        reserved_name = "balloon_plan_6×A_0"
+        assert reserved_name not in dwg.annotations()
+        reserved_ctx = PlacementContext(
+            registry=dwg.registry,
+            coverage=dwg.coverage,
+            items=dwg.items,
+            part_model=pattern_only,
+            escalations=[Escalation("callout", "plan", feat, "strip_full")],
+        )
+        dwg.note("USER KEEP", at=(5.0, 5.0), view="plan", name=reserved_name)
+        reserved = dwg.get_annotation(reserved_name)
+        reserved_before = set(dwg.annotations())
+        prior_issues = len(dwg.registry.issues)
+        _maybe_tabulate_holes(dwg, analysis, ctx=reserved_ctx)
+        assert dwg.get_annotation(reserved_name) is reserved
+        assert set(dwg.annotations()) == reserved_before
+        collision_issues = dwg.registry.issues[prior_issues:]
+        assert len(collision_issues) == 1
+        assert collision_issues[0].code == "balloon_dropped"
+        assert reserved_name in collision_issues[0].message
+        dwg.remove(reserved_name)
 
         # The last IR owner at the shared member position wins balloon attribution. A name
         # landing is not enough: the wrong feature must leave the pattern drop unresolved.
