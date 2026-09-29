@@ -2,9 +2,52 @@
 
 import pytest
 from build123d import Box
+from test_issue_1146_scale_completeness import _short_step_ladder
 
+import draftwright.builder as builder
 from draftwright import build_drawing
 from draftwright._core import _MIN_VIEW_MM
+from draftwright._warnings import ScaleCompletenessWarning
+from draftwright.layout_selection import drawing_record
+
+
+def test_fallback_registry_warning_invalidates_build_lint_snapshot_issue_1945(monkeypatch):
+    original_lint = builder.Drawing.lint
+    original_safety = builder.candidate_safety_evidence
+    physical_calls = []
+    manifest_warnings = []
+
+    def counted_lint(self, *, physical=True):
+        issues = original_lint(self, physical=physical)
+        if physical:
+            codes = tuple(issue.code for issue in issues)
+            physical_calls.append((self, codes, bool(self.registry.issues)))
+        return issues
+
+    def safety_with_manifest(drawing):
+        assert drawing.scale_decision["status"] == "fallback"
+        assert any(issue.code == "scale_fallback_applied" for issue in drawing.registry.issues)
+        manifest_warnings.append(drawing_record(drawing)["manifest"]["lint"]["warnings"])
+        return original_safety(drawing)
+
+    monkeypatch.setattr(builder.Drawing, "lint", counted_lint)
+    monkeypatch.setattr(builder, "candidate_safety_evidence", safety_with_manifest)
+    with pytest.warns(ScaleCompletenessWarning, match="complete fallback scale 0.5"):
+        drawing = build_drawing(
+            _short_step_ladder(), page="A4", detail_view=False, pmi="off", scale=1.0
+        )
+
+    assert any(
+        "step_dim_dropped" in codes for owner, codes, _ in physical_calls if owner is not drawing
+    )
+    assert manifest_warnings == [1]
+    fallback_calls = [
+        (codes, had_issue) for owner, codes, had_issue in physical_calls if owner is drawing
+    ]
+    assert len(fallback_calls) == 2  # before and after the registry mutation
+    assert "scale_fallback_applied" not in fallback_calls[0][0]
+    assert "scale_fallback_applied" in fallback_calls[1][0]
+    assert drawing_record(drawing)["manifest"]["lint"]["warnings"] == 1
 
 
 class TestScaleMinimum:
