@@ -1730,6 +1730,195 @@ def _append_slot_features(
             ownership.bind(sl, slot_feature, reason_code="slot_adapter")
 
 
+def _append_turned_and_boss_features(
+    *,
+    profiles,
+    grooves,
+    bosses,
+    boss_groups,
+    boss_blend_owner_by_id,
+    recognition_evidence: RecognitionEvidence | None,
+    ctx: ConvContext,
+    features: list[Feature],
+    ownership: RecognitionOwnershipBuilder | None,
+) -> tuple[list[tuple[TurnedStep, Groove]], list[tuple[object, object, str]]]:
+    """Emit turned steps or bosses and retain exact deferred ownership decisions."""
+    pending_boss_owners: list[tuple[object, object, str]] = []
+    # Body-local turned profiles → step segments; else external bosses → diameters. Profile
+    # identity owns the axis line, so parallel shafts never inherit the part bbox centre or
+    # each other's groove bands (#1357).
+    groove_owned_steps: list[tuple[TurnedStep, Groove]] = []
+    if profiles:
+        grooves_by_profile: dict[int, list[Groove]] = {id(profile): [] for profile in profiles}
+        for groove in grooves:
+            owners = require_unambiguous_groove_owner(groove, profiles)
+            if owners:
+                grooves_by_profile[id(owners[0])].append(groove)
+        for profile in profiles:
+            step_groove_candidates = tuple(
+                (
+                    step,
+                    tuple(
+                        groove
+                        for groove in grooves_by_profile[id(profile)]
+                        if groove_owns_turned_step_band(groove, step)
+                    ),
+                )
+                for step in profile.steps
+            )
+            groove_candidate_counts = Counter(
+                id(groove)
+                for _step, candidate_grooves in step_groove_candidates
+                for groove in candidate_grooves
+            )
+            for s, step_groove_owners in step_groove_candidates:
+                # Skip the band a groove owns (its callout dimensions width + floor ø). Match
+                # on axial POSITION, not diameter: a narrow groove's step is reported at the
+                # WALL OD (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so
+                # a floor-ø match would silently miss the common circlip case. The groove centre
+                # lies within its own step span; the short-length guard keeps a merged shaft run
+                # from matching. Require a one-to-one relation in both directions: a sub-mm
+                # neighbour can fall within the position tolerance of the same groove, whose
+                # width/floor diameter cannot represent both accepted physical bands.
+                if step_groove_owners:
+                    if (
+                        len(step_groove_owners) == 1
+                        and groove_candidate_counts[id(step_groove_owners[0])] == 1
+                    ):
+                        groove_owned_steps.append((s, step_groove_owners[0]))
+                    continue
+                step_feature = convert(s, ctx)
+                features.append(step_feature)
+                if ownership is not None:
+                    ownership.bind(s, step_feature, reason_code="turned_step_adapter")
+        # A narrow external band nested under / beside a larger OD reads as that OD in
+        # local_od's max(), so it never becomes a step diameter and goes silently
+        # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
+        # render_diameters still gives it a ø callout — aligning the callout inventory
+        # with the feature_diameters inventory the coverage lint checks against. A groove
+        # floor is likewise a narrow reduced band, but the groove callout already carries its
+        # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
+        boss_step_candidates: list[tuple[object, tuple[object, ...]]] = []
+        boss_groove_candidates: list[tuple[object, tuple[object, ...]]] = []
+        for b in bosses:
+            if owner_blend := boss_blend_owner_by_id.get(id(b)):
+                pending_boss_owners.append((b, owner_blend, "boss_blend_owner"))
+                continue
+            axis = _axis_letter(b)
+            axis_index = "xyz".index(axis)
+            b_lo, b_hi = sorted(
+                (
+                    float(b.location[axis_index]),
+                    float(b.location[axis_index] - b.axis[axis_index] * b.height),
+                )
+            )
+            candidate_steps = []
+            for profile in profiles:
+                for step in profile.steps:
+                    evidence_match = (
+                        _records_share_defining_target(
+                            recognition_evidence,
+                            "bosses",
+                            b,
+                            "turned_steps",
+                            step,
+                        )
+                        if recognition_evidence is not None
+                        else None
+                    )
+                    if evidence_match is None:
+                        evidence_match = (
+                            profile.axis == axis
+                            and (
+                                profile.profile is None
+                                or all(
+                                    abs(
+                                        float(b.location[index])
+                                        - profile.profile.axis_origin[index]
+                                    )
+                                    <= 0.5
+                                    for index in range(3)
+                                    if index != axis_index
+                                )
+                            )
+                            and abs(b.diameter - step.diameter) <= _DIA_TOL
+                            and abs(b_lo - step.lo) <= 0.5
+                            and abs(b_hi - step.hi) <= 0.5
+                        )
+                    if evidence_match:
+                        candidate_steps.append(step)
+            boss_step_candidates.append((b, tuple(candidate_steps)))
+            owned = bool(candidate_steps)
+            if not owned:
+                candidate_grooves = _boss_groove_floor_candidates(b, grooves)
+                boss_groove_candidates.append((b, candidate_grooves))
+                if not candidate_grooves:
+                    boss_feature = convert(b, ctx)
+                    features.append(boss_feature)
+                    if ownership is not None:
+                        ownership.bind(b, boss_feature, reason_code="boss_adapter")
+        if ownership is not None:
+            step_claim_counts = Counter(
+                id(candidate) for _, candidates in boss_step_candidates for candidate in candidates
+            )
+            pending_boss_owners.extend(
+                (boss, candidates[0], "boss_turned_step_owner")
+                for boss, candidates in boss_step_candidates
+                if len(candidates) == 1 and step_claim_counts[id(candidates[0])] == 1
+            )
+            groove_claim_counts = Counter(
+                id(candidate)
+                for _, candidates in boss_groove_candidates
+                for candidate in candidates
+            )
+            pending_boss_owners.extend(
+                (boss, candidates[0], "boss_groove_owner")
+                for boss, candidates in boss_groove_candidates
+                if len(candidates) == 1 and groove_claim_counts[id(candidates[0])] == 1
+            )
+    else:
+        remaining_boss_groups = []
+        for group in boss_groups:
+            remaining = []
+            for boss in group:
+                if owner_blend := boss_blend_owner_by_id.get(id(boss)):
+                    pending_boss_owners.append((boss, owner_blend, "boss_blend_owner"))
+                else:
+                    remaining.append(boss)
+            if remaining:
+                remaining_boss_groups.append(remaining)
+        boss_groove_candidates = [
+            (boss, _boss_groove_floor_candidates(boss, grooves))
+            for group in remaining_boss_groups
+            for boss in group
+        ]
+        groove_claim_counts = Counter(
+            id(candidate) for _, candidates in boss_groove_candidates for candidate in candidates
+        )
+        groove_candidates_by_boss_id = {
+            id(boss): candidates for boss, candidates in boss_groove_candidates
+        }
+        for group in remaining_boss_groups:
+            # Diameter equality is a presentation grouping, not physical ownership. Keep
+            # every accepted boss as its own IR owner so its axial extent remains an
+            # addressable requirement; the renderer groups equal diameter ink later.
+            for member in group:
+                candidates = groove_candidates_by_boss_id[id(member)]
+                if candidates:
+                    if (
+                        ownership is not None
+                        and len(candidates) == 1
+                        and groove_claim_counts[id(candidates[0])] == 1
+                    ):
+                        pending_boss_owners.append((member, candidates[0], "boss_groove_owner"))
+                    continue
+                boss_feature = convert(member, ctx)
+                features.append(boss_feature)
+                if ownership is not None:
+                    ownership.bind(member, boss_feature, reason_code="boss_adapter")
+    return groove_owned_steps, pending_boss_owners
+
+
 def build_part_model(
     part,
     *,
@@ -2105,7 +2294,6 @@ def build_part_model(
         bosses = recognise_bosses(part, cyls=cyls)
     boss_groups = _groups_by_diameter(bosses)
     bosses_d = [group[0] for group in boss_groups]
-    pending_boss_owners: list[tuple[object, object, str]] = []
     if polygonal_stock is None:
         polygonal_stock = recognise_polygonal_stock(part)
     envelope_emittable = envelope_is_emittable(
@@ -2431,178 +2619,17 @@ def build_part_model(
     if grooves is None:
         grooves = recognise_grooves(part, cyls=cyls)
 
-    # Body-local turned profiles → step segments; else external bosses → diameters. Profile
-    # identity owns the axis line, so parallel shafts never inherit the part bbox centre or
-    # each other's groove bands (#1357).
-    groove_owned_steps: list[tuple[TurnedStep, Groove]] = []
-    if profiles:
-        grooves_by_profile: dict[int, list[Groove]] = {id(profile): [] for profile in profiles}
-        for groove in grooves:
-            owners = require_unambiguous_groove_owner(groove, profiles)
-            if owners:
-                grooves_by_profile[id(owners[0])].append(groove)
-        for profile in profiles:
-            step_groove_candidates = tuple(
-                (
-                    step,
-                    tuple(
-                        groove
-                        for groove in grooves_by_profile[id(profile)]
-                        if groove_owns_turned_step_band(groove, step)
-                    ),
-                )
-                for step in profile.steps
-            )
-            groove_candidate_counts = Counter(
-                id(groove)
-                for _step, candidate_grooves in step_groove_candidates
-                for groove in candidate_grooves
-            )
-            for s, step_groove_owners in step_groove_candidates:
-                # Skip the band a groove owns (its callout dimensions width + floor ø). Match
-                # on axial POSITION, not diameter: a narrow groove's step is reported at the
-                # WALL OD (local_od's pad engulfs both walls when the groove is < ~1.4 mm), so
-                # a floor-ø match would silently miss the common circlip case. The groove centre
-                # lies within its own step span; the short-length guard keeps a merged shaft run
-                # from matching. Require a one-to-one relation in both directions: a sub-mm
-                # neighbour can fall within the position tolerance of the same groove, whose
-                # width/floor diameter cannot represent both accepted physical bands.
-                if step_groove_owners:
-                    if (
-                        len(step_groove_owners) == 1
-                        and groove_candidate_counts[id(step_groove_owners[0])] == 1
-                    ):
-                        groove_owned_steps.append((s, step_groove_owners[0]))
-                    continue
-                step_feature = convert(s, ctx)
-                features.append(step_feature)
-                if ownership is not None:
-                    ownership.bind(s, step_feature, reason_code="turned_step_adapter")
-        # A narrow external band nested under / beside a larger OD reads as that OD in
-        # local_od's max(), so it never becomes a step diameter and goes silently
-        # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
-        # render_diameters still gives it a ø callout — aligning the callout inventory
-        # with the feature_diameters inventory the coverage lint checks against. A groove
-        # floor is likewise a narrow reduced band, but the groove callout already carries its
-        # ø, so it is suppressed here (_boss_is_groove_floor) to avoid a duplicate boss ø.
-        boss_step_candidates: list[tuple[object, tuple[object, ...]]] = []
-        boss_groove_candidates: list[tuple[object, tuple[object, ...]]] = []
-        for b in bosses:
-            if owner_blend := boss_blend_owner_by_id.get(id(b)):
-                pending_boss_owners.append((b, owner_blend, "boss_blend_owner"))
-                continue
-            axis = _axis_letter(b)
-            axis_index = "xyz".index(axis)
-            b_lo, b_hi = sorted(
-                (
-                    float(b.location[axis_index]),
-                    float(b.location[axis_index] - b.axis[axis_index] * b.height),
-                )
-            )
-            candidate_steps = []
-            for profile in profiles:
-                for step in profile.steps:
-                    evidence_match = (
-                        _records_share_defining_target(
-                            recognition_evidence,
-                            "bosses",
-                            b,
-                            "turned_steps",
-                            step,
-                        )
-                        if recognition_evidence is not None
-                        else None
-                    )
-                    if evidence_match is None:
-                        evidence_match = (
-                            profile.axis == axis
-                            and (
-                                profile.profile is None
-                                or all(
-                                    abs(
-                                        float(b.location[index])
-                                        - profile.profile.axis_origin[index]
-                                    )
-                                    <= 0.5
-                                    for index in range(3)
-                                    if index != axis_index
-                                )
-                            )
-                            and abs(b.diameter - step.diameter) <= _DIA_TOL
-                            and abs(b_lo - step.lo) <= 0.5
-                            and abs(b_hi - step.hi) <= 0.5
-                        )
-                    if evidence_match:
-                        candidate_steps.append(step)
-            boss_step_candidates.append((b, tuple(candidate_steps)))
-            owned = bool(candidate_steps)
-            if not owned:
-                candidate_grooves = _boss_groove_floor_candidates(b, grooves)
-                boss_groove_candidates.append((b, candidate_grooves))
-                if not candidate_grooves:
-                    boss_feature = convert(b, ctx)
-                    features.append(boss_feature)
-                    if ownership is not None:
-                        ownership.bind(b, boss_feature, reason_code="boss_adapter")
-        if ownership is not None:
-            step_claim_counts = Counter(
-                id(candidate) for _, candidates in boss_step_candidates for candidate in candidates
-            )
-            pending_boss_owners.extend(
-                (boss, candidates[0], "boss_turned_step_owner")
-                for boss, candidates in boss_step_candidates
-                if len(candidates) == 1 and step_claim_counts[id(candidates[0])] == 1
-            )
-            groove_claim_counts = Counter(
-                id(candidate)
-                for _, candidates in boss_groove_candidates
-                for candidate in candidates
-            )
-            pending_boss_owners.extend(
-                (boss, candidates[0], "boss_groove_owner")
-                for boss, candidates in boss_groove_candidates
-                if len(candidates) == 1 and groove_claim_counts[id(candidates[0])] == 1
-            )
-    else:
-        remaining_boss_groups = []
-        for group in boss_groups:
-            remaining = []
-            for boss in group:
-                if owner_blend := boss_blend_owner_by_id.get(id(boss)):
-                    pending_boss_owners.append((boss, owner_blend, "boss_blend_owner"))
-                else:
-                    remaining.append(boss)
-            if remaining:
-                remaining_boss_groups.append(remaining)
-        boss_groove_candidates = [
-            (boss, _boss_groove_floor_candidates(boss, grooves))
-            for group in remaining_boss_groups
-            for boss in group
-        ]
-        groove_claim_counts = Counter(
-            id(candidate) for _, candidates in boss_groove_candidates for candidate in candidates
-        )
-        groove_candidates_by_boss_id = {
-            id(boss): candidates for boss, candidates in boss_groove_candidates
-        }
-        for group in remaining_boss_groups:
-            # Diameter equality is a presentation grouping, not physical ownership. Keep
-            # every accepted boss as its own IR owner so its axial extent remains an
-            # addressable requirement; the renderer groups equal diameter ink later.
-            for member in group:
-                candidates = groove_candidates_by_boss_id[id(member)]
-                if candidates:
-                    if (
-                        ownership is not None
-                        and len(candidates) == 1
-                        and groove_claim_counts[id(candidates[0])] == 1
-                    ):
-                        pending_boss_owners.append((member, candidates[0], "boss_groove_owner"))
-                    continue
-                boss_feature = convert(member, ctx)
-                features.append(boss_feature)
-                if ownership is not None:
-                    ownership.bind(member, boss_feature, reason_code="boss_adapter")
+    groove_owned_steps, pending_boss_owners = _append_turned_and_boss_features(
+        profiles=profiles,
+        grooves=grooves,
+        bosses=bosses,
+        boss_groups=boss_groups,
+        boss_blend_owner_by_id=boss_blend_owner_by_id,
+        recognition_evidence=recognition_evidence,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+    )
 
     # Overall envelope dims when neither a whole-part OD nor polygonal stock already conveys
     # the footprint. A local turned profile may coexist with wider prismatic geometry; its
@@ -2834,7 +2861,7 @@ def build_part_model(
             if ownership.has_owner(plate):
                 continue
             dependencies = plate_owner_dependencies(plate, features)
-            owners = tuple(feature for feature, _parameter in dependencies)
+            owners = tuple(cast(Feature, feature) for feature, _parameter in dependencies)
             unique_owners = tuple(
                 feature
                 for index, feature in enumerate(owners)
