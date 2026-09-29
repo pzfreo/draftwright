@@ -8,6 +8,7 @@ from build123d import Box, Cylinder
 from build123d_drafting import Leader
 
 from draftwright import Drawing, build_drawing
+from draftwright.builder import _PlacementCritique
 from draftwright.linting import LintIssue
 
 
@@ -65,18 +66,48 @@ def test_repack_repair_and_builder_critique_each_state_once_issue_1945(monkeypat
     drawing = build_drawing(source)
     placement = [(owner, state) for owner, physical, state, _ in calls if not physical]
 
-    # The measured path includes a repack registry change. The precondition keeps this
-    # guard from passing simply because it exercised one unedited drawing.
-    states_by_drawing = {}
-    for owner, state in placement:
-        states_by_drawing.setdefault(owner, set()).add(state)
-    assert any(
-        len({state[2] for state in states}) > 1 and len({state[:2] for state in states}) == 1
-        for states in states_by_drawing.values()
-    )
+    # The settled drawing loses a seed fit advisory without changing its ink.
+    assert not any(issue.code == "page_fit_uncertain" for issue in drawing.registry.issues)
     assert all(count == 1 for count in Counter(placement).values())
     assert len(placement) <= 5
     assert any(owner is drawing and physical for owner, physical, _, _ in calls)
+    assert len(calls) <= 5
+
+    # The repack advisory is the only change to this drawing between its cached
+    # critique and the final decision. A fresh public critique must agree in order.
+    current_geometry = (
+        tuple(
+            (name, id(visible), id(hidden)) for name, (visible, hidden) in drawing.views.items()
+        ),
+        tuple(id(item) for item in drawing.items),
+    )
+    earlier = [
+        issues
+        for owner, physical, state, issues in calls
+        if owner is drawing
+        and not physical
+        and state[:2] == current_geometry
+        and any(code == "page_fit_uncertain" for code, _, _ in state[2])
+    ]
+    assert earlier
+    assert tuple(drawing.lint(physical=False)) == tuple(
+        issue for issue in earlier[-1] if issue.code != "page_fit_uncertain"
+    )
+
+
+def test_build_local_placement_critique_keeps_subclass_lint_dispatch_issue_1945():
+    class CustomDrawing(Drawing):
+        def __init__(self):
+            self.calls = 0
+
+        def lint(self, *, physical=True):
+            self.calls += 1
+            return [LintIssue(severity="warning", code="custom", message=str(self.calls))]
+
+    drawing = CustomDrawing()
+    critique = _PlacementCritique()
+    assert critique.get(drawing)[0].message == "1"
+    assert critique.get(drawing)[0].message == "2"
 
 
 @pytest.mark.timeout(60)

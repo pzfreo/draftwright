@@ -428,6 +428,62 @@ def lint_drawing(
         page_bbox = (p["min_x"], p["min_y"], p["max_x"], p["max_y"])
 
     _lint_scale_stated(items, issues)
+    _lint_annotation_items(
+        items,
+        part_bbox,
+        issues,
+        drawing_scale,
+        box_cache,
+        warned_label_bbox,
+        names,
+        display_decimals,
+    )
+    _lint_annotation_pairs(
+        items,
+        issues,
+        names,
+        box_cache,
+        warned_label_bbox,
+        _aggregation,
+        pair_tokens,
+    )
+    _lint_annotation_bounds(items, page_bbox, issues, box_cache, names)
+
+    if view_shapes is not None:
+        _lint_view_shapes(
+            view_shapes,
+            items,
+            issues,
+            view_names=view_names,
+            page_bbox=page_bbox,
+            edge_cache=view_edge_cache,
+            box_cache=box_cache,
+            warned=warned_label_bbox,
+            material_fields=view_material_fields,
+        )
+
+    _lint_principal_extents(items, part_bbox, drawing_scale, issues)
+
+    # After the per-item pass, because it is an observation about the sheet rather than about
+    # any one annotation. That orders it within THIS function only: structural issues still
+    # precede the recognition-derived ones in a finished `Drawing.lint()`, so a caller that
+    # wants a particular finding must select it by code — `issues[0]` was never a stable
+    # address and one test was relying on it.
+    _lint_display_precision(items, issues, drawing_scale, display_decimals=display_decimals)
+    return issues
+
+
+def _lint_annotation_items(
+    items,
+    part_bbox,
+    issues,
+    drawing_scale,
+    box_cache,
+    warned_label_bbox,
+    names,
+    display_decimals,
+) -> None:
+    """Check each annotation's own title, leader, or measurement content."""
     for item in items:
         _lint_title_fields(item, issues)
         if getattr(item, "elbow", None) is not None:
@@ -447,6 +503,18 @@ def lint_drawing(
                 box_cache,
                 decimals=(display_decimals or {}).get(id(item)),
             )
+
+
+def _lint_annotation_pairs(
+    items,
+    issues,
+    names,
+    box_cache,
+    warned_label_bbox,
+    _aggregation,
+    pair_tokens,
+) -> None:
+    """Measure label and line ink once, then inspect pairs in input order."""
 
     # Pairwise label-overlap check. The compare-box for a label-less item is an
     # *optimal* bounding_box() — expensive, and previously recomputed for both
@@ -695,6 +763,9 @@ def lint_drawing(
                 if _aggregation is not None and crossed_token is not None:
                     _aggregation.record_pair(issue, crossed_token)
 
+
+def _lint_annotation_bounds(items, page_bbox, issues, box_cache, names) -> None:
+    """Check complete annotation ink against the drawable page area."""
     # Page-bounds check — annotations must stay within the drawable area.
     # (#701: unguarded — _ann_box absorbs the fragile measure; the rest is arithmetic.)
     if page_bbox is not None:
@@ -734,19 +805,9 @@ def lint_drawing(
                     )
                 )
 
-    if view_shapes is not None:
-        _lint_view_shapes(
-            view_shapes,
-            items,
-            issues,
-            view_names=view_names,
-            page_bbox=page_bbox,
-            edge_cache=view_edge_cache,
-            box_cache=box_cache,
-            warned=warned_label_bbox,
-            material_fields=view_material_fields,
-        )
 
+def _lint_principal_extents(items, part_bbox, drawing_scale, issues) -> None:
+    """Check whether dimension labels state each principal part extent."""
     # Principal envelope completeness check: verify each bbox extent appears
     # as a dimension label.  Only runs when part_bbox is supplied.
     if part_bbox is not None:
@@ -780,14 +841,6 @@ def lint_drawing(
             _check_extent("Y", y_ext)
         if hasattr(part_bbox.min, "Z") and hasattr(part_bbox.max, "Z"):
             _check_extent("Z", part_bbox.max.Z - part_bbox.min.Z)
-
-    # After the per-item pass, because it is an observation about the sheet rather than about
-    # any one annotation. That orders it within THIS function only: structural issues still
-    # precede the recognition-derived ones in a finished `Drawing.lint()`, so a caller that
-    # wants a particular finding must select it by code — `issues[0]` was never a stable
-    # address and one test was relying on it.
-    _lint_display_precision(items, issues, drawing_scale, display_decimals=display_decimals)
-    return issues
 
 
 def _lint_derived_view_identifiers(view_names, issues) -> None:

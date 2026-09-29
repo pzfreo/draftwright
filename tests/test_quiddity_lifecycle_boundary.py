@@ -53,7 +53,7 @@ ALLOWED_STANDALONE_CALLS = {
     ): "analysis acquires the shared cylinder substrate before aggregate recognition",
     (
         "linting/orchestration.py",
-        "lint_finished_drawing",
+        "_physical_inventory",
         "analyse_cylinders",
     ): "manual Drawing fallback has no Analysis substrate to reuse",
     (
@@ -83,14 +83,14 @@ ALLOWED_STANDALONE_CALLS = {
     ): "public standalone lint fallback",
     (
         "linting/coverage.py",
-        "lint_prismatic_coverage",
+        "_lint_prismatic_pads",
         "recognise_rectangular_pads",
     ): "public standalone lint fallback",
     (
         "linting/coverage.py",
         "lint_prismatic_coverage",
         "build_raw_recognition_result",
-    ): "public standalone lint fallback (two completeness ledgers)",
+    ): "public standalone prismatic completeness fallback",
     (
         "linting/coverage.py",
         "lint_axial_coverage",
@@ -153,12 +153,12 @@ ALLOWED_STANDALONE_CALLS = {
     ): "standalone build_part_model fallback",
     (
         "model/detect.py",
-        "build_part_model",
+        "_append_hole_features",
         "recognise_holes",
     ): "standalone build_part_model fallback",
     (
         "model/detect.py",
-        "build_part_model",
+        "_append_hole_features",
         "recognise_countersinks",
     ): "standalone build_part_model fallback",
     (
@@ -168,7 +168,7 @@ ALLOWED_STANDALONE_CALLS = {
     ): "standalone build_part_model fallback",
     (
         "model/detect.py",
-        "build_part_model",
+        "_append_slot_features",
         "recognise_slots",
     ): "standalone build_part_model fallback",
     (
@@ -197,7 +197,6 @@ ALLOWED_CALL_COUNTS = Counter({call: 1 for call in ALLOWED_STANDALONE_CALLS})
 ALLOWED_CALL_COUNTS.update(
     {
         ("linting/coverage.py", "lint_location_coverage", "recognise_holes"): 1,
-        ("linting/coverage.py", "lint_prismatic_coverage", "build_raw_recognition_result"): 1,
         ("model/detect.py", "build_part_model", "recognise_plates"): 1,
     }
 )

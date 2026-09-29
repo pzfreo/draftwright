@@ -31,6 +31,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
     all_modules = {path.name for path in _TESTS.glob("test_*.py")}
     probes = {
         "scale_policy": "src/draftwright/build_policy.py",
+        "annotation_layout_selection": "src/draftwright/layout_selection.py",
         "pmi_support": "src/draftwright/_pmi_support_blockers.py",
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
@@ -50,6 +51,8 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
         "strip_postsolve": "src/draftwright/annotations/_strip_postsolve.py",
         "feature_leader_assignment": "src/draftwright/annotations/leaders.py",
+        "hole_leader_placement": "src/draftwright/annotations/_hole_leader_placement.py",
+        "machined_leader_lowering": "src/draftwright/annotations/_machined_leaders.py",
         "leader_fixed_ink": "src/draftwright/annotations/_leader_fixed_ink.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
@@ -79,6 +82,19 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         selected = set(pr_modules(_TESTS, [path]))
         assert selected <= all_modules
         assert selected - PR_CORE_MODULES - PR_POLICY_MODULES - UNIT_MODULES, name
+
+
+def test_model_detection_change_runs_hole_pattern_refusal_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/model/detect.py"]))
+    assert {
+        "test_issue_1596_bolt_circle_corroboration.py",
+        "test_issue_1612_frame_sergio_coverage.py",
+    } <= selected
+
+
+def test_builder_change_runs_finished_annotation_layout_contract():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/builder.py"]))
+    assert "test_annotation_layout_product.py" in selected
 
 
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
@@ -212,6 +228,18 @@ def test_edge_callout_change_runs_joint_leader_contracts():
     assert {
         "test_issue_1308_machined_leader_analytics.py",
         "test_interior_label_placement.py",
+    } <= selected
+
+
+def test_machined_leader_owner_runs_shared_placement_contracts():
+    source = "src/draftwright/annotations/_machined_leaders.py"
+    assert selected_groups([source]) == {"machined_leader_lowering", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_issue_740_leader_assignment.py",
+        "test_issue_1308_machined_leader_analytics.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
     } <= selected
 
 
@@ -395,6 +423,40 @@ def test_feature_leader_owner_runs_greedy_floor_and_joint_assignment_contracts()
         "test_feature_leader_candidate_regions.py",
         "test_issue_740_leader_assignment.py",
         "test_issue_798_floor_cardinality.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
+    } <= selected
+
+
+def test_hole_leader_owner_runs_callout_and_transaction_contracts():
+    source = "src/draftwright/annotations/_hole_leader_placement.py"
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_hole_annotations.py",
+        "test_hole_pattern_callouts.py",
+        "test_issue_1142_hole_leader_labels.py",
+    } <= selected
+
+
+def test_model_detection_change_runs_turning_and_boss_ownership_contracts():
+    source = "src/draftwright/model/detect.py"
+    assert selected_groups([source]) == {"compilation", "recognition"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_boss_ownership.py",
+        "test_issue_1357_plural_turned_profiles.py",
+        "test_part_model.py",
+        "test_turned_step_ownership.py",
+    } <= selected
+
+
+def test_feature_leader_candidate_owner_runs_region_and_assignment_contracts():
+    source = "src/draftwright/annotations/_leader_candidates.py"
+    assert selected_groups([source]) == {"feature_leader_assignment", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_issue_740_leader_assignment.py",
         "test_issue_1166_cross_pass_feature_leaders.py",
     } <= selected
 

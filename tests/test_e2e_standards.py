@@ -28,6 +28,7 @@ from build123d_drafting import TitleBlock
 
 from draftwright import build_drawing, make_drawing
 from draftwright.builder import _is_required_scale_drop
+from draftwright.linting.quality import is_hard_layout_issue
 
 
 def _make_parts():
@@ -113,21 +114,23 @@ def _assert_ctc04_layout_failure_contract(dwg):
     assert inventory["plan_incomplete"] == 1
 
     decision = dwg.scale_decision
-    # CTC04 also retains a hard ink overlap. Its final verdict must be invalid
-    # while the exact missing-requirement inventory remains visible below.
-    assert decision["status"] == "invalid"
-    assert "annotation_ink_overlap" in {item["code"] for item in decision["violations"]}
+    # The settled AP242 drawing has required placement losses but no hard layout
+    # violation. Keep the two verdict tiers independent: a missing requirement
+    # alone is incomplete, while an actual hard overlap would be invalid.
+    assert not [issue for issue in issues if is_hard_layout_issue(issue)]
+    assert decision["status"] == "incomplete"
+    assert "violations" not in decision
     assert decision["blockers"]
     blocker_codes = {blocker["code"] for blocker in decision["blockers"]}
     assert blocker_codes <= set(inventory)
     assert {attempt["reason"] for attempt in decision["attempts"]} >= {
         "scale_escalation_on_selected_page",
         "remove_optional_iso",
-        "hard_layout_invalid",
+        "required_outcome_dropped",
     }
     final_attempt = decision["attempts"][-1]
-    assert final_attempt["status"] == "invalid"
-    assert final_attempt["reason"] == "hard_layout_invalid"
+    assert final_attempt["status"] == "incomplete"
+    assert final_attempt["reason"] == "required_outcome_dropped"
     assert final_attempt["page"] == (dwg.page_w, dwg.page_h)
     assert final_attempt["scale"] == dwg.scale
     assert set(final_attempt["views"]) == set(dwg.views)

@@ -1356,62 +1356,10 @@ def lint_principal_profile_coverage(
     return issues
 
 
-def lint_prismatic_coverage(
-    part,
-    dwg,
-    *,
-    pads=None,
-    section_recesses=None,
-    bbox=None,
-    assembly=None,
-    tol: float = 0.6,
-    features=(),
-    recognition=None,
-    registry=None,
-) -> list:
-    """Report undefined prismatic features.
-
-    Ground truth comes directly from geometry, while coverage comes from placed
-    dimension witnesses (ADR 1 (was 0015)).  This intentionally does not trust the part
-    model: the defect being detected is geometry that recognition/planning omitted.
-    """
-    if assembly is None:
-        assembly = len(part.solids()) > 1
-    severity: Literal["info", "warning"] = "info" if assembly else "warning"
-    pairs_by_view: dict[str, list] = {}
-    if registry is None:
-        registry = getattr(dwg, "registry", None)
-    placed_ids = (
-        {identity for name in registry.names() for identity in registry.measurement_of(name)}
-        if registry is not None
-        else set()
-    )
-    structured_ids = satisfaction_ids(registry)
-    satisfied_ids = structured_ids | placed_ids
-
-    def satisfied(feature, parameter: str) -> bool:
-        return any(
-            identity.feature == feature
-            and (
-                identity.parameter == parameter
-                or (
-                    identity.parameter == "location"
-                    and parameter.startswith(f"{feature.LOCATION_STEM}.")
-                )
-            )
-            for identity in satisfied_ids
-        )
-
-    def location_note_satisfied(feature) -> bool:
-        return any(
-            identity.feature == feature and identity.parameter == "location"
-            for identity in structured_ids
-        )
-
-    def pairs(view: str):
-        return pairs_by_view.setdefault(view, _dimension_endpoint_pairs(dwg, view))
-
-    issues = []
+def _lint_prismatic_pads(
+    part, dwg, pads, bbox, tol, severity, issues, *, satisfied, location_note_satisfied, pairs
+):
+    """Report pads lacking size, height or in-plane location evidence."""
     pad_inventory = recognise_rectangular_pads(part) if pads is None else pads
     if pad_inventory:
         bb = bbox if bbox is not None else part.bounding_box()
@@ -1512,10 +1460,26 @@ def lint_prismatic_coverage(
                 )
             )
 
-    if recognition is not None and type(recognition) is not RecognitionResult:
-        raise TypeError("coverage requires the run's exact RecognitionResult")
-    _rec = recognition if recognition is not None else build_raw_recognition_result(part)
-    recess_inventory = _rec.section_recesses if section_recesses is None else section_recesses
+
+def _lint_prismatic_pockets(
+    part,
+    dwg,
+    section_recesses,
+    bbox,
+    tol,
+    features,
+    recognition,
+    registry,
+    severity,
+    issues,
+    *,
+    satisfied,
+    pairs,
+):
+    """Report unlocated pockets and count source recesses absent from the IR."""
+    recess_inventory = (
+        recognition.section_recesses if section_recesses is None else section_recesses
+    )
     pocket_inventory = tuple(
         (record, section_recess_fields(record)[1])
         for record in recesses_with_kind(tuple(recess_inventory), "pocket")
@@ -1563,7 +1527,7 @@ def lint_prismatic_coverage(
     centre = bb.center()
     pattern_locations: dict[tuple[int, ...], dict[str, str]] = {}
     pattern_outcomes = (
-        pocket_pattern_requirement_outcomes(_rec, features, registry)
+        pocket_pattern_requirement_outcomes(recognition, features, registry)
         if registry is not None
         else ()
     )
@@ -1677,28 +1641,15 @@ def lint_prismatic_coverage(
                 message=f"{unlocated} blind pocket(s) have no complete X/Y location scheme",
             )
         )
-    # BOTH halves come from recognition, never from a caller argument (#1025). The old
-    # `step_zs=` parameter fully determined the answer — `step_zs=[]` yielded no shoulders, so
-    # `missing_transitions` was structurally zero and this check could never fire. The engine
-    # never passed that, but a false-negative door in a completeness check is the one place a
-    # clean absence is indistinguishable from a clean part, so it is closed by construction:
-    # `recognition` is the run's aggregate, and an absent one is re-derived from the solid
-    # rather than defaulted to something narrower.
-    # Fail-closed on the TYPE, not just the name: `recognition=` replaced the old `step_zs=`,
-    # and a duck-typed stand-in (`SimpleNamespace(risers=(), step_levels=())`) would silence
-    # this check exactly as `step_zs=[]` did — the same false-negative door wearing a new
-    # parameter (#1031). Only recognition's own frozen result is accepted.
-    if recognition is not None and not isinstance(recognition, RecognitionResult):
-        raise TypeError(
-            f"lint_prismatic_coverage(recognition=) takes the run's RecognitionResult, got "
-            f"{type(recognition).__name__}. A completeness check must not accept a "
-            "caller-assembled inventory: an empty stand-in silences it."
-        )
-    _rec = build_raw_recognition_result(part) if recognition is None else recognition
+    return missing_ir
+
+
+def _lint_prismatic_transitions(part, bbox, features, recognition, missing_ir, severity, issues):
+    """Report source recesses and step transitions absent from recognised IR."""
     ladder_bounds = bbox if bbox is not None else part.bounding_box()
     source_shoulders = project_step_shoulders(
-        _rec.risers,
-        levels=_rec.step_ladder_for_z_span(ladder_bounds.min.Z, ladder_bounds.max.Z),
+        recognition.risers,
+        levels=recognition.step_ladder_for_z_span(ladder_bounds.min.Z, ladder_bounds.max.Z),
     )
     model_shoulders = {
         (axis, round(pos, 3))
@@ -1727,7 +1678,7 @@ def lint_prismatic_coverage(
             *(_rounded(data[key]) for key in ("width", "w_center", "lo", "hi", "d_lo", "d_hi")),
             data["open_sign"],
         )
-        for source in recesses_with_kind(_rec.section_recesses, "channel")
+        for source in recesses_with_kind(recognition.section_recesses, "channel")
         for data in (section_recess_fields(source)[1],)
     }
     model_shoulders.update(
@@ -1767,6 +1718,97 @@ def lint_prismatic_coverage(
                 ),
             )
         )
+
+
+def lint_prismatic_coverage(
+    part,
+    dwg,
+    *,
+    pads=None,
+    section_recesses=None,
+    bbox=None,
+    assembly=None,
+    tol: float = 0.6,
+    features=(),
+    recognition=None,
+    registry=None,
+) -> list:
+    """Report undefined prismatic features.
+
+    Ground truth comes directly from geometry, while coverage comes from placed
+    dimension witnesses (ADR 1 (was 0015)).  This intentionally does not trust the part
+    model: the defect being detected is geometry that recognition/planning omitted.
+    """
+    if assembly is None:
+        assembly = len(part.solids()) > 1
+    severity: Literal["info", "warning"] = "info" if assembly else "warning"
+    pairs_by_view: dict[str, list] = {}
+    if registry is None:
+        registry = getattr(dwg, "registry", None)
+    placed_ids = (
+        {identity for name in registry.names() for identity in registry.measurement_of(name)}
+        if registry is not None
+        else set()
+    )
+    structured_ids = satisfaction_ids(registry)
+    satisfied_ids = structured_ids | placed_ids
+
+    def satisfied(feature, parameter: str) -> bool:
+        return any(
+            identity.feature == feature
+            and (
+                identity.parameter == parameter
+                or (
+                    identity.parameter == "location"
+                    and parameter.startswith(f"{feature.LOCATION_STEM}.")
+                )
+            )
+            for identity in satisfied_ids
+        )
+
+    def location_note_satisfied(feature) -> bool:
+        return any(
+            identity.feature == feature and identity.parameter == "location"
+            for identity in structured_ids
+        )
+
+    def pairs(view: str):
+        return pairs_by_view.setdefault(view, _dimension_endpoint_pairs(dwg, view))
+
+    issues: list[LintIssue] = []
+    _lint_prismatic_pads(
+        part,
+        dwg,
+        pads,
+        bbox,
+        tol,
+        severity,
+        issues,
+        satisfied=satisfied,
+        location_note_satisfied=location_note_satisfied,
+        pairs=pairs,
+    )
+    # Both completeness phases must see the same source inventory. A caller-supplied
+    # aggregate must be the exact provider result, so an assembled empty stand-in cannot
+    # silence the source-geometry checks (#1031).
+    if recognition is not None and type(recognition) is not RecognitionResult:
+        raise TypeError("coverage requires the run's exact RecognitionResult")
+    recognition = recognition if recognition is not None else build_raw_recognition_result(part)
+    missing_ir = _lint_prismatic_pockets(
+        part,
+        dwg,
+        section_recesses,
+        bbox,
+        tol,
+        features,
+        recognition,
+        registry,
+        severity,
+        issues,
+        satisfied=satisfied,
+        pairs=pairs,
+    )
+    _lint_prismatic_transitions(part, bbox, features, recognition, missing_ir, severity, issues)
     return issues
 
 

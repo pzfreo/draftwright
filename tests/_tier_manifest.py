@@ -56,6 +56,13 @@ CONTRACT_GROUPS = {
             "test_scale_selection.py",
         ),
     ),
+    "annotation_layout_selection": ContractGroup(
+        (
+            "src/draftwright/annotation_layout_profile.py",
+            "src/draftwright/layout_selection.py",
+        ),
+        ("test_annotation_layout_product.py",),
+    ),
     "pmi_support": ContractGroup(
         (
             "src/draftwright/pmi.py",
@@ -207,12 +214,38 @@ CONTRACT_GROUPS = {
         ("test_gdt_ink_shared.py", "test_strip_layout.py", "test_solve_trace.py"),
     ),
     "feature_leader_assignment": ContractGroup(
-        ("src/draftwright/annotations/leaders.py",),
+        (
+            "src/draftwright/annotations/leaders.py",
+            "src/draftwright/annotations/_leader_candidates.py",
+        ),
         (
             "test_feature_leader_candidate_regions.py",
             "test_issue_740_leader_assignment.py",
             "test_issue_798_floor_cardinality.py",
             "test_issue_1166_cross_pass_feature_leaders.py",
+        ),
+    ),
+    "hole_leader_placement": ContractGroup(
+        (
+            "src/draftwright/annotations/holes.py",
+            "src/draftwright/annotations/hole_leader_candidates.py",
+            "src/draftwright/annotations/_hole_leader_placement.py",
+        ),
+        (
+            "test_feature_leader_candidate_regions.py",
+            "test_hole_annotations.py",
+            "test_hole_pattern_callouts.py",
+            "test_issue_1142_hole_leader_labels.py",
+        ),
+    ),
+    "machined_leader_lowering": ContractGroup(
+        ("src/draftwright/annotations/_machined_leaders.py",),
+        (
+            "test_feature_leader_candidate_regions.py",
+            "test_issue_740_leader_assignment.py",
+            "test_issue_1308_machined_leader_analytics.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_refactor_golden.py",
         ),
     ),
     "leader_fixed_ink": ContractGroup(
@@ -361,11 +394,16 @@ CONTRACT_GROUPS = {
             "src/draftwright/*_contract.py",
         ),
         (
+            "test_boss_ownership.py",
             "test_declared_recognition_gate.py",
             "test_external_recognition_boundary.py",
+            "test_issue_1357_plural_turned_profiles.py",
+            "test_issue_1596_bolt_circle_corroboration.py",
+            "test_issue_1612_frame_sergio_coverage.py",
             "test_nested_recognition_ownership.py",
             "test_occurrence_recognition_ownership.py",
             "test_part_classification.py",
+            "test_part_model.py",
             "test_recogniser_capabilities.py",
             "test_recogniser_contract.py",
             "test_recogniser_policy.py",
@@ -373,6 +411,7 @@ CONTRACT_GROUPS = {
             "test_recognition_evidence_schema.py",
             "test_recognition_result.py",
             "test_slot_recognition.py",
+            "test_turned_step_ownership.py",
         ),
     ),
     "compilation": ContractGroup(

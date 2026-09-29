@@ -1090,10 +1090,11 @@ def _repack(
     no view actually moves).
     """
     if not _needs_repack(dwg, a):
-        had_advisory = any(issue.code == "page_fit_uncertain" for issue in dwg.registry.issues)
+        prior_issues = tuple(dwg.registry.issues)
+        had_advisory = any(issue.code == "page_fit_uncertain" for issue in prior_issues)
         dwg.registry.drop_issues({"page_fit_uncertain"})
         if had_advisory and placement_critique is not None:
-            placement_critique.discard(dwg)
+            placement_critique.drop_page_fit_advisory(dwg, prior_issues)
         return None
     blocks = _measure_blocks(dwg, a)
 
@@ -1319,6 +1320,23 @@ class _PlacementCritique:
 
     def discard(self, drawing: Drawing) -> None:
         self._issues.pop(drawing, None)
+
+    def drop_page_fit_advisory(self, drawing: Drawing, before: tuple) -> None:
+        """Keep a build-local critique after removal of that registry-only advisory."""
+        cached = self._issues.get(drawing)
+        after = tuple(drawing.registry.issues)
+        expected = tuple(issue for issue in before if issue.code != "page_fit_uncertain")
+        if (
+            cached is None
+            or not before
+            or len(cached) < len(before)
+            or len(after) != len(expected)
+            or any(left is not right for left, right in zip(after, expected, strict=True))
+            or any(left is not right for left, right in zip(cached[-len(before) :], before))
+        ):
+            self.discard(drawing)
+            return
+        self._issues[drawing] = (*cached[: -len(before)], *after)
 
 
 @observed_stage("repack")
@@ -1706,6 +1724,46 @@ class _AutomaticScaleTrials:
         )
 
 
+def _compare_annotation_layout(options: dict, auto_dims: bool) -> Drawing:
+    """Choose an alternative from finished drawings on the settled page and scale."""
+    options["annotation_layout"] = "estimated-strips"
+    with use_layout_profile(AnnotationLayoutProfile()):
+        baseline = build_drawing(**options)
+    if not auto_dims:
+        baseline.annotation_scheme_decision = {
+            **baseline.annotation_scheme_decision,
+            "status": "retained_baseline",
+            "policy": "compare",
+            "reason": "automatic_annotations_disabled",
+        }
+        return baseline
+    candidate_options = {
+        **options,
+        "scale": baseline.scale,
+        "page": (baseline.page_w, baseline.page_h),
+        "scale_policy": "permissive",
+        "_replayed_scale": None,
+    }
+
+    def build_candidate(profile: AnnotationLayoutProfile) -> Drawing:
+        with use_layout_profile(profile), warnings.catch_warnings():
+            warnings.simplefilter("ignore", ScaleCompletenessWarning)
+            return build_drawing(**candidate_options)
+
+    selected = select_best_annotation_layout(baseline, build_candidate)
+    selected.annotation_scheme_decision = {
+        **selected.annotation_scheme_decision,
+        "safety_evidence": candidate_safety_evidence(selected),
+    }
+    if selected is not baseline:
+        # The speculative build uses a fixed settled scale with permissive checks.
+        # Report the caller's original scale policy and resolution on the result.
+        selected.scale_decision = baseline.scale_decision
+    if selected.solve_trace is not None:
+        selected.solve_trace.write()
+    return selected
+
+
 @build_operation
 def build_drawing(
     step_file: str | Path | Shape,
@@ -1804,42 +1862,7 @@ def build_drawing(
     annotation_layout = annotation_layout_policy(annotation_layout)
     if annotation_layout == "compare":
         options = locals().copy()
-        options["annotation_layout"] = "estimated-strips"
-        with use_layout_profile(AnnotationLayoutProfile()):
-            baseline = build_drawing(**options)
-        if not auto_dims:
-            baseline.annotation_scheme_decision = {
-                **baseline.annotation_scheme_decision,
-                "status": "retained_baseline",
-                "policy": "compare",
-                "reason": "automatic_annotations_disabled",
-            }
-            return baseline
-        candidate_options = {
-            **options,
-            "scale": baseline.scale,
-            "page": (baseline.page_w, baseline.page_h),
-            "scale_policy": "permissive",
-            "_replayed_scale": None,
-        }
-
-        def build_candidate(profile: AnnotationLayoutProfile) -> Drawing:
-            with use_layout_profile(profile), warnings.catch_warnings():
-                warnings.simplefilter("ignore", ScaleCompletenessWarning)
-                return build_drawing(**candidate_options)
-
-        selected = select_best_annotation_layout(baseline, build_candidate)
-        selected.annotation_scheme_decision = {
-            **selected.annotation_scheme_decision,
-            "safety_evidence": candidate_safety_evidence(selected),
-        }
-        if selected is not baseline:
-            # The speculative build uses a fixed settled scale with permissive checks.
-            # Report the caller's original scale policy and resolution on the result.
-            selected.scale_decision = baseline.scale_decision
-        if selected.solve_trace is not None:
-            selected.solve_trace.write()
-        return selected
+        return _compare_annotation_layout(options, auto_dims)
 
     def finish_annotation_layout(drawing: Drawing) -> Drawing:
         if annotation_layout == "demand-guided":

@@ -730,7 +730,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
         (
             "orchestrator.py",
-            "_auto_annotate._s_reserve_derived_views",
+            "_initial_annotation_stages._s_reserve_derived_views",
         ): "pre-sheet detail occupancy is provisional layout furniture, not a measurement",
         # -- the direct-placing rotational group (#754) -----------------------------
         # `_diameter_row_below`, `_diameter_column_left` and the `dim_od` placements in

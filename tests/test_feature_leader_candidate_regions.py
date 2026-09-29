@@ -6,8 +6,9 @@ import pytest
 from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader, draft_preset
 
-from draftwright import Sheet
-from draftwright.annotations import from_model, holes, leaders
+from draftwright import ScaleCompletenessWarning, Sheet, build_drawing
+from draftwright.annotations import _hole_leader_placement as hole_leader_placement
+from draftwright.annotations import from_model, holes, leaders, orchestrator
 from draftwright.annotations import hole_leader_candidates as hole_candidates
 from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
@@ -579,6 +580,48 @@ def test_typed_radial_recovery_preserves_a_normal_first_segment(monkeypatch, fre
     assert first_bend[0] > tip[0]
 
 
+def test_machined_jobs_keep_each_rows_deferred_leader_identity(monkeypatch, fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+
+    def forced_fallback(_drawing, search_tip, _view, build_at, _build_routed, _size):
+        return build_at((search_tip[0] + 12.0, search_tip[1] + 8.0))
+
+    monkeypatch.setattr(from_model, "_sheet_leader_fallback", forced_fallback)
+    features = (object(), object())
+    tips = ((bounds[0] + 5.0, bounds[1] + 5.0), (bounds[2] - 5.0, bounds[3] - 5.0))
+    rows = tuple(
+        (f"row-{i}", "front", bounds, f"R{i}", ((tip, (tip[0] + 20.0, tip[1], 0.0), feature),), ())
+        for i, (tip, feature) in enumerate(zip(tips, features))
+    )
+    from_model.place_machined_leader_jobs(
+        drawing,
+        SimpleNamespace(leader_region="auto"),
+        rows,
+        noun="fillet",
+        drop_code="fillet_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+    assert len(ctx.feature_leaders) == 2
+    for i, job in enumerate(ctx.feature_leaders):
+        candidate = next(iter(job.candidates))
+        built = job.build(candidate[0], candidate[1], candidate[2])
+        recovered, feature = job.recover()
+        assert built.label == recovered.label == f"R{i}"
+        assert built.tip == recovered.tip == tips[i]
+        assert feature is features[i]
+
+
 def test_interior_candidates_are_feature_relative_and_fully_inside_view():
     draft = draft_preset(font_size=3.0, decimal_precision=1)
     silhouette = (0.0, 0.0, 100.0, 60.0)
@@ -1021,7 +1064,13 @@ def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render
     monkeypatch.setattr(leaders, "_materialize", lambda _dwg, _job, _candidate: None)
     # The sheet-level fallback is a second valid render path. Disable both so
     # the test reaches the final drop/rollback transaction at every trial scale.
-    monkeypatch.setattr(holes, "_sheet_leader_fallback", lambda *_args, **_kwargs: None)
+    fallback_calls = []
+
+    def refuse_fallback(*args, **kwargs):
+        fallback_calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(hole_leader_placement, "_sheet_leader_fallback", refuse_fallback)
 
     drawing = _pattern_sheet(
         kind="bolt_circle",
@@ -1033,3 +1082,131 @@ def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render
     assert "hc_plan0" not in drawing.annotations()
     assert "bc_plan0" not in drawing.annotations()
     assert any(issue.code == "callout_dropped" for issue in drawing.lint())
+    assert fallback_calls
+
+
+def test_hole_recovery_keeps_a_radial_tip_on_its_rim_and_its_owner(monkeypatch):
+    """The sheet fallback must keep a geometric bore target attached to its owner."""
+    centre = (20.0, 30.0)
+    target = RadialLeaderTarget(centre, 5.0)
+    feature = object()
+    candidate = FeatureLeaderCandidate((25.0, 30.0), (35.0, 30.0), feature, radial_target=target)
+    callout = SimpleNamespace(label="⌀10")
+    built = []
+
+    def build(tip, elbow, owner):
+        built.append((tip, elbow, owner))
+        return SimpleNamespace(tip=tip, elbow=elbow)
+
+    def fallback(_dwg, tip, _view, build_at, **kwargs):
+        assert tip == centre
+        assert kwargs["label_size"] == (12.0, 4.0)
+        assert kwargs["tip_for_elbow"](centre) == centre
+        assert kwargs["tip_for_elbow"]((30.0, 30.0)) == (25.0, 30.0)
+        annotation = build_at((30.0, 30.0))
+        assert kwargs["accept_candidate"](annotation)
+        return annotation
+
+    monkeypatch.setattr(hole_leader_placement, "_sheet_leader_fallback", fallback)
+    monkeypatch.setattr(hole_leader_placement, "view_material", lambda *_args: object())
+    monkeypatch.setattr(hole_leader_placement, "material_penalty_units", lambda *_args: 0)
+
+    result = hole_leader_placement._recover_hole_leader(
+        lambda: (candidate,), build, callout, (0.0, 0.0, 12.0, 4.0), "plan", object(), object()
+    )
+
+    assert result is not None and result[1] is feature
+    assert built == [((25.0, 30.0), (30.0, 30.0, 0), feature)]
+
+
+def test_hole_recovery_keeps_routed_callout_claim_and_bounded_candidate_search(monkeypatch):
+    first = FeatureLeaderCandidate((1.0, 2.0), (8.0, 2.0), "first")
+    second = FeatureLeaderCandidate((3.0, 4.0), (9.0, 4.0), "second")
+    measurement = object()
+    requirement = object()
+    callout = SimpleNamespace(
+        label="⌀8",
+        source_ids=("hole-1",),
+        source_measurements=(measurement,),
+        covers_hole_requirements=(requirement,),
+        covers_hole_requirements_by_feature=((second.feature, (requirement,)),),
+    )
+    attempts = []
+
+    def fallback(_dwg, tip, _view, build_at, build_routed, size):
+        attempts.append((tip, size))
+        if len(attempts) == 1:
+            assert build_at((8.0, 2.0)).elbow == (8.0, 2.0, 0)
+            return None
+        return build_routed(((4.0, 5.0),), (9.0, 4.0))
+
+    monkeypatch.setattr(hole_leader_placement, "_sheet_leader_fallback", fallback)
+    monkeypatch.setattr(
+        hole_leader_placement,
+        "RoutedLeader",
+        lambda *args, **kwargs: SimpleNamespace(tip=args[0], elbow=args[2]),
+    )
+    result = hole_leader_placement._recover_hole_leader(
+        lambda: (first, second),
+        lambda tip, elbow, owner: SimpleNamespace(tip=tip, elbow=elbow, owner=owner),
+        callout,
+        (0.0, 0.0, 12.0, 4.0),
+        "plan",
+        object(),
+        object(),
+    )
+
+    assert attempts == [((1.0, 2.0), (12.0, 4.0)), ((3.0, 4.0), (12.0, 4.0))]
+    assert result is not None and result[1] == "second"
+    assert result[0].label == "⌀8"
+    assert result[0].source_ids == ("hole-1",)
+    assert result[0].source_measurements == (measurement,)
+    assert result[0].covers_hole_requirements == (requirement,)
+    assert result[0].covers_hole_requirements_by_feature == ((second.feature, (requirement,)),)
+
+
+def test_immediate_hole_queue_reports_each_loss_and_keeps_policy_b_survivors(monkeypatch):
+    """An immediate queue retains a shaft crossing but reports a text collision."""
+    original_annotate = holes._annotate_holes
+    original_ink_clear = holes.annotation_text_ink_clear
+    original_leader_hits = holes._leader_hits
+    contexts = []
+    checked_labels = []
+    crossing_labels = []
+
+    def immediate(*args, ctx, **kwargs):
+        contexts.append(ctx.feature_leaders)
+        ctx.feature_leaders = None
+        return original_annotate(*args, ctx=ctx, **kwargs)
+
+    def ink_clear(drawing, leader):
+        checked_labels.append(leader.label)
+        return leader.label != "⌀4 THRU" and original_ink_clear(drawing, leader)
+
+    def leader_hits(leader, *args):
+        crossing_labels.append(leader.label)
+        return leader.label == "⌀8 THRU" or original_leader_hits(leader, *args)
+
+    monkeypatch.setattr(orchestrator, "_annotate_holes", immediate)
+    monkeypatch.setattr(holes, "annotation_text_ink_clear", ink_clear)
+    monkeypatch.setattr(holes, "_leader_hits", leader_hits)
+
+    align = (Align.CENTER, Align.CENTER, Align.MIN)
+    part = Box(100, 80, 8, align=align)
+    for x, y, radius in ((-30, -20, 2), (-10, 20, 3), (15, -15, 4), (35, 20, 5)):
+        part -= Pos(x, y, 0) * Cylinder(radius, 8, align=align)
+
+    with pytest.warns(ScaleCompletenessWarning, match="callout_dropped"):
+        drawing = build_drawing(part, page="A4", scale=0.7, scale_policy="permissive")
+
+    assert len(contexts) == 1 and contexts[0] is not None
+    assert set(checked_labels) == {"⌀4 THRU", "⌀6 THRU", "⌀8 THRU", "⌀10 THRU"}
+    assert "⌀8 THRU" in crossing_labels
+    labels = {
+        annotation.label
+        for name, annotation in drawing.iter_annotations()
+        if name.startswith("hc_plan")
+    }
+    assert labels == {"⌀6 THRU", "⌀8 THRU", "⌀10 THRU"}
+    (dropped,) = [issue for issue in drawing.lint() if issue.code == "callout_dropped"]
+    assert "settled annotation ink crosses the callout text" in dropped.message

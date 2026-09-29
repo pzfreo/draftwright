@@ -44,12 +44,20 @@ def test_lint_orchestration_keeps_issue_stage_order_and_placement_gate(fresh_dra
     drawing = fresh_drawing("box_60x40x30")
     structural = LintIssue("info", "structural", code="structural_marker")
     coverage = LintIssue("info", "coverage", code="coverage_marker")
+    profiles = LintIssue("info", "profiles", code="profiles_marker")
+    remaining = LintIssue("info", "remaining", code="remaining_marker")
     manufacturing = LintIssue("info", "manufacturing", code="manufacturing_marker")
     recorded = LintIssue("info", "recorded", code="recorded_marker")
     drawing.registry.record_issue(recorded)
 
     monkeypatch.setattr(orchestration, "lint_drawing", lambda *args, **kwargs: [structural])
     monkeypatch.setattr(orchestration, "lint_feature_coverage", lambda *args, **kwargs: [coverage])
+    monkeypatch.setattr(
+        orchestration, "_lint_physical_profiles", lambda *args, **kwargs: [profiles]
+    )
+    monkeypatch.setattr(
+        orchestration, "_lint_physical_remaining", lambda *args, **kwargs: [remaining]
+    )
     monkeypatch.setattr(
         orchestration,
         "lint_manufacturing_references",
@@ -64,7 +72,9 @@ def test_lint_orchestration_keeps_issue_stage_order_and_placement_gate(fresh_dra
     physical = drawing.lint()
     codes = [i.code for i in physical]
     assert codes[0] == "structural_marker"
-    assert codes.index("coverage_marker") < codes.index("manufacturing_marker")
+    assert codes.index("coverage_marker") < codes.index("profiles_marker")
+    assert codes.index("profiles_marker") < codes.index("remaining_marker")
+    assert codes.index("remaining_marker") < codes.index("manufacturing_marker")
     assert codes[-2:] == ["manufacturing_marker", "recorded_marker"]
     assert all(i.suggestion is None for i in (structural, coverage, manufacturing, recorded))
 

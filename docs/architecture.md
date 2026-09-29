@@ -157,6 +157,10 @@ and re-exports the existing private helper names.
     envelope/OD and centre-mark passes converge with feature-family owners here
     (ADR 1 (was 0015), #200/#208/#237). The old per-feature
     `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
+  - **`annotations/_machined_leaders.py`** — expands compiler-approved feature
+    leader jobs into analytical interior/exterior candidates and submits them to
+    immediate or late shared placement. `from_model.place_machined_leader_jobs`
+    remains the pass seam and supplies live rendering and test bindings.
   - **`annotations/_step_lengths.py`** — owns compiler-approved turned axial
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
@@ -206,9 +210,16 @@ and re-exports the existing private helper names.
     sparse plan and side hole leaders in the shared late leader assignment, plus
     front/rear rim-tip construction consumed by the current vertical strip solve.
     The hole pass retains strip selection, table eligibility, and furniture transactions.
+  - **`annotations/_hole_leader_placement.py`** — callout claim forwarding and
+    bounded sheet recovery for hole leaders; the hole pass owns the queue and
+    survivor commit.
   - **`annotations/_leader_fixed_ink.py`** — exact fixed-annotation component
   lowering for the shared leader solve: metadata strokes, label boxes, and
   residual rendered faces retain bounded work and stable component identities.
+  - **`annotations/_leader_candidates.py`** — typed feature-leader regions and
+  bounded, deterministic interior/exterior expansion of physical anchors before
+  the shared late solve. The established `leaders` imports remain available to
+  feature renderers.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
@@ -513,18 +524,21 @@ and re-exports the existing private helper names.
 - **`sheet_object_source.py`** — live-object import seams and mutual one-to-one
   geometry correspondence for script generation. This facade-rank owner keeps the
   existing private `sheet_emit` import paths available to callers.
+- **`sheet_feature_lines.py`** — private feature-declaration formatting for generated
+  scripts: numeric spelling, source-record expressions, and feature-family calls.
+  `sheet_emit.py` keeps the dispatch and existing private import paths.
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
   model — one named binding per feature, an explicit dimension source, and a bounded
   generation-time recognition-gap snapshot. Facade tier; imports `builder`, the pure
-  `reporting` projector, and `replay_assessment` downward at module level. The latter prepares
+  `reporting` projector, `sheet_feature_lines`, and `replay_assessment` downward at module level. The latter prepares
   exact source/script identity before replay and atomically wraps the same Drawing's strict
   report plus export-result hashes afterward; it never builds or recognizes (#1715). The old
   builder→cli→sheet_emit
   lazy cycle is **gone** (#523): the `_cli` compat shim moved from `builder` to
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
-  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting, replay_assessment}`,
+  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting, replay_assessment, sheet_feature_lines}`,
   `replay_assessment → reporting`, `builder → ∅`. The rank-0 `audit` module compares serialized
   v2 replay assessments without importing the engine: exact declaration/occurrence ownership,
   compiled meanings, representation carriers, lint, layout and independent quality components
