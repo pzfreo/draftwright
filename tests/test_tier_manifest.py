@@ -38,6 +38,8 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
         "slot_rendering": "src/draftwright/annotations/_slots.py",
+        "drawing_edits": "src/draftwright/drawing_edits.py",
+        "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -109,6 +111,20 @@ def test_pocket_evidence_change_runs_both_occurrence_contracts():
 def test_from_model_change_runs_through_step_placement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/annotations/from_model.py"])
     assert "test_through_step_semantics.py" in selected
+
+
+def test_drawing_edit_owner_runs_live_and_deferred_contracts():
+    source = "src/draftwright/drawing_edits.py"
+    assert selected_groups([source]) == {"drawing_edits"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_add_dimension.py",
+        "test_canonical_angles.py",
+        "test_deferred_edits.py",
+        "test_feature_edit_replay.py",
+        "test_issue_1613_circular_channel.py",
+        "test_refactor_golden.py",
+    } <= selected
 
 
 def test_step_length_owner_selects_its_placement_contract():

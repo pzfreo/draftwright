@@ -14,10 +14,8 @@ import math
 import os
 import sys
 import warnings
-from collections.abc import Mapping
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult
@@ -43,16 +41,23 @@ from draftwright._core import (
     _fmt,
     _font_safe_text,
     _frame_margins,
-    _log,
     _tol_suffix,
     place_annotation,
 )
-from draftwright._geometry import _END_ON
 from draftwright.annotations._common import (
-    PlacementContext,
     carve_free_position,
 )
 from draftwright.auxiliary_layout import fit_auxiliary_box
+from draftwright.drawing_diagnostics import (
+    _GEOMETRY_AWARE_CODES as _GEOMETRY_AWARE_CODES,
+)
+from draftwright.drawing_diagnostics import (
+    DiagnosticOperations,
+)
+from draftwright.drawing_diagnostics import (
+    lint_snapshot as lint_snapshot,
+)
+from draftwright.drawing_edits import EditOperations
 from draftwright.drawing_export import (
     add_shapes as add_export_shapes,
 )
@@ -95,9 +100,7 @@ from draftwright.linting import (
     CoverageState,
     LintIssue,
 )
-from draftwright.linting.evidence import compiled_display_precisions
-from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
-from draftwright.linting.orchestration import LintContext, lint_finished_drawing
+from draftwright.linting.issues import _current_issue_aggregation
 from draftwright.projection import (
     part_material_mesh,
     project_view_geometry,
@@ -105,150 +108,7 @@ from draftwright.projection import (
 )
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
-from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, VIEW_AXES
-
-# Codes that check standards/geometry correctness rather than pure page
-# layout. Grouped so a caller (and the #30 repair loop) can tell a wrong
-# drawing from a merely tight one.
-_GEOMETRY_AWARE_CODES = frozenset(
-    {
-        "angled_step_requirement_unsupported",
-        "feature_not_dimensioned",
-        "feature_count_mismatch",
-        "feature_not_located",
-        "feature_no_centermark",
-        "pad_footprint_not_defined",
-        "passage_requirement_unsupported",
-        "prismatic_pocket_requirement_unsupported",
-        "section_recess_requirement_unsupported",
-        "section_recess_recognition_refused",
-        "pocket_not_located",
-        "unrecognised_defining_geometry",
-        "pmi_not_lowered",
-        "pmi_not_rendered",
-        "manufacturing_reference_unresolved",
-        # Registered here for the same reason as the two above: an unverified or
-        # fabricated AP242 claim is a statement about the geometry, not about layout
-        # (#1563). Leaving them out would let a drawing carrying either report
-        # `geometry_issues: 0`, which is the shape of defect this register exists for.
-        "pmi_unreconciled",
-        "pmi_source_unknown",
-        # These REPLACE `pmi_not_rendered` for a record that produced no annotation (#1177);
-        # the content is equally missing, so the count must not fall just because the
-        # reason improved. `authored_dim_degenerate` suppressed that error without
-        # carrying its weight, which is how a lost requirement came to report
-        # `geometry_issues: 0` alongside `passed: True`.
-        "dimension_kind_unsupported",
-        "authored_dim_degenerate",
-        "authored_dim_source_unresolved",
-        "axial_length_missing",
-        # A turned profile that leaves part of the body undescribed (#1132). Registered
-        # here for the same reason as `axial_length_missing` beside it: the shortfall is
-        # about the part, not about where an annotation landed.
-        "turned_profile_not_spanned",
-        "flat_requirement_suppressed",
-        "flat_requirement_missing",
-        "flat_requirement_unverifiable",
-        "groove_requirement_suppressed",
-        "groove_requirement_missing",
-        "groove_requirement_unverifiable",
-        "hole_requirement_suppressed",
-        "hole_requirement_missing",
-        "hole_requirement_unverifiable",
-        "pad_requirement_suppressed",
-        "pad_requirement_missing",
-        "pad_requirement_unverifiable",
-        "plate_requirement_suppressed",
-        "plate_requirement_missing",
-        "plate_requirement_unverifiable",
-        "polygonal_boss_requirement_suppressed",
-        "polygonal_boss_requirement_missing",
-        "polygonal_boss_requirement_unverifiable",
-        "pocket_requirement_suppressed",
-        "pocket_requirement_missing",
-        "pocket_requirement_unverifiable",
-        "missing_principal_dimension",
-        "label_vs_measured",
-        "angular_label_vs_geometry",
-        "angular_geometry_mismatch",
-        "angular_support_unverifiable",
-        "angular_support_mismatch",
-        "dim_inside_part",
-        "callout_dropped",
-        "location_ref_dropped",
-        "off_axis_location_dropped",
-        "hole_pattern_dim_dropped",
-        "pocket_pattern_dim_dropped",
-        "step_dim_dropped",
-        "plate_thickness_dropped",
-        "step_position_dropped",
-        "chamfer_dropped",
-        "channel_requirement_suppressed",
-        "channel_requirement_missing",
-        "channel_requirement_unverifiable",
-        "channel_width_dropped",
-        "flat_dropped",
-        "polygonal_boss_dropped",
-        "polygonal_stock_dropped",
-        "polygonal_stock_length_dropped",
-        "pmi_not_extracted",
-        "placement_unsatisfiable",
-        "pmi_dropped",
-        # A withheld approved dimension is missing content, so both codes count as geometry
-        # issues, like `missing_principal_dimension` above.
-        "step_dim_withheld",
-        "overall_dim_withheld",
-    }
-)
-
-# Coarse 0–1 quality heuristic: a clean sheet scores 1.0; each issue subtracts
-# a flat per-severity penalty (clamped at 0). A convenience signal only — the
-# severity/code counts in the summary are the authoritative output.
-_SCORE_ERROR_PENALTY = 0.2
-_SCORE_WARNING_PENALTY = 0.05
-
-# ``Drawing.report()`` and the completeness component must project one identical physical
-# requirement roster.  Keep that report-scoped evidence task-local so the public
-# ``lint_summary()`` signature and subclass dispatch remain unchanged.
-_REPORT_REQUIREMENTS: ContextVar[tuple[object, Mapping[str, tuple[Any, ...]], object] | None] = (
-    ContextVar("draftwright_report_requirements", default=None)
-)
-
-# A finished-layout assessment needs the raw issues and their summary together. Keep that
-# result task-local for the duration of the assessment; Drawing exposes mutable annotations,
-# so a persistent generation cache needs a wider mutation contract (follow-on #1945).
-_SCOPED_LINT: ContextVar[tuple[object, tuple, object] | None] = ContextVar(
-    "draftwright_scoped_lint", default=None
-)
-
-
-def lint_snapshot(drawing):
-    """Return issues and summary from one lint without exposing a mutable cache scope."""
-    # A nested assessment must not expose its outer snapshot to lint overrides that
-    # call lint_summary() while the inner public lint method is still running.
-    mask = _SCOPED_LINT.set(None)
-    try:
-        with _collect_issue_aggregation() as aggregation:
-            issues = tuple(drawing.lint())
-    finally:
-        _SCOPED_LINT.reset(mask)
-    token = _SCOPED_LINT.set((drawing, issues, aggregation))
-    try:
-        summary = drawing.lint_summary()
-    finally:
-        _SCOPED_LINT.reset(token)
-    return issues, summary
-
-
-@contextlib.contextmanager
-def _reuse_report_requirements(
-    owner: object, outcomes: Mapping[str, tuple[Any, ...]], dimension_plan: object
-):
-    token = _REPORT_REQUIREMENTS.set((owner, outcomes, dimension_plan))
-    try:
-        yield
-    finally:
-        _REPORT_REQUIREMENTS.reset(token)
+from draftwright.view_plan import VIEW_AXES
 
 
 @dataclass
@@ -874,141 +734,16 @@ class Drawing:
         return self._build.recognition_ownership
 
     def report(self) -> dict[str, object]:
-        """Return the versioned machine-readable recognition and drawing report.
 
-        Schema version 3 projects accepted raw recognition occurrences, their exact run-local
-        consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
-        profile-support requirements, and the existing structured lint summary.
-        Report IDs are deterministic within this document only; they are not topology or durable
-        feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
-        can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
-
-        A declared drawing uses schema version 8: its final IR is the authority, and the report
-        preserves lint/quality observations plus page/view/annotation layout evidence while
-        stating when detailed opt-in placement evidence is unavailable. It never reconstructs
-        occurrences from declared values. A framed or bare
-        drawing whose exact occurrence ownership is unavailable, or a raw drawing with an
-        unclassified accepted occurrence, raises
-        :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
-        shrinking the denominator. Calling this method never changes rendered drawing content.
-        """
-
-        from draftwright.reporting import declared_drawing_report, drawing_report
-
-        if self._model_declared:
-            source = (
-                getattr(self._analysis, "step_file", None) if self._analysis is not None else None
-            )
-            lint = self.lint_summary()
-            report = declared_drawing_report(
-                model=self.model(),
-                lint=lint,
-                source=source,
-                registry=self._registry,
-                drawing=self,
-            )
-            # Document sheets are authored views over one source-owned detected model.
-            # Keep schema 8's declared layout evidence, but do not discard the exact
-            # occurrence/requirement ledger that the document bound to this member.
-            if (
-                self.recognition_evidence() is not None
-                and self.recognition_ownership() is not None
-            ):
-                snapshot = self.requirement_snapshot()
-                source_report = drawing_report(
-                    evidence=snapshot.evidence,
-                    ownership=snapshot.ownership,
-                    model=snapshot.model,
-                    lint=lint,
-                    source=snapshot.source,
-                    registry=snapshot.registry,
-                    omissions=snapshot.omissions,
-                    dimension_plan=snapshot.dimension_plan,
-                    part=snapshot.part,
-                    requirement_outcomes=snapshot.outcomes,
-                    detail_decisions=tuple(self.detail_decisions),
-                )
-                report["recognition"] = source_report["recognition"]
-            return report
-
-        snapshot = self.requirement_snapshot()
-        with _reuse_report_requirements(self, snapshot.outcomes, snapshot.dimension_plan):
-            lint = self.lint_summary()
-        return drawing_report(
-            evidence=snapshot.evidence,
-            ownership=snapshot.ownership,
-            model=snapshot.model,
-            lint=lint,
-            source=snapshot.source,
-            registry=snapshot.registry,
-            omissions=snapshot.omissions,
-            dimension_plan=snapshot.dimension_plan,
-            part=snapshot.part,
-            requirement_outcomes=snapshot.outcomes,
-            detail_decisions=tuple(self.detail_decisions),
-        )
+        return self._diagnostics().report()
 
     def requirement_snapshot(self, *, include_lint=False):
-        """Capture live source-owned outcomes for single-sheet and document review.
 
-        This reuses the report's exact-authority validation and existing producers.
-        It neither recognizes geometry nor derives requirements from the compiled plan.
-        The returned references belong to this build and must not be persisted or
-        combined with another recognition run. Serialize edits and snapshot reads.
-        """
-        from draftwright.reporting import RequirementSnapshot, validate_report_inputs
-
-        analysis = self._analysis
-        source = getattr(analysis, "step_file", None) if analysis is not None else None
-        evidence, ownership, model = validate_report_inputs(
-            self.recognition_evidence(), self.recognition_ownership(), self.model()
-        )
-        from draftwright.linting.requirements import recognized_requirement_outcomes
-        from draftwright.model.compiled import compile_dimensions
-
-        dimension_plan = compile_dimensions(model)
-        omissions = tuple(self._build.omissions)
-        outcomes = recognized_requirement_outcomes(
-            evidence.result,
-            tuple(model.features),
-            self.registry,
-            omissions,
-            dimension_plan=dimension_plan,
-            part=self._working_part,
-            evidence=evidence,
-            ownership=ownership,
-            datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
-        )
-        lint = None
-        if include_lint:
-            with _reuse_report_requirements(self, outcomes, dimension_plan):
-                lint = self.lint_summary()
-        return RequirementSnapshot(
-            evidence,
-            ownership,
-            model,
-            source,
-            self.registry,
-            omissions,
-            dimension_plan,
-            self._working_part,
-            outcomes,
-            lint,
-        )
+        return self._diagnostics().requirement_snapshot(include_lint=include_lint)
 
     def write_report(self, path: str | os.PathLike[str]) -> str:
-        """Atomically write :meth:`report` as deterministic UTF-8 JSON.
 
-        The destination is replaced only after the complete strict-JSON document has been
-        flushed to a temporary file in the same directory. A report or filesystem failure leaves
-        an existing destination untouched; temporary-file cleanup is best-effort when the
-        filesystem itself refuses it. This method does not export or modify any visual drawing
-        artefact.
-        """
-
-        from draftwright.reporting import write_json_document
-
-        return write_json_document(self.report(), path)
+        return self._diagnostics().write_report(path)
 
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design:
@@ -1494,282 +1229,39 @@ class Drawing:
                         self.callout(owner)
         return names
 
+    def _edit_ops(self) -> EditOperations:
+        """Pass Drawing-owned mutable state explicitly to one edit operation."""
+        return EditOperations(
+            self,
+            analysis=self._analysis,
+            model=self._part_model,
+            build=self._build,
+            registry=self._registry,
+            coverage=self._coverage,
+            intents=self._intents,
+            defer_intents=self._defer_intents,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+            record_build_issue=self._record_build_issue,
+            place_dim=self._place_dim,
+            machined_callout_kinds=_MACHINED_CALLOUT_KINDS,
+        )
+
     @staticmethod
     def _derive_span(feature, param):
-        """Model-space ``(lo, hi)`` endpoints for a value-only *linear* param whose geometry
-        the feature carries (#411), or ``None`` for a callout param with no linear span.
-
-        Slots and pads: the width dim spans ``width_axis`` across
-        ``w_center ± width/2`` (at the length midpoint); the length dim spans
-        ``long_axis`` ``lo → hi`` (at the centre line) — the same endpoints
-        ``render_slots`` measures."""
-        feature_kind = getattr(feature, "kind", None)
-        if feature_kind in ("slot", "pad"):
-            ax = {"x": 0, "y": 1, "z": 2}
-            li, wi = ax[feature.long_axis], ax[feature.width_axis]
-            a = list(feature.frame.origin)
-            b = list(feature.frame.origin)
-            if param.role == f"{feature_kind}_length":
-                a[li], b[li] = feature.lo, feature.hi
-                a[wi] = b[wi] = feature.w_center
-            elif param.role == f"{feature_kind}_width":
-                mid = (feature.lo + feature.hi) / 2
-                half = feature.width / 2
-                a[wi], b[wi] = feature.w_center - half, feature.w_center + half
-                a[li] = b[li] = mid
-            else:
-                return None
-            return tuple(a), tuple(b)
-        return None
+        return EditOperations._derive_span(feature, param)
 
     def _resolve_dimension_span(self, feature, param, *, role=None, view=None):
-        """Return ``(param_record, view, p1, p2)`` for a feature linear dimension."""
-        _ortho = PRINCIPAL_VIEW_NAMES
-        if view is not None and view not in _ortho:
-            raise ValueError(
-                f"view must be one of {_ortho}, not {view!r} (it foreshortens the span)"
-            )
-        parameters = feature.parameters()
-        exact = [q for q in parameters if param in (q.parameter_id, q.discriminator)]
-        matches = (
-            [q for q in exact if role is None or q.role == role]
-            if exact
-            else [q for q in parameters if q.kind == param and (role is None or q.role == role)]
-        )
-        if not matches:
-            r = f"/{role!r}" if role else ""
-            raise ValueError(
-                f"{type(feature).__name__} has no '{param}'{r} parameter to dimension"
-            )
-        if len(matches) > 1:
-            ids = sorted(q.parameter_id for q in matches)
-            raise ValueError(
-                f"{type(feature).__name__} has {len(matches)} '{param}' params {ids} — pass "
-                "role= or an exact parameter id/discriminator to choose one"
-            )
-        # A span-carrying param (a step length, a location) gives its endpoints directly;
-        # a value-only linear param (a slot's dims) derives them from the feature geometry
-        # (#411). A callout param (a hole's diameter/depth) has no linear span at all.
-        span = matches[0].span or self._derive_span(feature, matches[0])
-        if span is None:
-            raise ValueError(
-                f"'{param}' (role {matches[0].role!r}) is a leader-callout parameter, not a "
-                f"linear dimension — dimension() draws linear dims only (a callout add verb "
-                f"is tracked separately)"
-            )
-        (lo, hi) = span
-        p1 = p2 = None
-        chosen = view
-        automatic_views = tuple(name for name in _ortho if name in self.views)
-        if view is None and getattr(feature, "kind", None) == "through_step":
-            automatic_views = (_END_ON[feature.axis],)
-        for v in [view] if view else automatic_views:
-            q1, q2 = self.at(v, *lo), self.at(v, *hi)
-            if math.hypot(q2[0] - q1[0], q2[1] - q1[1]) > 1e-6:
-                chosen, p1, p2 = v, q1, q2
-                break
-        if p1 is None:
-            raise ValueError(
-                f"'{param}' span projects to a point in "
-                f"{'the requested view' if view else 'every orthographic view'} — nothing to dimension"
-            )
-        return matches[0], chosen, p1, p2
+        return self._edit_ops()._resolve_dimension_span(feature, param, role=role, view=view)
 
     def _resolve_dimension_side(self, feature, param, view, p1, p2, side):
-        """Choose a feature's natural corridor when the caller leaves ``side`` implicit."""
-        if side is not None:
-            return side
-        if getattr(feature, "kind", None) != "through_step":
-            return "above"
-        changed_axis = param.discriminator
-        perpendicular = next(axis for axis in "xyz" if axis not in (feature.axis, changed_axis))
-        outside = dict(feature.outside_directions)
-        probe_world = [(a + b) / 2 for a, b in zip(param.span[0], param.span[1], strict=True)]
-        probe_world["xyz".index(perpendicular)] += outside[perpendicular]
-        exterior = self.at(view, *probe_world)
-        if abs(p2[0] - p1[0]) >= abs(p2[1] - p1[1]):
-            return "above" if exterior[1] > (p1[1] + p2[1]) / 2 else "below"
-        return "right" if exterior[0] > (p1[0] + p2[0]) / 2 else "left"
+        return self._edit_ops()._resolve_dimension_side(feature, param, view, p1, p2, side)
 
     def _angular_dimension_plan(self, feature, options):
-        """Compile a referential angle edit with the model's existing decorations."""
-        from dataclasses import replace
-
-        from draftwright.model.compiled import compile_dimensions
-        from draftwright.model.ir import RequestedDimension
-
-        parameters = feature.parameters()
-        matches = [
-            parameter
-            for parameter in parameters
-            if options["param"] == parameter.parameter_id
-            or (options["param"] == "angle" and len(parameters) == 1)
-        ]
-        if len(matches) != 1 or options.get("role") not in (None, "included"):
-            raise ValueError(
-                "angle edit needs one included-angle measurement: "
-                + ", ".join(parameter.parameter_id for parameter in parameters)
-            )
-        extra = set(options) - {"param", "role", "view", "side", "name", "pin", "priority"}
-        if extra:
-            raise ValueError(
-                f"unsupported angular edit controls: {sorted(extra)}; declare content on Sheet"
-            )
-        model = self.model()
-        if model is None or not any(owner is feature for owner in model.features):
-            raise ValueError("angular edit must name an exact feature in the drawing model")
-        request = RequestedDimension(
-            feature,
-            matches[0].parameter_id,
-            view=options.get("view"),
-            side=options.get("side"),
-        )
-        return compile_dimensions(
-            replace(model, authored_dimensions=(request,), requested_dimensions=())
-        )
+        return self._edit_ops()._angular_dimension_plan(feature, options)
 
     def _queue_dimension_intent(self, it, a, *, ctx, used_names=None) -> bool:
-        """Queue a pinned/prioritized feature dimension into a shared corridor."""
-        from draftwright.annotations._common import CorridorCandidate, register_corridor
-
-        if getattr(it.feature, "kind", None) == "angle":
-            from draftwright.annotations.from_model import render_angular_dimensions
-            from draftwright.model.compiled import FeatureRef
-
-            plan = self._angular_dimension_plan(it.feature, it.kwargs)
-            name = it.kwargs.get("name")
-            used_names = used_names if used_names is not None else set()
-            if name is None:
-                index = 0
-                while (name := f"dim_angle{index}") in self._registry or name in used_names:
-                    index += 1
-            used_names.add(name)
-            render_angular_dimensions(
-                self,
-                plan,
-                a,
-                ctx=ctx,
-                only={FeatureRef(it.feature)},
-                name=name,
-                pin=bool(it.kwargs.get("pin")),
-                priority=float(it.kwargs.get("priority") or 0.0),
-            )
-            return True
-
-        side = it.kwargs.get("side")
-        view = it.kwargs.get("view")
-        zones_name = {
-            "front": "fv_zones",
-            "plan": "pv_zones",
-            "side": "sv_zones",
-            "rear": "rv_zones",
-        }
-        rec, view, p1, p2 = self._resolve_dimension_span(
-            it.feature,
-            it.kwargs["param"],
-            role=it.kwargs.get("role"),
-            view=view,
-        )
-        side = self._resolve_dimension_side(it.feature, rec, view, p1, p2, side)
-        if side not in ("above", "below", "left", "right"):
-            return False
-        from draftwright.model.compiled import DimensionId
-
-        measurement = DimensionId(it.feature, rec.parameter_id)
-        measurement_span = rec.span or self._derive_span(it.feature, rec)
-        zones = getattr(a, zones_name.get(view, ""), None)
-        strip = getattr(zones, side, None) if zones is not None else None
-        if strip is None:
-            return False
-
-        name = it.kwargs.get("name")
-        if name is None:
-            used_names = used_names if used_names is not None else set()
-            i = 0
-            while (name := f"dim_{it.kwargs['param']}{i}") in self._registry or name in used_names:
-                i += 1
-            used_names.add(name)
-
-        dim_kwargs = {
-            k: v
-            for k, v in it.kwargs.items()
-            if k not in {"param", "role", "side", "view", "name", "pin", "priority", "slot"}
-        }
-        # Match `_place_dim`: the deferred corridor path must keep authored tolerance in its
-        # label even when `pin=True` or `priority=` selects this route.
-        tolerance = dim_kwargs.pop("tolerance", None)
-        if dim_kwargs.get("label") is None:  # `None` is "auto"; see `_place_dim`.
-            page_len = math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-            dim_kwargs["label"] = _fmt(page_len / self.scale)
-        dim_kwargs["label"] = _font_safe_text(
-            f"{dim_kwargs['label']}{_tol_suffix(tolerance, self.draft)}"
-        )
-        slot = it.kwargs.get("slot", 8.0)
-        axis = "y" if side in ("above", "below") else "x"
-        ax = 1 if axis == "y" else 0
-        if side in ("right", "above"):
-            natural = max(p[ax] for p in (p1, p2)) + slot
-        else:
-            natural = min(p[ax] for p in (p1, p2)) - slot
-        tier = self.draft.font_size + 2 * self.draft.pad_around_text
-        p_lo, p_hi = sorted((p1[1 - ax], p2[1 - ax]))
-
-        def _build(
-            pos,
-            _p1=p1,
-            _p2=p2,
-            _side=side,
-            _ax=ax,
-            _kwargs=dim_kwargs,
-            _measurement_span=measurement_span,
-        ):
-            if _side in ("right", "above"):
-                dist = pos - max(p[_ax] for p in (_p1, _p2))
-            else:
-                dist = min(p[_ax] for p in (_p1, _p2)) - pos
-            dim = _dim(_p1, _p2, _side, max(dist, 4.0), self.draft, **_kwargs)
-            dim._dw_measurement_span = _measurement_span
-            return dim
-
-        def _placed(nm, _pin=it.kwargs.get("pin", False)):
-            if _pin:
-                self.pin(nm)
-
-        def _drop(nm):
-            self._record_build_issue(
-                "warning",
-                "dimension_dropped",
-                f"{nm} not placed (no room on the {view} {side} strip)",
-                measurement=measurement,
-                measurement_span=measurement_span,
-            )
-
-        priority = float(it.kwargs.get("priority", 0.0) or 0.0)
-        if it.kwargs.get("pin"):
-            priority = max(priority, 100.0)
-        register_corridor(
-            ctx,
-            (view, side),
-            strip,
-            view,
-            axis,
-            tier,
-            CorridorCandidate(
-                name=name,
-                build=_build,
-                order=(0, natural, name),
-                on_place=_placed,
-                on_drop=_drop,
-                dedup=(view, side, round(p_lo, 6), round(p_hi, 6), rec.role),
-                precedence=4,
-                priority=priority,
-                anchored=bool(it.kwargs.get("pin")),
-                natural=natural,
-                feature=it.feature,
-                measurement=measurement,
-            ),
-        )
-        return True
+        return self._edit_ops()._queue_dimension_intent(it, a, ctx=ctx, used_names=used_names)
 
     def dimension(
         self,
@@ -1784,507 +1276,35 @@ class Drawing:
         priority=0.0,
         **kwargs,
     ):
-        """Add a dimension for *feature*'s *param*, attributed to the feature (#398e).
-
-        The feature-referenced **add** verb: pair to :meth:`drop`. *feature* is an IR
-        feature from :meth:`model`; *param* is a **linear** parameter kind, exact parameter
-        id, or discriminator it exposes — a turned step's ``"length"`` or a through step's
-        ``"through_step_leg.length.x"``/``"x"`` (value-only slot geometry is derived here
-        via :meth:`_derive_span`).
-        The dimension is placed into free strip space and tagged with *feature*, so
-        :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
-
-        A feature may expose several params of one kind (an envelope's width/height/depth,
-        or a slot's ``slot_width``/``slot_length``, are all ``"length"``); pass ``role=`` or
-        an exact parameter id/discriminator to pick one — an ambiguous kind raises rather
-        than guessing.
-
-        ``view`` is chosen from the selected principal views (``"front"``/``"plan"``/
-        ``"side"``/``"rear"``) where the span projects non-degenerate — a length along the turning
-        axis vanishes in its end-on view, so the view follows the geometry. Through-step legs
-        share their semantic axis end view and natural outside-corner sides. Pass ``view=``
-        to select a principal explicitly (a non-orthographic view foreshortens the span and is
-        rejected). An implicit ``side`` is ``"above"`` except for through-step legs, whose
-        missing corner selects the natural outside corridor. ``kwargs`` forward to the dimension
-        — except ``tolerance=``, which is folded into the label (see :meth:`place_dim`),
-        because helpers discard a forwarded tolerance whenever a label is present.
-        In deferred mode, ``pin=True`` anchors the dimension at its natural slot coordinate
-        inside the shared corridor solve, and ``priority=`` controls over-capacity survival.
-        Live placement still uses the single-position escape hatch and pins only the placed
-        annotation name.
-
-        Raises ``ValueError`` if the feature has no such param, the kind is ambiguous, or
-        *view* is not orthographic. A hole's ``"diameter"``/``"depth"`` are **leader
-        callouts**, not linear dimensions, so they raise here — a callout add verb is a
-        separate mechanism, tracked apart from this one.
-        """
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(
-                Intent(
-                    "dimension",
-                    feature,
-                    {
-                        "param": param,
-                        "role": role,
-                        "side": side,
-                        "view": view,
-                        "name": name,
-                        "pin": pin,
-                        "priority": priority,
-                        **kwargs,
-                    },
-                )
-            )
-            return ""
-        if getattr(feature, "kind", None) == "angle":
-            options = dict(
-                param=param,
-                role=role,
-                side=side,
-                view=view,
-                name=name,
-                pin=pin,
-                priority=priority,
-                **kwargs,
-            )
-            self._angular_dimension_plan(feature, options)
-            if name is None:
-                index = 0
-                while (name := f"dim_angle{index}") in self._registry:
-                    index += 1
-            with self.deferred():
-                self.dimension(
-                    feature,
-                    param,
-                    role=role,
-                    side=side,
-                    view=view,
-                    name=name,
-                    pin=pin,
-                    priority=priority,
-                    **kwargs,
-                )
-            return name
-        rec, view, p1, p2 = self._resolve_dimension_span(feature, param, role=role, view=view)
-        side = self._resolve_dimension_side(feature, rec, view, p1, p2, side)
-        from draftwright.model.compiled import DimensionId
-
-        measurement = DimensionId(feature, rec.parameter_id)
-        if name is None:
-            i = 0
-            while (name := f"dim_{param}{i}") in self._registry:
-                i += 1
-        annotation = self._place_dim(
-            p1,
-            p2,
-            side,
-            view,
-            self.draft,
+        return self._edit_ops().dimension(
+            feature,
+            param,
+            role=role,
+            side=side,
+            view=view,
             name=name,
-            feature=feature,
-            measurement=measurement,
+            pin=pin,
+            priority=priority,
             **kwargs,
         )
-        # A correlated ladder intentionally shares one public ``DimensionId`` across its
-        # members. Preserve the compiler-owned world span at the public edit boundary so
-        # completeness can tell which exact occurrence this visible replacement asserts.
-        annotation._dw_measurement_span = rec.span or self._derive_span(feature, rec)
-        if pin:
-            self.pin(name)
-        return name
 
     def callout(self, feature, *, view=None, name=None) -> str:
-        """Add a **ø leader callout** for *feature* (#414/#419) — the callout half of the
-        feature-referenced **add** surface, symmetric with :meth:`drop`.
-
-        Where :meth:`dimension` draws a linear dim, ``callout`` draws a leader: for a
-        **hole/pattern**, the ø / ``n×`` / through-or-depth / counterbore callout (the same
-        text the auto-pass builds), placed beside the feature's end-on view (``view``
-        defaults to it); for a turned **step/boss**, the ``ø…`` diameter leader in the row
-        below (X-turned) or column left of (Z-turned) the front view. Tagged with *feature*
-        so :meth:`drop` / :meth:`annotations_of` find it. Returns the annotation name.
-
-        Raises ``ValueError`` if *feature* exposes no callout (use :meth:`dimension` for a
-        linear param). A machined-feature callout
-        (pocket/pad-height/circular-blind-step/fillet/blend/paired-ramp/flat/chamfer/groove) is
-        auto-named and placed in its characteristic view by the kind's renderer, so
-        ``view=``/``name=`` are unsupported for those kinds and raise ``ValueError`` rather
-        than being silently ignored. Placed reasonably, not via the auto-pass's
-        whole-set solve (byte-identity is not a goal, #400 Ph2) — :meth:`repair` tidies the
-        rest. A step/boss diameter that finds no room returns ``""`` (a warning-level drop,
-        like the auto-pass), rather than raising, so a reconstruction script never aborts.
-        """
-        kind = getattr(feature, "kind", None)
-        if (kind in _MACHINED_CALLOUT_KINDS or kind in ("pocket_pattern", "slot_pattern")) and (
-            view is not None or name is not None
-        ):
-            raise ValueError(
-                f"callout(): a {kind} is auto-named and placed in its characteristic view; "
-                "view=/name= are unsupported for machined-feature callouts"
-            )
-        # There is deliberately NO authored-omission pre-check here.
-        #
-        # A pre-check for ANY approved dimension cannot prove this callout has approved
-        # content: a turned step can have its length authored and diameter omitted. The
-        # renderer must decide from the compiled plan what it can draw.
-        #
-        # The renderers below now consume approved content, so "draws nothing" is what they
-        # DO rather than something to forecast — and both paths reach it the same way: the
-        # live call returns "" with an `authored_omission` build issue, and the deferred
-        # intent drains through the same migrated renderers to the same nothing.
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("callout", feature, {"view": view, "name": name}))
-            return ""
-        from draftwright.annotations._common import PlacementContext
-        from draftwright.annotations.holes import add_feature_callout, add_feature_diameter
-
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        if kind in ("step", "boss"):
-            return add_feature_diameter(self, feature, self._part_model, ctx=ctx)
-        if kind in _MACHINED_CALLOUT_KINDS:
-            # Machined callouts render through their auto-pass renderer, restricted to THIS
-            # feature (only={feature}) so a live call draws exactly one callout — the per-feature
-            # `only=` subset the finalize stages also use. The deferred path above routes the
-            # recorded intent to the matching per-kind finalize stage instead.
-            if self._part_model is None or self._analysis is None:
-                raise ValueError(
-                    f"callout(): a {kind} callout needs the part model and analysis; "
-                    "add it to a drawing built by build_drawing(), not a bare Drawing"
-                )
-            from draftwright.annotations.from_model import (
-                render_blends,
-                render_chamfers,
-                render_circular_blind_steps,
-                render_circular_channels,
-                render_fillets,
-                render_flats,
-                render_grooves,
-                render_hex_pockets,
-                render_oriented_slots,
-                render_pad_heights,
-                render_paired_ramp_steps,
-                render_pockets,
-                render_rectangular_blind_slots,
-                render_round_bottom_blind_slots,
-            )
-
-            renderers = {
-                "blend": render_blends,
-                "chamfer": render_chamfers,
-                "circular_blind_step": render_circular_blind_steps,
-                "circular_channel": render_circular_channels,
-                "hex_pocket": render_hex_pockets,
-                "fillet": render_fillets,
-                "paired_ramp_step": render_paired_ramp_steps,
-                "flat": render_flats,
-                "pocket": render_pockets,
-                "rectangular_blind_slot": render_rectangular_blind_slots,
-                "round_bottom_blind_slot": render_round_bottom_blind_slots,
-                "oriented_slot": render_oriented_slots,
-                "pad": render_pad_heights,
-                "groove": render_grooves,
-            }
-            # Return the placed annotation's name so pin()/drop() can address it.
-            # only={feature} places exactly one callout, so at most one name changes. Diff by
-            # object IDENTITY, not just the name set, so re-placing over an existing canonical
-            # name (or a grouped callout collapsing to an already-present name) is still detected
-            # as the placed name. A drop (no clear room) changes nothing and
-            # returns "" — the same empty-string drop signal the step/boss diameter branch gives.
-            before = {n: id(o) for n, o in self.iter_annotations()}
-            # Migrated renderers consume the compiled plan and select by opaque reference.
-            from draftwright.model.compiled import FeatureRef as _FR
-            from draftwright.model.compiled import compile_dimensions as _cd3
-
-            renderers[kind](
-                self,
-                _cd3(self._part_model),
-                self._analysis,
-                ctx=ctx,
-                only={_FR(feature)},
-            )
-            changed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
-            return changed[0] if len(changed) == 1 else ""
-        if kind == "pocket_pattern":
-            # A pocket pattern renders through its own auto-pass renderer (grouped size/depth
-            # callout + pitch dim(s)), restricted to THIS feature (#841 outcome 3). Unlike the
-            # lone machined callouts it places furniture too, so several names change — return
-            # the grouped-callout name (m_pocketpat*), the handle pin()/drop() address.
-            if self._part_model is None or self._analysis is None:
-                raise ValueError(
-                    "callout(): a pocket-pattern callout needs the part model and analysis; "
-                    "add it to a drawing built by build_drawing(), not a bare Drawing"
-                )
-            from draftwright.annotations.holes import render_pocket_patterns
-            from draftwright.model.compiled import FeatureRef, compile_dimensions
-
-            before = {n: id(o) for n, o in self.iter_annotations()}
-            render_pocket_patterns(
-                self,
-                compile_dimensions(self._part_model),
-                self._analysis,
-                ctx=ctx,
-                only={FeatureRef(feature)},
-            )
-            placed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
-            return next((n for n in placed if n.startswith("m_pocketpat")), "")
-        if kind == "slot_pattern":
-            # A slot pattern renders through its own auto-pass renderer (grouped SLOT W × L
-            # callout + pitch dim(s)), restricted to THIS feature (#841). Like the pocket pattern
-            # it places furniture too, so several names change — return the grouped-callout name
-            # (m_slotpat*), the handle pin()/drop() address.
-            if self._part_model is None or self._analysis is None:
-                raise ValueError(
-                    "callout(): a slot-pattern callout needs the part model and analysis; "
-                    "add it to a drawing built by build_drawing(), not a bare Drawing"
-                )
-            from draftwright.annotations.holes import render_slot_patterns
-            from draftwright.model.compiled import FeatureRef, compile_dimensions
-
-            before = {n: id(o) for n, o in self.iter_annotations()}
-            render_slot_patterns(
-                self,
-                compile_dimensions(self._part_model),
-                self._analysis,
-                ctx=ctx,
-                only={FeatureRef(feature)},
-            )
-            placed = [n for n, o in self.iter_annotations() if before.get(n) != id(o)]
-            return next((n for n in placed if n.startswith("m_slotpat")), "")
-        return add_feature_callout(
-            self, feature, self._part_model, self._analysis, view=view, name=name, ctx=ctx
-        )
+        return self._edit_ops().callout(feature, view=view, name=name)
 
     def overall_height(self) -> list[str]:
-        """Add the part's **overall height** — the one dimension with no feature to name.
-
-        Every other add verb takes a feature, because every other dimension belongs to one.
-        The overall height usually does too: a model with an `EnvelopeFeature` carries a
-        `height` parameter, and `dimension(env, "length", role="height")` is the verb for it.
-
-        A model WITHOUT one still gets an overall height — the compiler falls back to the
-        bounding box, which is a decision only the compiler may make (`_compile_overall_height`).
-        There is then no feature to record an intent against, so an intent-level script had no
-        way to say "and the 46 mm overall height", and a generated script replayed without it,
-        silently and lint-clean (#889).
-
-        This verb is that line. It is deliberately NOT "draw it whenever the compiler approves
-        one": `auto_dims=False` means the verbs are the whole drawing, so a dimension nobody
-        recorded must not appear — record-then-finalize has to equal placing live.
-
-        Returns the placed names (empty when the compiler withholds the height — a Z-turned
-        part whose step chain already tiles it, or an X/Y rotational OD that conveys it).
-        """
-        model, a = self._part_model, self._analysis
-        # BEFORE the deferred/live split, so both routes refuse identically — the shape #925
-        # settled for `callout()`: a check on one side of that split makes the answer depend
-        # on whether you are inside `deferred()`.
-        if model is not None and any(f.kind == "envelope" for f in model.features):
-            # This verb exists ONLY for the featureless fallback. On an enveloped model the
-            # measurement already has a feature to name, and supporting both spellings gave
-            # two: live, `overall_height()` then `dimension(env, …, role="height")` drew the
-            # 30 mm height TWICE, while the reverse order and the deferred route drew it once
-            # (`explicit_envelope_height` removes the overall ladder from the compile). Order-
-            # dependent live and live ≠ deferred, from composing two public spellings of one
-            # measurement. One measurement, one verb.
-            raise ValueError(
-                "overall_height(): this model declares an envelope, so its height has a "
-                'feature to name — use dimension(envelope, "length", role="height"). This '
-                "verb is for a model with NO envelope feature, where the height comes from "
-                "the bounding box and there is nothing to name."
-            )
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("overall_height", None, {}))
-            return []
-        if model is None or a is None:
-            raise ValueError("overall_height(): no detected model — build the drawing first")
-        from draftwright._core import layout_frame
-        from draftwright.annotations._common import drain_corridors
-        from draftwright.annotations.from_model import ladder_plan_for, render_height_ladder
-        from draftwright.model.compiled import compile_dimensions
-
-        before = set(self.annotations())
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        # ONLY the overall height: the renderer also draws the step ladder, which is a
-        # different intent with its own verb. The drain projects the plan with the same
-        # helper, so the two routes cannot disagree about what was asked for.
-        plan = ladder_plan_for(compile_dimensions(model), step_height=False, overall=True)
-        if plan.ladder("overall_height") is not None:
-            render_height_ladder(
-                self, plan, layout_frame(a), ctx=ctx, detail_view=self._build.detail_view
-            )
-            drain_corridors(ctx, self)
-        return sorted(set(self.annotations()) - before)
+        return self._edit_ops().overall_height()
 
     def furniture(self, feature, *, view=None) -> list[str]:
-        """Add a hole/pattern's non-dimensional **sheet furniture** (#419) — centre marks
-        (every member) plus a pattern's centre-cross (bolt circle) or pitch/grid dims.
-
-        The geometric marks a feature carries that no other verb emits: where
-        :meth:`callout` draws the ø leader and :meth:`locate` the position dims, ``furniture``
-        draws the centre marks and pattern furniture. *feature* is a hole/pattern from
-        :meth:`model`; ``view`` defaults to its end-on view. Each mark is tagged with
-        *feature* so :meth:`drop` / :meth:`annotations_of` find it. Returns the placed names
-        (varies by pattern kind — a bolt circle emits a centre-cross, a linear/grid array a
-        pitch dim).
-
-        Raises ``ValueError`` if *feature* is not a hole/pattern (use :meth:`dimension`).
-        """
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("furniture", feature, {"view": view}))
-            return []
-        from draftwright.annotations._common import PlacementContext
-        from draftwright.annotations.holes import add_feature_furniture
-
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        return add_feature_furniture(
-            self, feature, self._part_model, self._analysis, view=view, ctx=ctx
-        )
+        return self._edit_ops().furniture(feature, view=view)
 
     def rotational(self, feature) -> list[str]:
-        """Add a rotational part's **turned furniture** (#424/#426) — the overall OD
-        dimension, the axis centrelines, and any concentric-bore leaders.
-
-        The editable handle for the whole-model rotational renderer: where the
-        per-feature verbs place callouts/locations, ``rotational`` draws the furniture
-        the auto-pass synthesises for a part's ``RotationalFeature`` (a turned /
-        cylindrical body). *feature* is the rotational feature from :meth:`model`.
-        Placed by the shared :func:`render_rotational` — the same whole-model renderer
-        the auto-pass runs, so a script-reconstructed drawing is byte-identical to the
-        direct build (no ``only=`` subset, no positional-naming seam: the renderer
-        names its own outputs ``dim_od`` / ``centerline_*`` / ``ldr_*``). Returns ``[]``.
-        """
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("rotational", feature, {}))
-            return []
-        from draftwright.annotations._common import PlacementContext
-        from draftwright.annotations.from_model import render_rotational
-        from draftwright.model.compiled import compile_dimensions
-
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        render_rotational(self, compile_dimensions(self._part_model), self._analysis, ctx=ctx)
-        return []
+        return self._edit_ops().rotational(feature)
 
     def section(self) -> list[str]:
-        """Add the automatic full **section A–A** (#420) — the section half of the
-        editable surface.
-
-        Part-level, unlike the per-feature verbs: a section fires when a Z-axis
-        hole/pattern has a counterbore, spotface, or blind bottom (its internal
-        profile is hidden-line-only in every ortho view), cutting through the densest
-        qualifying row. Takes no argument (the auto A–A) and is **not** feature-tagged
-        or :meth:`drop`-compatible — a section is atomic, so it is dropped by commenting
-        the call. Returns the placed annotation names, or ``[]`` when no section is
-        warranted or there is no room. Call it *after* the per-feature verbs — the room
-        check carves the view row around whatever is already placed and takes the
-        leftmost gap that fits, so it needs the occupancy to be complete. The outcome
-        is recorded on :attr:`section_decision` either way (#1190).
-        """
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("section", None, {}))
-            return []
-        from draftwright.annotations.sections import add_section
-
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        return add_section(self, self._part_model, self._analysis, ctx=ctx)
+        return self._edit_ops().section()
 
     def locate(self, feature, *, axes=None, pin=False) -> list[str]:
-        """Add datum-referenced **X/Y position dimensions** for a Z-axis hole/pattern
-        (#418) — the location half of the feature-referenced **add** surface.
-
-        Distinct from :meth:`dimension` (a feature's own intrinsic linear params): a
-        location dim measures the *datum → feature-centre* offset, which no feature
-        exposes as a parameter. *feature* is a hole/pattern from :meth:`model`; ``axes``
-        selects the in-plane axes (default both — ``"x"`` above the plan view, ``"y"``
-        above the side view). ``pin=True`` marks the placed dimensions as deliberate user
-        edits: in deferred mode they still flow through the shared corridor solve, but
-        survive/dedup as high-priority candidates and pin themselves once placed (#511).
-        Each dim is tagged with *feature* so :meth:`drop` / :meth:`annotations_of` find it.
-        In live mode, returns one placed name per distinct requested in-plane
-        ordinate with a real offset. In deferred mode, records the intent and
-        returns ``[]``; the names are created when the context finalizes.
-
-        Circular channels also accept this verb: their X/Y/Z offsets locate the seat
-        axis from the stock bounding-box minimum, and ``axes`` may select any subset
-        of those three coordinates. They use the shared profile corridor solve.
-
-        Raises ``ValueError`` for an unsupported feature (side-drilled
-        bores are placed by the auto-pass). A feature with no datum-referenced ref (a
-        datum-less model or a concentric/on-datum bore) returns ``[]``. Live placement
-        handles this feature alone; automatic/deferred rendering may coalesce truly
-        coincident ordinates while retaining every semantic owner. Placed reasonably, not
-        via the auto-pass's corridor solve (byte-identity is not a goal, #400 Ph2).
-        """
-        if self._defer_intents:  # #426: record, don't place — finalize() drains it
-            self._intents.append(Intent("locate", feature, {"axes": axes, "pin": pin}))
-            return []
-        from draftwright.annotations._common import PlacementContext
-        from draftwright.annotations.holes import add_feature_location
-
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        if getattr(feature, "kind", None) == "circular_channel":
-            from draftwright.annotations._common import drain_corridors
-            from draftwright.annotations.from_model import render_circular_channel_locations
-            from draftwright.model.compiled import compile_dimensions
-
-            if self._part_model is None or not any(
-                item is feature for item in self._part_model.features
-            ):
-                raise ValueError("locate(): feature is not from this drawing's model")
-            before = set(self.annotations())
-            render_circular_channel_locations(
-                self,
-                compile_dimensions(self._part_model, planned_views=tuple(self.views)),
-                self._analysis,
-                ctx=ctx,
-                only={feature},
-                pinned={feature} if pin else None,
-                axes=axes,
-            )
-            drain_corridors(ctx, self)
-            return [
-                name
-                for name in self.annotations()
-                if name not in before and name.startswith("m_seatloc_")
-            ]
-        return add_feature_location(
-            self, feature, self._part_model, self._analysis, axes=axes, pin=pin, ctx=ctx
-        )
+        return self._edit_ops().locate(feature, axes=axes, pin=pin)
 
     @contextlib.contextmanager
     def deferred(self):
@@ -2399,20 +1419,14 @@ class Drawing:
           full count, #434); the escalations live only on the per-run ctx, so a repeat
           batch starts clean (#639).
 
-        A slot records width/length and, for an obround, ``slot_end_radius`` on one feature;
-        routing the feature also regenerates its model-derived datum **position** dim, so finalize
-        places a *superset* of the recorded slot intents (auto-pass parity by design —
-        commenting one of a slot's two lines still routes the feature). An unsupported-axis
-        (Y-turned) step/boss callout live-replays, so it surfaces the same ValueError the
-        live verb raises. Only ``only``-set routing is used here; the auto-pass path is
-        untouched.
+        A slot routes width, length, obround end radius and its model-derived datum
+        position, even if fewer intents were recorded. Unsupported-axis turned callouts
+        live-replay and raise the same ValueError as the live verb. Routing uses only-set
+        mode; the auto-pass path is untouched.
 
-        Idempotent (draining empties the list; a repeat call — or ``export()`` then
-        ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
-        path), so ``export()`` calls it unconditionally. **Resilient:** a live-replayed
-        intent is removed only after it places, so a verb that raises surfaces the error
-        and leaves the rest recorded. A record → finalize → record-more → finalize
-        sequence drains each batch.
+        Draining empties the list, so repeated calls and exports are no-ops until more
+        intents are recorded. A live-replayed intent is removed only after placement;
+        an error leaves the remaining batch available for a corrected retry.
         """
         # Nothing recorded → nothing to replay (the live/auto-pass path). The corridor batch is
         # a per-run local built below from these intents (#639), so an empty intent list has no
@@ -2772,6 +1786,23 @@ class Drawing:
             on_settled=_on_settled,
         )
 
+    def _diagnostics(self) -> DiagnosticOperations:
+        """Pass Drawing-owned state and public dispatch hooks to a diagnostic operation."""
+        return DiagnosticOperations(
+            self,
+            analysis=self._analysis,
+            model=self._part_model,
+            build=self._build,
+            registry=self._registry,
+            coverage=self._coverage,
+            working_part=self._working_part,
+            model_declared=self._model_declared,
+            view_edge_cache=self._view_edge_cache,
+            ann_box_cache=self._ann_box_cache,
+            cyl_cache=self._cyl_cache,
+            set_cyl_cache=lambda cache: setattr(self, "_cyl_cache", cache),
+        )
+
     # -- output ---------------------------------------------------------------
     @observed_stage("lint")
     def lint(self, *, physical: bool = True):
@@ -2791,137 +1822,24 @@ class Drawing:
         return self._lint(physical=physical, aggregation=_current_issue_aggregation())
 
     def _lint(self, *, physical: bool = True, aggregation=None):
-        """Internal lint path with an optional summary-scoped pair ledger (#1147)."""
-        page_bbox = self.drawable_bounds
-        # The model compiler remains above linting's independent rank-2 boundary.
-        model = self._part_model
-        dimension_plan = None
-        if model is not None:
-            requests = (
-                model.authored_dimensions
-                if model.authored_dimensions is not None
-                else model.requested_dimensions
-            )
-            if physical or any(request.display_decimals is not None for request in requests):
-                from draftwright.model.compiled import compile_dimensions
 
-                dimension_plan = compile_dimensions(model)
-        display_decimals = (
-            compiled_display_precisions(self._registry, dimension_plan)
-            if dimension_plan is not None
-            else None
-        )
-        ctx = LintContext(
-            drawing=self,
-            page_bbox=page_bbox,
-            views=self.views,
-            items=self.items,
-            scale=self.scale,
-            material_fields=self.material_fields,
-            registry=self._registry,
-            working_part=self._working_part,
-            analysis=self._analysis,
-            build=self._build,
-            model=model,
-            coverage=self._coverage,
-            assembly=self.assembly,
-            model_declared=self._model_declared,
-            view_edge_cache=self._view_edge_cache,
-            ann_box_cache=self._ann_box_cache,
-            cyl_cache=self._cyl_cache,
-        )
-        try:
-            return lint_finished_drawing(
-                ctx,
-                physical=physical,
-                aggregation=aggregation,
-                dimension_plan=dimension_plan,
-                display_decimals=display_decimals,
-            )
-        finally:
-            if ctx.cyl_cache is not self._cyl_cache:
-                self._cyl_cache = ctx.cyl_cache
+        return self._diagnostics()._lint(physical=physical, aggregation=aggregation)
 
     def layout_utilization(self) -> dict:
-        """Conservative page-space utilization evidence for layout decisions.
 
-        The evidence uses clipped view and annotation bounding boxes. It therefore
-        overestimates sparse line-work by design, but it is deterministic, cross-family,
-        and sufficient to expose a large unused sheet or empty quadrant without parsing
-        an export (#1797).
-        """
-        from draftwright.drawing_evidence import layout_utilization
-
-        page = _frame_margins(self._analysis).bounds(self.page_w, self.page_h)
-        return layout_utilization(page, self.views, self.view_bounds, self.iter_annotations)
+        return self._diagnostics().layout_utilization()
 
     def lint_summary(self) -> dict:
-        """Aggregate :meth:`lint` into a JSON-friendly diagnostic summary.
 
-        Gives a non-interactive caller (a script, or an LLM via the API) structured
-        diagnostics and independently inspectable components without rendering the SVG:
-
-        - ``passed`` — no error-severity issues;
-        - ``score`` — legacy coarse 0–1 diagnostic heuristic (see ``_SCORE_*``);
-        - ``diagnostic_score`` — the same value under its honest name;
-        - ``quality`` — separable completeness, restraint, legibility and fidelity components. No
-          composite drawing-quality score is manufactured (#1127). Legibility's existing
-          severity/code counts are raw findings; its ``primary_*`` counts and scalar group
-          producer-identified pair findings by annotation and failure mechanism (#1147);
-        - ``review`` — concise explanations of those existing observations and their limits;
-        - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
-        - ``by_code`` — per-check counts;
-        - ``geometry_issues`` — count of standards/geometry-correctness issues
-          as opposed to pure layout (see ``_GEOMETRY_AWARE_CODES``);
-        - ``issues`` — the full list, each as a plain dict.
-        - ``pmi`` — when source PMI exists, source-to-render stage counts derived from the
-          extraction report, final IR, annotation registry, and structured placement drops.
-        """
-        # Keep dispatch through the documented public critique method: subclasses and callers
-        # may extend ``lint``. The context is task-local, and only the base implementation
-        # records pair evidence; custom issues remain independent (fail closed).
-        scoped = _SCOPED_LINT.get()
-        if scoped is not None and scoped[0] is self:
-            issues, aggregation = scoped[1], scoped[2]
-        else:
-            with _collect_issue_aggregation() as aggregation:
-                issues = self.lint()
-        from draftwright.drawing_evidence import lint_summary as project_lint_summary
-
-        candidate = _REPORT_REQUIREMENTS.get()
-        report_requirements = candidate if candidate is not None and candidate[0] is self else None
-        return project_lint_summary(
-            issues,
-            aggregation,
-            analysis=self._analysis,
-            model=self._part_model,
-            registry=self._registry,
-            recognition=self._build.recognition,
-            evidence=self._build.recognition_evidence,
-            ownership=self._build.recognition_ownership,
-            omissions=self._build.omissions,
-            working_part=self._working_part,
-            items=self.items,
-            model_declared=self._model_declared,
-            layout_utilization=self.layout_utilization,
-            report_requirements=report_requirements,
-            geometry_aware_codes=_GEOMETRY_AWARE_CODES,
-            score_error_penalty=_SCORE_ERROR_PENALTY,
-            score_warning_penalty=_SCORE_WARNING_PENALTY,
-        )
+        return self._diagnostics().lint_summary()
 
     # The output formats export() understands. PDF renders from the SVG, PNG from the PDF —
     # so requesting pdf/png writes the SVG (and pdf) as intermediates, cleaned up if not asked for.
     _EXPORT_FORMATS = ("svg", "dxf", "pdf", "png")
 
     def _lint_and_log(self) -> None:
-        issues = self.lint()
-        if issues:
-            _log.warning("Lint issues:")
-            for iss in issues:
-                _log.warning("  [%s] %s: %s", iss.severity, iss.code, iss.message)
-        else:
-            _log.info("Lint: OK")
+
+        return self._diagnostics()._lint_and_log()
 
     def _write_svg(self, out: str, *, reproducible: bool = True) -> str:
         return write_drawing_svg(
@@ -2998,3 +1916,25 @@ class Drawing:
 # Keep the public operation documentation on its observed Drawing facade.
 Drawing.export.__doc__ = export_drawing.__doc__
 Drawing.preview_annotation.__doc__ = preview_export_annotation.__doc__
+
+# Preserve operation documentation on the Drawing facade.
+Drawing._derive_span.__doc__ = EditOperations._derive_span.__doc__
+Drawing._resolve_dimension_span.__doc__ = EditOperations._resolve_dimension_span.__doc__
+Drawing._resolve_dimension_side.__doc__ = EditOperations._resolve_dimension_side.__doc__
+Drawing._angular_dimension_plan.__doc__ = EditOperations._angular_dimension_plan.__doc__
+Drawing._queue_dimension_intent.__doc__ = EditOperations._queue_dimension_intent.__doc__
+Drawing.dimension.__doc__ = EditOperations.dimension.__doc__
+Drawing.callout.__doc__ = EditOperations.callout.__doc__
+Drawing.overall_height.__doc__ = EditOperations.overall_height.__doc__
+Drawing.furniture.__doc__ = EditOperations.furniture.__doc__
+Drawing.rotational.__doc__ = EditOperations.rotational.__doc__
+Drawing.section.__doc__ = EditOperations.section.__doc__
+Drawing.locate.__doc__ = EditOperations.locate.__doc__
+
+# Preserve the public diagnostic operation documentation on the result facade.
+Drawing.report.__doc__ = DiagnosticOperations.report.__doc__
+Drawing.requirement_snapshot.__doc__ = DiagnosticOperations.requirement_snapshot.__doc__
+Drawing.write_report.__doc__ = DiagnosticOperations.write_report.__doc__
+Drawing._lint.__doc__ = DiagnosticOperations._lint.__doc__
+Drawing.layout_utilization.__doc__ = DiagnosticOperations.layout_utilization.__doc__
+Drawing.lint_summary.__doc__ = DiagnosticOperations.lint_summary.__doc__

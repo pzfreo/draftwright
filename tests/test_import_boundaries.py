@@ -164,6 +164,8 @@ _LAYERS: dict[str, int] = {
     # 5 — the Drawing result object
     "intent_drain": 5,
     "intent_routing": 5,
+    "drawing_edits": 5,
+    "drawing_diagnostics": 5,
     "drawing_state": 5,
     "drawing_tables": 5,
     "drawing": 5,
@@ -764,9 +766,12 @@ def test_report_consumers_use_only_the_published_projector(tmp_path):
         for node in ast.walk(_tree(path))
         if isinstance(node, ast.ImportFrom) and node.module == "draftwright.reporting"
     }
-    assert {"inspection.py", "sheet_emit.py", "replay_assessment.py", "drawing.py"} <= consumers, (
-        consumers
-    )
+    assert {
+        "inspection.py",
+        "sheet_emit.py",
+        "replay_assessment.py",
+        "drawing_diagnostics.py",
+    } <= consumers, consumers
 
 
 def test_the_disposition_vocabulary_matches_both_published_schemas():
