@@ -17,6 +17,7 @@ from enum import Enum
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
+from typing import Literal, TypedDict
 
 import typer
 
@@ -98,6 +99,41 @@ class AnnotationLayout(str, Enum):
     baseline = "baseline"
     best = "best"
     candidate_preview = "candidate-preview"
+
+
+class _DrawingOptions(TypedDict):
+    """Options with the same meaning for a built drawing and a Sheet script."""
+
+    out: str
+    title: str | None
+    number: str
+    tolerance: str | None
+    drawn_by: str
+    scale: float | None
+    scale_policy: Literal["strict", "fallback", "permissive"]
+    page: str | None
+    material: str
+    date: str
+    revision: str
+    company: str
+    approved_by: str
+    document_type: str
+    sheet: str
+    frame: bool
+    margin_left: float | None
+    margin_right: float | None
+    margin_top: float | None
+    margin_bottom: float | None
+    title_block_width: float | None
+    projection: str | None
+    projection_symbol: bool
+    text_position: str
+    text_orientation: str
+    leader_region: Literal["auto", "interior", "exterior"]
+    annotation_layout: Literal[
+        "estimated-strips", "demand-guided", "compare", "baseline", "best", "candidate-preview"
+    ]
+    zones: bool
 
 
 def _parse_formats(value: str) -> list[str]:
@@ -186,6 +222,47 @@ def _version_callback(value: bool) -> None:
     if value:
         typer.echo(f"draftwright {_installed_version()}")
         raise typer.Exit()
+
+
+def _emit_script_from_cli(
+    step_file: str,
+    options: _DrawingOptions,
+    *,
+    pmi: PmiMode | None,
+    formats: list[str],
+    no_report: bool,
+) -> None:
+    """Generate the same Sheet script for STEP and live-object CLI sources."""
+    from draftwright.sheet_emit import (
+        _resolve_object_source,
+        generate_sheet_script,
+        inspection_sidecar_path,
+    )
+
+    if _looks_like_object_spec(step_file):
+        source = _resolve_object_source(step_file)
+        py_path = generate_sheet_script(
+            source.part,
+            **options,
+            part_expr=source.seam,
+            object_candidates=source.candidates,
+            formats=tuple(formats),
+            # A live object has no STEP inspection, but replay can still be assessed.
+            assessment=not no_report,
+        )
+    else:
+        py_path = generate_sheet_script(
+            step_file,
+            **options,
+            pmi=pmi.value if pmi is not None else "off",
+            formats=tuple(formats),
+            inspect=not no_report,
+        )
+    print(py_path)
+    # A live object, or a source without truthful evidence, has no inspection document.
+    sidecar = inspection_sidecar_path(py_path)
+    if Path(sidecar).exists():
+        print(sidecar)
 
 
 @app.command()
@@ -346,96 +423,40 @@ def main(
     # the command) stay sub-second instead of paying for the kernel every time.
     from draftwright.builder import build_drawing
 
+    # These are the options shared by the drawing engine and Sheet script. Source-specific
+    # controls stay at the dispatch sites below.
+    options: _DrawingOptions = dict(
+        out=out,
+        title=title,
+        number=number,
+        tolerance=tolerance,
+        drawn_by=drawn_by,
+        scale=scale,
+        scale_policy=scale_policy.value,
+        page=page,
+        material=material,
+        date=date,
+        revision=revision,
+        company=company,
+        approved_by=approved_by,
+        document_type=document_type,
+        sheet=sheet,
+        frame=frame,
+        margin_left=margin_left,
+        margin_right=margin_right,
+        margin_top=margin_top,
+        margin_bottom=margin_bottom,
+        title_block_width=title_block_width,
+        projection=projection or None,
+        projection_symbol=projection_symbol,
+        text_position=text_position,
+        text_orientation=text_orientation,
+        leader_region=leader_region.value,
+        annotation_layout=annotation_layout.value,
+        zones=zones,
+    )
     if script:
-        from draftwright.sheet_emit import (
-            _resolve_object_source,
-            generate_sheet_script,
-            inspection_sidecar_path,
-        )
-
-        # The Sheet script now carries the title-block / layout aspects (#474), so forward all
-        # four flags — the generated script reproduces them on re-run (no more inert warning).
-        if _looks_like_object_spec(step_file):
-            # STEP_FILE is a `module:attr` / `file.py:attr` spec → reference a live object
-            source = _resolve_object_source(step_file)
-            py_path = generate_sheet_script(
-                source.part,
-                out=out,
-                title=title,
-                number=number,
-                tolerance=tolerance,
-                drawn_by=drawn_by,
-                scale=scale,
-                scale_policy=scale_policy.value,
-                page=page,
-                material=material,
-                date=date,
-                revision=revision,
-                company=company,
-                approved_by=approved_by,
-                document_type=document_type,
-                sheet=sheet,
-                frame=frame,
-                margin_left=margin_left,
-                margin_right=margin_right,
-                margin_top=margin_top,
-                margin_bottom=margin_bottom,
-                title_block_width=title_block_width,
-                zones=zones,
-                projection=projection or None,
-                projection_symbol=projection_symbol,
-                text_position=text_position,
-                text_orientation=text_orientation,
-                leader_region=leader_region.value,
-                annotation_layout=annotation_layout.value,
-                part_expr=source.seam,
-                object_candidates=source.candidates,
-                formats=tuple(formats),
-                # A live object has no STEP bytes and therefore no recognition inspection, but
-                # its exact script/build can still produce a replay assessment.
-                assessment=not no_report,
-            )
-        else:
-            py_path = generate_sheet_script(
-                step_file,
-                out=out,
-                title=title,
-                number=number,
-                tolerance=tolerance,
-                drawn_by=drawn_by,
-                scale=scale,
-                scale_policy=scale_policy.value,
-                page=page,
-                material=material,
-                date=date,
-                revision=revision,
-                company=company,
-                approved_by=approved_by,
-                document_type=document_type,
-                sheet=sheet,
-                frame=frame,
-                margin_left=margin_left,
-                margin_right=margin_right,
-                margin_top=margin_top,
-                margin_bottom=margin_bottom,
-                title_block_width=title_block_width,
-                zones=zones,
-                projection=projection or None,
-                projection_symbol=projection_symbol,
-                text_position=text_position,
-                text_orientation=text_orientation,
-                leader_region=leader_region.value,
-                annotation_layout=annotation_layout.value,
-                pmi=pmi.value if pmi is not None else "off",
-                formats=tuple(formats),
-                inspect=not no_report,
-            )
-        print(py_path)
-        # Only when it exists: an object-spec source, or one that cannot state its
-        # evidence truthfully, produces the script but no document.
-        sidecar = inspection_sidecar_path(py_path)
-        if Path(sidecar).exists():
-            print(sidecar)
+        _emit_script_from_cli(step_file, options, pmi=pmi, formats=formats, no_report=no_report)
         return
 
     from draftwright.progress import BuildCancelled
@@ -444,35 +465,8 @@ def main(
         with _progress_display(verbose=verbose, disabled=no_progress):
             dwg = build_drawing(
                 step_file=step_file,
-                out=out,
-                title=title,
-                number=number,
-                tolerance=tolerance,
-                drawn_by=drawn_by,
-                scale=scale,
-                scale_policy=scale_policy.value,
-                page=page,
+                **options,
                 pmi=pmi.value if pmi is not None else None,
-                material=material,
-                date=date,
-                revision=revision,
-                company=company,
-                approved_by=approved_by,
-                document_type=document_type,
-                sheet=sheet,
-                frame=frame,
-                margin_left=margin_left,
-                margin_right=margin_right,
-                margin_top=margin_top,
-                margin_bottom=margin_bottom,
-                title_block_width=title_block_width,
-                projection=projection or None,
-                projection_symbol=projection_symbol,
-                text_position=text_position,
-                text_orientation=text_orientation,
-                leader_region=leader_region.value,
-                annotation_layout=annotation_layout.value,
-                zones=zones,
             )
             if annotation_layout in {AnnotationLayout.compare, AnnotationLayout.best}:
                 chosen = dwg.annotation_scheme_decision.get("selected_trial") or "estimated-strips"
