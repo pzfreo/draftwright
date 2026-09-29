@@ -1,19 +1,104 @@
 """Compiled height-ladder corridor candidates (ADR 1 and ADR 2)."""
 
-from draftwright._core import _dim, _tol_suffix
+from dataclasses import dataclass
+from typing import Any
+
+from draftwright._core import Strip, _dim, _tol_suffix
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
     _SIZE_SUBCHAIN,
     PRIORITY,
     CorridorCandidate,
+    PlacementContext,
     dim_footprint,
     full_strip_message,
 )
 from draftwright.annotations._common import (
     register_corridor as _register_corridor,
 )
+from draftwright.model.ir_foundation import Point
+from draftwright.model.planner import DimensionId
 
 _OVERALL_SUBCHAIN = 2
+
+
+@dataclass(frozen=True)
+class _HeightRungCandidate:
+    """One approved rung and the shared state needed by its corridor callbacks."""
+
+    name: str
+    zbase: float
+    ztop: float
+    label: str
+    footprint_label: str
+    tolerance: object | None
+    side: str
+    direction: int
+    edge: float
+    predecessors: tuple[str, ...]
+    authored_side: str | None
+    per_unit: float | None
+    measurement: DimensionId | None
+    measurement_span: tuple[Point, Point] | None
+    drop_message: str
+    view: str
+    strip: Strip
+    draft: Any
+    dwg: Any
+    ctx: PlacementContext
+    solved: dict[str, float]
+
+    def witness_base(self, pos: float) -> float:
+        base = self.edge
+        for predecessor in reversed(self.predecessors):
+            if predecessor in self.solved:
+                base = self.solved[predecessor]
+                break
+        # A retry can revisit the inner position after a predecessor was built.
+        # Prediction and rendering must use the same non-degenerate witness.
+        return self.edge if self.direction * (pos - base) < 0.5 else base
+
+    def build(self, pos: float):
+        base = self.witness_base(pos)
+        self.solved[self.name] = pos
+        dim = _dim(
+            (base, self.zbase, 0),
+            (base, self.ztop, 0),
+            self.side,
+            self.direction * (pos - base),
+            self.draft,
+            label=self.label + _tol_suffix(self.tolerance, self.draft),
+        )
+        if self.per_unit is not None:
+            # This N× label measures one rise, unlike a hole pitch over a whole run.
+            dim._dw_spec.label_value = self.per_unit
+        dim._dw_measurement_span = self.measurement_span
+        if self.authored_side is not None:
+            dim._dw_spec.authored_side = self.authored_side
+        return dim
+
+    def footprint(self, pos: float):
+        base = self.witness_base(pos)
+        return dim_footprint(
+            (base, self.zbase, 0),
+            (base, self.ztop, 0),
+            self.side,
+            self.direction * (pos - base),
+            self.draft,
+            self.footprint_label,
+        )
+
+    def drop(self, _name: str) -> None:
+        self.solved.pop(self.name, None)
+        msg = full_strip_message(self.drop_message, self.dwg, self.strip, self.view, "x")
+        self.ctx.record_issue(
+            "error",
+            "placement_unsatisfiable",
+            msg,
+            measurement=self.measurement,
+            measurement_span=self.measurement_span,
+            outcome_stage="placement",
+        )
 
 
 def register_height_ladder_candidates(
@@ -67,97 +152,35 @@ def register_height_ladder_candidates(
         direction = 1 if side == "right" else -1
         edge = edge2 if side == "right" else _left - 2
         strip = frame.zones(view).right if side == "right" else frame.zones(view).left
-        predecessors = [pn for pn in names[:k] if sides[pn] == side]
-
-        def _witness_base(pos, predecessors=predecessors, direction=direction, edge=edge):
-            base = edge
-            for pn in reversed(predecessors):
-                if pn in solved:
-                    base = solved[pn]
-                    break
-            # A retry can revisit the inner position after a predecessor was built.
-            # Prediction and rendering must use the same non-degenerate witness.
-            return edge if direction * (pos - base) < 0.5 else base
-
-        def _build(
-            pos,
+        rung = _HeightRungCandidate(
             name=name,
             zbase=zbase,
             ztop=ztop,
             label=label,
-            witness_base=_witness_base,
+            # Footprints freeze the rendered text at registration, as the old
+            # callback default did; builds compose their label when placed.
+            footprint_label=label + _tol_suffix(_tolerances.get(name), draft),
+            tolerance=_tolerances.get(name),
             side=side,
             direction=direction,
+            edge=edge,
+            predecessors=tuple(pn for pn in names[:k] if sides[pn] == side),
             authored_side=overall.rungs[0].side
             if name == "dim_height" and overall is not None
             else None,
             per_unit=per_unit,
-            _tol=_tolerances.get(name),
-            measurement_span=measurement_span,
-        ):
-            base = witness_base(pos)
-            solved[name] = pos
-            dim = _dim(
-                (base, zbase, 0),
-                (base, ztop, 0),
-                side,
-                direction * (pos - base),
-                draft,
-                label=label + _tol_suffix(_tol, draft),
-            )
-            if per_unit is not None:
-                # What this dimension's `N× v` label actually measures. Lint reads it in
-                # preference to parsing the label, because `N× v` is drawn under two
-                # conventions here and the string cannot tell them apart: this one is ONE
-                # step, while a hole pitch spans the whole run. Same seam as `_dw_scale`.
-                dim._dw_spec.label_value = per_unit
-            dim._dw_measurement_span = measurement_span
-            if authored_side is not None:
-                dim._dw_spec.authored_side = authored_side
-            return dim
-
-        # The footprint measures the RENDERED string, so it carries the same suffix the
-        # Dimension draws. Correctness, not a measured failure mode — see the note in
-        # `render_envelope`; the invented "packs the strip too tightly" claim is withdrawn.
-        def _foot(
-            pos,
-            zbase=zbase,
-            ztop=ztop,
-            label=label + _tol_suffix(_tolerances.get(name), draft),
-            witness_base=_witness_base,
-            side=side,
-            direction=direction,
-        ):
-            # Predecessor-aware prediction: the conservative edge-anchored
-            # witness can falsely exhaust the strip when an inner obstacle sits in the
-            # already-traversed region. Use the build chain's witness calculation.
-            base = witness_base(pos)
-            return dim_footprint(
-                (base, zbase, 0), (base, ztop, 0), side, direction * (pos - base), draft, label
-            )
-
-        def _drop(
-            nm,
-            drop_msg=drop_msg.replace("front-view", f"{view}-view").replace(
-                "right strip", f"{side} strip"
-            ),
-            strip=strip,
-            name=name,
             measurement=mid,
             measurement_span=measurement_span,
-        ):
-            solved.pop(name, None)
-            # Name what filled the strip so the diagnosis shows the
-            # lint message.
-            msg = full_strip_message(drop_msg, dwg, strip, view, "x")
-            ctx.record_issue(
-                "error",
-                "placement_unsatisfiable",
-                msg,
-                measurement=measurement,
-                measurement_span=measurement_span,
-                outcome_stage="placement",
-            )
+            drop_message=drop_msg.replace("front-view", f"{view}-view").replace(
+                "right strip", f"{side} strip"
+            ),
+            view=view,
+            strip=strip,
+            draft=draft,
+            dwg=dwg,
+            ctx=ctx,
+            solved=solved,
+        )
 
         register_corridor(
             ctx,
@@ -168,7 +191,7 @@ def register_height_ladder_candidates(
             tier,
             CorridorCandidate(
                 name=name,
-                build=_build,
+                build=rung.build,
                 # Steps stack inner→outer in chain order; the overall height rides the
                 # OVERALL subchain so it lands outermost by construction (as the envelope
                 # dims do). Ordinary rungs join the same value-ordered baseline run as
@@ -180,7 +203,7 @@ def register_height_ladder_candidates(
                     else (_LOC_SUBCHAIN, order_values[name], name)
                 ),
                 on_place=lambda nm: None,
-                on_drop=_drop,
+                on_drop=rung.drop,
                 force=True,  # principal dims: only a physically full strip drops them
                 # …and when it IS physically full, they outrank ordinary auto dims rather
                 # than tying with them at 0 and losing on the generated key.
@@ -192,7 +215,7 @@ def register_height_ladder_candidates(
                 if overall is not None
                 else None,
                 measurement=mid,  # the rung's own compiled id
-                footprint=_foot,
+                footprint=rung.footprint,
             ),
         )
     _register_short_rungs(
