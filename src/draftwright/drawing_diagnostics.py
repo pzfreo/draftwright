@@ -181,6 +181,16 @@ def _build_lint_entry(drawing):
     return next((entry for owner, entry in cache.items() if owner is drawing), None)
 
 
+def discard_finished_build_lint(drawing):
+    """Forget a scoped physical critique after a finished attempt changes."""
+    cache = _BUILD_LINT.get()
+    if cache is not None:
+        for owner in tuple(cache):
+            if owner is drawing:
+                del cache[owner]
+                break
+
+
 def finished_build_lint_issues(drawing):
     """Read a finished attempt's physical issues without persisting a Drawing cache."""
     return _captured_lint(drawing)[0]

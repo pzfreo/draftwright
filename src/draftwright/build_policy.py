@@ -12,7 +12,10 @@ from OCP.Standard import Standard_Failure
 from draftwright._warnings import ScaleCompletenessWarning
 from draftwright.annotations.orchestrator import _WITHHOLDING_CODES
 from draftwright.drawing import Drawing, feature_key
-from draftwright.drawing_diagnostics import finished_build_lint_issues
+from draftwright.drawing_diagnostics import (
+    discard_finished_build_lint,
+    finished_build_lint_issues,
+)
 from draftwright.linting import LintIssue
 from draftwright.linting.quality import is_hard_layout_issue, is_unreadable_layout_issue
 from draftwright.view_plan import ARRANGEMENTS
@@ -338,6 +341,7 @@ def _complete_automatic_plan(drawing: Drawing, *, issues=None) -> Drawing:
                 hole_requirement_ids=hole_requirements,
             )
         )
+        discard_finished_build_lint(drawing)
 
     violations = _layout_issue_records(hard_layout)
     final_status = "invalid" if violations else "incomplete"

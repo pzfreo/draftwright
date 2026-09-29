@@ -16,6 +16,7 @@ from draftwright.build_policy import (
     _scale_decision,
 )
 from draftwright.drawing import Drawing
+from draftwright.drawing_diagnostics import discard_finished_build_lint
 from draftwright.linting import LintIssue
 from draftwright.view_plan import ARRANGEMENTS, third_angle_view_names
 
@@ -219,6 +220,7 @@ def resolve_explicit_scale(
                 f"using complete fallback scale {fallback.scale:g}",
             )
         )
+        discard_finished_build_lint(fallback)
         warnings.warn(
             f"requested scale {requested_scale:g} dropped required annotation outcomes; "
             f"using complete fallback scale {fallback.scale:g}",
