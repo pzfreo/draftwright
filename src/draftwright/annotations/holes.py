@@ -2416,6 +2416,66 @@ def _place_immediate_queue(
     return i
 
 
+class _QueueObstacles(NamedTuple):
+    view_bounds: tuple[float, float, float, float]
+    box_cache: object
+    probes: dict[int, tuple[float, float, float, float]]
+    occupied: list[tuple[float, float, float, float]]
+    provisional_sections: list[tuple[float, float, float, float]]
+    intervals: list[tuple[float, float]]
+    columns: tuple[tuple[float, float], ...]
+
+
+def _queue_obstacles(queue, side, *, sctx: _StripCtx, view, dwg, elbow_dx, side_of_callout):
+    """Measure the page-space lanes available to this leader queue."""
+    edge = sctx.edge
+    to_page = sctx.to_page
+    draft = sctx.draft
+    cache = getattr(dwg, "box_cache", None)  # measure each callout once (#1138)
+    vb = dwg.view_bounds(view)
+    assert vb is not None
+    probe_boxes = []
+    probe_by_candidate = {}
+    for s in queue:
+        box = _probe_box(s, edge, side, to_page, elbow_dx, draft, sctx.a.SCALE, cache)
+        if box is not None:
+            probe_boxes.append(box)
+            probe_by_candidate[id(s)] = box
+        # An unconstrained callout may route to the opposite exterior column.
+        # Include that column when seeding Y alternatives from existing ink.
+        if side_of_callout.get(id(s[2])) is None:
+            other_side = "left" if side == "right" else "right"
+            other_edge = vb[0] if other_side == "left" else vb[2]
+            other_box = _probe_box(
+                s, other_edge, other_side, to_page, elbow_dx, draft, sctx.a.SCALE, cache
+            )
+            if other_box is not None:
+                probe_boxes.append(other_box)
+    # View ownership is provenance, not a page-space clipping boundary: an
+    # adjacent view's witness can extend through this column.
+    occupied = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
+    provisional_sections = [
+        box
+        for name, box in strip_obstacles(dwg, crossable=CROSSABLE_TYPES, named=True)
+        if getattr(dwg.get_annotation(name), "is_provisional_layout_reservation", False)
+    ]
+    if probe_boxes:
+        occupied = [
+            obstacle
+            for obstacle in occupied
+            if any(obstacle[0] < probe[2] and obstacle[2] > probe[0] for probe in probe_boxes)
+        ]
+    columns = tuple((box[0], box[2]) for box in probe_boxes)
+    # Bands already include their clearance; obstacle lanes need their own.
+    intervals = [
+        (max(sctx.y_min, o[1] - sctx.min_gap), min(sctx.y_max, o[3] + sctx.min_gap))
+        for o in occupied
+    ]
+    return _QueueObstacles(
+        vb, cache, probe_by_candidate, occupied, provisional_sections, intervals, columns
+    )
+
+
 def _place_queue(
     queue,
     side,
@@ -2446,13 +2506,7 @@ def _place_queue(
     if not queue:
         return start_i
 
-    edge = sctx.edge
     min_gap = sctx.min_gap
-    y_min = sctx.y_min
-    y_max = sctx.y_max
-    a = sctx.a
-    to_page = sctx.to_page
-    draft = sctx.draft
 
     # Baseline: bands only, ignoring drawing-level obstacles entirely —
     # every candidate pulled toward its own natural Y, respecting only
@@ -2469,65 +2523,16 @@ def _place_queue(
     # position-dependent geometry (it runs from the fixed hole location
     # to the elbow), so probing everyone at one far-away Y badly
     # misjudges it.
-    cache = getattr(dwg, "box_cache", None)  # measure each callout once (#1138)
-    vb = dwg.view_bounds(view)
-    assert vb is not None
-    probe_boxes = []
-    probe_by_candidate = {}
-    for s in queue:
-        box = _probe_box(s, edge, side, to_page, elbow_dx, draft, a.SCALE, cache)
-        if box is not None:
-            probe_boxes.append(box)
-            probe_by_candidate[id(s)] = box
-        # The shared inventory may route an unconstrained callout to the opposite
-        # exterior side.  Include that physical column when deciding which existing
-        # annotations can contribute useful Y lanes; otherwise an adjacent view's
-        # witness line is invisible during candidate generation and every opposite-side
-        # alternative can repeat the same crossing.
-        if side_of_callout.get(id(s[2])) is None:
-            other_side = "left" if side == "right" else "right"
-            other_edge = vb[0] if other_side == "left" else vb[2]
-            other_box = _probe_box(
-                s,
-                other_edge,
-                other_side,
-                to_page,
-                elbow_dx,
-                draft,
-                a.SCALE,
-                cache,
-            )
-            if other_box is not None:
-                probe_boxes.append(other_box)
-    # View ownership is provenance, not a page-space clipping boundary.  A witness
-    # from an adjacent projection can extend through this leader column, so seed the
-    # producer's Y alternatives from the complete sheet inventory.  The X-band filter
-    # below keeps physically disjoint annotations from carving this column.
-    occupied = strip_obstacles(dwg, crossable=CROSSABLE_TYPES)
-    provisional_section_boxes = [
-        box
-        for name, box in strip_obstacles(
-            dwg,
-            crossable=CROSSABLE_TYPES,
-            named=True,
-        )
-        if getattr(dwg.get_annotation(name), "is_provisional_layout_reservation", False)
-    ]
-    if probe_boxes:
-        occupied = [
-            obstacle
-            for obstacle in occupied
-            if any(obstacle[0] < probe[2] and obstacle[2] > probe[0] for probe in probe_boxes)
-        ]
-    leader_column_bands = tuple((box[0], box[2]) for box in probe_boxes)
-    # Obstacles get their own min_gap clearance, pre-inflated here (same
-    # amount the old dedicated carve applied); bands already carry their
-    # clearance in `band_intervals`'s half-width. Combining both into one
-    # carve call needs each pre-inflated by its own amount, not a single
-    # shared pad, so `_carve_and_place` above always carves with `pad=0`.
-    obstacle_intervals = [
-        (max(y_min, o[1] - min_gap), min(y_max, o[3] + min_gap)) for o in occupied
-    ]
+    obstacles = _queue_obstacles(
+        queue,
+        side,
+        sctx=sctx,
+        view=view,
+        dwg=dwg,
+        elbow_dx=elbow_dx,
+        side_of_callout=side_of_callout,
+    )
+    obstacle_intervals = obstacles.intervals
     seg_y, _seg_dropped = _carve_and_place(
         queue, band_intervals + obstacle_intervals, key_prefix, sctx, allow_snap=False
     )
@@ -2548,7 +2553,7 @@ def _place_queue(
             d_seg = abs(cand_y - natural)
             d_base = abs(base_y[sid] - natural)
             must_clear_future_section = _box_hits(
-                probe_by_candidate.get(sid), provisional_section_boxes
+                obstacles.probes.get(sid), obstacles.provisional_sections
             )
             y = (
                 cand_y
@@ -2626,9 +2631,9 @@ def _place_queue(
             final_y=final_y,
             final_dropped=final_dropped,
             obstacle_intervals=obstacle_intervals,
-            leader_column_bands=leader_column_bands,
-            vb=vb,
-            cache=cache,
+            leader_column_bands=obstacles.columns,
+            vb=obstacles.view_bounds,
+            cache=obstacles.box_cache,
             elbow_dx=elbow_dx,
         )
     return _place_immediate_queue(
@@ -2644,7 +2649,7 @@ def _place_queue(
         final_y=final_y,
         final_dropped=final_dropped,
         dropped=dropped,
-        occupied=occupied,
+        occupied=obstacles.occupied,
         elbow_dx=elbow_dx,
         feat_of_callout=feat_of_callout,
         hc_used=hc_used,
