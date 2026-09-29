@@ -520,14 +520,14 @@ and re-exports the existing private helper names.
   imperative alternative): generates an editable `Sheet` script from a detected
   model — one named binding per feature, an explicit dimension source, and a bounded
   generation-time recognition-gap snapshot. Facade tier; imports `builder`, the pure
-  `reporting` projector, and `replay_assessment` downward at module level. The latter prepares
+  `reporting` projector, `sheet_feature_lines`, and `replay_assessment` downward at module level. The latter prepares
   exact source/script identity before replay and atomically wraps the same Drawing's strict
   report plus export-result hashes afterward; it never builds or recognizes (#1715). The old
   builder→cli→sheet_emit
   lazy cycle is **gone** (#523): the `_cli` compat shim moved from `builder` to
   `cli.py` (beside the Typer `app`), so `builder` no longer imports `cli` and
   `_LAZY_UPWARD_EXEMPT` is now empty. The graph is a plain DAG —
-  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting, replay_assessment}`,
+  `cli → {builder, sheet_emit}`, `sheet_emit → {builder, reporting, replay_assessment, sheet_feature_lines}`,
   `replay_assessment → reporting`, `builder → ∅`. The rank-0 `audit` module compares serialized
   v2 replay assessments without importing the engine: exact declaration/occurrence ownership,
   compiled meanings, representation carriers, lint, layout and independent quality components
