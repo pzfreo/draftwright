@@ -69,6 +69,8 @@ def test_imported_angular_pattern_uses_one_mark_with_every_member_identity():
     name, annotation = _angle_annotation(drawing)
 
     assert annotation.label == "90 ±1"
+    assert annotation.implicit_degree_label == "90 ±1"
+    assert not hasattr(annotation, "_dw_implicit_degree_label")
     assert drawing.registry.names_for_feature(feature) == [name]
     assert drawing.registry.measurement_of(name) == ()
     assert feature.source_id == "dimension:test"
@@ -85,6 +87,12 @@ def test_imported_angular_pattern_uses_one_mark_with_every_member_identity():
             "angular_support_unverifiable",
             "claimed_measurement_not_compiled",
         }
+    ]
+    annotation.label = "90 mm"
+    assert [
+        issue
+        for issue in drawing.lint(physical=False)
+        if issue.code == "angular_label_vs_geometry"
     ]
 
 

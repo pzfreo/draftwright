@@ -111,7 +111,7 @@ def lint_angular_geometry(item, label_value):
     # both missed false precise claims and rejected correctly rounded small angles.
     rounding = 0.5 * 10 ** -len(nominal.group(1) or "") if nominal else 0.0
     if (
-        (not is_angular_label(label) and getattr(item, "_dw_implicit_degree_label", None) != label)
+        (not is_angular_label(label) and getattr(item, "implicit_degree_label", None) != label)
         or nominal is None
         or label_value is None
         or not isfinite(label_value)

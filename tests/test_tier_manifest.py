@@ -5,6 +5,8 @@ import runpy
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 CI legs
@@ -41,6 +43,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
+        "angular_ink": "src/draftwright/annotations/angular.py",
         "dimension_ink": "src/draftwright/annotations/_dimension_ink.py",
         "dimension_ink_repair": "src/draftwright/annotations/_dimension_ink_repair.py",
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
@@ -239,6 +242,15 @@ def test_intent_routing_owner_selects_deferred_placement_contracts():
 def test_solve_trace_owner_runs_recorder_and_boundary_contracts():
     selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/solve_trace.py"]))
     assert {"test_solve_trace.py", "test_compiled_plan_boundary.py"} <= selected
+
+
+@pytest.mark.parametrize(
+    "source",
+    ("src/draftwright/annotations/angular.py", "src/draftwright/linting/angular.py"),
+)
+def test_angular_ink_owner_selects_its_render_and_lint_contracts(source):
+    selected = set(pr_modules(_TESTS, [source]))
+    assert set(CONTRACT_GROUPS["angular_ink"].test_patterns) <= selected
 
 
 def test_step_length_owner_selects_its_placement_contract():

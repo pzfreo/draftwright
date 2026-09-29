@@ -37,6 +37,8 @@ class AngularInk(AngularGeometry):
 class AngularDimension(Compound):
     """Arc, arrow heads, complete label and extension lines, with movable metadata."""
 
+    implicit_degree_label: str | None
+
     def __init__(self, ink: AngularInk, radius: float):
         if radius < ink.minimum_radius:
             raise ValueError("angular radius is below the legibility bound")
@@ -90,7 +92,7 @@ class AngularDimension(Compound):
         super().__init__(children=[*arrows, extensions, text], label=ink.label)
         self._angular_points = (ink.witnesses[0], ink.vertex, ink.witnesses[1])
         self.angular_sector = ink.sector
-        self._dw_implicit_degree_label = ink.label if ink.implicit_degrees else None
+        self.implicit_degree_label = ink.label if ink.implicit_degrees else None
         self._label_polygon = ink.label_polygon(radius)
         self._extension_segments = segments
         self._radius = radius

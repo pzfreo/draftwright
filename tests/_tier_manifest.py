@@ -155,6 +155,14 @@ CONTRACT_GROUPS = {
         ("src/draftwright/annotations/solve_trace.py",),
         ("test_solve_trace.py", "test_compiled_plan_boundary.py"),
     ),
+    "angular_ink": ContractGroup(
+        ("src/draftwright/annotations/angular.py", "src/draftwright/linting/angular.py"),
+        (
+            "test_angular_references.py",
+            "test_angular_rendering.py",
+            "test_issue_1177_angular_dimensions.py",
+        ),
+    ),
     "dimension_ink": ContractGroup(
         ("src/draftwright/annotations/_dimension_ink.py",),
         (
