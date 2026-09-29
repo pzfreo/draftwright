@@ -1673,6 +1673,56 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
 
 
 @dataclass(frozen=True)
+class _PrimaryLeaderCandidates:
+    viable_by_job: list[list[_MeasuredLeaderCandidate]]
+    policy_blockers_by_job: list[list[tuple[str, ...]]]
+    material_by_job: list[list[int]]
+    rejected_by_job: list[list[tuple[int, tuple[str, ...]]]]
+
+
+def _classify_primary_leader_candidates(
+    jobs,
+    measured_by_job,
+    possible_fixed_by_job,
+    material_by_view,
+    page,
+) -> _PrimaryLeaderCandidates:
+    """Keep hard-clear and Policy-B candidates with their measured material cost."""
+
+    viable_by_job = []
+    policy_blockers_by_job = []
+    material_by_job = []
+    rejected_by_job = []
+    for job, measured, possible_by_candidate in zip(
+        jobs, measured_by_job, possible_fixed_by_job, strict=True
+    ):
+        viable = []
+        policy_blockers = []
+        material_units = []
+        rejected = []
+        field = material_by_view.get(job.view)
+        for candidate, possible_components in zip(measured, possible_by_candidate, strict=True):
+            blockers = _fixed_blockers(candidate, job, page, possible_components)
+            hard_blocked = bool(_hard_fixed_blockers(blockers))
+            if blockers and (hard_blocked or not job.allow_policy_b_fixed):
+                rejected.append((candidate.raw_index, blockers))
+                continue
+            viable.append(candidate)
+            policy_blockers.append(blockers)
+            # Cutting the body is a Policy-B cost, never an eligibility gate: a nested
+            # feature can have no clear route at all, and dropping its callout to keep the
+            # outline tidy would trade a required measurement for a cosmetic one.
+            material_units.append(_material_units(candidate, field))
+        viable_by_job.append(viable)
+        policy_blockers_by_job.append(policy_blockers)
+        material_by_job.append(material_units)
+        rejected_by_job.append(rejected)
+    return _PrimaryLeaderCandidates(
+        viable_by_job, policy_blockers_by_job, material_by_job, rejected_by_job
+    )
+
+
+@dataclass(frozen=True)
 class _ProvisionalRefinementInput:
     jobs: list[FeatureLeaderJob]
     views: tuple[str, ...]
@@ -2627,34 +2677,13 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             "greedy_fixed_probe_budget",
             fixed_probe_bound=fixed_probe_bound,
         )
-    viable_by_job = []
-    policy_blockers_by_job = []
-    material_by_job = []
-    rejected_by_job = []
-    for job, measured, possible_by_candidate in zip(
-        jobs, measured_by_job, possible_fixed_by_job, strict=True
-    ):
-        viable = []
-        policy_blockers = []
-        material_units = []
-        rejected = []
-        field = material_by_view.get(job.view)
-        for candidate, possible_components in zip(measured, possible_by_candidate, strict=True):
-            blockers = _fixed_blockers(candidate, job, page, possible_components)
-            hard_blocked = bool(_hard_fixed_blockers(blockers))
-            if blockers and (hard_blocked or not job.allow_policy_b_fixed):
-                rejected.append((candidate.raw_index, blockers))
-                continue
-            viable.append(candidate)
-            policy_blockers.append(blockers)
-            # Cutting the body is a Policy-B cost, never an eligibility gate: a nested
-            # feature can have no clear route at all, and dropping its callout to keep the
-            # outline tidy would trade a required measurement for a cosmetic one.
-            material_units.append(_material_units(candidate, field))
-        viable_by_job.append(viable)
-        policy_blockers_by_job.append(policy_blockers)
-        material_by_job.append(material_units)
-        rejected_by_job.append(rejected)
+    classified = _classify_primary_leader_candidates(
+        jobs, measured_by_job, possible_fixed_by_job, material_by_view, page
+    )
+    viable_by_job = classified.viable_by_job
+    policy_blockers_by_job = classified.policy_blockers_by_job
+    material_by_job = classified.material_by_job
+    rejected_by_job = classified.rejected_by_job
 
     component_bounds_by_job = [
         [
