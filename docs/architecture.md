@@ -10,7 +10,7 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
 top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (including
 semantic survival order), `layout_scheme.py` (typed render-free annotation
-topology and corridor demand planning), `registry.py`, `fonts.py`,
+topology and corridor demand planning), `registry.py`, `fonts/`,
 `_geometry.py`,
 `fits.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
@@ -559,7 +559,7 @@ and re-exports the existing private helper names.
   deterministic `recognise_*` functions, frozen serialisable records, shared substrates,
   `RecognitionResult` orchestration/manifest, repeating-profile correspondence, and
   `feature_census`. It imports build123d/OCP and never imports Draftwright.
-- **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
+- **`fonts/`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 5 (was 0006)).
 - **`pdf_text.py`** — rank-2 PDF semantic text assembly from the drawing's
   explicitly supplied draft and named annotations. It preserves label recovery,
