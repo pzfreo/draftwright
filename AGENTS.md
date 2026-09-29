@@ -42,11 +42,11 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 `_pmi_linear_geometry`, `_pmi_support_blockers`, `pmi`,
 `linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
 `annotations/` (the render passes, including feature-family `_slots`,
-`_pocket_pad`, `_edge_callouts`, `_thin_profiles`, and `_step_lengths` owners, analytical
-dimension ink in `_dimension_ink`, bounded same-batch label repair in
-`_dimension_ink_repair`, shared page-space placement geometry in
-`_placement_geometry`, required strip-ink resolution and survivor commit
-in `_strip_postsolve`, exact settled annotation ink lowering in
+`_pocket_pad`, `_edge_callouts`, `_thin_profiles`, `_diameters`, and
+`_step_lengths` owners, analytical dimension ink in `_dimension_ink`, bounded
+same-batch label repair in `_dimension_ink_repair`, shared page-space placement
+geometry in `_placement_geometry`, required strip-ink resolution and survivor
+commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and

@@ -56,6 +56,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "pocket_pad_leaders": "src/draftwright/annotations/_pocket_pad.py",
         "edge_callouts": "src/draftwright/annotations/_edge_callouts.py",
         "thin_profiles": "src/draftwright/annotations/_thin_profiles.py",
+        "diameter_family": "src/draftwright/annotations/_diameters.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
