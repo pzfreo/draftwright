@@ -64,7 +64,6 @@ from quiddity import (
     ThroughStep,
     TurnedStep,
     analyse_cylinders,
-    has_multi_axis_plates,
     project_step_shoulders,
     recognise_bosses,
     recognise_chamfers,
@@ -75,7 +74,6 @@ from quiddity import (
     recognise_grooves,
     recognise_hole_patterns,
     recognise_holes,
-    recognise_oriented_slot_patterns,
     recognise_paired_ramp_steps,
     recognise_plates,
     recognise_polygonal_bosses,
@@ -90,17 +88,35 @@ from quiddity.evidence import FeatureRef, RecognitionEvidence, build_recognition
 
 from draftwright._geometry import (
     _axis_letter,
-    _classify_rotational_cylinders,
     _fmt,
     _is_principal_axis,
     _xyz,
     plane_axis_names,
 )
 from draftwright.model.declare import circular_blind_step, control_frame, datum
+from draftwright.model.detect_inventory import (
+    DetectionInventory,
+    complete_inventory,
+    prepare_inventory,
+)
 from draftwright.model.detect_ownership import (
-    _fillet_blend_ownership_keys,
-    _same_fillet_blend_partition,
-    _validate_aggregate_radius_ownership,
+    PrismaticOwnershipStage,
+    prepare_prismatic_ownership,
+)
+from draftwright.model.detect_ownership import (
+    _circular_blind_step_ownership_key as _circular_blind_step_ownership_key,
+)
+from draftwright.model.detect_ownership import (
+    _fillet_blend_ownership_keys as _fillet_blend_ownership_keys,
+)
+from draftwright.model.detect_ownership import (
+    _preserves_ownership_with_unique_additions as _preserves_ownership_with_unique_additions,
+)
+from draftwright.model.detect_ownership import (
+    _same_fillet_blend_partition as _same_fillet_blend_partition,
+)
+from draftwright.model.detect_ownership import (
+    _same_ownership_occurrences as _same_ownership_occurrences,
 )
 from draftwright.model.ir import (
     AUTHORED_DIMENSION_KINDS,
@@ -154,7 +170,6 @@ from draftwright.oriented_slot_contract import (
 )
 from draftwright.plate_correspondence import plate_owner_dependencies
 from draftwright.profile_angles import profile_angle_repetitions, profile_angle_requirements
-from draftwright.progress import stage
 from draftwright.recognition_frame import (
     groove_owns_turned_step_band,
     require_unambiguous_groove_owner,
@@ -505,6 +520,31 @@ class ConvContext:
 
     bbox: Any  # build123d BoundBox (kept untyped so detect stays build123d-import-light)
     orientation: str | None
+
+
+@dataclass
+class DetectionRun:
+    """One ordered lowering run over the completed inventory and ownership projection."""
+
+    part: Any
+    inventory: DetectionInventory
+    bbox: Any
+    ctx: ConvContext
+    prismatic: PrismaticOwnershipStage
+    features: list[Feature]
+    ownership: RecognitionOwnershipBuilder | None
+    boss_groups: list[list[object]]
+    boss_blend_owner_by_id: dict[int, object]
+    envelope_emittable: bool
+    plate_features_by_record_id: dict[int, Feature]
+    slot_pattern_members_by_feature_id: dict[int, tuple[Slot, ...]]
+
+    def append_direct(self, record: object) -> None:
+        """Convert and bind while the exact occurrence-to-IR decision is in hand."""
+        feature = convert(record, self.ctx)
+        self.features.append(feature)
+        if self.ownership is not None:
+            self.ownership.bind(record, feature)
 
 
 # A uniform converter: a pure function of one recognition record + the shared context.
@@ -1841,660 +1881,35 @@ def _append_turned_and_boss_features(
     return groove_owned_steps, pending_boss_owners
 
 
-def _append_gusset_features(*, gusset_ribs, gusset_rib_patterns, ctx, features, ownership) -> None:
-    """Lower exact gusset pattern members before their standalone siblings."""
-    # A provider pattern correlates exact physical member objects. Bind each occurrence
-    # to the one pattern feature, then lower unrelated ribs independently.
-    assert gusset_ribs is not None and gusset_rib_patterns is not None
-    gusset_records = tuple(gusset_ribs)
-    patterned_ids: set[int] = set()
-    for pattern in gusset_rib_patterns:
-        gusset_members = cast(tuple[GussetRib, ...], tuple(pattern.ribs))
-        if not gusset_members or any(
-            not any(member is rib for rib in gusset_records) for member in gusset_members
-        ):
-            raise ValueError("gusset-rib pattern members must preserve aggregate identity")
-        if any(id(member) in patterned_ids for member in gusset_members):
-            raise ValueError("a gusset-rib occurrence cannot belong to two patterns")
-        patterned_ids.update(id(member) for member in gusset_members)
-        feature = _gusset_feature(gusset_members, pattern, ctx)
-        features.append(feature)
-        if ownership is not None:
-            ownership.absorb(gusset_members, feature, reason_code="gusset_rib_pattern_member")
-    for rib in gusset_records:
-        if id(rib) in patterned_ids:
-            continue
-        feature = _gusset_feature((rib,), None, ctx)
-        features.append(feature)
-        if ownership is not None:
-            ownership.bind(rib, feature, reason_code="gusset_rib_adapter")
-
-
-def build_part_model(
-    part,
+def _append_prismatic_features(
     *,
-    holes=None,
-    double_d_bores=None,
-    patterns=None,
-    bosses=None,
-    polygonal_bosses=None,
-    polygonal_stock=None,
-    slots=None,
-    slot_patterns=None,
-    oriented_slots=None,
-    oriented_slot_patterns=None,
-    risers=None,
-    chamfers=None,
-    fillets=None,
-    blends=None,
-    circular_blind_steps=None,
-    paired_ramp_steps=None,
-    through_steps=None,
-    gusset_ribs=None,
-    gusset_rib_patterns=None,
-    plates=None,
-    grooves=None,
-    flats=None,
-    pads=None,
-    section_recesses=None,
-    section_recess_patterns=None,
-    prof=_UNSET,
-    profiles=_UNSET,
-    step_zs=None,
-    face_levels=None,
-    rotational=None,
-    pmi=None,
-    lower_pmi: bool = True,
-    cyls=None,
-) -> PartModel:
-    """Run the detectors and assemble the :class:`PartModel` IR for *part*.
-
-    The detected feature sets may be **supplied** by the caller (from `_analyse`,
-    which already ran them) so detection happens **once per build** — the single
-    feature inventory (ADR 1 (was 0008 Amendment 5), #244). Omitted sets are detected here,
-    so a standalone ``build_part_model(part)`` still works. ``profiles`` is the plural
-    body-local turned-profile input; the compatible singular ``prof`` remains accepted,
-    and both use a sentinel because ``None`` is a valid non-turned value.
-
-    ``step_zs`` (prismatic horizontal face levels), their optional ``face_levels`` records
-    carrying support bounds, and ``rotational`` (``(od, bores)`` or ``None``) are
-    *classification* inputs from `_analyse` — feeding the prismatic step ladder (#237/#915)
-    and the rotational OD/bore furniture (#237).
-
-    The internal detected path carries its completed aggregate in a task-local handoff.
-    ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
-    cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
-    the solid is scanned once per build (#703); a standalone/partial call derives it once
-    before its aggregate run. ``lower_pmi=False`` retains extracted PMI as materialised/report-only IR;
-    annotate mode uses the default and correlates supported requirements onto canonical
-    feature parameters (#1116)."""
-    fillets_supplied = fillets is not None
-    blends_supplied = blends is not None
-    if fillets_supplied:
-        fillets = tuple(fillets)
-    if blends_supplied:
-        blends = tuple(blends)
-    handoff = _RECOGNITION_HANDOFF.get()
-    handoff_matches = handoff is not None and handoff.part is part
-    recognition_result = handoff.result if handoff_matches and handoff is not None else None
-    recognition_evidence = handoff.evidence if handoff_matches and handoff is not None else None
-    ownership = (
-        handoff.ownership if recognition_result is not None and handoff is not None else None
-    )
-    circular_blind_steps_supplied = circular_blind_steps is not None
-    if circular_blind_steps_supplied:
-        circular_blind_steps = tuple(circular_blind_steps)
-    if section_recesses is not None and section_recess_patterns is None:
-        raise ValueError("injected section recesses require explicit section_recess_patterns")
-    derive_hole_patterns = holes is not None and patterns is None
-    derive_slot_patterns = slots is not None and slot_patterns is None
-    # Pattern projection and conversion share one materialised caller inventory. A
-    # generator would otherwise be exhausted before standalone records reach the adapter.
-    if oriented_slots is not None:
-        oriented_slots = tuple(oriented_slots)
-    derive_oriented_slot_patterns = oriented_slots is not None and oriented_slot_patterns is None
-    if prof is not _UNSET and profiles is not _UNSET:
-        raise ValueError("supply profiles= or the compatible singular prof=, not both")
-    needs_aggregate = (
-        (prof is _UNSET and profiles is _UNSET)
-        or step_zs is None
-        or face_levels is None
-        or any(
-            inventory is None
-            for inventory in (
-                holes,
-                double_d_bores,
-                patterns,
-                bosses,
-                polygonal_bosses,
-                polygonal_stock,
-                slots,
-                slot_patterns,
-                oriented_slots,
-                oriented_slot_patterns,
-                risers,
-                chamfers,
-                fillets,
-                blends,
-                circular_blind_steps,
-                paired_ramp_steps,
-                through_steps,
-                gusset_ribs,
-                gusset_rib_patterns,
-                plates,
-                grooves,
-                flats,
-                pads,
-                section_recesses,
-                section_recess_patterns,
-            )
-        )
-    )
-    if not needs_aggregate and fillets_supplied and blends_supplied and recognition_result is None:
-        raise ValueError(
-            "fully supplied fillets and blends require aggregate recognition_result provenance"
-        )
-    if not needs_aggregate and recognition_result is not None:
-        if not _same_fillet_blend_partition(
-            _fillet_blend_ownership_keys(fillets, blends),
-            _fillet_blend_ownership_keys(recognition_result.fillets, recognition_result.blends),
-        ):
-            raise ValueError("fillets and blends must preserve aggregate ownership exactly")
-    bbox = part.bounding_box()
-    features: list[Feature] = []
+    bbox,
+    profiles,
+    rotational,
+    envelope_emittable,
+    plates,
+    multi_plate,
+    through_leg_spans,
+    ctx,
+    features,
+    ownership,
+    step_zs,
+    plate_zs_at_base,
+    side_pad_level_zs,
+    through_level_zs,
+    edge_floor_zs,
+    face_levels,
+    risers,
+    through_shoulder_sites,
+    channels,
+    recess_features,
+    plate_features_by_record_id,
+    step_level_owns_channel,
+    convert_record,
+) -> tuple[Feature | None, Feature | None]:
+    """Lower envelope, physical plates, and the ownership-filtered step ladder."""
     envelope_feature: Feature | None = None
-    plate_features_by_record_id: dict[int, Feature] = {}
-    slot_pattern_members_by_feature_id: dict[int, tuple[Slot, ...]] = {}
     step_level_feature: Feature | None = None
-
-    def append_direct(record: object) -> None:
-        """Convert and bind while the exact occurrence-to-IR decision is in hand."""
-
-        feature = convert(record, ctx)
-        features.append(feature)
-        if ownership is not None:
-            ownership.bind(record, feature)
-
-    # Turned-profile classification up front so the shared convert-context carries the
-    # part's turning axis (the StepFeature span axis). Pure detection — no feature is
-    # emitted here; the turned/boss branch below reads the same plural inventory.
-    #
-    # Any omitted family or classification input is filled from one public RecognitionResult,
-    # preserving cross-family ownership for documented partial-inventory calls.  Derive the
-    # aggregate's applicability flag from the shared cylinder substrate rather than probing a
-    # public family first; the aggregate remains the only family orchestration (ADR 3 (was 0017)).
-    if needs_aggregate:
-        recognition = recognition_result
-        if recognition is None:
-            if cyls is None:
-                cyls = analyse_cylinders(part)
-            centre = bbox.center()
-            cylinder_class = _classify_rotational_cylinders(
-                cyls,
-                sizes=(bbox.size.X, bbox.size.Y, bbox.size.Z),
-                centre=(centre.X, centre.Y, centre.Z),
-            )
-            with stage("recognition"):
-                recognition_evidence = build_recognition_evidence(
-                    part,
-                    cylinders=cyls,
-                    rotational=(
-                        rotational is not None
-                        or (profiles is not _UNSET and bool(profiles))
-                        or (prof is not _UNSET and prof is not None)
-                        or cylinder_class.is_rotational
-                    ),
-                )
-            recognition = recognition_evidence.result
-        else:
-            cyls = recognition.cylinders
-        _validate_aggregate_radius_ownership(
-            recognition,
-            fillets=fillets,
-            blends=blends,
-            circular_blind_steps=circular_blind_steps,
-            fillets_supplied=fillets_supplied,
-            blends_supplied=blends_supplied,
-            circular_blind_steps_supplied=circular_blind_steps_supplied,
-        )
-        holes = recognition.holes if holes is None else holes
-        double_d_bores = recognition.double_d_bores if double_d_bores is None else double_d_bores
-        patterns = recognition.hole_patterns if patterns is None else patterns
-        bosses = recognition.bosses if bosses is None else bosses
-        polygonal_bosses = (
-            recognition.polygonal_bosses if polygonal_bosses is None else polygonal_bosses
-        )
-        polygonal_stock = (
-            recognition.polygonal_stock if polygonal_stock is None else polygonal_stock
-        )
-        slots = recognition.slots if slots is None else slots
-        slot_patterns = recognition.slot_patterns if slot_patterns is None else slot_patterns
-        oriented_slots = recognition.oriented_slots if oriented_slots is None else oriented_slots
-        oriented_slot_patterns = (
-            recognition.oriented_slot_patterns
-            if oriented_slot_patterns is None
-            else oriented_slot_patterns
-        )
-        risers = recognition.risers if risers is None else risers
-        chamfers = recognition.chamfers if chamfers is None else chamfers
-        fillets = recognition.fillets if fillets is None else fillets
-        blends = recognition.blends if blends is None else blends
-        circular_blind_steps = (
-            recognition.circular_blind_steps
-            if circular_blind_steps is None
-            else circular_blind_steps
-        )
-        paired_ramp_steps = (
-            recognition.paired_ramp_steps if paired_ramp_steps is None else paired_ramp_steps
-        )
-        through_steps = recognition.through_steps if through_steps is None else through_steps
-        gusset_ribs = recognition.gusset_ribs if gusset_ribs is None else gusset_ribs
-        gusset_rib_patterns = (
-            recognition.gusset_rib_patterns if gusset_rib_patterns is None else gusset_rib_patterns
-        )
-        plates = recognition.plates if plates is None else plates
-        grooves = recognition.grooves if grooves is None else grooves
-        flats = recognition.flats if flats is None else flats
-        section_recesses = (
-            recognition.section_recesses if section_recesses is None else section_recesses
-        )
-        section_recess_patterns = (
-            recognition.section_recess_patterns
-            if section_recess_patterns is None
-            else section_recess_patterns
-        )
-        pads = recognition.pads if pads is None else pads
-        # Pattern inventories are projections of their supplied member inventories.  Preserve
-        # that documented partial-input relationship instead of combining caller-owned members
-        # with patterns derived from the aggregate's separately detected members.
-        if derive_hole_patterns:
-            patterns = recognise_hole_patterns(holes)
-        if derive_slot_patterns:
-            slot_patterns = recognise_slot_patterns(slots)
-        if derive_oriented_slot_patterns:
-            oriented_slot_patterns = recognise_oriented_slot_patterns(oriented_slots)
-        if prof is _UNSET and profiles is _UNSET:
-            profiles = recognition.turned_profiles
-        if step_zs is None:
-            step_zs = recognition.step_ladder_for_z_span(bbox.min.Z, bbox.max.Z)
-        if face_levels is None:
-            face_levels = recognition.step_levels
-        cyls = recognition.cylinders
-    if profiles is _UNSET:
-        assert prof is not _UNSET  # both omitted always took and populated the aggregate arm
-        profiles = () if prof is None else (prof,)
-    profiles = () if profiles is None else tuple(profiles)
-    if len(profiles) > 1 and any(profile.profile is None for profile in profiles):
-        raise ValueError("plural turned profiles require body-local profile identity")
-    # ``rotational`` is the classification fallback for a single-diameter turned body whose
-    # step profile is absent. It is already supplied by the one analysis orchestration, so
-    # carrying its axis into conversion is not a geometry rescan (#1276 / ADR 3 (was 0017)).
-    profile_axes = {profile.axis for profile in profiles}
-    if len(profile_axes) == 1:
-        orientation = next(iter(profile_axes))
-    elif profile_axes:
-        orientation = None
-    else:
-        orientation = rotational[2] if rotational else None
-    # Standalone detection applies the same surface-family gate as RecognitionResult. Supplied
-    # records carry the recogniser's explicit surface-family discriminator themselves.
-    if chamfers is None:
-        chamfers = recognise_chamfers(
-            part,
-            cyls=cyls,
-            include_planar=orientation is None,
-        )
-    if fillets is None:
-        fillets = recognise_fillets(
-            part,
-            cyls=cyls,
-            include_cylindrical=orientation is None,
-        )
-    ctx = ConvContext(bbox=bbox, orientation=orientation)
-    # A legacy min-datum measurement proves its complementary max-side interval only together
-    # with the overall envelope. Establish whether that feature will really cross the IR waist
-    # before aggregate ownership is decided; the bbox alone is private geometry, not ink.
-    if bosses is None:
-        bosses = recognise_bosses(part, cyls=cyls)
-    boss_groups = _groups_by_diameter(bosses)
-    bosses_d = [group[0] for group in boss_groups]
-    if polygonal_stock is None:
-        polygonal_stock = recognise_polygonal_stock(part)
-    envelope_emittable = envelope_is_emittable(
-        bbox=bbox,
-        bosses=bosses_d,
-        turned_profiles=profiles,
-        polygonal_stock=polygonal_stock,
-    )
-    boss_blend_owner_by_id = (
-        {
-            id(boss): blend
-            for boss, blend in boss_blend_owner_pairs(
-                recognition_evidence,
-                tuple(bosses),
-                tuple(blends),
-                bbox=bbox,
-                envelope_emittable=envelope_emittable,
-                diameter_tolerance=BOSS_BLEND_DIAMETER_TOL,
-            )
-        }
-        if recognition_evidence is not None
-        else {}
-    )
-    if through_steps is None:
-        # Match RecognitionResult applicability on the standalone path. A supplied aggregate
-        # inventory already embodies that one orchestration decision and is never re-filtered.
-        through_steps = recognise_through_steps(part) if orientation is None else ()
-    through_steps = tuple(through_steps)
-
-    assert section_recesses is not None and section_recess_patterns is not None
-    section_recesses = tuple(section_recesses)
-    section_recess_patterns = tuple(section_recess_patterns)
-    recess_features = {}
-    for source in section_recesses:
-        try:
-            recess_features[id(source)] = convert(source, ctx)
-        except UnsupportedSectionRecess:
-            # The exact occurrence remains in independent completeness and policy ledgers.
-            continue
-    channels = tuple(
-        source
-        for source in section_recesses
-        if getattr(recess_features.get(id(source)), "kind", None) == "channel"
-    )
-    pockets = tuple(
-        source
-        for source in section_recesses
-        if getattr(recess_features.get(id(source)), "kind", None) == "pocket"
-    )
-    # A full-span floored gap also describes a monolithic centred rebate, whose two
-    # shoulders are already owned as one correlated StepLevelFeature position set. The
-    # #917 channel scheme applies only where plate recognition proves a multi-axis
-    # U-bracket: base + walls. Use the same evidence as the plate-emission gate below so
-    # the two domains cannot both dimension one profile.
-    if not profiles and rotational is None and plates is None:
-        plates = recognise_plates(part)
-    multi_plate = has_multi_axis_plates(plates or ())
-    # Ownership evidence must be eligible to cross the recognition→IR boundary.  A lone
-    # single-axis plate is deliberately not emitted below (it is staircase evidence, not the
-    # multi-plate bracket grammar), so letting it preempt a ThroughStep would leave the claimed
-    # leg with no IR owner at all.
-    ownership_plates = (
-        tuple(plates or ()) if not profiles and rotational is None and multi_plate else ()
-    )
-    # The same lowered edge-open pocket geometry controls step-floor ownership.
-    edge_floor_zs = {
-        feature.frame.origin[2] - feature.open_sign * feature.depth / 2
-        for source in pockets
-        for feature in (recess_features[id(source)],)
-        if isinstance(feature, PocketFeature)
-        and feature.depth_axis == "z"
-        and feature.edge_anchored
-    }
-    plate_zs_at_base = {
-        round(pl.hi, 3)
-        for pl in ownership_plates
-        if pl.axis == "z" and abs(pl.lo - bbox.min.Z) < 0.5
-    }
-    if risers is None:
-        risers = recognise_risers(part)
-    # RaisedPad v2 is an all-principal-axis occurrence. Resolve it before lowering the legacy
-    # Z-level grammar so a side-normal pad's two Z footprint edges cannot masquerade as
-    # prismatic HEIGHT levels. Any omitted inventory was filled from the one aggregate above;
-    # do not add a family rescan at this consumer boundary (ADR 3 (was 0017)).
-    assert pads is not None
-    pads = tuple(pads)
-    # The detected orchestration supplies its filtered aggregate levels. A standalone
-    # ``build_part_model`` has no aggregate, so obtain the same records once and use them for
-    # BOTH ownership and emitted IR.  Suppressing a ThroughStep because a legacy owner exists
-    # only as private evidence would return a model containing neither owner.
-    if step_zs is None:
-        standalone_face_levels = tuple(step_level_records(part))
-        step_zs = tuple(level.z for level in standalone_face_levels)
-        if face_levels is None:
-            face_levels = standalone_face_levels
-    face_levels = tuple(face_levels or ())
-
-    def _side_pad_owns_level(level: FaceLevel, pad: RaisedPad) -> bool:
-        if pad.axis == "z" or level.x_span is None or level.y_span is None:
-            return False
-        return (
-            any(abs(level.z - bound) < 0.5 for bound in (pad.z0, pad.z1))
-            and all(
-                abs(actual - expected) < 0.5
-                for actual, expected in zip(level.x_span, (pad.x0, pad.x1), strict=True)
-            )
-            and all(
-                abs(actual - expected) < 0.5
-                for actual, expected in zip(level.y_span, (pad.y0, pad.y1), strict=True)
-            )
-        )
-
-    # Remove a Z level only when every physical support record at that ordinate belongs to a
-    # side-normal pad. A genuine independent stair sharing the same Z remains an owner.
-    side_pad_level_zs = {
-        level.z
-        for level in face_levels
-        if any(_side_pad_owns_level(level, pad) for pad in pads)
-        and not any(
-            other.z == level.z and not any(_side_pad_owns_level(other, pad) for pad in pads)
-            for other in face_levels
-        )
-    }
-    ownership_step_zs = (
-        tuple(
-            z
-            for z in step_zs
-            if round(z, 3) not in plate_zs_at_base
-            and not any(abs(z - owned) < 0.5 for owned in side_pad_level_zs)
-            and not any(abs(z - floor) < 0.5 for floor in edge_floor_zs)
-        )
-        if not profiles
-        else ()
-    )
-    shoulders = project_step_shoulders(risers, levels=list(ownership_step_zs))
-    through_step_plate_owner_ids = (
-        {
-            id(step): _through_step_plate_owner_record_ids(
-                recognition_evidence,
-                step,
-                ownership_plates,
-            )
-            for step in through_steps
-        }
-        if recognition_evidence is not None
-        else {}
-    )
-    # Z-run records are the native through-step projection. X/Y-run records remain with the
-    # established Z-up grammar only when that grammar proves BOTH exact physical legs; a
-    # partial legacy projection is replaced by the complete aggregate owner.
-    lowered_through_steps = tuple(
-        step
-        for step in through_steps
-        if step.axis == "z"
-        or not _through_step_legacy_complete(
-            step,
-            bbox,
-            ownership_step_zs,
-            shoulders,
-            ownership_plates,
-            envelope_emittable=envelope_emittable,
-            plate_owner_record_ids=through_step_plate_owner_ids.get(id(step)),
-        )
-    )
-    # Ownership is a fixed point, not a per-record vote over the unfiltered inventory. One
-    # aggregate occurrence can remove a globally shared legacy level/shoulder/plate that a
-    # sibling occurrence initially relied on. Promote every newly uncovered sibling and repeat
-    # until the surviving legacy grammar still proves both legs for every preempted record.
-    while True:
-        owned_spans = _through_step_leg_spans(lowered_through_steps)
-        owned_levels = _through_step_level_zs(lowered_through_steps)
-        owned_shoulders = _through_step_shoulder_sites(lowered_through_steps, bbox)
-        remaining_levels = tuple(
-            z for z in ownership_step_zs if not any(abs(z - owned) < 0.5 for owned in owned_levels)
-        )
-        # Re-project after removing aggregate-owned levels. A riser is a shoulder only while
-        # its foot remains in the emitted level set; filtering the original shoulders by site
-        # alone could preserve an owner that the final StepLevelFeature never receives.
-        remaining_shoulders = tuple(
-            shoulder
-            for shoulder in project_step_shoulders(risers, levels=list(remaining_levels))
-            if not any(
-                shoulder.axis == axis and abs(shoulder.position - position) < 0.5
-                for axis, position in owned_shoulders
-            )
-        )
-        remaining_plates = tuple(
-            plate
-            for plate in ownership_plates
-            if not any(
-                plate.axis == axis and abs(plate.lo - lo) <= 1e-6 and abs(plate.hi - hi) <= 1e-6
-                for axis, lo, hi in owned_spans
-            )
-        )
-        promoted = tuple(
-            step
-            for step in through_steps
-            if all(step is not lowered for lowered in lowered_through_steps)
-            and not _through_step_legacy_complete(
-                step,
-                bbox,
-                remaining_levels,
-                remaining_shoulders,
-                remaining_plates,
-                envelope_emittable=envelope_emittable,
-                plate_owner_record_ids=through_step_plate_owner_ids.get(id(step)),
-            )
-        )
-        if not promoted:
-            break
-        lowered_through_steps += promoted
-    lowered_through_step_ids = {id(step) for step in lowered_through_steps}
-    legacy_through_step_owners = {
-        id(step): _through_step_legacy_owners(
-            step,
-            bbox,
-            remaining_levels,
-            remaining_shoulders,
-            remaining_plates,
-            envelope_emittable=envelope_emittable,
-            plate_owner_record_ids=through_step_plate_owner_ids.get(id(step)),
-        )
-        for step in through_steps
-        if id(step) not in lowered_through_step_ids
-    }
-    through_leg_spans = _through_step_leg_spans(lowered_through_steps)
-    through_level_zs = _through_step_level_zs(lowered_through_steps)
-    through_shoulder_sites = _through_step_shoulder_sites(lowered_through_steps, bbox)
-    if not profiles and rotational is None and multi_plate:
-        for channel in channels:
-            channel_feature = recess_features[id(channel)]
-            features.append(channel_feature)
-            if ownership is not None:
-                ownership.bind(channel, channel_feature, reason_code="channel_adapter")
-
-    _append_hole_features(
-        part,
-        cyls=cyls,
-        holes=holes,
-        patterns=patterns,
-        bosses=bosses,
-        features=features,
-        ownership=ownership,
-    )
-
-    # Profiled bores are their own recognition family because full-cylinder recognition
-    # cannot see their partial cylindrical faces. They still lower to HoleFeature so the
-    # established hole location, GD&T, placement and edit paths remain one implementation.
-    if double_d_bores is None:
-        double_d_bores = recognise_double_d_bores(part)
-    for bore in double_d_bores:
-        append_direct(bore)
-
-    _append_slot_features(
-        part,
-        slots=slots,
-        slot_patterns=slot_patterns,
-        ctx=ctx,
-        features=features,
-        ownership=ownership,
-        slot_pattern_members_by_feature_id=slot_pattern_members_by_feature_id,
-    )
-
-    # Free-direction through slots have a dedicated IR contract. Pattern members remain owned
-    # by the separately deferred pattern inventory, so they cannot expand into competing lone
-    # callouts while that grouping grammar is still under review (#1432).
-    # Both inventories are guaranteed above: either caller-supplied or projected from the one
-    # aggregate. Do not retain a fallback rescan here — ADR 3 (was 0017) gives recognition one owner.
-    assert oriented_slots is not None
-    assert oriented_slot_patterns is not None
-    for oriented_slot in standalone_oriented_slots(
-        tuple(oriented_slots), tuple(oriented_slot_patterns)
-    ):
-        append_direct(oriented_slot)
-
-    # Patterns join published occurrence indices to the exact records from this aggregate.
-    # Only the pocket grammar currently has a corresponding grouped drawing feature.
-    patterned_recesses: set[int] = set()
-    for pattern in distinct_section_recess_patterns(section_recess_patterns, section_recesses):
-        recess_members = section_recess_pattern_members(pattern, section_recesses)
-        member_features = tuple(recess_features.get(id(member)) for member in recess_members)
-        if any(getattr(feature, "kind", None) != "pocket" for feature in member_features):
-            continue
-        if patterned_recesses & {id(member) for member in recess_members}:
-            raise ValueError("section recess belongs to multiple drafting patterns")
-        patterned_recesses.update(id(member) for member in recess_members)
-        pattern_feature = _pocket_pattern_feature(pattern, member_features)
-        features.append(pattern_feature)
-        if ownership is not None:
-            ownership.absorb(recess_members, pattern_feature, reason_code="pocket_pattern_member")
-    for source in section_recesses:
-        feature = recess_features.get(id(source))
-        if feature is None or feature.kind == "channel" or id(source) in patterned_recesses:
-            continue
-        features.append(feature)
-        if ownership is not None:
-            ownership.bind(source, feature, reason_code="section_recess_adapter")
-
-    # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
-    # two in-plane locations. A Z attachment level may also enter the general profile
-    # ladder, but that datum-to-level fact does not replace the pad's local rise.
-    for pad in pads:
-        append_direct(pad)
-
-    # Bounded regular polygonal bosses own an across-flats callout and their direct axial
-    # height. They are distinct from circular bosses (diameter semantics) and rectangular
-    # pads (two orthogonal footprint sizes).
-    if polygonal_bosses is None:
-        polygonal_bosses = recognise_polygonal_bosses(part)
-    for boss in polygonal_bosses:
-        append_direct(boss)
-
-    # A whole regular polygonal prism is stock, not a boss: it owns the form/A-F
-    # definition and its axial stock length independently of attachment evidence.
-    for stock in polygonal_stock:
-        append_direct(stock)
-
-    # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
-    # exclude any band a groove already dimensions: a groove floor is an annular band, and
-    # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
-    # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
-    # double-dimension the floor ø (ISO 129) and break ADR 1 (was 0008)'s one-band-one-owner waist.
-    if grooves is None:
-        grooves = recognise_grooves(part, cyls=cyls)
-
-    groove_owned_steps, pending_boss_owners = _append_turned_and_boss_features(
-        profiles=profiles,
-        grooves=grooves,
-        bosses=bosses,
-        boss_groups=boss_groups,
-        boss_blend_owner_by_id=boss_blend_owner_by_id,
-        recognition_evidence=recognition_evidence,
-        ctx=ctx,
-        features=features,
-        ownership=ownership,
-    )
-
     # Overall envelope dims when neither a whole-part OD nor polygonal stock already conveys
     # the footprint. A local turned profile may coexist with wider prismatic geometry; its
     # mere presence does not own those whole-part extents (#1785).
@@ -2519,7 +1934,6 @@ def build_part_model(
     # step-height ladder; treating its base as a "plate" would wrongly suppress the step
     # dim (#559). This keeps the plate feature to the issue's stated domain.
     if not profiles and rotational is None:
-        plates = recognise_plates(part) if plates is None else plates
         if multi_plate:
             for pl in plates:
                 if any(
@@ -2529,7 +1943,7 @@ def build_part_model(
                     # The aggregate open section is the higher-level owner of this exact
                     # thickness interval. Keeping the plate too prints one physical leg twice.
                     continue
-                plate_feature = convert(pl, ctx)
+                plate_feature = convert_record(pl, ctx)
                 features.append(plate_feature)
                 plate_features_by_record_id[id(pl)] = plate_feature
                 if ownership is not None:
@@ -2598,7 +2012,7 @@ def build_part_model(
                 for channel in channels:
                     channel_feature = recess_features[id(channel)]
                     assert isinstance(channel_feature, ChannelFeature)
-                    if _step_level_owns_channel(
+                    if step_level_owns_channel(
                         channel_feature,
                         step_level_feature,
                         face_levels=face_levels,
@@ -2610,48 +2024,57 @@ def build_part_model(
                             reason_code="channel_step_level_owner",
                         )
 
-    # Chamfers (#560/#1254) — called out C{leg} / {leg}×{angle}°. The package recognises
-    # both oblique planar and conical turned forms; both lower through the same converter and
-    # IR. An injected aggregate inventory is consumed directly, without a sibling rescan.
-    for ch in chamfers:
-        append_direct(ch)
+    return envelope_feature, step_level_feature
 
-    # Fillets (#561/#1281) — called out R{radius} (grouped n× at render). The package
-    # recognises both cylindrical prismatic blends and toroidal turned rounds; both lower
-    # through the same converter and IR. An injected aggregate inventory is consumed directly,
-    # without a sibling rescan.
-    for fl in fillets:
-        append_direct(fl)
 
-    # Accepted Blend records are the aggregate remainder after exact Fillet precedence.
-    # Preserve their free-axis contract in dedicated IR; never rerun or locally rematch Fillets.
-    for blend_record in blends:
-        append_direct(blend_record)
+def _append_gusset_features(*, gusset_ribs, gusset_rib_patterns, ctx, features, ownership) -> None:
+    """Lower exact gusset pattern members before their standalone siblings."""
+    # Reinforcing gussets (#1705).  A provider pattern is a correlation over the exact
+    # physical member objects, so lower it once and bind every occurrence to the shared IR
+    # owner.  Unrelated ribs remain independent features.
+    assert gusset_ribs is not None and gusset_rib_patterns is not None
+    gusset_records = tuple(gusset_ribs)
+    patterned_ids: set[int] = set()
+    for pattern in gusset_rib_patterns:
+        gusset_members = cast(tuple[GussetRib, ...], tuple(pattern.ribs))
+        if not gusset_members or any(
+            not any(member is rib for rib in gusset_records) for member in gusset_members
+        ):
+            raise ValueError("gusset-rib pattern members must preserve aggregate identity")
+        if any(id(member) in patterned_ids for member in gusset_members):
+            raise ValueError("a gusset-rib occurrence cannot belong to two patterns")
+        patterned_ids.update(id(member) for member in gusset_members)
+        feature = _gusset_feature(gusset_members, pattern, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.absorb(gusset_members, feature, reason_code="gusset_rib_pattern_member")
+    for rib in gusset_records:
+        if id(rib) in patterned_ids:
+            continue
+        feature = _gusset_feature((rib,), None, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.bind(rib, feature, reason_code="gusset_rib_adapter")
 
-    # Quarter-cylindrical corner cuts with one blind terminal (#1382). The aggregate
-    # supplies the oriented centreline and transverse quarter arc, so radius and depth
-    # lower without topology access or a sibling scan.
-    for circular_step in circular_blind_steps:
-        append_direct(circular_step)
 
-    # Mirror-symmetric paired-ramp steps (#1382) — the aggregate proves two equal acute
-    # cross-section angles and one open-to-terminal run.  Consume the supplied aggregate
-    # inventory directly; standalone model detection invokes the same public family once.
-    if paired_ramp_steps is None:
-        # Match RecognitionResult applicability on the standalone path. A supplied aggregate
-        # inventory already embodies that one orchestration decision and is never re-filtered.
-        paired_ramp_steps = recognise_paired_ramp_steps(part) if orientation is None else ()
-    for ramp in paired_ramp_steps:
-        append_direct(ramp)
-
-    _append_gusset_features(
-        gusset_ribs=gusset_ribs,
-        gusset_rib_patterns=gusset_rib_patterns,
-        ctx=ctx,
-        features=features,
-        ownership=ownership,
-    )
-
+def _bind_through_step_and_plate_owners(
+    *,
+    lowered_through_steps,
+    through_steps,
+    lowered_through_step_ids,
+    legacy_through_step_owners,
+    envelope_feature,
+    step_level_feature,
+    plate_features_by_record_id,
+    plates,
+    features,
+    ctx,
+    ownership,
+    slot_pattern_members_by_feature_id,
+    plate_owner_has_evidence_scope,
+    convert_record,
+) -> None:
+    """Bind aggregate through-step owners before legacy plate dependents."""
     # Rectangular open-profile through steps (#1382).  The aggregate record owns the exact
     # run/anchor/section correspondence; Draftwright lowers its two transverse section legs
     # without rescanning the body or inventing a third through-length requirement.
@@ -2660,7 +2083,7 @@ def build_part_model(
     # exact matching transition/thickness is removed from those legacy projections so the local
     # two-leg grammar reaches the sheet once, on every principal run axis.
     for through in lowered_through_steps:
-        through_feature = convert(through, ctx)
+        through_feature = convert_record(through, ctx)
         features.append(through_feature)
         if ownership is not None:
             ownership.bind(
@@ -2716,7 +2139,7 @@ def build_part_model(
                 getattr(feature, "kind", None) for feature in unique_owners
             )
             reason_code = reason_for_owner_kinds.get(owner_kinds)
-            if reason_code is not None and _plate_owner_has_evidence_scope(
+            if reason_code is not None and plate_owner_has_evidence_scope(
                 ownership.evidence,
                 plate,
                 unique_owners,
@@ -2728,12 +2151,343 @@ def build_part_model(
                     reason_code=reason_code,
                 )
 
+
+def _append_profile_angle_features(*, recognition_evidence, features, ownership) -> None:
+    """Lower ordered profile-angle repetitions and bind source parameters."""
+    # Ordered face supports come from the same evidence acquisition as the
+    # recognised families. Their drafting requirements use the declared IR;
+    # source identity remains in the run-local ledger, outside that IR.
+    requirements = profile_angle_requirements(recognition_evidence)
+
+    def corner_key(requirement):
+        return id(requirement.source), requirement.first_index, requirement.second_index
+
+    by_key = {corner_key(requirement): requirement for requirement in requirements}
+    repeated = {}
+    for repetition in profile_angle_repetitions(recognition_evidence):
+        keys = tuple(corner_key(member) for member in repetition.members)
+        if any(key not in by_key or key in repeated for key in keys):
+            continue
+        for key in keys:
+            repeated[key] = keys
+    handled: set[tuple[int, int, int]] = set()
+    for requirement in requirements:
+        key = corner_key(requirement)
+        if key in handled:
+            continue
+        keys = repeated.get(key, (key,))
+        handled.update(keys)
+        angle_members = tuple(by_key[member_key] for member_key in keys)
+        references = tuple(
+            AngularReference(
+                vertex=member.vertex,
+                first=member.first,
+                second=member.second,
+                virtual_vertex=member.virtual_vertex,
+                sector="opposite",
+            )
+            for member in angle_members
+        )
+        feature = (
+            AnglePatternFeature(references) if len(references) > 1 else AngleFeature(references[0])
+        )
+        features.append(feature)
+        if ownership is not None:
+            for member, parameter in zip(angle_members, feature.parameters(), strict=True):
+                ownership.bind_profile_angle(member, feature, parameter_id=parameter.parameter_id)
+
+
+def _append_primary_feature_families(
+    run: DetectionRun,
+    *,
+    scan_double_d_bores,
+    scan_polygonal_bosses,
+) -> None:
+    """Lower holes, slots, recesses, pads and polygonal forms in drawing order."""
+    s = run.inventory
+    prismatic = run.prismatic
+    part = run.part
+    cyls = s.cyls
+    profiles = s.profiles
+    rotational = s.rotational
+    multi_plate = prismatic.multi_plate
+    channels = prismatic.channels
+    recess_features = prismatic.recess_features
+    features = run.features
+    ownership = run.ownership
+    holes = s.holes
+    patterns = s.patterns
+    bosses = s.bosses
+    double_d_bores = s.double_d_bores
+    slots = s.slots
+    slot_patterns = s.slot_patterns
+    ctx = run.ctx
+    slot_pattern_members_by_feature_id = run.slot_pattern_members_by_feature_id
+    oriented_slots = s.oriented_slots
+    oriented_slot_patterns = s.oriented_slot_patterns
+    section_recess_patterns = prismatic.section_recess_patterns
+    section_recesses = prismatic.section_recesses
+    pads = prismatic.pads
+    polygonal_bosses = s.polygonal_bosses
+    polygonal_stock = s.polygonal_stock
+    append_direct = run.append_direct
+
+    if not profiles and rotational is None and multi_plate:
+        for channel in channels:
+            channel_feature = recess_features[id(channel)]
+            features.append(channel_feature)
+            if ownership is not None:
+                ownership.bind(channel, channel_feature, reason_code="channel_adapter")
+
+    _append_hole_features(
+        part,
+        cyls=cyls,
+        holes=holes,
+        patterns=patterns,
+        bosses=bosses,
+        features=features,
+        ownership=ownership,
+    )
+
+    # Profiled bores are their own recognition family because full-cylinder recognition
+    # cannot see their partial cylindrical faces. They still lower to HoleFeature so the
+    # established hole location, GD&T, placement and edit paths remain one implementation.
+    if double_d_bores is None:
+        double_d_bores = scan_double_d_bores()
+    for bore in double_d_bores:
+        append_direct(bore)
+
+    _append_slot_features(
+        part,
+        slots=slots,
+        slot_patterns=slot_patterns,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+        slot_pattern_members_by_feature_id=slot_pattern_members_by_feature_id,
+    )
+
+    # Free-direction through slots have a dedicated IR contract. Pattern members remain owned
+    # by the separately deferred pattern inventory, so they cannot expand into competing lone
+    # callouts while that grouping grammar is still under review (#1432).
+    # Both inventories are guaranteed above: either caller-supplied or projected from the one
+    # aggregate. Do not retain a fallback rescan here — ADR 3 (was 0017) gives recognition one owner.
+    assert oriented_slots is not None
+    assert oriented_slot_patterns is not None
+    for oriented_slot in standalone_oriented_slots(
+        tuple(oriented_slots), tuple(oriented_slot_patterns)
+    ):
+        append_direct(oriented_slot)
+
+    # Patterns join published occurrence indices to the exact records from this aggregate.
+    # Only the pocket grammar currently has a corresponding grouped drawing feature.
+    patterned_recesses: set[int] = set()
+    for pattern in distinct_section_recess_patterns(section_recess_patterns, section_recesses):
+        recess_members = section_recess_pattern_members(pattern, section_recesses)
+        member_features = tuple(recess_features.get(id(member)) for member in recess_members)
+        if any(getattr(feature, "kind", None) != "pocket" for feature in member_features):
+            continue
+        if patterned_recesses & {id(member) for member in recess_members}:
+            raise ValueError("section recess belongs to multiple drafting patterns")
+        patterned_recesses.update(id(member) for member in recess_members)
+        pattern_feature = _pocket_pattern_feature(pattern, member_features)
+        features.append(pattern_feature)
+        if ownership is not None:
+            ownership.absorb(recess_members, pattern_feature, reason_code="pocket_pattern_member")
+    for source in section_recesses:
+        feature = recess_features.get(id(source))
+        if feature is None or feature.kind == "channel" or id(source) in patterned_recesses:
+            continue
+        features.append(feature)
+        if ownership is not None:
+            ownership.bind(source, feature, reason_code="section_recess_adapter")
+
+    # Bounded rectangular raised pads: footprint sizing, attachment-axis height, and
+    # two in-plane locations. A Z attachment level may also enter the general profile
+    # ladder, but that datum-to-level fact does not replace the pad's local rise.
+    for pad in pads:
+        append_direct(pad)
+
+    # Bounded regular polygonal bosses own an across-flats callout and their direct axial
+    # height. They are distinct from circular bosses (diameter semantics) and rectangular
+    # pads (two orthogonal footprint sizes).
+    if polygonal_bosses is None:
+        polygonal_bosses = scan_polygonal_bosses()
+    for boss in polygonal_bosses:
+        append_direct(boss)
+
+    # A whole regular polygonal prism is stock, not a boss: it owns the form/A-F
+    # definition and its axial stock length independently of attachment evidence.
+    for stock in polygonal_stock:
+        append_direct(stock)
+
+
+def _append_late_feature_families(
+    run: DetectionRun,
+    *,
+    scan_grooves,
+    scan_plates,
+    scan_paired_ramp_steps,
+    scan_flats,
+) -> None:
+    """Lower turned, prismatic and finishing families in their fixed source order."""
+    s = run.inventory
+    prismatic = run.prismatic
+    bbox = run.bbox
+    profiles = s.profiles
+    rotational = s.rotational
+    grooves = s.grooves
+    bosses = s.bosses
+    boss_groups = run.boss_groups
+    boss_blend_owner_by_id = run.boss_blend_owner_by_id
+    recognition_evidence = s.recognition_evidence
+    ctx = run.ctx
+    features = run.features
+    ownership = run.ownership
+    envelope_emittable = run.envelope_emittable
+    plates = prismatic.plates
+    multi_plate = prismatic.multi_plate
+    through_leg_spans = prismatic.through_stage.through_leg_spans
+    step_zs = prismatic.step_zs
+    plate_zs_at_base = prismatic.plate_zs_at_base
+    side_pad_level_zs = prismatic.through_stage.side_pad_level_zs
+    through_level_zs = prismatic.through_stage.through_level_zs
+    edge_floor_zs = prismatic.edge_floor_zs
+    face_levels = prismatic.face_levels
+    risers = prismatic.risers
+    through_shoulder_sites = prismatic.through_stage.through_shoulder_sites
+    channels = prismatic.channels
+    recess_features = prismatic.recess_features
+    plate_features_by_record_id = run.plate_features_by_record_id
+    chamfers = s.chamfers
+    fillets = s.fillets
+    blends = s.blends
+    circular_blind_steps = s.circular_blind_steps
+    paired_ramp_steps = s.paired_ramp_steps
+    orientation = run.ctx.orientation
+    gusset_ribs = s.gusset_ribs
+    gusset_rib_patterns = s.gusset_rib_patterns
+    lowered_through_steps = prismatic.through_stage.lowered_through_steps
+    through_steps = s.through_steps
+    lowered_through_step_ids = prismatic.through_stage.lowered_through_step_ids
+    legacy_through_step_owners = prismatic.through_stage.legacy_through_step_owners
+    slot_pattern_members_by_feature_id = run.slot_pattern_members_by_feature_id
+    flats = s.flats
+    append_direct = run.append_direct
+
+    # Turned / circlip grooves (#148c) — recognised up front so the turned-step chain can
+    # exclude any band a groove already dimensions: a groove floor is an annular band, and
+    # its two walls read as shoulders, so recognise_turned_steps also delimits it as a
+    # middle "step". Emitting both a StepFeature and a GrooveFeature for one band would
+    # double-dimension the floor ø (ISO 129) and break ADR 1 (was 0008)'s one-band-one-owner waist.
+    if grooves is None:
+        grooves = scan_grooves()
+
+    groove_owned_steps, pending_boss_owners = _append_turned_and_boss_features(
+        profiles=profiles,
+        grooves=grooves,
+        bosses=bosses,
+        boss_groups=boss_groups,
+        boss_blend_owner_by_id=boss_blend_owner_by_id,
+        recognition_evidence=recognition_evidence,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+    )
+
+    if not profiles and rotational is None:
+        plates = scan_plates() if plates is None else plates
+    envelope_feature, step_level_feature = _append_prismatic_features(
+        bbox=bbox,
+        profiles=profiles,
+        rotational=rotational,
+        envelope_emittable=envelope_emittable,
+        plates=plates,
+        multi_plate=multi_plate,
+        through_leg_spans=through_leg_spans,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+        step_zs=step_zs,
+        plate_zs_at_base=plate_zs_at_base,
+        side_pad_level_zs=side_pad_level_zs,
+        through_level_zs=through_level_zs,
+        edge_floor_zs=edge_floor_zs,
+        face_levels=face_levels,
+        risers=risers,
+        through_shoulder_sites=through_shoulder_sites,
+        channels=channels,
+        recess_features=recess_features,
+        plate_features_by_record_id=plate_features_by_record_id,
+        step_level_owns_channel=_step_level_owns_channel,
+        convert_record=convert,
+    )
+
+    # Chamfers (#560/#1254) — called out C{leg} / {leg}×{angle}°. The package recognises
+    # both oblique planar and conical turned forms; both lower through the same converter and
+    # IR. An injected aggregate inventory is consumed directly, without a sibling rescan.
+    for ch in chamfers:
+        append_direct(ch)
+
+    # Fillets (#561/#1281) — called out R{radius} (grouped n× at render). The package
+    # recognises both cylindrical prismatic blends and toroidal turned rounds; both lower
+    # through the same converter and IR. An injected aggregate inventory is consumed directly,
+    # without a sibling rescan.
+    for fl in fillets:
+        append_direct(fl)
+
+    # Accepted Blend records are the aggregate remainder after exact Fillet precedence.
+    # Preserve their free-axis contract in dedicated IR; never rerun or locally rematch Fillets.
+    for blend_record in blends:
+        append_direct(blend_record)
+
+    # Quarter-cylindrical corner cuts with one blind terminal (#1382). The aggregate
+    # supplies the oriented centreline and transverse quarter arc, so radius and depth
+    # lower without topology access or a sibling scan.
+    for circular_step in circular_blind_steps:
+        append_direct(circular_step)
+
+    # Mirror-symmetric paired-ramp steps (#1382) — the aggregate proves two equal acute
+    # cross-section angles and one open-to-terminal run.  Consume the supplied aggregate
+    # inventory directly; standalone model detection invokes the same public family once.
+    if paired_ramp_steps is None:
+        # Match RecognitionResult applicability on the standalone path. A supplied aggregate
+        # inventory already embodies that one orchestration decision and is never re-filtered.
+        paired_ramp_steps = scan_paired_ramp_steps() if orientation is None else ()
+    for ramp in paired_ramp_steps:
+        append_direct(ramp)
+
+    _append_gusset_features(
+        gusset_ribs=gusset_ribs,
+        gusset_rib_patterns=gusset_rib_patterns,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+    )
+
+    _bind_through_step_and_plate_owners(
+        lowered_through_steps=lowered_through_steps,
+        through_steps=through_steps,
+        lowered_through_step_ids=lowered_through_step_ids,
+        legacy_through_step_owners=legacy_through_step_owners,
+        envelope_feature=envelope_feature,
+        step_level_feature=step_level_feature,
+        plate_features_by_record_id=plate_features_by_record_id,
+        plates=plates,
+        features=features,
+        ctx=ctx,
+        ownership=ownership,
+        slot_pattern_members_by_feature_id=slot_pattern_members_by_feature_id,
+        plate_owner_has_evidence_scope=_plate_owner_has_evidence_scope,
+        convert_record=convert,
+    )
+
     # Machined flats on round stock (#148b) — a planar face truncating a cylinder,
     # called out by its across-flats size. Detected UNCONDITIONALLY (not gated by the
     # rotational branch): a D-shaft / hex head IS round stock and classifies rotational,
     # yet its flat still needs a callout. The recogniser self-gates on OD adjacency, so a
     # part with no round stock yields none.
-    for flat in recognise_flats(part, cyls=cyls) if flats is None else flats:
+    for flat in scan_flats() if flats is None else flats:
         append_direct(flat)
 
     # Turned / circlip grooves on round stock (#148c) — an annular channel (a strict
@@ -2783,68 +2537,288 @@ def build_part_model(
             RotationalFeature(frame=Frame((c.X, c.Y, c.Z), rot_axis), od=od, bores=tuple(bores))
         )
 
-    # Ordered face supports come from the same evidence acquisition as the
-    # recognised families. Their drafting requirements use the declared IR;
-    # source identity remains in the run-local ledger, outside that IR.
-    requirements = profile_angle_requirements(recognition_evidence)
+    _append_profile_angle_features(
+        recognition_evidence=recognition_evidence,
+        features=features,
+        ownership=ownership,
+    )
 
-    def corner_key(requirement):
-        return id(requirement.source), requirement.first_index, requirement.second_index
 
-    by_key = {corner_key(requirement): requirement for requirement in requirements}
-    repeated = {}
-    for repetition in profile_angle_repetitions(recognition_evidence):
-        keys = tuple(corner_key(member) for member in repetition.members)
-        if any(key not in by_key or key in repeated for key in keys):
-            continue
-        for key in keys:
-            repeated[key] = keys
-    handled: set[tuple[int, int, int]] = set()
-    for requirement in requirements:
-        key = corner_key(requirement)
-        if key in handled:
-            continue
-        keys = repeated.get(key, (key,))
-        handled.update(keys)
-        angle_members = tuple(by_key[member_key] for member_key in keys)
-        references = tuple(
-            AngularReference(
-                vertex=member.vertex,
-                first=member.first,
-                second=member.second,
-                virtual_vertex=member.virtual_vertex,
-                sector="opposite",
+def _prepare_detection_run(
+    part,
+    s: DetectionInventory,
+    bbox,
+    *,
+    scan_chamfers,
+    scan_fillets,
+    scan_bosses,
+    scan_polygonal_stock,
+    scan_through_steps,
+    scan_plates,
+    scan_risers,
+    scan_step_levels,
+) -> DetectionRun:
+    """Set the conversion frame and prepare ordered ownership from one inventory."""
+    if s.profiles is _UNSET:
+        assert s.prof is not _UNSET  # both omitted populated the aggregate arm
+        s.profiles = () if s.prof is None else (s.prof,)
+    s.profiles = () if s.profiles is None else tuple(s.profiles)
+    if len(s.profiles) > 1 and any(profile.profile is None for profile in s.profiles):
+        raise ValueError("plural turned profiles require body-local profile identity")
+    # A supplied rotational classification is the fallback for a body without a profile.
+    profile_axes = {profile.axis for profile in s.profiles}
+    if len(profile_axes) == 1:
+        orientation = next(iter(profile_axes))
+    elif profile_axes:
+        orientation = None
+    else:
+        orientation = s.rotational[2] if s.rotational else None
+    if s.chamfers is None:
+        s.chamfers = scan_chamfers(orientation)
+    if s.fillets is None:
+        s.fillets = scan_fillets(orientation)
+    ctx = ConvContext(bbox=bbox, orientation=orientation)
+    # Check whether the envelope will cross the IR waist before legacy ownership is decided.
+    if s.bosses is None:
+        s.bosses = scan_bosses()
+    boss_groups = _groups_by_diameter(s.bosses)
+    bosses_d = [group[0] for group in boss_groups]
+    if s.polygonal_stock is None:
+        s.polygonal_stock = scan_polygonal_stock()
+    envelope_emittable = envelope_is_emittable(
+        bbox=bbox,
+        bosses=bosses_d,
+        turned_profiles=s.profiles,
+        polygonal_stock=s.polygonal_stock,
+    )
+    boss_blend_owner_by_id = (
+        {
+            id(boss): blend
+            for boss, blend in boss_blend_owner_pairs(
+                s.recognition_evidence,
+                tuple(s.bosses),
+                tuple(s.blends),
+                bbox=bbox,
+                envelope_emittable=envelope_emittable,
+                diameter_tolerance=BOSS_BLEND_DIAMETER_TOL,
             )
-            for member in angle_members
-        )
-        feature = (
-            AnglePatternFeature(references) if len(references) > 1 else AngleFeature(references[0])
-        )
-        features.append(feature)
-        if ownership is not None:
-            for member, parameter in zip(angle_members, feature.parameters(), strict=True):
-                ownership.bind_profile_angle(member, feature, parameter_id=parameter.parameter_id)
+        }
+        if s.recognition_evidence is not None
+        else {}
+    )
+    if s.through_steps is None:
+        # Match aggregate applicability only on the standalone path.
+        s.through_steps = scan_through_steps() if orientation is None else ()
+    s.through_steps = tuple(s.through_steps)
+
+    # Provider record conversion is the detector's adapter responsibility. Unsupported
+    # occurrences remain in the independent completeness and policy ledgers.
+    assert s.section_recesses is not None and s.section_recess_patterns is not None
+    s.section_recesses = tuple(s.section_recesses)
+    s.section_recess_patterns = tuple(s.section_recess_patterns)
+    recess_features: dict[int, Feature] = {}
+    convert_record = convert
+    for source in s.section_recesses:
+        try:
+            recess_features[id(source)] = convert_record(source, ctx)
+        except UnsupportedSectionRecess:
+            continue
+    prismatic = prepare_prismatic_ownership(
+        bbox=bbox,
+        section_recesses=s.section_recesses,
+        section_recess_patterns=s.section_recess_patterns,
+        recess_features=recess_features,
+        profiles=s.profiles,
+        rotational=s.rotational,
+        plates=s.plates,
+        risers=s.risers,
+        pads=s.pads,
+        step_zs=s.step_zs,
+        face_levels=s.face_levels,
+        through_steps=s.through_steps,
+        recognition_evidence=s.recognition_evidence,
+        envelope_emittable=envelope_emittable,
+        scan_plates=scan_plates,
+        scan_risers=scan_risers,
+        scan_step_levels=scan_step_levels,
+        plate_owner_record_ids=_through_step_plate_owner_record_ids,
+        legacy_complete=_through_step_legacy_complete,
+        legacy_owners=_through_step_legacy_owners,
+        leg_spans=_through_step_leg_spans,
+        level_zs=_through_step_level_zs,
+        shoulder_sites=_through_step_shoulder_sites,
+    )
+    return DetectionRun(
+        part=part,
+        inventory=s,
+        bbox=bbox,
+        ctx=ctx,
+        prismatic=prismatic,
+        features=[],
+        ownership=s.ownership,
+        boss_groups=boss_groups,
+        boss_blend_owner_by_id=boss_blend_owner_by_id,
+        envelope_emittable=envelope_emittable,
+        plate_features_by_record_id={},
+        slot_pattern_members_by_feature_id={},
+    )
+
+
+def build_part_model(
+    part,
+    *,
+    holes=None,
+    double_d_bores=None,
+    patterns=None,
+    bosses=None,
+    polygonal_bosses=None,
+    polygonal_stock=None,
+    slots=None,
+    slot_patterns=None,
+    oriented_slots=None,
+    oriented_slot_patterns=None,
+    risers=None,
+    chamfers=None,
+    fillets=None,
+    blends=None,
+    circular_blind_steps=None,
+    paired_ramp_steps=None,
+    through_steps=None,
+    gusset_ribs=None,
+    gusset_rib_patterns=None,
+    plates=None,
+    grooves=None,
+    flats=None,
+    pads=None,
+    section_recesses=None,
+    section_recess_patterns=None,
+    prof=_UNSET,
+    profiles=_UNSET,
+    step_zs=None,
+    face_levels=None,
+    rotational=None,
+    pmi=None,
+    lower_pmi: bool = True,
+    cyls=None,
+) -> PartModel:
+    """Run the detectors and assemble the :class:`PartModel` IR for *part*.
+
+    The detected feature sets may be **supplied** by the caller (from `_analyse`,
+    which already ran them) so detection happens **once per build** — the single
+    feature inventory (ADR 1 (was 0008 Amendment 5), #244). Omitted sets are detected here,
+    so a standalone ``build_part_model(part)`` still works. ``profiles`` is the plural
+    body-local turned-profile input; the compatible singular ``prof`` remains accepted,
+    and both use a sentinel because ``None`` is a valid non-turned value.
+
+    ``step_zs`` (prismatic horizontal face levels), their optional ``face_levels`` records
+    carrying support bounds, and ``rotational`` (``(od, bores)`` or ``None``) are
+    *classification* inputs from `_analyse` — feeding the prismatic step ladder (#237/#915)
+    and the rotational OD/bore furniture (#237).
+
+    The internal detected path carries its completed aggregate in a task-local handoff.
+    ``cyls`` is a precomputed ``analyse_cylinders(part)`` result threaded into every
+    cylinder-substrate recogniser called here (holes/bosses/turned/grooves/flats), so
+    the solid is scanned once per build (#703); a standalone/partial call derives it once
+    before its aggregate run. ``lower_pmi=False`` retains extracted PMI as materialised/report-only IR;
+    annotate mode uses the default and correlates supported requirements onto canonical
+    feature parameters (#1116)."""
+    s = DetectionInventory(
+        holes=holes,
+        double_d_bores=double_d_bores,
+        patterns=patterns,
+        bosses=bosses,
+        polygonal_bosses=polygonal_bosses,
+        polygonal_stock=polygonal_stock,
+        slots=slots,
+        slot_patterns=slot_patterns,
+        oriented_slots=oriented_slots,
+        oriented_slot_patterns=oriented_slot_patterns,
+        risers=risers,
+        chamfers=chamfers,
+        fillets=fillets,
+        blends=blends,
+        circular_blind_steps=circular_blind_steps,
+        paired_ramp_steps=paired_ramp_steps,
+        through_steps=through_steps,
+        gusset_ribs=gusset_ribs,
+        gusset_rib_patterns=gusset_rib_patterns,
+        plates=plates,
+        grooves=grooves,
+        flats=flats,
+        pads=pads,
+        section_recesses=section_recesses,
+        section_recess_patterns=section_recess_patterns,
+        prof=prof,
+        profiles=profiles,
+        step_zs=step_zs,
+        face_levels=face_levels,
+        rotational=rotational,
+        cyls=cyls,
+    )
+    prepare_inventory(s, handoff=_RECOGNITION_HANDOFF.get(), part=part, unset=_UNSET)
+    bbox = part.bounding_box()
+    complete_inventory(
+        s,
+        bbox=bbox,
+        unset=_UNSET,
+        scan_cylinders=lambda: analyse_cylinders(part),
+        acquire_evidence=lambda cylinders, is_rotational: build_recognition_evidence(
+            part, cylinders=cylinders, rotational=is_rotational
+        ),
+    )
+    run = _prepare_detection_run(
+        part,
+        s,
+        bbox,
+        scan_chamfers=lambda orientation: recognise_chamfers(
+            part, cyls=s.cyls, include_planar=orientation is None
+        ),
+        scan_fillets=lambda orientation: recognise_fillets(
+            part, cyls=s.cyls, include_cylindrical=orientation is None
+        ),
+        scan_bosses=lambda: recognise_bosses(part, cyls=s.cyls),
+        scan_polygonal_stock=lambda: recognise_polygonal_stock(part),
+        scan_through_steps=lambda: recognise_through_steps(part),
+        scan_plates=lambda: recognise_plates(part),
+        scan_risers=lambda: recognise_risers(part),
+        scan_step_levels=lambda: step_level_records(part),
+    )
+    _append_primary_feature_families(
+        run,
+        scan_double_d_bores=lambda: recognise_double_d_bores(part),
+        scan_polygonal_bosses=lambda: recognise_polygonal_bosses(part),
+    )
+    _append_late_feature_families(
+        run,
+        scan_grooves=lambda: recognise_grooves(part, cyls=s.cyls),
+        scan_plates=lambda: recognise_plates(part),
+        scan_paired_ramp_steps=lambda: recognise_paired_ramp_steps(part),
+        scan_flats=lambda: recognise_flats(part, cyls=s.cyls),
+    )
 
     # STEP AP242 PMI — re-homed into drafting-concept IR where possible (#208).
     # Rendered directly by render_pmi; the planner adds nothing.
-    features.extend(build_pmi_features(pmi, bbox))
+    run.features.extend(build_pmi_features(pmi, bbox))
 
     # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
     # in the plan view), per inspection practice. Hole location dims measure from
     # it (#238); a human/LLM pass can re-anchor.
     datums = [Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))]
     model = PartModel(
-        bbox=bbox, orientation=orientation, features=features, datums=datums, detected=True
+        bbox=bbox,
+        orientation=run.ctx.orientation,
+        features=run.features,
+        datums=datums,
+        detected=True,
     )
     # Correlation runs after the complete geometry + PMI inventories exist, at the shared IR
-    # waist.  Direct drawings and emitted scripts therefore consume the same lowered model
-    # instead of the emitter inventing a second ownership decision (#1116).
+    # waist. Direct drawings and emitted scripts consume the same lowered model.
     from draftwright.model.pmi_lowering import lower_ap242_dimensions
 
     return (
         lower_ap242_dimensions(
             model,
-            feature_remap=ownership.remap_feature if ownership is not None else None,
+            feature_remap=run.ownership.remap_feature if run.ownership is not None else None,
         )
         if lower_pmi
         else model

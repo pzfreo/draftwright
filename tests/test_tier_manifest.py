@@ -122,6 +122,13 @@ def test_detect_ownership_owner_runs_radius_occurrence_contract():
     assert "test_issue_1433_blend_semantics.py" in pr_modules(_TESTS, [source])
 
 
+def test_detect_inventory_owner_runs_recognition_contracts():
+    source = "src/draftwright/model/detect_inventory.py"
+    assert selected_groups([source]) == {"recognition", "compilation"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {"test_recognition_result.py", "test_occurrence_recognition_ownership.py"} <= selected
+
+
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected

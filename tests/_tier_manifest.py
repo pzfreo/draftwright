@@ -398,6 +398,7 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/recogn*",
             "src/draftwright/model/detect.py",
+            "src/draftwright/model/detect_inventory.py",
             "src/draftwright/model/detect_ownership.py",
             "src/draftwright/*_contract.py",
         ),
