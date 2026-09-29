@@ -1079,6 +1079,8 @@ def _greedy_boundary_blockers(candidate, job, page, title_block) -> tuple[str, .
             blockers.append("page")
         if view_blocker := _view_region_blocker(candidate, job):
             blockers.append(view_blocker)
+        if job.foreign_label_clear is not None and not job.foreign_label_clear(label):
+            blockers.append(f"view:{job.view}:foreign_annotation_clearance")
     if _ink_hits_box(candidate, title_block):
         blockers.append("title_block:reserved")
     return tuple(blockers)

@@ -9,6 +9,8 @@ from _parts import x_stepped_shaft as _x_stepped_shaft
 from build123d import Align, Axis, Box, Cylinder, Pos, Rotation
 
 from draftwright import build_drawing
+from draftwright.builder import _replay_structural_issues
+from draftwright.linting import LintIssue
 from draftwright.model import DimensionId
 
 
@@ -19,6 +21,30 @@ def x_shaft_dwg():
 
 class TestTurnedDiameters:
     """External turned diameters get ø leader callouts through the IR renderer."""
+
+    def test_replay_rejects_new_silhouette_crossing(self):
+        original = LintIssue(
+            severity="info",
+            message="existing crossing",
+            code="leader_crosses_silhouette",
+            annotation_name="bolt_circle",
+            view="plan",
+        )
+        new = LintIssue(
+            severity="info",
+            message="new crossing",
+            code="leader_crosses_silhouette",
+            annotation_name="diameter",
+            view="front",
+        )
+        assert _replay_structural_issues((original,), (("bolt_circle", "plan"),)) == ()
+        assert _replay_structural_issues((original, new), (("bolt_circle", "plan"),)) == (new,)
+        assert _replay_structural_issues((original, original), (("bolt_circle", "plan"),)) == (
+            original,
+        )
+        assert _replay_structural_issues(
+            (replace(new, annotation_name=None),), (("diameter", "front"),)
+        )
 
     @staticmethod
     def _issue_881_y_step_flange():
@@ -400,6 +426,13 @@ class TestTurnedDiameters:
         assert any(f.kind == "envelope" for f in auto.model().features), (
             "a hybrid turned/prismatic part needs an explicit whole-part envelope"
         )
+        auto_crossings = [
+            issue
+            for issue in auto.lint(physical=False)
+            if issue.code == "leader_crosses_silhouette"
+        ]
+        assert len(auto_crossings) == 1
+        assert auto_crossings[0].annotation_name and auto_crossings[0].view
 
         _source, replayed = _sheet_script_drawing(part, tmp_path, "flange")
 

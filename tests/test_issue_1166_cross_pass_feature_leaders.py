@@ -36,11 +36,13 @@ from draftwright.annotations.leaders import (
     _convex_hull,
     _face_exactly_covered,
     _FixedInkComponent,
+    _GreedySelectionInput,
     _measure,
     _MeasuredLeaderCandidate,
     _point_in_convex_component,
     _rendered_ink_matches,
     _rendered_residual_components,
+    _select_greedy_job,
     collect_feature_leader,
     drain_feature_leaders,
     feature_leader_fixed_conflicts,
@@ -2045,7 +2047,7 @@ def test_fixed_probe_product_budget_replays_the_exact_producer_floor(monkeypatch
     assert sum(issue.code == "feature_leader_fixed_ink_unverified" for issue in issues) == 3
 
 
-@pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title"))
+@pytest.mark.parametrize("hard_boundary", ("page", "silhouette", "title", "foreign"))
 def test_resource_fallback_never_bypasses_hard_boundaries(
     monkeypatch, tmp_path, hard_boundary, fresh_drawing
 ):
@@ -2062,6 +2064,9 @@ def test_resource_fallback_never_bypasses_hard_boundaries(
     elif hard_boundary == "silhouette":
         tip = (120.0, 100.0)
         elbow = (140.0, 100.0, 0.0)
+    elif hard_boundary == "foreign":
+        tip = (200.0, 100.0)
+        elbow = (220.0, 100.0, 0.0)
     else:
         title_y = (title.min.Y + title.max.Y) / 2.0
         tip = (title.min.X - 8.0, title_y)
@@ -2072,6 +2077,9 @@ def test_resource_fallback_never_bypasses_hard_boundaries(
     if hard_boundary == "silhouette":
         x0, y0, x1, y1 = probe.label_bbox
         silhouette = (x0 - 1.0, y0 - 1.0, x1 + 1.0, y1 + 1.0)
+    elif hard_boundary == "foreign":
+        silhouette = (0.0, 0.0, 1.0, 1.0)
+        assert probe.label_bbox[0] > silhouette[2]
     built = 0
 
     def analytical(_tip, _elbow, _feature):
@@ -2104,6 +2112,7 @@ def test_resource_fallback_never_bypasses_hard_boundaries(
             noun="fillet",
             drop_code="fillet_dropped",
             fallback_accept=lambda *_args: True,
+            foreign_label_clear=(lambda _box: False) if hard_boundary == "foreign" else None,
             allow_policy_b_fixed=True,
         ),
     )
@@ -2129,8 +2138,69 @@ def test_resource_fallback_never_bypasses_hard_boundaries(
         "page": "page",
         "silhouette": "view:front:silhouette",
         "title": "title_block:reserved",
+        "foreign": "view:front:foreign_annotation_clearance",
     }[hard_boundary]
     assert set(rejected[0]["blockers"]) == {target, "fixed_probe_budget"}
+
+
+def test_resumed_budget_fallback_keeps_foreign_clearance_hard(monkeypatch, fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    monkeypatch.setattr("draftwright.annotations.leaders._GREEDY_MATERIAL_LOOKAHEAD", 0)
+    monkeypatch.setattr("draftwright.annotations.leaders._material_units", lambda *_args: 1)
+    candidates = tuple(
+        ((x - 20.0, 100.0), (x, 100.0, 0.0), object()) for x in (100.0, 120.0, 140.0)
+    )
+
+    def analytical(tip, elbow, _feature):
+        leader = Leader(tip=(*tip, 0.0), elbow=elbow, label="R1", draft=drawing.draft)
+        return leader.label_bbox, leader.segments
+
+    boxes = [analytical(*raw)[0] for raw in candidates]
+    assert boxes[0][0] < boxes[2][0]
+    clearance_limit = (boxes[0][0] + boxes[2][0]) / 2.0
+    built = []
+
+    def build(tip, elbow, _feature):
+        built.append(elbow)
+        return None
+
+    job = FeatureLeaderJob(
+        name="resumed_foreign_clearance",
+        view="front",
+        silhouette=(0.0, 0.0, 1.0, 1.0),
+        label="R1",
+        candidates=candidates,
+        build=build,
+        analytical_geometry=analytical,
+        measurement=(),
+        noun="fillet",
+        drop_code="fillet_dropped",
+        fallback_accept=lambda *_args: True,
+        foreign_label_clear=lambda box: box[0] < clearance_limit,
+    )
+    result = _select_greedy_job(
+        _GreedySelectionInput(
+            dwg=drawing,
+            job=job,
+            fallback_source=candidates,
+            fixed_components=(),
+            fixed_verified=False,
+            fixed_probes=0,
+            page=(0.0, 0.0, drawing.page_w, drawing.page_h),
+            title_block=(-100.0, -100.0, -90.0, -90.0),
+            legacy_boxes=(),
+            field=object(),
+            reason="greedy_fixed_probe_budget",
+            prefer_clear=True,
+            candidate_entry=lambda *_args, **_kwargs: {},
+        )
+    )
+    assert built == [candidates[0][1][:2]], "the held candidate must fail geometry validation"
+    assert result.selected is None
+    assert result.fallback_rejected[-1] == {
+        "candidate": 2,
+        "blockers": ["view:front:foreign_annotation_clearance", "fixed_probe_budget"],
+    }
 
 
 def test_candidate_budget_preserves_the_exact_pre_joint_hole_floor(monkeypatch, tmp_path):

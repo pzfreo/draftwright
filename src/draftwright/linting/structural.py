@@ -460,6 +460,7 @@ def lint_drawing(
             box_cache=box_cache,
             warned=warned_label_bbox,
             material_fields=view_material_fields,
+            annotation_names=names,
         )
 
     _lint_principal_extents(items, part_bbox, drawing_scale, issues)
@@ -1082,6 +1083,7 @@ def _lint_view_shapes(
     box_cache=None,
     warned=None,
     material_fields=None,
+    annotation_names=None,
 ) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
     # Build the named bbox list. The name must be DETERMINISTIC: several messages
@@ -1117,6 +1119,7 @@ def _lint_view_shapes(
     # actual projected edges is a warning (#76) — on a large part the bbox is
     # mostly blank face, where placing callouts is a legitimate convention —
     # so a label over a blank region is reported as an info-level notice.
+    names = {} if annotation_names is None else annotation_names
     cache = {} if edge_cache is None else edge_cache
     ann_cache = box_cache if box_cache is not None else {}
     for vname, vbb, vs in named_views:
@@ -1230,6 +1233,8 @@ def _lint_view_shapes(
                         ),
                         location=(elbow[0], elbow[1]),
                         code="leader_crosses_silhouette",
+                        annotation_name=names.get(id(ann)),
+                        view=vname,
                     )
                 )
 
