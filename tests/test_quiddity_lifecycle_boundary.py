@@ -53,7 +53,7 @@ ALLOWED_STANDALONE_CALLS = {
     ): "analysis acquires the shared cylinder substrate before aggregate recognition",
     (
         "linting/orchestration.py",
-        "lint_finished_drawing",
+        "_physical_inventory",
         "analyse_cylinders",
     ): "manual Drawing fallback has no Analysis substrate to reuse",
     (
