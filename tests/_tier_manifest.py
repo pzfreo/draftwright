@@ -274,6 +274,8 @@ CONTRACT_GROUPS = {
         ("src/draftwright/annotations/_diameters.py",),
         (
             "test_diameter_leaders.py",
+            "test_prismatic_boss_diameter.py",
+            "test_issue_1505_diameter_coverage.py",
             "test_turned_steps.py",
             "test_issue_798_material_field.py",
             "test_tolerances.py",

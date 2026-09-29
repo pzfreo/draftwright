@@ -183,6 +183,15 @@ def test_thin_profile_change_runs_plate_and_channel_contracts():
     } <= selected
 
 
+def test_diameter_family_change_runs_rendering_and_ownership_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_diameters.py"]))
+    assert {
+        "test_diameter_leaders.py",
+        "test_prismatic_boss_diameter.py",
+        "test_issue_1505_diameter_coverage.py",
+    } <= selected
+
+
 def test_pocket_pad_change_runs_joint_leader_contracts():
     selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/_pocket_pad.py"]))
     assert {
