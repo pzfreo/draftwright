@@ -112,6 +112,7 @@ from draftwright.compose import (
     _page_furniture_fits,
     _view_geom,
 )
+from draftwright.document_input import DocumentInput
 from draftwright.drawing import Drawing
 from draftwright.explicit_scale import resolve_explicit_scale
 from draftwright.layout_safety import candidate_safety_evidence
@@ -1724,8 +1725,164 @@ class _AutomaticScaleTrials:
         )
 
 
+@dataclass
+class _BuildAttemptContext:
+    """Mutable state shared by the bounded attempts for one drawing request."""
+
+    step_file: str | Path | Shape
+    options: BuildOptions
+    post_build: Callable[[Drawing], Drawing] | None
+    analysis_base: Analysis | None
+    analysis_sink: Callable[[Analysis], None] | None
+    title_block_cache: dict[tuple, tuple] = field(default_factory=dict)
+    build_attempt: int = 0
+    latest_analysis: Analysis | None = None
+    critique_recognition_cache: RecognitionCache | None = None
+    built_arrangement: str = ARRANGEMENTS[0]
+    placement_critique: _PlacementCritique | None = None
+
+    def __post_init__(self) -> None:
+        self.placement_critique = _PlacementCritique() if self.post_build is None else None
+
+    def finish_annotation_layout(self, drawing: Drawing) -> Drawing:
+        if self.options.annotation_layout == "demand-guided":
+            # A declared build leaves physical critique lazy until critique or export.
+            if self.options.model is not None:
+                safety_evidence = {
+                    "version": 12,
+                    "checks_passed": False,
+                    "admission_ready": False,
+                    "failed_checks": ["physical_critique_deferred"],
+                    "checks": [],
+                    "page": [float(drawing.page_w), float(drawing.page_h)],
+                    "scale": float(drawing.scale),
+                    "status": "deferred_until_physical_critique",
+                }
+            else:
+                safety_evidence = candidate_safety_evidence(drawing)
+            drawing.annotation_scheme_decision = {
+                **drawing.annotation_scheme_decision,
+                "safety_evidence": safety_evidence,
+                "fallback_decision": "not_evaluated",
+            }
+        return drawing
+
+    def placement_issues(self, candidate):
+        # A post-build hook may edit the sheet, and test doubles retain their lint semantics.
+        if self.placement_critique is None:
+            return tuple(candidate.lint(physical=False))
+        return self.placement_critique.get(candidate)
+
+    def retain_analysis(self, value: Analysis) -> None:
+        # Reuse the first geometry analysis across attempts, but report the latest
+        # arrangement to the arrangement gate through this analysis sink.
+        self.built_arrangement = value.arrangement
+        self.latest_analysis = value
+        if self.analysis_base is None:
+            self.analysis_base = value
+        if self.analysis_sink is not None:
+            self.analysis_sink(value)
+
+    def build(
+        self,
+        candidate_scale: float | None,
+        arrangements: tuple[str, ...] | None = None,
+        views: tuple[str, ...] | None = None,
+        include_iso: bool | None = None,
+        page_override: str | tuple | None = None,
+        select_automatic_views: bool = False,
+        retry_reason: str = "initial",
+    ) -> Drawing:
+        self.build_attempt += 1
+        # Rebuilds keep the requested topology unless a retry explicitly changes it.
+        views = self.options._views if views is None else views
+        if arrangements is None and not self.options.auto_dims:
+            # With no compiled dimensions, an alternative arrangement has no
+            # placement evidence to prove it safe for deferred annotations.
+            arrangements = (ARRANGEMENTS[0],)
+        if self.build_attempt > 1:
+            activity(
+                "retry",
+                reason=retry_reason,
+                attempt=self.build_attempt,
+                scale=candidate_scale,
+                page=str(self.options.page if page_override is None else page_override),
+            )
+        attempt_options = replace(
+            self.options,
+            _views=views,
+            _include_iso=self.options._include_iso if include_iso is None else include_iso,
+        )
+        built = _build_drawing_once(
+            self.step_file,
+            attempt_options,
+            scale=candidate_scale,
+            page=self.options.page if page_override is None else page_override,
+            _analysis_base=self.analysis_base,
+            _analysis_sink=self.retain_analysis,
+            _critique_recognition_cache=self.critique_recognition_cache,
+            _arrangements=arrangements,
+            _select_automatic_views=select_automatic_views,
+            _candidate_profile_first=self.options.annotation_layout == "demand-guided",
+            _title_block_cache=self.title_block_cache,
+            _placement_critique=self.placement_critique,
+        )
+        _validate_authored_view_layout(built, self.options._view_constraints)
+        if self.options._document_input is not None:
+            cast(DocumentInput, self.options._document_input).validate(
+                built.working_part, built.model().features
+            )
+        return self.post_build(built) if self.post_build is not None else built
+
+    def scale_blockers_for(
+        self, built: Drawing, expected_scale: float
+    ) -> tuple[tuple[dict, ...], bool]:
+        found = _scale_blockers(built)
+        # A post-build hook may change representation, and a fallback may change
+        # effective scale. Neither proves the next scale rung should be skipped.
+        short_off_axis_span = (
+            self.post_build is None
+            and built.scale == expected_scale
+            and _short_off_axis_span_blocks_smaller_scales(found)
+        )
+        if self.critique_recognition_cache is None:
+            evidence_reader = getattr(built, "recognition_evidence", None)
+            self.critique_recognition_cache = RecognitionCache(
+                result=built.recognition(),
+                evidence=evidence_reader() if callable(evidence_reader) else None,
+            )
+        return found, short_off_axis_span
+
+    def automatic_assessment(self, candidate):
+        # Share one recognition-free critique between the builder verdicts.
+        issues = self.placement_issues(candidate)
+        return issues, _scale_blockers_from_issues(issues)
+
+    def principal_names(self, candidate):
+        plan = getattr(candidate, "view_plan", None)
+        if plan is not None:
+            return tuple(plan.principal_names)
+        available = getattr(candidate, "views", None)
+        if available is None:
+            return tuple(
+                self.options._views
+                if self.options._views is not None
+                else third_angle_view_names()
+            )
+        return tuple(name for name in third_angle_view_names() if name in available)
+
+    @staticmethod
+    def absent_view_owners(candidate):
+        result = []
+        for name in candidate.annotations():
+            owner = candidate.view_of(name)
+            if owner is not None and owner not in candidate.views:
+                result.append(name)
+        return tuple(result)
+
+
 def _compare_annotation_layout(options: dict, auto_dims: bool) -> Drawing:
-    """Choose an alternative from finished drawings on the settled page and scale."""
+    """Compare a candidate against the finished established layout."""
     options["annotation_layout"] = "estimated-strips"
     with use_layout_profile(AnnotationLayoutProfile()):
         baseline = build_drawing(**options)
@@ -1780,6 +1937,667 @@ def _replay_structural_issues(issues, allowed_crossings=()) -> tuple[LintIssue, 
         else:
             retained.append(issue)
     return tuple(retained)
+
+
+@dataclass
+class _AutomaticResolution:
+    """The ordered automatic view, arrangement and scale recovery ladder."""
+
+    context: _BuildAttemptContext
+    views_are_automatic: bool
+    drawing: Drawing = field(init=False)
+    dimensions_are_automatic: bool = False
+    replanned: bool = False
+    replan_attempts: list[dict] = field(default_factory=list)
+    view_attempts: list[dict] = field(default_factory=list)
+    view_status: str = "default"
+    settled_issues: tuple | None = None
+    settled_principal_views: tuple[str, ...] = ()
+    arrangement_decision: dict | None = None
+    settled_arrangement: str = ARRANGEMENTS[0]
+    original_scale: float = 1.0
+    original_page: tuple[float, float] = (0.0, 0.0)
+    trials: _AutomaticScaleTrials = field(init=False)
+
+    def initial_build(self):
+        self.drawing = self.context.build(
+            None,
+            views=self.context.options._views,
+            select_automatic_views=self.views_are_automatic
+            and self.context.options._views is None,
+        )
+        self.dimensions_are_automatic = (
+            self.context.options.auto_dims and self.drawing.model().authored_dimensions is None
+        )
+        self.replanned = False
+        self.replan_attempts = []
+        initial_view_decision = getattr(self.drawing, "view_decision", {})
+        self.view_attempts = list(initial_view_decision.get("attempts", ()))
+        self.view_status = initial_view_decision.get("status", "default")
+        self.settled_issues = None
+
+    def settle_views(self):
+        # The reduced topology was selected after analysis but before projection, so the
+        # accepted common case performs one assembly. Read back that finished candidate now.
+        # A non-source placement drop, structural error, or annotation still owned by an
+        # absent view vetoes it and pays for the full-view fallback. Source-owned callout
+        # drops remain eligible for the established scale/page recovery below.
+        self.settled_principal_views = self.context.principal_names(self.drawing)
+        if self.view_status == "candidate":
+            candidate_issues, candidate_blockers = self.context.automatic_assessment(self.drawing)
+            absent_owners = self.context.absent_view_owners(self.drawing)
+            unrecoverable_blockers = tuple(
+                blocker for blocker in candidate_blockers if not blocker["source_ids"]
+            )
+            rejection = _automatic_candidate_rejection(candidate_issues, unrecoverable_blockers)
+            if rejection is not None or absent_owners:
+                proposed = self.settled_principal_views
+                reason = "annotation_owned_by_absent_view" if absent_owners else rejection
+                assert reason is not None
+                self.view_attempts[-1] = {
+                    "views": proposed,
+                    "status": "rejected",
+                    "reason": reason,
+                    "blockers": candidate_blockers,
+                    **({"annotations": absent_owners} if absent_owners else {}),
+                }
+                self.drawing = self.context.build(
+                    None, views=third_angle_view_names(), retry_reason=reason
+                )
+                self.settled_principal_views = self.context.principal_names(self.drawing)
+                self.view_status = "retained_after_rejection"
+            else:
+                self.view_attempts[-1] = {
+                    "views": self.settled_principal_views,
+                    "status": "chosen",
+                    "reason": "redundant_radial_view_removed",
+                    "blockers": candidate_blockers,
+                }
+                self.view_status = "reduced"
+                self.settled_issues = candidate_issues
+        elif self.view_status == "selected":
+            self.view_status = "default"
+
+    def settle_arrangement(self):
+        if self.context.built_arrangement != ARRANGEMENTS[0]:
+            # The recognition-free critique makes the arrangement independent of whether the
+            # model was detected or declared. Carry the already settled view topology through
+            # its fallback compile; otherwise proving the arrangement would restore a view.
+            self.drawing = _preserve_requirements_under_arrangement(
+                self.drawing,
+                self.context.built_arrangement,
+                lambda candidate_scale, arrangements: self.context.build(
+                    candidate_scale,
+                    arrangements,
+                    views=self.settled_principal_views,
+                    retry_reason="arrangement_preserve_requirements",
+                ),
+                lambda built: _scale_blockers_from_issues(self.context.placement_issues(built)),
+            )
+            # The arrangement gate may return a rebuilt preferred-layout drawing.  Issues
+            # cached from the pre-gate candidate describe different placed ink and must never
+            # drive the final completeness decision for that winner.
+            self.settled_issues = None
+        self.arrangement_decision = getattr(self.drawing, "arrangement_decision", None)
+        self.settled_arrangement = (
+            self.arrangement_decision["chosen"]
+            if self.arrangement_decision is not None
+            else self.context.built_arrangement
+        )
+
+    def retain_arrangement(self, candidate):
+        # Corrective builds stay in the settled arrangement and retain its decision.
+        if self.arrangement_decision is not None:
+            candidate.arrangement_decision = self.arrangement_decision
+        return candidate
+
+    def record_attempt(
+        self,
+        scale,
+        status,
+        blockers=(),
+        *,
+        reason,
+        candidate=None,
+        views=None,
+        page=None,
+        error=None,
+        rejection=None,
+        violations=(),
+    ):
+        if candidate is not None:
+            views = candidate.views
+            page = (candidate.page_w, candidate.page_h)
+        self.replan_attempts.append(
+            _scale_attempt(
+                scale,
+                status,
+                blockers,
+                reason=reason,
+                rejection=rejection,
+                violations=violations,
+                views=views,
+                page=page,
+                error=error,
+            )
+        )
+
+    def qualify_candidate(
+        self,
+        candidate,
+        *,
+        require_axial_coverage=False,
+        allow_recovery_detail=False,
+        allowed_informational_crossings=(),
+    ):
+        """Apply the settled-drawing verdict before semantic recovery constraints."""
+        issues, blockers = self.context.automatic_assessment(candidate)
+        if _hard_layout_issues(issues):
+            return issues, blockers, "structural_error"
+        if _has_detail_view(candidate.views) and not allow_recovery_detail:
+            return issues, blockers, "recovery_detail_retained"
+        if require_axial_coverage:
+            latest_analysis = self.context.latest_analysis
+            assert latest_analysis is not None
+            profile_kw = (
+                {"profiles": latest_analysis.profiles}
+                if hasattr(latest_analysis, "profiles")
+                else {"prof": latest_analysis.prof}
+            )
+            if lint_axial_coverage(
+                latest_analysis.part, candidate, **profile_kw
+            ) or _axial_dimension_losses(issues):
+                return issues, blockers, "axial_coverage_incomplete"
+        if blockers:
+            return issues, blockers, "required_outcome_dropped"
+        structural = _replay_structural_issues(issues, allowed_informational_crossings)
+        if structural:
+            return issues, blockers, "structural_error"
+        return issues, blockers, None
+
+    def prepare_trials(self):
+        # Every later scale/page/ISO correction is a rebuild. Carry the selected topology
+        # explicitly so a successful reduced plan cannot silently revert to three principals.
+        self.original_scale = self.drawing.scale
+        self.original_page = (self.drawing.page_w, self.drawing.page_h)
+        # A detail-bearing candidate can enter the larger-scale tail once to test whether
+        # the detail reservation was conservative, then enter the identical tail again when
+        # a required placement loss asks the optional ISO to yield. Reuse those finished
+        # drawings: the second pass may apply a stricter qualification gate, but rebuilding
+        # identical geometry cannot change its answer (#1665).
+        self.trials = _AutomaticScaleTrials(
+            build=self.context.build,
+            record_attempt=self.record_attempt,
+            qualify=self.qualify_candidate,
+            retain_arrangement=self.retain_arrangement,
+            current_drawing=lambda: self.drawing,
+            latest_analysis=lambda: self.context.latest_analysis,
+            settled_arrangement=self.settled_arrangement,
+            settled_principal_views=self.settled_principal_views,
+            original_page=self.original_page,
+        )
+
+    def recover_detail(self):
+        # #1155: the compose-time estimate conservatively reserves an enlarged
+        # detail for a crowded run.  Some larger preferred scales make that run
+        # readable inline, so the detail reservation disappears and the same page
+        # becomes feasible — GRM-04 is 2:1 under the estimate but complete at 5:1
+        # after its Y location re-homes from side-below to plan-right.  Measure
+        # those larger candidates only when the settled result actually contains
+        # that semantic recovery artifact: post-build occupied rectangles are not
+        # a scale-selection input.  A candidate may win only on the same sheet and
+        # settled arrangement, with no recovery detail or required placement loss.
+        if (
+            self.dimensions_are_automatic
+            and self.views_are_automatic
+            and _has_detail_view(self.drawing.views)
+        ):
+            self.record_attempt(
+                self.drawing.scale,
+                "detail_reservation_conservative",
+                reason="measured_upscale",
+                candidate=self.drawing,
+            )
+            upscaled, upscaled_issues = self.trials.try_larger_scales_on_selected_page(
+                self.original_scale,
+                reason="measured_upscale",
+                require_axial_coverage=False,
+            )
+            if upscaled is not None:
+                self.drawing = upscaled
+                self.settled_issues = upscaled_issues
+                self.replanned = True
+            elif self.context.options.page is None:
+                _detail_issues, detail_blockers = self.context.automatic_assessment(self.drawing)
+                has_source_dimensions = any(
+                    getattr(feature, "kind", None) == "authored_dimension"
+                    and bool(getattr(feature, "source_id", ""))
+                    for feature in getattr(self.drawing.model(), "features", ())
+                )
+                if detail_blockers or has_source_dimensions:
+                    # A detail may recover its own measurements while another required
+                    # mark remains unplaced. Try the existing bounded page tail in that
+                    # case too; retaining the detail is valid if the candidate passes
+                    # every structural and required-outcome gate. A complete detected
+                    # drawing does not spend a larger sheet just to eliminate its detail.
+                    larger, larger_issues = self.trials.try_larger_standard_pages(
+                        self.original_page,
+                        include_iso=self.context.options._include_iso,
+                        reason="page_escalation_after_detail",
+                        fallback_views=tuple(self.drawing.views),
+                        require_axial_coverage=False,
+                        allow_recovery_detail=bool(detail_blockers),
+                    )
+                    if larger is not None:
+                        self.drawing = larger
+                        self.settled_issues = larger_issues
+                        self.replanned = True
+
+    def recover_hard_layout(self):
+        # Hard validity is the first page/scale verdict tier. It opens the bounded recovery
+        # ladder independently of completeness, and it never spends the optional isometric:
+        # ADR 2 reserves view removal for manufacturing completeness. A clean candidate must
+        # pass the same settled-drawing gate as every later correction.
+        original_issues, _original_blockers = self.context.automatic_assessment(self.drawing)
+        hard_layout = _hard_layout_issues(original_issues)
+        if hard_layout:
+            self.settled_issues = original_issues
+            self.record_attempt(
+                self.drawing.scale,
+                "hard_layout_invalid",
+                _original_blockers,
+                reason="layout_validity_recovery",
+                violations=_layout_issue_records(hard_layout),
+                candidate=self.drawing,
+            )
+            recovered, recovered_issues = self.trials.try_validity_scales_on_selected_page(
+                self.drawing.scale,
+                reason="scale_retry_after_hard_layout",
+                require_axial_coverage=False,
+            )
+            if recovered is None and self.context.options.page is None:
+                recovered, recovered_issues = self.trials.try_larger_standard_pages(
+                    self.original_page,
+                    include_iso="iso" in self.drawing.views,
+                    reason="page_escalation_after_hard_layout",
+                    fallback_views=tuple(self.drawing.views),
+                    require_axial_coverage=False,
+                    allow_recovery_detail=True,
+                )
+            if recovered is not None:
+                self.drawing = recovered
+                self.settled_issues = recovered_issues
+                self.replanned = True
+
+    def recover_required_no_iso(self):
+        # #1678: a required placement loss must spend the bounded scale/page recovery
+        # budget even when there is no optional ISO to yield.  The older recovery block
+        # below was entered only when an ISO was present, so an explicitly disabled ISO
+        # (or a topology that did not produce one) could report an incomplete plan without
+        # trying otherwise viable space.  Keep the ISO-removal path specialised, but give
+        # every other automatic plan the same scale-first, page-second opportunity.
+        if (
+            self.dimensions_are_automatic
+            and self.views_are_automatic
+            and not (self.context.options._include_iso and "iso" in self.drawing.views)
+        ):
+            original_issues, required_blockers = self.context.automatic_assessment(self.drawing)
+            self.settled_issues = original_issues
+            axial_dimension_losses = _axial_dimension_losses(original_issues)
+            if (required_blockers or axial_dimension_losses) and not _hard_layout_issues(
+                original_issues
+            ):
+                self.record_attempt(
+                    self.drawing.scale,
+                    "required_outcome_dropped",
+                    required_blockers,
+                    reason="required_outcome_recovery",
+                    candidate=self.drawing,
+                )
+                recovered, recovered_issues = self.trials.try_larger_scales_on_selected_page(
+                    self.drawing.scale,
+                    reason="scale_escalation_after_required_drop",
+                    require_axial_coverage=bool(axial_dimension_losses),
+                )
+                if recovered is None and self.context.options.page is None:
+                    recovered, recovered_issues = self.trials.try_larger_standard_pages(
+                        self.original_page,
+                        include_iso=self.context.options._include_iso,
+                        reason="page_escalation_after_required_drop",
+                        fallback_views=tuple(self.drawing.views),
+                        require_axial_coverage=bool(axial_dimension_losses),
+                        allow_recovery_detail=True,
+                    )
+                if recovered is not None:
+                    self.drawing = recovered
+                    self.settled_issues = recovered_issues
+                    self.replanned = True
+
+    def recover_optional_iso(self):
+        # #443/#1299: a pictorial view is useful context, but it cannot outrank the
+        # dimensions or other required annotations needed to manufacture a part.
+        # GRM-03 originally selected 2:1 with ISO, collapsed its 0.5 + 2 mm head
+        # steps into an unowned 2.5 mm block, then had no room for the recovery
+        # detail. Any required outcome can reach the same correction for the complementary
+        # reason: all shoulders are covered, but a required annotation has no route.
+        # Re-plan once without the optional ISO in either case. This is
+        # deliberately a measured semantic comparison, not suppression of lint:
+        # the candidate wins only after the same read-back and required-outcome
+        # gates prove it complete.
+        if (
+            self.dimensions_are_automatic
+            and self.context.options._include_iso
+            and self.views_are_automatic
+            and "iso" in self.drawing.views
+        ):
+            assert self.context.latest_analysis is not None
+            profile_kw = (
+                {"profiles": self.context.latest_analysis.profiles}
+                if hasattr(self.context.latest_analysis, "profiles")
+                else {"prof": self.context.latest_analysis.prof}
+            )
+            original_issues, original_blockers = self.context.automatic_assessment(self.drawing)
+            original_has_axial_gap = bool(
+                lint_axial_coverage(self.context.latest_analysis.part, self.drawing, **profile_kw)
+                or _axial_dimension_losses(original_issues)
+            )
+            required_blockers = original_blockers
+            self.settled_issues = original_issues
+            recovered_on_selected_page = False
+            # #1590: the third symptom. A required envelope or step dimension that found no
+            # room is not a blocker by design (see `_REPLANNABLE_LOSS_CODES`), so the ladder
+            # used to skip these drawings entirely — `attempts` came back empty and an
+            # `overall_dim_withheld` error was reported on the first sheet tried.
+            #
+            # Scoped by the enclosing gate, which is worth stating so the next reader does
+            # not assume otherwise: this block runs only for a drawing that HAS the optional
+            # isometric. One that settled without it never replans for this symptom, however
+            # starved. Widening that is a separate question from the trigger.
+            withheld = _replannable_losses(original_issues)
+            if original_has_axial_gap or required_blockers or withheld:
+                # The recorded status names WHICH symptom opened the ladder, so the
+                # decision reads back honestly, and the vocabulary is
+                # `_ISO_YIELD_TRIGGERS` — the declared list ADR 2 invariant 13 is about.
+                # `required_outcome_dropped` would be wrong for a withheld dimension:
+                # nothing was dropped as a blocker — the mark was approved and had
+                # nowhere to go.
+                if original_has_axial_gap:
+                    entry_status = _ISO_YIELD_TRIGGERS[0]
+                elif required_blockers:
+                    entry_status = _ISO_YIELD_TRIGGERS[1]
+                else:
+                    entry_status = _ISO_YIELD_TRIGGERS[2]
+                self.record_attempt(
+                    self.drawing.scale,
+                    entry_status,
+                    required_blockers,
+                    reason="remove_optional_iso",
+                    candidate=self.drawing,
+                )
+                # #1338: before spending the optional ISO and then the sheet, try the
+                # bounded larger-scale tail on the page already selected.  GRM-03 settled
+                # on 5:1/A3 without its ISO while 5:1/A4 is clean WITH it — a strictly
+                # better candidate the ladder never reached, because its only recovery
+                # order was drop-the-ISO then escalate-the-page.  The gates are unchanged:
+                # this wins only by passing the same axial and required-outcome checks the
+                # larger sheet would have had to pass.
+                upscaled, upscaled_issues = self.trials.try_larger_scales_on_selected_page(
+                    self.drawing.scale,
+                    reason="scale_escalation_on_selected_page",
+                    require_axial_coverage=True,
+                )
+                if upscaled is not None:
+                    self.drawing = upscaled
+                    self.settled_issues = upscaled_issues
+                    self.replanned = True
+                    recovered_on_selected_page = True
+            if (
+                original_has_axial_gap or required_blockers or withheld
+            ) and not recovered_on_selected_page:
+                self.try_without_iso()
+
+    def try_without_iso(self):
+        try:
+            without_iso_proposal = self.context.build(
+                None,
+                arrangements=(self.settled_arrangement,),
+                views=self.settled_principal_views,
+                include_iso=False,
+                retry_reason="remove_optional_iso",
+            )
+        except (ValueError, Standard_Failure) as exc:
+            if not _is_expected_candidate_build_failure(exc):
+                raise
+            _log.info("optional-ISO replan rejected (build failed: %s)", exc)
+            self.record_attempt(
+                self.drawing.scale,
+                "error",
+                reason="remove_optional_iso",
+                views=tuple(name for name in self.drawing.views if name != "iso"),
+                page=self.original_page,
+                error=str(exc),
+            )
+        else:
+            proposal_page = (
+                without_iso_proposal.page_w,
+                without_iso_proposal.page_h,
+            )
+            if proposal_page != self.original_page:
+                self.record_attempt(
+                    without_iso_proposal.scale,
+                    "scale_proposal",
+                    reason="remove_optional_iso",
+                    candidate=without_iso_proposal,
+                )
+                try:
+                    without_iso = self.context.build(
+                        None,
+                        arrangements=(self.settled_arrangement,),
+                        views=self.settled_principal_views,
+                        include_iso=False,
+                        retry_reason="remove_optional_iso",
+                        page_override=self.original_page,
+                    )
+                except (ValueError, Standard_Failure) as exc:
+                    if not _is_expected_candidate_build_failure(exc):
+                        raise
+                    _log.info(
+                        "fixed-page optional-ISO replan rejected (build failed: %s)",
+                        exc,
+                    )
+                    self.record_attempt(
+                        None,
+                        "error",
+                        reason="remove_optional_iso",
+                        views=without_iso_proposal.views,
+                        page=self.original_page,
+                        error=str(exc),
+                    )
+                    without_iso = None
+            else:
+                without_iso = without_iso_proposal
+
+            if without_iso is not None:
+                without_iso = self.retain_arrangement(without_iso)
+                assert (without_iso.page_w, without_iso.page_h) == self.original_page
+                issues, blockers, rejection = self.qualify_candidate(
+                    without_iso,
+                    require_axial_coverage=True,
+                    allow_recovery_detail=True,
+                )
+                if rejection is None:
+                    self.record_attempt(
+                        without_iso.scale,
+                        "complete",
+                        reason="remove_optional_iso",
+                        candidate=without_iso,
+                    )
+                    self.drawing = without_iso
+                    self.settled_issues = issues
+                    self.replanned = True
+                else:
+                    self.record_attempt(
+                        without_iso.scale,
+                        "rejected",
+                        blockers,
+                        reason="remove_optional_iso",
+                        rejection=rejection,
+                        violations=_layout_issue_records(_hard_layout_issues(issues)),
+                        candidate=without_iso,
+                    )
+                    # #1299: page preference is subordinate to manufacturing
+                    # completeness. Once the settled no-ISO arrangement has failed
+                    # on the automatically selected sheet, try only the bounded
+                    # sequence of larger standard pages. Each page chooses its scale
+                    # through the established fixed-page policy and must pass the
+                    # same axial, structural, and required-outcome gates above. A
+                    # A detail may be introduced or retained here: it is itself a
+                    # semantic recovery view, and this correction must not reject a
+                    # complete candidate merely because removing the optional ISO
+                    # made room for that required detail.
+                    if self.context.options.page is None:
+                        larger, issues = self.trials.try_larger_standard_pages(
+                            self.original_page,
+                            include_iso=False,
+                            reason="page_escalation_after_optional_iso",
+                            fallback_views=tuple(
+                                name for name in self.drawing.views if name != "iso"
+                            ),
+                            require_axial_coverage=True,
+                            allow_recovery_detail=True,
+                        )
+                        if larger is not None:
+                            self.drawing = larger
+                            self.settled_issues = issues
+                            self.replanned = True
+
+    def replay_scale(self):
+        if (
+            self.context.options._replayed_scale is not None
+            and abs(self.drawing.scale - self.context.options._replayed_scale) > 1e-12
+        ):
+            # Let the declared model take the complete automatic recovery path first. Most
+            # replays (including detail-bearing step drawings) naturally recover the recorded
+            # scale and must retain that measured history unchanged. Only a final scale drift
+            # pays for one bounded rebuild under the already settled topology/arrangement.
+            settled_crossings = tuple(
+                (issue.annotation_name, issue.view)
+                for issue in self.context.automatic_assessment(self.drawing)[0]
+                if issue.code == "leader_crosses_silhouette"
+                and issue.severity == "info"
+                and issue.annotation_name is not None
+                and issue.view is not None
+            )
+            replayed = self.context.build(
+                self.context.options._replayed_scale,
+                arrangements=(self.settled_arrangement,),
+                views=self.context.principal_names(self.drawing),
+                include_iso="iso" in self.drawing.views,
+                retry_reason="replay_settled_scale",
+            )
+            replay_issues, replay_blockers, rejection = self.qualify_candidate(
+                replayed,
+                require_axial_coverage=False,
+                allow_recovery_detail=True,
+                allowed_informational_crossings=settled_crossings,
+            )
+            if rejection is not None:
+                raise ValueError(
+                    f"settled scale replay {self.context.options._replayed_scale!r} is no longer valid: {rejection}; "
+                    f"issues={[(issue.code, issue.severity) for issue in replay_issues]}"
+                )
+            self.record_attempt(
+                replayed.scale,
+                "complete",
+                replay_blockers,
+                reason="replay_settled_scale",
+                candidate=replayed,
+            )
+            self.drawing = replayed
+            self.settled_issues = replay_issues
+            self.replanned = True
+
+    def finish(self) -> Drawing:
+        # The default record, set BEFORE the completeness pass so that pass can replace it.
+        # It used to be assigned afterwards and silently overwrote whatever the pass had
+        # decided, so an incomplete plan reported itself as an ordinary automatic one.
+        # Completeness runs last because the arrangement gate above may return a different
+        # drawing, and it is the settled drawing whose completeness matters.
+        self.drawing.scale_decision = _scale_decision(
+            policy="automatic",
+            requested=None,
+            effective=self.drawing.scale,
+            status="automatic_replanned" if self.replanned else "automatic",
+            attempted=tuple(
+                item["scale"]
+                for item in self.replan_attempts
+                if item["scale"] is not None and item["status"] != "skipped"
+            ),
+            attempts=self.replan_attempts,
+        )
+        self.drawing.view_decision = {
+            "policy": "automatic",
+            "status": self.view_status,
+            "chosen": self.context.principal_names(self.drawing),
+            "attempts": tuple(self.view_attempts),
+        }
+        if (self.replan_attempts or self.view_attempts) and self.drawing.solve_trace is not None:
+            # Every corrective candidate was a full build, and each build writes the
+            # one shared trace path, so the file on disk may describe a *rejected*
+            # candidate rather than the drawing returned.  The settled drawing's own
+            # recorder holds the shipped build's records; give it the last write so
+            # DRAFTWRIGHT_TRACE always describes the drawing the caller receives
+            # (#736 — the same reason a successful finalize re-writes).
+            self.drawing.solve_trace.write()
+        return self.context.finish_annotation_layout(
+            _complete_automatic_plan(self.drawing, issues=self.settled_issues)
+        )
+
+    def run(self) -> Drawing:
+        self.initial_build()
+        self.settle_views()
+        self.settle_arrangement()
+        self.prepare_trials()
+        self.recover_detail()
+        self.recover_hard_layout()
+        self.recover_required_no_iso()
+        self.recover_optional_iso()
+        self.replay_scale()
+        return self.finish()
+
+
+def _build_drawing_policy(
+    step_file,
+    build_options: BuildOptions,
+    _post_build,
+    _analysis_base,
+    _analysis_sink,
+) -> Drawing:
+    """Resolve view, arrangement, scale and page against finished attempts."""
+    context = _BuildAttemptContext(
+        step_file, build_options, _post_build, _analysis_base, _analysis_sink
+    )
+    views_are_automatic = build_options._view_constraints is None or (
+        isinstance(build_options._view_constraints, ViewConstraints)
+        and build_options._view_constraints.is_automatic_only
+    )
+    if build_options.scale is None:
+        if build_options.scale_policy != "fallback":
+            raise ValueError("scale_policy applies only when an explicit scale is supplied")
+        return _AutomaticResolution(context, views_are_automatic).run()
+    return resolve_explicit_scale(
+        build_options.scale,
+        build_options.scale_policy,
+        views_are_automatic=views_are_automatic,
+        _views=build_options._views,
+        _SCALES=_SCALES,
+        _build=context.build,
+        _principal_names=context.principal_names,
+        _automatic_assessment=context.automatic_assessment,
+        _absent_view_owners=context.absent_view_owners,
+        scale_blockers_for=context.scale_blockers_for,
+        finish_annotation_layout=context.finish_annotation_layout,
+    )
 
 
 @build_operation
@@ -1879,755 +2697,10 @@ def build_drawing(
     """
     annotation_layout = annotation_layout_policy(annotation_layout)
     if annotation_layout == "compare":
-        options = locals().copy()
-        return _compare_annotation_layout(options, auto_dims)
-
-    def finish_annotation_layout(drawing: Drawing) -> Drawing:
-        if annotation_layout == "demand-guided":
-            # A declared build deliberately leaves raw recognition lazy until physical
-            # critique/export. Computing the full safety report here would scan the
-            # solid during build and break that public boundary (ADR 4).
-            if model is not None:
-                safety_evidence = {
-                    "version": 12,
-                    "checks_passed": False,
-                    "admission_ready": False,
-                    "failed_checks": ["physical_critique_deferred"],
-                    "checks": [],
-                    "page": [float(drawing.page_w), float(drawing.page_h)],
-                    "scale": float(drawing.scale),
-                    "status": "deferred_until_physical_critique",
-                }
-            else:
-                safety_evidence = candidate_safety_evidence(drawing)
-            drawing.annotation_scheme_decision = {
-                **drawing.annotation_scheme_decision,
-                "safety_evidence": safety_evidence,
-                "fallback_decision": "not_evaluated",
-            }
-        return drawing
-
+        return _compare_annotation_layout(locals().copy(), auto_dims)
     build_options = BuildOptions.from_mapping(locals())
-    leader_region = build_options.leader_region
-    _replayed_scale = build_options._replayed_scale
-    title_block_cache: dict[tuple, tuple] = {}
-    analysis_base = _analysis_base
-    build_attempt = 0
-    latest_analysis = None
-    critique_recognition_cache = None
-    placement_critique = _PlacementCritique() if _post_build is None else None
-
-    def _placement_issues(candidate):
-        # The default builder only changes decision metadata after an attempt returns;
-        # a post-build hook may edit the sheet, so preserve its normal critique calls.
-        # Lightweight test doubles likewise keep their own lint semantics.
-        if placement_critique is None:
-            return tuple(candidate.lint(physical=False))
-        return placement_critique.get(candidate)
-
-    built_arrangement = ARRANGEMENTS[0]
-
-    def _build(
-        candidate_scale: float | None,
-        arrangements: tuple[str, ...] | None = None,
-        views: tuple[str, ...] | None = None,
-        include_iso: bool | None = None,
-        page_override: str | tuple | None = None,
-        select_automatic_views: bool = False,
-        retry_reason: str = "initial",
-    ) -> Drawing:
-        nonlocal analysis_base, build_attempt
-        build_attempt += 1
-
-        # Default to the REQUESTED view set, not to None. Any rebuild — the arrangement
-        # gate's fallback, a scale retry — must carry the decisions the attempt was made
-        # under; the arrangement gate's rebuild silently reverted a two-view request to four
-        # views on a larger sheet until this defaulted (#1130). Same defect class the carried
-        # arrangement fixed, one stage further out.
-        views = _views if views is None else views
-
-        if arrangements is None and not auto_dims:
-            # Nothing to measure means nothing is proved, so fail closed on the arrangement
-            # every drawing used before the choice existed. The gate establishes an
-            # alternative's feasibility by compiling the requirements and reading what failed
-            # to place; a build with no automatic dimensioning compiles none, so an
-            # alternative would be accepted on the strength of an empty ledger — and then
-            # annotations added afterwards through the deferred/`Sheet` seams would be the
-            # ones to lose. Measured: a mixed deferred batch loses its shoulder dimension.
-            arrangements = (ARRANGEMENTS[0],)
-
-        def retain_analysis(value: Analysis) -> None:
-            # `analysis_base` keeps the FIRST analysis (geometry reuse across attempts);
-            # `built_arrangement` tracks the LATEST, because the arrangement gate asks what
-            # the attempt just built under. Read here rather than off the returned drawing:
-            # engine modules must not touch `dwg._*` (ADR 1 (was 0005 §2)).
-            nonlocal analysis_base, built_arrangement, latest_analysis
-            built_arrangement = value.arrangement
-            latest_analysis = value
-            if analysis_base is None:
-                analysis_base = value
-            if _analysis_sink is not None:
-                _analysis_sink(value)
-
-        if build_attempt > 1:
-            activity(
-                "retry",
-                reason=retry_reason,
-                attempt=build_attempt,
-                scale=candidate_scale,
-                page=str(page if page_override is None else page_override),
-            )
-        attempt_options = replace(
-            build_options,
-            _views=views,
-            _include_iso=_include_iso if include_iso is None else include_iso,
-        )
-        built = _build_drawing_once(
-            step_file,
-            attempt_options,
-            scale=candidate_scale,
-            page=page if page_override is None else page_override,
-            _analysis_base=analysis_base,
-            _analysis_sink=retain_analysis,
-            _critique_recognition_cache=critique_recognition_cache,
-            _arrangements=arrangements,
-            _select_automatic_views=select_automatic_views,
-            _candidate_profile_first=annotation_layout == "demand-guided",
-            _title_block_cache=title_block_cache,
-            _placement_critique=placement_critique,
-        )
-        _validate_authored_view_layout(built, _view_constraints)
-        if _document_input is not None:
-            _document_input.validate(built.working_part, built.model().features)
-        return _post_build(built) if _post_build is not None else built
-
-    def scale_blockers_for(built: Drawing, expected_scale: float) -> tuple[tuple[dict, ...], bool]:
-        nonlocal critique_recognition_cache
-        found = _scale_blockers(built)
-        # A caller's post-build hook may add a different representation. Require
-        # the candidate's effective scale to be its requested rung as well: the
-        # next requested rung must actually be smaller than the proved one.
-        short_off_axis_span = (
-            _post_build is None
-            and built.scale == expected_scale
-            and _short_off_axis_span_blocks_smaller_scales(found)
-        )
-        if critique_recognition_cache is None:
-            evidence_reader = getattr(built, "recognition_evidence", None)
-            critique_recognition_cache = RecognitionCache(
-                result=built.recognition(),
-                evidence=evidence_reader() if callable(evidence_reader) else None,
-            )
-        return found, short_off_axis_span
-
-    views_are_automatic = _view_constraints is None or (
-        isinstance(_view_constraints, ViewConstraints) and _view_constraints.is_automatic_only
-    )
-
-    def _automatic_assessment(candidate):
-        # One recognition-free critique feeds every builder gate on this finished attempt.
-        issues = _placement_issues(candidate)
-        return issues, _scale_blockers_from_issues(issues)
-
-    def _principal_names(candidate):
-        plan = getattr(candidate, "view_plan", None)
-        if plan is not None:
-            return tuple(plan.principal_names)
-        # Test doubles and older post-build adapters may expose only the established
-        # ``views`` mapping. Keep the policy boundary compatible with that narrow shape.
-        available = getattr(candidate, "views", None)
-        if available is None:
-            return tuple(_views if _views is not None else third_angle_view_names())
-        return tuple(name for name in third_angle_view_names() if name in available)
-
-    def _absent_view_owners(candidate):
-        """Annotations assigned to a view the candidate did not actually project."""
-        result = []
-        for name in candidate.annotations():
-            owner = candidate.view_of(name)
-            if owner is not None and owner not in candidate.views:
-                result.append(name)
-        return tuple(result)
-
-    if scale is None:
-        if scale_policy != "fallback":
-            raise ValueError("scale_policy applies only when an explicit scale is supplied")
-        drawing = _build(
-            None,
-            views=_views,
-            select_automatic_views=views_are_automatic and _views is None,
-        )
-        dimensions_are_automatic = auto_dims and drawing.model().authored_dimensions is None
-        replanned = False
-        replan_attempts = []
-        initial_view_decision = getattr(drawing, "view_decision", {})
-        view_attempts = list(initial_view_decision.get("attempts", ()))
-        view_status = initial_view_decision.get("status", "default")
-        settled_issues = None
-
-        # The reduced topology was selected after analysis but before projection, so the
-        # accepted common case performs one assembly. Read back that finished candidate now.
-        # A non-source placement drop, structural error, or annotation still owned by an
-        # absent view vetoes it and pays for the full-view fallback. Source-owned callout
-        # drops remain eligible for the established scale/page recovery below.
-        settled_principal_views = _principal_names(drawing)
-        if view_status == "candidate":
-            candidate_issues, candidate_blockers = _automatic_assessment(drawing)
-            absent_owners = _absent_view_owners(drawing)
-            unrecoverable_blockers = tuple(
-                blocker for blocker in candidate_blockers if not blocker["source_ids"]
-            )
-            rejection = _automatic_candidate_rejection(candidate_issues, unrecoverable_blockers)
-            if rejection is not None or absent_owners:
-                proposed = settled_principal_views
-                reason = "annotation_owned_by_absent_view" if absent_owners else rejection
-                assert reason is not None
-                view_attempts[-1] = {
-                    "views": proposed,
-                    "status": "rejected",
-                    "reason": reason,
-                    "blockers": candidate_blockers,
-                    **({"annotations": absent_owners} if absent_owners else {}),
-                }
-                drawing = _build(None, views=third_angle_view_names(), retry_reason=reason)
-                settled_principal_views = _principal_names(drawing)
-                view_status = "retained_after_rejection"
-            else:
-                view_attempts[-1] = {
-                    "views": settled_principal_views,
-                    "status": "chosen",
-                    "reason": "redundant_radial_view_removed",
-                    "blockers": candidate_blockers,
-                }
-                view_status = "reduced"
-                settled_issues = candidate_issues
-        elif view_status == "selected":
-            view_status = "default"
-
-        if built_arrangement != ARRANGEMENTS[0]:
-            # The recognition-free critique makes the arrangement independent of whether the
-            # model was detected or declared. Carry the already settled view topology through
-            # its fallback compile; otherwise proving the arrangement would restore a view.
-            drawing = _preserve_requirements_under_arrangement(
-                drawing,
-                built_arrangement,
-                lambda candidate_scale, arrangements: _build(
-                    candidate_scale,
-                    arrangements,
-                    views=settled_principal_views,
-                    retry_reason="arrangement_preserve_requirements",
-                ),
-                lambda built: _scale_blockers_from_issues(_placement_issues(built)),
-            )
-            # The arrangement gate may return a rebuilt preferred-layout drawing.  Issues
-            # cached from the pre-gate candidate describe different placed ink and must never
-            # drive the final completeness decision for that winner.
-            settled_issues = None
-        arrangement_decision = getattr(drawing, "arrangement_decision", None)
-        settled_arrangement = (
-            arrangement_decision["chosen"]
-            if arrangement_decision is not None
-            else built_arrangement
-        )
-
-        def _retain_arrangement(candidate):
-            # The corrective builds are confined to the settled arrangement. Preserve
-            # the original decision record explaining why that arrangement won.
-            if arrangement_decision is not None:
-                candidate.arrangement_decision = arrangement_decision
-            return candidate
-
-        def _record_attempt(
-            scale,
-            status,
-            blockers=(),
-            *,
-            reason,
-            candidate=None,
-            views=None,
-            page=None,
-            error=None,
-            rejection=None,
-            violations=(),
-        ):
-            if candidate is not None:
-                views = candidate.views
-                page = (candidate.page_w, candidate.page_h)
-            replan_attempts.append(
-                _scale_attempt(
-                    scale,
-                    status,
-                    blockers,
-                    reason=reason,
-                    rejection=rejection,
-                    violations=violations,
-                    views=views,
-                    page=page,
-                    error=error,
-                )
-            )
-
-        def _qualify_candidate(
-            candidate,
-            *,
-            require_axial_coverage=False,
-            allow_recovery_detail=False,
-            allowed_informational_crossings=(),
-        ):
-            """Apply the settled-drawing verdict before semantic recovery constraints."""
-            issues, blockers = _automatic_assessment(candidate)
-            if _hard_layout_issues(issues):
-                return issues, blockers, "structural_error"
-            if _has_detail_view(candidate.views) and not allow_recovery_detail:
-                return issues, blockers, "recovery_detail_retained"
-            if require_axial_coverage:
-                assert latest_analysis is not None
-                profile_kw = (
-                    {"profiles": latest_analysis.profiles}
-                    if hasattr(latest_analysis, "profiles")
-                    else {"prof": latest_analysis.prof}
-                )
-                if lint_axial_coverage(
-                    latest_analysis.part, candidate, **profile_kw
-                ) or _axial_dimension_losses(issues):
-                    return issues, blockers, "axial_coverage_incomplete"
-            if blockers:
-                return issues, blockers, "required_outcome_dropped"
-            structural = _replay_structural_issues(issues, allowed_informational_crossings)
-            if structural:
-                return issues, blockers, "structural_error"
-            return issues, blockers, None
-
-        # Every later scale/page/ISO correction is a rebuild. Carry the selected topology
-        # explicitly so a successful reduced plan cannot silently revert to three principals.
-        original_scale = drawing.scale
-        original_page = (drawing.page_w, drawing.page_h)
-        # A detail-bearing candidate can enter the larger-scale tail once to test whether
-        # the detail reservation was conservative, then enter the identical tail again when
-        # a required placement loss asks the optional ISO to yield. Reuse those finished
-        # drawings: the second pass may apply a stricter qualification gate, but rebuilding
-        # identical geometry cannot change its answer (#1665).
-        trials = _AutomaticScaleTrials(
-            build=_build,
-            record_attempt=_record_attempt,
-            qualify=_qualify_candidate,
-            retain_arrangement=_retain_arrangement,
-            current_drawing=lambda: drawing,
-            latest_analysis=lambda: latest_analysis,
-            settled_arrangement=settled_arrangement,
-            settled_principal_views=settled_principal_views,
-            original_page=original_page,
-        )
-
-        # #1155: the compose-time estimate conservatively reserves an enlarged
-        # detail for a crowded run.  Some larger preferred scales make that run
-        # readable inline, so the detail reservation disappears and the same page
-        # becomes feasible — GRM-04 is 2:1 under the estimate but complete at 5:1
-        # after its Y location re-homes from side-below to plan-right.  Measure
-        # those larger candidates only when the settled result actually contains
-        # that semantic recovery artifact: post-build occupied rectangles are not
-        # a scale-selection input.  A candidate may win only on the same sheet and
-        # settled arrangement, with no recovery detail or required placement loss.
-        if dimensions_are_automatic and views_are_automatic and _has_detail_view(drawing.views):
-            _record_attempt(
-                drawing.scale,
-                "detail_reservation_conservative",
-                reason="measured_upscale",
-                candidate=drawing,
-            )
-            upscaled, upscaled_issues = trials.try_larger_scales_on_selected_page(
-                original_scale,
-                reason="measured_upscale",
-                require_axial_coverage=False,
-            )
-            if upscaled is not None:
-                drawing = upscaled
-                settled_issues = upscaled_issues
-                replanned = True
-            elif page is None:
-                _detail_issues, detail_blockers = _automatic_assessment(drawing)
-                has_source_dimensions = any(
-                    getattr(feature, "kind", None) == "authored_dimension"
-                    and bool(getattr(feature, "source_id", ""))
-                    for feature in getattr(drawing.model(), "features", ())
-                )
-                if detail_blockers or has_source_dimensions:
-                    # A detail may recover its own measurements while another required
-                    # mark remains unplaced. Try the existing bounded page tail in that
-                    # case too; retaining the detail is valid if the candidate passes
-                    # every structural and required-outcome gate. A complete detected
-                    # drawing does not spend a larger sheet just to eliminate its detail.
-                    larger, larger_issues = trials.try_larger_standard_pages(
-                        original_page,
-                        include_iso=_include_iso,
-                        reason="page_escalation_after_detail",
-                        fallback_views=tuple(drawing.views),
-                        require_axial_coverage=False,
-                        allow_recovery_detail=bool(detail_blockers),
-                    )
-                    if larger is not None:
-                        drawing = larger
-                        settled_issues = larger_issues
-                        replanned = True
-
-        # Hard validity is the first page/scale verdict tier. It opens the bounded recovery
-        # ladder independently of completeness, and it never spends the optional isometric:
-        # ADR 2 reserves view removal for manufacturing completeness. A clean candidate must
-        # pass the same settled-drawing gate as every later correction.
-        original_issues, _original_blockers = _automatic_assessment(drawing)
-        hard_layout = _hard_layout_issues(original_issues)
-        if hard_layout:
-            settled_issues = original_issues
-            _record_attempt(
-                drawing.scale,
-                "hard_layout_invalid",
-                _original_blockers,
-                reason="layout_validity_recovery",
-                violations=_layout_issue_records(hard_layout),
-                candidate=drawing,
-            )
-            recovered, recovered_issues = trials.try_validity_scales_on_selected_page(
-                drawing.scale,
-                reason="scale_retry_after_hard_layout",
-                require_axial_coverage=False,
-            )
-            if recovered is None and page is None:
-                recovered, recovered_issues = trials.try_larger_standard_pages(
-                    original_page,
-                    include_iso="iso" in drawing.views,
-                    reason="page_escalation_after_hard_layout",
-                    fallback_views=tuple(drawing.views),
-                    require_axial_coverage=False,
-                    allow_recovery_detail=True,
-                )
-            if recovered is not None:
-                drawing = recovered
-                settled_issues = recovered_issues
-                replanned = True
-
-        # #1678: a required placement loss must spend the bounded scale/page recovery
-        # budget even when there is no optional ISO to yield.  The older recovery block
-        # below was entered only when an ISO was present, so an explicitly disabled ISO
-        # (or a topology that did not produce one) could report an incomplete plan without
-        # trying otherwise viable space.  Keep the ISO-removal path specialised, but give
-        # every other automatic plan the same scale-first, page-second opportunity.
-        if (
-            dimensions_are_automatic
-            and views_are_automatic
-            and not (_include_iso and "iso" in drawing.views)
-        ):
-            original_issues, required_blockers = _automatic_assessment(drawing)
-            settled_issues = original_issues
-            axial_dimension_losses = _axial_dimension_losses(original_issues)
-            if (required_blockers or axial_dimension_losses) and not _hard_layout_issues(
-                original_issues
-            ):
-                _record_attempt(
-                    drawing.scale,
-                    "required_outcome_dropped",
-                    required_blockers,
-                    reason="required_outcome_recovery",
-                    candidate=drawing,
-                )
-                recovered, recovered_issues = trials.try_larger_scales_on_selected_page(
-                    drawing.scale,
-                    reason="scale_escalation_after_required_drop",
-                    require_axial_coverage=bool(axial_dimension_losses),
-                )
-                if recovered is None and page is None:
-                    recovered, recovered_issues = trials.try_larger_standard_pages(
-                        original_page,
-                        include_iso=_include_iso,
-                        reason="page_escalation_after_required_drop",
-                        fallback_views=tuple(drawing.views),
-                        require_axial_coverage=bool(axial_dimension_losses),
-                        allow_recovery_detail=True,
-                    )
-                if recovered is not None:
-                    drawing = recovered
-                    settled_issues = recovered_issues
-                    replanned = True
-
-        # #443/#1299: a pictorial view is useful context, but it cannot outrank the
-        # dimensions or other required annotations needed to manufacture a part.
-        # GRM-03 originally selected 2:1 with ISO, collapsed its 0.5 + 2 mm head
-        # steps into an unowned 2.5 mm block, then had no room for the recovery
-        # detail. Any required outcome can reach the same correction for the complementary
-        # reason: all shoulders are covered, but a required annotation has no route.
-        # Re-plan once without the optional ISO in either case. This is
-        # deliberately a measured semantic comparison, not suppression of lint:
-        # the candidate wins only after the same read-back and required-outcome
-        # gates prove it complete.
-        if (
-            dimensions_are_automatic
-            and _include_iso
-            and views_are_automatic
-            and "iso" in drawing.views
-        ):
-            assert latest_analysis is not None
-            profile_kw = (
-                {"profiles": latest_analysis.profiles}
-                if hasattr(latest_analysis, "profiles")
-                else {"prof": latest_analysis.prof}
-            )
-            original_issues, original_blockers = _automatic_assessment(drawing)
-            original_has_axial_gap = bool(
-                lint_axial_coverage(latest_analysis.part, drawing, **profile_kw)
-                or _axial_dimension_losses(original_issues)
-            )
-            required_blockers = original_blockers
-            settled_issues = original_issues
-            recovered_on_selected_page = False
-            # #1590: the third symptom. A required envelope or step dimension that found no
-            # room is not a blocker by design (see `_REPLANNABLE_LOSS_CODES`), so the ladder
-            # used to skip these drawings entirely — `attempts` came back empty and an
-            # `overall_dim_withheld` error was reported on the first sheet tried.
-            #
-            # Scoped by the enclosing gate, which is worth stating so the next reader does
-            # not assume otherwise: this block runs only for a drawing that HAS the optional
-            # isometric. One that settled without it never replans for this symptom, however
-            # starved. Widening that is a separate question from the trigger.
-            withheld = _replannable_losses(original_issues)
-            if original_has_axial_gap or required_blockers or withheld:
-                # The recorded status names WHICH symptom opened the ladder, so the
-                # decision reads back honestly, and the vocabulary is
-                # `_ISO_YIELD_TRIGGERS` — the declared list ADR 2 invariant 13 is about.
-                # `required_outcome_dropped` would be wrong for a withheld dimension:
-                # nothing was dropped as a blocker — the mark was approved and had
-                # nowhere to go.
-                if original_has_axial_gap:
-                    entry_status = _ISO_YIELD_TRIGGERS[0]
-                elif required_blockers:
-                    entry_status = _ISO_YIELD_TRIGGERS[1]
-                else:
-                    entry_status = _ISO_YIELD_TRIGGERS[2]
-                _record_attempt(
-                    drawing.scale,
-                    entry_status,
-                    required_blockers,
-                    reason="remove_optional_iso",
-                    candidate=drawing,
-                )
-                # #1338: before spending the optional ISO and then the sheet, try the
-                # bounded larger-scale tail on the page already selected.  GRM-03 settled
-                # on 5:1/A3 without its ISO while 5:1/A4 is clean WITH it — a strictly
-                # better candidate the ladder never reached, because its only recovery
-                # order was drop-the-ISO then escalate-the-page.  The gates are unchanged:
-                # this wins only by passing the same axial and required-outcome checks the
-                # larger sheet would have had to pass.
-                upscaled, upscaled_issues = trials.try_larger_scales_on_selected_page(
-                    drawing.scale,
-                    reason="scale_escalation_on_selected_page",
-                    require_axial_coverage=True,
-                )
-                if upscaled is not None:
-                    drawing = upscaled
-                    settled_issues = upscaled_issues
-                    replanned = True
-                    recovered_on_selected_page = True
-            if (
-                original_has_axial_gap or required_blockers or withheld
-            ) and not recovered_on_selected_page:
-                try:
-                    without_iso_proposal = _build(
-                        None,
-                        arrangements=(settled_arrangement,),
-                        views=settled_principal_views,
-                        include_iso=False,
-                        retry_reason="remove_optional_iso",
-                    )
-                except (ValueError, Standard_Failure) as exc:
-                    if not _is_expected_candidate_build_failure(exc):
-                        raise
-                    _log.info("optional-ISO replan rejected (build failed: %s)", exc)
-                    _record_attempt(
-                        drawing.scale,
-                        "error",
-                        reason="remove_optional_iso",
-                        views=tuple(name for name in drawing.views if name != "iso"),
-                        page=original_page,
-                        error=str(exc),
-                    )
-                else:
-                    proposal_page = (
-                        without_iso_proposal.page_w,
-                        without_iso_proposal.page_h,
-                    )
-                    if proposal_page != original_page:
-                        _record_attempt(
-                            without_iso_proposal.scale,
-                            "scale_proposal",
-                            reason="remove_optional_iso",
-                            candidate=without_iso_proposal,
-                        )
-                        try:
-                            without_iso = _build(
-                                None,
-                                arrangements=(settled_arrangement,),
-                                views=settled_principal_views,
-                                include_iso=False,
-                                retry_reason="remove_optional_iso",
-                                page_override=original_page,
-                            )
-                        except (ValueError, Standard_Failure) as exc:
-                            if not _is_expected_candidate_build_failure(exc):
-                                raise
-                            _log.info(
-                                "fixed-page optional-ISO replan rejected (build failed: %s)",
-                                exc,
-                            )
-                            _record_attempt(
-                                None,
-                                "error",
-                                reason="remove_optional_iso",
-                                views=without_iso_proposal.views,
-                                page=original_page,
-                                error=str(exc),
-                            )
-                            without_iso = None
-                    else:
-                        without_iso = without_iso_proposal
-
-                    if without_iso is not None:
-                        without_iso = _retain_arrangement(without_iso)
-                        assert (without_iso.page_w, without_iso.page_h) == original_page
-                        issues, blockers, rejection = _qualify_candidate(
-                            without_iso,
-                            require_axial_coverage=True,
-                            allow_recovery_detail=True,
-                        )
-                        if rejection is None:
-                            _record_attempt(
-                                without_iso.scale,
-                                "complete",
-                                reason="remove_optional_iso",
-                                candidate=without_iso,
-                            )
-                            drawing = without_iso
-                            settled_issues = issues
-                            replanned = True
-                        else:
-                            _record_attempt(
-                                without_iso.scale,
-                                "rejected",
-                                blockers,
-                                reason="remove_optional_iso",
-                                rejection=rejection,
-                                violations=_layout_issue_records(_hard_layout_issues(issues)),
-                                candidate=without_iso,
-                            )
-                            # #1299: page preference is subordinate to manufacturing
-                            # completeness. Once the settled no-ISO arrangement has failed
-                            # on the automatically selected sheet, try only the bounded
-                            # sequence of larger standard pages. Each page chooses its scale
-                            # through the established fixed-page policy and must pass the
-                            # same axial, structural, and required-outcome gates above. A
-                            # A detail may be introduced or retained here: it is itself a
-                            # semantic recovery view, and this correction must not reject a
-                            # complete candidate merely because removing the optional ISO
-                            # made room for that required detail.
-                            if page is None:
-                                larger, issues = trials.try_larger_standard_pages(
-                                    original_page,
-                                    include_iso=False,
-                                    reason="page_escalation_after_optional_iso",
-                                    fallback_views=tuple(
-                                        name for name in drawing.views if name != "iso"
-                                    ),
-                                    require_axial_coverage=True,
-                                    allow_recovery_detail=True,
-                                )
-                                if larger is not None:
-                                    drawing = larger
-                                    settled_issues = issues
-                                    replanned = True
-        if _replayed_scale is not None and abs(drawing.scale - _replayed_scale) > 1e-12:
-            # Let the declared model take the complete automatic recovery path first. Most
-            # replays (including detail-bearing step drawings) naturally recover the recorded
-            # scale and must retain that measured history unchanged. Only a final scale drift
-            # pays for one bounded rebuild under the already settled topology/arrangement.
-            settled_crossings = tuple(
-                (issue.annotation_name, issue.view)
-                for issue in _automatic_assessment(drawing)[0]
-                if issue.code == "leader_crosses_silhouette"
-                and issue.severity == "info"
-                and issue.annotation_name is not None
-                and issue.view is not None
-            )
-            replayed = _build(
-                _replayed_scale,
-                arrangements=(settled_arrangement,),
-                views=_principal_names(drawing),
-                include_iso="iso" in drawing.views,
-                retry_reason="replay_settled_scale",
-            )
-            replay_issues, replay_blockers, rejection = _qualify_candidate(
-                replayed,
-                require_axial_coverage=False,
-                allow_recovery_detail=True,
-                allowed_informational_crossings=settled_crossings,
-            )
-            if rejection is not None:
-                raise ValueError(
-                    f"settled scale replay {_replayed_scale!r} is no longer valid: {rejection}; "
-                    f"issues={[(issue.code, issue.severity) for issue in replay_issues]}"
-                )
-            _record_attempt(
-                replayed.scale,
-                "complete",
-                replay_blockers,
-                reason="replay_settled_scale",
-                candidate=replayed,
-            )
-            drawing = replayed
-            settled_issues = replay_issues
-            replanned = True
-
-        # The default record, set BEFORE the completeness pass so that pass can replace it.
-        # It used to be assigned afterwards and silently overwrote whatever the pass had
-        # decided, so an incomplete plan reported itself as an ordinary automatic one.
-        # Completeness runs last because the arrangement gate above may return a different
-        # drawing, and it is the settled drawing whose completeness matters.
-        drawing.scale_decision = _scale_decision(
-            policy="automatic",
-            requested=None,
-            effective=drawing.scale,
-            status="automatic_replanned" if replanned else "automatic",
-            attempted=tuple(
-                item["scale"]
-                for item in replan_attempts
-                if item["scale"] is not None and item["status"] != "skipped"
-            ),
-            attempts=replan_attempts,
-        )
-        drawing.view_decision = {
-            "policy": "automatic",
-            "status": view_status,
-            "chosen": _principal_names(drawing),
-            "attempts": tuple(view_attempts),
-        }
-        if (replan_attempts or view_attempts) and drawing.solve_trace is not None:
-            # Every corrective candidate was a full build, and each build writes the
-            # one shared trace path, so the file on disk may describe a *rejected*
-            # candidate rather than the drawing returned.  The settled drawing's own
-            # recorder holds the shipped build's records; give it the last write so
-            # DRAFTWRIGHT_TRACE always describes the drawing the caller receives
-            # (#736 — the same reason a successful finalize re-writes).
-            drawing.solve_trace.write()
-        return finish_annotation_layout(_complete_automatic_plan(drawing, issues=settled_issues))
-
-    return resolve_explicit_scale(
-        scale,
-        scale_policy,
-        views_are_automatic=views_are_automatic,
-        _views=_views,
-        _SCALES=_SCALES,
-        _build=_build,
-        _principal_names=_principal_names,
-        _automatic_assessment=_automatic_assessment,
-        _absent_view_owners=_absent_view_owners,
-        scale_blockers_for=scale_blockers_for,
-        finish_annotation_layout=finish_annotation_layout,
+    return _build_drawing_policy(
+        step_file, build_options, _post_build, _analysis_base, _analysis_sink
     )
 
 
