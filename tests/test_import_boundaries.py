@@ -83,7 +83,7 @@ def _tree(path: Path) -> ast.Module:
 # same source of truth, and test_every_module_is_ranked fails if a module here is missing so
 # the table can't silently drift from the tree.
 _LAYERS: dict[str, int] = {
-    # 0 — transitional bottom layer: same-rank imports remain until the leaf-only epic exit.
+    # Bottom/shared declarations: every rank-0 entry is a strict package leaf.
     "_geometry": 0,
     # Structured ISO 10303-21 facts only; XCAF correspondence remains in rank-2 pmi.py.
     "_pmi_part21": 0,
@@ -110,7 +110,7 @@ _LAYERS: dict[str, int] = {
     "recognition_ownership": 1,
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
-    "plate_correspondence": 0,
+    "plate_correspondence": 1,
     "contract_values": 0,  # finite values and exact shared vector arithmetic
     "measurement_support": 0,
     "profile_angles": 1,
@@ -119,7 +119,7 @@ _LAYERS: dict[str, int] = {
     # Consumer-owned public record schema versions, shared by the report projector and the
     # rank-7 cross-repository validator without either leaf depending on the validator.
     "recogniser_schema": 0,
-    "recognition_frame": 0,
+    "recognition_frame": 1,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
     "oriented_slot_contract": 1,
@@ -129,7 +129,7 @@ _LAYERS: dict[str, int] = {
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    # 1 — the IR waist, shared recognition modules, and drawing/layout primitives
+    # 1 — the IR waist, shared recognition/measurement modules, and drawing/layout primitives
     # The IR waist consumes approved shared modules but has a stricter allowlist below: even at the
     # same numerical rank, it cannot import _core or other drawing/layout owners.
     "model": 1,
@@ -366,32 +366,14 @@ def _all_sources() -> list[Path]:
     return [p for p in sorted(_SRC.rglob("*.py")) if "__pycache__" not in p.parts]
 
 
-# Rank 0 still includes shared helpers whose imports must be untangled before the
-# strict-leaf exit. Keep the exception set exact: a new rank-0
-# importer cannot appear silently, and removing one requires shrinking this set.
-_RANK_ZERO_TRANSITIONAL_IMPORTERS = frozenset(
-    {
-        "plate_correspondence.py",
-        "recognition_frame.py",
-    }
-)
-
-
-def test_rank_zero_leaf_exceptions_only_shrink():
-    """Every rank-0 file outside the explicit transition set imports no package module.
-
-    Include runtime, type-only and lazy imports: the eventual strict leaf rule applies
-    to all three, even though only runtime edges participate in the module DAG.
-    """
+def test_rank_zero_modules_are_package_leaves():
+    """Rank-0 files import no package module, including in type-only and lazy paths."""
     importers = {
         str(path.relative_to(_SRC))
         for path in _all_sources()
         if _LAYERS[_submodule(_module_full(path))] == 0 and any(_classify(path).values())
     }
-    assert importers == _RANK_ZERO_TRANSITIONAL_IMPORTERS, (
-        "Rank-0 package importers changed; move new dependencies above rank 0 or shrink "
-        f"the transitional set after extraction: {sorted(importers ^ _RANK_ZERO_TRANSITIONAL_IMPORTERS)}"
-    )
+    assert not importers, f"Rank-0 modules must be package leaves: {sorted(importers)}"
 
 
 def test_every_module_is_ranked():
