@@ -463,6 +463,7 @@ CONTRACT_GROUPS = {
             "test_layout_cleanliness.py",
             "test_layout_generalisation.py",
             "test_place_dimension.py",
+            "test_sheet_section.py",
             "test_strip_layout.py",
             "test_strip_zones.py",
             "test_two_pass_layout.py",
@@ -508,14 +509,12 @@ CONTRACT_GROUPS = {
         ),
     ),
     "drawing_tables": ContractGroup(
-        (
-            "src/draftwright/drawing_tables.py",
-            "src/draftwright/annotations/orchestrator.py",
-        ),
+        ("src/draftwright/drawing_tables.py",),
         (
             "test_hole_table.py",
             "test_sheet_tables.py",
             "test_issue_1144_transactional_hole_table.py",
+            "test_issue_1215_no_approved_tolerance_is_dropped.py",
         ),
     ),
     "export": ContractGroup(
@@ -545,6 +544,7 @@ CONTRACT_GROUPS = {
 BROAD_SOURCE_PATTERNS = (
     "src/draftwright/_core.py",
     "src/draftwright/analysis.py",
+    "src/draftwright/annotations/orchestrator.py",
     "src/draftwright/builder.py",
     "src/draftwright/drawing.py",
     "src/draftwright/sheet.py",

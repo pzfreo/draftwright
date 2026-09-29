@@ -151,9 +151,8 @@ def test_drawing_table_and_export_owners_select_their_behavior_contracts():
         "test_hole_table.py",
         "test_sheet_tables.py",
         "test_issue_1144_transactional_hole_table.py",
+        "test_issue_1215_no_approved_tolerance_is_dropped.py",
     } <= tables
-    escalation = set(pr_modules(_TESTS, ["src/draftwright/annotations/orchestrator.py"]))
-    assert {"test_hole_table.py", "test_issue_1144_transactional_hole_table.py"} <= escalation
     export = set(pr_modules(_TESTS, ["src/draftwright/drawing_export.py"]))
     assert {"test_export_reproducible.py", "test_issue_1533_review_diagnostics.py"} <= export
 
@@ -383,6 +382,22 @@ def test_unknown_production_module_selects_every_contract_group():
     assert selected_groups(["src/draftwright/a_new_area.py"]) == frozenset(CONTRACT_GROUPS)
     for pattern in BROAD_SOURCE_PATTERNS:
         assert selected_groups([pattern]) == frozenset(CONTRACT_GROUPS)
+
+
+def test_orchestrator_change_runs_hole_table_and_cross_pass_contracts():
+    source = "src/draftwright/annotations/orchestrator.py"
+    assert selected_groups([source]) == frozenset(CONTRACT_GROUPS)
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_hole_table.py",
+        "test_issue_1144_transactional_hole_table.py",
+        "test_issue_1215_no_approved_tolerance_is_dropped.py",
+        "test_issue_563_placement_intent.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
+        "test_detail_views.py",
+        "test_sheet_section.py",
+        "test_issue_1298_manufacturing_requirements.py",
+    } <= selected
 
 
 def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
