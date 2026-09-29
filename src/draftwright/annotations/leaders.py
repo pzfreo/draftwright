@@ -156,6 +156,7 @@ class FeatureLeaderJob:
         Callable[[Any, tuple[Any, ...], tuple[float, float, float, float]], bool] | None
     ) = None
     interior_label_clear: Callable[[tuple[float, float, float, float]], bool] | None = None
+    foreign_label_clear: Callable[[tuple[float, float, float, float]], bool] | None = None
     allow_policy_b_fixed: bool = False
     require_clear_label_ink: bool = False
     priority: float = 0.0
@@ -823,6 +824,8 @@ def _fixed_blockers(candidate, job, page, fixed_components) -> tuple[str, ...]:
             blockers.append("page")
         if view_blocker := _view_region_blocker(candidate, job):
             blockers.append(view_blocker)
+        if job.foreign_label_clear is not None and not job.foreign_label_clear(label):
+            blockers.append(f"view:{job.view}:foreign_annotation_clearance")
     fixed_hits = tuple(
         component
         for component in fixed_components

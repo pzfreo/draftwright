@@ -2272,11 +2272,34 @@ def _pack_auxiliary_layout(state: SimpleNamespace) -> bool:
     # A required detail needs the FULL planned annotation blocks instead: the
     # weaker obstacle set would reserve its box over a side/front strip, only to
     # have the real ink veto it after rendering.
+    # A Y-step chain's synthetic aggregate occupies one side-above row, but the
+    # demand-guided principal footprint can leave that row at zero. Give the
+    # *detail* allocator its physical keep-out without changing principal-view
+    # spacing or the chosen sheet scale.
+    side_step_detail_band = 0.0
+    if (
+        has_plan
+        and derived_view_footprints
+        and strips is not None
+        and strips.scheme is not None
+        and any(demand.view == "plan" for demand in strips.scheme.demands)
+    ):
+        if any(
+            demand.view == "side"
+            and demand.side == "above"
+            and any(
+                identity.parameter == "step.length" and identity.feature.frame.axis == "y"
+                for identity in demand.measurements
+            )
+            for demand in strips.scheme.demands
+        ):
+            side_step_detail_band = _STRIP_GAP + _SLOT_DIM_STEP
+    derived_side_block = replace(sv, top=max(sv.top, side_step_detail_band))
     derived_obstacles = (
         [
             *([fv.footprint(FV_X, FV_Y)] if has_front else []),
             *([pv.footprint(PV_X, PV_Y)] if has_plan else []),
-            *([sv.footprint(SV_X, SV_Y)] if has_side else []),
+            *([derived_side_block.footprint(SV_X, SV_Y)] if has_side else []),
             *([rv.footprint(RV_X, RV_Y)] if has_rear else []),
             title_block.footprint(tb_cx, tb_cy),
             *section_blocks,

@@ -2150,7 +2150,11 @@ def build_drawing(
             )
 
         def _qualify_candidate(
-            candidate, *, require_axial_coverage=False, allow_recovery_detail=False
+            candidate,
+            *,
+            require_axial_coverage=False,
+            allow_recovery_detail=False,
+            allow_informational_silhouette_crossing=False,
         ):
             """Apply the settled-drawing verdict before semantic recovery constraints."""
             issues, blockers = _automatic_assessment(candidate)
@@ -2171,7 +2175,14 @@ def build_drawing(
                     return issues, blockers, "axial_coverage_incomplete"
             if blockers:
                 return issues, blockers, "required_outcome_dropped"
-            if _structural_layout_issues(issues):
+            structural = _structural_layout_issues(issues)
+            if allow_informational_silhouette_crossing:
+                structural = tuple(
+                    issue
+                    for issue in structural
+                    if not (issue.code == "leader_crosses_silhouette" and issue.severity == "info")
+                )
+            if structural:
                 return issues, blockers, "structural_error"
             return issues, blockers, None
 
@@ -2534,6 +2545,7 @@ def build_drawing(
                 replayed,
                 require_axial_coverage=False,
                 allow_recovery_detail=True,
+                allow_informational_silhouette_crossing=True,
             )
             if rejection is not None:
                 raise ValueError(
