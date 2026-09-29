@@ -202,7 +202,7 @@ _LAYERS: dict[str, int] = {
     # nothing below rank 7 does.
     "inspection": 7,
     # Versioned, independently-authored recognition benchmark, including rank-7 family
-    # evidence owners such as _groove_evidence and _edge_profile_evidence. It may validate
+    # evidence owners such as _edge_profile_evidence and _flat_polygonal_evidence. It may validate
     # through the cross-repository contract, but the engine never depends on its evaluator.
     "evaluation": 7,
     "cli": 7,
