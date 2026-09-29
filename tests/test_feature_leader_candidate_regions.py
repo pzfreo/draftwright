@@ -580,6 +580,48 @@ def test_typed_radial_recovery_preserves_a_normal_first_segment(monkeypatch, fre
     assert first_bend[0] > tip[0]
 
 
+def test_machined_jobs_keep_each_rows_deferred_leader_identity(monkeypatch, fresh_drawing):
+    drawing = fresh_drawing("box_40x30x8", page="A4", auto_dims=False)
+    bounds = drawing.view_bounds("front")
+    assert bounds is not None
+    ctx = PlacementContext(
+        registry=drawing.registry,
+        coverage=drawing.coverage,
+        items=drawing.items,
+        part_model=drawing.model(),
+        feature_leaders=[],
+    )
+
+    def forced_fallback(_drawing, search_tip, _view, build_at, _build_routed, _size):
+        return build_at((search_tip[0] + 12.0, search_tip[1] + 8.0))
+
+    monkeypatch.setattr(from_model, "_sheet_leader_fallback", forced_fallback)
+    features = (object(), object())
+    tips = ((bounds[0] + 5.0, bounds[1] + 5.0), (bounds[2] - 5.0, bounds[3] - 5.0))
+    rows = tuple(
+        (f"row-{i}", "front", bounds, f"R{i}", ((tip, (tip[0] + 20.0, tip[1], 0.0), feature),), ())
+        for i, (tip, feature) in enumerate(zip(tips, features))
+    )
+    from_model.place_machined_leader_jobs(
+        drawing,
+        SimpleNamespace(leader_region="auto"),
+        rows,
+        noun="fillet",
+        drop_code="fillet_dropped",
+        ctx=ctx,
+        joint=True,
+    )
+
+    assert len(ctx.feature_leaders) == 2
+    for i, job in enumerate(ctx.feature_leaders):
+        candidate = next(iter(job.candidates))
+        built = job.build(candidate[0], candidate[1], candidate[2])
+        recovered, feature = job.recover()
+        assert built.label == recovered.label == f"R{i}"
+        assert built.tip == recovered.tip == tips[i]
+        assert feature is features[i]
+
+
 def test_interior_candidates_are_feature_relative_and_fully_inside_view():
     draft = draft_preset(font_size=3.0, decimal_precision=1)
     silhouette = (0.0, 0.0, 100.0, 60.0)
