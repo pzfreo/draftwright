@@ -382,6 +382,25 @@ def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
     assert "test_sheet_identity_invariant.py" in pr_modules(_TESTS, changed)
 
 
+@pytest.mark.parametrize(
+    ("source", "group"),
+    (
+        ("src/draftwright/annotations/_slots.py", "slot_rendering"),
+        ("src/draftwright/annotations/_pocket_pad.py", "pocket_pad_leaders"),
+        ("src/draftwright/intent_drain.py", "intent_drain"),
+        ("src/draftwright/drawing_edits.py", "drawing_edits"),
+        ("src/draftwright/intent_routing.py", "drawing_edits"),
+        ("src/draftwright/model/declare.py", "compilation"),
+        ("src/draftwright/sheet_features.py", "compilation"),
+    ),
+)
+def test_pattern_contract_runs_for_its_source_owners(source, group):
+    contract = "test_pattern_contract.py"
+    assert group in selected_groups([source])
+    assert contract in CONTRACT_GROUPS[group].test_patterns
+    assert contract in pr_modules(_TESTS, [source])
+
+
 def test_sheet_layout_control_changes_run_the_declaration_contract():
     changed = ["src/draftwright/sheet_layout_controls.py"]
     assert selected_groups(changed) == {"sheet_layout_controls"}
