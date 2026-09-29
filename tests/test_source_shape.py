@@ -7,6 +7,7 @@ from pathlib import Path
 
 _SOURCE = Path(__file__).resolve().parents[1] / "src" / "draftwright"
 _MAX_MODULE_LINES = 3_000
+_MAX_ANNOTATION_MODULE_LINES = 2_500
 _MAX_FUNCTION_LINES = 300
 _MAX_PLACEMENT_MEGA_FUNCTION_LINES = 199
 _PLACEMENT_MEGA_FUNCTIONS = {
@@ -32,6 +33,18 @@ def test_source_modules_stay_within_the_size_limit():
         if lines > _MAX_MODULE_LINES:
             oversized.append(f"{path.relative_to(_SOURCE)}: {lines} lines")
     assert not oversized, "Source modules over 3,000 lines:\n" + "\n".join(oversized)
+
+
+def test_annotation_modules_stay_within_2500_lines():
+    annotations = _SOURCE / "annotations"
+    files = sorted(annotations.glob("*.py"))
+    assert annotations / "__init__.py" in files, f"Missing annotation source tree: {annotations}"
+    oversized = []
+    for path in files:
+        lines = len(path.read_text(encoding="utf-8").splitlines())
+        if lines > _MAX_ANNOTATION_MODULE_LINES:
+            oversized.append(f"{path.relative_to(_SOURCE)}: {lines} lines")
+    assert not oversized, "Annotation modules over 2,500 lines:\n" + "\n".join(oversized)
 
 
 def test_source_functions_stay_within_the_size_limit():
