@@ -1431,6 +1431,218 @@ def _reserve_hole_table_attempt_names(dwg, ctx, run: _HoleTableRun) -> bool:
     return True
 
 
+def _register_completed_hole_table(
+    dwg,
+    ctx,
+    run: _HoleTableRun,
+    table,
+    table_features,
+    table_success_features,
+    compiled,
+    approved_hole_dimensions,
+    replaced,
+    replaceable_callout_features,
+):
+    """Commit the table ledger and resolve only fully replaced location drops."""
+    holes, escalations = run.holes, ctx.escalations
+    ordered_table_success_features = tuple(
+        feature for feature in table_features if feature in table_success_features
+    )
+
+    # One entry per successfully keyed hole (with repeats) so the legacy count check
+    # and the semantic ledger agree about the exact committed subset.
+    table.covers_diameters = tuple(
+        h.diameter
+        for h in holes
+        if h.feature in table_success_features
+        and "bore.diameter" in approved_hole_dimensions.get(h.feature, {})
+    )
+    table_measurements = tuple(
+        dict.fromkeys(
+            [
+                dim.id
+                for group in compiled.of_kind("hole")
+                if resolve_feature(group.ref) in table_success_features
+                for dim in group.dims
+                if dim.id is not None and dim.parameter_id in {"bore.diameter", "bore.depth"}
+            ]
+            + [
+                location.id
+                for location in compiled.locations
+                if location.id is not None
+                and resolve_feature(location.ref) in table_success_features
+            ]
+        )
+    )
+    table_locations = tuple(
+        _hole_location_coverage_fact(location)
+        for location in compiled.locations
+        if location.id is not None
+        and location.span is not None
+        and resolve_feature(location.ref) in table_success_features
+    )
+    table_requirements = tuple(
+        (feature, "bore.through", 1)
+        for feature in ordered_table_success_features
+        if feature.through and "bore.diameter" in approved_hole_dimensions.get(feature, {})
+    ) + tuple(
+        (
+            feature,
+            "grouping.count",
+            int(feature.count or len(feature.members) or 1),
+        )
+        for feature in ordered_table_success_features
+        if int(feature.count or len(feature.members) or 1) > 1
+        and "bore.diameter" in approved_hole_dimensions.get(feature, {})
+    )
+    stashed_callout_features = {
+        feature
+        for record in replaced.values()
+        if any(
+            isinstance(parameter := getattr(measurement, "parameter", None), str)
+            and parameter.startswith("bore.")
+            for measurement in record.identity.get("measurement", ())
+        )
+        for feature in record.features
+    }
+    stashed_location_features = {
+        feature
+        for record in replaced.values()
+        if any(
+            isinstance(parameter := getattr(measurement, "parameter", None), str)
+            and parameter.startswith("location")
+            for measurement in record.identity.get("measurement", ())
+        )
+        for feature in record.features
+    }
+    escalated_callout_features = {
+        escalation.feature
+        for escalation in escalations
+        if escalation.kind == "callout"
+        and escalation.view == "plan"
+        and escalation.feature in replaceable_callout_features
+    }
+    escalated_location_features = {
+        escalation.feature
+        for escalation in escalations
+        if escalation.kind == "location"
+        and escalation.view == "plan"
+        and escalation.feature in table_features
+    }
+    dropped_callout_features = {
+        feature
+        for issue in ctx.registry.issues
+        if issue.code == "callout_dropped"
+        for feature in (
+            *(getattr(measurement, "feature", None) for measurement in issue.measurement_ids),
+            *(requirement[0] for requirement in issue.hole_requirement_ids),
+        )
+        if feature in replaceable_callout_features
+    }
+    dropped_location_features = {
+        feature
+        for issue in ctx.registry.issues
+        if issue.code == "location_ref_dropped"
+        for feature in (
+            *(getattr(measurement, "feature", None) for measurement in issue.measurement_ids),
+            *(requirement[0] for requirement in issue.hole_requirement_ids),
+        )
+        if feature in table_features
+    }
+    table_callout_replacement_features = table_success_features & (
+        stashed_callout_features | escalated_callout_features | dropped_callout_features
+    )
+    table_location_replacement_features = table_success_features & (
+        stashed_location_features | escalated_location_features | dropped_location_features
+    )
+    representation_requirements = tuple(
+        dict.fromkeys(
+            [
+                (measurement.feature, measurement.parameter)
+                for measurement in table_measurements
+                if (
+                    measurement.parameter.startswith("location")
+                    and measurement.feature in table_location_replacement_features
+                )
+                or (
+                    not measurement.parameter.startswith("location")
+                    and measurement.feature in table_callout_replacement_features
+                )
+            ]
+            + [
+                (feature, parameter)
+                for feature, parameter, _point in table_locations
+                if feature in table_location_replacement_features
+            ]
+            + [
+                (feature, parameter)
+                for feature, parameter, _count in table_requirements
+                if feature in table_callout_replacement_features
+            ]
+        )
+    )
+    _register_hole_table_coverage(
+        table,
+        dwg.registry,
+        "hole_table_plan",
+        measurements=table_measurements,
+        locations=table_locations,
+        requirements=table_requirements,
+        representation_reason="required_balloons_placed",
+        representation_requirements=representation_requirements,
+    )
+
+    # Resolve only drops whose complete semantic requirement set belongs to the
+    # successfully keyed subset. Unrelated or partially covered failures remain honest.
+    ctx.drop_issues_where(
+        "location_ref_dropped",
+        lambda issue: (
+            bool(issue.hole_requirement_ids)
+            and all(
+                requirement[0] in table_location_replacement_features
+                for requirement in issue.hole_requirement_ids
+            )
+        ),
+    )
+    return table_callout_replacement_features
+
+
+def _reconcile_hole_table_callout_drops(ctx, table_callout_replacement_features):
+    """Clear only callout drops proven by keyed plan-view table rows."""
+    escalations = ctx.escalations
+    # Clear `callout_dropped` only when the complete dropped callout is now documented
+    # by a successfully keyed scattered-hole table row.  A grouped pattern marker such
+    # as ``6×A`` has no defining table row and therefore remains deliberately
+    # non-certifying: it may provide the ADR 2 (was 0009) visual grouping cue, but the original
+    # callout drop and its physical-requirement outcomes must remain actionable.
+    # A drop this resolver does not cover — a table that didn't fit, a balloon that
+    # didn't land, or any callout dropped in a non-plan view — leaves the lint standing.
+    callout_escalations = [e for e in escalations if e.kind == "callout"]
+    available_issues = [issue for issue in ctx.registry.issues if issue.code == "callout_dropped"]
+    resolved_issue_ids = set()
+    for escalation in callout_escalations:
+        candidates = [
+            issue
+            for issue in available_issues
+            if tuple(issue.measurement_ids) == tuple(escalation.targets)
+        ]
+        if len(candidates) != 1:
+            continue  # ambiguous producer correspondence fails closed
+        issue = candidates[0]
+        available_issues = [candidate for candidate in available_issues if candidate is not issue]
+        if escalation.view != "plan":
+            continue
+        if isinstance(escalation.feature, PatternFeature):
+            continue
+        issue_features = {
+            getattr(measurement, "feature", None) for measurement in issue.measurement_ids
+        }
+        issue_features.discard(None)
+        if issue_features and issue_features <= table_callout_replacement_features:
+            resolved_issue_ids.add(id(issue))
+    ctx.drop_issues_where("callout_dropped", lambda issue: id(issue) in resolved_issue_ids)
+
+
 def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     """Escalate to a per-instance hole table + balloons when the plan view is too
     dense to dimension every hole individually (#93); a dropped ISO pattern
@@ -1457,7 +1669,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     run = _prepare_hole_table_run(ctx)
     if run is None or not _reserve_hole_table_attempt_names(dwg, ctx, run):
         return
-    _model, holes, escalations = run.model, run.holes, ctx.escalations
+    _model, holes = run.model, run.holes
     tabulate_scattered = run.tabulate_scattered
     scattered_tags, pattern_specs = run.scattered_tags, run.pattern_specs
 
@@ -1467,7 +1679,6 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     table_features: tuple = ()
     replaceable_callout_features: set = set()
     table_callout_replacement_features: set = set()
-    table_location_replacement_features: set = set()
     replaced = {}
     table_transaction_snap = None
     table_failure_reason = None
@@ -1696,197 +1907,19 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
                 _place_balloon_attempt(pattern_specs, perimeter=False)
 
     if table_placed and table is not None:
-        ordered_table_success_features = tuple(
-            feature for feature in table_features if feature in table_success_features
-        )
-
-        # One entry per successfully keyed hole (with repeats) so the legacy count check
-        # and the semantic ledger agree about the exact committed subset.
-        table.covers_diameters = tuple(
-            h.diameter
-            for h in holes
-            if h.feature in table_success_features
-            and "bore.diameter" in approved_hole_dimensions.get(h.feature, {})
-        )
-        table_measurements = tuple(
-            dict.fromkeys(
-                [
-                    dim.id
-                    for group in compiled.of_kind("hole")
-                    if resolve_feature(group.ref) in table_success_features
-                    for dim in group.dims
-                    if dim.id is not None and dim.parameter_id in {"bore.diameter", "bore.depth"}
-                ]
-                + [
-                    location.id
-                    for location in compiled.locations
-                    if location.id is not None
-                    and resolve_feature(location.ref) in table_success_features
-                ]
-            )
-        )
-        table_locations = tuple(
-            _hole_location_coverage_fact(location)
-            for location in compiled.locations
-            if location.id is not None
-            and location.span is not None
-            and resolve_feature(location.ref) in table_success_features
-        )
-        table_requirements = tuple(
-            (feature, "bore.through", 1)
-            for feature in ordered_table_success_features
-            if feature.through and "bore.diameter" in approved_hole_dimensions.get(feature, {})
-        ) + tuple(
-            (
-                feature,
-                "grouping.count",
-                int(feature.count or len(feature.members) or 1),
-            )
-            for feature in ordered_table_success_features
-            if int(feature.count or len(feature.members) or 1) > 1
-            and "bore.diameter" in approved_hole_dimensions.get(feature, {})
-        )
-        stashed_callout_features = {
-            feature
-            for record in replaced.values()
-            if any(
-                isinstance(parameter := getattr(measurement, "parameter", None), str)
-                and parameter.startswith("bore.")
-                for measurement in record.identity.get("measurement", ())
-            )
-            for feature in record.features
-        }
-        stashed_location_features = {
-            feature
-            for record in replaced.values()
-            if any(
-                isinstance(parameter := getattr(measurement, "parameter", None), str)
-                and parameter.startswith("location")
-                for measurement in record.identity.get("measurement", ())
-            )
-            for feature in record.features
-        }
-        escalated_callout_features = {
-            escalation.feature
-            for escalation in escalations
-            if escalation.kind == "callout"
-            and escalation.view == "plan"
-            and escalation.feature in replaceable_callout_features
-        }
-        escalated_location_features = {
-            escalation.feature
-            for escalation in escalations
-            if escalation.kind == "location"
-            and escalation.view == "plan"
-            and escalation.feature in table_features
-        }
-        dropped_callout_features = {
-            feature
-            for issue in ctx.registry.issues
-            if issue.code == "callout_dropped"
-            for feature in (
-                *(getattr(measurement, "feature", None) for measurement in issue.measurement_ids),
-                *(requirement[0] for requirement in issue.hole_requirement_ids),
-            )
-            if feature in replaceable_callout_features
-        }
-        dropped_location_features = {
-            feature
-            for issue in ctx.registry.issues
-            if issue.code == "location_ref_dropped"
-            for feature in (
-                *(getattr(measurement, "feature", None) for measurement in issue.measurement_ids),
-                *(requirement[0] for requirement in issue.hole_requirement_ids),
-            )
-            if feature in table_features
-        }
-        table_callout_replacement_features = table_success_features & (
-            stashed_callout_features | escalated_callout_features | dropped_callout_features
-        )
-        table_location_replacement_features = table_success_features & (
-            stashed_location_features | escalated_location_features | dropped_location_features
-        )
-        representation_requirements = tuple(
-            dict.fromkeys(
-                [
-                    (measurement.feature, measurement.parameter)
-                    for measurement in table_measurements
-                    if (
-                        measurement.parameter.startswith("location")
-                        and measurement.feature in table_location_replacement_features
-                    )
-                    or (
-                        not measurement.parameter.startswith("location")
-                        and measurement.feature in table_callout_replacement_features
-                    )
-                ]
-                + [
-                    (feature, parameter)
-                    for feature, parameter, _point in table_locations
-                    if feature in table_location_replacement_features
-                ]
-                + [
-                    (feature, parameter)
-                    for feature, parameter, _count in table_requirements
-                    if feature in table_callout_replacement_features
-                ]
-            )
-        )
-        _register_hole_table_coverage(
+        table_callout_replacement_features = _register_completed_hole_table(
+            dwg,
+            ctx,
+            run,
             table,
-            dwg.registry,
-            "hole_table_plan",
-            measurements=table_measurements,
-            locations=table_locations,
-            requirements=table_requirements,
-            representation_reason="required_balloons_placed",
-            representation_requirements=representation_requirements,
+            table_features,
+            table_success_features,
+            compiled,
+            approved_hole_dimensions,
+            replaced,
+            replaceable_callout_features,
         )
-
-        # Resolve only drops whose complete semantic requirement set belongs to the
-        # successfully keyed subset. Unrelated or partially covered failures remain honest.
-        ctx.drop_issues_where(
-            "location_ref_dropped",
-            lambda issue: (
-                bool(issue.hole_requirement_ids)
-                and all(
-                    requirement[0] in table_location_replacement_features
-                    for requirement in issue.hole_requirement_ids
-                )
-            ),
-        )
-
-    # Clear `callout_dropped` only when the complete dropped callout is now documented
-    # by a successfully keyed scattered-hole table row.  A grouped pattern marker such
-    # as ``6×A`` has no defining table row and therefore remains deliberately
-    # non-certifying: it may provide the ADR 2 (was 0009) visual grouping cue, but the original
-    # callout drop and its physical-requirement outcomes must remain actionable.
-    # A drop this resolver does not cover — a table that didn't fit, a balloon that
-    # didn't land, or any callout dropped in a non-plan view — leaves the lint standing.
-    callout_escalations = [e for e in escalations if e.kind == "callout"]
-    available_issues = [issue for issue in ctx.registry.issues if issue.code == "callout_dropped"]
-    resolved_issue_ids = set()
-    for escalation in callout_escalations:
-        candidates = [
-            issue
-            for issue in available_issues
-            if tuple(issue.measurement_ids) == tuple(escalation.targets)
-        ]
-        if len(candidates) != 1:
-            continue  # ambiguous producer correspondence fails closed
-        issue = candidates[0]
-        available_issues = [candidate for candidate in available_issues if candidate is not issue]
-        if escalation.view != "plan":
-            continue
-        if isinstance(escalation.feature, PatternFeature):
-            continue
-        issue_features = {
-            getattr(measurement, "feature", None) for measurement in issue.measurement_ids
-        }
-        issue_features.discard(None)
-        if issue_features and issue_features <= table_callout_replacement_features:
-            resolved_issue_ids.add(id(issue))
-    ctx.drop_issues_where("callout_dropped", lambda issue: id(issue) in resolved_issue_ids)
+    _reconcile_hole_table_callout_drops(ctx, table_callout_replacement_features)
 
     # A table may replace feature ink only as a complete, keyed transaction. Record
     # that decision at the same seam that commits or restores it, not by inferring
