@@ -1919,6 +1919,35 @@ def _append_turned_and_boss_features(
     return groove_owned_steps, pending_boss_owners
 
 
+def _append_gusset_features(*, gusset_ribs, gusset_rib_patterns, ctx, features, ownership) -> None:
+    """Lower exact gusset pattern members before their standalone siblings."""
+    # A provider pattern correlates exact physical member objects. Bind each occurrence
+    # to the one pattern feature, then lower unrelated ribs independently.
+    assert gusset_ribs is not None and gusset_rib_patterns is not None
+    gusset_records = tuple(gusset_ribs)
+    patterned_ids: set[int] = set()
+    for pattern in gusset_rib_patterns:
+        gusset_members = cast(tuple[GussetRib, ...], tuple(pattern.ribs))
+        if not gusset_members or any(
+            not any(member is rib for rib in gusset_records) for member in gusset_members
+        ):
+            raise ValueError("gusset-rib pattern members must preserve aggregate identity")
+        if any(id(member) in patterned_ids for member in gusset_members):
+            raise ValueError("a gusset-rib occurrence cannot belong to two patterns")
+        patterned_ids.update(id(member) for member in gusset_members)
+        feature = _gusset_feature(gusset_members, pattern, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.absorb(gusset_members, feature, reason_code="gusset_rib_pattern_member")
+    for rib in gusset_records:
+        if id(rib) in patterned_ids:
+            continue
+        feature = _gusset_feature((rib,), None, ctx)
+        features.append(feature)
+        if ownership is not None:
+            ownership.bind(rib, feature, reason_code="gusset_rib_adapter")
+
+
 def build_part_model(
     part,
     *,
@@ -2780,32 +2809,13 @@ def build_part_model(
     for ramp in paired_ramp_steps:
         append_direct(ramp)
 
-    # Reinforcing gussets (#1705).  A provider pattern is a correlation over the exact
-    # physical member objects, so lower it once and bind every occurrence to the shared IR
-    # owner.  Unrelated ribs remain independent features.
-    assert gusset_ribs is not None and gusset_rib_patterns is not None
-    gusset_records = tuple(gusset_ribs)
-    patterned_ids: set[int] = set()
-    for pattern in gusset_rib_patterns:
-        gusset_members = cast(tuple[GussetRib, ...], tuple(pattern.ribs))
-        if not gusset_members or any(
-            not any(member is rib for rib in gusset_records) for member in gusset_members
-        ):
-            raise ValueError("gusset-rib pattern members must preserve aggregate identity")
-        if any(id(member) in patterned_ids for member in gusset_members):
-            raise ValueError("a gusset-rib occurrence cannot belong to two patterns")
-        patterned_ids.update(id(member) for member in gusset_members)
-        feature = _gusset_feature(gusset_members, pattern, ctx)
-        features.append(feature)
-        if ownership is not None:
-            ownership.absorb(gusset_members, feature, reason_code="gusset_rib_pattern_member")
-    for rib in gusset_records:
-        if id(rib) in patterned_ids:
-            continue
-        feature = _gusset_feature((rib,), None, ctx)
-        features.append(feature)
-        if ownership is not None:
-            ownership.bind(rib, feature, reason_code="gusset_rib_adapter")
+    _append_gusset_features(
+        gusset_ribs=gusset_ribs,
+        gusset_rib_patterns=gusset_rib_patterns,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+    )
 
     # Rectangular open-profile through steps (#1382).  The aggregate record owns the exact
     # run/anchor/section correspondence; Draftwright lowers its two transverse section legs

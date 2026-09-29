@@ -471,6 +471,11 @@ def test_model_detection_change_runs_turning_and_boss_ownership_contracts():
     } <= selected
 
 
+def test_model_detection_change_runs_gusset_member_ownership_contract():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/model/detect.py"]))
+    assert "test_gusset_rib_semantics.py" in selected
+
+
 def test_feature_leader_candidate_owner_runs_region_and_assignment_contracts():
     source = "src/draftwright/annotations/_leader_candidates.py"
     assert selected_groups([source]) == {"feature_leader_assignment", "placement"}
