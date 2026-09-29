@@ -31,6 +31,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
     all_modules = {path.name for path in _TESTS.glob("test_*.py")}
     probes = {
         "scale_policy": "src/draftwright/build_policy.py",
+        "annotation_layout_selection": "src/draftwright/layout_selection.py",
         "pmi_support": "src/draftwright/_pmi_support_blockers.py",
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
@@ -89,6 +90,11 @@ def test_model_detection_change_runs_hole_pattern_refusal_contracts():
         "test_issue_1596_bolt_circle_corroboration.py",
         "test_issue_1612_frame_sergio_coverage.py",
     } <= selected
+
+
+def test_builder_change_runs_finished_annotation_layout_contract():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/builder.py"]))
+    assert "test_annotation_layout_product.py" in selected
 
 
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():

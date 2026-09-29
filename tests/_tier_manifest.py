@@ -56,6 +56,13 @@ CONTRACT_GROUPS = {
             "test_scale_selection.py",
         ),
     ),
+    "annotation_layout_selection": ContractGroup(
+        (
+            "src/draftwright/annotation_layout_profile.py",
+            "src/draftwright/layout_selection.py",
+        ),
+        ("test_annotation_layout_product.py",),
+    ),
     "pmi_support": ContractGroup(
         (
             "src/draftwright/pmi.py",
