@@ -49,6 +49,26 @@ class _ChannelWidthCandidate(NamedTuple):
         )
 
 
+class _PlateThicknessCandidate(NamedTuple):
+    """One approved plate thickness's deferred geometry callbacks."""
+
+    pa: Point
+    pb: Point
+    side: str
+    edge: float
+    label: str
+    dimension: ApprovedDimension
+    draft: Any
+
+    def build(self, pos: float) -> Any:
+        dim = _dim(self.pa, self.pb, self.side, pos - self.edge, self.draft, label=self.label)
+        dim._dw_measurement_span = self.dimension.span
+        return dim
+
+    def footprint(self, pos: float) -> Any:
+        return dim_footprint(self.pa, self.pb, self.side, pos - self.edge, self.draft, self.label)
+
+
 def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
     """Plate/wall thicknesses (#559).
 
@@ -161,15 +181,7 @@ def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
             alt = None
         name = f"dim_plate_{axis}{i}"
 
-        def _build_plate(
-            pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl, measurement_span=pd.span
-        ):
-            dim = _dim(pa, pb, side, pos - edge, draft, label=lbl)
-            dim._dw_measurement_span = measurement_span
-            return dim
-
-        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, lbl=lbl):
-            return dim_footprint(pa, pb, side, pos - edge, draft, lbl)
+        candidate_state = _PlateThicknessCandidate(pa, pb, side, edge, lbl, pd, draft)
 
         # ADR 2 (was 0009) corridor candidate: a plate thickness is a size dim bound to one
         # view/strip (no alternate view), so it is force-kept and dropped only when the strip
@@ -183,7 +195,7 @@ def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=_build_plate,
+                build=candidate_state.build,
                 order=(_SIZE_SUBCHAIN, i, name),
                 on_place=lambda nm: None,
                 on_drop=drop_factory(
@@ -199,7 +211,7 @@ def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
                 force=True,
                 feature=g.ref,  # opaque provenance handle
                 measurement=pd.id,
-                footprint=_foot,  # analytical measure — no probe build
+                footprint=candidate_state.footprint,  # analytical measure — no probe build
             ),
         )
         n += 1
