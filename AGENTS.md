@@ -33,7 +33,8 @@ ranked map (an upward module-level import or a cycle fails CI), and
 in step; do not restate the module list here.
 
 In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
-geometry maths, registry, measurement support with pocket/pad location predicates,
+geometry maths, registry with typed candidate-region provenance, measurement support with
+pocket/pad location predicates,
 recognition-boundary contracts and ownership, and the `model/` IR waist with its
 foundational record owner, dimension-intent and oriented-slot geometry validation
 plus `detect_inventory` aggregate projection and `detect_ownership` stages (ADR 1) → **1**
