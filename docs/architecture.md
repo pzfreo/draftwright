@@ -214,6 +214,9 @@ and re-exports the existing private helper names.
     candidate footprints, and straight-stroke probes used by the corridor solve
     before selected annotations are built. It uses lower-layer typography and
     arrow bounds; `_common.py` retains the existing helper import paths.
+  - **`annotations/_dimension_ink_repair.py`** — bounded same-batch label conflict
+    arithmetic and deterministic candidate search. `_common.py` supplies its
+    dimension builder at call time and keeps the established import path.
   - **`annotations/_common.py`** — the ADR 2 (was 0014) corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the

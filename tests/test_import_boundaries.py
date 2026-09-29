@@ -158,7 +158,7 @@ _LAYERS: dict[str, int] = {
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
-    # Family, analytical-ink, solve-trace, and corridor owners share the annotation rank.
+    # Family, analytical ink/repair, solve trace, and corridor owners share the annotation rank.
     "annotations": 4,
     "annotate": 4,
     # 5 — the Drawing result object
