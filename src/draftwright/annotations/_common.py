@@ -1796,6 +1796,7 @@ class PlacementContext:
         measurement=None,
         satisfaction=None,
         declaration=None,
+        candidate_region=None,
     ):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
         door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 1 (was 0005)
@@ -1819,6 +1820,7 @@ class PlacementContext:
             measurement,
             satisfaction,
             declaration=declaration,
+            candidate_region=candidate_region,
         )
 
     def feature_of_hole_at(self, location):
@@ -2181,13 +2183,13 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                 )
                 job.on_drop(job.name)
                 continue
-        dimension._dw_candidate_region = job_candidates[choice].region.value
         ctx.place(
             dimension,
             job.name,
             view=job.view,
             feature=job.feature,
             measurement=job.measurement,
+            candidate_region=job_candidates[choice].region.value,
         )
         record(job, job_candidates, job_costs, choice, "placed")
         job.on_place(job.name)

@@ -1,11 +1,12 @@
 """Unit tests for AnnotationRegistry — the single owner of annotation identity,
 ownership, pins, and build issues (#138 / ADR 1 (was 0005), Step 2)."""
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from draftwright.registry import AnnotationRegistry, SectionMark
+from draftwright.registry import AnnotationRegistry, CandidateRegion, SectionMark
 
 # Pure unit tests — no OCC builds — so they join the build-light `smoke` set (#153).
 pytestmark = pytest.mark.smoke
@@ -53,6 +54,55 @@ def test_readd_viewless_clears_stale_owner():
     r.add(object(), "d1", "front")
     r.add(object(), "d1", None)
     assert r.view_of("d1") is None  # ownership map never lags _named (#121)
+
+
+def test_candidate_region_is_typed_and_follows_live_annotation_identity():
+    r = AnnotationRegistry()
+    original = SimpleNamespace()
+    r.add(original, "d1", "front", candidate_region=CandidateRegion.INTERIOR)
+    assert r.candidate_region_of("d1") is CandidateRegion.INTERIOR
+    assert not hasattr(original, "_dw_candidate_region")
+
+    snap = r.snapshot()
+    identity = r.identity_of("d1")
+    r.remove("d1")
+    assert r.candidate_region_of("d1") is None
+    r.add(original, "d1", "front")
+    r.reapply("d1", identity)
+    assert r.candidate_region_of("d1") is CandidateRegion.INTERIOR
+
+    r.add(object(), "d1", "front", candidate_region=CandidateRegion.EXTERIOR)
+    assert r.candidate_region_of("d1") is CandidateRegion.EXTERIOR
+    r.restore(snap)
+    assert r.named("d1") is original
+    assert r.candidate_region_of("d1") is CandidateRegion.INTERIOR
+
+    replacement = object()
+    r.replace_object(original, replacement)
+    assert r.named("d1") is replacement
+    assert r.candidate_region_of("d1") is None
+
+    r.add(object(), "d2", "plan", candidate_region=CandidateRegion.EXTERIOR)
+    r.clear(())
+    assert r.candidate_region_of("d1") is None
+    assert r.candidate_region_of("d2") is None
+
+
+def test_candidate_region_rejects_unknown_provenance():
+    r = AnnotationRegistry()
+    with pytest.raises(ValueError, match="not a valid CandidateRegion"):
+        r.add(object(), "d1", "front", candidate_region="guessed")
+    assert r.named("d1") is None
+
+
+def test_solved_region_never_returns_to_helper_object_attributes():
+    source = Path(__file__).parents[1] / "src" / "draftwright"
+    offenders = [
+        path.relative_to(source)
+        for path in source.rglob("*.py")
+        if "_dw_candidate_region" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
 
 
 def test_remove_forgets_object_view_pin():
@@ -193,6 +243,7 @@ def test_identity_of_reapply_round_trips_every_axis():
         "cells": (),
         "satisfaction": (),
         "section": None,
+        "candidate_region": None,
         "pinned": False,
     }
 

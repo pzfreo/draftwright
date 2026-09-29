@@ -324,8 +324,7 @@ class TestLintViewShapes:
         notices = [i for i in issues if i.code == "view_annotation_inside_extents"]
         assert notices and notices[0].severity == "info"
 
-        d._dw_candidate_region = "interior"
-        issues = lint_drawing([d], view_shapes=[view])
+        issues = lint_drawing([d], view_shapes=[view], annotation_regions={id(d): "interior"})
         assert not any(i.code == "view_annotation_inside_extents" for i in issues)
 
     def test_label_crossing_curved_edge_flagged(self, draft):

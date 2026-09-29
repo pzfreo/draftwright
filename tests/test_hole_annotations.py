@@ -72,7 +72,7 @@ class TestAutoHoleAnnotations:
         hc = dwg.get_annotation("hc_plan0")
         assert hc is not None
         bounds = dwg.view_bounds("plan")
-        region = getattr(hc, "_dw_candidate_region", None)
+        region = dwg.registry.candidate_region_of("hc_plan0")
         if region == "exterior":
             assert abs(hc.elbow[0] - bounds[2]) < 0.5
         else:
