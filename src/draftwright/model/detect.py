@@ -306,7 +306,7 @@ def _boss_groove_floor_candidates(b, grooves):
     )
 
 
-_DIA_TOL = 0.15  # two ø values within this (mm) are the same diameter (#298)
+_DIA_TOL = 0.15  # two ø values within this tolerance (mm) are the same diameter
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
 
@@ -495,7 +495,7 @@ def build_pmi_features(
 
 
 # ---------------------------------------------------------------------------
-# ADR 3 (was 0013) Phase 1c — the typed record→Feature converter registry (#752).
+# ADR 3 (was 0013) — the typed record→Feature converter registry.
 #
 # `build_part_model` below owns the *assembly* — which records become features
 # (pattern/hole grouping, groove/plate suppression, the classification-fed
@@ -1073,7 +1073,7 @@ def _convert_oriented_slot(slot: OrientedSlot, ctx: ConvContext) -> OrientedSlot
 
     # Validate the exact released outer and nested schema before reading it.  Completeness
     # uses the same shared boundary, so the adapter cannot accept evidence the observer
-    # rejects (ADR 1 (was 0015) / #1432).
+    # rejects (ADR 1 (was 0015)).
     oriented_slot_provider_key(slot)
 
     def vec3(value) -> tuple[float, float, float]:
@@ -1179,7 +1179,7 @@ _ORCHESTRATED_RECORDS: dict[type, str] = {
 # undecided and others are reviewed unsupported outcomes. Each is declared in
 # `recogniser_contract._UNSUPPORTED` against the issue recording that disposition. Kept as its own
 # tier so neither unsupported evidence nor its compatibility records disappear into substrate
-# merely because neither has an IR converter (#1244).
+# merely because neither has an IR converter.
 _UNCONSUMED_RECORDS: dict[type, str] = {
     AngledStep: (
         "an aggregate-reconciled angled blind step whose slanted face has yielded out of "
@@ -1554,7 +1554,7 @@ def _append_hole_features(
         if not _is_principal_axis(members[0].axis):
             # An OBLIQUE pattern plane has no faithful `PatternFeature`: `Frame.axis` is a
             # LETTER, so declaration lays the lattice out in that letter's canonical plane and
-            # a 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
+            # a Z spread could come back as 0 — a silently wrong drawing.
             #
             # Refused HERE, at the recognition→IR adapter, not in the recogniser: ADR 3 (was 0013) says
             # a recogniser reports the geometry it finds, and `recognise_hole_patterns` finds
@@ -1563,7 +1563,7 @@ def _append_hole_features(
             #
             # The members simply stay unpatterned below, so they are still drawn, dimensioned
             # and located. Carrying a full normal on `Frame` would be faithful but widens the
-            # ADR 1 (was 0015) waist; that option stays recorded on #971.
+            # ADR 1 (was 0015) waist.
             if ownership is not None:
                 ownership.refuse_hole_pattern(pat, reason_code="oblique_pattern_plane")
             continue
@@ -1589,11 +1589,11 @@ def _append_hole_features(
         if isinstance(pat, BoltCircle) and not bolt_circle_is_corroborated(
             pat, members, holes, bosses
         ):
-            # An UNCORROBORATED bolt circle is not a datum (#1596 / #1611). Three points or
+            # An uncorroborated bolt circle is not a datum. Three points or
             # four corners of a rectangle always fit a circle; printing
             # `EQ SP ON ø… BC` off it tells the reader to work from a centre that may not
-            # exist. #1595 met exactly that — six holes in a 2x3 grid, four of them fitted to
-            # a ø34.4 circle centred in mid-air.
+            # exist. A rectangular hole grid can contain four points on a circle
+            # centred in empty space.
             #
             # Refused HERE for the same reason the oblique pattern above is: ADR 3 says the
             # recogniser reports the geometry it finds, and a circle through those holes IS
@@ -1664,7 +1664,7 @@ def _append_slot_features(
 ) -> None:
     """Lower grouped and standalone principal-axis slots in inventory order."""
     # Milled slots / reduced across-flats sections (detected for any part). A recognised array
-    # of identical slots becomes ONE SlotPatternFeature (count× SLOT W×L + pitch, #841); its
+    # of identical slots becomes one SlotPatternFeature (count× SLOT W×L + pitch); its
     # member slots are NOT also emitted individually — the same grouped-callout rule as pockets
     # below (member exclusion by VALUE-set, robust to injected value-copy inventories).
     if slots is None:
@@ -1708,7 +1708,7 @@ def _append_turned_and_boss_features(
     pending_boss_owners: list[tuple[object, object, str]] = []
     # Body-local turned profiles → step segments; else external bosses → diameters. Profile
     # identity owns the axis line, so parallel shafts never inherit the part bbox centre or
-    # each other's groove bands (#1357).
+    # each other's groove bands.
     groove_owned_steps: list[tuple[TurnedStep, Groove]] = []
     if profiles:
         grooves_by_profile: dict[int, list[Groove]] = {id(profile): [] for profile in profiles}
@@ -1755,7 +1755,7 @@ def _append_turned_and_boss_features(
                     ownership.bind(s, step_feature, reason_code="turned_step_adapter")
         # A narrow external band nested under / beside a larger OD reads as that OD in
         # local_od's max(), so it never becomes a step diameter and goes silently
-        # undimensioned (#298). Emit each band the silhouette steps miss as a boss, so
+        # undimensioned. Emit each band the silhouette steps miss as a boss, so
         # render_diameters still gives it a ø callout — aligning the callout inventory
         # with the feature_diameters inventory the coverage lint checks against. A groove
         # floor is likewise a narrow reduced band, but the groove callout already carries its
@@ -1912,18 +1912,17 @@ def _append_prismatic_features(
     step_level_feature: Feature | None = None
     # Overall envelope dims when neither a whole-part OD nor polygonal stock already conveys
     # the footprint. A local turned profile may coexist with wider prismatic geometry; its
-    # mere presence does not own those whole-part extents (#1785).
+    # mere presence does not own those whole-part extents.
     if envelope_emittable:
         # The same construction the declared verb and the emitter's synthesis use.
-        # Detection was the REFERENCE the other two were fixed to match (#977/#976); with
-        # three independent producers, "matches the detector" was a property to re-verify
-        # rather than one the code held. Now there is one spelling.
+        # The declared verb and emitter synthesis use this same envelope construction,
+        # keeping all three input paths on one spelling.
         from draftwright.model.declare import _envelope_from_bbox
 
         envelope_feature = _envelope_from_bbox(bbox)
         features.append(envelope_feature)
 
-    # Plate/wall thicknesses on a multi-plate prismatic (#559) — the thin extent of a
+    # Plate/wall thicknesses on a multi-plate prismatic — the thin extent of a
     # slab that no other prismatic dim recovers (a wall along X/Y, or a Z base plate too
     # thin for the step-ladder legibility gate). Skipped for turned/rotational parts,
     # whose extents are the OD/length chain, not plate thicknesses.
@@ -1932,7 +1931,7 @@ def _append_prismatic_features(
     # an upright wall, i.e. an L/T/U bracket) — is dimensioned this way. A single-axis
     # stack (a base slab under a smaller stacked block) is a *staircase*, owned by the
     # step-height ladder; treating its base as a "plate" would wrongly suppress the step
-    # dim (#559). This keeps the plate feature to the issue's stated domain.
+    # dim. This keeps plate features restricted to genuine multi-plate parts.
     if not profiles and rotational is None:
         if multi_plate:
             for pl in plates:
@@ -1956,7 +1955,7 @@ def _append_prismatic_features(
         # FaceLevel v2 is an occurrence roster: disjoint bodies may establish the same scalar
         # Z height independently. The current StepLevelFeature is the global height-requirement
         # projection and requires unique rungs, so equal values become one dimension while the
-        # aggregate retains every body-local occurrence for independent completeness (#1357).
+        # aggregate retains every body-local occurrence for independent completeness.
         _levels = tuple(
             sorted(
                 {
@@ -1983,8 +1982,8 @@ def _append_prismatic_features(
             }
             _level_supports = tuple(support_by_level[z] for z in _levels if z in support_by_level)
             # Every profile transition needs an in-plane station. Heights alone do
-            # not reconstruct a multi-level staircase or a slanted run (#897).
-            # Projected over the run's riser evidence, not a fresh scan (#1025). `_levels`
+            # not reconstruct a multi-level staircase or a slanted run.
+            # Projected over the run's riser evidence, not a fresh scan. `_levels`
             # is the OWNERSHIP-FILTERED set — plate and pocket floors removed — which is a
             # model decision and stays here; the evidence underneath is shared with critique,
             # which projects the same risers over its own unfiltered levels.
@@ -2029,7 +2028,7 @@ def _append_prismatic_features(
 
 def _append_gusset_features(*, gusset_ribs, gusset_rib_patterns, ctx, features, ownership) -> None:
     """Lower exact gusset pattern members before their standalone siblings."""
-    # Reinforcing gussets (#1705).  A provider pattern is a correlation over the exact
+    # A provider gusset pattern is a correlation over the exact
     # physical member objects, so lower it once and bind every occurrence to the shared IR
     # owner.  Unrelated ribs remain independent features.
     assert gusset_ribs is not None and gusset_rib_patterns is not None
@@ -2075,7 +2074,7 @@ def _bind_through_step_and_plate_owners(
     convert_record,
 ) -> None:
     """Bind aggregate through-step owners before legacy plate dependents."""
-    # Rectangular open-profile through steps (#1382).  The aggregate record owns the exact
+    # The rectangular open-profile through-step record owns the exact
     # run/anchor/section correspondence; Draftwright lowers its two transverse section legs
     # without rescanning the body or inventing a third through-length requirement.
     #
@@ -2269,7 +2268,7 @@ def _append_primary_feature_families(
 
     # Free-direction through slots have a dedicated IR contract. Pattern members remain owned
     # by the separately deferred pattern inventory, so they cannot expand into competing lone
-    # callouts while that grouping grammar is still under review (#1432).
+    # callouts while the separate pattern inventory owns their grouping.
     # Both inventories are guaranteed above: either caller-supplied or projected from the one
     # aggregate. Do not retain a fallback rescan here — ADR 3 (was 0017) gives recognition one owner.
     assert oriented_slots is not None
@@ -2423,13 +2422,13 @@ def _append_late_feature_families(
         convert_record=convert,
     )
 
-    # Chamfers (#560/#1254) — called out C{leg} / {leg}×{angle}°. The package recognises
+    # Chamfers are called out C{leg} / {leg}×{angle}°. The package recognises
     # both oblique planar and conical turned forms; both lower through the same converter and
     # IR. An injected aggregate inventory is consumed directly, without a sibling rescan.
     for ch in chamfers:
         append_direct(ch)
 
-    # Fillets (#561/#1281) — called out R{radius} (grouped n× at render). The package
+    # Fillets are called out R{radius} (grouped n× at render). The package
     # recognises both cylindrical prismatic blends and toroidal turned rounds; both lower
     # through the same converter and IR. An injected aggregate inventory is consumed directly,
     # without a sibling rescan.
@@ -2441,13 +2440,13 @@ def _append_late_feature_families(
     for blend_record in blends:
         append_direct(blend_record)
 
-    # Quarter-cylindrical corner cuts with one blind terminal (#1382). The aggregate
+    # Quarter-cylindrical corner cuts with one blind terminal. The aggregate
     # supplies the oriented centreline and transverse quarter arc, so radius and depth
     # lower without topology access or a sibling scan.
     for circular_step in circular_blind_steps:
         append_direct(circular_step)
 
-    # Mirror-symmetric paired-ramp steps (#1382) — the aggregate proves two equal acute
+    # Mirror-symmetric paired-ramp steps — the aggregate proves two equal acute
     # cross-section angles and one open-to-terminal run.  Consume the supplied aggregate
     # inventory directly; standalone model detection invokes the same public family once.
     if paired_ramp_steps is None:
@@ -2528,7 +2527,7 @@ def _append_late_feature_families(
             ):
                 ownership.absorb_via(boss_record, owner_record, reason_code=reason_code)
 
-    # Rotational furniture — OD + centrelines + concentric bore leaders (#237). Its
+    # Rotational furniture — OD + centrelines + concentric bore leaders. Its
     # presence marks the part rotational; emitted from the classification (od, bores).
     if rotational is not None:
         od, bores, rot_axis = rotational
@@ -2796,13 +2795,13 @@ def build_part_model(
         scan_flats=lambda: recognise_flats(part, cyls=s.cyls),
     )
 
-    # STEP AP242 PMI — re-homed into drafting-concept IR where possible (#208).
+    # STEP AP242 PMI enters the drafting-concept IR where possible.
     # Rendered directly by render_pmi; the planner adds nothing.
     run.features.extend(build_pmi_features(pmi, bbox))
 
     # The default location datum — the part's min-X/min-Y/min-Z corner (lower-left
     # in the plan view), per inspection practice. Hole location dims measure from
-    # it (#238); a human/LLM pass can re-anchor.
+    # it.
     datums = [Datum(id="datum_xy", kind="point", at=(bbox.min.X, bbox.min.Y, bbox.min.Z))]
     model = PartModel(
         bbox=bbox,
