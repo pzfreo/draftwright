@@ -9,12 +9,12 @@ from quiddity import RecognitionResult, SectionRecess, has_multi_axis_plates
 
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_ids,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
-from draftwright.measurement_support import RequirementCarrier
 from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 ChannelRequirementState = Literal[

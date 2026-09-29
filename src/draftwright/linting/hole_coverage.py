@@ -19,6 +19,7 @@ from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_d
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
+    RequirementCarrier,
     cell_approvals_of,
     exact_measurement_carriers,
     record_measurement_carrier,
@@ -31,7 +32,6 @@ from draftwright.linting.issues import (
     requirement_subject,
 )
 from draftwright.linting.profiled_bore_coverage import profiled_bore_target_sources
-from draftwright.measurement_support import RequirementCarrier
 from draftwright.recognition_ownership import RecognitionOwnership, bolt_circle_is_corroborated
 
 HoleRequirementState = Literal[

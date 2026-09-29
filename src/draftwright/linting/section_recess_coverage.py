@@ -8,9 +8,13 @@ from dataclasses import dataclass, field
 from quiddity import RecognitionResult, SectionRecess, SectionRecessRefusal
 
 from draftwright.feature_identity import is_exact_envelope_feature
-from draftwright.linting._registry import measurement_outcome_index, with_measurement_carriers
+from draftwright.linting._registry import (
+    RequirementCarrier,
+    measurement_outcome_index,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID, LintIssue, requirement_subject
-from draftwright.measurement_support import RequirementCarrier, RequirementExclusion
+from draftwright.measurement_support import RequirementExclusion
 from draftwright.section_recess_contract import (
     UnsupportedSectionRecess,
     circular_channel_fields,

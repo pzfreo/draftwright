@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
 from draftwright.linting.issues import is_placement_drop
-from draftwright.measurement_support import RequirementCarrier
+from draftwright.registry import MeasurementCell
 
 _Outcome = TypeVar("_Outcome")
+
+
+@dataclass(frozen=True)
+class RequirementCarrier:
+    """A named annotation accepted by a physical requirement producer."""
+
+    annotation: str
+    kind: str
+    cell: MeasurementCell | None = None
 
 
 def satisfaction_of(registry, name) -> tuple:
