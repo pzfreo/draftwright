@@ -7,15 +7,19 @@ shared annotation corridors. The public render pass remains in from_model.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
+from typing import Any
 
-from draftwright._core import _STRIP_SPACING, _dim, _tol_suffix
+from draftwright._core import _STRIP_SPACING, Strip, _dim, _tol_suffix
 from draftwright.annotations._common import (
     _LOC_SUBCHAIN,
     _SIZE_SUBCHAIN,
     CorridorCandidate,
     Escalation,
     InteriorDimensionJob,
+    PlacementContext,
     _ray_exit_dist,
     place_strip_candidates,
     register_corridor,
@@ -24,8 +28,112 @@ from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     LeaderCandidateRegion,
 )
-from draftwright.model.compiled import FeatureRef, resolve_feature
+from draftwright.model.compiled import DimensionId, FeatureRef, resolve_feature
 from draftwright.model.ir import PadFeature, PocketFeature, SlotFeature
+
+
+@dataclass(frozen=True)
+class _SlotDimensionBuilder:
+    start: tuple[float, float, int]
+    end: tuple[float, float, int]
+    side: str
+    witness: float
+    label: str
+    draft: Any
+    shared_value: float | None
+
+    def __call__(self, position: float) -> Any:
+        dim = _dim(
+            self.start,
+            self.end,
+            self.side,
+            abs(position - self.witness),
+            self.draft,
+            label=self.label,
+        )
+        if self.shared_value is not None:
+            # A shared width counts slots; its witness spans one width.
+            dim._dw_label_value = self.shared_value
+        return dim
+
+
+@dataclass
+class _SlotLaneDrop:
+    ctx: PlacementContext
+    dwg: Any
+    kind: str
+    index: int
+    view: str
+    feature: SlotFeature | PadFeature | PocketFeature
+    measurement: DimensionId | None
+    lane: int
+    rejections: list[str]
+
+    def __call__(self, _name: str) -> None:
+        _record_slot_drop(
+            self.ctx,
+            self.dwg,
+            self.kind,
+            self.index,
+            self.view,
+            self.feature,
+            self.measurement,
+            lane=self.lane,
+            blockers=tuple(self.rejections),
+        )
+
+
+@dataclass
+class _SlotFarDrop:
+    ctx: PlacementContext
+    dwg: Any
+    strip: Strip | None
+    side: str
+    high: bool
+    axis: str
+    feature: SlotFeature | PadFeature | PocketFeature
+    kind: str
+    shared_owners: tuple[SlotFeature, ...]
+    measurement: DimensionId | None
+    view: str
+    index: int
+    tier: float
+    candidate: Callable[[str, bool], tuple[str, _SlotDimensionBuilder]]
+
+    def retry(self, name: str) -> None:
+        if self.strip is not None and not place_strip_candidates(
+            self.dwg,
+            self.strip,
+            self.view,
+            self.axis,
+            [self.candidate(self.side, self.high)],
+            self.tier,
+            ctx=self.ctx,
+            features={name: self.feature},
+            measurements={name: self.measurement},
+            trace=self.ctx.trace,
+            trace_label=f"slot_{self.side}_fallthrough",
+        ):
+            if len(self.shared_owners) > 1:
+                self.dwg.get_annotation(name).source_features = self.shared_owners
+            return  # placed on the opposite strip
+        _record_slot_drop(
+            self.ctx,
+            self.dwg,
+            self.kind,
+            self.index,
+            self.view,
+            self.feature,
+            self.measurement,
+        )
+
+    def __call__(self, name: str) -> None:
+        # Front-view retries run after all corridors drain, so a retry cannot
+        # occupy a later sibling's force candidate before that sibling solves.
+        if self.view == "front":
+            self.ctx.post_drain.append(partial(self.retry, name))
+        else:
+            self.retry(name)
 
 
 def _record_slot_drop(
@@ -140,15 +248,15 @@ def _place_slot_dimension(
         else:
             e_lo, e_hi = (witness, meas_proj(p_lo), 0), (witness, meas_proj(p_hi), 0)
 
-        def _build(pos, _el=e_lo, _eh=e_hi, _s=side, _w=witness, _l=lbl):
-            dim = _dim(_el, _eh, _s, abs(pos - _w), draft, label=_l)
-            if len(shared_owners) > 1:
-                # "N× width" counts separate slots; its witness spans one
-                # width. Bare N× labels otherwise mean a multiplied pitch.
-                dim._dw_label_value = disp
-            return dim
-
-        return cname, _build
+        return cname, _SlotDimensionBuilder(
+            start=e_lo,
+            end=e_hi,
+            side=side,
+            witness=witness,
+            label=lbl,
+            draft=draft,
+            shared_value=disp if len(shared_owners) > 1 else None,
+        )
 
     # Register into the corridor batch (ADR 2 (was 0014) collect-then-solve). One solve
     # per strip dedups coincident slot and hole positions, orders size and
@@ -188,28 +296,6 @@ def _place_slot_dimension(
         position = witness + direction * (2 * dwg.draft.extension_gap + approved.lane * lane_step)
         lane_rejections: list[str] = []
 
-        def _lane_dropped(
-            _name,
-            _dw=drop_word,
-            _feat=s,
-            _mid=approved.id,
-            _idx=idx,
-            _view=vw[0],
-            _lane=approved.lane,
-            _blockers=lane_rejections,
-        ):
-            _record_slot_drop(
-                ctx,
-                dwg,
-                _dw,
-                _idx,
-                _view,
-                _feat,
-                _mid,
-                lane=_lane,
-                blockers=tuple(_blockers),
-            )
-
         jobs.append(
             InteriorDimensionJob(
                 name=cname,
@@ -217,7 +303,17 @@ def _place_slot_dimension(
                 side=near_side,
                 build=lane_build,
                 on_place=_shared_placed,
-                on_drop=_lane_dropped,
+                on_drop=_SlotLaneDrop(
+                    ctx=ctx,
+                    dwg=dwg,
+                    kind=drop_word,
+                    index=idx,
+                    view=vw[0],
+                    feature=s,
+                    measurement=approved.id,
+                    lane=approved.lane,
+                    rejections=lane_rejections,
+                ),
                 lane_step=lane_step,
                 feature=s,
                 measurement=approved.id,
@@ -257,56 +353,28 @@ def _place_slot_dimension(
         else None
     )
 
-    def _far_or_drop(
-        nm,
-        _fs=far_strip,
-        _fsd=far_side,
-        _fh=far_hi,
-        _ax=corridor_axis,
-        _feat=s,
-        _dw=drop_word,
-        _shared=shared_owners,
-        _measurement=approved.id,
-        _view=vw[0],
-        _idx=idx,
-        _tier=tier,
-        _candidate=_cand_for,
-    ):
-        # Front-view opposite-strip fallthrough is deferred until every
-        # corridor has drained: placing mid-drain could occupy space a later sibling's force
-        # candidate needs, since that sibling has not solved yet.
-
-        # The plan/side opposite-strip path places synchronously. Its
-        # primary candidate is still in the
-        # shared solve above; alternate-side fallthrough in ``on_drop`` is the
-        # assignment model ADR 2 (was 0014) explicitly retains.
-        def _retry() -> None:
-            if _fs is not None and not place_strip_candidates(
-                dwg,
-                _fs,
-                _view,
-                _ax,
-                [_candidate(_fsd, _fh)],
-                _tier,
-                ctx=ctx,
-                features={nm: _feat},
-                measurements={nm: _measurement},
-                trace=ctx.trace,
-                trace_label=f"slot_{_fsd}_fallthrough",
-            ):
-                if len(_shared) > 1:
-                    dwg.get_annotation(nm).source_features = _shared
-                return  # placed on the opposite strip
-            _record_slot_drop(ctx, dwg, _dw, _idx, _view, _feat, _measurement)
-
-        if _view == "front":
-            ctx.post_drain.append(_retry)
-        else:
-            _retry()
+    # The plan/side opposite-strip path runs during on_drop. Front-view retries
+    # wait for all corridor solves before considering the opposite strip.
+    far_or_drop = _SlotFarDrop(
+        ctx=ctx,
+        dwg=dwg,
+        strip=far_strip,
+        side=far_side,
+        high=far_hi,
+        axis=corridor_axis,
+        feature=s,
+        kind=drop_word,
+        shared_owners=shared_owners,
+        measurement=approved.id,
+        view=vw[0],
+        index=idx,
+        tier=tier,
+        candidate=_cand_for,
+    )
 
     if near_strip is None:
         # Nothing to register against; the opposite side is the only chance.
-        _far_or_drop(cname)
+        far_or_drop(cname)
         return True
 
     register_corridor(
@@ -327,7 +395,7 @@ def _place_slot_dimension(
                 else (_SIZE_SUBCHAIN, (p_lo + p_hi) / 2, cname)
             ),
             on_place=_shared_placed,
-            on_drop=_far_or_drop,
+            on_drop=far_or_drop,
             measurement=approved.id,
             dedup=dedup_key,
             precedence=1 if is_pos else 0,
