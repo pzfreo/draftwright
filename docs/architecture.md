@@ -62,6 +62,8 @@ declaration, and drawing evidence. `evaluation/_prismatic_evidence.py` owns rect
 and plate correspondence, public declaration, and drawing evidence.
 `evaluation/_groove_evidence.py` owns groove correspondence, public declaration, and
 finished-drawing evidence, including an oracle independent of production callout formatting.
+`evaluation/_edge_profile_evidence.py` owns chamfer and fillet physical correspondence,
+public declaration, and finished-drawing evidence.
 `evaluation/step_analysis.py` retains the observer registry
 and re-exports the existing private helper names.
 

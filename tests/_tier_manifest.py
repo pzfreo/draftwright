@@ -94,6 +94,13 @@ CONTRACT_GROUPS = {
         ("src/draftwright/evaluation/_groove_evidence.py",),
         ("test_groove_completeness_evidence.py",),
     ),
+    "edge_profile_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_edge_profile_evidence.py",),
+        (
+            "test_issue_1374_chamfer_completeness_evidence.py",
+            "test_issue_1374_fillet_completeness_evidence.py",
+        ),
+    ),
     "step_observers": ContractGroup(
         ("src/draftwright/evaluation/step_analysis.py",),
         (

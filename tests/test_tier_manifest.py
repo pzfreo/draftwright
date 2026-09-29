@@ -35,6 +35,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "pocket_evidence": "src/draftwright/evaluation/_pocket_evidence.py",
         "prismatic_evidence": "src/draftwright/evaluation/_prismatic_evidence.py",
         "groove_evidence": "src/draftwright/evaluation/_groove_evidence.py",
+        "edge_profile_evidence": "src/draftwright/evaluation/_edge_profile_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
@@ -64,6 +65,14 @@ def test_each_named_contract_group_resolves_to_existing_modules():
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected
+
+
+def test_edge_profile_evidence_change_runs_both_physical_correspondence_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/_edge_profile_evidence.py"]))
+    assert {
+        "test_issue_1374_chamfer_completeness_evidence.py",
+        "test_issue_1374_fillet_completeness_evidence.py",
+    } <= selected
 
 
 def test_drawing_table_and_export_owners_select_their_behavior_contracts():
