@@ -368,7 +368,6 @@ def _all_sources() -> list[Path]:
 # importer cannot appear silently, and removing one requires shrinking this set.
 _RANK_ZERO_TRANSITIONAL_IMPORTERS = frozenset(
     {
-        "measurement_support.py",
         "model/__init__.py",
         "model/callout.py",
         "model/compiled.py",

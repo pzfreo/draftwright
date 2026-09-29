@@ -18,12 +18,12 @@ from quiddity import CircularBlindStep, RecognitionResult
 from draftwright._geometry import quantised_radius_agrees, quantised_span_agrees
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import (
+    RequirementCarrier,
     measurement_outcome_index,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
-from draftwright.measurement_support import RequirementCarrier
 
 CircularBlindStepRequirementState = Literal[
     "placed",

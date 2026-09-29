@@ -19,11 +19,12 @@ from quiddity import RecognitionResult, TurnedProfile, TurnedProfileKey
 
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID
-from draftwright.measurement_support import MeasurementSupport, RequirementCarrier
+from draftwright.measurement_support import MeasurementSupport
 from draftwright.recognition_frame import (
     AmbiguousTurnedOwnershipError,
     groove_owns_turned_step_band,

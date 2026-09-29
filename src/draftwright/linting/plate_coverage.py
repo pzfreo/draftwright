@@ -18,6 +18,7 @@ from typing import Literal
 from quiddity import RecognitionResult
 
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_ids,
     satisfaction_of,
     with_measurement_carriers,
@@ -28,7 +29,7 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.measurement_support import RequirementAlternative, RequirementCarrier
+from draftwright.measurement_support import RequirementAlternative
 from draftwright.plate_correspondence import (
     _between,
     _depth_axis,

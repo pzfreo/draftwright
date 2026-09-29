@@ -398,8 +398,10 @@ and re-exports the existing private helper names.
   owners, and settled
   unsupported/deferred/evidence-only occurrences are classified; remaining conditional
   cross-family records stay unclassified.
-- **`measurement_support.py`** — run-local producer-issued measurement, interval and member
-  witnesses, plus the shared pocket/pad datum reference and coincidence predicates.
+- **`measurement_support.py`** — a strict package leaf for run-local producer-issued
+  measurement, interval and member witnesses, plus the shared pocket/pad datum
+  reference and coincidence predicates. Lint's named annotation carrier belongs
+  to `linting/_registry.py`, beside the registry evidence that creates it.
 - **`location_contract.py`** — stable rank-1 import path for those predicates; the
   implementation is owned by `measurement_support.py` and this path is not deprecated.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.

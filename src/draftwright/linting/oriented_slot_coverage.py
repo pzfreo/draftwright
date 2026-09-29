@@ -10,12 +10,12 @@ from quiddity import OrientedSlot, RecognitionResult
 
 from draftwright.feature_identity import is_exact_oriented_slot_feature
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_ids,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue, is_placement_drop
-from draftwright.measurement_support import RequirementCarrier
 from draftwright.oriented_slot_contract import (
     _real,
     oriented_slot_provider_key,

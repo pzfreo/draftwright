@@ -19,12 +19,12 @@ from draftwright.blend_contract import (
     validate_blend_fields,
 )
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_ids,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue, is_placement_drop
-from draftwright.measurement_support import RequirementCarrier
 
 BlendRequirementState = Literal[
     "placed",

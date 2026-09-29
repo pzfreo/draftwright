@@ -18,6 +18,7 @@ from quiddity import RecognitionResult, SectionRecess, SectionRecessArray, Secti
 
 from draftwright._core import _decode_hole_location_fact
 from draftwright.linting._registry import (
+    RequirementCarrier,
     RequirementCarrierEvidence,
     satisfaction_ids,
     satisfaction_of,
@@ -28,7 +29,6 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.measurement_support import RequirementCarrier
 from draftwright.section_recess_contract import (
     distinct_section_recess_patterns,
     pocket_mouth_key,

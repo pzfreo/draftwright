@@ -23,6 +23,7 @@ from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
 from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
+    RequirementCarrier,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import (
@@ -30,7 +31,6 @@ from draftwright.linting.issues import (
     LintIssue,
     requirement_subject,
 )
-from draftwright.measurement_support import RequirementCarrier
 
 PolygonalStockState = Literal[
     "placed",

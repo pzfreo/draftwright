@@ -20,6 +20,7 @@ from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import location_state
 from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
+    RequirementCarrier,
     RequirementCarrierEvidence,
     satisfaction_ids,
 )
@@ -29,11 +30,7 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.measurement_support import (
-    RequirementCarrier,
-    RequirementExclusion,
-    datum_location_exclusion,
-)
+from draftwright.measurement_support import RequirementExclusion, datum_location_exclusion
 from draftwright.section_recess_contract import (
     pocket_mouth_key,
     recesses_with_kind,
