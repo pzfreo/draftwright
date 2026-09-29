@@ -143,7 +143,7 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
 
     So the producer declares it instead, carrying the compiler's own number rather than
     re-deriving a convention from the rendered string — which is what ADR 4 (was 0016 Amendment 1)
-    asks for, and the seam `_dw_scale` already uses.
+    asks for. Detail scale likewise comes from the producer and now lives in the registry.
     """
 
     def test_an_untagged_label_means_what_it_says(self):
@@ -245,8 +245,8 @@ class TestOnlyTheProducerThatMeansItTags:
 class TestTheTagSurvivesARebuild:
     def test_a_repaired_dimension_keeps_what_its_label_measures(self):
         # `repair()` runs on EVERY build and a tagged `dim_step_typ` is a legal
-        # `dim_inside_part` target. `_replace_dim` carried `_dw_scale` across the rebuild
-        # and not this tag, so a repair that moved the dimension would turn a correct
+        # `dim_inside_part` target. `_replace_dim` carries the registry-owned scale across
+        # the rebuild; it must also copy this label-value tag or repair would turn a correct
         # drawing into a FAILING one — lint would read '5× 10' as a 50 mm span over a
         # 10 mm path and call it a material contradiction.
         #
@@ -254,16 +254,13 @@ class TestTheTagSurvivesARebuild:
         # replaced today. That is exactly why it needs a test rather than a measurement.
         from types import SimpleNamespace as NS
 
+        from draftwright.registry import AnnotationRegistry
         from draftwright.repair import _replace_dim
 
-        old = NS(_dw_spec=NS(label_value=10.0, authored_side=None), _dw_scale=2.0)
+        old = NS(_dw_spec=NS(label_value=10.0, authored_side=None))
         new = NS(_dw_spec=NS())
-        registry = NS(
-            named=lambda _n: None,
-            names=lambda: (),
-            name_of=lambda _o: None,
-            replace_object=lambda *a, **k: None,
-        )
+        registry = AnnotationRegistry()
+        registry.add(old, "repeat", "front", scale=2.0)
         drawing = NS(items=[old], registry=registry, _registry=registry)
         # No `try` here: the real `_replace_dim` completes on this stand-in (verified), and
         # swallowing would let a future rewrite raise before the copy while the test stayed
@@ -272,7 +269,9 @@ class TestTheTagSurvivesARebuild:
         assert new._dw_spec.label_value == 10.0, (
             "a rebuilt dimension lost the number its `N×` label multiplies"
         )
-        assert getattr(new, "_dw_scale", None) == 2.0, "the sibling tag regressed"
+        assert registry.named("repeat") is new
+        assert registry.scale_of("repeat") == 2.0, "the sibling scale regressed"
+        assert not hasattr(new, "_dw_scale")
 
 
 class TestTheEngineStillProducesTruthfulRepeatDimensions:

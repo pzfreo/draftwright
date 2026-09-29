@@ -533,20 +533,31 @@ class TestTurnedDiameters:
         sheet.step(diameter=28, length=3.5, at=(0, -10.25, 9), axis="y")
         dwg = sheet.build()
 
-        detail = [o for n, o in dwg.iter_annotations() if n.startswith("dim_detail_a_steplen")]
+        detail = [
+            (name, annotation)
+            for name, annotation in dwg.iter_annotations()
+            if name.startswith("dim_detail_a_steplen")
+        ]
         assert len(detail) == 3
-        assert {o.label for o in detail} == {"3.5", "5.5 +0.3 -0.0", "3 ±0.2"}
-        detail_scales = {o._dw_scale for o in detail}
+        assert {annotation.label for _name, annotation in detail} == {
+            "3.5",
+            "5.5 +0.3 -0.0",
+            "3 ±0.2",
+        }
+        detail_scales = {dwg.registry.scale_of(name) for name, _annotation in detail}
+        assert None not in detail_scales
         assert len(detail_scales) == 1 and next(iter(detail_scales)) > dwg.scale
         # Detail placement can fit below its preferred standard factor. The settled
         # scale still has to contain each complete rendered label and both arrowheads.
-        for dimension in detail:
+        for _name, dimension in detail:
             spec = dimension._dw_spec
             span = math.dist(spec.p1[:2], spec.p2[:2])
             label_width = dimension.label_bbox[2] - dimension.label_bbox[0]
             required = label_width + 2 * (dwg.draft.arrow_length + dwg.draft.pad_around_text)
             assert span + 1e-6 >= required
-        labels = sorted((o.label_bbox for o in detail), key=lambda bb: bb[0])
+        labels = sorted(
+            (annotation.label_bbox for _name, annotation in detail), key=lambda bb: bb[0]
+        )
         assert all(
             left[2] + dwg.draft.pad_around_text <= right[0] + 1e-6
             for left, right in zip(labels, labels[1:])
