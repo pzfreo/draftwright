@@ -1723,6 +1723,55 @@ def _classify_primary_leader_candidates(
 
 
 @dataclass(frozen=True)
+class _LeaderPairConflicts:
+    conflicts: list[tuple[int, int, int, int]]
+    probes: int
+    exhausted: bool
+
+
+def _pair_conflicts(jobs, viable_by_job) -> _LeaderPairConflicts:
+    """Enumerate same-view candidate collisions within the pair-probe budget."""
+
+    component_bounds_by_job = [
+        [
+            tuple(_polygon_bounds(polygon) for polygon in candidate.ink_polygons)
+            for candidate in candidates
+        ]
+        for candidates in viable_by_job
+    ]
+    bounds_by_job = [
+        [_candidate_bounds(candidate) for candidate in candidates] for candidates in viable_by_job
+    ]
+    conflicts: list[tuple[int, int, int, int]] = []
+    pair_probes = 0
+    for later_job, later_candidates in enumerate(viable_by_job):
+        for earlier_job in range(later_job):
+            if jobs[earlier_job].view != jobs[later_job].view:
+                continue
+            for earlier_index, earlier in enumerate(viable_by_job[earlier_job]):
+                for later_index, later in enumerate(later_candidates):
+                    earlier_bounds = bounds_by_job[earlier_job][earlier_index]
+                    later_bounds = bounds_by_job[later_job][later_index]
+                    if (
+                        earlier_bounds is None
+                        or later_bounds is None
+                        or not _boxes_overlap(earlier_bounds, later_bounds)
+                    ):
+                        continue
+                    pair_probes += 1
+                    if pair_probes > _FEATURE_LEADER_MAX_PAIR_PROBES:
+                        return _LeaderPairConflicts(conflicts, pair_probes, True)
+                    if _candidate_conflict(
+                        earlier,
+                        later,
+                        left_ink_bounds=component_bounds_by_job[earlier_job][earlier_index],
+                        right_ink_bounds=component_bounds_by_job[later_job][later_index],
+                    ):
+                        conflicts.append((earlier_job, earlier_index, later_job, later_index))
+    return _LeaderPairConflicts(conflicts, pair_probes, False)
+
+
+@dataclass(frozen=True)
 class _ProvisionalRefinementInput:
     jobs: list[FeatureLeaderJob]
     views: tuple[str, ...]
@@ -2685,47 +2734,16 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
     material_by_job = classified.material_by_job
     rejected_by_job = classified.rejected_by_job
 
-    component_bounds_by_job = [
-        [
-            tuple(_polygon_bounds(polygon) for polygon in candidate.ink_polygons)
-            for candidate in candidates
-        ]
-        for candidates in viable_by_job
-    ]
-    bounds_by_job = [
-        [_candidate_bounds(candidate) for candidate in candidates] for candidates in viable_by_job
-    ]
-    conflicts = []
-    pair_probes = 0
-    for later_job, later_candidates in enumerate(viable_by_job):
-        for earlier_job in range(later_job):
-            if jobs[earlier_job].view != jobs[later_job].view:
-                continue
-            for earlier_index, earlier in enumerate(viable_by_job[earlier_job]):
-                for later_index, later in enumerate(later_candidates):
-                    earlier_bounds = bounds_by_job[earlier_job][earlier_index]
-                    later_bounds = bounds_by_job[later_job][later_index]
-                    if (
-                        earlier_bounds is None
-                        or later_bounds is None
-                        or not _boxes_overlap(earlier_bounds, later_bounds)
-                    ):
-                        continue
-                    pair_probes += 1
-                    if pair_probes > _FEATURE_LEADER_MAX_PAIR_PROBES:
-                        return greedy(
-                            "greedy_pair_budget",
-                            fixed_probes=fixed_probe_bound,
-                            fixed_probe_bound=fixed_probe_bound,
-                            pair_probes=pair_probes,
-                        )
-                    if _candidate_conflict(
-                        earlier,
-                        later,
-                        left_ink_bounds=component_bounds_by_job[earlier_job][earlier_index],
-                        right_ink_bounds=component_bounds_by_job[later_job][later_index],
-                    ):
-                        conflicts.append((earlier_job, earlier_index, later_job, later_index))
+    pairs = _pair_conflicts(jobs, viable_by_job)
+    pair_probes = pairs.probes
+    if pairs.exhausted:
+        return greedy(
+            "greedy_pair_budget",
+            fixed_probes=fixed_probe_bound,
+            fixed_probe_bound=fixed_probe_bound,
+            pair_probes=pair_probes,
+        )
+    conflicts = pairs.conflicts
 
     assignment = _assign_by_view(
         [job.view for job in jobs],
