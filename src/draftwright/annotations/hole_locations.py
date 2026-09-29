@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import NamedTuple
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any, NamedTuple
 
 from draftwright._core import (
     _CONCENTRIC_TOL_MM,
@@ -66,6 +68,66 @@ class _OffHole(NamedTuple):
     feature: HoleFeature | PatternFeature
     approved: dict
     view: str
+
+
+_Point = tuple[float, float, float]
+_HeightRoute = tuple[Any, str, _Point, _Point, float]
+_LocationCandidate = tuple[str, Callable[[float], Any]]
+
+
+@dataclass(frozen=True)
+class _HeightFallback:
+    """One hole height's saved routes and evidence for a post-solve retry."""
+
+    drawing: Any
+    context: Any
+    tier: float
+    primary: _HeightRoute
+    alternates: tuple[_HeightRoute, ...]
+    candidate: _LocationCandidate
+    feature_map: Callable[[str], dict[str, Any]]
+    measurement_map: Callable[[str], dict[str, tuple[Any, ...]]]
+    candidate_factory: Callable[[str, _Point, _Point, float], _LocationCandidate]
+    height: float
+    measurements_by_height: dict[float, list[Any]]
+
+    def __call__(self, _name: str) -> None:
+        for alt_strip, alt_view, alt_p_lo, alt_p_hi, alt_edge in self.alternates:
+            alt = self.candidate_factory(alt_view, alt_p_lo, alt_p_hi, alt_edge)
+            if not _off_axis_emit(
+                self.drawing,
+                self.tier,
+                alt_strip,
+                alt_view,
+                "x",
+                [alt],
+                features=self.feature_map(alt_view),
+                measurements=self.measurement_map(alt_view),
+                ctx=self.context,
+                trace=self.context.trace,
+            ):
+                return
+        p_strip, p_view, _p_lo, _p_hi, _edge = self.primary
+        if _off_axis_emit(
+            self.drawing,
+            self.tier,
+            p_strip,
+            p_view,
+            "x",
+            [self.candidate],
+            force=True,
+            features=self.feature_map(p_view),
+            measurements=self.measurement_map(p_view),
+            ctx=self.context,
+            trace=self.context.trace,
+        ):
+            _off_axis_drop(
+                self.drawing,
+                "Z",
+                p_view,
+                ctx=self.context,
+                measurement=tuple(self.measurements_by_height[self.height]),
+            )
 
 
 def _approved_off_axis_holes(plan) -> list[_OffHole]:
@@ -556,56 +618,6 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
                     strip, view, p_lo, p_hi, edge = primary
                     primary_cand = alt_cand
 
-        def _fallback(
-            _nm,
-            _primary=primary,
-            _alts=tuple(alternates),
-            _cand=primary_cand,
-            _feature_map=_zf,
-            _measurement_map=_zm,
-            _candidate_factory=_zc,
-            _zo=zo,
-        ):
-            for alt_strip, alt_view, alt_p_lo, alt_p_hi, alt_edge in _alts:
-                # Capture this loop member's factory. Referring to `_zc` directly
-                # late-bound every callback to the final height, so two dropped hole
-                # heights retried the last one twice and silently lost the first.
-                alt = _candidate_factory(alt_view, alt_p_lo, alt_p_hi, alt_edge)
-                if not _off_axis_emit(
-                    dwg,
-                    tier,
-                    alt_strip,
-                    alt_view,
-                    "x",
-                    [alt],
-                    features=_feature_map(alt_view),
-                    measurements=_measurement_map(alt_view),
-                    ctx=ctx,
-                    trace=ctx.trace,
-                ):
-                    return
-            p_strip, p_view, _p_lo, _p_hi, _edge = _primary
-            if _off_axis_emit(
-                dwg,
-                tier,
-                p_strip,
-                p_view,
-                "x",
-                [_cand],
-                force=True,
-                features=_feature_map(p_view),
-                measurements=_measurement_map(p_view),
-                ctx=ctx,
-                trace=ctx.trace,
-            ):
-                _off_axis_drop(
-                    dwg,
-                    "Z",
-                    p_view,
-                    ctx=ctx,
-                    measurement=tuple(z_mids[_zo]),
-                )
-
         _off_axis_queue(
             dwg,
             ctx,
@@ -618,7 +630,21 @@ def _locate_along_z(dwg, ctx, a: Analysis, off, *, front_view="front"):
             features=_zf(view),
             measurements=_zm(view),
             force=False,
-            on_drop=_fallback,
+            # Bind this loop member's factory now: two dropped heights must not
+            # retry the final height twice and lose the first measurement.
+            on_drop=_HeightFallback(
+                dwg,
+                ctx,
+                tier,
+                primary,
+                tuple(alternates),
+                primary_cand,
+                _zf,
+                _zm,
+                _zc,
+                zo,
+                z_mids,
+            ),
             order_key=lambda _nm, _i, _zo=zo: _zo,
             dedup={primary_cand[0]: (view, round(p_lo[1], 1), round(p_hi[1], 1), label)},
         )
