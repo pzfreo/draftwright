@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 from quiddity import RecognitionResult, SectionRecess, has_multi_axis_plates
 
 from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import rounded_point as _point
 from draftwright.linting._registry import (
     RequirementCarrier,
     satisfaction_ids,
@@ -37,10 +38,6 @@ class ChannelRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _point(value) -> tuple[float, float, float]:
-    return tuple(_rounded(component) for component in value)  # type: ignore[return-value]
 
 
 def _key(channel) -> tuple:
@@ -174,7 +171,7 @@ def channel_requirement_outcomes(
         ):
             outcomes.append(
                 ChannelRequirementOutcome(
-                    source_at=_point(data["origin"]),
+                    source_at=cast(tuple[float, float, float], _point(data["origin"])),
                     width=_rounded(data["width"]),
                     feature_kind=feature_kind,
                     parameter_id=parameter,

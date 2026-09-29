@@ -8,6 +8,10 @@ from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import is_placement_drop
 
 
+def rounded_point(value) -> tuple[float, ...]:
+    return tuple(_rounded(component) for component in value)
+
+
 def point3(value) -> "tuple[float, float, float]":
     x, y, z = value
     return (_rounded(x), _rounded(y), _rounded(z))
