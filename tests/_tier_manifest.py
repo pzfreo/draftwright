@@ -215,6 +215,19 @@ CONTRACT_GROUPS = {
             "test_issue_1166_cross_pass_feature_leaders.py",
         ),
     ),
+    "hole_leader_placement": ContractGroup(
+        (
+            "src/draftwright/annotations/holes.py",
+            "src/draftwright/annotations/hole_leader_candidates.py",
+            "src/draftwright/annotations/_hole_leader_placement.py",
+        ),
+        (
+            "test_feature_leader_candidate_regions.py",
+            "test_hole_annotations.py",
+            "test_hole_pattern_callouts.py",
+            "test_issue_1142_hole_leader_labels.py",
+        ),
+    ),
     "leader_fixed_ink": ContractGroup(
         ("src/draftwright/annotations/_leader_fixed_ink.py",),
         (

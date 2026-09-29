@@ -7,7 +7,8 @@ from build123d import Align, Box, Cylinder, Pos
 from build123d_drafting.helpers import Leader, draft_preset
 
 from draftwright import Sheet
-from draftwright.annotations import from_model, holes, leaders
+from draftwright.annotations import _hole_leader_placement as hole_leader_placement
+from draftwright.annotations import from_model, leaders
 from draftwright.annotations import hole_leader_candidates as hole_candidates
 from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
@@ -1021,7 +1022,13 @@ def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render
     monkeypatch.setattr(leaders, "_materialize", lambda _dwg, _job, _candidate: None)
     # The sheet-level fallback is a second valid render path. Disable both so
     # the test reaches the final drop/rollback transaction at every trial scale.
-    monkeypatch.setattr(holes, "_sheet_leader_fallback", lambda *_args, **_kwargs: None)
+    fallback_calls = []
+
+    def refuse_fallback(*args, **kwargs):
+        fallback_calls.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(hole_leader_placement, "_sheet_leader_fallback", refuse_fallback)
 
     drawing = _pattern_sheet(
         kind="bolt_circle",
@@ -1033,3 +1040,4 @@ def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render
     assert "hc_plan0" not in drawing.annotations()
     assert "bc_plan0" not in drawing.annotations()
     assert any(issue.code == "callout_dropped" for issue in drawing.lint())
+    assert fallback_calls

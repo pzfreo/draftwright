@@ -50,6 +50,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
         "strip_postsolve": "src/draftwright/annotations/_strip_postsolve.py",
         "feature_leader_assignment": "src/draftwright/annotations/leaders.py",
+        "hole_leader_placement": "src/draftwright/annotations/_hole_leader_placement.py",
         "leader_fixed_ink": "src/draftwright/annotations/_leader_fixed_ink.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
@@ -404,6 +405,17 @@ def test_feature_leader_owner_runs_greedy_floor_and_joint_assignment_contracts()
         "test_issue_740_leader_assignment.py",
         "test_issue_798_floor_cardinality.py",
         "test_issue_1166_cross_pass_feature_leaders.py",
+    } <= selected
+
+
+def test_hole_leader_owner_runs_callout_and_transaction_contracts():
+    source = "src/draftwright/annotations/_hole_leader_placement.py"
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_feature_leader_candidate_regions.py",
+        "test_hole_annotations.py",
+        "test_hole_pattern_callouts.py",
+        "test_issue_1142_hole_leader_labels.py",
     } <= selected
 
 
