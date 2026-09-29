@@ -336,7 +336,7 @@ def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():
     assert {
         "test_feature_edit_corridors.py",
         "test_issue_885_prismatic_coverage.py",
-        "test_issue_1599_duplicate_slot_widths.py",
+        "test_requirement_dimension_sharing.py",
         "test_layout_override_lane_issue_1757.py",
         "test_slot_completeness.py",
         "test_slot_pattern.py",
