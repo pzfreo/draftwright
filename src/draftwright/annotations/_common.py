@@ -1358,22 +1358,8 @@ class InteriorDimensionCandidate:
     region: DimensionCandidateRegion = DimensionCandidateRegion.INTERIOR
 
 
-def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
-    """One collect-then-solve over every :class:`CorridorCandidate` a shared strip
-    accumulated across passes (ADR 2 (was 0009) end state). Dedup → order → one non-force
-    :func:`place_strip_candidates` pass → a force pass for the force-eligible leftovers →
-    dispatch each candidate's ``on_place``/``on_drop``. This is what removes the duplicate
-    span (#345) and the interleaved ladder (#346) by construction: a single solve sees the
-    full set, so coincident spans collapse and the order is one monotonic chain.
-
-    *key* (the corridor's ``(view, side)``) and *ctx* are threaded by
-    :func:`drain_corridors` for the opt-in solve trace (#736, ``ctx.trace``) — when
-    tracing is off (``ctx`` is ``None`` or carries no trace) both are inert."""
-    if not cands:
-        return
-    trace = None if ctx is None else ctx.trace
-    if trace is not None:
-        trace.begin_solve(key, view, axis, tier, strip, cands)
+def _ordered_corridor_candidates(cands, *, ctx, key, trace):
+    """Keep dedup and lane order separate to meet #1956's function-size limit."""
     # Dedup: keep the highest-precedence candidate per coincidence key (tie-break on name,
     # deterministic — ADR 4 (was 0001)). A displaced duplicate is a *loser*: while its winner is
     # drawn it is silently dropped (never starved, so firing its pass's drop lint would be a
@@ -1435,6 +1421,27 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
         for dk, group in losers.items():
             for loser in group:
                 trace.record_outcome(loser.name, "deduped", winner=winners[dk].name)
+
+    return kept, losers
+
+
+def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, key=None, ctx=None):
+    """One collect-then-solve over every :class:`CorridorCandidate` a shared strip
+    accumulated across passes (ADR 2 (was 0009) end state). Dedup → order → one non-force
+    :func:`place_strip_candidates` pass → a force pass for the force-eligible leftovers →
+    dispatch each candidate's ``on_place``/``on_drop``. This is what removes the duplicate
+    span (#345) and the interleaved ladder (#346) by construction: a single solve sees the
+    full set, so coincident spans collapse and the order is one monotonic chain.
+
+    *key* (the corridor's ``(view, side)``) and *ctx* are threaded by
+    :func:`drain_corridors` for the opt-in solve trace (#736, ``ctx.trace``) — when
+    tracing is off (``ctx`` is ``None`` or carries no trace) both are inert."""
+    if not cands:
+        return
+    trace = None if ctx is None else ctx.trace
+    if trace is not None:
+        trace.begin_solve(key, view, axis, tier, strip, cands)
+    kept, losers = _ordered_corridor_candidates(cands, ctx=ctx, key=key, trace=trace)
 
     def _dedup_group(candidate):
         return (candidate, *losers.get(candidate.dedup, ()))

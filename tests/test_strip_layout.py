@@ -460,6 +460,19 @@ def test_shared_corridor_passes_semantic_classes_to_existing_placer(monkeypatch)
     assert seen == [{"generated": "optional", "approved": "required"}]
 
 
+def test_empty_corridor_emits_no_trace_or_placement(monkeypatch):
+    from types import SimpleNamespace
+
+    import draftwright.annotations._common as common
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("an empty corridor must not start a solve or place ink")
+
+    monkeypatch.setattr(common, "place_strip_candidates", unexpected)
+    ctx = SimpleNamespace(trace=SimpleNamespace(begin_solve=unexpected))
+    assert common.solve_corridor(object(), object(), "front", "y", [], 5.0, ctx=ctx) is None
+
+
 def test_plan_strip_selection_drops_are_lowest_first_and_deterministic():
     # a zero-width strip fits exactly one → drop the two lowest priorities, in
     # lowest-first order; the highest-priority survivor is kept
