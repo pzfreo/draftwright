@@ -2052,7 +2052,7 @@ def generate_sheet_script(
     source_sha256 = None if source_bytes is None else hashlib.sha256(source_bytes).hexdigest()
 
     if part_expr is not None:
-        pass  # caller-supplied seam (e.g. an import of a live module, )
+        pass  # caller-supplied seam (e.g. an import of a live module)
     elif is_shape:
         part_expr = "part = ...   # ← wire in your build123d object (built above)"
     else:
@@ -2105,26 +2105,12 @@ def generate_sheet_script(
                     "No inspection sidecar written for %s: %s", source_display.name, error
                 )
         settled_layout = None
-        # Generated scripts mirror dimensions as an authored set, and a declared build does
-        # what it is told — it never enters the automatic recovery ladder. So a measured
-        # automatic decision has to be BAKED IN here, against the same immutable STEP
-        # snapshot as recognition, or the script draws a different sheet from the part.
-        # Build through the same automatic front door as the direct drawing: supplying the
-        # detected model here changes view-selection/annotation ownership and can falsely
-        # accept a reduced view that the direct build rejected (GRM03).
-        #
-        # This used to run only for the two families whose replan could be PREDICTED from the
-        # model (an orientation correction, a step_level ladder). A third trigger is
-        # — a required dimension that found no room — and no property of the model predicts
-        # it: whether the mark fits is a fact about the measured sheet. A prediction that is
-        # wrong here is not a slow script, it is a script that silently disagrees with the
-        # part, so the filter is gone and the reference build is unconditional.
-        #
-        # It costs one extra `build_drawing` per generated script: measured 0.19 s for a
-        # plain box, 0.34 s for a pocket, and 1.17 s for a part that actually replans (where
-        # the ladder itself rebuilds — the case the extra build is FOR). `--script` writes a
-        # file for a person to read; paying that for a script that matches its own part is
-        # the right trade.
+        # Generated scripts declare their dimensions and do not enter automatic layout
+        # recovery. Capture the measured layout decision from the same STEP snapshot so
+        # the script reproduces the direct drawing. Pass through the same automatic front
+        # door: supplying a detected model here changes view selection and ownership.
+        # Whether a required dimension fits is known only after building the sheet, so
+        # this reference build runs even when the feature model predicts no replan.
         if scale is None:
             settled = _settled_reference_build(
                 detection_source,
