@@ -324,6 +324,7 @@ CONTRACT_GROUPS = {
         (
             "test_pmi.py",
             "test_issue_1209_linear_pmi_witnesses.py",
+            "test_issue_1296_cylindrical_diameter_pmi.py",
             "test_issue_1177_angular_dimensions.py",
             "test_sheet_fallback_issue_1797.py",
             "test_refactor_golden.py",

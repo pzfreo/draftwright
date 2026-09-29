@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+"""Run diff-cover on changed Python lines, excluding exact deleted-and-moved blocks.
+
+Git reports a new module as wholly added when code is extracted from a module that
+remains in place. Diff-cover then treats old, unchanged statements as new code. A
+line is exempt here only when it belongs to a contiguous block of at least five
+identical lines from a changed source file and that entire block was deleted from
+the old file. Every other changed line still goes through diff-cover's ordinary
+90% gate. This is deliberately limited to added production Python files.
+"""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import re
+import subprocess
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+_HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+_MIN_MOVED_BLOCK = 5
+
+
+def _git(*args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE
+    ).stdout
+
+
+def _production(path: str) -> bool:
+    return path.startswith("src/draftwright/") and path.endswith(".py")
+
+
+def _deleted_indices(old: list[str], current: list[str]) -> set[int]:
+    kept = {
+        index
+        for old_at, _new_at, size in difflib.SequenceMatcher(
+            a=old, b=current, autojunk=False
+        ).get_matching_blocks()
+        for index in range(old_at, old_at + size)
+    }
+    return set(range(len(old))) - kept
+
+
+def _moved_lines(
+    old: list[str], current: list[str], removed: set[int], added: list[str]
+) -> set[int]:
+    """One-based destination lines copied verbatim from a deleted source block."""
+    moved: set[int] = set()
+
+    def keep(run: list[int]) -> None:
+        if len(run) < _MIN_MOVED_BLOCK:
+            return
+        block = added[run[0] - 1 : run[-1]]
+        # A copied block still present at its source is duplication, not a move.
+        if any(current[i : i + len(block)] == block for i in range(len(current) - len(block) + 1)):
+            return
+        moved.update(run)
+
+    for old_at, new_at, size in difflib.SequenceMatcher(
+        a=old, b=added, autojunk=False
+    ).get_matching_blocks():
+        run: list[int] = []
+        for offset in range(size):
+            if old_at + offset in removed:
+                run.append(new_at + offset + 1)
+            else:
+                keep(run)
+                run = []
+        keep(run)
+    return moved
+
+
+def _changed_lines(patch: str) -> dict[str, set[int]]:
+    """Read exact destination line numbers from Git's zero-context unified diff."""
+    changed: dict[str, set[int]] = {}
+    path: str | None = None
+    line: int | None = None
+    in_hunk = False
+    for text in patch.splitlines():
+        if text.startswith("diff --git "):
+            path = None
+            line = None
+            in_hunk = False
+        elif not in_hunk and text.startswith("+++ b/"):
+            candidate = text[6:]
+            path = candidate if _production(candidate) else None
+            if path is not None:
+                changed.setdefault(path, set())
+        elif not in_hunk and text.startswith("+++ "):
+            path = None
+        elif match := _HUNK.match(text):
+            line = int(match.group(1))
+            in_hunk = True
+        elif in_hunk and line is not None and path is not None:
+            if text.startswith("+"):
+                changed[path].add(line)
+                line += 1
+            elif text.startswith(" "):
+                line += 1
+            elif not text.startswith(("-", "\\")):
+                raise ValueError(f"unrecognised diff line for {path}: {text!r}")
+    return changed
+
+
+def _source_changes(base: str) -> tuple[list[str], list[str]]:
+    added: list[str] = []
+    changed_old: list[str] = []
+    for row in _git("diff", "--no-renames", "--name-status", base).splitlines():
+        status, path = row.split("\t", 1)
+        if not _production(path):
+            continue
+        if status == "A":
+            added.append(path)
+        elif status in {"M", "D"}:
+            changed_old.append(path)
+    return added, changed_old
+
+
+def _relocated_lines(base: str) -> dict[str, set[int]]:
+    added_paths, old_paths = _source_changes(base)
+    if not added_paths or not old_paths:
+        return {}
+    sources: list[tuple[list[str], list[str], set[int]]] = []
+    for path in old_paths:
+        old = _git("show", f"{base}:{path}").splitlines()
+        current = (
+            (ROOT / path).read_text(encoding="utf-8").splitlines()
+            if (ROOT / path).exists()
+            else []
+        )
+        removed = _deleted_indices(old, current)
+        if removed:
+            sources.append((old, current, removed))
+    relocated: dict[str, set[int]] = {}
+    for path in added_paths:
+        added = (ROOT / path).read_text(encoding="utf-8").splitlines()
+        relocated[path] = set().union(
+            *(_moved_lines(old, current, removed, added) for old, current, removed in sources)
+        )
+    return relocated
+
+
+def _coverage_diff(
+    changed: dict[str, set[int]], relocated: dict[str, set[int]]
+) -> tuple[str, int, int]:
+    """Emit a conventional unified diff over all non-moved changed source lines."""
+    parts: list[str] = []
+    total = exempt = 0
+    for path, original in sorted(changed.items()):
+        removed = original & relocated.get(path, set())
+        remaining = sorted(original - removed)
+        total += len(original)
+        exempt += len(removed)
+        if not remaining:
+            continue
+        lines = (ROOT / path).read_text(encoding="utf-8").splitlines()
+        parts.extend((f"diff --git a/{path} b/{path}", f"--- a/{path}", f"+++ b/{path}"))
+        for number in remaining:
+            parts.extend((f"@@ -0,0 +{number},1 @@", f"+{lines[number - 1]}"))
+    return "\n".join(parts) + "\n", total, exempt
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("coverage_xml")
+    parser.add_argument("--compare-branch", required=True)
+    parser.add_argument("--fail-under", type=int, default=90)
+    args = parser.parse_args()
+    untracked = _git("ls-files", "--others", "--exclude-standard", "--", "src/draftwright")
+    if untracked:
+        parser.error(f"untracked production files cannot be coverage-gated: {untracked.strip()}")
+    merge_base = _git("merge-base", args.compare_branch, "HEAD").strip()
+    patch = _git(
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-renames",
+        "-U0",
+        merge_base,
+    )
+    adjusted, total, exempt = _coverage_diff(_changed_lines(patch), _relocated_lines(merge_base))
+    print(f"Changed source lines: {total}; exact deleted-and-moved lines: {exempt}", flush=True)
+    with tempfile.TemporaryDirectory(prefix="diff-cover-moves-") as temp:
+        path = Path(temp) / "adjusted.diff"
+        path.write_text(adjusted, encoding="utf-8")
+        return subprocess.run(
+            [
+                "diff-cover",
+                args.coverage_xml,
+                "--diff-file",
+                str(path),
+                f"--fail-under={args.fail_under}",
+            ],
+            cwd=ROOT,
+            check=False,
+        ).returncode
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

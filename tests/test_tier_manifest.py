@@ -412,6 +412,7 @@ def test_pmi_dimension_owner_runs_source_witness_fallback_and_trace_contracts():
     assert {
         "test_pmi.py",
         "test_issue_1209_linear_pmi_witnesses.py",
+        "test_issue_1296_cylindrical_diameter_pmi.py",
         "test_sheet_fallback_issue_1797.py",
         "test_refactor_golden.py",
         "test_solve_trace.py",
