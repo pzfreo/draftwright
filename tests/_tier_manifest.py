@@ -90,6 +90,27 @@ CONTRACT_GROUPS = {
             "test_issue_1373_plate_completeness_evidence.py",
         ),
     ),
+    "step_observers": ContractGroup(
+        ("src/draftwright/evaluation/step_analysis.py",),
+        (
+            "test_step_analysis_evaluation.py",
+            "test_issue_1369_hole_completeness_evidence.py",
+            "test_issue_1370_countersink_completeness_evidence.py",
+            "test_issue_1370_double_d_completeness_evidence.py",
+            "test_issue_1370_hole_pattern_completeness_evidence.py",
+            "test_issue_1371_flat_completeness_evidence.py",
+            "test_issue_1371_polygonal_stock_completeness_evidence.py",
+            "test_polygonal_boss_completeness_evidence.py",
+            "test_groove_completeness_evidence.py",
+            "test_issue_1374_chamfer_completeness_evidence.py",
+            "test_issue_1374_fillet_completeness_evidence.py",
+            "test_issue_1374_turned_step_completeness_evidence.py",
+            "test_pad_completeness_evidence.py",
+            "test_issue_1373_plate_completeness_evidence.py",
+            "test_pocket_completeness_evidence.py",
+            "test_pocket_pattern_completeness_evidence.py",
+        ),
+    ),
     "through_step_placement": ContractGroup(
         (
             "src/draftwright/annotations/from_model.py",
