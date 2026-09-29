@@ -236,7 +236,7 @@ def _settle_iso_view(dwg: Drawing, a: Analysis, *, obstacles=()):
     )
     if region[2] <= region[0] or region[3] <= region[1]:
         # The zone the engine composed has no room at all — the `_largest_empty_rect` sliver
-        # case of #1395. Reporting that as an infeasible *authored* scale states a falsehood
+        # case. Reporting that as an infeasible *authored* scale states a falsehood
         # about the caller's input: no ordinary authored scale fits a zone of zero extent.
         #
         # Scope, stated because the sibling guard in `projection` covers more: this path builds
@@ -531,7 +531,7 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
                 requested_dimensions=tuple(requested) if requested else model.requested_dimensions,
                 # `authored is not None` rather than truthiness: an authored set is never
                 # empty (the façade refuses that), but None means "the planner chooses" and
-                # must not be confused with "the author chose nothing" (#874).
+                # must not be confused with "the author chose nothing".
                 authored_dimensions=tuple(authored)
                 if authored is not None
                 else model.authored_dimensions,
@@ -558,7 +558,7 @@ def _coerce_model(model, part, decorations=None, requested=None, authored=None) 
     if turned_axes and out.orientation != orientation:
         # PartModel.orientation is the compiler's aggregate classification, not a caller
         # override. Derive it from the complete set so list and PartModel front doors are
-        # equivalent and mixed-axis declarations are order-independent (#1357).
+        # equivalent and mixed-axis declarations are order-independent.
         out = replace(out, orientation=orientation)
     _check_dimension_sources(out)
     return out
@@ -587,12 +587,9 @@ def _detect_part_model_analysis(part, *, pmi="off") -> tuple[PartModel, Analysis
     """Return one detected model together with the exact analysis run that produced it."""
 
     a = _analyse(part, title="", number="", tolerance=None, drawn_by="", out="model", pmi=pmi)
-    # `_analyse` already detected and stored the model, so calling `build_model(a)`
-    # unconditionally re-ran every detector `build_part_model` doesn't take by injection —
-    # the #602 duplicate-detection bug, fixed in `_assemble` but never here. It went unnoticed
-    # because the emitter that had the detect-once test went through `_assemble`; #940 made
-    # this the path, and migrating that test found it. Same fallback as `_assemble`: a
-    # hand-built Analysis with no stored model still detects.
+    # `_analyse` already detected and stored the model. Reuse it so this path does
+    # not rerun detectors that `build_part_model` cannot take by injection.
+    # A hand-built Analysis with no stored model still uses the detection fallback.
     # `Analysis.model` is `object | None` (it sits below the IR in the DAG), so the cast is
     # what says the stored value is the same PartModel `build_model` would have rebuilt.
     model = cast("PartModel", a.model if a.model is not None else build_model(a))
@@ -630,7 +627,7 @@ def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
         # A declared model skips detection, so a turned shaft carries no RotationalFeature —
         # and that feature is the sole driver of the turned-axis centrelines + the OD dimension
         # (rot furniture). Synthesise it from the (unconditional) analysis so a declared /
-        # emitted-script turned part reproduces the detected drawing (#472). Gated on the
+        # emitted-script turned part reproduces the detected drawing. Gated on the
         # caller not having declared one, so an explicit choice wins.
         if not any(f.kind == "rotational" for f in pm.features):
             rot = build_rotational_feature(a)
@@ -644,14 +641,14 @@ def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
 
         # A z step declares a segment of a z-turned profile. `.step()` on a BOSS — an external
         # cylinder on a prismatic part — is a misuse of the verb, and the symptom is that the
-        # declared steps leave the bulk of the part unspanned (#631). This is a verb-misuse
+        # declared steps leave the bulk of the part unspanned. This is a verb-misuse
         # diagnostic, not a guarantee that the height is dimensioned: whether the approved
         # measurements actually reach the page is settled downstream and reported by lint
         # (`axial_length_missing`). Guard on the tiling condition rather than a classifier
         # proxy (is_rotational / prof both have blind spots).
-        # The z-turned span check that used to RAISE here now reports from
-        # `linting.coverage.lint_turned_profile_span` instead (#1132). Raising made
-        # `generate_sheet_script` return nothing at all for a part whose recognised
+        # The z-turned span check reports from
+        # `linting.coverage.lint_turned_profile_span`. Raising here would make
+        # `generate_sheet_script` return nothing for a part whose recognised
         # profile does not tile, and an entry point that produces no script and no
         # drawing is the one failure a consumer cannot route around. The check itself is
         # unchanged in substance; only its severity and its home moved, and the annotate
@@ -659,7 +656,7 @@ def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
         # PMI (STEP AP242) is likewise detection-sourced, so a declared / emitted-script model
         # carries none. When PMI annotation is on, synthesise the same imported drafting
         # annotations detection would (render_pmi reads them off the model, gated on a.pmi_mode)
-        # so a re-run reproduces the PMI dims (#472). Gated on the caller not having declared
+        # so a re-run reproduces the PMI dims. Gated on the caller not having declared
         # imported authored annotations, so an explicit set wins.
         def _declares_imported_pmi(feature) -> bool:
             if feature.kind in ("authored_dimension", "pmi"):
@@ -777,10 +774,10 @@ def _assemble(
         "pre_render_choice": pre_render_choice,
     }
     # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
-    # work even in manual mode (#398). _auto_annotate reads this attached model rather
+    # work even in manual mode. _auto_annotate reads this attached model rather
     # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
-    # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
-    # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
+    # Detected path: reuse the model _analyse already built for sizing —
+    # detectors run once per build (ADR 1 (was 0008 Amdt 5)). build_model(a) remains the
     # fallback for a manually-constructed Analysis with no stored model.
     pm = _assembly_model(a, model, decorations, requested, authored)
     # A source-proven document default uses the existing title-block carrier when the caller
@@ -801,11 +798,11 @@ def _assemble(
             general_tolerance_source = defaults[0]
             a = replace(a, tolerance=getattr(general_tolerance_source, "designation"))
 
-    # ADR 1 (was 0005 §2) (#639): the ONE build-context attachment — analysis + finished model
+    # ADR 1 (was 0005 §2): the one build-context attachment — analysis + finished model
     # in a single typed BuildState; the compat properties on Drawing read through it.
     dwg._build.analysis = a
     # The title block's footprint is deterministic before it is drawn, and strip
-    # placement must avoid it (#1593). Measured once here, at the single site that
+    # placement must avoid it. Measured once here, at the single site that
     # fills build state, rather than let annotations/ probe the drawing for it.
     dwg._build.pending_title_block_box = _title_block_box(dwg, a)
     # A scale/view fallback is still the same build run. Preserve the exact lazy acquisition
@@ -832,22 +829,20 @@ def _assemble(
     )
     # Persist the caller's detail-view setting: on the auto_dims=False path the flag
     # reaches no pass here, but the finalize drain gates the prismatic detail
-    # request on it exactly as the auto pass does (#661).
+    # request on it exactly as the auto pass does.
     dwg._build.detail_view = detail_view
-    # The opt-in #736 solve-trace recorder rides BuildState like the rest of the build context
-    # (or None when tracing is off) — filled here at the single construction site, not poked onto
-    # a live Drawing through a named method (#830: the engine constructs, never mutates).
+    # The opt-in solve-trace recorder rides BuildState like the rest of the build
+    # context (or None when tracing is off), filled at this single construction site.
     dwg._build.trace = trace
-    dwg._model_declared = model is not None  # ADR 4 (was 0011) #448: gate model-driven hole render
+    dwg._model_declared = model is not None  # ADR 4 (was 0011): gate model-driven hole render
     # A document member uses a declared model for its sealed physical inventory, but source
-    # PMI within that model remains governed by the member's presentation policy (#1794).
+    # PMI within that model remains governed by the member's presentation policy.
     dwg.attach_document_context(a.document_member, hidden_source_annotations)
 
     # The solid this assembly projects. ADR 2 (was 0004) wants the real geometry built ONCE, but the
-    # measure-and-repack loop assembles up to three times, so today it is projected up to three
-    # times — the root cause of #1135's hour-long build. This parameter is the seam where the
-    # loop's intermediate assemblies will pass a cheap stand-in and only the final one the real
-    # solid (#1137). Every caller currently takes the default, so nothing has changed yet.
+    # measure-and-repack loop can assemble several times. This parameter permits
+    # callers to supply a stand-in for intermediate assemblies while the final one
+    # projects the real solid.
     # build123d 0.11 scales about ``shape.location.position`` by default. The solids-only body
     # returned by ``_solids_body`` commonly carries the source primitive's placement as its
     # Location (for a centred Box, its minimum corner), even though its bounding box and every
@@ -902,7 +897,7 @@ def _assemble(
         else:
             _project_iso(dwg, a, a.SCALE * a.planned_iso_scale)
 
-    _diagnostics = None  # the audit ledger; filled once at the end of this function (#996)
+    _diagnostics = None  # the audit ledger; filled once at the end of this function
     if auto_dims:
         # Snapshot outer_limits before _auto_annotate tightens them against the
         # initial (possibly overflowing) iso.  After _fit_iso_view rescales the
@@ -911,20 +906,20 @@ def _assemble(
         _fv_ol = a.fv_zones.right.outer_limit
         _pv_ol = a.pv_zones.right.outer_limit
         _sv_ol = a.sv_zones.right.outer_limit
-        # The orchestrator RETURNS the omission ledger rather than writing a drawing private,
-        # so `annotations/` stays off the state bus (#639/#830). Filled at the single site
-        # below, not here — see there (#996 / ADR 1 (was 0005 §2)).
+        # The orchestrator returns the omission ledger rather than writing a drawing
+        # private, so `annotations/` stays off the state bus. Fill it at the one site
+        # below (ADR 1 (was 0005 §2)).
         _diagnostics = _auto_annotate(dwg, a, detail_view=detail_view)
-        # The placed annotations are the fit's obstacles (#1240): the grow branch may not
+        # The placed annotations are the fit's obstacles: the grow branch may not
         # invade ink that placed legally against the pre-fit iso. Computed HERE because the
-        # fit sits below the occupancy model and must not own an obstacle set (#1197).
+        # fit sits below the occupancy model and must not own an obstacle set.
         #
         # `annotation_ink_obstacles`, NOT `strip_obstacles`: the sheet frame and zone grid are
         # registered annotations whose Compound bbox spans the page, so the raw strip set made
         # the iso overlap an "obstacle" at every factor and `--frame` disabled the fit
         # altogether — no growth, no NTS caption, fast tier green. It also broke script/CLI
         # parity, since the `auto_dims=False` branch below computes its obstacles before the
-        # frame is added and so kept growing (#1240).
+        # frame is added and so kept growing.
         _nts_bb = None
         if a.planned_iso:
             _nts_bb = _settle_iso_view(dwg, a, obstacles=annotation_ink_obstacles(dwg))
@@ -938,7 +933,7 @@ def _assemble(
                 a.sv_zones.right.outer_limit = min(_sv_ol, _final_iso_x_lim)
             else:
                 a.sv_zones.right.outer_limit = _sv_ol
-            # Mirror for the ABOVE strips (#1240): restore, then re-cap below the FINAL iso only
+            # Mirror for the above strips: restore, then re-cap below the final iso only
             # where the fitted iso horizontally overlaps that view — the transposition of the
             # right-strip re-cap above, for the same customer (deferred edits place through these
             # strips after the build).
@@ -952,8 +947,8 @@ def _assemble(
                 # snapshot exists to give back space `_auto_annotate` took against a transient,
                 # possibly-overflowing iso; the above strips have no such pre-existing
                 # over-tightening to undo, and restoring would DISCARD the `m_locy` approach-buffer
-                # clamp (`from_model`), which is a different constraint that must survive
-                # (#1240). Same anchor guard as the initial clamp: an iso x-overlapping
+                # clamp (`from_model`), which is a different constraint that must survive.
+                # Use the same anchor guard as the initial clamp: an iso x-overlapping
                 # the view from BELOW must not push the limit beneath the anchor and kill the strip.
                 if _x0 < _ix1 and _ix0 < _x1 and _iso_y_lim > _strip.anchor:
                     _strip.outer_limit = min(_strip.outer_limit, _iso_y_lim)
@@ -968,9 +963,9 @@ def _assemble(
             else None
         )
         _add_title_block(dwg, a)
-        if a.frame:  # sheet border (#767) — auto path adds it via the orchestrator
+        if a.frame:  # sheet border; auto path adds it via the orchestrator
             _add_sheet_frame(dwg, a)
-        if a.zones:  # zone-grid ruler (#768), on the frame
+        if a.zones:  # zone-grid ruler on the frame
             _add_zone_grid(dwg, a)
         _add_projection_symbol(dwg, a)
         _add_scale_note(dwg, a)
@@ -990,17 +985,15 @@ def _assemble(
     render_document_notes(dwg, pm, exclude=hidden_source_annotations)
     render_gear_tables(dwg, pm)
 
-    # The audit ledger, filled at ONE site for both paths (#996 / ADR 1 (was 0005 §2)).
+    # The audit ledger is filled at one site for both paths (ADR 1 (was 0005 §2)).
     #
     # It is not a by-product of rendering. The auto path gets it from `_auto_annotate`'s
     # return; `auto_dims=False` draws no automatic dimensions, so it compiles for the
     # diagnostics alone — the plan is discarded, only the record kept. That branch reported an
     # EMPTY ledger while the compiler really had suppressed measurements, which is precisely
-    # the false confidence this surface exists to remove (#996).
+    # the false confidence this surface exists to remove.
     #
-    # Assigned once rather than in each branch: two fill sites for one BuildState field is
-    # what #830's single-construction rule exists to stop, and the guard caught the first
-    # attempt at exactly that.
+    # Assign once after the branches to keep this BuildState field at one fill site.
     if _diagnostics is None:
         from draftwright.model.compiled import compile_dimensions
 
@@ -1008,7 +1001,7 @@ def _assemble(
         # above, so the guard was unreachable — and its fallback was a silent empty ledger,
         # which is the precise failure this whole surface exists to remove. If a future path
         # ever reaches here without a model, that should raise where it happens rather than
-        # produce a confident "nothing was suppressed" (#996).
+        # produce a confident "nothing was suppressed".
         _diagnostics = compile_dimensions(dwg.model()).diagnostics
     dwg._build.omissions = tuple(_diagnostics or ())
     for code, message in a.layout_advisories:
@@ -1166,7 +1159,7 @@ def _repack(
         # No standard ISO 5455 scale fits the measured layout. When the scale is NOT
         # pinned, bisect for the largest scale that fits on the largest candidate sheet
         # (the packed layout is monotone in scale) so we never keep an overflowing sheet
-        # (#350) — mirroring choose_scale's backstop, including its two guards: honour a
+        # — mirroring choose_scale's backstop, including its two guards: honour a
         # pinned scale (may not reduce it), and fall back if no positive scale fits.
         if scale is None:
             _, pw0, ph0, tb0 = candidates[-1]
@@ -2124,7 +2117,7 @@ class _AutomaticResolution:
         # the detail reservation was conservative, then enter the identical tail again when
         # a required placement loss asks the optional ISO to yield. Reuse those finished
         # drawings: the second pass may apply a stricter qualification gate, but rebuilding
-        # identical geometry cannot change its answer (#1665).
+        # identical geometry cannot change its answer.
         self.trials = _AutomaticScaleTrials(
             build=self.context.build,
             record_attempt=self.record_attempt,
@@ -2138,7 +2131,7 @@ class _AutomaticResolution:
         )
 
     def recover_detail(self):
-        # #1155: the compose-time estimate conservatively reserves an enlarged
+        # The compose-time estimate conservatively reserves an enlarged
         # detail for a crowded run.  Some larger preferred scales make that run
         # readable inline, so the detail reservation disappears and the same page
         # becomes feasible — GRM-04 is 2:1 under the estimate but complete at 5:1
@@ -2230,12 +2223,10 @@ class _AutomaticResolution:
                 self.replanned = True
 
     def recover_required_no_iso(self):
-        # #1678: a required placement loss must spend the bounded scale/page recovery
-        # budget even when there is no optional ISO to yield.  The older recovery block
-        # below was entered only when an ISO was present, so an explicitly disabled ISO
-        # (or a topology that did not produce one) could report an incomplete plan without
-        # trying otherwise viable space.  Keep the ISO-removal path specialised, but give
-        # every other automatic plan the same scale-first, page-second opportunity.
+        # A required placement loss spends the bounded scale/page recovery budget
+        # even when there is no optional ISO to yield. Keep the ISO-removal path
+        # specialised and give other automatic plans the same scale-first,
+        # page-second opportunity.
         if (
             self.dimensions_are_automatic
             and self.views_are_automatic
@@ -2274,7 +2265,7 @@ class _AutomaticResolution:
                     self.replanned = True
 
     def recover_optional_iso(self):
-        # #443/#1299: a pictorial view is useful context, but it cannot outrank the
+        # A pictorial view is useful context, but it cannot outrank the
         # dimensions or other required annotations needed to manufacture a part.
         # GRM-03 originally selected 2:1 with ISO, collapsed its 0.5 + 2 mm head
         # steps into an unowned 2.5 mm block, then had no room for the recovery
@@ -2304,10 +2295,9 @@ class _AutomaticResolution:
             required_blockers = original_blockers
             self.settled_issues = original_issues
             recovered_on_selected_page = False
-            # #1590: the third symptom. A required envelope or step dimension that found no
-            # room is not a blocker by design (see `_REPLANNABLE_LOSS_CODES`), so the ladder
-            # used to skip these drawings entirely — `attempts` came back empty and an
-            # `overall_dim_withheld` error was reported on the first sheet tried.
+            # A required envelope or step dimension with no room is not a blocker
+            # by design (see `_REPLANNABLE_LOSS_CODES`), but it still opens this
+            # bounded recovery ladder.
             #
             # Scoped by the enclosing gate, which is worth stating so the next reader does
             # not assume otherwise: this block runs only for a drawing that HAS the optional
@@ -2334,13 +2324,9 @@ class _AutomaticResolution:
                     reason="remove_optional_iso",
                     candidate=self.drawing,
                 )
-                # #1338: before spending the optional ISO and then the sheet, try the
-                # bounded larger-scale tail on the page already selected.  GRM-03 settled
-                # on 5:1/A3 without its ISO while 5:1/A4 is clean WITH it — a strictly
-                # better candidate the ladder never reached, because its only recovery
-                # order was drop-the-ISO then escalate-the-page.  The gates are unchanged:
-                # this wins only by passing the same axial and required-outcome checks the
-                # larger sheet would have had to pass.
+                # Try the bounded larger-scale tail on the selected page before
+                # removing the optional ISO or trying a larger sheet. A candidate
+                # wins only after the same axial and required-outcome checks.
                 upscaled, upscaled_issues = self.trials.try_larger_scales_on_selected_page(
                     self.drawing.scale,
                     reason="scale_escalation_on_selected_page",
@@ -2445,7 +2431,7 @@ class _AutomaticResolution:
                         violations=_layout_issue_records(_hard_layout_issues(issues)),
                         candidate=without_iso,
                     )
-                    # #1299: page preference is subordinate to manufacturing
+                    # Page preference is subordinate to manufacturing
                     # completeness. Once the settled no-ISO arrangement has failed
                     # on the automatically selected sheet, try only the bounded
                     # sequence of larger standard pages. Each page chooses its scale
@@ -2546,8 +2532,7 @@ class _AutomaticResolution:
             # one shared trace path, so the file on disk may describe a *rejected*
             # candidate rather than the drawing returned.  The settled drawing's own
             # recorder holds the shipped build's records; give it the last write so
-            # DRAFTWRIGHT_TRACE always describes the drawing the caller receives
-            # (#736 — the same reason a successful finalize re-writes).
+            # DRAFTWRIGHT_TRACE describes the drawing the caller receives.
             self.drawing.solve_trace.write()
         return self.context.finish_annotation_layout(
             _complete_automatic_plan(self.drawing, issues=self.settled_issues)
@@ -2642,8 +2627,8 @@ def build_drawing(
     _analysis_base: Analysis | None = None,
     _analysis_sink: Callable[[Analysis], None] | None = None,
     projection_symbol: bool = True,
-    #: The STEP document the geometry came from, when it is not `step_file` itself
-    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: The STEP document the geometry came from, when it is not `step_file` itself.
+    #: Keyword-only: inserting it among the positional parameters would shift
     #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
     #: exists to catch — and did.
     source: str | Path | None = None,
@@ -2750,8 +2735,8 @@ def make_drawing(
     text_orientation: str = "aligned",
     *,
     projection_symbol: bool = True,
-    #: The STEP document the geometry came from, when it is not `step_file` itself
-    #: (#1563). Keyword-only: inserting it among the positional parameters would shift
+    #: The STEP document the geometry came from, when it is not `step_file` itself.
+    #: Keyword-only: inserting it among the positional parameters would shift
     #: every later binding, which `test_existing_positional_arguments_keep_their_bindings`
     #: exists to catch — and did.
     source: str | Path | None = None,
@@ -2818,9 +2803,9 @@ def make_drawing(
     To add or remove annotations or add section/auxiliary views before export,
     call :func:`build_drawing` and use the returned :class:`Drawing`.
     """
-    # `formats=("svg", "dxf")` rather than a bare `.export()` (#987): the no-formats call is
+    # `formats=("svg", "dxf")` rather than a bare `.export()`: the no-formats call is
     # the deprecated legacy shape and now warns, and a warning raised from HERE would blame
-    # draftwright's own line for a call the caller never made — the #965 stacklevel lesson.
+    # draftwright's own line for a call the caller never made.
     # This keeps make_drawing's documented `(svg_path, dxf_path)` return while leaving the
     # legacy path with no internal callers, which is what lets it warn honestly.
     _paths = build_drawing(
