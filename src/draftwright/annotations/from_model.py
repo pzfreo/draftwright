@@ -57,9 +57,11 @@ from draftwright._core import (
     _fmt,
     _font_safe_text,
     _frame_margins,
+    _greedy_strip_ys,
     _iso_bbox,
     _legible_locations,
     _log,
+    _solve_strip_ys,
     _text_line_spacing_em,
     _text_size,
     _title_block_box,
@@ -113,7 +115,7 @@ from draftwright.annotations._diameters import _diameter_source_bounds as _diame
 from draftwright.annotations._diameters import _diameter_step_anchor as _diameter_step_anchor
 from draftwright.annotations._diameters import _leader_hole_clearance as _leader_hole_clearance
 from draftwright.annotations._diameters import _manufacturing_suffix as _manufacturing_suffix
-from draftwright.annotations._diameters import _place_what_fits as _place_what_fits
+from draftwright.annotations._diameters import _place_what_fits as _place_what_fits_owner
 from draftwright.annotations._diameters import (
     _render_diameter_leaders as _render_diameter_leaders_owner,
 )
@@ -1127,6 +1129,19 @@ def _reroute_crossing_diameters(dwg, *, ctx) -> int:
     return _reroute_crossing_diameters_owner(dwg, ctx=ctx, material_penalty=material_penalty_units)
 
 
+def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
+    """Use the live strip-solver bindings at the stable diameter import path."""
+    return _place_what_fits_owner(
+        specs,
+        axis,
+        min_gap,
+        lo,
+        hi,
+        solve_strip_ys=_solve_strip_ys,
+        greedy_strip_ys=_greedy_strip_ys,
+    )
+
+
 def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
     """Render approved step and boss diameters through the shared solve."""
     return _render_diameters_owner(
@@ -1139,6 +1154,7 @@ def render_diameters(dwg, plan, a, *, ctx, only=None) -> int:
         place_jobs=place_machined_leader_jobs,
         leader_reach=_leader_callout_reach,
         reroute_crossing=lambda dwg, *, ctx: _reroute_crossing_diameters(dwg, ctx=ctx),
+        place_what_fits=_place_what_fits,
     )
 
 

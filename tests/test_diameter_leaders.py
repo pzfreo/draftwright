@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from _parts import x_stepped_shaft as _x_stepped_shaft
 from build123d import Box, Cylinder, Pos, Rotation
 
 from draftwright import build_drawing
@@ -14,6 +15,26 @@ def _ctx_for(dwg):
     from draftwright.annotations._common import PlacementContext
 
     return PlacementContext(registry=dwg.registry, coverage=dwg.coverage, items=dwg.items)
+
+
+def test_render_diameters_uses_live_strip_solver_binding(monkeypatch):
+    # Assert the patched entry point is actually called; preserving only its
+    # attribute would leave the fallback test green for the wrong reason.
+    import sys
+
+    m = sys.modules["draftwright.annotations.from_model"]
+    attempts = []
+
+    def fail_strip(*args, **kwargs):
+        attempts.append((args, kwargs))
+        return None
+
+    monkeypatch.setattr(m, "_solve_strip_ys", fail_strip)
+    monkeypatch.setattr(m, "_greedy_strip_ys", fail_strip)
+    dwg = build_drawing(_x_stepped_shaft())
+    assert attempts
+    labels = {item.label for name, item in dwg.iter_annotations() if name.startswith("m_dia")}
+    assert labels == {"ø30", "ø16"}
 
 
 class TestDiameterStepAnchor:

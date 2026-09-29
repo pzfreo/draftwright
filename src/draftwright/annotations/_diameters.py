@@ -36,7 +36,16 @@ _END_DIAMETER_LEAD_DIRS = (
 )
 
 
-def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
+def _place_what_fits(
+    specs,
+    axis: int,
+    min_gap: float,
+    lo: float,
+    hi: float,
+    *,
+    solve_strip_ys=_solve_strip_ys,
+    greedy_strip_ys=_greedy_strip_ys,
+):
     """Fit as many ø specs as the strip ``[lo, hi]`` holds at ``min_gap`` spacing,
     dropping the SMALLEST-diameter spec first when the full set overflows — so the
     significant ODs survive and only the finest bands fall to ``feature_not_dimensioned``,
@@ -48,7 +57,7 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     survivors = sorted(specs, key=lambda s: s[0][axis])
     while survivors:
         naturals = [s[0][axis] for s in survivors]
-        pos = _solve_strip_ys(naturals, min_gap, lo, hi) or _greedy_strip_ys(
+        pos = solve_strip_ys(naturals, min_gap, lo, hi) or greedy_strip_ys(
             naturals, min_gap, lo, hi
         )
         if pos is not None:
@@ -58,7 +67,9 @@ def _place_what_fits(specs, axis: int, min_gap: float, lo: float, hi: float):
     return [], []
 
 
-def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
+def _diameter_row_below(
+    dwg, items, start: int = 0, trace=None, *, ctx, place_what_fits=_place_what_fits
+) -> int:
     """ø-callout row BELOW the front view for X-turned step/boss diameters (#77).
     *items* is ``[(anchor, dia, value_text, feature, tolerance, thread, mids), ...]``. The row is dropped clear of anything
     already below the profile; labels spread along page-x by the ADR 2 (was 0003) strip
@@ -119,7 +130,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     )
     min_gap = 2 * half_w + 2 * draft.pad_around_text
     # Place what fits; drop the smallest ø first, never the whole row.
-    survivors, xs = _place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
+    survivors, xs = place_what_fits(specs, 0, min_gap, fx0 + half_w, fx1 - half_w)
     # A leader whose solved elbow lands LEFT of its tip flips its shelf (helpers'
     # direction rule), extending the label LEFTWARD — the min_gap model assumes
     # rightward labels, so a crowd-shifted elbow can land its flipped label on the
@@ -160,7 +171,7 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
             break
         drop = min(range(len(survivors)), key=lambda i: survivors[i][1])
         survivors.pop(drop)
-        survivors, xs = _place_what_fits(survivors, 0, min_gap, fx0 + half_w, fx1 - half_w)
+        survivors, xs = place_what_fits(survivors, 0, min_gap, fx0 + half_w, fx1 - half_w)
     if ev is not None:  # the specs the fit solve squeezed out, smallest first
         kept = {id(s) for s in survivors}
         ev["items"].extend(
@@ -188,7 +199,9 @@ def _diameter_row_below(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
     return len(survivors)
 
 
-def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int:
+def _diameter_column_left(
+    dwg, items, start: int = 0, trace=None, *, ctx, place_what_fits=_place_what_fits
+) -> int:
     """ø-callout column to the LEFT of the front view for Z-turned step/boss
     diameters (#131) — the page-Y mirror of the row-below. A per-label occupancy
     gate drops only a label that would overprint a bore leader / existing callout
@@ -232,7 +245,7 @@ def _diameter_column_left(dwg, items, start: int = 0, trace=None, *, ctx) -> int
     half_h = draft.font_size / 2 + draft.pad_around_text
     min_gap = 2 * half_h
     # Place what fits; drop the smallest ø first, never the whole column.
-    survivors, ys = _place_what_fits(specs, 1, min_gap, fy0 + half_h, fy1 - half_h)
+    survivors, ys = place_what_fits(specs, 1, min_gap, fy0 + half_h, fy1 - half_h)
     # Full-footprint occupancy includes leader shafts, witness lines, and hatch.
     # A label-box-only check could let an ø label overprint a leader shaft.
     # Centre lines stay crossable because a diameter dimension may cross one.
@@ -484,6 +497,7 @@ def render_diameters(
     place_jobs,
     leader_reach,
     reroute_crossing,
+    place_what_fits=_place_what_fits,
 ) -> int:
     """ø leaders for a turned part's external step/boss diameters, from the IR —
     one owned callout per physical diameter measurement, in a tidy row below the front view
@@ -590,6 +604,7 @@ def render_diameters(
             start=start_x + entries[0][0],
             trace=trace,
             ctx=ctx,
+            place_what_fits=place_what_fits,
         )
     placed += _render_diameter_leaders(
         dwg,
@@ -622,7 +637,14 @@ def render_diameters(
         place_jobs=place_jobs,
         leader_reach=leader_reach,
     )
-    placed += _diameter_column_left(dwg, _items(col_buckets), start=start_z, trace=trace, ctx=ctx)
+    placed += _diameter_column_left(
+        dwg,
+        _items(col_buckets),
+        start=start_z,
+        trace=trace,
+        ctx=ctx,
+        place_what_fits=place_what_fits,
+    )
 
     # A Y-axis step is end-on in the front view, so the X/Z profile-strip
     # leaders are geometrically inapplicable. Place one radial leader per

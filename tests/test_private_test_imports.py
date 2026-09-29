@@ -19,10 +19,10 @@ Catches two white-box forms across ALL test-suite modules (not just ``test_*.py`
 **Known static-analysis gaps** (a ratchet, not a sandbox — it stops the *common* forms growing,
 not every reflective escape): fully *dynamic* access (``sys.modules["...from_model"]._name``,
 ``importlib.import_module``, ``__import__``) and *string-name* reflection on a module alias
-(``getattr(h, "_x")`` / ``monkeypatch.setattr(h, "_x", …)``) can't be resolved statically. One such
-reach exists (``from_model._solve_strip_ys`` / ``_greedy_strip_ys``, monkeypatched via
-``sys.modules`` in ``test_make_drawing``) — documented here rather than pinned, since the scanner
-can't detect it. The alias table is also file-global (scope-insensitive): a later local named the
+(``getattr(h, "_x")`` / ``monkeypatch.setattr(h, "_x", …)``) can't be resolved statically. The
+strip-solver reach (``from_model._solve_strip_ys`` / ``_greedy_strip_ys``) is monkeypatched via
+``sys.modules`` in ``test_turned_diameters`` and ``test_diameter_leaders``; the scanner cannot
+detect those references. The alias table is also file-global: a later local named the
 same as a module alias would over-flag — safe (fail-closed), and none occurs today.
 """
 
