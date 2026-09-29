@@ -2346,6 +2346,41 @@ def render_polygonal_stock(dwg, plan, a, *, ctx) -> int:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _BossLengthCandidateGeometry:
+    """One approved boss or stock length in its deferred profile corridor."""
+
+    dwg: Any
+    p1: Point
+    p2: Point
+    side: str
+    edge: float
+    label: str
+
+    def build(self, pos: float) -> Dimension:
+        return _dim(
+            self.p1,
+            self.p2,
+            self.side,
+            abs(pos - self.edge),
+            self.dwg.draft,
+            label=self.label,
+        )
+
+    def footprint(self, pos: float) -> tuple[float, float, float, float]:
+        return cast(
+            tuple[float, float, float, float],
+            dim_footprint(
+                self.p1,
+                self.p2,
+                self.side,
+                abs(pos - self.edge),
+                self.dwg.draft,
+                self.label,
+            ),
+        )
+
+
 def render_boss_heights(dwg, plan, a, *, ctx) -> int:
     """Queue approved boss heights and polygonal-stock lengths in a profile corridor."""
     tier = dwg.draft.font_size + 2 * dwg.draft.pad_around_text
@@ -2381,11 +2416,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
         prefix = "m_stocklength" if g.ref.kind == "polygonal_stock" else "m_bossheight"
         name = f"{prefix}_{b.frame.axis}{bi}"
 
-        def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
-            return _dim(p1, p2, side, abs(pos - edge), dwg.draft, label=label)
-
-        def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
-            return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
+        candidate_geometry = _BossLengthCandidateGeometry(dwg, p1, p2, side, edge, label)
 
         def dropped(_name, *, stock=g.ref.kind == "polygonal_stock", measurement=pd.id):
             if stock:
@@ -2405,7 +2436,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=build,
+                build=candidate_geometry.build,
                 order=(_SIZE_SUBCHAIN, bi, name),
                 on_place=lambda _nm: None,
                 # Boss heights use reconciliation-only outcomes. Stock
@@ -2415,7 +2446,7 @@ def render_boss_heights(dwg, plan, a, *, ctx) -> int:
                 force=True,
                 feature=g.ref,
                 measurement=pd.id,
-                footprint=footprint,
+                footprint=candidate_geometry.footprint,
             ),
         )
         n += 1
