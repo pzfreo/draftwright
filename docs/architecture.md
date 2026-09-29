@@ -66,6 +66,8 @@ finished-drawing evidence, including an oracle independent of production callout
 public declaration, and finished-drawing evidence.
 `evaluation/_flat_polygonal_evidence.py` owns flat, polygonal-boss, and polygonal-stock
 correspondence, public declaration, and finished-drawing evidence.
+`evaluation/_hole_family_evidence.py` owns hole, countersink, and hole-pattern
+declaration and finished-drawing evidence.
 `evaluation/step_analysis.py` retains the observer registry
 and re-exports the existing private helper names.
 
