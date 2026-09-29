@@ -2451,7 +2451,8 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         layout_frame_fn=layout_frame,
         register_corridor_fn=register_corridor,
         dim_builder=_dim,
-        place_strip_candidates_fn=place_strip_candidates,
+        # The retry runs after corridor drain, so resolve this live binding then.
+        place_strip_candidates_fn=lambda *args, **kwargs: place_strip_candidates(*args, **kwargs),
     )
 
 
