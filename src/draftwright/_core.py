@@ -22,8 +22,7 @@ from collections.abc import Callable
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult, TurnedProfile
@@ -654,6 +653,30 @@ def _concentric_with_axis(a, x: float, y: float) -> bool:
     return math.hypot(x - a.cx, y - a.cy) <= _CONCENTRIC_TOL_MM
 
 
+@dataclass
+class DimensionPlacementSpec:
+    """Repairable dimension geometry and producer-declared interpretation."""
+
+    p1: Any
+    p2: Any
+    side: str
+    distance: float
+    draft: Any
+    kwargs: dict[str, Any]
+    label_value: float | None = None
+    authored_side: str | None = None
+
+
+def _copy_dimension_spec_riders(source, target) -> None:
+    """Carry producer decisions when repair rebuilds a dimension's geometry."""
+    old = getattr(source, "_dw_spec", None)
+    new = getattr(target, "_dw_spec", None)
+    if old is None or new is None:
+        return
+    new.label_value = getattr(old, "label_value", None)
+    new.authored_side = getattr(old, "authored_side", None)
+
+
 def _dim(p1, p2, side, distance, draft, **kwargs):
     """Build a :class:`Dimension`, tagged with its placement spec.
 
@@ -664,7 +687,7 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
     built this way are re-placeable by :meth:`Drawing.repair`.
     """
     d = Dimension(p1, p2, side, distance, draft, **kwargs)
-    d._dw_spec = SimpleNamespace(
+    d._dw_spec = DimensionPlacementSpec(
         p1=p1, p2=p2, side=side, distance=abs(distance), draft=draft, kwargs=kwargs
     )
     return d

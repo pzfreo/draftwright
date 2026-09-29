@@ -256,7 +256,7 @@ def _label_reading(item, label: str) -> float | None:
       ``annotations/from_model.py``) spans the whole run at **60**.
 
     So the producer says which. Per-unit step dimensions and shared slot-width dimensions
-    set ``_dw_label_value`` to the approved one-feature value, so lint reads the
+    set ``_dw_spec.label_value`` to the approved one-feature value, so lint reads the
     compiler's number rather than inferring a span convention from rendered text
     (ADR 4 (was 0016 Amendment 1)). Everything else means what its label says.
 
@@ -274,7 +274,7 @@ def _label_reading(item, label: str) -> float | None:
         # Repeated angles count corners; they never multiply the displayed
         # degrees into a longer path. Read the actual label, not a value rider.
         return _label_value(re.sub(r"^\s*[1-9]\d*\s*[×x]\s*", "", label))
-    declared = getattr(item, "_dw_label_value", None)
+    declared = getattr(getattr(item, "_dw_spec", None), "label_value", None)
     return float(declared) if declared is not None else _label_value(label)
 
 

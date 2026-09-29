@@ -20,6 +20,7 @@ from draftwright._core import (  # noqa: F401 — _anno_box re-exported
     _STRIP_SPACING,
     _analysis_margins,
     _anno_box,
+    _copy_dimension_spec_riders,
     _decode_hole_location_fact,
     _dim,
     _drawing_bounds,
@@ -2044,6 +2045,7 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                             attr.startswith("_dw_") and attr != "_dw_spec"
                         ):
                             setattr(dimension, attr, value)
+                    _copy_dimension_spec_riders(specimen, dimension)
                     label = getattr(dimension, "label_bbox", None)
                     box = _geom_box(dimension)
             except Exception:  # noqa: BLE001 — an optional lane must fail closed

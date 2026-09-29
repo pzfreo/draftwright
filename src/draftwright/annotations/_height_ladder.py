@@ -110,10 +110,10 @@ def register_height_ladder_candidates(
                 # preference to parsing the label, because `N× v` is drawn under two
                 # conventions here and the string cannot tell them apart: this one is ONE
                 # step, while a hole pitch spans the whole run. Same seam as `_dw_scale`.
-                dim._dw_label_value = per_unit
+                dim._dw_spec.label_value = per_unit
             dim._dw_measurement_span = measurement_span
             if authored_side is not None:
-                dim._dw_authored_side = authored_side
+                dim._dw_spec.authored_side = authored_side
             return dim
 
         # The footprint measures the RENDERED string, so it carries the same suffix the

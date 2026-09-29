@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from draftwright._core import _QUOTED_RE, _dim
+from draftwright._core import _QUOTED_RE, _copy_dimension_spec_riders, _dim
 from draftwright.audit import compare_measurements
 
 # Lint codes the repair loop can mechanically resolve, and the side flip used to
@@ -54,17 +54,10 @@ def _replace_dim(dwg, old, new):
             setattr(new, attr, value)
     if getattr(old, "_dw_scale", None) is not None:
         new._dw_scale = old._dw_scale
-    # And the per-unit meaning of an `N× v` label (#1153). `repair()` runs on every build,
-    # and a tagged `dim_step_typ` is a legal `dim_inside_part` target — so dropping this on
-    # a rebuild turns a correct drawing into a FAILING one, because lint then reads the
-    # label as a span and reports a material contradiction. Its own docstring called this
-    # "the same seam `_dw_scale` uses"; that was only true once it was carried here too.
-    if getattr(old, "_dw_label_value", None) is not None:
-        new._dw_label_value = old._dw_label_value
+    # The same declared meaning and side constraint must follow repaired geometry.
+    _copy_dimension_spec_riders(old, new)
     if getattr(old, "_dw_measurement_span", None) is not None:
         new._dw_measurement_span = old._dw_measurement_span
-    if getattr(old, "_dw_authored_side", None) is not None:
-        new._dw_authored_side = old._dw_authored_side
     _swap_annotation(dwg, old, new)
 
 
@@ -76,7 +69,7 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
         return False
     # A side override is an authored constraint, including after a same-side label
     # reconciliation rebuild. Leave the diagnosis visible instead of flipping it.
-    if getattr(dim, "_dw_authored_side", None) is not None:
+    if getattr(dim._dw_spec, "authored_side", None) is not None:
         return False
     s = dim._dw_spec
     new_side = _OPPOSITE_SIDE.get(s.side)
@@ -120,7 +113,7 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
             or a is None
             or b is None
             or (a.p1, a.p2, a.side) != (b.p1, b.p2, b.side)
-            or getattr(old, "_dw_authored_side", None) != getattr(new, "_dw_authored_side", None)
+            or getattr(a, "authored_side", None) != getattr(b, "authored_side", None)
         ):
             return before
     items = list(dwg.items)
