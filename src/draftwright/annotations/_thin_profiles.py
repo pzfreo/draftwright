@@ -6,13 +6,47 @@ stays in ``from_model`` and preserves its placement order and drop evidence.
 
 from __future__ import annotations
 
+from typing import Any, NamedTuple
+
 from draftwright._core import _END_ON, _dim, _fmt, _tol_suffix
 from draftwright.annotations._common import (
     _SIZE_SUBCHAIN,
     CorridorCandidate,
+    PlacementContext,
     dim_footprint,
     register_corridor,
 )
+from draftwright.model.compiled import ApprovedDimension
+from draftwright.model.ir_foundation import Point
+
+
+class _ChannelWidthCandidate(NamedTuple):
+    """One approved channel width's deferred corridor callbacks."""
+
+    pa: Point
+    pb: Point
+    side: str
+    edge: float
+    label: str
+    view: str
+    dimension: ApprovedDimension
+    draft: Any
+    ctx: PlacementContext
+
+    def build(self, pos: float) -> Any:
+        return _dim(self.pa, self.pb, self.side, pos - self.edge, self.draft, label=self.label)
+
+    def footprint(self, pos: float) -> Any:
+        return dim_footprint(self.pa, self.pb, self.side, pos - self.edge, self.draft, self.label)
+
+    def drop(self, _name: str) -> None:
+        self.ctx.record_issue(
+            "warning",
+            "channel_width_dropped",
+            f"channel width {_fmt(self.dimension.value)} not dimensioned "
+            f"({self.view} {self.side}-strip full)",
+            measurement=self.dimension.id,
+        )
 
 
 def register_plate_thickness(dwg, plan, a, *, ctx, drop_factory) -> int:
@@ -228,19 +262,7 @@ def register_channel_width(dwg, plan, a, *, ctx) -> int:
         channel_counts[facts.width_axis] += 1
         name = f"dim_channel_{facts.width_axis}{index}"
 
-        def _build(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
-            return _dim(pa, pb, side, pos - edge, draft, label=label)
-
-        def _foot(pos, pa=pa, pb=pb, side=side, edge=edge, label=label):
-            return dim_footprint(pa, pb, side, pos - edge, draft, label)
-
-        def _drop_channel(_name, value=pd.value, view=view, side=side, mid=pd.id):
-            ctx.record_issue(
-                "warning",
-                "channel_width_dropped",
-                f"channel width {_fmt(value)} not dimensioned ({view} {side}-strip full)",
-                measurement=mid,
-            )
+        candidate_state = _ChannelWidthCandidate(pa, pb, side, edge, label, view, pd, draft, ctx)
 
         register_corridor(
             ctx,
@@ -251,14 +273,14 @@ def register_channel_width(dwg, plan, a, *, ctx) -> int:
             tier,
             CorridorCandidate(
                 name=name,
-                build=_build,
+                build=candidate_state.build,
                 order=(_SIZE_SUBCHAIN, index, name),
                 on_place=lambda _name: None,
-                on_drop=_drop_channel,
+                on_drop=candidate_state.drop,
                 force=True,
                 feature=g.ref,
                 measurement=pd.id,
-                footprint=_foot,
+                footprint=candidate_state.footprint,
             ),
         )
         n += 1
