@@ -151,6 +151,18 @@ CONTRACT_GROUPS = {
             "test_issue_1357_plural_turned_profiles.py",
         ),
     ),
+    "height_ladder": ContractGroup(
+        ("src/draftwright/annotations/_height_ladder.py",),
+        (
+            "test_compiled_plan_boundary.py",
+            "test_location_dimensions.py",
+            "test_issue_1466_semantic_sides.py",
+            "test_strip_layout.py",
+            "test_deferred_edits.py",
+            "test_refactor_golden.py",
+            "test_solve_trace.py",
+        ),
+    ),
     "solve_trace": ContractGroup(
         ("src/draftwright/annotations/solve_trace.py",),
         ("test_solve_trace.py", "test_compiled_plan_boundary.py"),

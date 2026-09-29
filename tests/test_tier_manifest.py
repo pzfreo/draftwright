@@ -42,6 +42,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "hole_family_evidence": "src/draftwright/evaluation/_hole_family_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
+        "height_ladder": "src/draftwright/annotations/_height_ladder.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
         "angular_ink": "src/draftwright/annotations/angular.py",
         "dimension_ink": "src/draftwright/annotations/_dimension_ink.py",
@@ -217,6 +218,18 @@ def test_edge_callout_change_runs_joint_leader_contracts():
 def test_from_model_change_runs_through_step_placement_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/annotations/from_model.py"])
     assert "test_through_step_semantics.py" in selected
+
+
+def test_height_ladder_owner_runs_compiler_and_corridor_contracts():
+    source = "src/draftwright/annotations/_height_ladder.py"
+    assert selected_groups([source]) == {"height_ladder", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_compiled_plan_boundary.py",
+        "test_issue_1466_semantic_sides.py",
+        "test_strip_layout.py",
+        "test_refactor_golden.py",
+    } <= selected
 
 
 def test_drawing_edit_owner_runs_live_and_deferred_contracts():

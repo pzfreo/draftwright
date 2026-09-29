@@ -161,6 +161,10 @@ and re-exports the existing private helper names.
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
     placer remains in `from_model` for immediate/deferred detail recovery.
+  - **`annotations/_height_ladder.py`** — owns compiled prismatic step-height and
+    overall-height corridor candidates, including chained witnesses and short-rung
+    left-strip escape. `from_model.render_height_ladder` retains view routing and
+    compiled-rung selection; candidates enter the shared corridor solve.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.

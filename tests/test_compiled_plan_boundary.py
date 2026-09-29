@@ -32,6 +32,7 @@ import pytest
 from build123d import Box, Cylinder, Pos, Rot
 
 from draftwright import Sheet
+from draftwright.annotations._height_ladder import register_height_ladder_candidates
 from draftwright.annotations.from_model import render_height_ladder
 from draftwright.builder import build_drawing, detect_part_model
 from draftwright.model.compiled import RenderableDimensionPlan, compile_dimensions
@@ -247,14 +248,20 @@ class TestTheRendererCannotSeeContent:
     def test_the_body_never_touches_the_feature_inventory(self):
         """Reads the source rather than trusting the signature: a renderer could still
         reach content through an argument that legitimately carries it."""
-        tree = ast.parse(inspect.getsource(inspect.getmodule(render_height_ladder)))
+        sources = (
+            (render_height_ladder, {"render_height_ladder", "_render_height_ladder_in_view"}),
+            (
+                register_height_ladder_candidates,
+                {"register_height_ladder_candidates", "_register_short_rungs"},
+            ),
+        )
         renderers = [
             node
-            for node in tree.body
-            if isinstance(node, ast.FunctionDef)
-            and node.name in {"render_height_ladder", "_render_height_ladder_in_view"}
+            for function, names in sources
+            for node in ast.parse(inspect.getsource(inspect.getmodule(function))).body
+            if isinstance(node, ast.FunctionDef) and node.name in names
         ]
-        assert len(renderers) == 2
+        assert len(renderers) == 4
         reads = {
             node.attr
             for renderer in renderers
