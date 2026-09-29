@@ -788,6 +788,82 @@ def _detail_secondary_crop_error(req: DetailRequest) -> str | None:
     return None
 
 
+def _crop_detail_band(a: Analysis, req: DetailRequest, letter: str):
+    """Crop the requested axial and optional secondary band from solid bodies."""
+    # A mixed compound may include PMI curves and cannot be cut as a solid.
+    solids = a.part.solids()
+    if not solids:
+        req.failure_code = "no_solid_body"
+        _log.info("Detail %s skipped (no solid bodies to crop)", letter)
+        return None
+    body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
+    big = 4 * a.bbox_max
+
+    def _cut(axis, edge):
+        c = [a.cx, a.cy, a.cz]
+        c["xyz".index(axis)] = edge
+        return Pos(*c) * Box(big, big, big)
+
+    crop_lo = req.lo if req.crop_lo is None else req.crop_lo
+    crop_hi = req.hi if req.crop_hi is None else req.crop_hi
+    try:
+        cropped = _fuzzy_cut(body, _cut(req.axis, crop_lo - big / 2))
+        if cropped is not None:
+            cropped = _fuzzy_cut(cropped, _cut(req.axis, crop_hi + big / 2))
+        if (
+            cropped is not None
+            and req.cross_axis is not None
+            and req.cross_lo is not None
+            and req.cross_hi is not None
+        ):
+            cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_lo - big / 2))
+            if cropped is not None:
+                cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_hi + big / 2))
+    except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
+        req.failure_code = "crop_failed"
+        _log.warning("Detail %s skipped (crop failed: %s)", letter, exc)
+        return None
+    if cropped is None:
+        req.failure_code = "empty_crop"
+        _log.warning("Detail %s skipped (boolean crop produced no solid)", letter)
+        return None
+    return cropped
+
+
+def _place_detail_marker(dwg, a: Analysis, req: DetailRequest, letter: str, *, ctx) -> None:
+    """Mark the cropped world-space band on its source principal view."""
+    # Use the same two world-axis bands as the detail, on its source camera.
+    axes = {"front": (0, 2), "side": (1, 2), "plan": (0, 1)}[req.source_view]
+    lower, upper = list(a.bb.min), list(a.bb.max)
+    axis_index = "xyz".index(req.axis)
+    lower[axis_index], upper[axis_index] = req.lo, req.hi
+    if req.cross_axis is not None:
+        cross_index = "xyz".index(req.cross_axis)
+        if req.cross_lo is not None:
+            lower[cross_index] = req.cross_lo
+        if req.cross_hi is not None:
+            upper[cross_index] = req.cross_hi
+    corners = []
+    for first in (lower[axes[0]], upper[axes[0]]):
+        for second in (lower[axes[1]], upper[axes[1]]):
+            point = list(a.bb.center())
+            point[axes[0]], point[axes[1]] = first, second
+            corners.append(dwg.at(req.source_view, *point))
+    mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
+    my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
+    marker = Compound(
+        children=[
+            Edge.make_line(Vector(mx0, my0, 0), Vector(mx1, my0, 0)),
+            Edge.make_line(Vector(mx1, my0, 0), Vector(mx1, my1, 0)),
+            Edge.make_line(Vector(mx1, my1, 0), Vector(mx0, my1, 0)),
+            Edge.make_line(Vector(mx0, my1, 0), Vector(mx0, my0, 0)),
+        ]
+    )
+    marker.is_centerline = True  # furniture, not a dimension — exempt from overlap lint
+    ctx.place(marker, f"detail_marker_{letter}")
+    ctx.place(Note(letter, (mx1 + 3, my1 + 2), dwg.draft), f"detail_marker_label_{letter}")
+
+
 def _render_detail(
     dwg, a: Analysis, req: DetailRequest, view_name: str, letter: str, *, ctx, reserved_box=None
 ) -> bool:
@@ -841,43 +917,8 @@ def _render_detail(
         req.failure_code = "source_view_unavailable"
         return False
 
-    # Crop to the band along req.axis (two fuzzy cuts). Solids only — a mixed
-    # compound (PMI curves) cannot be cut.
-    solids = a.part.solids()
-    if not solids:
-        req.failure_code = "no_solid_body"
-        _log.info("Detail %s skipped (no solid bodies to crop)", letter)
-        return False
-    body = solids[0] if len(solids) == 1 else Compound(children=list(solids))
-    big = 4 * a.bbox_max
-
-    def _cut(axis, edge):
-        c = [a.cx, a.cy, a.cz]
-        c["xyz".index(axis)] = edge
-        return Pos(*c) * Box(big, big, big)
-
-    crop_lo = req.lo if req.crop_lo is None else req.crop_lo
-    crop_hi = req.hi if req.crop_hi is None else req.crop_hi
-    try:
-        cropped = _fuzzy_cut(body, _cut(req.axis, crop_lo - big / 2))
-        if cropped is not None:
-            cropped = _fuzzy_cut(cropped, _cut(req.axis, crop_hi + big / 2))
-        if (
-            cropped is not None
-            and req.cross_axis is not None
-            and req.cross_lo is not None
-            and req.cross_hi is not None
-        ):
-            cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_lo - big / 2))
-            if cropped is not None:
-                cropped = _fuzzy_cut(cropped, _cut(req.cross_axis, req.cross_hi + big / 2))
-    except Exception as exc:  # noqa: BLE001 — OCC booleans raise broadly
-        req.failure_code = "crop_failed"
-        _log.warning("Detail %s skipped (crop failed: %s)", letter, exc)
-        return False
+    cropped = _crop_detail_band(a, req, letter)
     if cropped is None:
-        req.failure_code = "empty_crop"
-        _log.warning("Detail %s skipped (boolean crop produced no solid)", letter)
         return False
 
     # Footprint = the projected cropped band + the request's annotation pads (the
@@ -1084,37 +1125,7 @@ def _render_detail(
             return False
     dwg._set_view_coordinates(view_name, coords)
 
-    # The marker uses the same two world-axis crop bands as the detail, on
-    # whichever principal camera supplied its profile.
-    axes = {"front": (0, 2), "side": (1, 2), "plan": (0, 1)}[req.source_view]
-    lower, upper = list(a.bb.min), list(a.bb.max)
-    axis_index = "xyz".index(req.axis)
-    lower[axis_index], upper[axis_index] = req.lo, req.hi
-    if req.cross_axis is not None:
-        cross_index = "xyz".index(req.cross_axis)
-        if req.cross_lo is not None:
-            lower[cross_index] = req.cross_lo
-        if req.cross_hi is not None:
-            upper[cross_index] = req.cross_hi
-    corners = []
-    for first in (lower[axes[0]], upper[axes[0]]):
-        for second in (lower[axes[1]], upper[axes[1]]):
-            point = list(a.bb.center())
-            point[axes[0]], point[axes[1]] = first, second
-            corners.append(dwg.at(req.source_view, *point))
-    mx0, mx1 = min(p[0] for p in corners), max(p[0] for p in corners)
-    my0, my1 = min(p[1] for p in corners), max(p[1] for p in corners)
-    marker = Compound(
-        children=[
-            Edge.make_line(Vector(mx0, my0, 0), Vector(mx1, my0, 0)),
-            Edge.make_line(Vector(mx1, my0, 0), Vector(mx1, my1, 0)),
-            Edge.make_line(Vector(mx1, my1, 0), Vector(mx0, my1, 0)),
-            Edge.make_line(Vector(mx0, my1, 0), Vector(mx0, my0, 0)),
-        ]
-    )
-    marker.is_centerline = True  # furniture, not a dimension — exempt from overlap lint
-    ctx.place(marker, f"detail_marker_{letter}")
-    ctx.place(Note(letter, (mx1 + 3, my1 + 2), dwg.draft), f"detail_marker_label_{letter}")
+    _place_detail_marker(dwg, a, req, letter, ctx=ctx)
 
     # Caption below the placed view (anchored to its real footprint).
     ctx.place(caption, f"detail_caption_{letter}")

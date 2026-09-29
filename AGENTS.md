@@ -32,16 +32,23 @@ ranked map (an upward module-level import or a cycle fails CI), and
 [`docs/architecture.md`](docs/architecture.md) is the module-by-module map. Keep the two
 in step; do not restate the module list here.
 
-In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
-geometry maths, registry, measurement support with pocket/pad location predicates,
-recognition-boundary contracts and ownership, and the `model/` IR waist with its
-foundational record owner, dimension-intent and oriented-slot geometry validation
-(ADR 1) → **1**
-`_core` / `document_input` / the stable `location_contract` import path → **2**
+In outline, by `_LAYERS` rank: **0** strict package leaves — placement solvers,
+geometry maths, registry with typed candidate-region provenance, measurement support
+with pocket/pad location predicates,
+and recognition-boundary contracts → **1**
+the `model/` IR waist with its foundational record owner, dimension-intent and
+oriented-slot geometry validation, `detect_inventory` aggregate projection and
+`detect_ownership` stages, shared profile-angle requirements, the oriented-slot
+contract, plate correspondence, the prepared recognition-frame boundary and
+recognition ownership (ADR 1), plus `_core` / `document_input` /
+the stable `location_contract` import path; the model's separate import allowlist
+keeps it below `_core` → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,
 `_pmi_linear_geometry`, `_pmi_support_blockers`, `pmi`,
-`linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
-`annotations/` (the render passes, including feature-family `_slots`,
+`linting/`, `reporting`, `drawing_evidence`, render-free corridor demand planning,
+and peers → **3** `analysis` and
+recognition lifecycle state → **4**
+`annotations/` (the render passes, including axial and rotational `_axial_render`, feature-family `_slots`,
 `_pocket_pad`, `_edge_callouts`, `_thin_profiles`, `_diameters`, `_locations`, `_gdt`,
 `_pmi_dimensions`, `_step_lengths`, and `_height_ladder` owners, shared machined
 leader lowering in `_machined_leaders`, analytical dimension ink in `_dimension_ink`,
@@ -49,7 +56,8 @@ bounded same-batch label repair in `_dimension_ink_repair`, shared page-space
 placement geometry in `_placement_geometry`, required strip-ink resolution and
 survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, typed feature-leader region expansion in
-`_leader_candidates`, plus the optional `solve_trace` recorder;
+`_leader_candidates`, typed intake, assignment, fallback, and commit phases in
+`leaders`, plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
 `intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the
@@ -68,7 +76,9 @@ Shared three-decimal correspondence rounding, exact built-in finite-real validat
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
 shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation live inside
-rank-2 `linting/_coverage_common`.
+rank-2 `linting/_coverage_common`; `linting/_registry` owns the named physical-requirement
+carrier record. Rank-0 `measurement_support` keeps the shared witness and location predicates
+without a package import.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
 evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence;
 `_groove_evidence.py` owns groove correspondence, declaration, and drawing evidence;

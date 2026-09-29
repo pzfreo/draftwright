@@ -19,11 +19,11 @@ from draftwright.linting._coverage_common import index_evidence as _index_eviden
 from draftwright.linting._coverage_common import recess_point as _point
 from draftwright.linting._coverage_common import recess_positive as _positive
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
-from draftwright.measurement_support import RequirementCarrier
 from draftwright.section_recess_contract import recesses_with_kind, section_recess_fields
 
 RoundBottomBlindSlotRequirementState = Literal[

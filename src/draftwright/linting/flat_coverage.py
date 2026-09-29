@@ -16,12 +16,12 @@ from quiddity import RecognitionResult
 from draftwright._geometry import _canonical_axis_direction
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import (
+    RequirementCarrier,
     satisfaction_ids,
     satisfaction_of,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import LintIssue
-from draftwright.measurement_support import RequirementCarrier
 
 FlatRequirementState = Literal[
     "placed",

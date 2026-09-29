@@ -168,7 +168,7 @@ from draftwright.view_plan import (
 
 #: "Not supplied" for `Sheet.dimension`'s positional parameters. They cannot simply be
 #: required: a keyword-only legacy call has to reach the removal message rather than die on
-#: "missing 2 required positional arguments" (#720).
+#: "missing 2 required positional arguments".
 _UNSET = object()
 
 
@@ -373,7 +373,7 @@ class _Hole(_Nameable):
         # A prior bore-only fit is the role-specific override of this generic diameter key.
         # Remove it so the later call wins for the bore, preserving the fluent API's existing
         # last-writer contract. In the other order, a later fit intentionally overrides only
-        # the bore while this hole-wide tolerance remains on recess diameters (#1360).
+        # the bore while this hole-wide tolerance remains on recess diameters.
         self._sheet._tolerances.pop((self._token, "diameter", "bore"), None)
         self._sheet._tolerances[(self._token, "diameter")] = _tolerance_decoration(
             lo,
@@ -444,7 +444,7 @@ class _Hole(_Nameable):
             depth = rdp if depth is None else depth
         if diameter is None or depth is None:
             raise ValueError(f"{kind} needs a tool object, or explicit diameter= and depth=")
-        # same positivity guard declare.hole() applies to cbore/spotface (#452/#462)
+        # same positivity guard declare.hole() applies to cbore/spotface
         _require_positive(**{f"{kind} diameter": diameter, f"{kind} depth": depth})
         return (diameter, depth)
 
@@ -706,7 +706,7 @@ class _Params(_Nameable):
         # Only reached for attributes _Params doesn't define (every Sheet verb): forward
         # to the owning sheet so the fluent chain is unbroken. Guard the two real fields:
         # if they aren't set yet (an instance built WITHOUT __init__ — copy/pickle), raise
-        # rather than recurse forever resolving self._sheet (#807).
+        # rather than recurse forever resolving self._sheet.
         if name in ("_sheet", "_token"):
             raise AttributeError(name)
         return getattr(self._sheet, name)
@@ -749,10 +749,9 @@ class _Params(_Nameable):
         if not parameters:
             # A feature with no dimensioned parameters has nothing to tolerance, and
             # accepting the call would drop a drafting instruction in silence — the failure
-            # this codebase ranks below a visible raise (#630/#631). Reachable since #922
-            # made every declaration verb hand back a handle: `add(PmiFeature(...))` and
-            # `measured_dimension(...)` both produce parameterless features, and before that
-            # they returned the Sheet so `.tolerance()` could not be called at all (#931).
+            # this codebase ranks below a visible raise. `add(PmiFeature(...))` and
+            # `measured_dimension(...)` produce parameterless features with handles,
+            # so this call is reachable and must be refused.
             kind = self._sheet._features[self._i].kind
             extra = (
                 " — a measured dimension carries its own tolerance: pass upper_tol=/lower_tol="
@@ -765,7 +764,7 @@ class _Params(_Nameable):
             )
         if on is None:
             # A whole-feature tolerance supersedes any earlier per-role override on this
-            # feature — bare means "all alike", so it is order-independent (#807):
+            # feature — bare means "all alike", so it is order-independent:
             # drop this feature's role-keyed (3-tuple) entries, then set the kind keys.
             for key in [
                 k
@@ -858,7 +857,7 @@ class _Control:
         self._sheet = sheet
         self._target = target
         # A token, not an index: this builder outlives the `control()` call that made it, so a
-        # reorder between `control(bore)` and `.position(0.1)` must not retarget it (#908).
+        # reorder between `control(bore)` and `.position(0.1)` must not retarget it.
         self._src = src_token
         self._view = view
         self._side = side
@@ -1010,7 +1009,7 @@ class Sheet(_SheetViewMethods):
         leader_region = leader_region_policy(leader_region).value
         annotation_layout = annotation_layout_policy(annotation_layout)
         self._part = part
-        # (token, feature) entries — identity, not position (#908). `_features` is the
+        # (token, feature) entries — identity, not position. `_features` is the
         # view; handles hold tokens and resolve through it, so a reorder of the public
         # list moves each token with its feature instead of stranding references.
         self._entries: list[tuple[int, object]] = []
@@ -1043,7 +1042,7 @@ class Sheet(_SheetViewMethods):
         self._tolerances: dict = {}
         # P2c GD&T provenance: (gdt_feature_token -> source_feature_token). A finish/datum stores
         # its origin by TOKEN, not the object, so a later size verb replacing the source feature
-        # (hole().depth()) doesn't strand the link, and a reorder cannot retarget it (#910);
+        # (hole().depth()) doesn't strand the link, and a reorder cannot retarget it;
         # materialized to the FINAL object at build.
         self._gdt_src: list = []
         # Corner-block tables (notes / revision / BOM / schedule) — applied at build() via the
@@ -1051,13 +1050,13 @@ class Sheet(_SheetViewMethods):
         # clear of the views + title block (like the hole table). Each: {rows, prefer, name}.
         self._tables: list = []
         self._schedules: list[dict] = []
-        # ADR 4 (was 0016) augmenting dimension intents (#872), token-keyed for the same reason as
+        # ADR 4 (was 0016) augmenting dimension intents, token-keyed for the same reason as
         # `_tolerances`: a handle may be recorded before a later size verb replaces the
         # feature, and a position would then name whatever moved into the slot.
         # Materialized to `RequestedDimension` against the FINAL features at build.
         # Each entry: {"token", "role", "discriminator"}.
         self._added_dimensions: list[dict] = []
-        # The COMPLETE authored dimension set (#874/#876) — the other of the model's two
+        # The COMPLETE authored dimension set — the other of the model's two
         # dimension sources, mutually exclusive with `_auto_dimensions`. Token-keyed like
         # every other feature reference on this class.
         self._authored: list[dict] = []
@@ -1067,12 +1066,11 @@ class Sheet(_SheetViewMethods):
         # Where the dimensions come from, and WHO said so — `None` (nobody has yet),
         # ``"explicit"`` (an `auto_dimensions()` line) or ``"implicit"`` (`from_part`, which
         # chooses on the caller's behalf). MANDATORY unless the sheet authors its own set
-        # instead (#874): `_check_dimension_source` refuses a build that names neither, so
+        # instead: `_check_dimension_source` refuses a build that names neither, so
         # the drawing never falls back to a source nobody chose.
         #
-        # One tri-state rather than a flag plus an "was it explicit" flag: the pair could
-        # be set to a combination that means nothing, and clearing the source then took two
-        # assignments — which is how the first cut of this broke the identity suite (#921).
+        # One tri-state rather than a flag plus a "was it explicit" flag: the pair could
+        # represent an impossible combination, and clearing the source would take two assignments.
         # Only ``"explicit"`` conflicts with an authored set.
         self._auto_dimensions: str | None = None
         # ADR 2 (was 0018) authored view input.  These mutable declaration records are private
@@ -1088,7 +1086,7 @@ class Sheet(_SheetViewMethods):
         self._added_derived_views: list[dict] = []
         self._view_relations: list[ViewRelation] = []
         self._view_pins: list[ViewPin] = []
-        # A requested section A–A (#841): ``None`` = no request, else a resolver tuple
+        # A requested section A–A: ``None`` = no request, else a resolver tuple
         # (``kind``, ``payload``) materialized to a cut-plane Y in ``_decorations`` — ``at``
         # a literal Y, ``feature`` a declared-feature index, ``auto`` the part-centre Y.
         self._section: tuple | None = None
@@ -1104,8 +1102,8 @@ class Sheet(_SheetViewMethods):
         )
         if _replayed_scale is not None:
             self._opts["_replayed_scale"] = _replayed_scale
-        # drawn_by / tolerance (title block, #474) forward to build_drawing only when set, so an
-        # unset value keeps build_drawing's own defaults rather than None. Since #1157 the
+        # drawn_by / tolerance (title block) forward to build_drawing only when set, so an
+        # unset value keeps build_drawing's own defaults rather than None. The
         # tolerance default IS None — an unauthored general tolerance is stated as unspecified
         # instead of silently becoming ISO 2768-m — so this branch now carries only an explicit
         # choice, including `tolerance=""` for a deliberately blank cell.
@@ -1113,9 +1111,9 @@ class Sheet(_SheetViewMethods):
             self._opts["drawn_by"] = drawn_by
         if tolerance is not None:
             self._opts["tolerance"] = tolerance
-        # Standing ISO 7200 title-block fields (#766) — forward only when set, so an unset
+        # Standing ISO 7200 title-block fields — forward only when set, so an unset
         # value keeps build_drawing's defaults ("" / revision "A").
-        # AP242 PMI reconciliation (#1563). A Sheet holds an in-memory solid, which carries no
+        # AP242 PMI reconciliation. A Sheet holds an in-memory solid, which carries no
         # AP242 document, so until now no script-built drawing reconciled source PMI at all —
         # not even to report that it had not. `source` names the STEP the solid was read from
         # (a generated script already opens exactly that path), and `pmi` selects the mode the
@@ -1141,11 +1139,8 @@ class Sheet(_SheetViewMethods):
             ("text_position", text_position),
             ("text_orientation", text_orientation),
             ("zones", zones),
-            # The last build option the facade did not forward (#940). It matters now that the
-            # Sheet script is the only generated script: the imperative one put a raw
-            # `build_drawing(...)` call in the file, so a reader could add any engine kwarg by
-            # editing it. Retiring that surface without this would take `detail_view` away from
-            # everyone generating a script, which is the capability loss #940's gate forbids.
+            # Forward detail_view so generated Sheet scripts can express the same
+            # build option as direct build_drawing calls.
             ("detail_view", detail_view),
         ):
             if _v is not None:
@@ -1200,7 +1195,7 @@ class Sheet(_SheetViewMethods):
         explicit `auto_dimensions()` still conflicts — there the script has said both things.
         """
         sheet = cls(part, **opts)
-        sheet._features.extend(detect_part_model(part).features)  # detect only, no render (#453)
+        sheet._features.extend(detect_part_model(part).features)  # detect only, no render
         sheet._auto_dimensions = "implicit"
         return sheet
 
@@ -1460,7 +1455,7 @@ class Sheet(_SheetViewMethods):
         token, target, discriminator, role = self._resolve_measurement(
             feature, role, axis, "dimension", member=member
         )
-        # The CANONICAL spelling is stored, not what was typed (#963). Otherwise a generated
+        # The CANONICAL spelling is stored, not what was typed. Otherwise a generated
         # script's dialect depended on how its source model was authored — mirrored sets wrote
         # parameter ids, hand-authored sets echoed back whatever the author used.
         self._authored.append(
@@ -1564,7 +1559,7 @@ class Sheet(_SheetViewMethods):
                 angular_reference_item_groups=angular_reference_item_groups,
             )
         )
-        # A handle like every other declaration verb (#922). A measured dimension carries its
+        # A handle like every other declaration verb. A measured dimension carries its
         # own number, so a referential `dimension(handle, role)` on it will correctly raise —
         # but it is still a declared feature in the emitted script, and exempting it would put
         # one unnameable line back in the middle of a file where naming is otherwise uniform.
@@ -1707,7 +1702,7 @@ class Sheet(_SheetViewMethods):
             # `_match_object` assumes that without checking — so a wrong argument surfaced as
             # a leaked `AttributeError: 'function' object has no attribute 'bounding_box'`.
             #
-            # Now reachable by an obvious route (#922): the emitted script binds `hole1` and
+            # Now reachable by an obvious route: the emitted script binds `hole1` and
             # imports `hole`, so a user who comments a feature out gets Python's own
             # "Did you mean: 'hole'?" and lands here with the constructor function.
             raise ValueError(
@@ -2070,7 +2065,7 @@ class Sheet(_SheetViewMethods):
         )
         return _Params(self, len(self._features) - 1)
 
-    # -- GD&T / finish aspects (ADR 4 (was 0011) P2c, #479) ---------------------------
+    # -- GD&T / finish aspects (ADR 4 (was 0011) P2c) ---------------------------
 
     def datum(
         self, letter: str, ref, *, view: str | None = None, side: str | None = None
@@ -2228,7 +2223,7 @@ class Sheet(_SheetViewMethods):
             # Through `_replace_feature`, not a raw write: this is a legitimate internal
             # rebind, and a raw write would desync the identity shadow and make an
             # ordinary `hole.note(...)` + `add_dimension(...)` script look like an
-            # unsupported list edit (#872).
+            # unsupported list edit.
             self._replace_feature(gi, replace(self._features[gi], origin=self._features[si]))
 
     def _validate_datums(self) -> None:
@@ -2553,7 +2548,7 @@ class Sheet(_SheetViewMethods):
         # A datum-referenced position is a dimension, but it is SYNTHESIZED (planner +
         # datum) rather than carried by the feature, so it has no `DimParameter` to match.
         # The planner owns which kinds have one; asking it here is what lets an authored
-        # set name a location — and therefore omit one (#925).
+        # set name a location — and therefore omit one.
         if _location_role(target) is not None:
             roles.add(_LOCATION_ROLE)
         if role not in roles:
@@ -2567,7 +2562,7 @@ class Sheet(_SheetViewMethods):
         if member is not None:
             raise ValueError("member selects only a location measurement")
         matching = [p for p in params if role in (p.role, p.parameter_id)]
-        # ── canonical spelling: the parameter id (#963) ──────────────────────────────
+        # ── canonical spelling: the parameter id ──────────────────────────────
         # A role spelling ("bore") and a parameter id ("bore.diameter") both resolve, and
         # they are not synonyms: the role selects EVERY parameter carrying it, the id selects
         # one. On a role with a single parameter that difference is invisible, which is why it
@@ -2587,7 +2582,7 @@ class Sheet(_SheetViewMethods):
                 f"({', '.join(bases)}) — the role is the family, not one of them. Name the "
                 f"one you mean, or declare each."
             )
-        # A DISCRIMINATED parameter is named by its full id like any other (#965). It
+        # A DISCRIMINATED parameter is named by its full id like any other. It
         # was the one exception — the bare role plus `axis=` — which meant `dimension_ids()` listed a
         # spelling that then raised "ambiguous", breaking the contract the generated header
         # points people at. The id already carries the variant, so it is self-sufficient; the
@@ -2602,7 +2597,7 @@ class Sheet(_SheetViewMethods):
             return token, target, exact.discriminator, role
         discriminated = any(p.discriminator for p in matching)
         if bare and not discriminated:
-            # Deprecated in #963, REMOVED at 0.4.0 (#720). This warned for one development
+            # Removed at 0.4.0. This warned for one development
             # cycle but never appeared in a release, so the break is documented rather than
             # warned — see docs/deprecations.md and the 0.4.0 CHANGELOG. Raising (not
             # normalising) is the point: an authored set means omission is suppression, and a
@@ -2732,7 +2727,7 @@ class Sheet(_SheetViewMethods):
             for (tok, *rest), tol in self._tolerances.items()
         }
         if self._section is not None:
-            deco["section"] = self._section_cut_y()  # the #841 cut-plane Y (scalar key)
+            deco["section"] = self._section_cut_y()  # cut-plane Y (scalar key)
         if section_request is not _UNSET and section_request is not None:
             deco["section"] = self._section_cut_y(section_request)
         if suppress_auto_sections and "section" not in deco:
@@ -2749,7 +2744,7 @@ class Sheet(_SheetViewMethods):
             return float(self._part.bounding_box().center().Y)  # bare section() → part centre
         # An explicit at= is untrusted: a plane outside the part's Y extent leaves the body
         # uncut (a plain projection mislabelled "SECTION A–A") or clears it (a section dropped
-        # after layout already reserved its row). Reject it here (#841).
+        # after layout already reserved its row). Reject it here.
         cut_y = float(payload)
         bb = self._part.bounding_box()
         if not (bb.min.Y < cut_y < bb.max.Y):  # strictly inside — a grazing plane cuts nothing
@@ -2827,7 +2822,7 @@ class Sheet(_SheetViewMethods):
         are placed last, clear of everything already on the sheet."""
         self._prepare()
         # `add_dimension` augments the planner's set, so the sheet must have asked for
-        # one (ADR 4 (was 0016) / #872). Checked HERE rather than in the verb so intent stays
+        # one (ADR 4 (was 0016)). Checked HERE rather than in the verb so intent stays
         # order-independent: declaring the augment before the source must read the same
         # as declaring it after.
         self._check_dimension_source()

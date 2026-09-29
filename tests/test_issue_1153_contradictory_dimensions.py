@@ -150,7 +150,7 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
         assert _label_reading(SimpleNamespace(), "8× 15") == 120.0
 
     def test_a_tagged_label_means_what_the_producer_declared(self):
-        tagged = SimpleNamespace(_dw_label_value=15.0)
+        tagged = SimpleNamespace(_dw_spec=SimpleNamespace(label_value=15.0))
         assert _label_reading(tagged, "8× 15") == 15.0
 
     def test_a_counted_diameter_is_unaffected(self):
@@ -170,7 +170,11 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
     def test_a_tagged_typ_dim_drawn_at_its_step_is_clean(self):
         issues: list = []
         _lint_dim(
-            SimpleNamespace(label="8× 15", measured_length=15.0, _dw_label_value=15.0),
+            SimpleNamespace(
+                label="8× 15",
+                measured_length=15.0,
+                _dw_spec=SimpleNamespace(label_value=15.0),
+            ),
             None,
             issues,
         )
@@ -180,7 +184,11 @@ class TestTheProducerSaysWhatItsRepeatLabelMeasures:
         # Tagging declares the meaning; it is not an exemption.
         issues: list = []
         _lint_dim(
-            SimpleNamespace(label="8× 15", measured_length=37.0, _dw_label_value=15.0),
+            SimpleNamespace(
+                label="8× 15",
+                measured_length=37.0,
+                _dw_spec=SimpleNamespace(label_value=15.0),
+            ),
             None,
             issues,
         )
@@ -223,7 +231,11 @@ class TestOnlyTheProducerThatMeansItTags:
             if "×" in str(getattr(o, "label", "")) and getattr(o, "measured_length", None)
         ]
         assert repeats, f"the {name} fixture drew no repeat-labelled dimension"
-        tagged = [o.label for o in repeats if getattr(o, "_dw_label_value", None) is not None]
+        tagged = [
+            o.label
+            for o in repeats
+            if getattr(getattr(o, "_dw_spec", None), "label_value", None) is not None
+        ]
         assert not tagged, (
             f"{name}: {tagged} claim per-unit semantics, so lint would read their labels as "
             f"one member instead of the run and stop detecting a wrong-endpoint span"
@@ -244,8 +256,8 @@ class TestTheTagSurvivesARebuild:
 
         from draftwright.repair import _replace_dim
 
-        old = NS(_dw_label_value=10.0, _dw_scale=2.0)
-        new = NS()
+        old = NS(_dw_spec=NS(label_value=10.0, authored_side=None), _dw_scale=2.0)
+        new = NS(_dw_spec=NS())
         registry = NS(
             named=lambda _n: None,
             names=lambda: (),
@@ -257,7 +269,7 @@ class TestTheTagSurvivesARebuild:
         # swallowing would let a future rewrite raise before the copy while the test stayed
         # green — the exact vacuity this file keeps finding elsewhere.
         _replace_dim(drawing, old, new)
-        assert getattr(new, "_dw_label_value", None) == 10.0, (
+        assert new._dw_spec.label_value == 10.0, (
             "a rebuilt dimension lost the number its `N×` label multiplies"
         )
         assert getattr(new, "_dw_scale", None) == 2.0, "the sibling tag regressed"
@@ -284,7 +296,7 @@ class TestTheEngineStillProducesTruthfulRepeatDimensions:
             if "×" in str(getattr(o, "label", "")) and getattr(o, "measured_length", None)
         ]
         assert typ, "the fixture no longer draws a repeat-labelled dimension"
-        assert all(getattr(o, "_dw_label_value", None) is not None for o in typ), (
+        assert all(getattr(o._dw_spec, "label_value", None) is not None for o in typ), (
             "the TYP producer stopped declaring what its label measures, so lint would read "
             "the label as a span and report a false contradiction"
         )

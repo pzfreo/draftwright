@@ -40,6 +40,7 @@ from draftwright.annotations._common import (
     register_corridor,
     strip_free_span,
 )
+from draftwright.annotations._dimension_ink import DimensionInkCandidate
 from draftwright.annotations.angular import AngularDimension, AngularInk
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.linting.ink_overlap import segments_of
@@ -656,7 +657,7 @@ def _sheet_leader_fallback(
         settled_segments.extend(annotation_segments)
         crossable_strokes = (
             isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
-            or bool(getattr(annotation, "_dw_dimension_candidate", False))
+            or isinstance(annotation, DimensionInkCandidate)
             or type(annotation).__name__ in CROSSABLE_TYPES
         )
         if not crossable_strokes:

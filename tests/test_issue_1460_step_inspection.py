@@ -83,6 +83,8 @@ _EXPECTED_ENGINE_MODULES = frozenset(
         "draftwright.model.callout",
         "draftwright.model.declare",
         "draftwright.model.detect",
+        "draftwright.model.detect_inventory",  # aggregate projection at the detector seam
+        "draftwright.model.detect_ownership",  # radius partition at the detector seam
         "draftwright.model.dimension_intent",
         "draftwright.model.ir",
         "draftwright.model.ir_foundation",  # record validation and parameter IDs during detect

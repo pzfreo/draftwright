@@ -104,22 +104,22 @@ _CONVENTION = {
     ("bolt_circle", "diameter"): "leader",  # BCD (a pitch-circle diameter)
     ("pitch", "length"): "pitch",  # linear-array pitch — distinct from a plain linear dim
     ("grid_pitch", "length"): "pitch",
-    ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout (#724)
+    ("chamfer", "length"): "leader",  # C{leg} / {leg}×{angle}° leader callout
     ("channel_width", "length"): "linear",
-    ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout (#725)
-    ("blend", "radius"): "leader",  # complete convex chain, one R requirement (#1433)
+    ("fillet", "radius"): "leader",  # R{radius} (grouped n× R) leader callout
+    ("blend", "radius"): "leader",  # complete convex chain, one R requirement
     # One circular blind-step leader carries the quarter-cylinder radius and stopped depth.
     ("circular_step_radius", "radius"): "leader",
     ("circular_step_depth", "length"): "leader",
-    # One paired-ramp leader carries the two equal angles and their shared run (#1382).
+    # One paired-ramp leader carries the two equal angles and their shared run.
     ("ramp_angle", "angle"): "leader",
     ("ramp_run", "length"): "leader",
     ("seat_diameter", "diameter"): "leader",
     ("seat_run", "length"): "leader",
     ("seat_sweep", "angle"): "leader",
     ("through_step_leg", "length"): "linear",
-    ("flat", "length"): "leader",  # {across} A/F across-flats leader callout (#726)
-    # One groove callout carries BOTH params: {width} WIDE × ø{diameter} (#727)
+    ("flat", "length"): "leader",  # {across} A/F across-flats leader callout
+    # One groove callout carries both params: {width} WIDE × ø{diameter}.
     ("groove", "length"): "leader",
     ("groove", "diameter"): "leader",
     ("gusset_thickness", "length"): "leader",
@@ -127,7 +127,7 @@ _CONVENTION = {
     ("gusset_pitch", "length"): "leader",
     ("gusset_spacing", "length"): "leader",
     ("gusset_location", "length"): "leader",
-    # One pocket callout carries all THREE params: W × L × D DEEP (#728)
+    # One pocket callout carries all three params: W × L × D DEEP.
     ("pocket_width", "length"): "leader",
     ("pocket_length", "length"): "leader",
     ("pocket_depth", "length"): "leader",
@@ -141,13 +141,12 @@ _CONVENTION = {
     ("round_bottom_blind_slot_flat_width", "length"): "leader",
     ("round_bottom_blind_slot_radius", "radius"): "leader",
     # A plate thickness is a linear Dimension. That IS the table default, but the
-    # entry is explicit anyway (#744): this table is the one convention
+    # entry is explicit anyway: this table is the one convention
     # registry, and a planner-fed kind relying on the implicit default would erode
     # that — unknown pairs should eventually fail loudly, not silently go linear.
     ("thickness", "length"): "linear",
-    # A slot's width + length are linear Dimensions with witness lines (#730); a proved
-    # obround end radius is a normal-to-arc leader (#1752) —
-    # again the table default, entered explicitly per the #744 rule above.
+    # A slot's width + length are linear Dimensions with witness lines; a proved
+    # obround end radius is a normal-to-arc leader. Both conventions are explicit.
     ("slot_width", "length"): "linear",
     ("slot_length", "length"): "linear",
     ("slot_end_radius", "radius"): "leader",
@@ -216,17 +215,17 @@ class PlannedDimension:
     # provenance (ADR 5 (was 0010)). ``None`` for dims not tied to a single feature.
     feature: Feature | None = None
     # When this dim is not drawn because ANOTHER dimension already states the same physical
-    # fact, the dimension that now owns it (#1154). Suppression alone says a measurement is
+    # fact, the dimension that now owns it. Suppression alone says a measurement is
     # not drawn; this says where the reader finds it instead, so completeness lint can
     # require that the owner actually landed rather than assume a consolidated fact is on
     # the sheet.
     #
     # Set INDEPENDENTLY of `reason`: an authored omission carries it too, whenever the
     # author's set keeps the owner. The author decides which dimensions are drawn, not where
-    # the geometry states a fact, and the two must critique alike (#964 parity). ``None``
+    # the geometry states a fact, and the two must critique alike. ``None``
     # wherever nothing takes the fact over.
     conveyed_by: DimensionId | None = None
-    # Per-intent display policy (#1349). The authoritative numeric value remains on ``param``;
+    # Per-intent display policy. The authoritative numeric value remains on ``param``;
     # legacy callout consumers use this field until they migrate to ``ApprovedDimension``.
     display_decimals: int | None = None
     # Declarative projection/strip intent carried from the referential request.  Resolution
@@ -260,8 +259,8 @@ CORRELATED_SETS: frozenset[tuple[str, str]] = frozenset(
         ("step_level", "step_height"),
         ("step_level", "step_position"),
         # Provisional (ADR 4 (was 0016) tier 3): whether a rotational body's concentric bores
-        # stay one identity or split into addressable members follows the #754
-        # planner-routing migration; one identity until something says otherwise.
+        # stay one identity or split into addressable members is unresolved;
+        # keep one identity until the planner contract changes.
         ("rotational", "bore"),
     }
 )
@@ -478,7 +477,7 @@ def _group_view(feature: Feature, planned_views=None) -> str | None:
 _PLANE_TOL = 1e-6
 
 #: The reason a feature-local extent carries when an overall extent already states the
-#: same two support planes (#1154).
+#: same two support planes.
 _CONSOLIDATED = "the overall extent already measures these two support planes"
 
 
@@ -577,7 +576,7 @@ def _envelope_suppression(model: PartModel, param: DimParameter):
     dimension the rule set already withholds would delete the measurement from the sheet.
     """
     # A rotational part's OD already conveys its cross-axis extent(s); the envelope
-    # dim(s) perpendicular to the turning axis would double-dimension it (#222). The
+    # dim(s) perpendicular to the turning axis would double-dimension it. The
     # axis-aligned envelope dim (the length) is kept. (The overall *height* dim is the
     # height-ladder renderer's call — it skips it for an X/Y rotational part likewise.)
     rot = next((f for f in model.features if f.kind == "rotational"), None)
@@ -787,23 +786,14 @@ def _datum_for(model: PartModel, param: DimParameter) -> Datum | None:
 
 #: Which feature kinds get a datum-referenced position, and what that position is called.
 #:
-#: The ONE statement of "this feature is locatable". :func:`plan_locations` builds from it,
-#: and the authored-set vocabulary derives from it (:func:`location_role`), so a script can
-#: name `dimension(hole, "location")` exactly when the planner would emit one. Before #925
-#: a location was unnameable — it had no `DimParameter`, so an authored set could neither
-#: include nor exclude it, and every location was drawn regardless of what the script
-#: declared. A dimension the author cannot address is a dimension the author cannot omit.
-#: The feature types whose position the planner plans. The NAME is not restated here — it
-#: is read from each feature's own `LOCATION_STEM` declaration at call time (#966).
+#: The feature types whose position the planner plans. The authored-set vocabulary
+#: uses the same membership, so a script can name and omit every planned location.
+#: The role name comes from each feature's `LOCATION_STEM` at call time.
 #:
-#: A dict comprehension over the declarations was the first attempt, and it was an
-#: import-time SNAPSHOT: renaming a declaration afterwards left the snapshot stale, so the
-#: mint site kept the old name while the declaration said something else — the same
-#: two-owners defect in a new place (#1010). A membership set plus a live read
-#: cannot go stale.
+#: A membership set plus a live declaration read keeps the mint site aligned with
+#: a declaration whose stem changes after import.
 #:
-#: Membership is by EXACT type, not `isinstance`, matching the `dict[type, str]` this
-#: replaced and `model/detect.py`'s exact-type converter registry. A subclass of a
+#: Membership is by exact type, matching `model/detect.py`'s converter registry. A subclass of a
 #: locatable feature is a new kind: it inherits `LOCATION_STEM`, so accepting it would
 #: mint its position under its PARENT's name and collide with it in the ledger. Declaring
 #: its own stem (and joining this tuple) is the way in.
@@ -827,14 +817,9 @@ _LOCATABLE: tuple[type, ...] = (
 #: (a slot's near-end offset, a side-drilled hole's offset + height). ``None`` means the
 #: engine draws no position for that feature at all.
 #:
-#: **The eligibility question is answered once, here, and read three times** — by
-#: `plan_locations`, by the bbox compilers, and by the authored vocabulary. Re-deriving it
-#: is what broke twice: `location_role` said a hole is locatable while `plan_locations`
-#: said only a Z-normal one is (side-drilled positions drawn outside the plan), and then
-#: it said a PATTERN is locatable while neither compiler emitted one off-axis — so
-#: `dimension(x_pattern, "location")` was accepted and silently produced nothing. The bbox
-#: compiler and off-axis renderer now carry that same physical location requirement through
-#: for X/Y patterns (#1357), so all three readers still share this one eligibility answer.
+#: This eligibility answer is shared by `plan_locations`, the bbox compilers, and
+#: the authored vocabulary. X/Y patterns retain a bbox location requirement, so an
+#: accepted authored location has a renderer even when the pattern is off-axis.
 def location_datum(feature) -> str | None:
     """``"datum_xy"``, ``"bbox"``, or ``None`` — where *feature*'s position is measured
     from, or that it has none. See :data:`_LOCATABLE`."""
@@ -849,14 +834,11 @@ def location_datum(feature) -> str | None:
     if isinstance(feature, HoleFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
     # Framing can make an otherwise ordinary hole pattern X/Y-normal. It remains the same
-    # locatable requirement and uses the bbox compiler/end-on renderer (#1357).
+    # locatable requirement and uses the bbox compiler/end-on renderer.
     if isinstance(feature, PatternFeature):
         return "datum_xy" if feature.frame.axis == "z" else "bbox"
-    # Pocket/slot-patterns: the plan-X / side-Y ladder only, so Z-normal only.
-    # A fall-through, not another `isinstance` + `return None`: membership above is by exact
-    # type, so those three are all that can reach here and the extra arm was
-    # unreachable — dead code that read as defensive and showed up as the one uncovered
-    # line in the patch.
+    # Pocket/slot patterns use the plan-X / side-Y ladder only, so they must be Z-normal.
+    # Exact-type membership above limits this fall-through to those pattern families.
     return "datum_xy" if feature.frame.axis == "z" else None
 
 
@@ -1140,13 +1122,11 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     datum = next((d for d in model.datums if d.id == "datum_xy"), None)
     if datum is None:
         # No datum to measure from — but every otherwise-eligible feature still HAD a location
-        # to lose, so say so rather than returning nothing (#996).
+        # to lose, so say so rather than returning nothing.
         #
-        # This bare `return []` broke the same guarantee as the edge-anchored pocket:
-        # `_check_authored_targets` accepts `dimension(hole, "location")` on feature
-        # eligibility alone, so an author could name a position, pass validation, and get
-        # neither the dimension nor a word about why. It bites a caller-supplied `PartModel`
-        # (ADR 4 (was 0011)), which `build_drawing` preserves verbatim — datums included, or not.
+        # `_check_authored_targets` accepts a location on feature eligibility alone.
+        # A caller-supplied `PartModel` may have no datums (ADR 4 (was 0011)); emit
+        # explicit unavailable outcomes for its otherwise eligible locations.
         #
         # Deliberately NOT fixed by defaulting a datum into model coercion: that would hide
         # malformed compiler input behind a plausible drawing instead of reporting it.
@@ -1183,14 +1163,13 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
     refs: list[tuple[Point, str, Feature, int | None, tuple[str, ...] | None]] = []
     # Features whose location a RULE declined before a reference point existed. They have no
     # ref to plan from, so they cannot go through `refs`, but they were considered — and an
-    # audit that cannot see them reads their absence as "nothing was suppressed" (#996).
+    # audit that cannot see them reads their absence as "nothing was suppressed".
     dropped: list[tuple[Feature, str, str]] = []
     for f in model.features:
         # Which features get a `datum_xy` position — including the orientation rule (the
         # hole/pattern/pad ladder is Z-normal; a pocket's two in-plane coordinates belong
         # in the view normal to its opening, for every orientation) — is `location_datum`'s
-        # single answer. This loop used to restate the orientation half inline, which is
-        # how it came to disagree with the kind table (#925).
+        # single answer. Do not duplicate its orientation rule here.
         role = location_role(f)
         if role is None or location_datum(f) != "datum_xy":
             continue
@@ -1203,10 +1182,8 @@ def plan_locations(model: PartModel) -> list[PlannedDimension]:
         elif isinstance(f, PocketFeature):
             if f.edge_anchored:
                 # The pocket's position is conveyed by the edge it is anchored to, so no
-                # datum location is planned. A RULE decision, and it used to `continue`
-                # silently — so an authored `dimension(pocket, "location")` that
-                # `_check_authored_targets` had ACCEPTED produced nothing at all, with no
-                # diagnostic to say why (#996).
+                # datum location is planned. Report the rule decision so an accepted
+                # authored location does not vanish without an outcome.
                 dropped.append((f, role, "edge-anchored; the edge conveys the position"))
                 continue
             # An ordinary pocket keeps its established in-plane centre location. When
@@ -1273,13 +1250,13 @@ def _request_for(model, feature, param):
         # Identity, NOT structural equality. Two equal-valued features are two distinct
         # targets — a part with two identical envelopes or holes must be able to request
         # a dimension on one of them. (`DimensionId` deliberately compares structurally,
-        # #871, because an id must survive a re-plan that rebuilds the objects; a request
+        # because an id must survive a re-plan that rebuilds the objects; a request
         # targets one declared instance within a single build, so the rules differ.)
         if req.feature is not feature:
             continue
         # A request names either a full `ParameterId` ("bore.depth" — one measurement)
         # or a bare role ("bore" — every measurement under it). Both are useful: the
-        # dotted form is the exact identity #871 built, the short form is what a caller
+        # dotted form names one exact measurement; the short form is what a caller
         # reaches for when the role is unambiguous. ADR 4 (was 0016) leaves this vocabulary open.
         if "." in req.role:
             if req.role != param.parameter_id:
@@ -1980,7 +1957,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             # An authored ± tolerance (ADR 4 (was 0011 §4) / P2a) rides on the decorations side-
             # layer; fold it onto the param so every renderer sees one carrier. A
             # ROLE-keyed (feature, kind, role) decoration wins — it tolerances ONE param
-            # of a multi-param kind (#746, e.g. a pocket's depth, or a rotational OD vs
+            # of a multi-param kind (e.g. a pocket's depth, or a rotational OD vs
             # its bores). A KIND-keyed (feature, kind) decoration is the back-compat
             # fallback that folds onto EVERY param of that kind. `kind` stays in the key —
             # a step's length and diameter share role="step", so role alone can't tell
@@ -1988,7 +1965,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             p = _decorated(model, feature, p)
             suppressed, reason, conveyed_by = _suppression(model, feature, p)
             # A caller's `add_dimension(...)` overrides the rule set's suppression for
-            # exactly the measurement it names (ADR 4 (was 0016) / #872). It changes SELECTION
+            # exactly the measurement it names (ADR 4 (was 0016)). It changes SELECTION
             # only — the value still comes from the geometry, so a request can never
             # introduce a number the part does not carry. Requesting something the
             # planner already emits is a deliberate no-op (idempotence gate): a script
@@ -2000,7 +1977,7 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
             if model.authored_dimensions is not None:
                 # An authored set REPLACES the rule set rather than adding to it: what the
                 # script lists is what the drawing carries, and everything else is omitted.
-                # Marked, not filtered (#875) — the value survives on the group so the
+                # Marked, not filtered — the value survives on the group so the
                 # omission stays inspectable, and the compound-callout dependency rules
                 # still refuse to orphan half a term.
                 authored = _authored_for(model, feature, p)
@@ -2008,9 +1985,8 @@ def plan_dimensions(model: PartModel, *, planned_views=None) -> list[DimensionGr
                 if authored is None:
                     # `conveyed_by` deliberately SURVIVES an authored omission: the author
                     # chose which dimensions are drawn, but not where the geometry states
-                    # this fact. Nulling it made a script that lists the overall extent and
-                    # not the boss height critique differently from the automatic drawing
-                    # that consolidates exactly the same two into one (#964 parity).
+                    # this fact. Keep the same consolidation relationship for authored
+                    # and automatic drawings.
                     suppressed, reason = True, _AUTHORED_OMISSION
                 else:
                     suppressed, reason, conveyed_by = False, None, None

@@ -15,6 +15,7 @@ from draftwright.annotations._common import (
     leader_callout_geometry,
     strip_obstacles,
 )
+from draftwright.annotations._hole_leader_placement import _build_hole_callout_leader
 from draftwright.annotations.leaders import (
     FeatureLeaderCandidate,
     LeaderRegionPolicy,
@@ -86,13 +87,8 @@ class FrontHoleLeaderCandidateAdapter:
 
     def build(self, row: float):
         tip, elbow = self.physical(row)
-        return self.build_leader(
-            tip=(tip[0], tip[1], 0),
-            elbow=(elbow[0], elbow[1], 0),
-            label="",
-            draft=self.draft,
-            text_side=self.side,
-            callout=self.callout,
+        return _build_hole_callout_leader(
+            tip, elbow, self.side, self.callout, self.draft, self.build_leader
         )
 
 
@@ -129,6 +125,13 @@ class HoleLeaderCandidateAdapter:
     anchors: Callable
     member_owner: Callable
     expand_regions: Callable
+    build_leader: Callable
+
+    def build(self, tip, elbow, _owner):
+        candidate_side = "right" if elbow[0] >= tip[0] else "left"
+        return _build_hole_callout_leader(
+            tip, elbow, candidate_side, self.entry[2], self.draft, self.build_leader
+        )
 
     def analytical_geometry(self, tip, elbow, _owner):
         candidate_side = "right" if elbow[0] >= tip[0] else "left"

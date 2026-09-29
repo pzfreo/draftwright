@@ -142,17 +142,17 @@ def _early_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
 
     def _s_rotational():
         # Rotational furniture — OD dim + axis centrelines + concentric-bore leaders —
-        # through the shared whole-model render_rotational (#424/#426). Runs FIRST (its
+        # through the shared whole-model render_rotational. Runs FIRST (its
         # "rotational" _PASS_SEQUENCE slot), so on a turned STEPPED part it places before
         # the diameter/callout stages exactly as the auto-pass does. No only= subset and
         # fixed literal output names (dim_od/centerline_*) ⇒ byte-identical to the auto
-        # pass, so the reconstruction matches (== not ⊇, unlike the #424 diameter case).
+        # pass, so the reconstruction matches exactly; diameter rendering uses a subset.
         if r.rotational_ids:
             assert a is not None and isinstance(model, PartModel)
             render_rotational(target, compile_dimensions(model), a, ctx=ctx)
         # Generated/deferred reconstruction starts with auto_dims=False, so
         # add a non-rotational stepped stack's local axis here before the
-        # location stages suppress a centered bore as axis-located (#881).
+        # location stages suppress a centered bore as axis-located.
         if routable and (r.dia_ids or r.len_ids or r.off_axis_loc_ids):
             assert a is not None
             render_local_turned_centerlines(target, a, ctx=ctx)
@@ -221,7 +221,7 @@ def _early_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
         # Both-axes locations register into the SHARED location corridor with slots,
         # step positions and the height ladder — one crossing-free ladder, one drain
         # (the "drain" stage), so a slot position coincident with a hole location
-        # dedups (#345).
+        # dedups.
         if r.only_loc:
             assert a is not None and isinstance(model, PartModel)  # ⟹ routable
             render_locations(
@@ -295,11 +295,11 @@ def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
             )
 
     def _s_height_ladder():
-        # Prismatic step-height ladder through the auto-pass renderer. (#636) This
+        # Prismatic step-height ladder through the auto-pass renderer. This
         # only REGISTERS ladder candidates; they place at the drain. Their intents
         # drop there (with step positions), NOT here — a raise before the drain
-        # leaves them recorded so a retry rebuilds the batch (#639).
-        # Two things share this renderer, and they are gated separately (#889).
+        # leaves them recorded so a retry rebuilds the batch.
+        # Two things share this renderer, and they are gated separately.
         #
         # The step-height LADDER is a `step_level` feature's correlated rungs, so one
         # recorded intent means "rebuild the whole chain". The OVERALL HEIGHT is envelope
@@ -324,7 +324,7 @@ def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
             # Projected to what was RECORDED. Passing the whole compiled plan once either
             # intent was present meant `overall_height()` alone also rebuilt the step
             # rungs — a dimension nobody asked for, and live/deferred divergence in the
-            # one change relying on their equivalence (#934).
+            # one change relying on their equivalence.
             #
             # `include_overall` is drawing state, so it is an input to the COMPILE
             # (whether the overall height is in the set) rather than something the
@@ -342,7 +342,7 @@ def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
 
     def _s_step_positions():
         # Prismatic step positions (all shoulders) — registration-only, like the
-        # ladder above; placed and dropped at the drain (#639).
+        # ladder above; placed and dropped at the drain.
         if r.step_position_ids:
             assert a is not None and isinstance(model, PartModel)
             from draftwright._core import layout_frame as _lf
@@ -351,7 +351,7 @@ def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
             render_step_positions(target, _cd2(model), _lf(a), ctx=ctx)
 
     def _s_detail_request():
-        # Prismatic step-height detail (#661): queue it exactly as the auto pass
+        # Prismatic step-height detail: queue it exactly as the auto pass
         # does — gated on the build's persisted detail_view setting, firing only when
         # the ladder stage above recorded the "step"/"illegible" escalation
         # (_request_prismatic_detail's own check). Resolved in the "details" stage.
@@ -364,7 +364,7 @@ def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
     def _s_diameters():
         # Step/boss ø diameters through render_diameters' set-solve (row-below /
         # column-left) — placed immediately, before the corridor drain, exactly as
-        # the auto-pass runs it (#699 slice b — the old drain-first order gave the
+        # the auto-pass runs it (the old drain-first order gave the
         # deferred path different obstacle visibility).
         before_dia = set(target.annotations())
         if r.only_dia:
@@ -409,7 +409,7 @@ def _dimension_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
     def _s_slots():
         # Slots regenerate width + length + optional end radius + the model-derived datum position (a
         # superset of the recorded slot intents — auto-pass parity by design) and
-        # register into the shared solves. Planner-fed (#730): the width/length/radius
+        # register into the shared solves. Planner-fed: the width/length/radius
         # values + tolerances come from the plan, like the auto-pass.
         if r.slot_feats:
             assert a is not None and isinstance(model, PartModel)  # ⟹ routable
@@ -460,12 +460,12 @@ def _feature_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
 
     routable, queued_dim_ids = run.routable, run.queued_dim_ids
 
-    # Machined-feature leader callouts (#148): each recorded callout intent draws exactly
+    # Machined-feature leader callouts: each recorded callout intent draws exactly
     # its own feature — the renderer is restricted to the surviving intents' features via
-    # only= (the render_slots #426 Ph2b subset idiom), so commenting one dwg.callout line
-    # drops that one feature (#811) while the full script reproduces the auto pass.
+    # only= (the render_slots subset idiom), so commenting one dwg.callout line
+    # drops that one feature while the full script reproduces the auto pass.
     # Each kind places directly at its own _PASS_SEQUENCE slot (after the drain). Plate is
-    # NOT here — it is a spanned corridor dimension, not a direct leader (#811).
+    # NOT here — it is a spanned corridor dimension, not a direct leader.
     def _s_machined(kind, render):
         ids = r.machined_ids_by_kind.get(kind, set())
         feats = {it.feature for it in state.intents if id(it) in ids}
@@ -535,7 +535,7 @@ def _feature_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
             drain_feature_leaders(target, a, ctx)
 
     def _s_pocket_patterns():
-        # Pocket-pattern callouts + their pitch furniture (#841 outcome 3), restricted to the
+        # Pocket-pattern callouts + their pitch furniture, restricted to the
         # recorded feature(s). Keyed "pocket_patterns" so run_stages fires it at that PRE-drain
         # _PASS_SEQUENCE slot — render_pocket_patterns places the pitch dim directly and needs
         # the strip room the post-drain machined callouts lack.
@@ -559,7 +559,7 @@ def _feature_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
         state.intents = [it for it in state.intents if id(it) not in r.pocket_pattern_ids]
 
     def _s_slot_patterns():
-        # Slot-pattern callouts + their pitch furniture (#841), restricted to the recorded
+        # Slot-pattern callouts + their pitch furniture, restricted to the recorded
         # feature(s). Keyed "slot_patterns" so run_stages fires it at that PRE-drain
         # _PASS_SEQUENCE slot (same reason as pocket patterns).
         feats = {it.feature for it in state.intents if id(it) in r.slot_pattern_ids}
@@ -593,7 +593,7 @@ def _feature_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
     def _s_drain():
         # One drain places everything the register-only stages queued; the corridor-
         # routed intents are dropped only AFTER it succeeds, so a raise leaves them
-        # recorded for a clean retry (#639). Includes the #690 label reconciliation,
+        # recorded for a clean retry. Includes label reconciliation,
         # shared verbatim with the auto-pass (drain_and_reconcile).
         if (
             r.only_loc
@@ -662,7 +662,7 @@ def _late_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
     def _s_section():
         # Render the section, reusing the reserved plan. The room check carves the
         # view row into free segments and takes the leftmost that fits and clears
-        # the title block (#1190) — it does NOT simply start past everything already
+        # the title block — it does NOT simply start past everything already
         # placed, which let one remote occupant veto the whole band.
         # `_add_section_view` clears the reservation and records the outcome. A
         # recorded section with no trigger (r.section is None) is a no-op.
@@ -673,7 +673,7 @@ def _late_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
                 derived_identifiers.release(section.label)
 
     def _s_details():
-        # Resolve every queued enlarged-detail request (#661): the prismatic
+        # Resolve every queued enlarged-detail request: the prismatic
         # request queued above and the crowded turned-head requests
         # render_step_lengths queues (the requests live only on this per-run
         # ctx, so an unresolved queue would die with it). Same position as the
@@ -683,7 +683,7 @@ def _late_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
             assert a is not None
             from draftwright.projection import _fit_iso_view, _project_iso
 
-            # Mirror the auto pass's iso ordering (#661): there, details resolve
+            # Mirror the auto pass's iso ordering: there, details resolve
             # while the ordinary iso still stands at sheet scale (it is fitted into its
             # zone only after _auto_annotate returns), so the free-rectangle
             # search is not blocked by the grown iso. The finalize path inherits
@@ -691,13 +691,13 @@ def _late_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
             # scale for the resolve, then refit it into its zone. An authored iso
             # scale is hard, so it is reprojected and retained at that exact factor.
             # The ordinary refit is deterministic:
-            # same zone + geometry reproduce the build's fit; the #647 snapshot
+            # same zone + geometry reproduce the build's fit; the snapshot
             # covers views/_coords, so a raise mid-stage rolls the iso back too).
             if "iso" in target.views:
                 _project_iso(target, a, a.SCALE * (a.planned_iso_scale or 1.0))
             _resolve_details(target, a, ctx=ctx, identifiers=derived_identifiers)
             if "iso" in target.views and a.planned_iso_scale is None:
-                # Obstacles as on the build path (#1240) — inert today, since a details
+                # Obstacles as on the build path — inert today, since a details
                 # refit disables the grow branch, but the call must not drift from the
                 # builder's shape or the next grow-path change silently loses the cap.
                 _fit_iso_view(target, a, obstacles=annotation_ink_obstacles(target))
@@ -707,11 +707,11 @@ def _late_stages(run: _DrainRun) -> dict[str, Callable[[], None]]:
         # last, so the resolver sees the section + title block as obstacles. It reads
         # ctx.escalations (the callout/location drops collected above) and the
         # scattered-hole coverage recorded at the hole emit site even under
-        # place_furniture=False (#426 Ph4c) to find + replace the plan callouts. The
+        # place_furniture=False to find + replace the plan callouts. The
         # density gate counts ALL analysis holes (a.holes), so this is a FULL-
         # reconstruction escalation: a partial hand-edit that drops some callout()
-        # lines still tabulates the full count (#434); the escalations live only on
-        # this per-run ctx (#639), discarded when finalize returns (#440).
+        # lines still tabulates the full count; the escalations live only on
+        # this per-run ctx, discarded when finalize returns.
         if routable:
             assert a is not None
             _maybe_tabulate_holes(target, a, ctx=ctx, plan=compile_dimensions(model))
@@ -743,8 +743,7 @@ def drain_intents(target, ctx, model, a, r, state: IntentDrainState) -> list[Int
     # declared route runs its own copy of the stage list, so leaving the retraction on the
     # auto path alone made the two fail in OPPOSITE directions: auto retracted, declared
     # never did, and `_crowded_staircase` finalised with every rung on the sheet and the
-    # build still claiming one was withheld. That is an ADR 4 (was 0011) round-trip parity break
-    # (#1216).
+    # build still claiming one was withheld. That is an ADR 4 (was 0011) round-trip parity break.
     if model is not None:
         retract_resolved_withholdings(target, ctx, compile_dimensions(model))
     return state.intents

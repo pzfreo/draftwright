@@ -7,9 +7,12 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from draftwright.contract_values import rounded as _rounded
-from draftwright.linting._registry import measurement_outcome_index, with_measurement_carriers
+from draftwright.linting._registry import (
+    RequirementCarrier,
+    measurement_outcome_index,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import UNJOINED_PARAMETER_ID
-from draftwright.measurement_support import RequirementCarrier
 
 BossRequirementState = Literal[
     "placed",

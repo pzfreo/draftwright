@@ -21,7 +21,9 @@ from quiddity import RecognitionResult
 from draftwright._core import _decode_hole_location_fact
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import location_state
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
+    RequirementCarrier,
     RequirementCarrierEvidence,
     satisfaction_ids,
 )
@@ -31,11 +33,7 @@ from draftwright.linting.issues import (
     is_placement_drop,
     requirement_subject,
 )
-from draftwright.measurement_support import (
-    RequirementCarrier,
-    RequirementExclusion,
-    datum_location_exclusion,
-)
+from draftwright.measurement_support import RequirementExclusion, datum_location_exclusion
 
 _PAD_LOCATION_DATUM_COINCIDENT_CODE = "pad_location_coincident_with_datum"
 _PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
@@ -68,11 +66,6 @@ class PadRequirementOutcome:
 def _pair(values) -> tuple[float, float]:
     lo, hi = values
     return _rounded(lo), _rounded(hi)
-
-
-def _point(values) -> tuple[float, float, float]:
-    x, y, z = values
-    return _rounded(x), _rounded(y), _rounded(z)
 
 
 def _bounds(pad) -> dict[str, tuple[float, float]]:

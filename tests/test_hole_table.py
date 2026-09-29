@@ -621,6 +621,33 @@ class TestPatternGroupBalloon:
         dwg.registry.record_issue(issue)
         analysis = dwg._analysis
 
+        # Pattern-only escalation must refuse an occupied deterministic balloon name
+        # before it can replace a user annotation. Reuse this drawing's analysis so
+        # the later successful/failed pattern paths exercise the same placement seam.
+        pattern_only = replace(dwg.model(), features=(feat,))
+        assert all(feature.kind != "hole" for feature in pattern_only.features)
+        reserved_name = "balloon_plan_6×A_0"
+        assert reserved_name not in dwg.annotations()
+        reserved_ctx = PlacementContext(
+            registry=dwg.registry,
+            coverage=dwg.coverage,
+            items=dwg.items,
+            part_model=pattern_only,
+            escalations=[Escalation("callout", "plan", feat, "strip_full")],
+        )
+        dwg.note("USER KEEP", at=(5.0, 5.0), view="plan", name=reserved_name)
+        reserved = dwg.get_annotation(reserved_name)
+        reserved_before = set(dwg.annotations())
+        prior_issues = len(dwg.registry.issues)
+        _maybe_tabulate_holes(dwg, analysis, ctx=reserved_ctx)
+        assert dwg.get_annotation(reserved_name) is reserved
+        assert set(dwg.annotations()) == reserved_before
+        collision_issues = dwg.registry.issues[prior_issues:]
+        assert len(collision_issues) == 1
+        assert collision_issues[0].code == "balloon_dropped"
+        assert reserved_name in collision_issues[0].message
+        dwg.remove(reserved_name)
+
         # The last IR owner at the shared member position wins balloon attribution. A name
         # landing is not enough: the wrong feature must leave the pattern drop unresolved.
         _maybe_tabulate_holes(dwg, analysis, ctx=ctx)

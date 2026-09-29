@@ -1,6 +1,6 @@
 """Private validation of oriented-slot IR passage and feature geometry.
 
-The public dataclasses stay in ``model.ir``; this rank-0 leaf imports no engine
+The public dataclasses stay in ``model.ir``; this rank-1 internal leaf imports no engine
 module, so detection and declaration keep one shared IR boundary.
 """
 

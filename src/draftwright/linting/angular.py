@@ -12,9 +12,8 @@ from build123d import GeomType
 
 from draftwright.contract_values import cross3 as _cross
 from draftwright.contract_values import dot_fsum as _dot
-from draftwright.linting._registry import cell_approvals_of
+from draftwright.linting._registry import RequirementCarrier, cell_approvals_of
 from draftwright.linting.issues import LintIssue
-from draftwright.measurement_support import RequirementCarrier
 from draftwright.profile_angles import (
     ProfileAngle,
     profile_angle_repetitions,

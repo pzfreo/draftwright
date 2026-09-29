@@ -26,7 +26,7 @@ import copy
 import inspect
 import pathlib
 import pickle
-from dataclasses import replace
+from dataclasses import is_dataclass, replace
 
 import pytest
 from build123d import Box, Cylinder, Pos, Rot
@@ -234,6 +234,31 @@ class TestTheCompilerOwnsContent:
 
 
 class TestTheRendererCannotSeeContent:
+    def test_height_ladder_rung_callbacks_hold_typed_state(self):
+        module = inspect.getmodule(register_height_ladder_candidates)
+        assert module is not None
+        tree = ast.parse(inspect.getsource(module))
+        register = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "register_height_ladder_candidates"
+        )
+        captured_defaults = [
+            node.name
+            for node in ast.walk(register)
+            if isinstance(node, ast.FunctionDef)
+            and node is not register
+            and len(node.args.defaults)
+            + sum(default is not None for default in node.args.kw_defaults)
+            >= 5
+        ]
+        assert not captured_defaults, captured_defaults
+        candidate = module._HeightRungCandidate
+        assert is_dataclass(candidate)
+        assert candidate.__dataclass_params__.frozen
+        assert {"build", "footprint", "drop"} <= set(vars(candidate))
+
     def test_the_signature_takes_the_plan_and_the_frame(self):
         """The structural half of the rule. A renderer that cannot name `model` or `a`
         cannot reconstruct a dimension the compiler withheld — the failure mode is removed
@@ -360,7 +385,10 @@ class TestTheRendererCannotSeeContent:
             ("holes", "_place_pitch_dim._place"): 1,
             ("leaders", "_candidate_hits_component"): 1,
             ("leaders", "place_feature_leader_jobs.place"): 1,
-            ("orchestrator", "_maybe_tabulate_holes_impl"): 7,
+            # Table completion owns the three existing registration reads after
+            # the hole-table stage split; the total inventory remains seven.
+            ("orchestrator", "_maybe_tabulate_holes_impl"): 4,
+            ("orchestrator", "_register_completed_hole_table"): 3,
         }
 
     def test_the_provenance_handle_exposes_no_measurement(self):
@@ -1127,7 +1155,7 @@ class TestTheBoundaryIsLoadBearing:
         an assumption.
         """
         by_contract: dict[str, list[str]] = {"plan": [], "groups": [], "model": []}
-        for mod in ("from_model", "holes"):
+        for mod in ("from_model", "_axial_render", "holes"):
             src = (
                 pathlib.Path(__file__).resolve().parents[1]
                 / "src"

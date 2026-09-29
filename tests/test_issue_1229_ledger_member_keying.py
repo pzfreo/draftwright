@@ -157,11 +157,29 @@ class TestTheEvaluationModuleStaysCheapToImport:
         spec = importlib.util.find_spec("draftwright.evaluation.step_analysis")
         assert spec is not None and spec.origin is not None
         source = Path(spec.origin)
-        helpers = (
-            source.with_name("_double_d_evidence.py"),
-            source.with_name("_pocket_evidence.py"),
-            source.with_name("_turned_step_evidence.py"),
+        helper_names = (
+            "_double_d_evidence",
+            "_edge_profile_evidence",
+            "_flat_polygonal_evidence",
+            "_groove_evidence",
+            "_hole_family_evidence",
+            "_pocket_evidence",
+            "_prismatic_evidence",
+            "_turned_step_evidence",
         )
+        helpers = tuple(source.with_name(f"{name}.py") for name in helper_names)
+        allowed_helpers = {f"draftwright.evaluation.{name}" for name in helper_names}
+
+        def module_scope_imports(node):
+            for child in ast.iter_child_nodes(node):
+                # Class bodies execute at import time; only function bodies stay lazy.
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if isinstance(child, (ast.Import, ast.ImportFrom)):
+                    yield child
+                else:
+                    yield from module_scope_imports(child)
+
         # BOTH `from x import y` and plain `import x`. Matching only `ImportFrom` left the
         # test named for this property unable to see the commonest form; a mutation adding
         # `import draftwright.linting.hole_coverage` was caught only by the subprocess test
@@ -169,21 +187,13 @@ class TestTheEvaluationModuleStaysCheapToImport:
         offenders = []
         for path in (source, *helpers):
             tree = ast.parse(path.read_text())
-            for node in tree.body:
-                # The reviewed evaluation helper imports only Python library modules.
-                # Keep checking it here, so moving code cannot hide an eager engine import.
+            for node in module_scope_imports(tree):
+                # Evidence helpers may import one another, but none may import the engine.
+                # Check module-scope control flow too, so an eager import cannot hide in it.
                 if (
                     isinstance(node, ast.ImportFrom)
                     and (node.module or "").startswith(_ENGINE)
-                    and not (
-                        path == source
-                        and node.module
-                        in {
-                            "draftwright.evaluation._double_d_evidence",
-                            "draftwright.evaluation._pocket_evidence",
-                            "draftwright.evaluation._turned_step_evidence",
-                        }
-                    )
+                    and node.module not in allowed_helpers
                 ) or (
                     isinstance(node, ast.Import)
                     and any(alias.name.startswith(_ENGINE) for alias in node.names)

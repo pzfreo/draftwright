@@ -151,6 +151,7 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/annotations/from_model.py",
             "src/draftwright/annotations/_step_lengths.py",
+            "src/draftwright/annotations/_axial_render.py",
         ),
         (
             "test_through_step_semantics.py",
@@ -160,7 +161,10 @@ CONTRACT_GROUPS = {
         ),
     ),
     "height_ladder": ContractGroup(
-        ("src/draftwright/annotations/_height_ladder.py",),
+        (
+            "src/draftwright/annotations/_height_ladder.py",
+            "src/draftwright/annotations/_axial_render.py",
+        ),
         (
             "test_compiled_plan_boundary.py",
             "test_location_dimensions.py",
@@ -278,7 +282,7 @@ CONTRACT_GROUPS = {
         (
             "test_feature_edit_corridors.py",
             "test_issue_885_prismatic_coverage.py",
-            "test_issue_1599_duplicate_slot_widths.py",
+            "test_requirement_dimension_sharing.py",
             "test_layout_override_lane_issue_1757.py",
             "test_pad_rendering.py",
             "test_pattern_contract.py",
@@ -394,13 +398,17 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/recogn*",
             "src/draftwright/model/detect.py",
+            "src/draftwright/model/detect_inventory.py",
+            "src/draftwright/model/detect_ownership.py",
             "src/draftwright/*_contract.py",
         ),
         (
             "test_boss_ownership.py",
             "test_declared_recognition_gate.py",
             "test_external_recognition_boundary.py",
+            "test_gusset_rib_semantics.py",
             "test_issue_1357_plural_turned_profiles.py",
+            "test_issue_1433_blend_semantics.py",
             "test_issue_1596_bolt_circle_corroboration.py",
             "test_issue_1612_frame_sergio_coverage.py",
             "test_nested_recognition_ownership.py",
@@ -460,10 +468,27 @@ CONTRACT_GROUPS = {
             "test_layout_cleanliness.py",
             "test_layout_generalisation.py",
             "test_place_dimension.py",
+            "test_sheet_section.py",
             "test_strip_layout.py",
             "test_strip_zones.py",
             "test_two_pass_layout.py",
             "test_view_plan.py",
+        ),
+    ),
+    "section_rendering": ContractGroup(
+        ("src/draftwright/annotations/sections.py",),
+        (
+            "test_detail_views.py",
+            "test_script_detail_parity.py",
+            "test_section_hatching.py",
+            "test_sheet_section.py",
+            "test_issue_1190_section_decision.py",
+            "test_issue_1530_section_provenance.py",
+            "test_issue_1604_internal_section.py",
+            "test_through_step_semantics.py",
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_issue_1215_envelope_tolerance.py",
+            "test_audit_differential.py",
         ),
     ),
     "hole_pattern_rendering": ContractGroup(
@@ -510,6 +535,7 @@ CONTRACT_GROUPS = {
             "test_hole_table.py",
             "test_sheet_tables.py",
             "test_issue_1144_transactional_hole_table.py",
+            "test_issue_1215_no_approved_tolerance_is_dropped.py",
         ),
     ),
     "export": ContractGroup(
@@ -539,6 +565,7 @@ CONTRACT_GROUPS = {
 BROAD_SOURCE_PATTERNS = (
     "src/draftwright/_core.py",
     "src/draftwright/analysis.py",
+    "src/draftwright/annotations/orchestrator.py",
     "src/draftwright/builder.py",
     "src/draftwright/drawing.py",
     "src/draftwright/sheet.py",

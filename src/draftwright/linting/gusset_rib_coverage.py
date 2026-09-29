@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from draftwright.linting._registry import satisfaction_ids, with_measurement_carriers
+from draftwright.linting._registry import (
+    RequirementCarrier,
+    satisfaction_ids,
+    with_measurement_carriers,
+)
 from draftwright.linting.issues import LintIssue, is_placement_drop
-from draftwright.measurement_support import RequirementCarrier
 
 GussetState = Literal[
     "placed", "satisfied_by_structured_note", "suppressed", "dropped", "missing", "unverifiable"

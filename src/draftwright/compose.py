@@ -602,31 +602,10 @@ def _strips_for_derived_views(
     return replace(strips, fv_bottom=strips.front_hole_below)
 
 
-def _compose_anno_boxes(
-    model,
-    n_steps: int,
-    bore_callout_width: float = 0.0,
-    font_size: float = _FONT_SIZE,
-    arrow_length: float = 2.7,
-    pad_around_text: float = 2.0,
-    text_position: str = "inline",
-    text_orientation: str = "aligned",
-    planned_groups=None,
-) -> list[AnnoBox]:
-    """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
-
-    This is the annotation-footprint authority for scale/page layout. Each
-    contributing furniture band is emitted as a box; ``_measure_strips`` only
-    reduces these boxes to the legacy ``StripDepths`` shape. Reads the IR
-    (``model.features``) — detected and declared parts size through one path
-    (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
-    caller measured with :func:`_est_planned_bore_callout_width`.
-    """
-    planned_groups = (
-        annotation_groups(model, plan_dimensions(model))
-        if planned_groups is None
-        else planned_groups
-    )
+def _base_anno_bands(
+    model, n_steps, bore_callout_width, font_size, arrow_length, pad_around_text, planned_groups
+) -> tuple[list[AnnoBox], int]:
+    """Reserve the automatic dimension, bore leader, and radial bands."""
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
@@ -682,6 +661,20 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
+    return boxes, n_boss_h
+
+
+def _reserve_measured_anno_corridors(
+    model,
+    boxes: list[AnnoBox],
+    planned_groups,
+    font_size: float,
+    arrow_length: float,
+    pad_around_text: float,
+    text_position: str,
+    text_orientation: str,
+) -> dict[tuple[str, str], int]:
+    """Collect authored and feature-owned corridor demand before packing."""
     # Measured placement hints are semantic corridor requirements and therefore part of
     # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
     # a view-only hint conservatively reserves both supported sides, while the legacy
@@ -889,6 +882,20 @@ def _compose_anno_boxes(
         ):
             _reserve(view, "above")
 
+    return authored_corridors
+
+
+def _append_anno_corridor_bands(
+    model,
+    boxes: list[AnnoBox],
+    authored_corridors: dict[tuple[str, str], int],
+    planned_groups,
+    n_steps: int,
+    n_boss_h: int,
+    font_size: float,
+    pad_around_text: float,
+) -> list[AnnoBox]:
+    """Turn counted corridor demand and late furniture into page-space boxes."""
     slot = _SLOT_DIM_STEP + _STRIP_SPACING
     # Front and plan occupy disjoint vertical ranges, so their left/right tiers are
     # reusable. Reserve the deepest one-view stack, not the sum of independent corridors.
@@ -952,6 +959,62 @@ def _compose_anno_boxes(
     if _will_balloon(model):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
+
+
+def _compose_anno_boxes(
+    model,
+    n_steps: int,
+    bore_callout_width: float = 0.0,
+    font_size: float = _FONT_SIZE,
+    arrow_length: float = 2.7,
+    pad_around_text: float = 2.0,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
+    planned_groups=None,
+) -> list[AnnoBox]:
+    """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
+
+    This is the annotation-footprint authority for scale/page layout. Each
+    contributing furniture band is emitted as a box; ``_measure_strips`` only
+    reduces these boxes to the legacy ``StripDepths`` shape. Reads the IR
+    (``model.features``) — detected and declared parts size through one path
+    (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
+    caller measured with :func:`_est_planned_bore_callout_width`.
+    """
+    planned_groups = (
+        annotation_groups(model, plan_dimensions(model))
+        if planned_groups is None
+        else planned_groups
+    )
+    boxes, n_boss_h = _base_anno_bands(
+        model,
+        n_steps,
+        bore_callout_width,
+        font_size,
+        arrow_length,
+        pad_around_text,
+        planned_groups,
+    )
+    authored_corridors = _reserve_measured_anno_corridors(
+        model,
+        boxes,
+        planned_groups,
+        font_size,
+        arrow_length,
+        pad_around_text,
+        text_position,
+        text_orientation,
+    )
+    return _append_anno_corridor_bands(
+        model,
+        boxes,
+        authored_corridors,
+        planned_groups,
+        n_steps,
+        n_boss_h,
+        font_size,
+        pad_around_text,
+    )
 
 
 def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
@@ -1271,16 +1334,8 @@ def choose_scale(
     if not candidates:
         raise ValueError("sheet margins and title-block width leave no feasible sheet area")
 
-    # ADR 2 (was 0018 §5): this loop is the planner's candidate evaluation, and it is now expressed as
-    # one. Each tuple becomes a `LayoutCandidate` carrying all four dimensions — view set,
-    # scale, sheet, arrangement — and is judged by `candidate_is_feasible`, which names the
-    # gates rather than returning a bare `False`.
-    #
-    # Two of the four are still singular: every candidate has the third-angle three and the
-    # `columns` arrangement, because nothing generates alternatives yet. That is the point of
-    # doing it in this order — varying them becomes an addition to the generator below, not a
-    # rewrite of the loop, and the rejections become a list a diagnostic can print instead of a
-    # warning about the last thing tried.
+    # ADR 2: evaluate each scale, sheet, arrangement, and view set as one candidate.
+    # The feasibility check names the gate that rejects a candidate.
     def _geometric_fit(candidate) -> bool:
         # Unpacked by name rather than starred: `*candidate.legacy_tuple` fills seven positional
         # parameters by arithmetic, and mypy could not see that it stops before `n_steps`.
@@ -1333,19 +1388,9 @@ def choose_scale(
     allowed = requested_arrangements
     preferred, alternatives = allowed[0], allowed[1:]
 
-    # Pass 1 — the scale. Only the preferred arrangement may decide it.
-    #
-    # ADR 2 (was 0018 §5) asks for the largest preferred scale admitted by a feasible candidate, and
-    # the ladder is ordered so the first fit is that scale. Letting the alternatives compete
-    # here lets a PACKING choice bid up a LEGIBILITY one, and #1130 measured what that buys:
-    # the dense plate reaches 2:1 under `stacked-iso` where `columns` reaches only 1:1, and
-    # the drawing at twice the size then drops `location_ref_dropped` + `feature_not_located`
-    # because the enlarged views leave its location dims nowhere to go. The candidate was
-    # geometrically feasible and lost requirements anyway — ADR 2 (was 0018)'s first hard gate, which
-    # `candidate_is_feasible` still cannot evaluate (#1250).
-    #
-    # So the alternatives are confined below to what they can support without that gate:
-    # composing the SAME scale more compactly. Scale is chosen exactly as it always was.
+    # Pass 1 chooses scale using only the preferred arrangement. A more compact
+    # arrangement may save paper at that scale, but must not bid up the scale
+    # before the finished drawing can prove every requirement survives (ADR 2).
     chosen = None
     for cand in candidates:
         verdict = candidate_is_feasible(_candidate(cand, preferred), _geometric_fit)
@@ -1355,12 +1400,8 @@ def choose_scale(
         rejected.append(verdict)
 
     if chosen is not None:
-        # Pass 2 — the sheet, at that scale. Candidates are ordered smallest sheet first, so
-        # every candidate BEFORE the winner at the same scale is a smaller sheet that the
-        # preferred arrangement could not fit. An alternative that fits one of them yields
-        # the same drawing at the same scale on less paper, which is ADR 2 (was 0018 §5)'s "at that
-        # scale, the smallest standard sheet" — and cannot cost a requirement the preferred
-        # arrangement would have kept, because the views are identically sized.
+        # Pass 2 checks smaller sheets at the chosen scale. An alternative
+        # arrangement can reduce paper size while keeping the view scale fixed.
         for cand in candidates:
             if cand is chosen:
                 break

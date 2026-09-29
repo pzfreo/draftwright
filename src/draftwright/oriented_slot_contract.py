@@ -1,6 +1,6 @@
 """Strict shared boundary contract for released oriented-slot records (#1432).
 
-This leaf is used by both the recognition adapter and the independent completeness
+This rank-1 contract is used by both the recognition adapter and the independent completeness
 observer.  Keeping one validator prevents those two trust boundaries from disagreeing while
 preserving ADR 1 (was 0015)'s rule that ``linting`` must not import the compiler model.
 """

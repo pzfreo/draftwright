@@ -193,6 +193,8 @@ def assert_missing_build_owned_recognition_fails_closed(
     monkeypatch,
     family: str,
     part: Any,
+    *,
+    feature_kind: str | None = None,
 ) -> None:
     """A drawing whose recognition returns `None` raises, rather than scoring zero.
 
@@ -207,6 +209,9 @@ def assert_missing_build_owned_recognition_fails_closed(
 
     def without_recognition(*args, **kwargs):
         drawing = original(*args, **kwargs)
+        assert drawing.recognition() is not None
+        if feature_kind is not None:
+            assert any(feature.kind == feature_kind for feature in drawing.model().features)
         monkeypatch.setattr(type(drawing), "recognition", lambda _drawing: None)
         return drawing
 

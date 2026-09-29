@@ -222,23 +222,26 @@ def test_short_first_step_uses_external_dimension_instead_of_disappearing():
 
 
 def test_unplaceable_short_step_records_left_strip_failure(monkeypatch):
-    from draftwright.annotations import from_model
+    from draftwright.annotations import _axial_render
 
-    original = from_model.register_corridor
+    original = _axial_render.register_corridor
+    dropped = []
 
     def drop_left(ctx, key, strip, view, axis, tier, candidate):
         if key == ("front", "left"):
+            dropped.append(candidate.name)
             candidate.on_drop(candidate.name)
             return
         original(ctx, key, strip, view, axis, tier, candidate)
 
-    monkeypatch.setattr(from_model, "register_corridor", drop_left)
+    monkeypatch.setattr(_axial_render, "register_corridor", drop_left)
     with BuildPart() as part:
         with BuildSketch(Plane.XZ):
             Polygon((0, 0), (50, 0), (50, 1), (25, 1), (25, 20), (0, 20))
         extrude(amount=30)
 
     dwg = build_drawing(part.part)
+    assert "dim_step_0" in dropped
     issue = next(i for i in dwg.lint() if i.code == "placement_unsatisfiable")
 
     assert "short step-height dimension dropped" in issue.message

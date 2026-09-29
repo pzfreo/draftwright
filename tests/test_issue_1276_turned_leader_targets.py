@@ -75,7 +75,7 @@ def test_rounded_shaft_fillets_read_in_profile_and_keep_the_physical_site():
     name, leader = _annotation_by_label(drawing, "m_fillet")["4× R0.8"]
     assert drawing.view_of(name) == "front"
     assert leader.tip[:2] == pytest.approx(drawing.at("front", *features[0].frame.origin)[:2])
-    assert getattr(leader, "_dw_candidate_region", None) == "interior"
+    assert drawing.registry.candidate_region_of(name) == "interior"
     assert drawing.lint() == []
 
 

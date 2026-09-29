@@ -71,6 +71,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
+        "section_rendering": "src/draftwright/annotations/sections.py",
         "hole_pattern_rendering": "src/draftwright/annotations/holes.py",
         "intent_drain": "src/draftwright/intent_drain.py",
         "reporting": "src/draftwright/reporting.py",
@@ -93,9 +94,39 @@ def test_model_detection_change_runs_hole_pattern_refusal_contracts():
     } <= selected
 
 
+def test_sections_change_runs_detail_and_section_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/sections.py"]))
+    assert {
+        "test_detail_views.py",
+        "test_script_detail_parity.py",
+        "test_section_hatching.py",
+        "test_sheet_section.py",
+        "test_issue_1190_section_decision.py",
+        "test_issue_1530_section_provenance.py",
+        "test_issue_1604_internal_section.py",
+        "test_through_step_semantics.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
+        "test_issue_1215_envelope_tolerance.py",
+        "test_audit_differential.py",
+    } <= selected
+
+
 def test_builder_change_runs_finished_annotation_layout_contract():
     selected = set(pr_modules(_TESTS, ["src/draftwright/builder.py"]))
     assert "test_annotation_layout_product.py" in selected
+
+
+def test_detect_ownership_owner_runs_radius_occurrence_contract():
+    source = "src/draftwright/model/detect_ownership.py"
+    assert selected_groups([source]) == {"recognition", "compilation"}
+    assert "test_issue_1433_blend_semantics.py" in pr_modules(_TESTS, [source])
+
+
+def test_detect_inventory_owner_runs_recognition_contracts():
+    source = "src/draftwright/model/detect_inventory.py"
+    assert selected_groups([source]) == {"recognition", "compilation"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {"test_recognition_result.py", "test_occurrence_recognition_ownership.py"} <= selected
 
 
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
@@ -145,6 +176,7 @@ def test_drawing_table_and_export_owners_select_their_behavior_contracts():
         "test_hole_table.py",
         "test_sheet_tables.py",
         "test_issue_1144_transactional_hole_table.py",
+        "test_issue_1215_no_approved_tolerance_is_dropped.py",
     } <= tables
     export = set(pr_modules(_TESTS, ["src/draftwright/drawing_export.py"]))
     assert {"test_export_reproducible.py", "test_issue_1533_review_diagnostics.py"} <= export
@@ -249,6 +281,19 @@ def test_from_model_change_runs_through_step_placement_contract():
     assert "test_through_step_semantics.py" in selected
 
 
+def test_axial_owner_change_runs_chain_ladder_and_trace_contracts():
+    source = "src/draftwright/annotations/_axial_render.py"
+    assert selected_groups([source]) == {"through_step_placement", "height_ladder", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_turned_lengths.py",
+        "test_issue_1505_short_axial_chains.py",
+        "test_compiled_plan_boundary.py",
+        "test_refactor_golden.py",
+        "test_solve_trace.py",
+    } <= selected
+
+
 def test_height_ladder_owner_runs_compiler_and_corridor_contracts():
     source = "src/draftwright/annotations/_height_ladder.py"
     assert selected_groups([source]) == {"height_ladder", "placement"}
@@ -336,7 +381,7 @@ def test_slot_renderer_change_runs_its_slot_and_pocket_behavior_contracts():
     assert {
         "test_feature_edit_corridors.py",
         "test_issue_885_prismatic_coverage.py",
-        "test_issue_1599_duplicate_slot_widths.py",
+        "test_requirement_dimension_sharing.py",
         "test_layout_override_lane_issue_1757.py",
         "test_slot_completeness.py",
         "test_slot_pattern.py",
@@ -375,6 +420,22 @@ def test_unknown_production_module_selects_every_contract_group():
     assert selected_groups(["src/draftwright/a_new_area.py"]) == frozenset(CONTRACT_GROUPS)
     for pattern in BROAD_SOURCE_PATTERNS:
         assert selected_groups([pattern]) == frozenset(CONTRACT_GROUPS)
+
+
+def test_orchestrator_change_runs_hole_table_and_cross_pass_contracts():
+    source = "src/draftwright/annotations/orchestrator.py"
+    assert selected_groups([source]) == frozenset(CONTRACT_GROUPS)
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_hole_table.py",
+        "test_issue_1144_transactional_hole_table.py",
+        "test_issue_1215_no_approved_tolerance_is_dropped.py",
+        "test_issue_563_placement_intent.py",
+        "test_issue_1166_cross_pass_feature_leaders.py",
+        "test_detail_views.py",
+        "test_sheet_section.py",
+        "test_issue_1298_manufacturing_requirements.py",
+    } <= selected
 
 
 def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
@@ -469,6 +530,11 @@ def test_model_detection_change_runs_turning_and_boss_ownership_contracts():
         "test_part_model.py",
         "test_turned_step_ownership.py",
     } <= selected
+
+
+def test_model_detection_change_runs_gusset_member_ownership_contract():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/model/detect.py"]))
+    assert "test_gusset_rib_semantics.py" in selected
 
 
 def test_feature_leader_candidate_owner_runs_region_and_assignment_contracts():

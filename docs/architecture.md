@@ -8,20 +8,24 @@ document in step. The *why* behind every shape here lives in `docs/adr/`.
 ## The module map
 
 The dependency graph is a DAG (the #138 / ADR 1 (was 0005) split is complete). Bottom to
-top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (including
-semantic survival order), `layout_scheme.py` (typed render-free annotation
-topology and corridor demand planning), `registry.py`, `fonts.py`,
+top: strict rank-0 package leaves: `progress.py`, `layout.py` (including
+semantic survival order), `registry.py`, `fonts/`,
 `_geometry.py`,
-`fits.py`, `recognition_cache.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
-`recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
+`fits.py`,
+`contract_values.py`, `measurement_support.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
-`_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
+the rank-1 `model/` IR waist, `recognition_ownership.py`, `profile_angles.py`,
+`oriented_slot_contract.py`, `plate_correspondence.py`, `recognition_frame.py`,
+and `_core.py` (beside rank-1
+`annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
-`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`,
+`repair.py`, `projection.py`, `compose.py`, `layout_scheme.py`, `analysis.py`,
+`recognition_cache.py`,
+`drawing.py`, `intent_drain.py`,
 `intent_routing.py`, `intents.py` (stable import path), `reporting.py`,
-the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
+the `linting/` subpackage and the `annotations/` subpackage) →
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
 fluent `Sheet` facade (`sheet.py`), the Sheet-script emitter
@@ -30,7 +34,8 @@ inspection surface (`inspection.py`), the
 recognition-evaluation package (`evaluation/`), and the
 `cli.py` entry point. Developer-only `_build_profile.py` sits at the same top layer: it
 patches the public builder and Sheet bindings lazily for pytest measurement, and no engine
-module depends on it. No lower module imports an
+module depends on it. The package root `__init__.py` sits above these facades at rank 8
+and resolves its public API lazily. No lower module imports an
 upper one. `location_contract.py` remains a stable rank-1 import path for the location predicates
 in `measurement_support.py`; the compiler and lint import their owner directly. `progress.py`
 holds a context-scoped observer and cooperative cancellation; stage
@@ -38,12 +43,22 @@ modules publish activity at their existing seams, while the CLI alone renders it
 own placement decisions or a recognition inventory. (All surfaces are front doors onto the one engine,
 `build_drawing` → `_auto_annotate` — there is no second engine.)
 
+`layout_scheme.py` sits beside `compose.py` at rank 2: it derives typed, render-free
+corridor demand from approved model groups, and compose consumes that topology.
+`recognition_cache.py` sits beside `analysis.py` at rank 3: both consume bottom-layer
+recognition contracts, while `drawing_state.py` and `builder.py` consume the cache.
+`test_rank_zero_modules_are_package_leaves` enforces that every rank-0 file has no
+package import across runtime, type-only and lazy paths. `model/` shares a numerical
+rank with `_core` but its separate fail-closed import allowlist still prohibits any
+model-to-core edge while permitting approved shared rank-1 modules.
+
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
 `_LAYERS` table there is the precise, ranked form of this section — a module-level
 import that points up a layer fails CI, as does an import cycle. The precise
 placement refines the coarse grouping above (e.g. `linting`/`pmi`/`export`/`repair`/
 `projection`/`compose` sit *above* `_core` since they depend on it; `model/` is the
-IR-waist leaf it is guarded as). The `_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
+IR waist with a stricter import allowlist than its numerical rank). The
+`_LAZY_UPWARD_EXEMPT` sanctioned-cycle-breaker
 mechanism is now empty (#523 removed its last occupant, the `builder→cli` edge — see
 below); a new upward lazy import must earn an entry with a rationale. The remaining
 lazy in-function imports (`cli`→`builder`/`sheet_emit`, for the #313 build123d
@@ -157,6 +172,10 @@ and re-exports the existing private helper names.
     envelope/OD and centre-mark passes converge with feature-family owners here
     (ADR 1 (was 0015), #200/#208/#237). The old per-feature
     `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
+  - **`annotations/_axial_render.py`** — compiled step-chain, height-ladder,
+    step-position and rotational rendering. `from_model` re-exports the public
+    passes and injects its current chain placer into step-length and authored
+    detail calls, preserving the shared immediate/deferred route.
   - **`annotations/_machined_leaders.py`** — expands compiler-approved feature
     leader jobs into analytical interior/exterior candidates and submits them to
     immediate or late shared placement. `from_model.place_machined_leader_jobs`
@@ -164,7 +183,8 @@ and re-exports the existing private helper names.
   - **`annotations/_step_lengths.py`** — owns compiler-approved turned axial
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
-    placer remains in `from_model` for immediate/deferred detail recovery.
+    placer lives in `_axial_render` and is injected through `from_model` for
+    immediate/deferred detail recovery.
   - **`annotations/_height_ladder.py`** — owns compiled prismatic step-height and
     overall-height corridor candidates, including chained witnesses and short-rung
     left-strip escape. `from_model.render_height_ladder` retains view routing and
@@ -210,9 +230,9 @@ and re-exports the existing private helper names.
     sparse plan and side hole leaders in the shared late leader assignment, plus
     front/rear rim-tip construction consumed by the current vertical strip solve.
     The hole pass retains strip selection, table eligibility, and furniture transactions.
-  - **`annotations/_hole_leader_placement.py`** — callout claim forwarding and
-    bounded sheet recovery for hole leaders; the hole pass owns the queue and
-    survivor commit.
+  - **`annotations/_hole_leader_placement.py`** — shared physical hole-leader
+    construction, callout claim forwarding, and bounded sheet recovery; the hole
+    pass owns the queue and survivor commit.
   - **`annotations/_leader_fixed_ink.py`** — exact fixed-annotation component
   lowering for the shared leader solve: metadata strokes, label boxes, and
   residual rendered faces retain bounded work and stable component identities.
@@ -221,7 +241,11 @@ and re-exports the existing private helper names.
   the shared late solve. The established `leaders` imports remain available to
   feature renderers.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
-  automatic/deferred same-view feature leaders (#1166): sparse ordinary
+  automatic/deferred same-view feature leaders (#1166). Its typed phase handoffs
+  keep the producer streams, lazy greedy floor, primary per-view assignment,
+  budget replay, trace inventory, OCC survivor validation, and commit in this
+  rank-four owner; the public placement entry point preserves their order.
+  Sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
   exact committed component ink conflicts (including component-local curved
   centre furniture and rendered shifted-dimension arrows), retaining any
@@ -340,7 +364,8 @@ and re-exports the existing private helper names.
   deliberately stringly-typed record feeds the recompose path.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
-  owns the immutable cut/view mark on each live section cutting-plane line (#1931). `Drawing`
+  owns typed candidate-region provenance and the immutable cut/view mark on each
+  live section cutting-plane line (#1931). `Drawing`
   delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
   `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
   their §4 date (#720): reach the state through `dwg.registry` (`in reg`,
@@ -355,11 +380,11 @@ and re-exports the existing private helper names.
   physical-support evidence),
   `gear_coverage.py` (declared gear table/profile reconciliation), and `suggest.py`
   (`_suggest_fix`, #29 snippets). Depends only on `_core`, the pure
-  `plate_correspondence` leaf,
+  `plate_correspondence` module,
   `quiddity` (typed hole records in `coverage.py`) + build123d_drafting.
   `_QUOTED_RE` (a lint-message label regex shared with the
   repair loop) lives in `_core`.
-- **`recognition_cache.py`** — Draftwright's ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
+- **`recognition_cache.py`** — rank-3 Draftwright ADR 3 (was 0017) one-result lifecycle owner. Raw automatic
   analysis seeds it with one external `build_recognition_evidence(part)` acquisition; on a lazy
   declared critique the empty cache makes that call itself. It retains the exact
   `RecognitionResult` projection and evidence authority together. The package owns recognition,
@@ -377,8 +402,10 @@ and re-exports the existing private helper names.
   owners, and settled
   unsupported/deferred/evidence-only occurrences are classified; remaining conditional
   cross-family records stay unclassified.
-- **`measurement_support.py`** — run-local producer-issued measurement, interval and member
-  witnesses, plus the shared pocket/pad datum reference and coincidence predicates.
+- **`measurement_support.py`** — a strict package leaf for run-local producer-issued
+  measurement, interval and member witnesses, plus the shared pocket/pad datum
+  reference and coincidence predicates. Lint's named annotation carrier belongs
+  to `linting/_registry.py`, beside the registry evidence that creates it.
 - **`location_contract.py`** — stable rank-1 import path for those predicates; the
   implementation is owned by `measurement_support.py` and this path is not deprecated.
 - **`plate_correspondence.py`** — pure shared Plate-record/final-IR correspondence predicates.
@@ -425,12 +452,12 @@ and re-exports the existing private helper names.
   provider preparation seam, classifies the exact normalized solid from its already-scanned
   cylinders, runs one paired aggregate, propagates typed refusal without fallback, and exposes
   conservative FULL/ORTHOGONAL/AXIAL semantic policy. Analysis calls it only for the explicit
-  `framed_recognition=True` rollout path and owns any visible raw fallback above this leaf.
+  `framed_recognition=True` rollout path and owns any visible raw fallback above this module.
 - **`blend_contract.py`** — the strict leaf boundary for released schema-v3 straight/circular
   `Blend` path records.
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
-- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves. The identity leaf also
+- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 shared trust boundaries. The rank-0 identity leaf also
   registers the exact envelope type for independent consolidated seat-run coverage.
   The former shares exact released schema validation between detection and independent
   completeness, with geometric correspondence keys separate from same-run occurrence identity.
@@ -473,7 +500,11 @@ and re-exports the existing private helper names.
   `dimension_intent.py` holds the authored
   measurement selector vocabulary and semantic view/strip validation, with stable
   forwarding functions in `ir.py`; `detect.py` (detectors →
-  `Feature` objects, adapting `quiddity` records), `planner.py`
+  `Feature` objects, adapting `quiddity` records through a typed ordered-run
+  context; section-recess record conversion stays in this adapter), `detect_inventory.py`
+  (supplied-input validation and one aggregate inventory projection), and
+  `detect_ownership.py` stages (aggregate radius partition, prismatic
+  owner preparation and exact through-step legacy ownership), `planner.py`
   (`plan_dimensions` —
   one rule set → a `DimensionGroup` per feature, + `plan_sections`; and, since #1154,
   the one cross-feature reconciliation: two features measuring between the same two
@@ -552,7 +583,7 @@ and re-exports the existing private helper names.
   deterministic `recognise_*` functions, frozen serialisable records, shared substrates,
   `RecognitionResult` orchestration/manifest, repeating-profile correspondence, and
   `feature_census`. It imports build123d/OCP and never imports Draftwright.
-- **`fonts.py`** — vendored, path-pinned IBM Plex fonts for deterministic
+- **`fonts/`** — vendored, path-pinned IBM Plex fonts for deterministic
   cross-platform layout (ADR 5 (was 0006)).
 - **`pdf_text.py`** — rank-2 PDF semantic text assembly from the drawing's
   explicitly supplied draft and named annotations. It preserves label recovery,

@@ -256,7 +256,7 @@ def _label_reading(item, label: str) -> float | None:
       ``annotations/from_model.py``) spans the whole run at **60**.
 
     So the producer says which. Per-unit step dimensions and shared slot-width dimensions
-    set ``_dw_label_value`` to the approved one-feature value, so lint reads the
+    set ``_dw_spec.label_value`` to the approved one-feature value, so lint reads the
     compiler's number rather than inferring a span convention from rendered text
     (ADR 4 (was 0016 Amendment 1)). Everything else means what its label says.
 
@@ -274,7 +274,7 @@ def _label_reading(item, label: str) -> float | None:
         # Repeated angles count corners; they never multiply the displayed
         # degrees into a longer path. Read the actual label, not a value rider.
         return _label_value(re.sub(r"^\s*[1-9]\d*\s*[×x]\s*", "", label))
-    declared = getattr(item, "_dw_label_value", None)
+    declared = getattr(getattr(item, "_dw_spec", None), "label_value", None)
     return float(declared) if declared is not None else _label_value(label)
 
 
@@ -318,6 +318,7 @@ def lint_drawing(
     _aggregation: _IssueAggregation | None = None,
     display_decimals: dict[int, int] | None = None,
     annotation_names: dict[int, str] | None = None,
+    annotation_regions: dict[int, str] | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -399,6 +400,9 @@ def lint_drawing(
             indexed as a name list.
         annotation_names: optional ``id(annotation) -> registry name`` mapping. It is used only
             to attach exact build-local provenance to findings; it never changes a predicate.
+        annotation_regions: optional ``id(annotation) -> solved region`` mapping from the
+            registry. An interior label suppresses the blank-face advisory only after the
+            shared placement solve has proved that candidate clear.
 
     Returns:
         list[LintIssue].
@@ -461,6 +465,7 @@ def lint_drawing(
             warned=warned_label_bbox,
             material_fields=view_material_fields,
             annotation_names=names,
+            annotation_regions=annotation_regions,
         )
 
     _lint_principal_extents(items, part_bbox, drawing_scale, issues)
@@ -1084,6 +1089,7 @@ def _lint_view_shapes(
     warned=None,
     material_fields=None,
     annotation_names=None,
+    annotation_regions=None,
 ) -> None:
     """Check views against annotations (#159/#76), each other (#160), and the page (#75)."""
     # Build the named bbox list. The name must be DETERMINISTIC: several messages
@@ -1120,6 +1126,7 @@ def _lint_view_shapes(
     # mostly blank face, where placing callouts is a legitimate convention —
     # so a label over a blank region is reported as an info-level notice.
     names = {} if annotation_names is None else annotation_names
+    regions = {} if annotation_regions is None else annotation_regions
     cache = {} if edge_cache is None else edge_cache
     ann_cache = box_cache if box_cache is not None else {}
     for vname, vbb, vs in named_views:
@@ -1163,7 +1170,7 @@ def _lint_view_shapes(
                 # annotation ink.  Do not turn that deliberate result into the generic
                 # advisory emitted for unclassified annotations inside a view.  The
                 # warning path above remains active if projected edges do intersect it.
-                if getattr(ann, "_dw_candidate_region", None) == "interior":
+                if regions.get(id(ann)) == "interior":
                     continue
                 issues.append(
                     LintIssue(

@@ -1426,6 +1426,16 @@ def test_record_schema_acceptance_lists_fail_closed_when_malformed(versions: obj
         _validate(declaration)
 
 
+def test_schema_declaration_rejects_an_unpublished_record_key() -> None:
+    declaration = consumer_capability_declaration()
+    schemas = _families(declaration)["bosses"]["record_schemas"]
+    schemas["UnpublishedRecord"] = [1]
+    assert set(schemas) == {"BossRecord", "UnpublishedRecord"}
+
+    with pytest.raises(RecogniserCapabilityError, match="record schema mismatch"):
+        _validate(declaration)
+
+
 @pytest.mark.parametrize("version", [0, True, 2.0, "2"])
 def test_provider_record_schema_versions_must_be_positive_integers(version: object) -> None:
     package = recognition.capability_manifest()

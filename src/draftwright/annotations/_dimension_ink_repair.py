@@ -6,7 +6,7 @@ import math
 from types import SimpleNamespace
 from typing import Any
 
-from draftwright._core import _anno_box
+from draftwright._core import _anno_box, _copy_dimension_spec_riders
 from draftwright._geometry import _boxes_overlap, _segment_clip_extent
 from draftwright.annotations._dimension_ink import _dimension_probe_ink, _DimensionInkProbe
 from draftwright.linting.ink_overlap import MIN_CROSSING_MM, crossable_region, crossing_length
@@ -447,6 +447,7 @@ def _prevent_dimension_label_ink(
             for attr, value in vars(dim).items():
                 if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
                     setattr(rebuilt, attr, value)
+            _copy_dimension_spec_riders(dim, rebuilt)
         cache[key] = rebuilt
         return rebuilt
 
@@ -511,5 +512,6 @@ def _prevent_dimension_label_ink(
         for attr, value in vars(original[index][1]).items():
             if attr.startswith("covers_") or (attr.startswith("_dw_") and attr != "_dw_spec"):
                 setattr(rendered, attr, value)
+        _copy_dimension_spec_riders(original[index][1], rendered)
         current[index] = (name, rendered)
     return current

@@ -53,6 +53,18 @@ def _profiled_callout_leader(*, callout, **kw):
     return _copy_callout_semantics(Leader(callout=callout, **kw), callout)
 
 
+def _build_hole_callout_leader(tip, elbow, side, callout, draft, build_leader):
+    """Lower a physical hole ray through the same builder for every placement path."""
+    return build_leader(
+        tip=(tip[0], tip[1], 0),
+        elbow=(elbow[0], elbow[1], 0),
+        label="",
+        draft=draft,
+        text_side=side,
+        callout=callout,
+    )
+
+
 def _recover_hole_leader(raw_candidates, build_leader, callout, callout_box, view, dwg, draft):
     """Try bounded sheet fallback for an unplaced shared hole leader."""
     if callout_box is None:

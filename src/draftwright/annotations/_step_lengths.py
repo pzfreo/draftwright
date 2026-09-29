@@ -21,7 +21,7 @@ from draftwright._core import (
     supported_secondary_crop,
     y_chain_detail_scale_needed,
 )
-from draftwright.annotations.from_model import (
+from draftwright.annotations._axial_render import (
     _next_steplen_start,
     _record_step_chain_drop,
     _step_measurements,

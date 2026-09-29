@@ -81,11 +81,13 @@ def test_hole_candidate_adapter_keeps_row_order_and_authored_side(monkeypatch, a
     def anchors(_entry, edge, side, y, *_rest):
         return ((1.0, y), (edge, y))
 
+    callout = SimpleNamespace(profile_boundary=None)
+    draft = SimpleNamespace()
     adapter = hole_candidates.HoleLeaderCandidateAdapter(
         entry=(
             ((1.0, 10.0, 0.0),),
             6.0,
-            SimpleNamespace(profile_boundary=None),
+            callout,
             None,
             10.0,
             (1.0, 10.0, 0.0),
@@ -107,14 +109,25 @@ def test_hole_candidate_adapter_keeps_row_order_and_authored_side(monkeypatch, a
         min_gap=2.0,
         to_page=lambda point: point,
         elbow_dx=0.0,
-        draft=SimpleNamespace(),
+        draft=draft,
         scale=1.0,
         dwg=object(),
         ctx=SimpleNamespace(dense_internal_section=False),
         anchors=anchors,
         member_owner=lambda *_args: "hole",
         expand_regions=feature_leader_candidates,
+        build_leader=lambda **kw: kw,
     )
+    built = adapter.build((1.0, 11.0), (100.0, 11.0), "hole")
+    assert built == {
+        "tip": (1.0, 11.0, 0),
+        "elbow": (100.0, 11.0, 0),
+        "label": "",
+        "draft": draft,
+        "text_side": "right",
+        "callout": callout,
+    }
+    assert adapter.build((1.0, 11.0), (0.0, 11.0), "hole")["text_side"] == "left"
     exterior = [(candidate[1][0], candidate[1][1]) for candidate in adapter.exterior()]
     assert exterior[:7] == [(100.0, y) for y in (*rows, 18.0, 24.0)]
     assert exterior[7:] == ([] if authored_side else [(0.0, y) for y in rows])

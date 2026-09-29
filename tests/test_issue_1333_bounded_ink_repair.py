@@ -133,7 +133,7 @@ def test_bad_candidates_cannot_bypass_preservation_and_rollback(monkeypatch, fau
     elif fault == "membership":
         candidates = [(name, item) for name, item in candidates if name != "m_env_width"]
     elif fault == "authored_side":
-        new._dw_authored_side = "left"
+        new._dw_spec.authored_side = "left"
     elif fault == "witness_points":
         new._dw_spec.p1 = tuple(value + 1 for value in new._dw_spec.p1)
     elif fault == "unknown":

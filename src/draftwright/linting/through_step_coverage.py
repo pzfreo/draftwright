@@ -16,6 +16,7 @@ from quiddity import RecognitionResult, ThroughStep
 
 from draftwright._geometry import _fmt
 from draftwright.linting._registry import (
+    RequirementCarrier,
     cell_approvals_of,
     exact_measurement_carriers,
     measurement_carrier_index,
@@ -25,7 +26,7 @@ from draftwright.linting._registry import (
 from draftwright.linting.evidence import compiled_values, rendered_numbers
 from draftwright.linting.issues import LintIssue, is_placement_drop
 from draftwright.linting.structural import _label_reading
-from draftwright.measurement_support import MeasurementSupport, RequirementCarrier
+from draftwright.measurement_support import MeasurementSupport
 
 ThroughStepRequirementState = Literal[
     "placed",

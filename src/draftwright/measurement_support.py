@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import isfinite
 
-from draftwright.registry import MeasurementCell
-
 
 @dataclass(frozen=True)
 class MeasurementSupport:
@@ -46,15 +44,6 @@ class RequirementExclusion:
     source_records: tuple[object, ...]
     datum: object | None = None
     span: tuple | None = None
-
-
-@dataclass(frozen=True)
-class RequirementCarrier:
-    """A named annotation accepted by a physical requirement producer."""
-
-    annotation: str
-    kind: str
-    cell: MeasurementCell | None = None
 
 
 def pocket_location_reference(feature, datum_at):

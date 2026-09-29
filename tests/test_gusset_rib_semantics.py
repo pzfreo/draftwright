@@ -6,6 +6,7 @@ import pytest
 from build123d import Align, Box, Location, Plane, Polygon, extrude
 from quiddity import GussetRib
 
+import draftwright.model.detect as detect
 from draftwright import Sheet, build_drawing
 from draftwright.linting.gusset_rib_coverage import gusset_rib_requirement_outcomes
 from draftwright.model import gusset_rib
@@ -32,6 +33,86 @@ def _array_gusset_bracket():
     for position in (-30, -5, 20):
         part += rib.moved(Location((position, 0, 0)))
     return part
+
+
+def _provider_rib(offset: float) -> GussetRib:
+    return GussetRib(
+        "x",
+        (offset, offset + 6),
+        (("y", 17.0), ("z", 8.0)),
+        (22.0, 26.0),
+        (-1, 1),
+        (1.0,),
+    )
+
+
+def test_gusset_pattern_lowering_rejects_foreign_and_reused_occurrences(monkeypatch) -> None:
+    first, second = _provider_rib(-30), _provider_rib(30)
+    equal_but_foreign = _provider_rib(-30)
+    assert equal_but_foreign.thickness_bounds == first.thickness_bounds
+    assert equal_but_foreign is not first
+    lowered = []
+    monkeypatch.setattr(detect, "_gusset_feature", lambda *args: lowered.append(args) or object())
+
+    with pytest.raises(ValueError, match="aggregate identity"):
+        detect._append_gusset_features(
+            gusset_ribs=(first, second),
+            gusset_rib_patterns=(SimpleNamespace(ribs=(equal_but_foreign, second)),),
+            ctx=object(),
+            features=[],
+            ownership=None,
+        )
+    assert lowered == []
+
+    with pytest.raises(ValueError, match="two patterns"):
+        detect._append_gusset_features(
+            gusset_ribs=(first, second),
+            gusset_rib_patterns=(
+                SimpleNamespace(ribs=(first,)),
+                SimpleNamespace(ribs=(first, second)),
+            ),
+            ctx=object(),
+            features=[],
+            ownership=None,
+        )
+    assert len(lowered) == 1  # the second provider pattern is the rejected overlap
+
+
+def test_gusset_pattern_lowering_keeps_a_standalone_sibling_owned(monkeypatch) -> None:
+    first, second, sibling = (_provider_rib(offset) for offset in (-30, 0, 30))
+    pattern = SimpleNamespace(ribs=(first, second))
+    built = []
+    absorbed = []
+    bound = []
+
+    def feature_for(members, relation, _ctx):
+        feature = object()
+        built.append((members, relation, feature))
+        return feature
+
+    monkeypatch.setattr(detect, "_gusset_feature", feature_for)
+    ownership = SimpleNamespace(
+        absorb=lambda members, feature, *, reason_code: absorbed.append(
+            (members, feature, reason_code)
+        ),
+        bind=lambda member, feature, *, reason_code: bound.append((member, feature, reason_code)),
+    )
+    features = []
+    detect._append_gusset_features(
+        gusset_ribs=(first, second, sibling),
+        gusset_rib_patterns=(pattern,),
+        ctx=object(),
+        features=features,
+        ownership=ownership,
+    )
+
+    assert [(members, relation) for members, relation, _ in built] == [
+        ((first, second), pattern),
+        ((sibling,), None),
+    ]
+    assert features == [built[0][2], built[1][2]]
+    assert absorbed == [((first, second), built[0][2], "gusset_rib_pattern_member")]
+    assert bound == [(sibling, built[1][2], "gusset_rib_adapter")]
 
 
 def test_gusset_ribs_and_mirror_relation_reach_same_run_consumer_policy() -> None:

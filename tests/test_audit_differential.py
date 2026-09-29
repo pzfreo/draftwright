@@ -713,7 +713,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         ("from_model.py", "render_centermarks"): "a centre mark measures nothing",
         ("_locations.py", "_circular_channel_axis_marks"): "physical axis marks are furniture",
         (
-            "from_model.py",
+            "_axial_render.py",
             "render_local_turned_centerlines._place",
         ): "centrelines are furniture",
         ("holes.py", "add_feature_furniture"): "centre marks are furniture",
@@ -727,6 +727,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
             "_reserve_section_row",
         ): "a provisional cutting-plane line is layout furniture",
         ("sections.py", "_place_cutting_plane"): "final cutting-plane layout furniture",
+        ("sections.py", "_place_detail_marker"): "detail crop outline and identifying letter",
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
         (
             "orchestrator.py",
@@ -739,7 +740,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
         # describes (#1227). `render_rotational` still places centre lines, which are not
         # measurements — that is the only reason it remains.
         (
-            "from_model.py",
+            "_axial_render.py",
             "render_rotational._place_axis_centerline",
         ): "centre lines are not measurements",
         # -- identity arrives by another route --------------------------------------

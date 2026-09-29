@@ -10,6 +10,7 @@ from __future__ import annotations
 import copy
 import importlib
 import re
+from collections.abc import Set
 from dataclasses import dataclass
 from importlib.metadata import version as distribution_version
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -730,7 +731,7 @@ def _evidence_reference_is_valid(path: object, root: Path | None) -> bool:
     return root is None or (root / candidate).is_file()
 
 
-def _exact_dict_keys(value: object, keys: set[str]) -> TypeGuard[dict[str, Any]]:
+def _exact_dict_keys(value: object, keys: Set[object]) -> TypeGuard[dict[str, Any]]:
     return isinstance(value, dict) and set(value) == keys
 
 
@@ -947,16 +948,12 @@ def validate_recogniser_capabilities(
             else {}
         )
         accepted_schemas = family["record_schemas"]
-        valid_schema_declaration = (
-            isinstance(accepted_schemas, dict)
-            and set(accepted_schemas) == set(actual_schemas)
-            and all(
-                isinstance(versions, list)
-                and versions
-                and all(type(version) is int and version > 0 for version in versions)
-                and versions == sorted(set(versions))
-                for versions in accepted_schemas.values()
-            )
+        valid_schema_declaration = _exact_dict_keys(accepted_schemas, set(actual_schemas)) and all(
+            isinstance(versions, list)
+            and versions
+            and all(type(version) is int and version > 0 for version in versions)
+            and versions == sorted(set(versions))
+            for versions in accepted_schemas.values()
         )
         valid_actual_schemas = all(
             type(version) is int and version > 0 for version in actual_schemas.values()

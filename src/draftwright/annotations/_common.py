@@ -16,10 +16,11 @@ from typing import Any
 
 from build123d_drafting.helpers import Dimension, Leader, Note, SafeDimension
 
-from draftwright._core import (  # noqa: F401 — _anno_box re-exported (#700)
+from draftwright._core import (  # noqa: F401 — _anno_box re-exported
     _STRIP_SPACING,
     _analysis_margins,
     _anno_box,
+    _copy_dimension_spec_riders,
     _decode_hole_location_fact,
     _dim,
     _drawing_bounds,
@@ -35,6 +36,7 @@ from draftwright._geometry import (  # noqa: F401
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._dimension_ink import (  # noqa: F401 — stable _common imports
     AnalyticalDimensionInk,
+    DimensionInkCandidate,
     _dimension_probe_ink,
     _DimensionInkProbe,
     _styled_dimension_footprint,
@@ -550,7 +552,7 @@ per-consumer choice, passed as ``crossable`` to :func:`strip_obstacles`."""
 #: Annotations whose Compound bounding box spans the whole page. They carry no ``.segments``
 #: to decompose, so :func:`annotation_obstacle_boxes` falls back to the full geometry box and
 #: they swallow the sheet — any occupancy test that includes them is a silent no-op. Filtered
-#: by `late_furniture_obstacles` (#1145), by three checks in `linting/structural`, and by
+#: by `late_furniture_obstacles`, by three checks in `linting/structural`, and by
 #: `annotation_ink_obstacles`, because the iso fit had picked
 #: `strip_obstacles` instead and `--frame` therefore disabled the fit entirely.
 _PAGE_SPANNING_RIDERS = ("is_sheet_frame", "is_zone_grid")
@@ -806,7 +808,7 @@ def strip_obstacles(dwg, view=None, *, crossable=(), named=False):
                 continue  # owned by a different ortho view → its own (disjoint) block
         if type(o).__name__ in crossable:
             continue  # this consumer may cross it (centre lines/marks for a dim)
-        occ = annotation_obstacle_boxes(dwg, o)  # decomposed, not one hull (#685/#740)
+        occ = annotation_obstacle_boxes(dwg, o)  # decomposed, not one hull
         boxes.extend(((name, b) for b in occ) if named else occ)
     return boxes
 
@@ -901,7 +903,7 @@ def corridor_blockers(dwg, view):
     128). Sibling location/envelope dims are excluded: they chain off the shared datum
     and legitimately share the corridor. View scoping mirrors :func:`strip_obstacles`
     (this view's own annotations + drawing-level occupants that no ortho view owns)."""
-    cache = getattr(dwg, "box_cache", None)  # the drawing's one box memo (#1138)
+    cache = getattr(dwg, "box_cache", None)  # the drawing's box memo
     boxes = []
     for name, o in dwg.iter_annotations():
         if view is not None:
@@ -1008,7 +1010,7 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
         )
         crossable_strokes = (
             isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
-            or bool(getattr(annotation, "_dw_dimension_candidate", False))
+            or isinstance(annotation, DimensionInkCandidate)
             or (type(annotation).__name__ in CROSSABLE_TYPES)
         )
         if annotation_label is not None and annotation_region is None:
@@ -1164,17 +1166,15 @@ def prevent_dimension_label_ink(
 prevent_dimension_label_ink.__doc__ = _prevent_dimension_label_ink.__doc__
 
 
-# ── The corridor priority ladder (#894) ───────────────────────────────────────
+# ── The corridor priority ladder ─────────────────────────────────────────
 # `CorridorCandidate.priority` is an over-capacity survival rank, and a rank only
 # means anything RELATIVE to the other rungs. Defining the whole ladder here — beside
 # the field it ranks, at the bottom of the annotations DAG every pass imports from —
 # is what makes it reviewable: a bare `priority=0.5` at a call site cannot be judged
 # without knowing what else sits at 0.5.
 #
-# This is not hypothetical tidiness. #894 happened one rung down: the principal
-# front-view chain took the implicit default and silently TIED with pocket location
-# dims, so an over-capacity strip dropped a step height on an arbitrary generated key.
-# Nobody could see the collision because nothing showed what else lived at 0.
+# The principal front-view chain must outrank pocket location candidates;
+# an implicit default would tie them and let a generated key decide which survives.
 #
 # Rungs are ordered, and the gaps are deliberate — insert between rather than
 # renumbering, so existing relative order is never disturbed.
@@ -1187,7 +1187,7 @@ class PRIORITY:
     #: usable without, so they outrank ordinary auto dims when a strip is full.
     PRINCIPAL = 0.5
     #: Authored intent — GD&T frames, imported PMI. The user asked for these by name,
-    #: so they outrank anything the engine chose for itself (#357).
+    #: so they outrank anything the engine chose for itself.
     AUTHORED = 1.0
     #: Never-drop: the mandatory envelope dims, and a user-pinned intent (ADR 2 (was 0012)).
     #: Two distinct meanings that deliberately share a rung — both are non-negotiable.
@@ -1245,29 +1245,29 @@ class CorridorCandidate:
     # dim is placed at drain (ADR 5 (was 0010)). ``None`` leaves the annotation feature-less.
     feature: object | None = None
     # The `DimensionId` this candidate draws, where the renderer holds an
-    # `ApprovedDimension` to take it from (#1002). Peer to `feature` and recorded the same
+    # `ApprovedDimension` to take it from. Peer to `feature` and recorded the same
     # way at drain, one axis finer: `feature` says which hole, this says which of its
-    # measurements. ``None`` for a candidate whose renderer places directly (#754).
+    # measurements. ``None`` for a candidate whose renderer places directly.
     measurement: object | None = None
-    # Structured-note authority carried by this placed annotation (#1351), kept distinct
+    # Structured-note authority carried by this placed annotation, kept distinct
     # from dimensional ink in the registry.
     satisfaction: object | None = None
     # The exact declared IR item that produced this ink. Distinct from ``feature`` for a
     # structured note: its physical owner is the origin, while its editable declaration is
-    # the Note itself (#1710).
+    # the Note itself.
     declaration: object | None = None
     # Real stacking-axis + perpendicular footprint ``(w, h)`` in page-mm, or ``None`` to
     # use the dimension default ``(tier, tier)``. Wide/tall occupants (a GD&T feature
     # control frame is ~24×6 mm) set this so the strip solve reserves their true extent
-    # instead of one label-height (ADR 2 (was 0009) real-footprint plumbing, #61). A dim leaves
+    # instead of one label-height (ADR 2 (was 0009)). A dim leaves
     # it ``None`` — byte-identical to the pre-plumbing placement.
     size: tuple | None = None
     # An ``(x0, y0, x1, y1)`` page-box this candidate must NOT overlap even when force-kept —
     # the title block, which is placed after the corridor drain so the strip carve can't see
-    # it (#481). ``None`` (every dim) skips the check → byte-identical.
+    # it. ``None`` (every dim) skips the check.
     forbid: object | None = None
     # Analytical ``pos -> (x0, y0, x1, y1)`` footprint of the geometry ``build(pos)``
-    # would produce (#602): lets the strip solve measure and evaluate this candidate
+    # would produce: lets the strip solve measure and evaluate this candidate
     # without constructing OCC geometry at all (see :func:`dim_footprint`). ``None``
     # falls back to one probe build at the strip edge + the box-shift model. CONTRACT:
     # the footprint must be accurate — its PERPENDICULAR extent feeds the obstacle
@@ -1503,7 +1503,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
             # there is no visible annotation to restore, so queue the aggregated
             # identity immediately behind the retry that creates it.  This mirrors the
             # deferred winner path below and keeps a promoted survivor from retaining
-            # only its own measurement (#1372).
+            # only its own measurement.
             if pending is not None and len(pending) > n_deferred:
                 pending.append(
                     lambda _c=dropped_winner, _name=loser.name: _restore_shared_identity(
@@ -1565,7 +1565,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 trace.record_outcome(c.name, "dropped", reason="no_strip")
             # Same rule as the solved path below: `on_drop` may have rescued this
             # measurement onto the OPPOSITE strip, which can exist even when this one
-            # does not. Promoting a coincident loser then draws the span twice (#894).
+            # does not. Promoting a coincident loser then draws the span twice.
             if c.dedup is not None and not _winner_placed(c):
                 _promote_losers(c)
         if trace is not None:
@@ -1596,13 +1596,13 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
     }
     satisfactions = {c.name: c.satisfaction for c in kept if c.satisfaction is not None}
     declarations = {c.name: c.declaration for c in kept if c.declaration is not None}
-    sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint (#61)
-    forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box (#481)
-    prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank (#357)
+    sizes = {c.name: c.size for c in kept if c.size is not None}  # real footprint
+    forbid = {c.name: c.forbid for c in kept if c.forbid is not None}  # title-block box
+    prio = {c.name: c.priority for c in kept if c.priority}  # over-capacity survival rank
     obligation_classes = {c.name: c.effective_obligation_class for c in kept}
     anchored = {c.name: c.anchored for c in kept if c.anchored}
     naturals = {c.name: c.natural for c in kept if c.natural is not None}
-    foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical (#602)
+    foots = {c.name: c.footprint for c in kept if c.footprint is not None}  # analytical
     valid_positions = {c.name: c.valid_position for c in kept if c.valid_position is not None}
     compactions = {c.name: c.compact_candidates for c in kept if c.compact_candidates is not None}
     ink_repairs = {
@@ -1700,9 +1700,7 @@ def solve_corridor(dwg, strip, view, axis, cands, tier, corner_reserves=(), *, k
                 # A deduped winner that did not place hands its measurement to the best
                 # surviving loser — but ONLY if the measurement is genuinely absent.
                 # `on_drop` may have rescued it onto the opposite strip, and promoting
-                # then draws the same span twice (#894: observed on CTC-03, where
-                # m_pocket0_pos_long fell through cleanly and its coincident twin was
-                # promoted anyway).
+                # then draws the same span twice.
                 #
                 # The predicate is "winner still absent", not "did on_drop defer" — a
                 # SYNCHRONOUS retry has resolved by now, and if it succeeded the loser
@@ -1739,7 +1737,7 @@ class PlacementContext:
     escalations: list = field(default_factory=list)
     detail_requests: list = field(default_factory=list)
     # Fallthrough callbacks a pass's on_drop queues to run AFTER every corridor has
-    # drained (#684): a mid-drain carve could occupy space a later sibling
+    # drained: a mid-drain carve could occupy space a later sibling
     # corridor's force candidate needs; deferral makes "post-drain" literally true.
     post_drain: list = field(default_factory=list)
     # Whole dimensions whose ordinary exterior corridor was genuinely full.
@@ -1747,7 +1745,7 @@ class PlacementContext:
     # one bounded interior assignment after every exterior fallthrough settles.
     interior_dimensions: list | None = None
     # Compatible automatic/deferred feature-callout jobs collected across the
-    # hole + post-drain machined passes (#1166). ``None`` is intentional: direct
+    # hole + post-drain machined passes. ``None`` is intentional: direct
     # renderer calls and finished-sheet live verbs keep their immediate behavior;
     # the orchestrator/finalize paths opt in with ``[]`` and drain once.
     feature_leaders: list | None = None
@@ -1759,28 +1757,28 @@ class PlacementContext:
     # Automatic placement may reserve a dense internal section row. Only that
     # run needs the extended hole-leader resource-floor routing preference.
     dense_internal_section: bool = False
-    # The opt-in solve-trace recorder (#736) — a :class:`SolveTrace` threaded off the
+    # The opt-in solve-trace recorder — a :class:`SolveTrace` threaded off the
     # drawing's build state by both entry paths, or ``None`` (the default: tracing off,
     # every hook a bare None check). Ctx state, not a module global, so the finalize
     # path traces exactly like the auto pass.
     trace: Any = None
-    # The drawing's build-state stores, referenced (not owned) by the run's passes (#639).
+    # The drawing's build-state stores, referenced (not owned) by the run's passes.
     # Duck-typed as ``Any`` — matching the untyped ``Drawing._record_build_issue`` they replace —
     # so mypy does not reject the delegating calls below.
     registry: Any = None  # the drawing's AnnotationRegistry: build-issue sink + names
     coverage: Any = None  # the drawing's CoverageState
-    # The drawing's render list (#817): :meth:`place` appends here, so a render pass places an
+    # The drawing's render list: :meth:`place` appends here, so a render pass places an
     # annotation through the ctx seam (``ctx.place(...)``) instead of reaching into the drawing.
     items: Any = None
     # The ensured PartModel (ADR 1 (was 0008) IR) the run's passes read, threaded off the drawing so
-    # they no longer reach into ``dwg._part_model`` (#639). Both entry paths set it from the
+    # they do not reach into ``dwg._part_model``. Both entry paths set it from the
     # PUBLIC ``dwg.model()`` after the model is ensured/attached.
     part_model: Any = None
     # Whether the model was DECLARED (vs detected) — the ADR 4 (was 0011) gate the orchestrator reads,
-    # threaded off ``getattr(dwg, "_model_declared")`` (#639).
+    # threaded off ``getattr(dwg, "_model_declared")``.
     model_declared: bool = False
     # Document models are declared for common-geometry authority, while their imported PMI
-    # remains discovery-sourced and obeys the member's pmi= policy (#1794).
+    # remains discovery-sourced and obeys the member's pmi= policy.
     document_member: bool = False
     document_source_annotation_ids: frozenset[int] = frozenset()
     # Activated only after the complete imported manufacturing table fits.
@@ -1798,6 +1796,7 @@ class PlacementContext:
         measurement=None,
         satisfaction=None,
         declaration=None,
+        candidate_region=None,
     ):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
         door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 1 (was 0005)
@@ -1821,6 +1820,7 @@ class PlacementContext:
             measurement,
             satisfaction,
             declaration=declaration,
+            candidate_region=candidate_region,
         )
 
     def feature_of_hole_at(self, location):
@@ -2047,6 +2047,7 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                             attr.startswith("_dw_") and attr != "_dw_spec"
                         ):
                             setattr(dimension, attr, value)
+                    _copy_dimension_spec_riders(specimen, dimension)
                     label = getattr(dimension, "label_bbox", None)
                     box = _geom_box(dimension)
             except Exception:  # noqa: BLE001 — an optional lane must fail closed
@@ -2182,13 +2183,13 @@ def _drain_interior_dimensions(ctx, dwg) -> None:
                 )
                 job.on_drop(job.name)
                 continue
-        dimension._dw_candidate_region = job_candidates[choice].region.value
         ctx.place(
             dimension,
             job.name,
             view=job.view,
             feature=job.feature,
             measurement=job.measurement,
+            candidate_region=job_candidates[choice].region.value,
         )
         record(job, job_candidates, job_costs, choice, "placed")
         job.on_place(job.name)
@@ -2233,7 +2234,7 @@ def drain_corridors(ctx, dwg):
             b["cands"],
             b["tier"],
             corner_reserves=reserves,
-            key=key,  # corridor identity + trace threading (#736)
+            key=key,  # corridor identity + trace threading
             ctx=ctx,
         )
     ctx.corridor_batch = {}
@@ -2242,7 +2243,7 @@ def drain_corridors(ctx, dwg):
     # A deferred winner retry can fail and promote a coincident loser whose own
     # opposite-strip retry is also deferred.  Drain in waves until no callback remains:
     # every wave still runs after all corridors, while a second-generation fallback
-    # cannot be stranded in ``ctx.post_drain`` (#1372).
+    # cannot be stranded in ``ctx.post_drain``.
     while ctx.post_drain:
         pending, ctx.post_drain = ctx.post_drain, []
         for cb in pending:
@@ -2282,8 +2283,8 @@ def _prepare_strip_candidate_run(run) -> None:
     # Reserve the outermost label's OUTWARD extent at the strip boundary. plan_strip bounds
     # the dim-LINE position, but the label extends outward from it — so without this the last
     # tier's label overshoots outer_limit (into the iso view / page margin), unlike the old
-    # Strip.allocate which checked `start + tier <= outer_limit` (#338). A plain dim's
-    # label extends one `tier` outward (one-sided). A GD&T glyph (#61) hangs off a Leader that
+    # Strip.allocate which checked `start + tier <= outer_limit`. A plain dim's
+    # label extends one `tier` outward (one-sided). A GD&T glyph hangs off a Leader that
     # CENTRES it on the elbow for an above/below strip (real outward extent = height/2) but
     # places it one-sided for a left/right strip (extent = full width). Reserve the MAX real
     # outward extent among these candidates — else a glyph wider than `tier` renders off the
@@ -2312,7 +2313,7 @@ def _prepare_strip_candidate_run(run) -> None:
     # so a single probe build per candidate suffices; the corridor check below already
     # uses the full 2-D box, so it needs no such filter.
     #
-    # That one probe build is also this call's entire MEASUREMENT step (#602): every
+    # That one probe build is also this call's entire measurement step: every
     # candidate is a fixed feature-side anchor (witness origin / leader shaft end)
     # plus a dim line that translates with the tier position, so its box at position
     # ``pos`` is the probe box with the OUTWARD stacking-axis edge shifted by
@@ -2320,7 +2321,7 @@ def _prepare_strip_candidate_run(run) -> None:
     # segment loop below re-solves and re-checks on these predicted boxes only;
     # each finally-accepted candidate is built once and its real box re-validated
     # (a prediction miss degrades to a later-segment retry, never a collision).
-    # A candidate with an analytical *footprints* entry (#602) needs no probe build at
+    # A candidate with an analytical footprint needs no probe build at
     # all — its box at any position is computed, not measured.
     probe_boxes = {
         name: (footprints[name](lo) if name in (footprints or {}) else _geom_box(build(lo)))
@@ -2344,14 +2345,14 @@ def _prepare_strip_candidate_run(run) -> None:
     if tp is None:
         occupied = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES)
         owners = {}
-    else:  # tracing: same boxes, tagged with their owning annotation names (#736)
+    else:  # tracing: same boxes, tagged with their owning annotation names
         named = strip_obstacles(dwg, view=view, crossable=CROSSABLE_TYPES, named=True)
         occupied = [b for _, b in named]
         owners = {id(b): n for n, b in named}
     # Obstacles OUTSIDE the batch's predicted perpendicular band are invisible to the
     # carve below by design — but that makes the band prediction itself load-bearing: a
     # candidate whose real geometry exceeds its predicted band could land on one with no
-    # check ever seeing it (#679). Keep the filtered-out set: the post-build
+    # check ever seeing it. Keep the filtered-out set: the post-build
     # validation re-checks each survivor's REAL box against it. In-band overlaps are NOT
     # validated — witness lines legitimately cross the boxes of dims stacked further in
     # (ISO 129-1), which is exactly why the carve projects onto the stacking axis only.
@@ -2371,13 +2372,13 @@ def _prepare_strip_candidate_run(run) -> None:
             if r is not None and r[perp] < band_hi and r[perp + 2] > band_lo
         ]
     blockers = () if force else corridor_blockers(dwg, view)
-    # The title block (#1593). It is drawn near the end of `_PASS_SEQUENCE`, so it is
-    # never in `occupied` above — but its box is fixed the moment the sheet is
-    # (:func:`pending_title_block_box`), so a strip placer can honour it regardless.
+    # The title block is drawn near the end of `_PASS_SEQUENCE`, so it is
+    # never in `occupied` above. `pending_title_block_box` knows its fixed box
+    # from the sheet geometry, so a strip placer can honour it regardless.
     #
     # A hard 2-D box checked against each candidate's REAL footprint in
     # `_real_box_conflict` below, the way `forbid` guards this same block for GD&T frames
-    # (#481) — NOT an entry in the carve. The carve inflates by `pad`, the separation two
+    # — not an entry in the carve. The carve inflates by `pad`, the separation two
     # dimension LINES need from each other, and projects onto the stacking axis, claiming
     # every position at that coordinate; against a block this large both over-claim
     # badly, refusing dims that clear it by a millimetre. A 2-D test against the
@@ -2448,7 +2449,7 @@ def _solve_strip_candidate_segments(run) -> None:
     def _take_for_segment(items, n):
         if len(items) <= n:
             return items, []
-        # Do not let segment-cap slicing preempt the ranked selection step (#357/#393).
+        # Do not let segment-cap slicing preempt the ranked selection step.
         # `plan_strip` drops the lowest (priority, generated-key), but a narrow segment
         # can only see the candidates we hand it. Preselect the highest-priority members
         # for this segment, preserving their original order for crossing-free placement;
@@ -2494,7 +2495,7 @@ def _solve_strip_candidate_segments(run) -> None:
         accepted = []
         rejected = []
 
-        def _reject(name, reason):  # trace-only (#736): why this candidate left this segment
+        def _reject(name, reason):  # trace-only: why this candidate left this segment
             if tp is not None:
                 tp["rejected"].append(
                     {"name": name, "reason": reason, "segment": [seg_lo, seg_hi]}
@@ -2511,7 +2512,7 @@ def _solve_strip_candidate_segments(run) -> None:
                 _reject(name, "geometric_clearance")
                 rejected.append((name, build))
                 continue
-            # Predicted box, not built geometry (#602): the refill loop re-evaluates
+            # Predicted box, not built geometry: the refill loop re-evaluates
             # every already-accepted candidate each iteration, so building here made
             # the drain quadratic in OCC builds.
             box = _predicted_box(name, pos)
@@ -2523,7 +2524,7 @@ def _solve_strip_candidate_segments(run) -> None:
                 _reject(name, "corridor_blocked")
                 rejected.append((name, build))
                 continue
-            # A forbidden box (the title block, #481) is rejected even under force — it is
+            # A forbidden box (the title block) is rejected even under force — it is
             # placed after the drain, so the strip carve can't see it; a force-kept GD&T frame
             # must still not stack onto it. `forbid` maps names to their box (only GD&T sets it,
             # so dims are byte-identical). Returned unplaced → the caller's on_drop fallthrough.
@@ -2551,8 +2552,8 @@ def _solve_strip_candidate_segments(run) -> None:
                 break
             fill, todo = _take_for_segment(todo, vacancies)
             take = [nb for nb, _pos in accepted] + fill
-        # Build each survivor ONCE at its solved position and re-validate the real box
-        # (the #602 validation fallback): a prediction miss is returned to the pool for
+        # Build each survivor once at its solved position and re-validate the real box:
+        # a prediction miss is returned to the pool for
         # the next segment — exactly where a same-segment rejection would have sent it.
         placed = []
         for (name, build), pos in accepted:
@@ -2680,7 +2681,7 @@ def _adjust_strip_candidate_labels(run) -> None:
         # owned by another view retain their independent corridor/repair contract.  The
         # missing class is non-dimension ink whose semantic owner is another view: an
         # outboard leader can physically enter this corridor even though the projected
-        # view blocks are disjoint (#1781).
+        # view blocks are disjoint.
         committed = []
         for name, annotation in dwg.iter_annotations():
             owner = dwg.view_of(name)

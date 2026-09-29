@@ -356,7 +356,7 @@ def _manifest(drawing) -> dict:
             "type": type(annotation).__name__,
             "label": str(getattr(annotation, "label", "")),
             "view": drawing.view_of(name),
-            "region": getattr(annotation, "_dw_candidate_region", None),
+            "region": drawing.registry.candidate_region_of(name),
             "measurements": requirement_identities(drawing.registry.measurement_of(name)),
             "satisfactions": requirement_identities(drawing.registry.satisfaction_of(name)),
             "owners": sorted(
@@ -378,7 +378,7 @@ def _manifest(drawing) -> dict:
         name
         for name, annotation in drawing.iter_annotations()
         if "Dimension" in type(annotation).__name__
-        and getattr(annotation, "_dw_candidate_region", None) == "interior"
+        and drawing.registry.candidate_region_of(name) == "interior"
     )
     return {
         "annotations": annotations,

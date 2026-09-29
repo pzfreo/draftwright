@@ -1770,518 +1770,251 @@ class _LeaderFixedInkInventory:
         return cached
 
 
-def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
-    """Solve explicit jobs now through the shared analytical leader machinery.
+@dataclass(frozen=True)
+class _GreedyFloorInput:
+    """The lazy floor's streams, boundaries, and commit/trace callbacks."""
 
-    Pre-drain semantic consumers use ``producer_floor=True`` to retain their
-    established first-clear ordering without postponing their winners to the
-    canonical late inventory.  Candidate measurement and survivor validation
-    remain the same shared path; only the assignment tier is fixed to the lazy
-    producer floor.
+    dwg: Any
+    jobs: list[FeatureLeaderJob]
+    views: tuple[str, ...]
+    bounded_fixed_obstacles: Callable[..., Any]
+    candidate_budget_fallback_jobs: list[Any]
+    fallback_jobs: list[Any]
+    page: tuple[float, float, float, float]
+    title_block: tuple[float, float, float, float]
+    material_by_view: dict[str, Any]
+    recorder: _LeaderTraceRecorder
+    recovery_for: Callable[..., Any]
+    place: Callable[..., Any]
+    drop: Callable[..., Any]
+    record_policy_b: Callable[..., Any]
+
+
+def _run_greedy_floor(
+    scope: _GreedyFloorInput,
+    reason,
+    *,
+    fixed_probes=0,
+    fixed_probe_bound=0,
+    pair_probes=0,
+    states=0,
+    abandoned_inventories=None,
+    abandoned_rejected=None,
+    abandoned_raw_counts=None,
+    prefer_clear=True,
+) -> int:
+    """Deterministic first-clear floor in original stage/job order.
+
+    ``prefer_clear`` examines a bounded tail for a route that clears material (#798).
+    Geometry-validation replay disables that preference to preserve the producer floor.
     """
 
-    jobs = list(jobs)
-    if not jobs:
-        return 0
+    dwg = scope.dwg
+    jobs = scope.jobs
+    views = scope.views
+    bounded_fixed_obstacles = scope.bounded_fixed_obstacles
+    candidate_budget_fallback_jobs = scope.candidate_budget_fallback_jobs
+    fallback_jobs = scope.fallback_jobs
+    page = scope.page
+    title_block = scope.title_block
+    material_by_view = scope.material_by_view
+    recovery_for = scope.recovery_for
+    place = scope.place
+    drop = scope.drop
+    record_policy_b = scope.record_policy_b
+    record_item = scope.recorder.record_item
+    recovery_cost = scope.recorder.recovery_cost
+    candidate_entry = scope.recorder.candidate_entry
+    set_assignment = scope.recorder.set_assignment
 
-    crossing_recovery_enabled = layout_flag(
-        "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
-    )
-
-    def recovery_for(job_index):
-        # The sheet grid is bounded per call, but dense imported parts can have
-        # dozens of hole jobs. Keep this optional search within a small inventory.
-        job = jobs[job_index]
-        if crossing_recovery_enabled and len(jobs) > 16 and job.noun == "hole":
-            return None
-        return job.recover
-
-    page = (
-        analysis.margin,
-        analysis.margin,
-        analysis.PAGE_W - analysis.margin,
-        analysis.PAGE_H - analysis.margin,
-    )
-    title_block = (
-        analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
-        _TB_CLEAR,
-        analysis.PAGE_W - _TB_CLEAR,
-        _TB_CLEAR + _TB_H,
-    )
-    raw_jobs = []
-    fallback_jobs = []
-    candidate_budget_fallback_jobs = []
-    measurement_work_by_view: dict[str, int] = {}
-    recorder = _LeaderTraceRecorder(ctx, jobs, producer_floor, measurement_work_by_view)
-    record_item = recorder.record_item
-    recovery_cost = recorder.recovery_cost
-    candidate_entry = recorder.candidate_entry
-    set_assignment = recorder.set_assignment
-    for job in jobs:
-        if job.fallback_candidates is None:
-            joint, fallback = tee(job.candidates)
-        else:
-            joint, fallback = job.candidates, job.fallback_candidates
-        if job.candidate_budget_fallback_candidates is None:
-            fallback, candidate_budget_fallback = tee(fallback)
-        else:
-            candidate_budget_fallback = job.candidate_budget_fallback_candidates
-        raw_jobs.append(iter(joint))
-        fallback_jobs.append(iter(fallback))
-        candidate_budget_fallback_jobs.append(iter(candidate_budget_fallback))
-
-    views = tuple(dict.fromkeys(job.view for job in jobs))
-    # The build's ONE filled-material lowering, indexed the way this stage needs it. Taken
-    # from the drawing here rather than threaded through every producer's job, so a new
-    # leader family joins the inventory without having to remember to carry the field —
-    # and so there is exactly one lowering behind both routing and critique (#798).
-    material_by_view: dict[str, Any] = {}
-    try:
-        fields = dwg.material_fields()
-    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
-        fields = {}
-    for view in views:
-        placed = dwg.views.get(view)
-        if placed and placed[0] is not None:
-            material_by_view[view] = fields.get(id(placed[0]))
-    # The candidate×component probe cap cannot protect an eager OCC scan. This
-    # owner caps inventory lowering and caches it across joint/fallback use.
-    bounded_fixed_obstacles = _LeaderFixedInkInventory(dwg, views, title_block).get
-
-    def place(job_index, candidate, annotation, *, recovered=False):
-        job = jobs[job_index]
-        # Preserve typed candidate provenance on the rendered object.  Besides trace
-        # diagnostics, structural lint uses this to distinguish a solver-proven interior
-        # label from an arbitrary annotation that merely happens to lie inside a view.
-        if not recovered:
-            annotation._dw_candidate_region = candidate.region.value
-        ctx.place(
-            annotation,
-            job.name,
-            view=job.view,
-            feature=resolve_feature(candidate if recovered else candidate.feature),
-            measurement=job.measurement,
+    if "budget" in reason:
+        activity(
+            "budget",
+            reason=reason,
+            states=states,
+            fixed_probes=fixed_probes,
+            pair_probes=pair_probes,
         )
-        if job.on_place is not None:
-            job.on_place(annotation)
+    placed_count = 0
+    total_priority = 0.0
+    total_penalty = 0
+    total_cost = 0.0
+    actual_fixed_probes = fixed_probes
+    start = _start_greedy_floor(dwg, jobs, views, bounded_fixed_obstacles)
+    fixed_verified = start.fixed_verified
+    fixed = start.fixed
+    pending_recoveries = []
+    legacy_boxes = start.legacy_boxes
 
-    def drop(job_index, *, reason="no_clear_room"):
-        job = jobs[job_index]
-        if job.on_drop is not None:
-            job.on_drop(reason)
-        else:
-            detail = (
-                "rendered geometry validation failed"
-                if reason == "geometry_validation"
-                else "no clear room"
-            )
-            ctx.record_issue(
-                "warning",
-                job.drop_code,
-                f"{job.noun} callout {job.label} not placed ({detail})",
-                measurement=job.measurement,
-                outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
-            )
-
-    def record_policy_b(job_index, blockers) -> None:
-        """Persist an intentionally retained fixed-ink crossing.
-
-        Solve tracing is optional; Policy B is not.  A normal drawing must
-        therefore expose the accepted crossing through structured lint rather
-        than looking clean merely because the trace recorder was disabled.
-        """
-
-        if producer_floor:
-            # Immediate pre-drain consumers retain their historical diagnostic
-            # contract as well as their selection order. Their later semantic
-            # passes already diagnose the resulting drawing; this late-inventory
-            # Policy-B finding was never part of the immediate producer floor.
-            return
-
-        unverified = "fixed_probe_budget" in blockers
-        crossed = tuple(
-            blocker
-            for blocker in blockers
-            if blocker not in {"page", "unmeasurable_label", "fixed_probe_budget"}
-            and not blocker.startswith("view:")
+    for job_index, job in enumerate(jobs):
+        obstacle_count = len(fixed[job.view])
+        fallback_source = (
+            candidate_budget_fallback_jobs[job_index]
+            if reason == "greedy_candidate_budget"
+            else fallback_jobs[job_index]
         )
-        job = jobs[job_index]
-        if crossed:
-            ctx.record_issue(
-                "info",
-                "feature_leader_crossing",
-                f"{job.noun} callout {job.label} retained under Policy B across: "
-                + ", ".join(crossed),
-                measurement=job.measurement,
+        selection = _select_greedy_job(
+            _GreedySelectionInput(
+                dwg,
+                job,
+                fallback_source,
+                fixed[job.view],
+                fixed_verified,
+                actual_fixed_probes,
+                page,
+                title_block,
+                legacy_boxes[job.view],
+                material_by_view.get(job.view),
+                reason,
+                prefer_clear,
+                candidate_entry,
             )
-        if unverified:
-            ctx.record_issue(
-                "info",
-                "feature_leader_fixed_ink_unverified",
-                f"{job.noun} callout {job.label} retained under the producer floor "
-                "without exact fixed-ink classification (probe budget exhausted)",
-                measurement=job.measurement,
-            )
-
-    def greedy(
-        reason,
-        *,
-        fixed_probes=0,
-        fixed_probe_bound=0,
-        pair_probes=0,
-        states=0,
-        abandoned_inventories=None,
-        abandoned_rejected=None,
-        abandoned_raw_counts=None,
-        prefer_clear=True,
-    ) -> int:
-        """Deterministic first-clear floor in original stage/job order.
-
-        With *prefer_clear* a job whose first acceptable route cuts back through the part
-        looks a bounded distance further for one that does not (#798). Every other job
-        behaves exactly as the pre-#798 floor did, because a first acceptable route that
-        already clears the body breaks the loop in the same place, and a job that
-        exhausts the lookahead resumes the stream in first-clear order rather than
-        dropping.
-
-        ``prefer_clear=False`` restores the original selection verbatim. It is used by the
-        geometry-validation replay, whose whole purpose is to guarantee cardinality after
-        the exact path lost candidates to rendering failures: re-running that with a route
-        preference would search for a better answer at the exact moment the caller needs
-        the most certain one.
-        """
-
-        if "budget" in reason:
-            activity(
-                "budget",
-                reason=reason,
-                states=states,
-                fixed_probes=fixed_probes,
-                pair_probes=pair_probes,
-            )
-        placed_count = 0
-        total_priority = 0.0
-        total_penalty = 0
-        total_cost = 0.0
-        actual_fixed_probes = fixed_probes
-        start = _start_greedy_floor(dwg, jobs, views, bounded_fixed_obstacles)
-        fixed_verified = start.fixed_verified
-        fixed = start.fixed
-        pending_recoveries = []
-        legacy_boxes = start.legacy_boxes
-
-        for job_index, job in enumerate(jobs):
-            obstacle_count = len(fixed[job.view])
-            fallback_source = (
-                candidate_budget_fallback_jobs[job_index]
-                if reason == "greedy_candidate_budget"
-                else fallback_jobs[job_index]
-            )
-            selection = _select_greedy_job(
-                _GreedySelectionInput(
-                    dwg,
-                    job,
-                    fallback_source,
-                    fixed[job.view],
-                    fixed_verified,
-                    actual_fixed_probes,
-                    page,
-                    title_block,
-                    legacy_boxes[job.view],
-                    material_by_view.get(job.view),
-                    reason,
-                    prefer_clear,
-                    candidate_entry,
-                )
-            )
-            blockers_by_raw = selection.blockers_by_raw
-            fallback_rejected = selection.fallback_rejected
-            raw_count = selection.raw_count
-            selected = selection.selected
-            selected_policy_b = selection.selected_policy_b
-            annotation = selection.annotation
-            inventory = selection.inventory
-            fixed_verified = selection.fixed_verified
-            actual_fixed_probes = selection.fixed_probes
-            producer_fallback = {
-                "candidates_tried": raw_count,
-                "selected": (
-                    candidate_entry(selected, "selected", selected_policy_b)
-                    if selected is not None
-                    else None
-                ),
-                "rejected": fallback_rejected,
-            }
-            recorded_inventory = (
-                abandoned_inventories[job_index]
-                if abandoned_inventories is not None
-                else inventory
-            )
-            recorded_rejected = (
-                abandoned_rejected[job_index]
-                if abandoned_rejected is not None
-                else blockers_by_raw
-            )
-            recorded_raw_count = (
-                abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
-            )
-            if selected is None:
-                drop_reason = _greedy_terminal_reason(fallback_rejected)
-                if recovery_for(job_index) is not None:
-                    pending_recoveries.append(
-                        (
-                            job_index,
-                            recorded_raw_count,
-                            recorded_rejected,
-                            obstacle_count,
-                            recorded_inventory,
-                            producer_fallback,
-                            drop_reason,
-                        )
+        )
+        blockers_by_raw = selection.blockers_by_raw
+        fallback_rejected = selection.fallback_rejected
+        raw_count = selection.raw_count
+        selected = selection.selected
+        selected_policy_b = selection.selected_policy_b
+        annotation = selection.annotation
+        inventory = selection.inventory
+        fixed_verified = selection.fixed_verified
+        actual_fixed_probes = selection.fixed_probes
+        producer_fallback = {
+            "candidates_tried": raw_count,
+            "selected": (
+                candidate_entry(selected, "selected", selected_policy_b)
+                if selected is not None
+                else None
+            ),
+            "rejected": fallback_rejected,
+        }
+        recorded_inventory = (
+            abandoned_inventories[job_index] if abandoned_inventories is not None else inventory
+        )
+        recorded_rejected = (
+            abandoned_rejected[job_index] if abandoned_rejected is not None else blockers_by_raw
+        )
+        recorded_raw_count = (
+            abandoned_raw_counts[job_index] if abandoned_raw_counts is not None else raw_count
+        )
+        if selected is None:
+            drop_reason = _greedy_terminal_reason(fallback_rejected)
+            if recovery_for(job_index) is not None:
+                pending_recoveries.append(
+                    (
+                        job_index,
+                        recorded_raw_count,
+                        recorded_rejected,
+                        obstacle_count,
+                        recorded_inventory,
+                        producer_fallback,
+                        drop_reason,
                     )
-                    continue
-                drop(job_index, reason=drop_reason)
-                record_item(
-                    job_index,
-                    None,
-                    recorded_raw_count,
-                    recorded_rejected,
-                    obstacle_count=obstacle_count,
-                    candidate_inventory=recorded_inventory,
-                    producer_fallback=producer_fallback,
-                    reason=drop_reason,
                 )
                 continue
-            place(job_index, selected, annotation)
-            record_policy_b(job_index, selected_policy_b)
-            if fixed_verified:
-                remaining_components = _FEATURE_LEADER_MAX_FIXED_WORK - sum(
-                    len(components) for components in fixed.values()
-                )
-                if remaining_components <= 0:
-                    fixed_verified = False
-                else:
-                    landed_components = _annotation_fixed_ink(
-                        dwg,
-                        job.name,
-                        annotation,
-                        max_components=remaining_components,
-                    )
-                    if landed_components is _FIXED_INVENTORY_EXHAUSTED:
-                        fixed_verified = False
-                    else:
-                        fixed[job.view] = (*fixed[job.view], *landed_components)
-            legacy_boxes[job.view] = (
-                *legacy_boxes[job.view],
-                *annotation_obstacle_boxes(dwg, annotation),
-            )
+            drop(job_index, reason=drop_reason)
             record_item(
                 job_index,
-                selected,
+                None,
                 recorded_raw_count,
                 recorded_rejected,
                 obstacle_count=obstacle_count,
-                policy_b_blockers=selected_policy_b,
                 candidate_inventory=recorded_inventory,
                 producer_fallback=producer_fallback,
+                reason=drop_reason,
             )
-            placed_count += 1
-            total_priority += job.priority
-            # The resource-cap floor replays the producer's own lazy selection, which does
-            # not weigh material — its contract is only that it cannot place FEWER
-            # callouts than the pre-#1166 renderer. Its reported penalty still counts the
-            # material it accepted, so a fallback result is not traced as cleaner than it is.
-            total_penalty += len(selected_policy_b) + _material_units(
-                selected, material_by_view.get(job.view)
+            continue
+        place(job_index, selected, annotation)
+        record_policy_b(job_index, selected_policy_b)
+        if fixed_verified:
+            remaining_components = _FEATURE_LEADER_MAX_FIXED_WORK - sum(
+                len(components) for components in fixed.values()
             )
-            total_cost += selected.cost
-        placed_count, total_priority, total_cost = _finish_greedy_recoveries(
-            pending_recoveries,
-            jobs,
-            _GreedyRecoveryCallbacks(recovery_for, place, drop, record_item, recovery_cost),
-            (placed_count, total_priority, total_cost),
-        )
-        set_assignment(
-            reason,
-            optimal=False,
-            states=states,
-            fixed_probes=actual_fixed_probes,
-            fixed_probe_bound=max(fixed_probe_bound, actual_fixed_probes),
-            pair_probes=pair_probes,
-            placed=placed_count,
-            priority=total_priority,
-            penalty=total_penalty,
-            cost=total_cost,
-        )
-        return placed_count
-
-    if producer_floor:
-        return greedy("greedy_stage_boundary")
-
-    if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
-        return greedy("greedy_job_budget")
-
-    # Budgets are per VIEW, because the solve is (#1188). Jobs in different views never
-    # conflict, so they are separate searches sharing nothing; charging them against one
-    # global allowance made a three-view part exhaust the budget at a third of the
-    # inventory each view could actually handle, and every dense fixture fell back to the
-    # greedy floor before the exact solve began.
-    for job_index, iterator in enumerate(raw_jobs):
-        view = jobs[job_index].view
-        unit_work = _candidate_measure_work(jobs[job_index])
-        used_work = measurement_work_by_view.get(view, 0)
-        remaining_work = max(0, _FEATURE_LEADER_MAX_MEASURE_WORK - used_work)
-        admitted = remaining_work // unit_work
-        prefix = list(islice(iterator, admitted + 1))
-        measurement_work_by_view[view] = used_work + len(prefix) * unit_work
-        if len(prefix) > admitted:
-            raw_jobs[job_index] = chain(prefix, iterator)
-            return greedy("greedy_candidate_budget")
-        raw_jobs[job_index] = iter(prefix)
-
-    measured_by_job = [
-        [_measure(raw_index, raw, job, dwg.draft) for raw_index, raw in enumerate(iterator)]
-        for job, iterator in zip(jobs, raw_jobs, strict=True)
-    ]
-    raw_count_by_job = [len(candidates) for candidates in measured_by_job]
-
-    fixed = bounded_fixed_obstacles()
-    if fixed is _FIXED_INVENTORY_EXHAUSTED:
-        return greedy(
-            "greedy_fixed_inventory_budget",
-            fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_WORK + 1,
-        )
-    possible_fixed_by_job = [
-        [_possible_fixed_components(candidate, fixed[job.view]) for candidate in candidates]
-        for job, candidates in zip(jobs, measured_by_job, strict=True)
-    ]
-    probes_by_view: dict[str, int] = {}
-    for job, possible_by_candidate in zip(jobs, possible_fixed_by_job, strict=True):
-        probes_by_view[job.view] = probes_by_view.get(job.view, 0) + sum(
-            len(components) for components in possible_by_candidate
-        )
-    fixed_probe_bound = sum(probes_by_view.values())
-    if any(bound > _FEATURE_LEADER_MAX_FIXED_WORK for bound in probes_by_view.values()):
-        return greedy(
-            "greedy_fixed_probe_budget",
-            fixed_probe_bound=fixed_probe_bound,
-        )
-    classified = _classify_primary_leader_candidates(
-        jobs, measured_by_job, possible_fixed_by_job, material_by_view, page
-    )
-    viable_by_job = classified.viable_by_job
-    policy_blockers_by_job = classified.policy_blockers_by_job
-    material_by_job = classified.material_by_job
-    rejected_by_job = classified.rejected_by_job
-
-    pairs = _pair_conflicts(jobs, viable_by_job)
-    pair_probes = pairs.probes
-    if pairs.exhausted:
-        return greedy(
-            "greedy_pair_budget",
-            fixed_probes=fixed_probe_bound,
-            fixed_probe_bound=fixed_probe_bound,
-            pair_probes=pair_probes,
-        )
-    conflicts = pairs.conflicts
-
-    assignment = _assign_by_view(
-        [job.view for job in jobs],
-        [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
-        conflicts,
-        priorities=[job.priority for job in jobs],
-        penalties_by_job=[
-            [
-                len(blockers) + units
-                for blockers, units in zip(job_blockers, job_units, strict=True)
-            ]
-            for job_blockers, job_units in zip(
-                policy_blockers_by_job, material_by_job, strict=True
-            )
-        ],
-    )
-
-    # Override the established producer layout only for a proven cardinality
-    # improvement. A complete incumbent beats any floor with an empty job stream;
-    # otherwise the floor may place every job too, with different downstream
-    # section/table opportunities. Peek at most one raw candidate per job and
-    # restore each nonempty stream for the ordinary fallback/validation paths.
-    retain_complete_incumbent = False
-    if not assignment.optimal and all(choice is not None for choice in assignment.choices):
-        empty = object()
-        for job_index, fallback in enumerate(fallback_jobs):
-            first = next(fallback, empty)
-            if first is empty:
-                retain_complete_incumbent = True
-                break
-            fallback_jobs[job_index] = chain((first,), fallback)
-
-    if not assignment.optimal and not retain_complete_incumbent:
-        # The layout solver's bounded-search incumbent is seeded from the new
-        # exact-ink candidate order, not from every producer's canonical
-        # pre-#1166 lazy fallback.  Replaying that producer floor is the only
-        # general guarantee that resource pressure cannot reduce semantic
-        # cardinality relative to the established renderer.
-        conflict_names_by_candidate: dict[tuple[int, int], set[str]] = {}
-        for earlier_job, earlier_index, later_job, later_index in conflicts:
-            conflict_names_by_candidate.setdefault((earlier_job, earlier_index), set()).add(
-                jobs[later_job].name
-            )
-            conflict_names_by_candidate.setdefault((later_job, later_index), set()).add(
-                jobs[earlier_job].name
-            )
-
-        abandoned_inventories = []
-        for job_index, measured in enumerate(measured_by_job):
-            rejected_lookup = dict(rejected_by_job[job_index])
-            viable_index = {
-                candidate.raw_index: index
-                for index, candidate in enumerate(viable_by_job[job_index])
-            }
-            inventory = []
-            for candidate in measured:
-                conflict_names: tuple[str, ...]
-                if candidate.raw_index in rejected_lookup:
-                    status = "fixed_rejected"
-                    blockers = rejected_lookup[candidate.raw_index]
-                    conflict_names = ()
+            if remaining_components <= 0:
+                fixed_verified = False
+            else:
+                landed_components = _annotation_fixed_ink(
+                    dwg,
+                    job.name,
+                    annotation,
+                    max_components=remaining_components,
+                )
+                if landed_components is _FIXED_INVENTORY_EXHAUSTED:
+                    fixed_verified = False
                 else:
-                    status = "joint_abandoned"
-                    candidate_index = viable_index[candidate.raw_index]
-                    blockers = policy_blockers_by_job[job_index][candidate_index]
-                    conflict_names = tuple(
-                        sorted(conflict_names_by_candidate.get((job_index, candidate_index), ()))
-                    )
-                inventory.append(candidate_entry(candidate, status, blockers, conflict_names))
-            abandoned_inventories.append(inventory)
-        return greedy(
-            "greedy_state_budget",
-            fixed_probes=fixed_probe_bound,
-            fixed_probe_bound=fixed_probe_bound,
-            pair_probes=pair_probes,
-            states=assignment.states,
-            abandoned_inventories=abandoned_inventories,
-            abandoned_rejected=rejected_by_job,
-            abandoned_raw_counts=raw_count_by_job,
+                    fixed[job.view] = (*fixed[job.view], *landed_components)
+        legacy_boxes[job.view] = (
+            *legacy_boxes[job.view],
+            *annotation_obstacle_boxes(dwg, annotation),
         )
-    refinement = _refine_provisional_leaders(
-        _ProvisionalRefinementInput(
-            jobs,
-            views,
-            viable_by_job,
-            conflicts,
-            policy_blockers_by_job,
-            material_by_job,
-            probes_by_view,
-            assignment,
-            bounded_fixed_obstacles,
+        record_item(
+            job_index,
+            selected,
+            recorded_raw_count,
+            recorded_rejected,
+            obstacle_count=obstacle_count,
+            policy_b_blockers=selected_policy_b,
+            candidate_inventory=recorded_inventory,
+            producer_fallback=producer_fallback,
         )
+        placed_count += 1
+        total_priority += job.priority
+        # The resource-cap floor replays the producer's own lazy selection, which does
+        # not weigh material — its contract is only that it cannot place FEWER
+        # callouts than the pre-#1166 renderer. Its reported penalty still counts the
+        # material it accepted, so a fallback result is not traced as cleaner than it is.
+        total_penalty += len(selected_policy_b) + _material_units(
+            selected, material_by_view.get(job.view)
+        )
+        total_cost += selected.cost
+    placed_count, total_priority, total_cost = _finish_greedy_recoveries(
+        pending_recoveries,
+        jobs,
+        _GreedyRecoveryCallbacks(recovery_for, place, drop, record_item, recovery_cost),
+        (placed_count, total_priority, total_cost),
     )
-    assignment = refinement.assignment
-    assignment_states = refinement.states
-    provisional_probe_bound = refinement.probe_bound
-    provisional_blockers_by_job = refinement.blockers_by_job
-    provisional_refinement = refinement.outcome
+    set_assignment(
+        reason,
+        optimal=False,
+        states=states,
+        fixed_probes=actual_fixed_probes,
+        fixed_probe_bound=max(fixed_probe_bound, actual_fixed_probes),
+        pair_probes=pair_probes,
+        placed=placed_count,
+        priority=total_priority,
+        penalty=total_penalty,
+        cost=total_cost,
+    )
+    return placed_count
+
+
+@dataclass(frozen=True)
+class _JointInventoryInput:
+    """Candidate and conflict evidence for the ordered joint trace ledger."""
+
+    jobs: list[FeatureLeaderJob]
+    assignment: _LeaderAssignment
+    conflicts: list[tuple[int, int, int, int]]
+    viable_by_job: list
+    rejected_by_job: list
+    policy_blockers_by_job: list
+    provisional_blockers_by_job: list
+    measured_by_job: list
+    recorder: _LeaderTraceRecorder
+
+
+def _joint_trace_inventory(scope: _JointInventoryInput) -> tuple[list, Callable[..., list]]:
+    """Record nonselected candidates against the settled assignment."""
+    jobs = scope.jobs
+    assignment = scope.assignment
+    conflicts = scope.conflicts
+    viable_by_job = scope.viable_by_job
+    rejected_by_job = scope.rejected_by_job
+    policy_blockers_by_job = scope.policy_blockers_by_job
+    provisional_blockers_by_job = scope.provisional_blockers_by_job
+    measured_by_job = scope.measured_by_job
+    candidate_entry = scope.recorder.candidate_entry
+
     chosen = {
         (job_index, choice)
         for job_index, choice in enumerate(assignment.choices)
@@ -2355,45 +2088,65 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 )
         return entries
 
-    materialized = {}
-    geometry_failures = set()
-    for job_index, choice in enumerate(assignment.choices):
-        if choice is None:
-            continue
-        annotation = _materialize(dwg, jobs[job_index], viable_by_job[job_index][choice])
-        if annotation is None:
-            geometry_failures.add(job_index)
-        else:
-            materialized[job_index] = annotation
+    return assignment_blockers, joint_inventory
 
-    if geometry_failures:
-        # Rendered-OCC validation is deliberately outside the numeric search,
-        # but failure cannot silently reduce the solver's primary cardinality.
-        # Replay the canonical lazy producer floor: it validates candidates in
-        # order and continues after a bad survivor, remaining bounded by the
-        # original streams and preserving the pre-shared-stage semantic floor.
-        total_fixed_probes = fixed_probe_bound + (
-            provisional_probe_bound
-            if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
-            else 0
-        )
-        return greedy(
-            "greedy_geometry_validation",
-            # A pure legacy replay: this exists to guarantee cardinality after the exact
-            # path lost candidates to rendering failures, so it must not spend its search
-            # looking for a tidier route.
-            prefer_clear=False,
-            fixed_probes=total_fixed_probes,
-            fixed_probe_bound=total_fixed_probes,
-            pair_probes=pair_probes,
-            states=assignment_states,
-            abandoned_inventories=[
-                joint_inventory(job_index, geometry_failures, abandoned=True)
-                for job_index in range(len(jobs))
-            ],
-            abandoned_rejected=rejected_by_job,
-            abandoned_raw_counts=raw_count_by_job,
-        )
+
+@dataclass(frozen=True)
+class _JointCommitInput:
+    """Settled assignment and callbacks for the survivor commit."""
+
+    assignment: _LeaderAssignment
+    viable_by_job: list
+    jobs: list[FeatureLeaderJob]
+    policy_blockers_by_job: list
+    material_by_job: list
+    provisional_blockers_by_job: list
+    fixed_probe_bound: int
+    provisional_probe_bound: int
+    provisional_refinement: str
+    crossing_recovery_enabled: bool
+    recovery_for: Callable[..., Any]
+    place: Callable[..., Any]
+    drop: Callable[..., Any]
+    record_policy_b: Callable[..., Any]
+    recorder: _LeaderTraceRecorder
+    joint_inventory: Callable[..., list]
+    rejected_by_job: list
+    raw_count_by_job: list
+    assignment_blockers: list
+    fixed: dict
+    materialized: dict
+    assignment_states: int
+    pair_probes: int
+
+
+def _commit_joint_leaders(scope: _JointCommitInput) -> int:
+    """Commit clear winners, optional crossing recoveries, and final diagnostics."""
+    assignment = scope.assignment
+    viable_by_job = scope.viable_by_job
+    jobs = scope.jobs
+    policy_blockers_by_job = scope.policy_blockers_by_job
+    material_by_job = scope.material_by_job
+    provisional_blockers_by_job = scope.provisional_blockers_by_job
+    fixed_probe_bound = scope.fixed_probe_bound
+    provisional_probe_bound = scope.provisional_probe_bound
+    provisional_refinement = scope.provisional_refinement
+    crossing_recovery_enabled = scope.crossing_recovery_enabled
+    recovery_for = scope.recovery_for
+    place = scope.place
+    drop = scope.drop
+    record_policy_b = scope.record_policy_b
+    joint_inventory = scope.joint_inventory
+    rejected_by_job = scope.rejected_by_job
+    raw_count_by_job = scope.raw_count_by_job
+    assignment_blockers = scope.assignment_blockers
+    fixed = scope.fixed
+    materialized = scope.materialized
+    assignment_states = scope.assignment_states
+    pair_probes = scope.pair_probes
+    record_item = scope.recorder.record_item
+    recovery_cost = scope.recorder.recovery_cost
+    set_assignment = scope.recorder.set_assignment
 
     final_choices = list(assignment.choices)
 
@@ -2537,3 +2290,584 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         provisional_refinement=provisional_refinement,
     )
     return placed_count
+
+
+@dataclass(frozen=True)
+class _LeaderBatch:
+    """Ordered producer streams and one shared fixed-ink/material substrate."""
+
+    crossing_recovery_enabled: bool
+    recovery_for: Callable[..., Any]
+    page: tuple[float, float, float, float]
+    title_block: tuple[float, float, float, float]
+    raw_jobs: list
+    fallback_jobs: list
+    candidate_budget_fallback_jobs: list
+    measurement_work_by_view: dict[str, int]
+    recorder: _LeaderTraceRecorder
+    views: tuple[str, ...]
+    material_by_view: dict[str, Any]
+    bounded_fixed_obstacles: Callable[..., Any]
+
+
+def _start_leader_batch(dwg, analysis, ctx, jobs, producer_floor: bool) -> _LeaderBatch:
+    """Fork fallback streams without exhausting the producer's candidate order."""
+    crossing_recovery_enabled = layout_flag(
+        "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
+    )
+
+    def recovery_for(job_index):
+        # The sheet grid is bounded per call, but dense imported parts can have
+        # dozens of hole jobs. Keep this optional search within a small inventory.
+        job = jobs[job_index]
+        if crossing_recovery_enabled and len(jobs) > 16 and job.noun == "hole":
+            return None
+        return job.recover
+
+    page = (
+        analysis.margin,
+        analysis.margin,
+        analysis.PAGE_W - analysis.margin,
+        analysis.PAGE_H - analysis.margin,
+    )
+    title_block = (
+        analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
+        _TB_CLEAR,
+        analysis.PAGE_W - _TB_CLEAR,
+        _TB_CLEAR + _TB_H,
+    )
+    raw_jobs = []
+    fallback_jobs = []
+    candidate_budget_fallback_jobs = []
+    measurement_work_by_view: dict[str, int] = {}
+    recorder = _LeaderTraceRecorder(ctx, jobs, producer_floor, measurement_work_by_view)
+    for job in jobs:
+        if job.fallback_candidates is None:
+            joint, fallback = tee(job.candidates)
+        else:
+            joint, fallback = job.candidates, job.fallback_candidates
+        if job.candidate_budget_fallback_candidates is None:
+            fallback, candidate_budget_fallback = tee(fallback)
+        else:
+            candidate_budget_fallback = job.candidate_budget_fallback_candidates
+        raw_jobs.append(iter(joint))
+        fallback_jobs.append(iter(fallback))
+        candidate_budget_fallback_jobs.append(iter(candidate_budget_fallback))
+
+    views = tuple(dict.fromkeys(job.view for job in jobs))
+    # The build's ONE filled-material lowering, indexed the way this stage needs it. Taken
+    # from the drawing here rather than threaded through every producer's job, so a new
+    # leader family joins the inventory without having to remember to carry the field —
+    # and so there is exactly one lowering behind both routing and critique (#798).
+    material_by_view: dict[str, Any] = {}
+    try:
+        fields = dwg.material_fields()
+    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
+        fields = {}
+    for view in views:
+        placed = dwg.views.get(view)
+        if placed and placed[0] is not None:
+            material_by_view[view] = fields.get(id(placed[0]))
+    # The candidate×component probe cap cannot protect an eager OCC scan. This
+    # owner caps inventory lowering and caches it across joint/fallback use.
+    bounded_fixed_obstacles = _LeaderFixedInkInventory(dwg, views, title_block).get
+
+    return _LeaderBatch(
+        crossing_recovery_enabled,
+        recovery_for,
+        page,
+        title_block,
+        raw_jobs,
+        fallback_jobs,
+        candidate_budget_fallback_jobs,
+        measurement_work_by_view,
+        recorder,
+        views,
+        material_by_view,
+        bounded_fixed_obstacles,
+    )
+
+
+def _record_policy_b(ctx, jobs, producer_floor, job_index, blockers) -> None:
+    """Persist an intentionally retained fixed-ink crossing.
+
+    Solve tracing is optional; Policy B is not.  A normal drawing must
+    therefore expose the accepted crossing through structured lint rather
+    than looking clean merely because the trace recorder was disabled.
+    """
+
+    if producer_floor:
+        # Immediate pre-drain consumers retain their historical diagnostic
+        # contract as well as their selection order. Their later semantic
+        # passes already diagnose the resulting drawing; this late-inventory
+        # Policy-B finding was never part of the immediate producer floor.
+        return
+
+    unverified = "fixed_probe_budget" in blockers
+    crossed = tuple(
+        blocker
+        for blocker in blockers
+        if blocker not in {"page", "unmeasurable_label", "fixed_probe_budget"}
+        and not blocker.startswith("view:")
+    )
+    job = jobs[job_index]
+    if crossed:
+        ctx.record_issue(
+            "info",
+            "feature_leader_crossing",
+            f"{job.noun} callout {job.label} retained under Policy B across: "
+            + ", ".join(crossed),
+            measurement=job.measurement,
+        )
+    if unverified:
+        ctx.record_issue(
+            "info",
+            "feature_leader_fixed_ink_unverified",
+            f"{job.noun} callout {job.label} retained under the producer floor "
+            "without exact fixed-ink classification (probe budget exhausted)",
+            measurement=job.measurement,
+        )
+
+
+@dataclass(frozen=True)
+class _PrimaryJoint:
+    """Measured candidates and the bounded primary assignment."""
+
+    measured_by_job: list
+    raw_count_by_job: list[int]
+    fixed: dict
+    fixed_probe_bound: int
+    probes_by_view: dict[str, int]
+    viable_by_job: list
+    policy_blockers_by_job: list
+    material_by_job: list
+    rejected_by_job: list
+    pair_probes: int
+    conflicts: list[tuple[int, int, int, int]]
+    assignment: _LeaderAssignment
+
+
+def _prepare_primary_joint(floor: _GreedyFloorInput, batch: _LeaderBatch) -> _PrimaryJoint | int:
+    """Admit lazy streams, classify fixed ink, and solve per-view pairs."""
+    dwg = floor.dwg
+    jobs = floor.jobs
+    page = floor.page
+    material_by_view = floor.material_by_view
+    bounded_fixed_obstacles = floor.bounded_fixed_obstacles
+    raw_jobs = batch.raw_jobs
+    measurement_work_by_view = batch.measurement_work_by_view
+
+    # Budgets are per VIEW, because the solve is (#1188). Jobs in different views never
+    # conflict, so they are separate searches sharing nothing; charging them against one
+    # global allowance made a three-view part exhaust the budget at a third of the
+    # inventory each view could actually handle, and every dense fixture fell back to the
+    # greedy floor before the exact solve began.
+    for job_index, iterator in enumerate(raw_jobs):
+        view = jobs[job_index].view
+        unit_work = _candidate_measure_work(jobs[job_index])
+        used_work = measurement_work_by_view.get(view, 0)
+        remaining_work = max(0, _FEATURE_LEADER_MAX_MEASURE_WORK - used_work)
+        admitted = remaining_work // unit_work
+        prefix = list(islice(iterator, admitted + 1))
+        measurement_work_by_view[view] = used_work + len(prefix) * unit_work
+        if len(prefix) > admitted:
+            raw_jobs[job_index] = chain(prefix, iterator)
+            return _run_greedy_floor(floor, "greedy_candidate_budget")
+        raw_jobs[job_index] = iter(prefix)
+
+    measured_by_job = [
+        [_measure(raw_index, raw, job, dwg.draft) for raw_index, raw in enumerate(iterator)]
+        for job, iterator in zip(jobs, raw_jobs, strict=True)
+    ]
+    raw_count_by_job = [len(candidates) for candidates in measured_by_job]
+
+    fixed = bounded_fixed_obstacles()
+    if fixed is _FIXED_INVENTORY_EXHAUSTED:
+        return _run_greedy_floor(
+            floor,
+            "greedy_fixed_inventory_budget",
+            fixed_probe_bound=_FEATURE_LEADER_MAX_FIXED_WORK + 1,
+        )
+    possible_fixed_by_job = [
+        [_possible_fixed_components(candidate, fixed[job.view]) for candidate in candidates]
+        for job, candidates in zip(jobs, measured_by_job, strict=True)
+    ]
+    probes_by_view: dict[str, int] = {}
+    for job, possible_by_candidate in zip(jobs, possible_fixed_by_job, strict=True):
+        probes_by_view[job.view] = probes_by_view.get(job.view, 0) + sum(
+            len(components) for components in possible_by_candidate
+        )
+    fixed_probe_bound = sum(probes_by_view.values())
+    if any(bound > _FEATURE_LEADER_MAX_FIXED_WORK for bound in probes_by_view.values()):
+        return _run_greedy_floor(
+            floor,
+            "greedy_fixed_probe_budget",
+            fixed_probe_bound=fixed_probe_bound,
+        )
+    classified = _classify_primary_leader_candidates(
+        jobs, measured_by_job, possible_fixed_by_job, material_by_view, page
+    )
+    viable_by_job = classified.viable_by_job
+    policy_blockers_by_job = classified.policy_blockers_by_job
+    material_by_job = classified.material_by_job
+    rejected_by_job = classified.rejected_by_job
+
+    pairs = _pair_conflicts(jobs, viable_by_job)
+    pair_probes = pairs.probes
+    if pairs.exhausted:
+        return _run_greedy_floor(
+            floor,
+            "greedy_pair_budget",
+            fixed_probes=fixed_probe_bound,
+            fixed_probe_bound=fixed_probe_bound,
+            pair_probes=pair_probes,
+        )
+    conflicts = pairs.conflicts
+
+    assignment = _assign_by_view(
+        [job.view for job in jobs],
+        [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
+        conflicts,
+        priorities=[job.priority for job in jobs],
+        penalties_by_job=[
+            [
+                len(blockers) + units
+                for blockers, units in zip(job_blockers, job_units, strict=True)
+            ]
+            for job_blockers, job_units in zip(
+                policy_blockers_by_job, material_by_job, strict=True
+            )
+        ],
+    )
+
+    return _PrimaryJoint(
+        measured_by_job,
+        raw_count_by_job,
+        fixed,
+        fixed_probe_bound,
+        probes_by_view,
+        viable_by_job,
+        policy_blockers_by_job,
+        material_by_job,
+        rejected_by_job,
+        pair_probes,
+        conflicts,
+        assignment,
+    )
+
+
+def _replay_state_budget(
+    floor: _GreedyFloorInput, batch: _LeaderBatch, primary: _PrimaryJoint
+) -> int | None:
+    """Retain a complete incumbent or replay the producer's cardinality floor."""
+    assignment = primary.assignment
+    fallback_jobs = batch.fallback_jobs
+    conflicts = primary.conflicts
+    jobs = floor.jobs
+    measured_by_job = primary.measured_by_job
+    rejected_by_job = primary.rejected_by_job
+    viable_by_job = primary.viable_by_job
+    policy_blockers_by_job = primary.policy_blockers_by_job
+    fixed_probe_bound = primary.fixed_probe_bound
+    pair_probes = primary.pair_probes
+    raw_count_by_job = primary.raw_count_by_job
+    candidate_entry = floor.recorder.candidate_entry
+
+    # Override the established producer layout only for a proven cardinality
+    # improvement. A complete incumbent beats any floor with an empty job stream;
+    # otherwise the floor may place every job too, with different downstream
+    # section/table opportunities. Peek at most one raw candidate per job and
+    # restore each nonempty stream for the ordinary fallback/validation paths.
+    retain_complete_incumbent = False
+    if not assignment.optimal and all(choice is not None for choice in assignment.choices):
+        empty = object()
+        for job_index, fallback in enumerate(fallback_jobs):
+            first = next(fallback, empty)
+            if first is empty:
+                retain_complete_incumbent = True
+                break
+            fallback_jobs[job_index] = chain((first,), fallback)
+
+    if not assignment.optimal and not retain_complete_incumbent:
+        # The layout solver's bounded-search incumbent is seeded from the new
+        # exact-ink candidate order, not from every producer's canonical
+        # pre-#1166 lazy fallback.  Replaying that producer floor is the only
+        # general guarantee that resource pressure cannot reduce semantic
+        # cardinality relative to the established renderer.
+        conflict_names_by_candidate: dict[tuple[int, int], set[str]] = {}
+        for earlier_job, earlier_index, later_job, later_index in conflicts:
+            conflict_names_by_candidate.setdefault((earlier_job, earlier_index), set()).add(
+                jobs[later_job].name
+            )
+            conflict_names_by_candidate.setdefault((later_job, later_index), set()).add(
+                jobs[earlier_job].name
+            )
+
+        abandoned_inventories = []
+        for job_index, measured in enumerate(measured_by_job):
+            rejected_lookup = dict(rejected_by_job[job_index])
+            viable_index = {
+                candidate.raw_index: index
+                for index, candidate in enumerate(viable_by_job[job_index])
+            }
+            inventory = []
+            for candidate in measured:
+                conflict_names: tuple[str, ...]
+                if candidate.raw_index in rejected_lookup:
+                    status = "fixed_rejected"
+                    blockers = rejected_lookup[candidate.raw_index]
+                    conflict_names = ()
+                else:
+                    status = "joint_abandoned"
+                    candidate_index = viable_index[candidate.raw_index]
+                    blockers = policy_blockers_by_job[job_index][candidate_index]
+                    conflict_names = tuple(
+                        sorted(conflict_names_by_candidate.get((job_index, candidate_index), ()))
+                    )
+                inventory.append(candidate_entry(candidate, status, blockers, conflict_names))
+            abandoned_inventories.append(inventory)
+        return _run_greedy_floor(
+            floor,
+            "greedy_state_budget",
+            fixed_probes=fixed_probe_bound,
+            fixed_probe_bound=fixed_probe_bound,
+            pair_probes=pair_probes,
+            states=assignment.states,
+            abandoned_inventories=abandoned_inventories,
+            abandoned_rejected=rejected_by_job,
+            abandoned_raw_counts=raw_count_by_job,
+        )
+    return None
+
+
+def _materialize_joint_or_replay(
+    floor: _GreedyFloorInput,
+    primary: _PrimaryJoint,
+    refinement: _ProvisionalRefinement,
+    joint_inventory: Callable[..., list],
+) -> dict | int:
+    """Validate selected OCC ink and replay lazy streams if a survivor fails."""
+    dwg = floor.dwg
+    jobs = floor.jobs
+    assignment = refinement.assignment
+    viable_by_job = primary.viable_by_job
+    fixed_probe_bound = primary.fixed_probe_bound
+    provisional_probe_bound = refinement.probe_bound
+    provisional_refinement = refinement.outcome
+    pair_probes = primary.pair_probes
+    assignment_states = refinement.states
+    rejected_by_job = primary.rejected_by_job
+    raw_count_by_job = primary.raw_count_by_job
+
+    materialized = {}
+    geometry_failures = set()
+    for job_index, choice in enumerate(assignment.choices):
+        if choice is None:
+            continue
+        annotation = _materialize(dwg, jobs[job_index], viable_by_job[job_index][choice])
+        if annotation is None:
+            geometry_failures.add(job_index)
+        else:
+            materialized[job_index] = annotation
+
+    if geometry_failures:
+        # Rendered-OCC validation is deliberately outside the numeric search,
+        # but failure cannot silently reduce the solver's primary cardinality.
+        # Replay the canonical lazy producer floor: it validates candidates in
+        # order and continues after a bad survivor, remaining bounded by the
+        # original streams and preserving the pre-shared-stage semantic floor.
+        total_fixed_probes = fixed_probe_bound + (
+            provisional_probe_bound
+            if provisional_refinement not in {"not_needed", "probe_budget_retained_primary"}
+            else 0
+        )
+        return _run_greedy_floor(
+            floor,
+            "greedy_geometry_validation",
+            # A pure legacy replay: this exists to guarantee cardinality after the exact
+            # path lost candidates to rendering failures, so it must not spend its search
+            # looking for a tidier route.
+            prefer_clear=False,
+            fixed_probes=total_fixed_probes,
+            fixed_probe_bound=total_fixed_probes,
+            pair_probes=pair_probes,
+            states=assignment_states,
+            abandoned_inventories=[
+                joint_inventory(job_index, geometry_failures, abandoned=True)
+                for job_index in range(len(jobs))
+            ],
+            abandoned_rejected=rejected_by_job,
+            abandoned_raw_counts=raw_count_by_job,
+        )
+
+    return materialized
+
+
+def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
+    """Solve explicit jobs now through the shared analytical leader machinery.
+
+    Pre-drain semantic consumers use ``producer_floor=True`` to retain their
+    established first-clear ordering without postponing their winners to the
+    canonical late inventory.  Candidate measurement and survivor validation
+    remain the same shared path; only the assignment tier is fixed to the lazy
+    producer floor.
+    """
+
+    jobs = list(jobs)
+    if not jobs:
+        return 0
+
+    batch = _start_leader_batch(dwg, analysis, ctx, jobs, producer_floor)
+    crossing_recovery_enabled = batch.crossing_recovery_enabled
+    recovery_for = batch.recovery_for
+    page = batch.page
+    title_block = batch.title_block
+    fallback_jobs = batch.fallback_jobs
+    candidate_budget_fallback_jobs = batch.candidate_budget_fallback_jobs
+    recorder = batch.recorder
+    views = batch.views
+    material_by_view = batch.material_by_view
+    bounded_fixed_obstacles = batch.bounded_fixed_obstacles
+
+    def place(job_index, candidate, annotation, *, recovered=False):
+        job = jobs[job_index]
+        # Preserve typed candidate provenance in the registry. Besides trace
+        # diagnostics, structural lint uses this to distinguish a solver-proven interior
+        # label from an arbitrary annotation that merely happens to lie inside a view.
+        ctx.place(
+            annotation,
+            job.name,
+            view=job.view,
+            feature=resolve_feature(candidate if recovered else candidate.feature),
+            measurement=job.measurement,
+            candidate_region=None if recovered else candidate.region.value,
+        )
+        if job.on_place is not None:
+            job.on_place(annotation)
+
+    def drop(job_index, *, reason="no_clear_room"):
+        job = jobs[job_index]
+        if job.on_drop is not None:
+            job.on_drop(reason)
+        else:
+            detail = (
+                "rendered geometry validation failed"
+                if reason == "geometry_validation"
+                else "no clear room"
+            )
+            ctx.record_issue(
+                "warning",
+                job.drop_code,
+                f"{job.noun} callout {job.label} not placed ({detail})",
+                measurement=job.measurement,
+                outcome_stage=("validation" if reason == "geometry_validation" else "placement"),
+            )
+
+    def record_policy_b(job_index, blockers) -> None:
+        _record_policy_b(ctx, jobs, producer_floor, job_index, blockers)
+
+    floor = _GreedyFloorInput(
+        dwg,
+        jobs,
+        views,
+        bounded_fixed_obstacles,
+        candidate_budget_fallback_jobs,
+        fallback_jobs,
+        page,
+        title_block,
+        material_by_view,
+        recorder,
+        recovery_for,
+        place,
+        drop,
+        record_policy_b,
+    )
+
+    if producer_floor:
+        return _run_greedy_floor(floor, "greedy_stage_boundary")
+
+    if len(jobs) > _LEADER_ASSIGN_MAX_JOBS:
+        return _run_greedy_floor(floor, "greedy_job_budget")
+
+    primary = _prepare_primary_joint(floor, batch)
+    if isinstance(primary, int):
+        return primary
+    measured_by_job = primary.measured_by_job
+    raw_count_by_job = primary.raw_count_by_job
+    fixed = primary.fixed
+    fixed_probe_bound = primary.fixed_probe_bound
+    probes_by_view = primary.probes_by_view
+    viable_by_job = primary.viable_by_job
+    policy_blockers_by_job = primary.policy_blockers_by_job
+    material_by_job = primary.material_by_job
+    rejected_by_job = primary.rejected_by_job
+    pair_probes = primary.pair_probes
+    conflicts = primary.conflicts
+    assignment = primary.assignment
+
+    replay = _replay_state_budget(floor, batch, primary)
+    if replay is not None:
+        return replay
+    refinement = _refine_provisional_leaders(
+        _ProvisionalRefinementInput(
+            jobs,
+            views,
+            viable_by_job,
+            conflicts,
+            policy_blockers_by_job,
+            material_by_job,
+            probes_by_view,
+            assignment,
+            bounded_fixed_obstacles,
+        )
+    )
+    assignment = refinement.assignment
+    assignment_states = refinement.states
+    provisional_probe_bound = refinement.probe_bound
+    provisional_blockers_by_job = refinement.blockers_by_job
+    provisional_refinement = refinement.outcome
+    assignment_blockers, joint_inventory = _joint_trace_inventory(
+        _JointInventoryInput(
+            jobs,
+            assignment,
+            conflicts,
+            viable_by_job,
+            rejected_by_job,
+            policy_blockers_by_job,
+            provisional_blockers_by_job,
+            measured_by_job,
+            recorder,
+        )
+    )
+
+    materialized = _materialize_joint_or_replay(floor, primary, refinement, joint_inventory)
+    if isinstance(materialized, int):
+        return materialized
+
+    return _commit_joint_leaders(
+        _JointCommitInput(
+            assignment,
+            viable_by_job,
+            jobs,
+            policy_blockers_by_job,
+            material_by_job,
+            provisional_blockers_by_job,
+            fixed_probe_bound,
+            provisional_probe_bound,
+            provisional_refinement,
+            crossing_recovery_enabled,
+            recovery_for,
+            place,
+            drop,
+            record_policy_b,
+            recorder,
+            joint_inventory,
+            rejected_by_job,
+            raw_count_by_job,
+            assignment_blockers,
+            fixed,
+            materialized,
+            assignment_states,
+            pair_probes,
+        )
+    )

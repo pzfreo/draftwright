@@ -272,8 +272,8 @@ def test_declared_feature_relative_lanes_share_assignment_and_keep_region_proven
     ]
     ctx = _common.PlacementContext(interior_dimensions=jobs)
     ctx.trace = _common.SolveTrace(tmp_path / "interior-placed.json")
-    ctx.place = lambda annotation, name, **_kwargs: placed.append(
-        (name, annotation._dw_candidate_region)
+    ctx.place = lambda _annotation, name, **kwargs: placed.append(
+        (name, kwargs["candidate_region"])
     )
     drawing = SimpleNamespace(view_bounds=lambda _view: (0.0, 0.0, 40.0, 40.0))
 

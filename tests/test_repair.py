@@ -1,10 +1,58 @@
 """Drawing repair behavior."""
 
+import pytest
 from _parts import holed_plate as _holed_plate
 from _parts import uniform_staircase as _uniform_staircase
 
 from draftwright import build_drawing
 from draftwright.linting import LintIssue
+
+
+@pytest.mark.parametrize("use_probe", (True, False))
+def test_same_batch_rebuild_preserves_dimension_producer_riders_issue_1931(monkeypatch, use_probe):
+    from build123d_drafting.helpers import Draft
+
+    from draftwright._core import _dim
+    from draftwright.annotations import _dimension_ink_repair as ink_repair
+    from draftwright.annotations._common import prevent_dimension_label_ink
+    from draftwright.linting.ink_overlap import crossable_region, label_crossings, segments_of
+
+    draft = Draft(font_size=3.0, arrow_length=2.7, line_width=0.1)
+    natural = [
+        (
+            "short",
+            _dim((20.0, 0.0, 0.0), (22.5, 0.0, 0.0), "above", 11.0, draft, label="0.5"),
+        ),
+        (
+            "next",
+            _dim((22.5, 0.0, 0.0), (32.5, 0.0, 0.0), "above", 11.0, draft, label="2"),
+        ),
+    ]
+    for value, (_name, dim) in zip((0.5, 2.0), natural, strict=True):
+        dim._dw_spec.label_value = value
+        dim._dw_spec.authored_side = "above"
+
+    def crossings(batch):
+        left, right = (dim for _name, dim in batch)
+        left_segments, right_segments = segments_of(left), segments_of(right)
+        return label_crossings(
+            left_segments,
+            right_segments,
+            label_a=crossable_region(left.label_bbox, item=left, segments=left_segments),
+            label_b=crossable_region(right.label_bbox, item=right, segments=right_segments),
+        )
+
+    assert crossings(natural), "the original dimension ink must need repair"
+    if not use_probe:
+        # An unavailable exact probe sends candidate builds through the rendered path.
+        monkeypatch.setattr(ink_repair, "_dimension_probe_ink", lambda *_args, **_kwargs: None)
+    placed = prevent_dimension_label_ink(natural, page=(0.0, 0.0, 100.0, 100.0))
+
+    assert not crossings(placed)
+    for (_name, before), (_placed_name, after) in zip(natural, placed, strict=True):
+        assert after is not before, "the fixture must exercise a rebuilt dimension"
+        assert after._dw_spec.label_value == before._dw_spec.label_value
+        assert after._dw_spec.authored_side == before._dw_spec.authored_side
 
 
 class TestRepair:

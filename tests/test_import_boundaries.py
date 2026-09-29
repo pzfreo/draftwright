@@ -1,7 +1,8 @@
 """Import-boundary guards — the whole-package DAG, machine-enforced (#640 / ADR 1 (was 0005/0008)).
 
 docs/architecture.md declares a layered DAG: leaf modules →
-``_core`` → the core-consumers (``linting``/``pmi``/``export``/``repair``/``projection``/
+the ``model`` waist and ``_core`` (with a stricter model import allowlist) →
+the core-consumers (``linting``/``pmi``/``export``/``repair``/``projection``/
 ``compose``) → ``analysis`` → the ``annotations`` render layer → ``drawing`` → ``builder``
 → the user-facing facades/``cli``. No lower layer may import an upper one. Before #640 this
 was asserted in prose but machine-enforced only for the ``model/`` IR waist; a real
@@ -44,6 +45,7 @@ DAG violation today, so they are accepted rather than chased):
 from __future__ import annotations
 
 import ast
+import re
 from functools import cache
 from pathlib import Path
 
@@ -81,7 +83,7 @@ def _tree(path: Path) -> ast.Module:
 # same source of truth, and test_every_module_is_ranked fails if a module here is missing so
 # the table can't silently drift from the tree.
 _LAYERS: dict[str, int] = {
-    # 0 — transitional bottom layer: same-rank imports remain until the leaf-only epic exit.
+    # Bottom/shared declarations: every rank-0 entry is a strict package leaf.
     "_geometry": 0,
     # Structured ISO 10303-21 facts only; XCAF correspondence remains in rank-2 pmi.py.
     "_pmi_part21": 0,
@@ -96,8 +98,6 @@ _LAYERS: dict[str, int] = {
     "layout": 0,
     # Stable import path only; semantic survival policy is owned by layout.
     "obligations": 1,
-    # Typed, render-free annotation topology consumed by compose/analysis and render ordering.
-    "layout_scheme": 0,
     "annotation_layout_profile": 1,
     # Stable import path; annotation_layout_profile owns the coordinate-free policy.
     "leader_policy": 1,
@@ -107,31 +107,32 @@ _LAYERS: dict[str, int] = {
     "view_plan": 0,
     "intents": 5,  # Stable import path; intent_routing owns the deferred record.
     "recognition": 0,
-    "recognition_cache": 0,
-    "recognition_ownership": 0,
+    "recognition_ownership": 1,
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
-    "plate_correspondence": 0,
+    "plate_correspondence": 1,
     "contract_values": 0,  # finite values and exact shared vector arithmetic
     "measurement_support": 0,
-    "profile_angles": 0,
+    "profile_angles": 1,
     "angular_geometry": 0,
     "recogniser_policy": 0,
     # Consumer-owned public record schema versions, shared by the report projector and the
     # rank-7 cross-repository validator without either leaf depending on the validator.
     "recogniser_schema": 0,
-    "recognition_frame": 0,
+    "recognition_frame": 1,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
-    "oriented_slot_contract": 0,
+    "oriented_slot_contract": 1,
     "section_recess_contract": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    "model": 0,  # IR waist, foundational records and private validation leaves
-    # 1 — the shared drawing/layout primitives
+    # 1 — the IR waist, shared recognition/measurement modules, and drawing/layout primitives
+    # The IR waist consumes approved shared modules but has a stricter allowlist below: even at the
+    # same numerical rank, it cannot import _core or other drawing/layout owners.
+    "model": 1,
     "_core": 1,
     "build_options": 1,
     "document_input": 1,
@@ -154,9 +155,15 @@ _LAYERS: dict[str, int] = {
     "repair": 2,
     "projection": 2,
     "compose": 2,
+    # Render-free corridor demand planning consumes the model's approved groups;
+    # compose and later stages consume its typed topology.
+    "layout_scheme": 2,
     "auxiliary_layout": 2,
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
+    # Recognition lifecycle state is used by analysis and later build owners; it imports
+    # the rank-0 progress observer, so it is not itself a bottom leaf.
+    "recognition_cache": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
     # Family (including imported authored PMI), machined leader lowering,
     # analytical ink/repair, placement geometry, strip postsolve, solve trace,
@@ -359,6 +366,16 @@ def _all_sources() -> list[Path]:
     return [p for p in sorted(_SRC.rglob("*.py")) if "__pycache__" not in p.parts]
 
 
+def test_rank_zero_modules_are_package_leaves():
+    """Rank-0 files import no package module, including in type-only and lazy paths."""
+    importers = {
+        str(path.relative_to(_SRC))
+        for path in _all_sources()
+        if _LAYERS[_submodule(_module_full(path))] == 0 and any(_classify(path).values())
+    }
+    assert not importers, f"Rank-0 modules must be package leaves: {sorted(importers)}"
+
+
 def test_every_module_is_ranked():
     """Fail-closed: every submodule (importer or imported, any context) is in _LAYERS, so a new
     top-level module can't slip in unranked and dodge the DAG guard."""
@@ -373,6 +390,23 @@ def test_every_module_is_ranked():
         "Unranked submodule(s) — add them to _LAYERS (and docs/architecture.md) so the "
         f"DAG guard covers them: {sorted(missing)}"
     )
+
+
+def test_every_ranked_module_is_named_in_architecture():
+    """Every DAG entry needs its exact code-spanned module name in the architecture map."""
+    architecture = (_SRC.parent.parent / "docs" / "architecture.md").read_text(encoding="utf-8")
+    code_spans = set(re.findall(r"(?<!`)`([^`\n]+)`(?!`)", architecture))
+    names = {}
+    for name in _LAYERS:
+        source_file = _SRC / f"{name}.py"
+        package_init = _SRC / name / "__init__.py"
+        if source_file.is_file():
+            names[name] = source_file.name
+        else:
+            assert package_init.is_file(), f"Ranked module has no source: {name}"
+            names[name] = f"{name}/"
+    missing = sorted(name for name, spelling in names.items() if spelling not in code_spans)
+    assert not missing, f"Ranked module(s) missing from docs/architecture.md: {missing}"
 
 
 def test_no_upward_runtime_imports():
@@ -553,7 +587,7 @@ _MODEL_MAY_IMPORT = {
     "oriented_slot_contract",
     "section_recess_contract",
     # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
-    # conversion site. The leaf ledger depends on neither the model nor any upper stage.
+    # conversion site. The ledger depends on neither the model nor any upper stage.
     "recognition_ownership",
     # ADR 2 (was 0018): the dimension planner resolves requirement ownership against the selected
     # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
@@ -587,7 +621,7 @@ def _draftwright_imports(path: Path) -> tuple[set[str], list[str]]:
 
 
 def test_model_imports_only_allowed_leaves():
-    """No file under ``model/`` imports outside the leaf allowlist (fail-closed)."""
+    """The IR waist imports only approved shared modules or its own siblings."""
     offenders: dict[str, set[str]] = {}
     relatives: dict[str, list[str]] = {}
     for path in sorted(_MODEL_DIR.glob("*.py")):
@@ -598,7 +632,7 @@ def test_model_imports_only_allowed_leaves():
         if relative:
             relatives[path.name] = relative
     assert not offenders, (
-        "model/ (the IR waist) may only import leaf modules "
+        "model/ (the IR waist) may only import approved shared modules and its own siblings "
         f"{sorted(_MODEL_MAY_IMPORT)} (ADR 1 (was 0008); #584 WP2). Disallowed: {offenders}"
     )
     assert not relatives, (

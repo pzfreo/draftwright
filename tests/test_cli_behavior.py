@@ -1,6 +1,7 @@
 """CLI compatibility and lazy-import behavior."""
 
 import importlib
+import json
 import os
 import subprocess
 import sys
@@ -116,6 +117,97 @@ def test_cli_inherits_automatic_detail_default(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "detail_view" not in forwarded[0], "omission deliberately inherits the True default"
+
+
+def test_cli_script_and_render_forward_the_same_drawing_options(tmp_path, monkeypatch):
+    """The two front doors agree on authored drawing choices before source-specific controls."""
+    from typer.testing import CliRunner
+
+    import draftwright.builder as builder
+    import draftwright.sheet_emit as emitter
+    from draftwright.cli import app
+
+    forwarded = {}
+
+    class _Drawing:
+        annotation_scheme_decision = {}
+
+        def export(self, *, formats):
+            return {name: str(tmp_path / f"part.{name}") for name in formats}
+
+    def build_drawing(**kwargs):
+        forwarded["render"] = kwargs
+        return _Drawing()
+
+    def generate_sheet_script(_source, **kwargs):
+        forwarded["script"] = kwargs
+        return str(tmp_path / "part.py")
+
+    monkeypatch.setattr(builder, "build_drawing", build_drawing)
+    monkeypatch.setattr(emitter, "generate_sheet_script", generate_sheet_script)
+    options = [
+        "source.step",
+        "--out",
+        str(tmp_path / "part"),
+        "--no-report",
+        "--annotation-layout",
+        "estimated-strips",
+        "--scale",
+        "2",
+        "--scale-policy",
+        "strict",
+        "--projection",
+        "first",
+        "--frame",
+        "--margin-left",
+        "15",
+        "--leader-region",
+        "exterior",
+        "--pmi",
+        "annotate",
+        "--format",
+        "svg,pdf",
+    ]
+    render = CliRunner().invoke(app, options)
+    script = CliRunner().invoke(app, [*options, "--script"])
+
+    assert render.exit_code == script.exit_code == 0, (render.output, script.output)
+    render_args = forwarded["render"]
+    script_args = forwarded["script"]
+    assert render_args.pop("step_file") == "source.step"
+    assert render_args.pop("pmi") == "annotate"
+    assert script_args.pop("pmi") == "annotate"
+    assert script_args.pop("formats") == ("svg", "pdf")
+    assert script_args.pop("inspect") is False
+    assert script_args["scale"] == 2
+    assert script_args["scale_policy"] == "strict"
+    assert script_args["projection"] == "first"
+    assert script_args["frame"] is True
+    assert script_args["margin_left"] == 15
+    assert script_args["leader_region"] == "exterior"
+    assert script_args == render_args
+    assert render.output.splitlines() == [str(tmp_path / "part.svg"), str(tmp_path / "part.pdf")]
+    assert script.output.splitlines() == [str(tmp_path / "part.py")]
+
+
+def test_cancelled_build_keeps_diagnostic_and_exit_code(monkeypatch):
+    from typer.testing import CliRunner
+
+    import draftwright.builder as builder
+    from draftwright.cli import app
+    from draftwright.progress import BuildCancelled
+
+    diagnostic = {"stage": "views", "reason": "cancelled"}
+
+    def cancel(**_kwargs):
+        raise BuildCancelled(diagnostic)
+
+    monkeypatch.setattr(builder, "build_drawing", cancel)
+    result = CliRunner().invoke(app, ["source.step", "--no-progress"])
+
+    assert result.exit_code == 130
+    assert result.stdout == ""
+    assert json.loads(result.stderr) == diagnostic
 
 
 def test_lazy_public_api_preserves_make_drawing_identity():

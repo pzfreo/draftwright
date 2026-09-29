@@ -320,9 +320,8 @@ def _feature_line(
         "plate",
     }:
         return _profile_feature_line(f, profile_group=profile_group)
-    # Kinds with no declarative verb: flag inline so they aren't silently lost. Since #945 every
-    # geometric kind has a verb, so this catches bare-face aspects that cannot be rebound and,
-    # more usefully, a newly added kind whose emit line nobody wrote.
+    # Kinds with no declarative verb are flagged inline so they are not silently lost;
+    # this includes bare-face aspects and any new kind lacking an emit line.
     return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
 
 
@@ -592,14 +591,11 @@ def mirror_model(model):
     from draftwright.model.declare import _envelope_from_bbox
 
     # The SAME construction `sheet.envelope()` uses, not a copy. Hand-rolling it here hardcoded
-    # the frame origin to (0, 0, 0) — the bbox centre only for a part centred on the origin, and
-    # 6 mm out in Y on the corpus flange — so the synthesised envelope disagreed with both the
-    # detector and the declared verb. That is the fourth instance of #977's signature: a
-    # constructed envelope that does not match what detection would produce (#976).
+    # the frame origin to (0, 0, 0), which differs from the bbox centre for an off-centre part;
+    # then the synthesised envelope would disagree with detection and declaration.
     env = _envelope_from_bbox(model.bbox)
-    # Returned ALONGSIDE the model rather than stamped onto it. The first cut set a private
-    # marker on the frozen `EnvelopeFeature` and rediscovered it later by position and size —
-    # emitter bookkeeping masquerading as model state, on a public IR type (#944).
+    # Returned ALONGSIDE the model rather than stamped onto the frozen `EnvelopeFeature`:
+    # emitter bookkeeping is not public model state.
     # Which feature the emitter synthesised is the emitter's own fact; it travels out-of-band.
     identities = (*model.declaration_identities, None) if model.declaration_identities else ()
     return replace(
@@ -649,7 +645,7 @@ def unmirrored_dimensions(model) -> list[str]:
             member,
         ) in requested
 
-    # ONE interpreter, the same one the emitter serialises (#946). This used to walk
+    # ONE interpreter, the same one the emitter serialises. This used to walk
     # `plan.groups`, `plan.locations` and `plan.ladders` itself, with its own copy of the
     # ladder→parameter mapping — so the completeness GATE re-derived the compiler's answer
     # even after the emitter stopped. A category the compiler grew would have been mirrored
@@ -658,7 +654,7 @@ def unmirrored_dimensions(model) -> list[str]:
     # `model`, not `declared`: the synthesised envelope adds width and depth parameters the
     # emitter deliberately omits, so compiling the mirror model would report them missing.
     # A measurement the MIRROR consolidates onto another dimension is named by that
-    # dimension's line, so the script is complete without a line of its own (#1154). This
+    # dimension's line, so the script is complete without a line of its own. This
     # only ever differs from the source model's answer because `mirror_model` synthesises an
     # envelope for a part detected without one — a round body's boss height and its overall
     # height run between the same two faces, so the mirror consolidates where the source had
@@ -676,7 +672,7 @@ def unmirrored_dimensions(model) -> list[str]:
         feature = resolve_feature(intent.ref)
         if feature is None:
             # Model-level — the overall height of a part with no envelope feature. Only the
-            # synthesised envelope can name it, until #976 gives it a declarative target.
+            # synthesised envelope can name it until it has a declarative target.
             if (
                 synthesised is None
                 or (id(synthesised), "height.length", None, None) not in requested
@@ -727,7 +723,7 @@ def _mirrored_requests(declared, declared_envelope=None):
     """
     from draftwright.model.compiled import compile_dimensions, resolve_feature
 
-    # ONE compiler result, serialised — not three sources reassembled (#946). This used to
+    # ONE compiler result, serialised — not three sources reassembled. This used to
     # walk `plan_dimensions()` for parameters, `compile_dimensions().locations` for positions
     # and a synthesised envelope for the overall height, with comments explaining which
     # compiler fact each reconstructed. A category the compiler grew rendered correctly and
@@ -799,11 +795,11 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
     """
     if not _mirrors_dimensions(model):
         # A feature with no declarative verb carries planned dimensions, so a mirrored set
-        # would silently omit them and claim completeness it does not have (#938).
+        # would silently omit them and claim completeness it does not have.
         # WHY, specifically. `_is_mirrorable` now fails for any dimension the compiler
         # approved and no line can name — not only the no-declarative-verb case — so blaming
-        # #945 unconditionally would misdirect a reader whenever the cause is something else,
-        # and could print an empty kind list (#947).
+        # blaming the missing verb unconditionally would misdirect a reader when the cause differs,
+        # and could print an empty kind list.
         missing = unmirrored_dimensions(model)
         unnameable = sorted(
             {f.kind for f in model.features if _feature_line(f).lstrip().startswith("#")}
@@ -845,7 +841,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         ]
         if model.authored_dimensions is not None
         # A detected model has no authored set, so the script MIRRORS the planner's choice as
-        # explicit lines instead of `auto_dimensions()` (#938). That is what makes an
+        # explicit lines instead of `auto_dimensions()`. That is what makes an
         # automatic dimension commentable: before this, the promise "comment a line out to
         # drop it" held for features and not for dimensions, so the only way to drop one
         # dimension was to drop its whole feature — losing the callout, the centre marks and
@@ -865,14 +861,14 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         "# A measurement with no dimension or schedule declaration is omitted",
         "# deliberately — comment a line out to drop that dimension, add one to declare it.",
         # The role vocabulary was undiscoverable from the artefact: an editor had to guess a
-        # string or read the source (#963). Typing narrows it now, but a generated file is
+        # string or read the source. Typing narrows it now, but a generated file is
         # read by people and agents who may have neither, so it says where the answer is.
         '# To add one: sheet.dimension(<name>, "<id>") — a feature\'s ids are listed by',
         "# <name>.dimension_ids(), and naming one it lacks reports the ones it has.",
         # The VERB, not just the comment above it. `dimension(...)` lines imply this source
         # on their own, so writing it was optional for a non-empty set — but an EMPTY
         # authored set has no line to imply it from, and the script then said its source in a
-        # comment only and failed the mandatory-source check at build (#933). Emitting
+        # comment only and failed the mandatory-source check at build. Emitting
         # it unconditionally also means an authored script states its source the same way an
         # automatic one does, rather than in prose a reader has to trust.
         "sheet.authored_dimensions()",
@@ -894,7 +890,7 @@ def _dimension_block(model, names: dict[int, str], synthesised_envelope=None) ->
         # (`axis="z"`); `!r` would render single and make the file read as two dialects.
         # A full discriminated id already names the variant, so restating it as `axis=`
         # would be redundant — and would make the emitted line the only place two spellings
-        # of one thing appear side by side (#965).
+        # of one thing appear side by side.
         axis = (
             f', axis="{discriminator}"'
             if discriminator and "." not in role[role.find(".") + 1 :]
@@ -1084,7 +1080,7 @@ def _feature_block(
             # requirement validates. Object-reference matching intentionally admits the
             # generated-script rounding quantum, so a close source cylinder can be a valid
             # ordinary convenience reference yet disagree with the lossless imported value.
-            # Keep the numeric declaration for exact-owned parameters (#1296).
+            # Keep the numeric declaration for exact-owned parameters.
             object_ref = (
                 None
                 if exact_parameter is not None or exact_step_length
@@ -1203,7 +1199,7 @@ def _feature_block(
                 # Preserve the EFFECTIVE decoration of each independently addressable
                 # through-step leg / pad extent.  Pad height is a new independent public
                 # parameter; replay must not lose its tolerance merely because all three
-                # extents share the generic ``length`` kind (#1392).
+                # extents share the generic ``length`` kind.
                 # Serialising each as a canonical full id is deliberately lossless even when
                 # the source used one family-wide call: replay compiles to the same effective
                 # tolerances without depending on fluent call order.
@@ -1557,7 +1553,7 @@ def _model_constructor_imports(model):
     # take their member as a nested `hole(...)` / `pocket(...)` / `slot(...)` call — declare
     # rejects `members=` and recomputes the layout — so the member constructor is a name the
     # generated file uses, and a missing entry is a NameError on the first line that runs
-    # (#957; pocket/slot patterns were emitting unrunnable scripts).
+    # (including nested pocket and slot pattern members).
     model_imports = set()
     if any(f.kind == "angle" and getattr(f, "members", ()) for f in model.features):
         model_imports.add("AngularReference")
@@ -1661,7 +1657,7 @@ def _script_constructor_args(
             name for name in settled_layout["views"] if name in {"front", "plan", "side", "iso"}
         )
         special["page"].append(f"_replayed_views={replayed_views!r}")
-    # The AP242 seam (#1563): the generated script builds from a solid, so it must retain
+    # The AP242 seam: the generated script builds from a solid, so it must retain
     # the document path separately for PMI correspondence.
     special["source"] = [] if pmi_source is None else [f"source={pmi_source!r}"]
     if assessment:
@@ -1800,7 +1796,7 @@ def emit_sheet_script(
         declaration_metadata,
     )
     # Narrowed to what the BODY actually names. The set above is derived from feature kinds,
-    # which over-imports the moment a kind stops emitting a constructor: since #976 a
+    # which over-imports when a kind stops emitting a constructor: a
     # whole-part envelope emits `sheet.envelope()`, so `EnvelopeFeature` and `Frame` were
     # imported and never used, and a user linting their own generated script got F401 on line
     # three. Deriving from the emitted text cannot over-import by construction, and cannot
@@ -1856,16 +1852,16 @@ def emit_sheet_script(
         "",
         f"sheet = Sheet(part, {', '.join(ctor)})",
         "",
-        # The script must SAY where its dimensions come from (ADR 4 (was 0016) / #874): an omitted
+        # The script must SAY where its dimensions come from (ADR 4 (was 0016)): an omitted
         # dimension only means something inside a set that says it is complete. The planner's
         # set is stated here; an AUTHORED set is stated after the features instead, because
         # each of its lines names a feature by the variable that feature's line binds.
-        # Every generated script now declares its dimensions below the features (#938), so
+        # Every generated script now declares its dimensions below the features, so
         # the source is stated here as a pointer rather than inline: the lines name features
         # by the variables those features' lines bind, and cannot precede them.
         "# The dimension source is DECLARED below the features (ADR 4 (was 0016)).",
         "",
-        # For a live-source part (#771), the values below were read off YOUR objects — point
+        # For a live-source part, the values below were read off YOUR objects — point
         # each line back at the object to keep it a single source of truth (a STEP-sourced
         # script has no such objects, so this note is emitted only for object inputs).
         *(
@@ -1933,14 +1929,14 @@ def emit_sheet_script(
         lines.append("# front / plan / side / iso are produced automatically.")
     if view_constraints is None and _needs_section(model):
         lines.append("# Section A–A auto-triggers from qualifying hidden internal detail above.")
-    # Build and export as two statements, so the finalized Drawing has a name (#968). That is
+    # Build and export as two statements, so the finalized Drawing has a name. That is
     # the lifecycle the architecture already has — Sheet declares intent, `build()` compiles and
     # solves placement, `Drawing` is the artefact that gets critiqued and serialised — and an
     # editor wanting to lint, inspect `drawing.model()` or export twice can now do it without
     # rewriting the tail or paying for a second build. `Sheet.export` stays as shorthand for
     # handwritten programs; it is this GENERATED tail that has an editor to serve.
     #
-    # `formats` is always spelled out, unlike the constructor's non-default-only aspects (#709).
+    # `formats` is always spelled out, unlike the constructor's non-default-only aspects.
     # `Drawing.export` treats a missing `formats` as the legacy svg=/dxf= call and writes SVG +
     # DXF, where `Sheet.export` defaults to PDF — so the bare call is not the default, it is a
     # different one, and suppressing the argument here would quietly turn every generated
@@ -2056,7 +2052,7 @@ def generate_sheet_script(
     source_sha256 = None if source_bytes is None else hashlib.sha256(source_bytes).hexdigest()
 
     if part_expr is not None:
-        pass  # caller-supplied seam (e.g. an import of a live module, #469)
+        pass  # caller-supplied seam (e.g. an import of a live module)
     elif is_shape:
         part_expr = "part = ...   # ← wire in your build123d object (built above)"
     else:
@@ -2077,7 +2073,7 @@ def generate_sheet_script(
 
         model, analysis = _detect_part_model_analysis(detection_source, pmi=pmi)
         # The evidence document is written beside the script, never into it. It is projected
-        # from THIS run — no second aggregate (#1460). A build123d object source has no STEP
+        # from THIS run — no second aggregate. A build123d object source has no STEP
         # bytes and therefore no document.
         inspection = None
         declaration_occurrences: dict[int, tuple[str, ...]] = {}
@@ -2109,26 +2105,12 @@ def generate_sheet_script(
                     "No inspection sidecar written for %s: %s", source_display.name, error
                 )
         settled_layout = None
-        # Generated scripts mirror dimensions as an authored set, and a declared build does
-        # what it is told — it never enters the automatic recovery ladder. So a measured
-        # automatic decision has to be BAKED IN here, against the same immutable STEP
-        # snapshot as recognition, or the script draws a different sheet from the part.
-        # Build through the same automatic front door as the direct drawing: supplying the
-        # detected model here changes view-selection/annotation ownership and can falsely
-        # accept a reduced view that the direct build rejected (GRM03).
-        #
-        # This used to run only for the two families whose replan could be PREDICTED from the
-        # model (an orientation correction, a step_level ladder). #1590 adds a third trigger
-        # — a required dimension that found no room — and no property of the model predicts
-        # it: whether the mark fits is a fact about the measured sheet. A prediction that is
-        # wrong here is not a slow script, it is a script that silently disagrees with the
-        # part, so the filter is gone and the reference build is unconditional.
-        #
-        # It costs one extra `build_drawing` per generated script: measured 0.19 s for a
-        # plain box, 0.34 s for a pocket, and 1.17 s for a part that actually replans (where
-        # the ladder itself rebuilds — the case the extra build is FOR). `--script` writes a
-        # file for a person to read; paying that for a script that matches its own part is
-        # the right trade.
+        # Generated scripts declare their dimensions and do not enter automatic layout
+        # recovery. Capture the measured layout decision from the same STEP snapshot so
+        # the script reproduces the direct drawing. Pass through the same automatic front
+        # door: supplying a detected model here changes view selection and ownership.
+        # Whether a required dimension fits is known only after building the sheet, so
+        # this reference build runs even when the feature model predicts no replan.
         if scale is None:
             settled = _settled_reference_build(
                 detection_source,

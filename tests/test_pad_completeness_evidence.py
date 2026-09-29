@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 from _evidence_contract import (
+    assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_failure_cannot_pass_the_negative_case,
     assert_observer_uses_one_build_owned_recognition,
@@ -451,12 +452,9 @@ def test_observer_fails_closed_when_build_or_recognition_is_unavailable(monkeypa
 
 
 def test_observer_fails_closed_when_built_recognition_is_unavailable(monkeypatch) -> None:
-    from draftwright.drawing import Drawing
-    from draftwright.evaluation.step_analysis import ObservationError
-
-    monkeypatch.setattr(Drawing, "recognition", lambda _self: None)
-    with pytest.raises(ObservationError, match="recognition access failed"):
-        _default_observers()["rectangular-pads"](_lone())
+    assert_missing_build_owned_recognition_fails_closed(
+        monkeypatch, "rectangular-pads", _lone(), feature_kind="pad"
+    )
 
 
 def test_observer_failure_cannot_pass_a_zero_pad_negative_case(monkeypatch) -> None:

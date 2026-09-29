@@ -20,8 +20,10 @@ from quiddity import PolygonalBoss, RecognitionResult
 
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
+    RequirementCarrier,
     with_measurement_carriers,
 )
 from draftwright.linting.issues import (
@@ -29,7 +31,6 @@ from draftwright.linting.issues import (
     LintIssue,
     requirement_subject,
 )
-from draftwright.measurement_support import RequirementCarrier
 
 PolygonalBossRequirementState = Literal[
     "placed",
@@ -54,11 +55,6 @@ class PolygonalBossRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _point(values) -> Point:
-    x, y, z = values
-    return _rounded(x), _rounded(y), _rounded(z)
 
 
 def _points(values) -> tuple[Point, ...]:
