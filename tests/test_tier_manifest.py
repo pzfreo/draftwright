@@ -71,6 +71,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
+        "hole_pattern_rendering": "src/draftwright/annotations/holes.py",
         "intent_drain": "src/draftwright/intent_drain.py",
         "reporting": "src/draftwright/reporting.py",
         "drawing_tables": "src/draftwright/drawing_tables.py",
@@ -385,6 +386,7 @@ def test_sheet_feature_view_changes_run_the_sheet_identity_contract():
 @pytest.mark.parametrize(
     ("source", "group"),
     (
+        ("src/draftwright/annotations/holes.py", "hole_pattern_rendering"),
         ("src/draftwright/annotations/_slots.py", "slot_rendering"),
         ("src/draftwright/annotations/_pocket_pad.py", "pocket_pad_leaders"),
         ("src/draftwright/intent_drain.py", "intent_drain"),

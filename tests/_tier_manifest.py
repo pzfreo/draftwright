@@ -466,6 +466,10 @@ CONTRACT_GROUPS = {
             "test_view_plan.py",
         ),
     ),
+    "hole_pattern_rendering": ContractGroup(
+        ("src/draftwright/annotations/holes.py",),
+        ("test_pattern_contract.py",),
+    ),
     "intent_drain": ContractGroup(
         ("src/draftwright/intent_drain.py",),
         (
