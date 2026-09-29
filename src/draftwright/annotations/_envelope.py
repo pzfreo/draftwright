@@ -26,7 +26,6 @@ from draftwright.annotations._common import (
     PlacementContext,
     dim_footprint,
     dimension_candidate_geometry,
-    place_strip_candidates,
     strip_free_span,
     strip_occupants,
 )
@@ -50,6 +49,7 @@ class _EnvelopeDropRetry:
     dwg: Any
     ctx: PlacementContext
     dim_builder: Any
+    place_strip_candidates_fn: Any
     view: str
     below: Strip | None
     above: Strip | None
@@ -100,7 +100,7 @@ class _EnvelopeDropRetry:
                 return dim
 
             if self.above is not None:
-                if not place_strip_candidates(
+                if not self.place_strip_candidates_fn(
                     self.dwg,
                     self.above,
                     self.view,
@@ -160,7 +160,15 @@ class _EnvelopeDropRetry:
 
 
 def render_envelope(
-    dwg, plan, a, *, ctx, layout_frame_fn, register_corridor_fn, dim_builder
+    dwg,
+    plan,
+    a,
+    *,
+    ctx,
+    layout_frame_fn,
+    register_corridor_fn,
+    dim_builder,
+    place_strip_candidates_fn,
 ) -> int:
     """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
     registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.
@@ -199,6 +207,7 @@ def render_envelope(
             dwg=dwg,
             ctx=ctx,
             dim_builder=dim_builder,
+            place_strip_candidates_fn=place_strip_candidates_fn,
             view=view,
             below=strip,
             above=above_strip,

@@ -2451,6 +2451,7 @@ def render_envelope(dwg, plan, a, *, ctx) -> int:
         layout_frame_fn=layout_frame,
         register_corridor_fn=register_corridor,
         dim_builder=_dim,
+        place_strip_candidates_fn=place_strip_candidates,
     )
 
 
