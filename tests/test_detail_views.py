@@ -164,13 +164,20 @@ class TestDetailView:
 
     @pytest.mark.parametrize(
         "failure",
-        ("source_view_unavailable", "no_solid_body", "crop_failed", "empty_crop"),
+        (
+            "source_view_unavailable",
+            "no_solid_body",
+            "crop_failed",
+            "empty_crop",
+            "crop_failed_after_first_cut",
+            "empty_crop_after_first_cut",
+        ),
     )
-    def test_detail_refusal_keeps_a_named_reason(self, monkeypatch, failure):
+    def test_detail_refusal_keeps_a_named_reason(self, monkeypatch, caplog, failure):
         from types import SimpleNamespace
 
         from draftwright._core import DetailRequest
-        from draftwright.annotations.sections import _render_detail
+        from draftwright.annotations import sections
 
         request = DetailRequest(
             axis="x", lo=-1.0, hi=1.0, scale_needed=1.0, redraw=lambda *_args: 1
@@ -187,17 +194,43 @@ class TestDetailView:
             cy=0.0,
             cz=0.0,
         )
-        if failure == "crop_failed":
+        assert request.lo < request.hi
+        assert ("front" in drawing.views) == (failure != "source_view_unavailable")
+        assert bool(solids) == (failure != "no_solid_body")
+        if solids:
+            assert solids[0].volume > 0
 
-            def fail_crop(*_args):
+        cuts = []
+
+        def controlled_cut(body, cutter):
+            cuts.append((body, cutter))
+            if failure.endswith("after_first_cut") and len(cuts) == 1:
+                return body
+            if failure.startswith("crop_failed"):
                 raise RuntimeError("injected crop failure")
+            return None
 
-            monkeypatch.setattr("draftwright.annotations.sections._fuzzy_cut", fail_crop)
-        elif failure == "empty_crop":
-            monkeypatch.setattr("draftwright.annotations.sections._fuzzy_cut", lambda *_args: None)
+        monkeypatch.setattr(sections, "_fuzzy_cut", controlled_cut)
+        with caplog.at_level("INFO"):
+            assert not sections._render_detail(
+                drawing, analysis, request, "detail_a", "A", ctx=None
+            )
 
-        assert not _render_detail(drawing, analysis, request, "detail_a", "A", ctx=None)
-        assert request.failure_code == failure
+        expected_code = failure.removesuffix("_after_first_cut")
+        assert request.failure_code == expected_code
+        assert "detail_a" not in drawing.views
+        assert len(cuts) == (
+            2 if failure.endswith("after_first_cut") else int(bool(solids) and bool(drawing.views))
+        )
+        if cuts:
+            assert cuts[0][0] is solids[0]
+        expected_log = {
+            "no_solid_body": "no solid bodies to crop",
+            "crop_failed": "crop failed: injected crop failure",
+            "empty_crop": "boolean crop produced no solid",
+        }.get(expected_code)
+        if expected_log is not None:
+            assert f"Detail A skipped ({expected_log})" in caplog.text
 
     def test_exhausted_detail_identifiers_are_reported(self, monkeypatch):
         from draftwright.view_plan import DerivedViewIdentifierPool

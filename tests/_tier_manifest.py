@@ -470,6 +470,18 @@ CONTRACT_GROUPS = {
             "test_view_plan.py",
         ),
     ),
+    "section_rendering": ContractGroup(
+        ("src/draftwright/annotations/sections.py",),
+        (
+            "test_detail_views.py",
+            "test_script_detail_parity.py",
+            "test_section_hatching.py",
+            "test_sheet_section.py",
+            "test_issue_1190_section_decision.py",
+            "test_issue_1530_section_provenance.py",
+            "test_issue_1604_internal_section.py",
+        ),
+    ),
     "hole_pattern_rendering": ContractGroup(
         ("src/draftwright/annotations/holes.py",),
         ("test_pattern_contract.py",),

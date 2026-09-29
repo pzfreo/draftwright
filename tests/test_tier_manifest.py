@@ -71,6 +71,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
         "placement": "src/draftwright/layout.py",
+        "section_rendering": "src/draftwright/annotations/sections.py",
         "hole_pattern_rendering": "src/draftwright/annotations/holes.py",
         "intent_drain": "src/draftwright/intent_drain.py",
         "reporting": "src/draftwright/reporting.py",
@@ -90,6 +91,19 @@ def test_model_detection_change_runs_hole_pattern_refusal_contracts():
     assert {
         "test_issue_1596_bolt_circle_corroboration.py",
         "test_issue_1612_frame_sergio_coverage.py",
+    } <= selected
+
+
+def test_sections_change_runs_detail_and_section_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/sections.py"]))
+    assert {
+        "test_detail_views.py",
+        "test_script_detail_parity.py",
+        "test_section_hatching.py",
+        "test_sheet_section.py",
+        "test_issue_1190_section_decision.py",
+        "test_issue_1530_section_provenance.py",
+        "test_issue_1604_internal_section.py",
     } <= selected
 
 
