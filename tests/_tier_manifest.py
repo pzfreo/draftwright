@@ -345,6 +345,7 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/model/*",
             "src/draftwright/intents.py",
+            "src/draftwright/intent_routing.py",
             "src/draftwright/measurement_support.py",
             "src/draftwright/sheet.py",
             "src/draftwright/sheet_features.py",

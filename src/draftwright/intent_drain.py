@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from draftwright.annotations._common import annotation_ink_obstacles
-from draftwright.intents import Intent
+from draftwright.intent_routing import Intent
 
 
 @dataclass

@@ -1,4 +1,4 @@
-"""Deferred-intent route classification at Drawing's rank (ADR 1 / ADR 2).
+"""Deferred-intent records and route classification at Drawing's rank (ADR 1 / ADR 2).
 
 Drawing owns recorded edits and validates authored dimension spans. This module
 classifies a snapshot of those intents for the canonical placement stages.
@@ -6,7 +6,19 @@ classifies a snapshot of those intents for the canonical placement stages.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+# The add verbs that record intents (section/rotational target the whole part).
+IntentKind = str
+
+
+@dataclass
+class Intent:
+    """One deferred add-verb call, preserving the script's verb order and arguments."""
+
+    kind: IntentKind
+    feature: object | None
+    kwargs: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

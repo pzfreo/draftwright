@@ -50,7 +50,9 @@ survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
-`intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
+`intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the
+deferred `Intent` record, with `intents` as its stable import path, and transaction
+state owned by `Drawing`) → **6**
 `builder`, one-attempt compilation, explicit-scale resolution, finished-drawing build policy and guarded layout selection → **7** facades
 (`sheet` and its private identity/layout-control/view owners, `document`, `sheet_emit`,
 `sheet_object_source`, `inspection`, `evaluation/`, `cli`, the recogniser/inspection

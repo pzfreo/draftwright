@@ -1,10 +1,24 @@
 """Deferred edit recording, replay, rollback, and finalization."""
 
+import pickle
+
 import pytest
 from _parts import holed_plate as _holed_plate
 from build123d import Box, Cylinder, Pos
 
 from draftwright import build_drawing
+
+
+def test_deferred_intent_compatibility_path_preserves_class_identity():
+    from draftwright.intent_routing import Intent
+    from draftwright.intents import Intent as CompatIntent
+
+    assert CompatIntent is Intent
+    assert pickle.loads(b"cdraftwright.intents\nIntent\n.") is Intent
+    original = CompatIntent("locate", object(), {"axes": ("x",)})
+    restored = pickle.loads(pickle.dumps(original))
+    assert type(restored) is Intent
+    assert restored.kind == original.kind and restored.kwargs == original.kwargs
 
 
 class TestDeferredEdits:

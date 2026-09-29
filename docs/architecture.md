@@ -12,14 +12,15 @@ top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (inclu
 semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `registry.py`, `fonts.py`,
 `_geometry.py`,
-`fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
+`fits.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
 `_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
-`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`, `reporting.py`,
+`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`,
+`intent_routing.py`, `intents.py` (stable import path), `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
@@ -312,9 +313,10 @@ and re-exports the existing private helper names.
   `filterwarnings` entry naming it pays that on every invocation (#1043).
 - **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 4 (was 0011)
   P2a.2): a rank-0 leaf consumed by `_core`, `model/ir` and `sheet`.
-- **`intents.py`** — the deferred-placement "low IR" behind `Drawing.finalize()`
-  (#426): a dependency-free leaf recording edit-verb intents for the recompose
-  (deliberately stringly-typed in its Phase-1 form).
+- **`intent_routing.py` / `intents.py`** — the deferred-placement "low IR" behind
+  `Drawing.finalize()` (#426): the rank-5 routing owner defines the edit-verb `Intent`
+  record; `intents.py` reexports the same class for existing imports. The
+  deliberately stringly-typed record feeds the recompose path.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
   owns the immutable cut/view mark on each live section cutting-plane line (#1931). `Drawing`
