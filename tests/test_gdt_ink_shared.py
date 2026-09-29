@@ -7,15 +7,15 @@ from build123d_drafting.helpers import Draft
 
 from draftwright._core import Strip
 from draftwright.annotations import _common
+from draftwright.annotations._dimension_ink import DimensionInkCandidate
 
 
 class _Ink:
-    def __init__(self, pos, box, label_bbox, segments, *, dimension=False):
+    def __init__(self, pos, box, label_bbox, segments):
         self.pos = pos
         self.box = box
         self.label_bbox = label_bbox
         self.segments = segments
-        self._dw_dimension_candidate = dimension
 
     def bounding_box(self):
         x0, y0, x1, y1 = self.box
@@ -23,6 +23,10 @@ class _Ink:
             min=SimpleNamespace(X=x0, Y=y0),
             max=SimpleNamespace(X=x1, Y=y1),
         )
+
+
+class _DimensionInk(_Ink, DimensionInkCandidate):
+    pass
 
 
 class _Drawing:
@@ -66,12 +70,11 @@ def _dimension(pos):
     # The horizontal dimension stroke crosses the frame's natural glyph, not
     # its own distant label. Moving the frame outward leaves a permissible
     # dimension/leader shaft crossing but restores the glyph's legibility.
-    return _Ink(
+    return _DimensionInk(
         pos,
         (20.0, pos, 60.0, pos + 10.0),
         (50.0, pos, 60.0, pos + 5.0),
         (((20.0, pos + 10.0), (30.0, pos + 10.0)),),
-        dimension=True,
     )
 
 
@@ -150,12 +153,11 @@ def test_real_frame_glyph_and_leader_use_the_same_exact_ink_predicate():
             tip=(30.0, 20.0), elbow=(30.0, elbow_y), label="", draft=draft, callout=glyph
         )
 
-    dimension = _Ink(
+    dimension = _DimensionInk(
         40.0,
         (35.0, 40.0, 70.0, 45.0),
         (60.0, 40.0, 70.0, 45.0),
         (((35.0, 40.0), (45.0, 40.0)),),
-        dimension=True,
     )
     natural, moved = frame(40.0), frame(55.0)
     assert natural.label_bbox[0] < 45.0 < natural.label_bbox[2]

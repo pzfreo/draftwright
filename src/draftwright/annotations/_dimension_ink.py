@@ -137,14 +137,17 @@ def dim_footprint(p1, p2, side, distance, draft, label, *, label_offset_x=0.0):
     return (min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad)
 
 
+class DimensionInkCandidate:
+    """Marker for analytical dimension ink whose strokes may cross other leaders."""
+
+
 @dataclass(frozen=True)
-class AnalyticalDimensionInk:
+class AnalyticalDimensionInk(DimensionInkCandidate):
     """Cheap collision metadata for one axis-aligned dimension candidate."""
 
     label_bbox: tuple[float, float, float, float]
     segments: tuple[tuple[tuple[float, float], tuple[float, float]], ...]
     box: tuple[float, float, float, float]
-    _dw_dimension_candidate: bool = True
 
 
 @dataclass(frozen=True)
