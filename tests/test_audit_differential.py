@@ -727,6 +727,7 @@ def test_every_direct_placement_records_identity_or_says_why_not():
             "_reserve_section_row",
         ): "a provisional cutting-plane line is layout furniture",
         ("sections.py", "_place_cutting_plane"): "final cutting-plane layout furniture",
+        ("sections.py", "_place_detail_marker"): "detail crop outline and identifying letter",
         ("sections.py", "_render_detail"): "detail-view geometry, caption and circle",
         (
             "orchestrator.py",
