@@ -35,6 +35,7 @@ from draftwright._geometry import (  # noqa: F401
 from draftwright.annotation_layout_profile import layout_flag
 from draftwright.annotations._dimension_ink import (  # noqa: F401 — stable _common imports
     AnalyticalDimensionInk,
+    DimensionInkCandidate,
     _dimension_probe_ink,
     _DimensionInkProbe,
     _styled_dimension_footprint,
@@ -1008,7 +1009,7 @@ def annotation_ink_clear(dwg, candidate, *, view=None, additional=()) -> bool:
         )
         crossable_strokes = (
             isinstance(annotation, (Dimension, SafeDimension, AngularDimension))
-            or bool(getattr(annotation, "_dw_dimension_candidate", False))
+            or isinstance(annotation, DimensionInkCandidate)
             or (type(annotation).__name__ in CROSSABLE_TYPES)
         )
         if annotation_label is not None and annotation_region is None:
