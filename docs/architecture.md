@@ -219,12 +219,13 @@ and re-exports the existing private helper names.
     dimension builder at call time and keeps the established import path.
   - **`annotations/_placement_geometry.py`** — analytical leader footprints,
     decomposed occupancy boxes, centerline label clearance, and the shared 1D
-    obstacle carve. `_common.py` retains the established helper import paths.
+    obstacle carve. It owns `_box_hits`; `_common.py` retains the established
+    helper import paths.
   - **`annotations/_common.py`** — the ADR 2 (was 0014) corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
-    `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the
-    bottom of the annotations DAG. (The bbox/segment primitives it delegates to
-    live in `_core`/`_geometry` since #700.) It also owns the **post-fit
+    `place_strip_candidates`, `PlacementContext`), at the bottom of the
+    annotations DAG. Bbox and segment helpers live in `_core`, `_geometry`, and
+    `_placement_geometry`. It also owns the **post-fit
     late-furniture** seam (#1197): `late_furniture_obstacles` is the ONE occupancy
     a placer facing the finished sheet uses — views, decomposed annotation ink,
     minus the page-spanning riders, plus the title block as one hull — shared by
