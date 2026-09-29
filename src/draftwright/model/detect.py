@@ -1568,6 +1568,168 @@ def _through_step_legacy_complete(
     )
 
 
+def _append_hole_features(
+    part,
+    *,
+    cyls,
+    holes,
+    patterns,
+    bosses,
+    features: list[Feature],
+    ownership: RecognitionOwnershipBuilder | None,
+) -> None:
+    """Lower hole patterns and residual spec groups in inventory order."""
+    # Holes and hole patterns. A recognised pattern becomes one PatternFeature
+    # (count× member-diameter + pattern dims); its member holes are NOT also
+    # emitted individually — the grouped-callout rule the engine uses.
+    if holes is None:
+        holes = recognise_holes(part, cyls=cyls, csinks=recognise_countersinks(part))
+    if patterns is None:
+        patterns = recognise_hole_patterns(holes)
+    patterned: set[int] = set()
+    for pat in patterns:
+        members = list(pat.holes)
+        if not _is_principal_axis(members[0].axis):
+            # An OBLIQUE pattern plane has no faithful `PatternFeature`: `Frame.axis` is a
+            # LETTER, so declaration lays the lattice out in that letter's canonical plane and
+            # a 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
+            #
+            # Refused HERE, at the recognition→IR adapter, not in the recogniser: ADR 3 (was 0013) says
+            # a recogniser reports the geometry it finds, and `recognise_hole_patterns` finds
+            # this one correctly. The limitation is draftwright's IR, so it belongs on
+            # draftwright's side of the boundary — which also covers an injected `patterns=`.
+            #
+            # The members simply stay unpatterned below, so they are still drawn, dimensioned
+            # and located. Carrying a full normal on `Frame` would be faithful but widens the
+            # ADR 1 (was 0015) waist; that option stays recorded on #971.
+            if ownership is not None:
+                ownership.refuse_hole_pattern(pat, reason_code="oblique_pattern_plane")
+            continue
+        axis_index = max(range(3), key=lambda index: abs(members[0].axis[index]))
+        projected_members = {
+            tuple(
+                round(float(value), 6)
+                for index, value in enumerate(member.location)
+                if index != axis_index
+            )
+            for member in members
+        }
+        if len(projected_members) != len(members):
+            # A drafting hole pattern is one set of distinct axes in the opening plane.
+            # Quiddity 0.3.2 can also publish a linear relation between coaxial openings
+            # separated only along the drilling direction. Those records are useful
+            # geometric evidence, but collapsing them into PatternFeature would put all
+            # members on one end-view point and state a pitch that cannot be drawn there.
+            # Keep the ordinary grouped-hole grammar as owner of those bores.
+            if ownership is not None:
+                ownership.refuse_hole_pattern(pat, reason_code="noncoplanar_pattern_members")
+            continue
+        if isinstance(pat, BoltCircle) and not bolt_circle_is_corroborated(
+            pat, members, holes, bosses
+        ):
+            # An UNCORROBORATED bolt circle is not a datum (#1596 / #1611). Three points or
+            # four corners of a rectangle always fit a circle; printing
+            # `EQ SP ON ø… BC` off it tells the reader to work from a centre that may not
+            # exist. #1595 met exactly that — six holes in a 2x3 grid, four of them fitted to
+            # a ø34.4 circle centred in mid-air.
+            #
+            # Refused HERE for the same reason the oblique pattern above is: ADR 3 says the
+            # recogniser reports the geometry it finds, and a circle through those holes IS
+            # findable. Whether it may be STATED as a drafting datum is drafting policy, and
+            # that is draftwright's (ADR 3 / AGENTS.md). The members fall through to the
+            # un-patterned grouping below, so they are still drawn, counted and located —
+            # they simply stop claiming a bolt circle.
+            if ownership is not None:
+                ownership.refuse_hole_pattern(pat, reason_code="uncorroborated_bolt_circle")
+            continue
+        patterned.update(id(h) for h in members)
+        hole_pattern_feature = _pattern_feature(pat, members)
+        features.append(hole_pattern_feature)
+        if ownership is not None:
+            ownership.absorb(
+                tuple(members),
+                hole_pattern_feature,
+                reason_code="hole_pattern_member",
+            )
+    # Un-patterned holes: group by machining spec so identical holes share one
+    # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
+    # snapped axis and the countersink too, so opposite-face drillings and csk-vs-plain
+    # holes stay distinct.
+    spec_groups: dict = {}
+    for h in holes:
+        if id(h) in patterned:
+            continue
+        spec_groups.setdefault(HoleSpec.from_hole(h), []).append(h)
+    for grp in spec_groups.values():
+        rep = grp[0]
+        frame = Frame(origin=_xyz(rep.location), axis=_axis_letter(rep))
+        mem_locs = tuple(_xyz(h.location) for h in grp)
+        hole_feature = _member_hole(rep, frame, members=mem_locs, count=len(grp))
+        features.append(hole_feature)
+        if ownership is not None:
+            if len(grp) == 1:
+                ownership.bind(
+                    rep,
+                    hole_feature,
+                    reason_code="hole_adapter",
+                    member_index=0,
+                )
+            else:
+                ownership.absorb(
+                    tuple(grp),
+                    hole_feature,
+                    reason_code="grouped_hole_member",
+                )
+    if ownership is not None:
+        for hole in holes:
+            if hole.csink is not None:
+                ownership.absorb_nested(
+                    hole.csink,
+                    hole,
+                    reason_code="countersink_hole_owner",
+                )
+
+
+def _append_slot_features(
+    part,
+    *,
+    slots,
+    slot_patterns,
+    ctx: ConvContext,
+    features: list[Feature],
+    ownership: RecognitionOwnershipBuilder | None,
+    slot_pattern_members_by_feature_id: dict[int, tuple[Slot, ...]],
+) -> None:
+    """Lower grouped and standalone principal-axis slots in inventory order."""
+    # Milled slots / reduced across-flats sections (detected for any part). A recognised array
+    # of identical slots becomes ONE SlotPatternFeature (count× SLOT W×L + pitch, #841); its
+    # member slots are NOT also emitted individually — the same grouped-callout rule as pockets
+    # below (member exclusion by VALUE-set, robust to injected value-copy inventories).
+    if slots is None:
+        slots = recognise_slots(part)
+    if slot_patterns is None:
+        slot_patterns = recognise_slot_patterns(slots)
+    patterned_sl: set = set()
+    for pat in slot_patterns:
+        patterned_sl.update(pat.slots)
+        slot_pattern_feature = _slot_pattern_feature(pat, list(pat.slots))
+        features.append(slot_pattern_feature)
+        slot_pattern_members_by_feature_id[id(slot_pattern_feature)] = tuple(pat.slots)
+        if ownership is not None:
+            ownership.absorb(
+                tuple(pat.slots),
+                slot_pattern_feature,
+                reason_code="slot_pattern_member",
+            )
+    for sl in slots:
+        if sl in patterned_sl:
+            continue
+        slot_feature = convert(sl, ctx)
+        features.append(slot_feature)
+        if ownership is not None:
+            ownership.bind(sl, slot_feature, reason_code="slot_adapter")
+
+
 def build_part_model(
     part,
     *,
@@ -2179,115 +2341,15 @@ def build_part_model(
             if ownership is not None:
                 ownership.bind(channel, channel_feature, reason_code="channel_adapter")
 
-    # Holes and hole patterns. A recognised pattern becomes one PatternFeature
-    # (count× member-diameter + pattern dims); its member holes are NOT also
-    # emitted individually — the grouped-callout rule the engine uses.
-    if holes is None:
-        holes = recognise_holes(part, cyls=cyls, csinks=recognise_countersinks(part))
-    if patterns is None:
-        patterns = recognise_hole_patterns(holes)
-    patterned: set[int] = set()
-    for pat in patterns:
-        members = list(pat.holes)
-        if not _is_principal_axis(members[0].axis):
-            # An OBLIQUE pattern plane has no faithful `PatternFeature`: `Frame.axis` is a
-            # LETTER, so declaration lays the lattice out in that letter's canonical plane and
-            # a 40 mm Z spread comes back as 0 — a silently wrong drawing (#971).
-            #
-            # Refused HERE, at the recognition→IR adapter, not in the recogniser: ADR 3 (was 0013) says
-            # a recogniser reports the geometry it finds, and `recognise_hole_patterns` finds
-            # this one correctly. The limitation is draftwright's IR, so it belongs on
-            # draftwright's side of the boundary — which also covers an injected `patterns=`.
-            #
-            # The members simply stay unpatterned below, so they are still drawn, dimensioned
-            # and located. Carrying a full normal on `Frame` would be faithful but widens the
-            # ADR 1 (was 0015) waist; that option stays recorded on #971.
-            if ownership is not None:
-                ownership.refuse_hole_pattern(pat, reason_code="oblique_pattern_plane")
-            continue
-        axis_index = max(range(3), key=lambda index: abs(members[0].axis[index]))
-        projected_members = {
-            tuple(
-                round(float(value), 6)
-                for index, value in enumerate(member.location)
-                if index != axis_index
-            )
-            for member in members
-        }
-        if len(projected_members) != len(members):
-            # A drafting hole pattern is one set of distinct axes in the opening plane.
-            # Quiddity 0.3.2 can also publish a linear relation between coaxial openings
-            # separated only along the drilling direction. Those records are useful
-            # geometric evidence, but collapsing them into PatternFeature would put all
-            # members on one end-view point and state a pitch that cannot be drawn there.
-            # Keep the ordinary grouped-hole grammar as owner of those bores.
-            if ownership is not None:
-                ownership.refuse_hole_pattern(pat, reason_code="noncoplanar_pattern_members")
-            continue
-        if isinstance(pat, BoltCircle) and not bolt_circle_is_corroborated(
-            pat, members, holes, bosses
-        ):
-            # An UNCORROBORATED bolt circle is not a datum (#1596 / #1611). Three points or
-            # four corners of a rectangle always fit a circle; printing
-            # `EQ SP ON ø… BC` off it tells the reader to work from a centre that may not
-            # exist. #1595 met exactly that — six holes in a 2x3 grid, four of them fitted to
-            # a ø34.4 circle centred in mid-air.
-            #
-            # Refused HERE for the same reason the oblique pattern above is: ADR 3 says the
-            # recogniser reports the geometry it finds, and a circle through those holes IS
-            # findable. Whether it may be STATED as a drafting datum is drafting policy, and
-            # that is draftwright's (ADR 3 / AGENTS.md). The members fall through to the
-            # un-patterned grouping below, so they are still drawn, counted and located —
-            # they simply stop claiming a bolt circle.
-            if ownership is not None:
-                ownership.refuse_hole_pattern(pat, reason_code="uncorroborated_bolt_circle")
-            continue
-        patterned.update(id(h) for h in members)
-        hole_pattern_feature = _pattern_feature(pat, members)
-        features.append(hole_pattern_feature)
-        if ownership is not None:
-            ownership.absorb(
-                tuple(members),
-                hole_pattern_feature,
-                reason_code="hole_pattern_member",
-            )
-    # Un-patterned holes: group by machining spec so identical holes share one
-    # count× callout (the engine's grouped-callout rule); HoleSpec keys on the
-    # snapped axis and the countersink too, so opposite-face drillings and csk-vs-plain
-    # holes stay distinct.
-    spec_groups: dict = {}
-    for h in holes:
-        if id(h) in patterned:
-            continue
-        spec_groups.setdefault(HoleSpec.from_hole(h), []).append(h)
-    for grp in spec_groups.values():
-        rep = grp[0]
-        frame = Frame(origin=_xyz(rep.location), axis=_axis_letter(rep))
-        mem_locs = tuple(_xyz(h.location) for h in grp)
-        hole_feature = _member_hole(rep, frame, members=mem_locs, count=len(grp))
-        features.append(hole_feature)
-        if ownership is not None:
-            if len(grp) == 1:
-                ownership.bind(
-                    rep,
-                    hole_feature,
-                    reason_code="hole_adapter",
-                    member_index=0,
-                )
-            else:
-                ownership.absorb(
-                    tuple(grp),
-                    hole_feature,
-                    reason_code="grouped_hole_member",
-                )
-    if ownership is not None:
-        for hole in holes:
-            if hole.csink is not None:
-                ownership.absorb_nested(
-                    hole.csink,
-                    hole,
-                    reason_code="countersink_hole_owner",
-                )
+    _append_hole_features(
+        part,
+        cyls=cyls,
+        holes=holes,
+        patterns=patterns,
+        bosses=bosses,
+        features=features,
+        ownership=ownership,
+    )
 
     # Profiled bores are their own recognition family because full-cylinder recognition
     # cannot see their partial cylindrical faces. They still lower to HoleFeature so the
@@ -2297,33 +2359,15 @@ def build_part_model(
     for bore in double_d_bores:
         append_direct(bore)
 
-    # Milled slots / reduced across-flats sections (detected for any part). A recognised array
-    # of identical slots becomes ONE SlotPatternFeature (count× SLOT W×L + pitch, #841); its
-    # member slots are NOT also emitted individually — the same grouped-callout rule as pockets
-    # below (member exclusion by VALUE-set, robust to injected value-copy inventories).
-    if slots is None:
-        slots = recognise_slots(part)
-    if slot_patterns is None:
-        slot_patterns = recognise_slot_patterns(slots)
-    patterned_sl: set = set()
-    for pat in slot_patterns:
-        patterned_sl.update(pat.slots)
-        slot_pattern_feature = _slot_pattern_feature(pat, list(pat.slots))
-        features.append(slot_pattern_feature)
-        slot_pattern_members_by_feature_id[id(slot_pattern_feature)] = tuple(pat.slots)
-        if ownership is not None:
-            ownership.absorb(
-                tuple(pat.slots),
-                slot_pattern_feature,
-                reason_code="slot_pattern_member",
-            )
-    for sl in slots:
-        if sl in patterned_sl:
-            continue
-        slot_feature = convert(sl, ctx)
-        features.append(slot_feature)
-        if ownership is not None:
-            ownership.bind(sl, slot_feature, reason_code="slot_adapter")
+    _append_slot_features(
+        part,
+        slots=slots,
+        slot_patterns=slot_patterns,
+        ctx=ctx,
+        features=features,
+        ownership=ownership,
+        slot_pattern_members_by_feature_id=slot_pattern_members_by_feature_id,
+    )
 
     # Free-direction through slots have a dedicated IR contract. Pattern members remain owned
     # by the separately deferred pattern inventory, so they cannot expand into competing lone
