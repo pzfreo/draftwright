@@ -8,7 +8,7 @@ from build123d_drafting.helpers import Leader, draft_preset
 
 from draftwright import Sheet
 from draftwright.annotations import _hole_leader_placement as hole_leader_placement
-from draftwright.annotations import from_model, leaders
+from draftwright.annotations import from_model, holes, leaders
 from draftwright.annotations import hole_leader_candidates as hole_candidates
 from draftwright.annotations._common import PlacementContext, SolveTrace, leader_callout_geometry
 from draftwright.annotations.leaders import (
@@ -1041,3 +1041,161 @@ def test_pattern_transaction_removes_staged_furniture_when_callout_cannot_render
     assert "bc_plan0" not in drawing.annotations()
     assert any(issue.code == "callout_dropped" for issue in drawing.lint())
     assert fallback_calls
+
+
+def test_hole_recovery_keeps_a_radial_tip_on_its_rim_and_its_owner(monkeypatch):
+    """The sheet fallback must keep a geometric bore target attached to its owner."""
+    centre = (20.0, 30.0)
+    target = RadialLeaderTarget(centre, 5.0)
+    feature = object()
+    candidate = FeatureLeaderCandidate((25.0, 30.0), (35.0, 30.0), feature, radial_target=target)
+    callout = SimpleNamespace(label="⌀10")
+    built = []
+
+    def build(tip, elbow, owner):
+        built.append((tip, elbow, owner))
+        return SimpleNamespace(tip=tip, elbow=elbow)
+
+    def fallback(_dwg, tip, _view, build_at, **kwargs):
+        assert tip == centre
+        assert kwargs["label_size"] == (12.0, 4.0)
+        assert kwargs["tip_for_elbow"](centre) == centre
+        assert kwargs["tip_for_elbow"]((30.0, 30.0)) == (25.0, 30.0)
+        annotation = build_at((30.0, 30.0))
+        assert kwargs["accept_candidate"](annotation)
+        return annotation
+
+    monkeypatch.setattr(hole_leader_placement, "_sheet_leader_fallback", fallback)
+    monkeypatch.setattr(hole_leader_placement, "view_material", lambda *_args: object())
+    monkeypatch.setattr(hole_leader_placement, "material_penalty_units", lambda *_args: 0)
+
+    result = hole_leader_placement._recover_hole_leader(
+        lambda: (candidate,), build, callout, (0.0, 0.0, 12.0, 4.0), "plan", object(), object()
+    )
+
+    assert result is not None and result[1] is feature
+    assert built == [((25.0, 30.0), (30.0, 30.0, 0), feature)]
+
+
+def test_hole_recovery_keeps_routed_callout_claim_and_bounded_candidate_search(monkeypatch):
+    callout = SimpleNamespace(label="⌀8", measurements=("diameter",), source_ids=("hole-1",))
+    first = FeatureLeaderCandidate((1.0, 2.0), (8.0, 2.0), "first")
+    second = FeatureLeaderCandidate((3.0, 4.0), (9.0, 4.0), "second")
+    attempts = []
+
+    def fallback(_dwg, tip, _view, build_at, build_routed, size):
+        attempts.append((tip, size))
+        if len(attempts) == 1:
+            assert build_at((8.0, 2.0)).elbow == (8.0, 2.0, 0)
+            return None
+        return build_routed(((4.0, 5.0),), (9.0, 4.0))
+
+    monkeypatch.setattr(hole_leader_placement, "_sheet_leader_fallback", fallback)
+    monkeypatch.setattr(
+        hole_leader_placement,
+        "RoutedLeader",
+        lambda *args, **kwargs: SimpleNamespace(tip=args[0], elbow=args[2]),
+    )
+    result = hole_leader_placement._recover_hole_leader(
+        lambda: (first, second),
+        lambda tip, elbow, owner: SimpleNamespace(tip=tip, elbow=elbow, owner=owner),
+        callout,
+        (0.0, 0.0, 12.0, 4.0),
+        "plan",
+        object(),
+        object(),
+    )
+
+    assert attempts == [((1.0, 2.0), (12.0, 4.0)), ((3.0, 4.0), (12.0, 4.0))]
+    assert result is not None and result[1] == "second"
+    assert result[0].label == "⌀8"
+    assert result[0].source_ids == ("hole-1",)
+
+
+def test_immediate_hole_queue_reports_each_loss_and_keeps_policy_b_survivors(monkeypatch):
+    """A retained shaft crossing cannot hide either a strip or text-ink loss."""
+    labels = ("full", "text", "crossing", "clear")
+    entries = [
+        (
+            (),
+            float(index + 1),
+            SimpleNamespace(label=label, measurements=(label,)),
+            None,
+            float(index),
+            (float(index), 0.0, 0.0),
+        )
+        for index, label in enumerate(labels)
+    ]
+    targets = [object() for _ in entries]
+    source_by_target = {id(target): entry for target, entry in zip(targets, entries, strict=True)}
+    drops = []
+    placed = []
+    scattered = []
+    furniture = []
+    checks = []
+    context = SimpleNamespace(
+        place=lambda annotation, name, **kw: placed.append((annotation.label, name, kw)),
+        coverage=SimpleNamespace(cover_scattered_hole_doc=scattered.append),
+    )
+
+    def build(entry, *_args):
+        label = entry[2].label
+        return SimpleNamespace(label=label), (0.0, 0.0), (1.0, 1.0)
+
+    def ink_clear(_drawing, annotation):
+        checks.append(annotation.label)
+        return annotation.label != "text"
+
+    monkeypatch.setattr(holes, "_build_leader_at", build)
+    monkeypatch.setattr(holes, "annotation_text_ink_clear", ink_clear)
+    monkeypatch.setattr(
+        holes, "_leader_hits", lambda annotation, *_args: annotation.label == "crossing"
+    )
+    monkeypatch.setattr(
+        holes,
+        "_record_callout_drop",
+        lambda _ctx, _dwg, _view, _dia, reason, *_args, **_kw: drops.append(reason),
+    )
+    monkeypatch.setattr(
+        holes,
+        "_add_furniture",
+        lambda _dwg, _a, _view, _index, feat, *_args, **_kw: furniture.append(feat),
+    )
+
+    result = holes._place_immediate_queue(
+        entries,
+        "right",
+        3,
+        sctx=SimpleNamespace(
+            edge=100.0, a=SimpleNamespace(SCALE=1.0), to_page=lambda point: point, draft=object()
+        ),
+        view="plan",
+        dwg=object(),
+        ctx=context,
+        targets=targets,
+        source_by_target=source_by_target,
+        final_y={id(target): float(index) for index, target in enumerate(targets)},
+        final_dropped={id(targets[0])},
+        dropped=[],
+        occupied=(),
+        elbow_dx=2.0,
+        feat_of_callout={},
+        hc_used=set(),
+        only=None,
+        place_furniture=True,
+        plan=object(),
+        furnished=set(),
+    )
+
+    assert checks == ["text", "crossing", "clear"]
+    assert drops == [
+        "right strip full",
+        "no legible room: settled annotation ink crosses the callout text",
+    ]
+    assert [(label, name) for label, name, _kw in placed] == [
+        ("crossing", "hc_plan3"),
+        ("clear", "hc_plan4"),
+    ]
+    assert scattered == ["hc_plan3", "hc_plan4"]
+    assert furniture == [None, None]
+    assert result == 5
