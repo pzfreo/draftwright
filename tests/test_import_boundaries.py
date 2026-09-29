@@ -143,6 +143,7 @@ _LAYERS: dict[str, int] = {
     # recognition-owned typed requirement ledgers but never reaches through Drawing internals.
     "reporting": 2,
     "drawing_evidence": 2,  # read-only finished-drawing projections over explicit inputs
+    "drawing_export": 2,  # export orchestration over public Drawing operations and explicit callbacks
     "document_evidence": 2,
     "_pmi_schema": 2,
     "_pmi_linear_geometry": 2,
@@ -162,6 +163,9 @@ _LAYERS: dict[str, int] = {
     "annotate": 4,
     # 5 — the Drawing result object
     "intent_drain": 5,
+    "intent_routing": 5,
+    "drawing_state": 5,
+    "drawing_tables": 5,
     "drawing": 5,
     # 6 — build orchestration
     "builder": 6,

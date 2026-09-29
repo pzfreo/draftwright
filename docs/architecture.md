@@ -18,7 +18,7 @@ topology and corridor demand planning), `registry.py`, `fonts.py`,
 `blend_contract.py` provider-record boundary →
 `_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
-(`export.py`, `pdf_text.py`,
+(`export.py`, `drawing_export.py`, `pdf_text.py`,
 `repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`, `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
 `builder.py` → the
@@ -113,11 +113,18 @@ and re-exports the existing private helper names.
     `drawing.py` touches `dwg._*` (rationale-carrying allowlist, builder's
     fill site only).)*
   - **`drawing_evidence.py`** — rank-2 read-only suppression, measurement-claim, page-use and lint-summary projections. `Drawing` supplies explicit model, registry, annotation and build evidence; this module neither owns build state nor reaches into private drawing fields.
+  - **`drawing_export.py`** — rank-2 export orchestration and shape serialization. `Drawing` retains the observed public operation and supplies explicit writer, lint and text callbacks; the export owner reads only public result state.
+  - **`drawing_state.py`** — rank-5 typed `BuildState` owner; `drawing.py` re-exports the type and remains its sole construction site.
+  - **`drawing_tables.py`** — rank-5 note, data-table, hole-table, and balloon operations over an explicit snapshot of Drawing-owned state. `Drawing` retains the public verbs and the private-state reads.
   - **`intent_drain.py`** — rank-5 deferred intent stage execution. `Drawing.finalize()`
     owns the snapshot, rollback and trace commit; its thin `_drain_intents` facade
     supplies an explicit intent list, detail setting and callbacks. The drain uses
     the public drawing surface and the shared `PlacementContext` to execute the
     orchestrator's canonical stage order without importing `Drawing`.
+  - **`intent_routing.py`** — rank-5 classification of recorded edits into the
+    canonical stage routes. `Drawing` supplies its intent list and span-validation
+    callback; the classifier returns route identities and feature sets without
+    modifying drawing state or placing annotations.
 - **`annotate.py`** — thin compat facade re-exporting `_auto_annotate` (the
   orchestrator) from `annotations/`. The annotation passes were split into the
   **`annotations/`** subpackage (#164 / ADR 1 (was 0005), P5):

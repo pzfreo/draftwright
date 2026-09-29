@@ -44,6 +44,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "placement": "src/draftwright/layout.py",
         "intent_drain": "src/draftwright/intent_drain.py",
         "reporting": "src/draftwright/reporting.py",
+        "drawing_tables": "src/draftwright/drawing_tables.py",
         "export": "src/draftwright/export.py",
     }
     assert set(probes) == set(CONTRACT_GROUPS)
@@ -57,6 +58,17 @@ def test_each_named_contract_group_resolves_to_existing_modules():
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected
+
+
+def test_drawing_table_and_export_owners_select_their_behavior_contracts():
+    tables = set(pr_modules(_TESTS, ["src/draftwright/drawing_tables.py"]))
+    assert {
+        "test_hole_table.py",
+        "test_sheet_tables.py",
+        "test_issue_1144_transactional_hole_table.py",
+    } <= tables
+    export = set(pr_modules(_TESTS, ["src/draftwright/drawing_export.py"]))
+    assert {"test_export_reproducible.py", "test_issue_1533_review_diagnostics.py"} <= export
 
 
 def test_scale_policy_change_runs_scale_and_arrangement_contracts():

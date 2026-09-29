@@ -1,4 +1,4 @@
-"""The Drawing result object + table builder (#138 / ADR 1 (was 0005), P6).
+"""The Drawing result object (#138 / ADR 1 (was 0005), P6).
 
 `Drawing` is the composable build result: it owns the render list and view
 map and delegates identity to the registry, coverage to lint, and exposes
@@ -13,13 +13,11 @@ import contextlib
 import math
 import os
 import sys
-import tempfile
 import warnings
 from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from dataclasses import field as dataclasses_field
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult
@@ -38,56 +36,61 @@ if sys.version_info >= (3, 13):
 else:
     from typing_extensions import deprecated
 
-from build123d import (
-    Align,
-    Color,
-    ExportSVG,
-    LineType,
-    Location,
-)
-from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
 from draftwright._core import (
     Analysis,
-    SheetMargins,
-    _analysis_margins,
-    _build_table,
     _dim,
     _fmt,
     _font_safe_text,
     _frame_margins,
     _log,
-    _tag_sequence,
-    _text_line_spacing_em,
     _tol_suffix,
     place_annotation,
 )
 from draftwright._geometry import _END_ON
 from draftwright.annotations._common import (
     PlacementContext,
-    _register_hole_table_coverage,
     carve_free_position,
-    late_furniture_obstacles,
 )
-from draftwright.annotations.balloons import render_balloons
 from draftwright.auxiliary_layout import fit_auxiliary_box
-from draftwright.export import (
-    _DraftwrightDXF,
-    _export_shape,
-    _render_pdf,
-    _render_png,
-    add_svg_hyperlink,
-    add_svg_metadata,
-    canonicalize_svg,
-    fix_svg_page_size,
-    highlight_svg_annotation,
-    sanitize_svg_arcs,
-    set_dxf_metadata,
-    write_dxf,
+from draftwright.drawing_export import (
+    add_shapes as add_export_shapes,
+)
+from draftwright.drawing_export import (
+    export_drawing,
+)
+from draftwright.drawing_export import (
+    preview_annotation as preview_export_annotation,
+)
+from draftwright.drawing_export import (
+    write_dxf as write_drawing_dxf,
+)
+from draftwright.drawing_export import (
+    write_svg as write_drawing_svg,
+)
+from draftwright.drawing_state import _MATERIAL_MESH_UNSET, BuildState
+from draftwright.drawing_tables import (
+    DrawingTableState,
+    _ir_hole_groups,
+)
+from draftwright.drawing_tables import (
+    _hole_spec_groups as drawing_hole_spec_groups,
+)
+from draftwright.drawing_tables import (
+    add_balloons as drawing_add_balloons,
+)
+from draftwright.drawing_tables import (
+    add_hole_table as drawing_add_hole_table,
+)
+from draftwright.drawing_tables import (
+    add_table as drawing_add_table,
+)
+from draftwright.drawing_tables import (
+    note as drawing_note,
 )
 from draftwright.intent_drain import IntentDrainState, drain_intents
+from draftwright.intent_routing import _IntentRouting, classify_intents
 from draftwright.intents import Intent
-from draftwright.layout import FitBoxTrace
 from draftwright.linting import (
     CoverageState,
     LintIssue,
@@ -100,7 +103,6 @@ from draftwright.projection import (
     project_view_geometry,
     view_material_field,
 )
-from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, VIEW_AXES
@@ -265,37 +267,6 @@ class FeatureInfo:
     count: int
 
 
-class _HoleInstance(NamedTuple):
-    """One hole occurrence for the table / balloon renderers — the IR fields those
-    passes read (``location`` + ``diameter`` for a balloon, ``through``/``depth`` for a
-    table row), so no ``HoleRecord`` is needed (ADR 1 (was 0008); #584 WP1). Duck-compatible
-    with the recogniser record the orchestrator's balloon path still passes."""
-
-    location: tuple
-    diameter: float
-    through: bool
-    depth: float | None
-
-
-def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
-    """``(owner, spec, [member positions], count)`` groups on *target_axis*.
-
-    One group per IR hole/pattern feature — the spec-grouping + pattern recognition
-    detection already did, so no ``HoleRecord``/``HoleSpec`` re-grouping is needed
-    (ADR 1 (was 0008 Am6); #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
-    diameter / through / depth); ``positions`` are its member centres (drive balloon
-    placement); ``count`` is the feature's own count (the table QTY / FeatureInfo.count).
-    They coincide on the detected path (``members`` is fully populated); ``count`` stays
-    faithful for a declared feature whose ``members`` are unspecified (ADR 4 (was 0011))."""
-    groups: list[tuple] = []
-    for f in model.features:
-        if f.kind == "hole" and f.frame.axis == target_axis:
-            groups.append((f, f, list(f.members) or [f.frame.origin], f.count))
-        elif f.kind == "pattern" and f.member.frame.axis == target_axis:
-            groups.append((f, f.member, list(f.members) or [f.member.frame.origin], f.count))
-    return groups
-
-
 # Machined-feature LEADER callouts (#148): these features use semantic leader callouts. Most
 # expose no spanned linear parameter; paired-ramp's run is explicitly part of its compound
 # leader convention. The reconstruction therefore can't route them through dimension().
@@ -321,42 +292,6 @@ _MACHINED_CALLOUT_KINDS = (
     "pad",
     "groove",
 )
-
-
-@dataclass(frozen=True)
-class _IntentRouting:
-    """How :meth:`Drawing.finalize` routes each recorded intent to an auto-pass solver (#426).
-
-    The classification half of finalize (#590 split): pure comprehensions over the recorded
-    intents deciding which route each takes. ``section`` is the pre-planned section (or None);
-    the ``*_ids`` are ``id()`` sets of the intents on each route; the ``only_*``/``*_feats`` are
-    the feature sets the routed renderers receive.
-    """
-
-    section: object
-    corridor_ids: set
-    callout_ids: set
-    dia_ids: set
-    len_ids: set
-    slot_ids: set
-    height_ladder_ids: set
-    #: `Drawing.overall_height()` intents — the bbox-fallback overall height, which has no
-    #: feature to hang a `dimension(...)` intent on (#889).
-    overall_height_ids: set
-    step_position_ids: set
-    explicit_envelope_height: bool
-    user_dim_ids: set
-    rotational_ids: set
-    off_axis_loc_ids: set
-    only_loc: set
-    pinned_loc: set
-    only_callout: set
-    only_dia: set
-    only_len: set
-    slot_feats: set
-    machined_ids_by_kind: dict
-    pocket_pattern_ids: set
-    slot_pattern_ids: set
 
 
 #: Size scalars appended to a feature key when present, in this order. Position alone is not
@@ -402,151 +337,6 @@ def feature_key(f) -> str | None:
     ]
     tail = ("[" + ",".join(sizes) + "]") if sizes else ""
     return f"{kind}@({x:.3f},{y:.3f},{z:.3f})/{axis}{tail}"
-
-
-#: Distinguishes "the mesh has not been attempted" from "it was attempted and failed".
-#: ``None`` is a real, cacheable outcome here, so it cannot double as the unset marker.
-_MATERIAL_MESH_UNSET = object()
-
-
-@dataclass
-class BuildState:
-    """The build context a finished :class:`Drawing` carries (ADR 1 (was 0005 §2) / #639).
-
-    One typed home for what used to be four loose private attributes:
-
-    - ``analysis`` — the pipeline's :class:`Analysis` namespace.
-    - ``part_model`` — the detected/declared ADR 1 (was 0008) PartModel (read surface for
-      semantic edits, #397).
-    - ``recognition`` — the ADR 3 (was 0017) aggregate reused by model detection and critique.
-    - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, conditional
-      aggregate, and ownerless occurrence outcomes captured while conversion makes the decision;
-      provider references never enter the IR waist.
-    - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
-      (helpers #143/#164).
-    - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
-      location-token-checked entries (see ``_ann_box``), pruned by ``lint()``.
-    - ``principal_profile_cache`` — solid-derived unsupported principal-profile issues
-      reused by repeated physical critique (#1058).
-    - ``trace`` — the opt-in solve-trace recorder (#736,
-      :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
-      tracing off). Carried here so the finalize path traces like the auto pass.
-    - ``detail_view`` — the resolved ``build_drawing(detail_view=...)`` setting,
-      persisted so the finalize drain gates the prismatic detail request exactly
-      as the auto pass does (#661) — on the ``auto_dims=False`` path the flag
-      would otherwise be consumed nowhere.
-
-    The builder assembles it at one site; ``recognition`` may also be filled once by
-    :meth:`ensure_recognition` for declared-path critique. The compat properties on
-    ``Drawing`` read through it, so ``dwg._analysis``-style test inspection keeps working.
-    """
-
-    analysis: Analysis | None = None
-    recognition_cache: RecognitionCache = dataclasses_field(default_factory=RecognitionCache)
-    recognition_ownership: RecognitionOwnership | None = None
-    part_model: object | None = None
-    view_edge_cache: dict = dataclasses_field(default_factory=dict)
-    ann_box_cache: dict = dataclasses_field(default_factory=dict)
-    #: The title block's deterministic page-space footprint, measured before it is
-    #: drawn so strip placement can avoid it (#1593). None until the builder sets it.
-    pending_title_block_box: tuple | None = None
-    #: Constructed title blocks shared by assembly and measured repack passes of this build.
-    title_block_cache: dict = dataclasses_field(default_factory=dict)
-    #: Imported document default selected as the title-block tolerance carrier. ``None``
-    #: when the caller supplied any explicit value, even identical display text.
-    general_tolerance_source: object | None = None
-    #: Imported document-wide surface finish rendered as title-block furniture.
-    default_surface_finish_source: object | None = None
-    #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
-    #: Keyed by shape identity because the projected shapes carry no view label (lint
-    #: takes their names from ``Drawing.views`` since #1196), and holding the shape
-    #: alongside lets a reused ``id`` be detected — the same guard
-    #: ``_view_edge_entries`` carries (#143).
-    material_fields: dict = dataclasses_field(default_factory=dict)
-    #: The one tessellation behind those fields, or ``None`` once it has been attempted
-    #: and failed. Memoised separately so an unmeshable part is not re-meshed on every
-    #: lint, and so views added by later stages can be lowered without redoing it.
-    material_mesh: Any = _MATERIAL_MESH_UNSET
-    principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
-    trace: Any = None
-    detail_view: bool = False
-    #: The ADR 2 (was 0018) :class:`~draftwright.view_plan.ResolvedViewPlan` — which views this drawing
-    #: has and where their blocks sit. ONE typed attachment, filled once by the builder at the
-    #: same site it creates the views, because the alternative the ADR names explicitly is what
-    #: the topology was before: the answer spread across `Analysis` fields, three hardcoded
-    #: `_add_view` calls and a docstring, with no single thing to read or replace.
-    view_plan: Any = None
-    #: The compiler's :class:`~draftwright.model.compiled.Omission` records — every
-    #: measurement it considered and did not approve, with the rule that stopped it (#996).
-    #: The compiled plan was a local in the orchestrator: built, read by the renderers, and
-    #: dropped. So the one place recording WHY a dimension is absent did not outlive the
-    #: build, and absence had to be inferred from a finished sheet — which is how a wrong
-    #: suppression rule produced four issue reports before anyone found the rule (#997).
-    omissions: tuple = ()
-
-    @property
-    def recognition(self) -> RecognitionResult | None:
-        """The immutable result held by Draftwright's consumer-owned lifecycle cache."""
-
-        return self.recognition_cache.result
-
-    @recognition.setter
-    def recognition(self, value: RecognitionResult | None) -> None:
-        self.recognition_cache.seed(value)
-        self.recognition_ownership = None
-
-    def attach_recognition(
-        self,
-        result: RecognitionResult | None,
-        *,
-        evidence: RecognitionEvidence | None = None,
-        cache: RecognitionCache | None = None,
-        ownership: RecognitionOwnership | None = None,
-    ) -> None:
-        """Attach one coherent acquisition at the builder's single fill site.
-
-        A rebuilt drawing either receives the prior run's complete cache or a result/evidence
-        pair from its current analysis. Mixing both sources would make run ownership ambiguous
-        and therefore fails closed.
-        """
-
-        if cache is not None:
-            if result is not None or evidence is not None or ownership is not None:
-                raise ValueError("cannot attach both a recognition cache and a new acquisition")
-            self.recognition_cache = cache
-            self.recognition_ownership = None
-            return
-        if ownership is not None and ownership.evidence is not evidence:
-            raise ValueError("recognition ownership and evidence must come from the same run")
-        self.recognition_cache.seed(result, evidence=evidence)
-        self.recognition_ownership = ownership
-
-    @property
-    def recognition_evidence(self) -> RecognitionEvidence | None:
-        """Run-scoped provider evidence paired with :attr:`recognition`, when available."""
-
-        return self.recognition_cache.evidence
-
-    def clear_geometry_caches(self) -> None:
-        """The one invalidation seam (finalize rollback): view edges + annotation
-        boxes together — a rolled-back drawing must re-measure everything."""
-        self.view_edge_cache.clear()
-        self.ann_box_cache.clear()
-        self.material_fields.clear()
-        self.material_mesh = _MATERIAL_MESH_UNSET
-
-    def ensure_recognition(self, part, *, cylinders=None) -> RecognitionResult:
-        """The run's recognition aggregate, recognising *part* once if nothing has yet.
-
-        A declared build performs no recognition (ADR 4 (was 0011) / #1022), so critique on that path
-        has no inventory to judge against and must produce one.  It is built **here**, in the
-        typed build state, and at most once per drawing: a lint-side or ``Drawing``-side memo
-        would make critique a second recognition owner, contrary to ADR 3.
-
-        On a detected build ``recognition`` is already filled by the builder, so this returns
-        it and recognises nothing.
-        """
-        return self.recognition_cache.ensure(part, cylinders=cylinders)
 
 
 class ViewNotPlanned(KeyError):
@@ -2525,226 +2315,14 @@ class Drawing:
         self.finalize()
 
     def _classify_intents(self, model, a, routable) -> _IntentRouting:
-        """Classify the recorded placement intents by route — the classification half of
-        :meth:`finalize` (#590 split). Pure comprehensions over ``self._intents`` (no placement,
-        no mutation) deciding which auto-pass solver each intent drains through; the drain half
-        of finalize consumes the returned :class:`_IntentRouting`."""
-        from draftwright.annotations.sections import feature_hole_keys
-        from draftwright.model import PartModel, plan_sections
-
-        # The section plan (if a section was recorded) — the ONE plan reserved before the
-        # callout carve sees its row (Coupling A) and rendered last (Phase 3b).
-        _section = None
-        if routable and any(it.kind == "section" for it in self._intents):
-            assert a is not None and isinstance(model, PartModel)
-            _section = plan_sections(model, feature_hole_keys(model, a))
-        # Route through the auto-pass solvers when possible (else everything live-replays):
-        #  - BOTH-axes locate → the ADR 2 (was 0009) location corridor. An axes-restricted locate
-        #    can't go through the per-feature filter, so it live-replays (#429).
-        #  - hole/pattern CALLOUT → _annotate_holes' priority-drop/anchoring solve (the
-        #    section row, if any, is reserved first below).
-        #  - step/boss ø CALLOUT → render_diameters' row-below/column-left set-solve (Phase 4a).
-        corridor_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "locate"
-            and it.kwargs.get("axes") is None
-            # Z-plan holes only — render_locations places X/Y position dims. A side-drilled
-            # (X/Y-axis) bore's location is a different pass (off_axis_loc_ids below).
-            and (
-                getattr(it.feature, "kind", None) == "circular_channel"
-                or getattr(getattr(it.feature, "frame", None), "axis", None) == "z"
-            )
-        }
-        # Side-drilled (X/Y-axis) hole locations (#133/#426): a separate whole-model pass
-        # (_locate_off_axis_holes), placed at the shared drain like the Z-plan corridor —
-        # not render_locations (Z-only, #133) and never live-replayed (add_feature_location
-        # raises on non-Z; the intent is routed here before it can reach that verb).
-        # NB: no ``axes is None`` guard, unlike corridor_ids — the off-axis pass ignores the
-        # axes selector, so EVERY side-drilled locate (incl. a hand-written axes=… one) must
-        # route here, else it would live-replay into add_feature_location's ValueError.
-        off_axis_loc_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "locate"
-            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y")
-            and getattr(it.feature, "kind", None) != "circular_channel"
-        }
-        callout_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "callout"
-            and getattr(it.feature, "kind", None) in ("hole", "pattern")
-        }
-        dia_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "callout"
-            and getattr(it.feature, "kind", None) in ("step", "boss")
-            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
-        }
-        # step LENGTH dimension intents (role="step") → render_step_lengths' chain (Phase 4b),
-        # but only on a TURNED part (a.profiles is non-empty, mirroring the auto-pass guard) — else
-        # they live-replay. Excludes the step's ø (a callout routed in dia_ids above).
-        len_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and a is not None
-            and a.profiles
-            and it.kind == "dimension"
-            and getattr(it.feature, "kind", None) == "step"
-            and getattr(getattr(it.feature, "frame", None), "axis", None) in ("x", "y", "z")
-            and it.kwargs.get("param") == "length"
-            and it.kwargs.get("role") == "step"
-        }
-        # SLOT/PAD dimension intents (#426 Phase 2b / #885 / #1752) → render_slots' shared
-        # placement. Both record two linear size dims; an obround slot adds its radius
-        # leader. Routing any of them regenerates the feature's approved dimensions. Slots
-        # also regenerate their historical datum
-        # position; pads use a separate locate() intent for their two-axis location.
-        # Both share the location corridor,
-        # so they register alongside B2's locations and drain in the SAME solve (the #345
-        # dedup of a slot position coincident with a hole location needs one combined pass).
-        # Match on param/role like len_ids above (#439): a slot exposes the two length
-        # parameters plus an optional end radius, so a malformed slot dim (for example
-        # dimension(slot, "diameter")) falls through to
-        # live replay, where the verb raises the same ValueError instead of being swallowed.
-        slot_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "dimension"
-            and getattr(it.feature, "kind", None) in ("slot", "pad")
-            and (
-                (
-                    it.kwargs.get("param") == "length"
-                    and it.kwargs.get("role")
-                    in ("slot_width", "slot_length", "pad_width", "pad_length")
-                )
-                or (
-                    getattr(it.feature, "kind", None) == "slot"
-                    and it.kwargs.get("param") == "radius"
-                    and it.kwargs.get("role") == "slot_end_radius"
-                )
-            )
-        }
-        # Prismatic height-ladder intent. StepLevelFeature exposes one value per interior
-        # level, but those rungs are a correlated chain whose witness bases leapfrog from
-        # the previous placed tier. Treat one semantic dimension intent as "rebuild the
-        # whole height ladder" through the existing auto-pass renderer, instead of trying
-        # to flatten each rung into an independent corridor candidate.
-        height_ladder_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "dimension"
-            and getattr(it.feature, "kind", None) == "step_level"
-            and it.kwargs.get("param") == "length"
-            and it.kwargs.get("role") in (None, "step_height")
-        }
-        overall_height_ids = {id(it) for it in self._intents if it.kind == "overall_height"}
-        explicit_envelope_height = any(
-            routable
-            and it.kind == "dimension"
-            and getattr(it.feature, "kind", None) == "envelope"
-            and it.kwargs.get("param") == "length"
-            and it.kwargs.get("role") == "height"
-            for it in self._intents
-        )
-        # Prismatic step POSITIONS (#555) — like the height ladder, one semantic intent
-        # means "rebuild all shoulders" through render_step_positions, not per-shoulder
-        # span dims (multiple shoulders share role="step_position" and can't be picked
-        # apart by the span resolver).
-        step_position_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "dimension"
-            and getattr(it.feature, "kind", None) == "step_level"
-            and it.kwargs.get("param") == "length"
-            and it.kwargs.get("role") == "step_position"
-        }
-
-        # User-authored generic feature dimensions with pin/priority join the shared
-        # corridor directly. Slot and turned-step length dimensions keep their specialized
-        # routes above, because those renderers regenerate correlated measurements as a set.
-        already_routed = len_ids | slot_ids | height_ladder_ids | step_position_ids
-        user_dim_ids = {
-            id(it)
-            for it in self._intents
-            if self._user_dim_uses_corridor(it, routable, already_routed)
-        }
-        # Rotational furniture intent (#424/#426): the whole-model render_rotational —
-        # no per-feature subset, so just the id set; it drains at the "rotational" slot.
-        rotational_ids = {id(it) for it in self._intents if routable and it.kind == "rotational"}
-        # Machined-feature leader callout intents (#148): pocket/pad-height/fillet/
-        # paired-ramp/flat/chamfer/groove
-        # callout()s (plate is a spanned dimension, routed via dimension(), not here). Bucketed
-        # per kind so each drains at its own _PASS_SEQUENCE stage, restricted to the recorded
-        # features via only= (per-feature, #811). The id union also joins `routed` so
-        # live_replay skips these (they route through finalize).
-        machined_ids_by_kind: dict = {}
-        for it in self._intents:
-            if routable and it.kind == "callout":
-                k = getattr(it.feature, "kind", None)
-                if k in _MACHINED_CALLOUT_KINDS:
-                    machined_ids_by_kind.setdefault(k, set()).add(id(it))
-        # Pocket-pattern callout()s (#841 outcome 3): one grouped callout + pitch furniture per
-        # pattern. Drained at the pre-drain "pocket_patterns" _PASS_SEQUENCE slot (render places
-        # the pitch dim directly and needs the strip room the post-drain machined callouts lack),
-        # restricted to the recorded feature(s) via only=.
-        pocket_pattern_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "callout"
-            and getattr(it.feature, "kind", None) == "pocket_pattern"
-        }
-        # Slot-pattern callout()s (#841): same as pocket patterns — one grouped callout + pitch
-        # furniture, drained at the pre-drain "slot_patterns" _PASS_SEQUENCE slot, only=-restricted.
-        slot_pattern_ids = {
-            id(it)
-            for it in self._intents
-            if routable
-            and it.kind == "callout"
-            and getattr(it.feature, "kind", None) == "slot_pattern"
-        }
-        only_loc = {it.feature for it in self._intents if id(it) in corridor_ids}
-        pinned_loc = {
-            it.feature for it in self._intents if id(it) in corridor_ids and it.kwargs.get("pin")
-        }
-        only_callout = {it.feature for it in self._intents if id(it) in callout_ids}
-        only_dia = {it.feature for it in self._intents if id(it) in dia_ids}
-        only_len = {it.feature for it in self._intents if id(it) in len_ids}
-        slot_feats = {it.feature for it in self._intents if id(it) in slot_ids}
-        return _IntentRouting(
-            section=_section,
-            corridor_ids=corridor_ids,
-            callout_ids=callout_ids,
-            dia_ids=dia_ids,
-            len_ids=len_ids,
-            slot_ids=slot_ids,
-            height_ladder_ids=height_ladder_ids,
-            overall_height_ids=overall_height_ids,
-            step_position_ids=step_position_ids,
-            explicit_envelope_height=explicit_envelope_height,
-            user_dim_ids=user_dim_ids,
-            rotational_ids=rotational_ids,
-            off_axis_loc_ids=off_axis_loc_ids,
-            only_loc=only_loc,
-            pinned_loc=pinned_loc,
-            only_callout=only_callout,
-            only_dia=only_dia,
-            only_len=only_len,
-            slot_feats=slot_feats,
-            machined_ids_by_kind=machined_ids_by_kind,
-            pocket_pattern_ids=pocket_pattern_ids,
-            slot_pattern_ids=slot_pattern_ids,
+        """Classify recorded edits for the shared placement stage order."""
+        return classify_intents(
+            self._intents,
+            model,
+            a,
+            routable,
+            self._user_dim_uses_corridor,
+            _MACHINED_CALLOUT_KINDS,
         )
 
     def _user_dim_uses_corridor(self, it, routable, already_routed) -> bool:
@@ -3001,71 +2579,43 @@ class Drawing:
         return self._registry.named(name)
 
     def preview_annotation(self, name: str, path: str | os.PathLike) -> str:
-        """Write a diagnostic SVG highlighting a placed annotation and its drawn tip.
+        return preview_export_annotation(
+            name,
+            path,
+            deferred_pending=bool(self._defer_intents or self._intents),
+            get_annotation=self.get_annotation,
+            view_of=self.view_of,
+            view_bounds=self.view_bounds,
+            views=self.views,
+            write_svg=self._write_svg,
+        )
 
-        Includes the owning view when known. This is a snapshot of current ink, not a
-        physical-target certificate. It neither finalizes edits nor alters the drawing or
-        its export paths. Finish a deferred edit before requesting a preview. Unknown names
-        raise ``KeyError``; missing ink bounds or a non-SVG path raise ``ValueError``.
-        """
-        if self._defer_intents or self._intents:
-            raise ValueError("finish deferred edits before previewing an annotation")
-        annotation = self.get_annotation(name)
-        if annotation is None:
-            raise KeyError(name)
-        destination = os.fspath(path)
-        if os.path.splitext(destination)[1].lower() != ".svg":
-            raise ValueError("annotation previews require an .svg destination")
-        if not hasattr(annotation, "bounding_box"):
-            raise ValueError(f"{name}: annotation ink bounds unavailable")
-        box = annotation.bounding_box()
-        bounds = (box.min.X, box.min.Y, box.max.X, box.max.Y)
-        view = self.view_of(name)
-        context = self.view_bounds(view) if view is not None and view in self.views else bounds
-        tip = getattr(annotation, "tip", None)
-        with tempfile.TemporaryDirectory(dir=os.path.dirname(destination) or ".") as temporary:
-            svg_path = self._write_svg(os.path.join(temporary, "preview"))
-            highlight_svg_annotation(
-                svg_path, name=name, view=view, bounds=bounds, context=context, tip=tip
-            )
-            os.replace(svg_path, destination)
-        return destination
+    def _table_state(self) -> DrawingTableState:
+        return DrawingTableState(
+            drawing=self,
+            draft=self.draft,
+            registry=self._registry,
+            analysis=self._analysis,
+            model=self._part_model,
+            coords=self._coords,
+            coverage=self._coverage,
+            items=self.items,
+            page_w=self.page_w,
+            page_h=self.page_h,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+            add=self._add,
+            add_table=self.add_table,
+            add_balloons=self.add_balloons,
+            hole_spec_groups=self._hole_spec_groups,
+            fit_auxiliary_box=fit_auxiliary_box,
+        )
 
     def note(self, text, at, *, view=None, rotation=0.0, name=None, align=None):
-        """Add a free-form text **note** at page position *at* — ``(x, y)`` in mm from the sheet
-        origin, the space :meth:`at` / :meth:`view_bounds` return (#817).
-
-        A note is user-positioned free text ("SEE NOTE 1", a general-tolerance line): it carries
-        no feature and is not part of the placement solve, so — unlike :meth:`callout` /
-        :meth:`dimension`, which the solve places — you give the position. Pass *view* to fold it
-        into that view's block for the cross-view repack; ``rotation`` (degrees) and ``align``
-        (a build123d ``Align`` pair, default centred on *at*) are forwarded to the note. Returns
-        the annotation name. This is the public door for free text — the raw ``Note`` object +
-        low-level placement primitive are internal."""
-        from build123d_drafting import Note
-
-        n = Note(
-            _font_safe_text(text),
-            at,
-            self.draft,
-            rotation=rotation,
-            align=align if align is not None else (Align.CENTER, Align.CENTER),
+        """Add user-positioned free text and return its annotation name."""
+        return drawing_note(
+            self._table_state(), text, at, view=view, rotation=rotation, name=name, align=align
         )
-        # Keep the exact string shown by the drafting font for the PDF semantic
-        # overlay (notably its established ⌀ -> ø compatibility substitution).
-        n.pdf_text = _font_safe_text(text)
-        n.pdf_text_rotation = float(rotation)
-        n.pdf_text_line_spacing = _text_line_spacing_em(
-            self.draft.font_size,
-            getattr(self.draft, "font_path", DEFAULT_FONT_PATH),
-            getattr(self.draft, "font", "Arial"),
-        )
-        if name is None:
-            i = 0
-            while (name := f"note{i}") in self._registry:
-                i += 1
-        self._add(n, name, view=view)
-        return name
 
     def add_table(
         self,
@@ -3082,285 +2632,38 @@ class Drawing:
         _cells=(),
         _left_align_cols=(),
     ):
-        """Add a generic data table in the preferred available sheet region (#93/#1145).
-
-        *rows* is a list of equal-length string tuples (``rows[0]`` is the
-        header). The measured page-space footprint is positioned by :func:`fit_box`
-        clear of the views, title block, and existing annotations by the drafting
-        preset's external text clearance; *prefer* ranks candidates by their
-        distance from that page corner but does not restrict placement to the
-        corner. Returns the table annotation, or ``None`` if it has no rows or
-        will not fit. A failed solve records ``table_dropped`` with the footprint,
-        attempted candidate regions, and their named blockers/clearance bands.
-        Gear-data, BOM, and revision tables all go through here;
-        :meth:`add_hole_table` is the hole-specific convenience built on it.
-        """
-        if not rows:
-            return None
-        if _cells and name in self._registry:
-            raise ValueError(f"measured schedule name {name!r} already belongs to an annotation")
-        table = _build_table(
-            rows, self.draft, block_cols=block_cols, left_align_cols=_left_align_cols
+        """Fit a data table in available sheet space and report any placement drop."""
+        return drawing_add_table(
+            self._table_state(),
+            rows,
+            prefer=prefer,
+            name=name,
+            block_cols=block_cols,
+            _source_id=_source_id,
+            _source_ids=_source_ids,
+            _features=_features,
+            _drop_code=_drop_code,
+            _drop_severity=_drop_severity,
+            _cells=_cells,
+            _left_align_cols=_left_align_cols,
         )
-        # Keep the rows the table draws, so its content is readable back off the annotation
-        # (#1217). A table renders as compound geometry with no `label`, so without this a
-        # hole table's measurement claims can be neither confirmed nor refuted — and the
-        # claims it carries are exactly the ones coverage relies on when the engine withdraws
-        # the individual callouts. Mirrors `gear_requirement_rows`.
-        table.table_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
-        if _cells:
-            table.measurement_schedule = _cells[0].schedule
-        table.table_block_cols = block_cols
-        w, h = table.table_size
-        a = self._analysis
-        margins = _analysis_margins(a) if a is not None else SheetMargins()
-        pw = a.PAGE_W if a is not None else self.page_w
-        ph = a.PAGE_H if a is not None else self.page_h
-        region = margins.bounds(pw, ph)
-        # The shared post-fit occupancy policy — views, decomposed annotation ink, minus
-        # the page-spanning riders, plus the title-block hull. Extracted so the NTS
-        # caption places against the same set (#1197); every hand-rolled copy of it has
-        # dropped one of the four parts.
-        obstacles = late_furniture_obstacles(self, named=True)
-
-        trace = FitBoxTrace()
-        pos = fit_auxiliary_box(
-            (w, h),
-            region,
-            obstacles,
-            prefer,
-            clearance=self.draft.pad_around_text,
-            trace=trace,
-        )
-        if pos is None:
-            measured = f"width={w:.1f} mm, height={h:.1f} mm"
-            detail = trace.violation
-            if detail is None and trace.rejected:
-                shown = trace.rejected[:4]
-                rejected = []
-                for attempt in shown:
-                    x0, y0, x1, y1 = attempt.region
-                    rejected.append(
-                        f"[{x0:.1f},{y0:.1f}–{x1:.1f},{y1:.1f}] blocked within "
-                        f"{trace.clearance:.1f} mm clearance by {', '.join(attempt.blockers)}"
-                    )
-                remaining = trace.rejected_candidates - len(shown)
-                suffix = f"; +{remaining} more" if remaining else ""
-                detail = (
-                    f"attempted {trace.attempted_candidates} candidate regions; rejected: "
-                    f"{'; '.join(rejected)}{suffix}"
-                )
-            if detail is None:
-                detail = "solver returned no placement trace"
-            self._registry.record_issue(
-                LintIssue(
-                    severity=_drop_severity,
-                    code=_drop_code,
-                    message=(
-                        f"table {name!r} did not fit the sheet; measured page-space footprint "
-                        f"{measured}; {detail}"
-                    ),
-                    source_ids=tuple(
-                        dict.fromkeys(
-                            ((_source_id,) if _source_id is not None else ()) + _source_ids
-                        )
-                    ),
-                    measurement_ids=tuple(cell.measurement for cell in _cells),
-                )
-            )
-            return None
-        placed = table.locate(Location((pos[0], pos[1], 0)))
-        placed.source_features = _features
-        if not _cells:
-            return self._add(placed, name)
-        snapshot = self._registry.snapshot()
-        items = list(self.items)
-        issues = self._registry.issues
-        try:
-            return self._add(placed, name, cells=_cells)
-        except BaseException:
-            self.items[:] = items
-            self._registry.restore(snapshot)
-            self._registry.restore_issues(issues)
-            raise
 
     def _hole_spec_groups(self, view):
-        """Ordered ``(tag, [holes], count)`` spec-groups of *view*'s holes (tags A, B,
-        …). The shared basis for the hole table's rows and its balloons, so the
-        TAG column and the balloon glyphs line up.
-
-        Sourced from the IR (``model.features``), so each group is one hole/pattern
-        feature — a pattern and same-spec loose holes are distinct groups (ADR 1 (was 0008);
-        #584 WP1). Each ``holes`` element is a :class:`_HoleInstance` (one per member
-        position, driving a balloon); ``count`` is the feature's declared/detected count
-        for the table QTY — equal to ``len(holes)`` on the detected path."""
-        model = self._part_model
-        target = {"plan": "z", "front": "y", "side": "x"}.get(view)
-        if model is None or target is None or view not in self._coords:
-            return []
-
-        glist = [
-            (
-                owner,
-                [_HoleInstance(pos, spec.diameter, spec.through, spec.depth) for pos in positions],
-                count,
-            )
-            for owner, spec, positions, count in _ir_hole_groups(model, target)
-        ]
-        return [
-            (tag, owner, holes, count)
-            for tag, (owner, holes, count) in zip(_tag_sequence(len(glist)), glist, strict=True)
-        ]
+        return drawing_hole_spec_groups(self._table_state(), view)
 
     def add_balloons(self, view, specs):
-        """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
-        fitted into the halo the layout reserved around the view (#111).
-
-        Public verb over the :mod:`draftwright.annotations.balloons` render pass
-        (#699: the pass lives in the render layer; this owner method threads the
-        build state in). Each hole is assigned to a reserved band — left, right,
-        top or bottom — by a global max-cardinality/min-cost assignment (#516),
-        each band is spread with the 1D strip solver, and a :class:`Leader` runs
-        from the hole rim to each glyph.
-        """
-        if view not in self._coords or self._analysis is None:
-            return
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            part_model=self._part_model,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        render_balloons(self, self._analysis, view, specs, ctx, avoid_annotation_labels=True)
+        """Place leadered balloons in the view's reserved halo."""
+        return drawing_add_balloons(self._table_state(), view, specs)
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""
         self.add_balloons(view, [(tag, j, hole)])
 
     def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
-        """Add a hole table for *view*'s holes, placed in a free corner (#93).
-
-        One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
-        ``A, B, …`` — placed via :meth:`add_table`. With *balloons* (the
-        default) a circled tag is added at each hole keyed to its row. The table
-        carries the same semantic measurement and structured requirement provenance as
-        automatic table escalation, so physical hole outcomes count only the facts the
-        table visibly states. Returns the table, or ``None`` when *view* has no holes or it
-        will not fit.
-        """
-        from draftwright.model.callout import resolved_through_indicator
-
-        groups = self._hole_spec_groups(view)
-        if not groups:
-            return None
-        # The compiler's text for every cell this table prints, keyed the way the coverage
-        # registration below already keys it. A table row IS a dimension — `⌀ 8 ±0.05` in a
-        # cell states exactly what `⌀8 ±0.05` states beside a leader — but this verb formatted
-        # its own numbers off the recognised geometry, so an authored tolerance was approved,
-        # claimed by the table's provenance, and never printed. Read from
-        # `_part_model` rather than `model()`: an attribute, so a declared build is not made
-        # to recognise anything by adding a table (ADR 3 (was 0017)).
-        approved: dict = {}
-        omitted: set = set()
-        if self._part_model is not None:
-            from draftwright.model.compiled import compile_dimensions as _compile_table
-            from draftwright.model.compiled import resolve_feature as _resolve_table
-
-            _plan = _compile_table(self._part_model)
-            approved = {
-                (_resolve_table(group.ref), dim.parameter_id): dim
-                for group in _plan.of_kind("hole")
-                for dim in group.dims
-            }
-            # What the compiler REFUSED, separately from what it merely has no entry for.
-            # `Omission.authored` means the author left a measurement out. Printing it here
-            # would violate the compiled plan's suppression decision.
-            omitted = {
-                (omission.feature, omission.parameter_id)
-                for omission in _plan.diagnostics
-                if omission.authored
-            }
-
-        def _cell(owner, parameter, fallback):
-            """The plan's text for *owner*'s *parameter*, else *fallback*.
-
-            The fallback covers the one case it is for: `_hole_spec_groups` is geometry-derived
-            and can group holes the compiler has NO entry for at all, and an empty cell there
-            would be worse than the measured value. It does not cover a measurement the author
-            omitted — that is a decision, and it is honoured by printing nothing, which is what
-            the escalated table has always done for the same case.
-            """
-            if (owner, parameter) in omitted:
-                return ""
-            dim = approved.get((owner, parameter))
-            if dim is None:
-                return fallback
-            return f"{dim.value_text}{_tol_suffix(dim.tolerance, self.draft)}"
-
-        rows = [("TAG", "⌀", "DEPTH", "QTY")]
-        diams = []
-        for tag, owner, holes, count in groups:
-            h = holes[0]
-            dia = _cell(owner, "bore.diameter", _fmt(h.diameter))
-            # An empty diameter empties the whole cell and takes `THRU` with it, exactly as the
-            # escalated table does (`orchestrator._table_row`): a bare `ø` with no number, or a
-            # `THRU` qualifying a diameter that is not printed, states less than nothing.
-            depth = (
-                (resolved_through_indicator(owner) if dia else "")
-                if h.through
-                else (_cell(owner, "bore.depth", _fmt(h.depth)) if h.depth else "")
-            )
-            rows.append((tag, f"ø{dia}" if dia else "", depth, str(count)))
-            # Legacy physical-diameter lint counts one structured entry per bore.
-            # Repeat the value exactly as many times as the visible QTY asserts, just as
-            # automatic escalation does, while the semantic ledger below retains the
-            # feature-scoped grouping identity.
-            diams.extend([h.diameter] * count)
-        table_name = name or f"hole_table_{view}"
-        table = self.add_table(rows, prefer=prefer, name=table_name)
-        if table is None:
-            return None
-        # The table documents these diameters — let lint see that (#93).
-        table.covers_diameters = tuple(diams)
-        from draftwright.model.compiled import DimensionId
-
-        # Calling the public verb is an explicit edit: the table itself authors every
-        # measurement it visibly prints, even when the original dimension set omitted a
-        # generated callout. Construct the same stable identities the compiler uses so
-        # holes and patterns join the physical outcome ledger through one seam.
-        measurements = tuple(
-            DimensionId(owner, parameter)
-            for _tag, owner, holes, _count in groups
-            for parameter in (
-                ("bore.diameter",)
-                if holes[0].through or holes[0].depth is None
-                else ("bore.diameter", "bore.depth")
-            )
+        """Add a hole table and optional matching balloons for a view."""
+        return drawing_add_hole_table(
+            self._table_state(), view=view, prefer=prefer, name=name, balloons=balloons
         )
-        requirements = tuple(
-            (owner, "bore.through", 1) for _tag, owner, holes, _count in groups if holes[0].through
-        ) + tuple(
-            (owner, "grouping.count", count) for _tag, owner, _holes, count in groups if count > 1
-        )
-        _register_hole_table_coverage(
-            table,
-            self._registry,
-            table_name,
-            measurements=measurements,
-            requirements=requirements,
-        )
-        if balloons:
-            self.add_balloons(
-                view,
-                [
-                    (tag, j, h)
-                    for tag, _owner, holes, _count in groups
-                    for j, h in enumerate(holes)
-                ],
-            )
-        return table
 
     def pin(self, name):
         """Pin a named annotation so the engine never moves it (#89).
@@ -3621,53 +2924,23 @@ class Drawing:
             _log.info("Lint: OK")
 
     def _write_svg(self, out: str, *, reproducible: bool = True) -> str:
-        """Write the SVG (part/hidden/dims layers, page-size fix, arc sanitise, hyperlink +
-        metadata) and return its path. The PDF and PNG renders both read this SVG.
-
-        *reproducible* settles the element order so two runs write the same bytes;
-        see :func:`export.canonicalize_svg`. Off, this is what it always was."""
-        blk = Color(0, 0, 0)
-        grey = Color(0.5, 0.5, 0.5)
-        blue = Color(0, 0.2, 0.7)
-        svg_exp = ExportSVG(margin=10)
-        svg_exp.add_layer("part", line_color=blk, line_weight=0.5)
-        svg_exp.add_layer("hidden", line_color=grey, line_weight=0.25, line_type=LineType.HIDDEN)
-        svg_exp.add_layer("dims", line_color=blue, fill_color=blue, line_weight=0.05)
-        self._add_shapes(svg_exp)
-        svg_path = out + ".svg"
-        svg_exp.write(svg_path)
-        if reproducible:
-            # Before the passes below read it back: they rewrite what is there,
-            # this settles what order it is in. See canonicalize_svg().
-            canonicalize_svg(svg_path)
-        fix_svg_page_size(svg_path, self.page_w, self.page_h)
-        n_arcs = sanitize_svg_arcs(svg_path)
-        if n_arcs:
-            _log.info("Rewrote %d degenerate (near-zero-radius) arc(s) as line segments", n_arcs)
-        link_rect = getattr(self.get_annotation("title_block"), "draftwright_link_rect", None)
-        if link_rect is not None:
-            add_svg_hyperlink(svg_path, link_rect)
-        add_svg_metadata(svg_path)
-        _log.info("SVG → %s", svg_path)
-        return svg_path
+        return write_drawing_svg(
+            out,
+            page_w=self.page_w,
+            page_h=self.page_h,
+            add_shapes=self._add_shapes,
+            title_block=lambda: self.get_annotation("title_block"),
+            reproducible=reproducible,
+        )
 
     def _write_dxf(self, out: str, *, reproducible: bool = True) -> str:
-        """Write the DXF (part/hidden/dims layers + metadata) and return its path.
-
-        *reproducible* orders the entities and pins the metadata ezdxf stamps from
-        the clock, so two runs write the same bytes. It costs about a third of the
-        export time again — see :func:`export._elements`."""
-        dxf_exp = _DraftwrightDXF()
-        dxf_exp.add_layer("part", line_weight=0.5)
-        dxf_exp.add_layer("hidden", line_weight=0.25)
-        dxf_exp.add_layer("dims", line_weight=0.05)
-        self._add_shapes(dxf_exp, ordered=reproducible)
-        set_dxf_metadata(dxf_exp)
-        dxf_path = out + ".dxf"
-        # #602: skip ExportDXF.write's O(entities) zoom.extents pass — the page window is known.
-        write_dxf(dxf_exp, dxf_path, self.page_w, self.page_h, reproducible=reproducible)
-        _log.info("DXF → %s", dxf_path)
-        return dxf_path
+        return write_drawing_dxf(
+            out,
+            page_w=self.page_w,
+            page_h=self.page_h,
+            add_shapes=self._add_shapes,
+            reproducible=reproducible,
+        )
 
     def _pdf_text_runs(self):
         """Return semantic PDF text runs in page reading order."""
@@ -3684,182 +2957,20 @@ class Drawing:
         dpi: int = 150,
         reproducible: bool | None = None,
     ) -> dict[str, str] | tuple[str | None, str | None]:
-        """Lint, then write the requested output *formats*; return ``{format: path}``.
-
-        *formats* is a format name or an iterable from ``("svg", "dxf", "pdf", "png")``. PDF
-        renders from the SVG and PNG from the PDF, so the SVG/PDF are written as intermediates
-        and removed when not themselves requested. *dpi* sets the PNG raster resolution.
-
-        Omitting *formats* — or passing ``None``, which is indistinguishable from omitting it
-        — does **not** default to ``("pdf",)``; that is :meth:`Sheet.export`'s default. Here it
-        selects the deprecated legacy path below, which writes SVG + DXF and returns a tuple.
-
-        Legacy (deprecated in 0.3.1, **removed in 0.5.0**): the boolean ``svg=``/``dxf=``
-        keywords — and calling ``export()`` with no ``formats`` — select those two vector
-        formats and return the old ``(svg_path, dxf_path)`` tuple. Prefer ``formats=[...]``
-        (the dict API); ``export_pdf`` is likewise superseded by ``export(formats=("pdf",))``.
-
-        Both legacy shapes now **warn** (#987). They were listed under "Deprecated" in the
-        v0.3.1 changelog and then said nothing at runtime for four minor releases, which made
-        the planned 0.5.0 removal a silent break — and invisible to
-        ``tests/test_deprecation_dates.py``, which can only scan things that warn. A
-        deprecation nobody is warned about is documentation, not a deprecation.
-
-        *reproducible* makes two exports of one drawing byte-identical — the element
-        order is settled and the metadata the exporters take from the clock is pinned,
-        so a written drawing can be diffed or checksummed to see whether its content
-        actually changed. ``None`` (the default) uses :attr:`reproducible`, which
-        :func:`~draftwright.build_drawing` sets and which is ``True`` unless the
-        caller opts out: a file that changes between runs cannot be diffed,
-        checksummed or cached, and that is worth more than the ordering costs on a
-        part (+2.0% of a whole CTC-01 job). The cost grows with part count, so a
-        part-heavy sheet may want ``False`` — see :func:`draftwright.export._elements`.
-        Passing the keyword here overrides the drawing's default for this call only.
-        """
-        self.finalize()  # #426: drain any recorded intents before export (no-op if none)
-        # An explicit keyword wins; otherwise the drawing's own default (build_drawing's).
-        reproducible = self.reproducible if reproducible is None else reproducible
-        out = out if out is not None else self.out
-        for _ext in self._EXPORT_FORMATS:
-            if out.endswith("." + _ext):
-                out = out[: -(len(_ext) + 1)]
-                break
-        # Normalise ONCE, here, before anything reads it. `formats` may be a one-shot iterable,
-        # and the mixed-API warning below used to build its message with `tuple(formats)` —
-        # which consumed a generator, leaving the export loop nothing to iterate: it warned
-        # that it would write SVG+DXF and then wrote nothing. Normalising early
-        # also makes the message say `('svg',)` rather than `('s', 'v', 'g')` for `formats="svg"`.
-        want: list[str] | None = None
-        if formats is not None:
-            want = [formats.lower()] if isinstance(formats, str) else [f.lower() for f in formats]
-            # Validate BEFORE the deprecation warning below. A caller who mistyped a format has
-            # a broken call, not a deprecated one — and under `-W error` a warning raised first
-            # would surface the deprecation instead of the typo that actually stopped the
-            # export. Report the fault that matters.
-            unknown = [f for f in want if f not in self._EXPORT_FORMATS]
-            if unknown:
-                raise ValueError(
-                    f"unknown export format(s) {unknown}; choose from {self._EXPORT_FORMATS}"
-                )
-            # Beside the format check, not down at the PNG render: EVERY reason this call
-            # cannot succeed belongs before the work, or the "validate first" rule holds for
-            # whichever argument was validated first.
-            if "png" in want and dpi <= 0:
-                raise ValueError(f"png export needs dpi > 0, got {dpi}")
-
-        # AFTER validation, for the same reason validation precedes the deprecation warning
-        # above: a call that is about to raise should not first do the work. On a declared
-        # drawing this critique builds the recognition aggregate (#1022), so a mistyped format
-        # used to scan the whole solid and only then report the typo.
-        self._lint_and_log()
-
-        # `formats=` wins over the legacy booleans, which means `export(out, formats=("svg",),
-        # svg=False)` writes the SVG the caller just switched off — silently, since the legacy
-        # branch below never runs. A caller passing both has a stale mental model, and a
-        # deprecated argument that is ignored WITHOUT a word is the exact failure this change
-        # exists to fix (#987). Say so; `formats` still wins.
-        if want is not None and (svg is not None or dxf is not None):
-            _ignored = [f"{k}=" for k, v in (("svg", svg), ("dxf", dxf)) if v is not None]
-            warnings.warn(
-                f"Drawing.export(): {', '.join(_ignored)} is deprecated and is IGNORED when "
-                f"formats= is given — this call writes formats={tuple(want)!r}. Drop it, or "
-                "put the format in formats=. Removed in 0.5.0.",
-                DeprecationWarning,
-                stacklevel=3,  # Skip the public operation observer wrapper too.
-            )
-
-        # --- legacy path: svg=/dxf= keywords → the old (svg, dxf) tuple (back-compat) ---
-        if formats is None:
-            # Two distinct legacy shapes, warned separately because the fix differs (#987):
-            # the booleans SELECT formats, while bare export() is the old DEFAULT whose return
-            # type is a tuple. Callers of the first want `formats=[...]`; callers of the second
-            # additionally have to stop unpacking two values.
-            if svg is not None or dxf is not None:
-                # Name the formats THIS call selected, not a fixed ('svg', 'dxf') pair: the
-                # booleans can deselect, so `export(out, svg=False, dxf=True)` writes DXF only
-                # and a canned suggestion would tell the caller to start writing an SVG they
-                # had switched off — advice that changes behaviour.
-                _wanted = tuple(
-                    f for f, on in (("svg", svg is None or svg), ("dxf", dxf is None or dxf)) if on
-                )
-                warnings.warn(
-                    f"Drawing.export(svg=…, dxf=…) is deprecated; pass formats={_wanted!r} and "
-                    "read the {format: path} dict. Removed in 0.5.0.",
-                    DeprecationWarning,
-                    stacklevel=3,  # Skip the public operation observer wrapper too.
-                )
-            else:
-                warnings.warn(
-                    "Drawing.export() with formats= omitted or None returns the legacy "
-                    "(svg, dxf) tuple and is deprecated; pass formats=(...) and read the "
-                    "{format: path} dict — e.g. export(out, formats=('svg', 'dxf')). "
-                    "Removed in 0.5.0.",
-                    DeprecationWarning,
-                    stacklevel=3,  # Skip the public operation observer wrapper too.
-                )
-            svg_path = (
-                self._write_svg(out, reproducible=reproducible) if (svg is None or svg) else None
-            )
-            dxf_path = (
-                self._write_dxf(out, reproducible=reproducible) if (dxf is None or dxf) else None
-            )
-            self.svg_path, self.dxf_path = svg_path, dxf_path
-            return svg_path, dxf_path
-
-        # --- formats=... → {format: path} (requested order); normalised + validated above ---
-        assert want is not None  # formats is not None on this branch
-        want_set = set(want)
-        paths: dict[str, str] = {}
-        # Intermediates — the SVG behind a PDF/PNG, the PDF behind a PNG — go to a temp dir when
-        # not themselves requested, NEVER the user's <out>.svg/.pdf. Otherwise a later
-        # `export(out, formats="png")` would overwrite then delete an <out>.svg/.pdf an earlier
-        # export wrote. The temp dir + its contents are removed when the stack closes.
-        with contextlib.ExitStack() as stack:
-            tmpdir: str | None = None
-
-            def _intermediate_stem() -> str:
-                nonlocal tmpdir
-                if tmpdir is None:
-                    tmpdir = stack.enter_context(
-                        tempfile.TemporaryDirectory(prefix="draftwright-export-")
-                    )
-                return os.path.join(tmpdir, "intermediate")
-
-            svg_path = None
-            if want_set & {"svg", "pdf", "png"}:
-                svg_path = self._write_svg(
-                    out if "svg" in want_set else _intermediate_stem(),
-                    reproducible=reproducible,
-                )
-            self.svg_path = svg_path if "svg" in want_set else None
-            if "svg" in want_set:
-                paths["svg"] = svg_path  # type: ignore[assignment]
-
-            self.dxf_path = None
-            if "dxf" in want_set:
-                self.dxf_path = paths["dxf"] = self._write_dxf(out, reproducible=reproducible)
-
-            pdf_path = None
-            if want_set & {"pdf", "png"}:
-                assert svg_path is not None
-                pdf_path = (out if "pdf" in want_set else _intermediate_stem()) + ".pdf"
-                _render_pdf(
-                    svg_path,
-                    pdf_path,
-                    getattr(self.get_annotation("title_block"), "draftwright_link_rect", None),
-                    self._pdf_text_runs(),
-                    reproducible=reproducible,
-                )
-                _log.info("PDF → %s", pdf_path)
-                if "pdf" in want_set:
-                    paths["pdf"] = pdf_path
-
-            if "png" in want_set:
-                assert pdf_path is not None
-                paths["png"] = out + ".png"
-                _render_png(pdf_path, paths["png"], dpi=dpi)
-                _log.info("PNG → %s", paths["png"])
-        return {f: paths[f] for f in want}
+        return export_drawing(
+            self,
+            out,
+            formats=formats,
+            svg=svg,
+            dxf=dxf,
+            dpi=dpi,
+            reproducible=reproducible,
+            supported_formats=self._EXPORT_FORMATS,
+            lint_and_log=self._lint_and_log,
+            write_svg=self._write_svg,
+            write_dxf=self._write_dxf,
+            pdf_text_runs=self._pdf_text_runs,
+        )
 
     def export_pdf(self, out=None) -> str:
         """Deprecated — use ``export(out, formats=("pdf",))["pdf"]``. Renders a PDF (svglib +
@@ -3875,17 +2986,15 @@ class Drawing:
         return paths["pdf"]
 
     def _add_shapes(self, exporter, *, ordered: bool = False):
-        """Add every view layer and annotation to *exporter* with error context.
+        return add_export_shapes(
+            exporter,
+            views=self.views,
+            items=self.items,
+            iter_annotations=self.iter_annotations,
+            ordered=ordered,
+        )
 
-        *ordered* hands each shape's parts over in a geometric order rather than
-        the kernel's, which is what makes a DXF's entities (and their handles)
-        come out the same on the next run. It is the costly half of
-        ``reproducible=``; see :func:`export._elements`."""
-        for name, (vis, hid) in self.views.items():
-            _export_shape(exporter, vis, "part", f"view {name!r}", ordered=ordered)
-            if hid:
-                _export_shape(exporter, hid, "hidden", f"view {name!r}", ordered=ordered)
-        names = {id(annotation): name for name, annotation in self.iter_annotations()}
-        for ann in self.items:
-            identity = names.get(id(ann)) or getattr(ann, "label", "") or type(ann).__name__
-            _export_shape(exporter, ann, "dims", f"annotation {identity!r}", ordered=ordered)
+
+# Keep the public operation documentation on its observed Drawing facade.
+Drawing.export.__doc__ = export_drawing.__doc__
+Drawing.preview_annotation.__doc__ = preview_export_annotation.__doc__

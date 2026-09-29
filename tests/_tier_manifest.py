@@ -209,10 +209,19 @@ CONTRACT_GROUPS = {
             "test_replay_assessment_issue_1715.py",
         ),
     ),
+    "drawing_tables": ContractGroup(
+        ("src/draftwright/drawing_tables.py",),
+        (
+            "test_hole_table.py",
+            "test_sheet_tables.py",
+            "test_issue_1144_transactional_hole_table.py",
+        ),
+    ),
     "export": ContractGroup(
         (
             "src/draftwright/cli.py",
             "src/draftwright/drawing.py",
+            "src/draftwright/drawing_export.py",
             "src/draftwright/export.py",
             "src/draftwright/make_drawing.py",
         ),
@@ -225,6 +234,7 @@ CONTRACT_GROUPS = {
             "test_export_reproducible.py",
             "test_export_shape.py",
             "test_issue_1352_searchable_pdf_text.py",
+            "test_issue_1533_review_diagnostics.py",
             "test_make_drawing_entrypoints.py",
         ),
     ),
