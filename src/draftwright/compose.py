@@ -602,31 +602,10 @@ def _strips_for_derived_views(
     return replace(strips, fv_bottom=strips.front_hole_below)
 
 
-def _compose_anno_boxes(
-    model,
-    n_steps: int,
-    bore_callout_width: float = 0.0,
-    font_size: float = _FONT_SIZE,
-    arrow_length: float = 2.7,
-    pad_around_text: float = 2.0,
-    text_position: str = "inline",
-    text_orientation: str = "aligned",
-    planned_groups=None,
-) -> list[AnnoBox]:
-    """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
-
-    This is the annotation-footprint authority for scale/page layout. Each
-    contributing furniture band is emitted as a box; ``_measure_strips`` only
-    reduces these boxes to the legacy ``StripDepths`` shape. Reads the IR
-    (``model.features``) — detected and declared parts size through one path
-    (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
-    caller measured with :func:`_est_planned_bore_callout_width`.
-    """
-    planned_groups = (
-        annotation_groups(model, plan_dimensions(model))
-        if planned_groups is None
-        else planned_groups
-    )
+def _base_anno_bands(
+    model, n_steps, bore_callout_width, font_size, arrow_length, pad_around_text, planned_groups
+) -> tuple[list[AnnoBox], int]:
+    """Reserve the automatic dimension, bore leader, and radial bands."""
     n_boss_h = _n_right_strip_boss_heights(model)
     # FV right dim ladder + the boss heights that share the strip with it
     boxes = [AnnoBox("right", _est_right_strip_depth(n_steps, n_boss_h))]
@@ -682,6 +661,20 @@ def _compose_anno_boxes(
         bore_depth += pad_around_text + arrow_length
         boxes.append(AnnoBox("right", bore_depth))  # FV/PV right bore callouts
         boxes.append(AnnoBox("left", bore_depth))  # FV/PV left bore callouts
+    return boxes, n_boss_h
+
+
+def _reserve_measured_anno_corridors(
+    model,
+    boxes: list[AnnoBox],
+    planned_groups,
+    font_size: float,
+    arrow_length: float,
+    pad_around_text: float,
+    text_position: str,
+    text_orientation: str,
+) -> dict[tuple[str, str], int]:
+    """Collect authored and feature-owned corridor demand before packing."""
     # Measured placement hints are semantic corridor requirements and therefore part of
     # compose-before-pack, not merely renderer filters. Resolve every valid explicit route;
     # a view-only hint conservatively reserves both supported sides, while the legacy
@@ -889,6 +882,20 @@ def _compose_anno_boxes(
         ):
             _reserve(view, "above")
 
+    return authored_corridors
+
+
+def _append_anno_corridor_bands(
+    model,
+    boxes: list[AnnoBox],
+    authored_corridors: dict[tuple[str, str], int],
+    planned_groups,
+    n_steps: int,
+    n_boss_h: int,
+    font_size: float,
+    pad_around_text: float,
+) -> list[AnnoBox]:
+    """Turn counted corridor demand and late furniture into page-space boxes."""
     slot = _SLOT_DIM_STEP + _STRIP_SPACING
     # Front and plan occupy disjoint vertical ranges, so their left/right tiers are
     # reusable. Reserve the deepest one-view stack, not the sum of independent corridors.
@@ -952,6 +959,62 @@ def _compose_anno_boxes(
     if _will_balloon(model):
         boxes.append(AnnoBox("plan_halo", _est_plan_halo(font_size)))
     return boxes
+
+
+def _compose_anno_boxes(
+    model,
+    n_steps: int,
+    bore_callout_width: float = 0.0,
+    font_size: float = _FONT_SIZE,
+    arrow_length: float = 2.7,
+    pad_around_text: float = 2.0,
+    text_position: str = "inline",
+    text_orientation: str = "aligned",
+    planned_groups=None,
+) -> list[AnnoBox]:
+    """Compose a drawing's annotation bands as ``AnnoBox`` boxes (#112, Step 4a).
+
+    This is the annotation-footprint authority for scale/page layout. Each
+    contributing furniture band is emitted as a box; ``_measure_strips`` only
+    reduces these boxes to the legacy ``StripDepths`` shape. Reads the IR
+    (``model.features``) — detected and declared parts size through one path
+    (#584 WP1 A); ``bore_callout_width`` is the planner-derived callout width the
+    caller measured with :func:`_est_planned_bore_callout_width`.
+    """
+    planned_groups = (
+        annotation_groups(model, plan_dimensions(model))
+        if planned_groups is None
+        else planned_groups
+    )
+    boxes, n_boss_h = _base_anno_bands(
+        model,
+        n_steps,
+        bore_callout_width,
+        font_size,
+        arrow_length,
+        pad_around_text,
+        planned_groups,
+    )
+    authored_corridors = _reserve_measured_anno_corridors(
+        model,
+        boxes,
+        planned_groups,
+        font_size,
+        arrow_length,
+        pad_around_text,
+        text_position,
+        text_orientation,
+    )
+    return _append_anno_corridor_bands(
+        model,
+        boxes,
+        authored_corridors,
+        planned_groups,
+        n_steps,
+        n_boss_h,
+        font_size,
+        pad_around_text,
+    )
 
 
 def _footprint_from_boxes(boxes: list[AnnoBox]) -> StripDepths:
