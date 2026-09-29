@@ -142,7 +142,7 @@ def resolve_explicit_scale(
             f"requested scale {requested_scale:g} dropped required annotation outcomes "
             f"({codes}); returning the incomplete drawing because scale_policy='permissive'",
             ScaleCompletenessWarning,
-            stacklevel=6,  # Skip this stage, policy, entry point, lint scope, and wrapper.
+            stacklevel=5,  # Skip this stage, policy, entry point, and operation wrapper.
         )
         return finish_annotation_layout(drawing)
 
@@ -225,7 +225,7 @@ def resolve_explicit_scale(
             f"requested scale {requested_scale:g} dropped required annotation outcomes; "
             f"using complete fallback scale {fallback.scale:g}",
             ScaleCompletenessWarning,
-            stacklevel=6,  # Skip this stage, policy, entry point, lint scope, and wrapper.
+            stacklevel=5,  # Skip this stage, policy, entry point, and operation wrapper.
         )
         return finish_annotation_layout(fallback)
 

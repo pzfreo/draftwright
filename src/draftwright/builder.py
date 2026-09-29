@@ -2603,7 +2603,6 @@ def _build_drawing_policy(
 
 
 @build_operation
-@reuse_finished_build_lint()
 def build_drawing(
     step_file: str | Path | Shape,
     out: str | None = None,
@@ -2700,11 +2699,19 @@ def build_drawing(
     """
     annotation_layout = annotation_layout_policy(annotation_layout)
     if annotation_layout == "compare":
-        return _compare_annotation_layout(locals().copy(), auto_dims)
+        options = locals().copy()
+        # The candidate's finished evidence is read again after its nested build returns.
+        with reuse_finished_build_lint():
+            return _compare_annotation_layout(options, auto_dims)
     build_options = BuildOptions.from_mapping(locals())
-    return _build_drawing_policy(
-        step_file, build_options, _post_build, _analysis_base, _analysis_sink
-    )
+    if scale is None:
+        return _build_drawing_policy(
+            step_file, build_options, _post_build, _analysis_base, _analysis_sink
+        )
+    with reuse_finished_build_lint():
+        return _build_drawing_policy(
+            step_file, build_options, _post_build, _analysis_base, _analysis_sink
+        )
 
 
 # Preserve the established detailed public reference (model/trace/PMI/editing semantics) while
