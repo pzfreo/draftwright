@@ -74,7 +74,7 @@ from draftwright.view_plan import VIEW_AXES
 
 _UNSET = object()  # sentinel: distinguishes "not supplied" from a valid prof=None
 
-# Reconciliation tolerances (#487) mirror sheet._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
+# Reconciliation tolerances mirror sheet._match_object (⌀ ≤ 0.2 mm, in-plane ≤ 0.5 mm):
 # a declared feature matches a recognised cylinder within these. Kept in sync by comment — linting/
 # sits below sheet in the DAG, so the literals cannot be shared by import.
 _RECON_DIA_TOL = 0.2
@@ -102,8 +102,8 @@ def _location_ref(owner, point) -> HoleRef:
 # Declared feature kinds with a single defining cylinder to confirm against geometry, mapped to the
 # cylinder polarity that confirms them: a hole is a bore (external=False); a boss / turned step is
 # external material (external=True). Checking polarity stops a phantom hole being silenced by a
-# coaxial boss/OD of the same ⌀ (and vice-versa) — a callout over the wrong material (#487).
-# Envelope always exists; patterns/slots and aspects are out of scope (#499).
+# coaxial boss/OD of the same ⌀ (and vice-versa) — a callout over the wrong material.
+# Envelope always exists; patterns/slots and aspects are out of scope.
 _RECON_EXTERNAL = {"hole": False, "boss": True, "step": True}
 _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polarity map in sync
 
@@ -111,12 +111,12 @@ _RECON_KINDS = tuple(_RECON_EXTERNAL)  # derive to keep the kind list and polari
 #: `_RECON_KINDS`, plus the gear that `gear_coverage` reconciles. Exported because
 #: `lint_summary`'s fidelity component must know whether a declaration is examinable at all,
 #: and re-listing the kinds there let it report "checked, nothing false" over a declared slot
-#: no check looks at (#1176).
+#: no check looks at.
 #:
 #: A first cut also listed ``"double_d_bore"``. There is no such `kind`: `declare.double_d_bore`
 #: returns a `HoleFeature`, and `lint_declaration_reconciliation` reaches it as
 #: ``kind == "hole" and profile == "double_d"``. Dead data, and the docstring's "plus the
-#: profiled bores" described a distinction the tuple did not make (#1176).
+#: profiled bores" described a distinction the tuple did not make.
 #:
 #: `_RECON_KINDS` is derived; ``"external_spur_gear"`` is a literal that must match
 #: `gear_coverage`'s own filter. A new gear kind there would narrow this silently — in the
@@ -166,25 +166,25 @@ class CoverageState:
         # Names of bore callouts that document a recognised hole pattern (a
         # grouped ``n× ⌀`` callout), and the holes those placed callouts cover.
         # The hole-table escalation keeps these callouts and tabulates only the
-        # holes no placed pattern callout documents (#92).
+        # holes no placed pattern callout documents.
         self._pattern_callouts: set = set()
         self._patterned_holes: set = set()
         # Names of placed plan-view hole callouts / X/Y location dims that are NOT
-        # part of a recognised pattern — the scattered-hole table (#93) replaces
+        # part of a recognised pattern — the scattered-hole table replaces
         # exactly these. Registered at placement time (holes.py/from_model.py) so
         # the resolver reads structured coverage state instead of inferring
-        # "table-replaceable" from annotation NAME PREFIXES (#351 PR-4c).
+        # "table-replaceable" from annotation name prefixes.
         self._scattered_hole_docs: set = set()
         # Diameters dropped by the per-view callout cap, so lint can suppress the
         # redundant feature_not_dimensioned for them. Reset at the top of
         # _auto_annotate so re-annotation does not accumulate.
         self._dropped_callout_diams: list = []
         # Exact profiled-bore specifications dropped with those callouts. Diameter alone
-        # cannot distinguish equal-major profiles with different A/F or orientation (#1061).
+        # cannot distinguish equal-major profiles with different A/F or orientation.
         self._dropped_profiles: list[tuple] = []
         # The same events with their compiler-owned feature when available. The legacy
         # spec-only list remains for compatibility; critique uses this richer identity to
-        # avoid combining a drop on A with placed authority on A to certify B (#1351).
+        # avoid combining a drop on A with placed authority on A to certify B.
         self._dropped_profile_evidence: list[tuple[tuple, object | None]] = []
 
     # -- pattern coverage -----------------------------------------------------
@@ -246,7 +246,7 @@ class CoverageState:
         """Dropped profile specifications paired with their exact IR owner when known."""
         return self._dropped_profile_evidence
 
-    # -- transactional snapshot (#647) ----------------------------------------
+    # -- transactional snapshot ----------------------------------------
 
     def snapshot(self) -> tuple:
         """Capture the mutable coverage collections so finalize's transaction can
@@ -386,8 +386,8 @@ def lint_feature_coverage(
     # recognise_holes/recognise_bosses, so slot ends and interrupted recesses (partial
     # cylinders that an angle-only test mistakes for full bores) are excluded.
     # Replaces the raw full_cylinders patch list, which over-reported those as
-    # undimensioned features (helpers #158/#159). Both *holes* and *bosses* reuse
-    # the single feature inventory (#244/#264) — no detector runs twice here.
+    # undimensioned features. Both *holes* and *bosses* reuse
+    # the single feature inventory — no detector runs twice here.
     inventory = feature_diameters(part, cyls=(z_cyls, cross_cyls), holes=holes, bosses=bosses)
 
     if assembly is None:
@@ -399,7 +399,7 @@ def lint_feature_coverage(
     # One physical owner can carry the same requirement in several representations (for
     # example, both a callout and a manufacturing note). Union those authorities by exact
     # owner/value before counting them; summing annotations lets one documented bore certify
-    # an identical undocumented sibling (#1351).
+    # an identical undocumented sibling.
     owned_provided: dict[tuple[int, float], int] = {}
     unowned_provided: dict[float, int] = {}
 
@@ -415,7 +415,7 @@ def lint_feature_coverage(
     if registry is not None:
         # Structured note authority is a semantic assertion, not prose parsing. Resolve only
         # canonical diameter parameters on the exact feature carried by each DimensionId;
-        # malformed identities contribute nothing rather than guessing (#1351).
+        # malformed identities contribute nothing rather than guessing.
         identities = satisfaction_ids(registry)
         for identity in identities:
             feature = getattr(identity, "feature", None)
@@ -445,7 +445,7 @@ def lint_feature_coverage(
         if isinstance(ann, TitleBlock):
             continue
         structured_diameters, text_diameters = _annotation_diameter_sources(ann)
-        # A geometric HoleCallout now exposes equivalent semantic text (#1142), but the
+        # A geometric HoleCallout now exposes equivalent semantic text, but the
         # shared source policy excludes it here: BCD suffixes are not physical coverage,
         # and structured ``covers_count`` must remain authoritative.
         mentioned.update(text_diameters)
@@ -1160,7 +1160,7 @@ def _supported_inner_profile(
 
     if len(lines) == 2:
         # A true obround has two long sides, semicircular ends, and cap radius equal to half
-        # the short overall extent. The double-D in #1058 fails that last correspondence.
+        # the short overall extent. A double-D fails that last correspondence.
         if abs(radius - short / 2.0) > radius_tol or not lines_match_both_sides(long_axis):
             return False
         mid_short = coord(wbb.center(), short_axis)
@@ -1174,7 +1174,7 @@ def _supported_inner_profile(
         return arcs_match(expected, pi * radius)
 
     # Axis-aligned rounded rectangles are already represented by pocket/slot plus fillet IR
-    # (the real #915 case). Four side runs terminate at four quarter-circle corner groups.
+    # instead. Four side runs terminate at four quarter-circle corner groups.
     if radius * 2.0 >= short - radius_tol:
         return False
     if not all(lines_match_both_sides(axis) for axis in plane_axes):
@@ -1692,7 +1692,7 @@ def _lint_prismatic_transitions(part, bbox, features, recognition, missing_ir, s
     )
     # A lone vertical transition can legitimately be owned by a declared plate
     # thickness scheme. Two or more stations describe a stepped/slanted profile
-    # chain and must survive into correlated step IR (#898).
+    # chain and must survive into correlated step IR.
     missing_transitions = (
         sum(
             1
@@ -1790,7 +1790,7 @@ def lint_prismatic_coverage(
     )
     # Both completeness phases must see the same source inventory. A caller-supplied
     # aggregate must be the exact provider result, so an assembled empty stand-in cannot
-    # silence the source-geometry checks (#1031).
+    # silence the source-geometry checks.
     if recognition is not None and type(recognition) is not RecognitionResult:
         raise TypeError("coverage requires the run's exact RecognitionResult")
     recognition = recognition if recognition is not None else build_raw_recognition_result(part)
@@ -1832,7 +1832,7 @@ def _feature_on_turned_axis(feature, prof, tol: float = 0.5) -> bool:
     if profile_group is not None and getattr(feature, "kind", None) in {"step", "groove"}:
         # Declared/emitted coaxial occurrences may share an axis, span, and even diameter.
         # Their opaque declaration token is one exact ownership witness. Do not geometrically
-        # credit one group's placed measurement to another group (#1357).
+        # credit one group's placed measurement to another group.
         if feature_group != profile_group:
             return False
         # Tokens are caller-chosen and may be reused on another physical axis line. Exact
@@ -1947,7 +1947,7 @@ def _axial_covered_from_drawing(
         for i, step in enumerate(prof.steps):
             clo, chi = shoulder_c.get(step.lo), shoulder_c.get(step.hi)
             if clo is None or chi is None:
-                # Defence-in-depth (#797): `TurnedProfile.shoulders` now includes every
+                # Defence-in-depth: `TurnedProfile.shoulders` now includes every
                 # step endpoint (so a non-contiguous profile's interior end face is a
                 # shoulder), and this branch should be unreachable — but a lint pass must
                 # never crash on an unguarded lookup, so skip rather than KeyError.
@@ -1980,12 +1980,12 @@ def _axial_covered_from_drawing(
                 if any(abs(v - clo) <= tol for v in cs) and any(abs(v - chi) <= tol for v in cs):
                     covered_steps.add(i)
                     break
-                # A collapsed uniform-staircase dim ("N× v", #230) carries witnesses only
+                # A collapsed uniform-staircase dim ("N× v") carries witnesses only
                 # at the extremes of its run yet locates *every* shoulder within that run
                 # (the collapse fires only when all steps are equal). Credit a step whose
                 # both shoulders fall within the dim's span — but ONLY for an actual
                 # step-length chain dim (name contains "steplen"), never an unrelated
-                # "n× pitch" hole-array dim that happens to span the shoulders (#307).
+                # "n× pitch" hole-array dim that happens to span the shoulders.
                 if (
                     "steplen" in name
                     and re.match(r"^\s*\d+\s*×", label)
@@ -2096,7 +2096,7 @@ def _lint_one_axial_profile(
         }
     # Match verified cells and structured step-length authority to the recognition-owned band by
     # its axial span. This preserves the denominator and prevents an unrelated declared step
-    # from certifying one merely because both share the same role (#1351, ADR 3 (was 0017)).
+    # from certifying one merely because both share the same role (ADR 3 (was 0017)).
     axis_index = "xyz".index(prof.axis)
     for identity in satisfied_ids:
         feature = getattr(identity, "feature", None)
@@ -2114,9 +2114,9 @@ def _lint_one_axial_profile(
                 covered_steps.add(index)
                 break
     # A groove band's axial extent is dimensioned by its width callout, not a step length, so
-    # detect.py leaves it out of the step-length chain (#606). Count each *rendered* groove-width
+    # detect.py leaves it out of the step-length chain. Count each *rendered* groove-width
     # callout on the turning axis as covering its band — so a fully-dimensioned grooved shaft
-    # (N−1 step lengths + the groove width) is not flagged (#628); a *dropped* groove callout
+    # (N−1 step lengths + the groove width) is not flagged; a *dropped* groove callout
     # leaves its band uncovered, so a genuine gap still fires (reconcile rendered, not intent).
     physical_grooves = {
         (
@@ -2176,7 +2176,7 @@ def _lint_one_axial_profile(
     covered = len(covered_steps)
     if covered >= n:
         return []
-    # #955: when placement drops the complete chain, its specific warning already says the
+    # When placement drops the complete chain, its specific warning already says the
     # shoulders remain unresolved. If the compiler-approved overall fallback survived, the
     # generic "axial length absent" warning would duplicate that diagnosis even though the
     # part's total extent is now stated. The drop is a required half of this condition: an
@@ -2388,7 +2388,7 @@ def lint_turned_profile_span(features, z_extent, *, orientation, single_solid) -
         # The same defensiveness as `_axis`, which a first pass applied to the step branch and
         # not to this one — leaving a groove with no `width` or no `origin` raising two lines
         # below the guard that was added. A lint check that crashes on a malformed model
-        # reinstates the failure #1132 exists to remove.
+        # would crash instead of reporting a malformed model.
         origin = getattr(getattr(feature, "frame", None), "origin", None)
         width = getattr(feature, "width", None)
         if origin is None or width is None or len(origin) < 3:

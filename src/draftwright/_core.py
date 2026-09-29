@@ -57,7 +57,7 @@ from build123d_drafting.helpers import (
 
 # The model-neutral geometry primitives (`_END_ON`, `_xyz`, `HoleRef`, `_axis_letter`)
 # now live in the leaf `draftwright._geometry` so the IR waist (`model/`) can use them
-# without importing this stage-level grab-bag (ADR 1 (was 0008); #584 WP2). Re-exported here for
+# without importing this stage-level grab-bag (ADR 1 (was 0008)). Re-exported here for
 # the above-`_core` consumers (annotations/sheet/drawing/linting) that already import them.
 from draftwright._geometry import (  # noqa: F401
     _EDGE_ON,
@@ -232,7 +232,7 @@ def _title_margins(a) -> SheetMargins:
     return margins if margins is not None else SheetMargins(right=_TB_CLEAR, bottom=_TB_CLEAR)
 
 
-# When a sheet frame is drawn (#767), content reserves this extra band inside the border so
+# When a sheet frame is drawn, content reserves this extra band inside the border so
 # it clears the drawn line rather than sitting on it. The frame draws AT _MARGIN (the old
 # drawable boundary); content insets to _content_margin(frame).
 _FRAME_BAND = 6.0
@@ -285,7 +285,7 @@ _PROJECTION_BAND_W = 16.0
 
 #: What the general-tolerance cell states when no tolerance was authored or sourced.
 #: A blank cell is indistinguishable from an oversight and invites a shop to assume its
-#: own house standard, so the absent case is named rather than left empty (#1157).
+#: own house standard, so the absent case is named rather than left empty.
 #: The cell is not tight — 48 mm on A4's 120 mm block, 60 mm above it, against 16.9 mm of
 #: ink here — so this is a wording choice, not a width-forced one. The paired test still
 #: measures it against the block's own `cell_bbox` on A4, the narrowest supported width,
@@ -425,7 +425,7 @@ def _build_table(rows, draft, block_cols=None, left_align_cols=()):
     """
     fs = draft.font_size
     ncol = len(rows[0])
-    # One sizing model, shared with compose's footprint estimate (#700).
+    # One sizing model, shared with compose's footprint estimate.
     lefts, rights, total_w, total_h, row_h, bc = _table_metrics(
         rows, fs, draft.pad_around_text, block_cols
     )
@@ -515,7 +515,7 @@ def _annotation_diameter_sources(annotation) -> tuple[tuple[float, ...], tuple[f
 
 
 # A single-quoted label lifted from a lint message, e.g. "labels 'A' and 'B' …".
-# Shared by the #29 lint suggestions (linting.py) and the #30 repair loop.
+# Shared by lint suggestions and the repair loop.
 _QUOTED_RE = re.compile(r"'([^']*)'")
 
 
@@ -674,7 +674,7 @@ def _dim(p1, p2, side, distance, draft, **kwargs):
 # BOTH the ADR 2 (was 0009) strip carve (via the `Strip` dataclass defaults below) and the
 # compose.py halo/depth estimates that must reserve the same space. Per ISO 129-1 / ASME
 # Y14.5, the FIRST dimension line sits furthest from the outline (clears the outline +
-# extension-line origins) and subsequent parallel lines stack tighter and uniform (#347).
+# extension-line origins) and subsequent parallel lines stack tighter and uniform.
 _STRIP_GAP = 10.0  # clearance between the view outline and the first dimension line
 _STRIP_SPACING = 2.5  # clear gap between successive parallel dimension lines (beyond the label)
 _BALLOON_RADIUS_FONT_FACTOR = 1.5
@@ -760,14 +760,14 @@ _MIN_VIEW_MM = (
     # It is NOT a bound on the auto scale (choose_scale is a pure geometric page fit) and does NOT
     # gate which annotations exist (step/location legibility use _MIN_STEP_*/_MIN_LOC_SEP_MM). Its
     # only use is the explicit-scale advisory in analysis.py: below it a user scale is honoured
-    # with a warning, not rejected (#489).
+    # with a warning, not rejected.
 )
 
 
 # Hard geometry floor: below this projected size OCCT's annotation arcs collapse
 # (Geom_TrimmedCurve U1==U2), which happens near 1e-4 mm empirically — 0.1 mm is a conservative
 # floor far above that and far below any real drawing. An explicit scale under it is rejected with
-# a clean message rather than a cryptic OCP error (#489).
+# a clean message rather than a cryptic OCP error.
 _MIN_RENDER_MM = 0.1
 
 
@@ -1445,7 +1445,7 @@ class Analysis:
 
     part: Shape
     #: The ADR 3 (was 0017) aggregate, or ``None`` on a DECLARED build — which recognises nothing
-    #: (ADR 4 (was 0011) / #1022).  ``None`` means "not detected", never "detected and empty": a
+    #: (ADR 4 (was 0011)). ``None`` means "not detected", never "detected and empty": a
     #: consumer needing an inventory on that path must go through the lazy
     #: ``Drawing._recognition()``, which builds one on demand rather than reading an absence
     #: as an answer.
@@ -1460,20 +1460,20 @@ class Analysis:
     bbox_max: float
     holes: list
     patterns: list
-    bosses: list  # external bosses (recognise_bosses), detected once — the one inventory (#244)
+    bosses: list  # external bosses (recognise_bosses), detected once — the one inventory
     slots: list
-    pads: list  # geometry-derived rectangular-pad coverage inventory (#885)
+    pads: list  # geometry-derived rectangular-pad coverage inventory
     z_diams: list[float]
     cross_diams: list[float]
     cyls: tuple[tuple, tuple]
     prof: TurnedProfile | None  # compatible zero/one view for genuinely coaxial behavior
     #: Every body-local turned profile. ``prof`` remains the compatible zero/one view used
     #: only by behavior that genuinely requires one coaxial stack; compilation and
-    #: completeness consume this plural inventory (#1357).
+    #: completeness consume this plural inventory.
     profiles: tuple[TurnedProfile, ...]
     od_diam: float | None
     is_rotational: bool
-    od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y" #222)
+    od_axis: str  # rotation/turning axis of a rotational part ("z" default; "x"/"y")
     step_zs: list[float]
     layout_strips: StripDepths
     layout_n_steps: int
@@ -1514,7 +1514,7 @@ class Analysis:
     #: The general tolerance for the title block. ``None`` means the caller supplied none
     #: and none was sourced — a distinct state from an explicitly authored string, because a
     #: general tolerance is a manufacturing requirement and defaulting one invents intent
-    #: the source model may not carry (#1157). ``""`` is the explicit request for a blank
+    #: the source model may not carry. ``""`` is the explicit request for a blank
     #: cell. `_make_title_block` renders `None` as `_TOLERANCE_UNSPECIFIED`.
     tolerance: str | None
     drawn_by: str
@@ -1527,7 +1527,7 @@ class Analysis:
     pmi_mode: str
     # True when the caller omitted `pmi` and the public default selected off. Kept separate
     # from the effective mode so the ignored-PMI diagnostic can distinguish that default from
-    # an explicit opt-out without widening the three-mode renderer contract (#623).
+    # an explicit opt-out without widening the three-mode renderer contract.
     pmi_defaulted: bool
     # Planned alternate carrier for multiple long imported manufacturing terms.
     # The renderer activates its short feature references only after this table fits.
@@ -1537,7 +1537,7 @@ class Analysis:
     # Exact top-level annotation objects supplied by the Document acquisition. Member-authored
     # annotations are absent even when they carry external provenance of their own.
     document_source_annotations: tuple[object, ...] = ()
-    # Standing ISO 7200 title-block fields (#766) — defaulted, so they sit after the
+    # Standing ISO 7200 title-block fields — defaulted, so they sit after the
     # non-default fields above. Defaults preserve the prior output: revision "A", the rest
     # blank (the TitleBlock helper's own defaults).
     layout_advisories: tuple[tuple[str, str], ...] = ()
@@ -1551,7 +1551,7 @@ class Analysis:
     approved_by: str = ""
     document_type: str = ""
     sheet: str = ""
-    # Draw a sheet border/frame (#767). When True, `margin` is already the reserved content
+    # Draw a sheet border/frame. When True, `margin` is already the reserved content
     # margin (`_content_margin(True)`), so content clears the frame drawn at `_MARGIN`.
     frame: bool = False
     # Requested convention; None resolves to third-angle. Symbol visibility is independent.
@@ -1564,11 +1564,11 @@ class Analysis:
     # solve; ``exterior`` restores the historical exterior-only candidate inventory;
     # ``interior`` restricts only families that proved interior eligibility.
     leader_region: str = "auto"
-    # Draw the ISO 5457 zone-grid border ruler (#768). Implies a frame (the ticks sit on it).
+    # Draw the ISO 5457 zone-grid border ruler. Implies a frame (the ticks sit on it).
     zones: bool = False
-    # The PartModel built by _analyse's pre-scale sizing pass (#584 WP1 A) — stored so
+    # The PartModel built by _analyse's pre-scale sizing pass — stored so
     # the render path reuses it instead of re-running the detectors (ADR 1 (was 0008 Amdt 5):
-    # one inventory, detected once; #602). Typed `object` to keep _core free of a
+    # one inventory, detected once). Typed `object` to keep _core free of a
     # runtime model/ import (model/ sits BELOW _core in _LAYERS, so a typed
     # `PartModel | None` is legal — a possible tightening). None when the caller
     # declared a model (ADR 4 (was 0011)) or on a manually-built Analysis — consumers fall
@@ -1588,7 +1588,7 @@ class Analysis:
     #: and the repack loop compose under the arrangement whose feasibility was actually
     #: established. They call `_layout_geometry` with MEASURED strip depths where selection
     #: passed estimates, so a stage that re-derives this instead of reading it can reach a
-    #: different answer for the same sheet and lose dimensions to the mismatch (#1130).
+    #: different answer for the same sheet and lose dimensions to the mismatch.
     #: Defaulted for hand-built `Analysis` objects, which mean the long-standing arrangement.
     arrangement: str = "columns"
     #: The principal views this sheet carries, or None for the third-angle three (ADR 2 (was 0018)).
@@ -1731,7 +1731,7 @@ def _make_title_block(dwg, a: Analysis):
     # cells to draw. Left unstripped they disagree: a whitespace revision is no
     # revision to the block (which then draws the date in the shared cell) but a
     # truthy one here, so `revision or date` recorded "  " and the drawn date
-    # reached neither the PDF text layer nor the overflow lint — #1585 again,
+    # reached neither the PDF text layer nor the overflow lint,
     # wearing spaces. A padded date likewise measured wider than the block drew.
     date = _font_safe_text(a.date).strip()
     revision = _font_safe_text(a.revision).strip()
@@ -1769,14 +1769,14 @@ def _make_title_block(dwg, a: Analysis):
         width=a.TB_W,
         # Title block renders in condensed sans (the tight ISO 7200 cells), a
         # different face from the monospace dimensions — so it carries its own
-        # pinned-font draft rather than reusing dwg.draft (#149).
+        # pinned-font draft rather than reusing dwg.draft.
         draft=draft_preset(
             font_size=dwg.draft.font_size,
             decimal_precision=dwg.draft.decimal_precision,
             font_path=PLEX_SANS_CONDENSED,
         ),
     )
-    # Drawn-by cell geometry, from the block's own public cell bbox (#139) rather
+    # Drawn-by cell geometry, from the block's own public cell bbox rather
     # than hardcoded column fractions, so the hyperlink rect tracks any upstream
     # TitleBlock layout change. Build-frame bbox; translated to page space below.
     cell = tb.drawn_by_cell_bbox()
@@ -1788,7 +1788,7 @@ def _make_title_block(dwg, a: Analysis):
     # text layer.  The visible block stays path-rendered; these specs merely let export embed the
     # same bundled condensed face as invisible selectable text without parsing SVG geometry.
     # Every field below has its own cell in the layout, so each is named for
-    # itself. The shared-cell dance #1586 needed — a date falling back into the
+    # itself. The former shared-cell case — a date falling back into the
     # revision cell when no revision was set — is gone with the cell it worked
     # around, and leaving it in emitted the date twice.
     fields = (
@@ -1889,7 +1889,7 @@ def _add_title_block(dwg, a: Analysis):
     # cell corners are offset by the block's page location (bx, _TB_CLEAR). The
     # rect rides the title-block annotation itself (like ``covers_diameters`` /
     # ``is_centerline`` riders), NOT an expando poked onto the drawing — the
-    # drawing is not the state bus (#699 slice d); export reads it back via
+    # drawing is not the state bus (ADR 1); export reads it back via
     # ``get_annotation("title_block")``, so a removed block drops its link too.
     margins = _title_margins(a)
     bx = a.PAGE_W - a.TB_W - margins.right
@@ -2142,12 +2142,11 @@ def _iso_bbox(dwg):
 
 
 # --- page/scale selection + sheet-layout constants and helpers --------------
-# Relocated from make_drawing for the compose.py (née sheet.py) split (#162). Shared by compose.py
-# (choose_scale/_layout_geometry) and make_drawing's repack pass, so they live
-# here in the shared base to keep the DAG acyclic.
+# Shared by compose.py (choose_scale/_layout_geometry) and the repack pass;
+# keeping them in the common base avoids an upward import.
 # The base inter-view corridor: one first-line gap + one dimension tier. Tracks
-# _STRIP_GAP so widening the first-line gap (#347) keeps the below-plan / between-view
-# corridors from razor-fitting the first dim line (the #130 slack guarantee): 10 + 10.
+# _STRIP_GAP so widening the first-line gap keeps the below-plan / between-view
+# corridors from razor-fitting the first dim line: 10 + 10.
 _DIM_PAD = _STRIP_GAP + _SLOT_DIM_HEIGHT  # 20.0
 # _STRIP_GAP / _STRIP_SPACING are defined above (beside the `Strip` dataclass they seed).
 
@@ -2161,7 +2160,7 @@ _PAGE_SIZES = {
 
 # ISO 5455 scale series (1-2-5 decades). Enlargements + 1:1 first, then reductions
 # down to 1:10000 so a very large part still gets a scale that FITS rather than an
-# overflowing layout (#350). Ordered largest-scale-first for "least reduction first".
+# overflowing layout. Ordered largest-scale-first for "least reduction first".
 _SCALES = [10.0, 5.0, 2.0, 1.0]
 _SCALES += [0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002, 0.0001]
 
@@ -2172,7 +2171,7 @@ _SCALES += [0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005, 0.0002
 # to the actual largest-empty-rect afterwards by _fit_iso_view(), which shrinks
 # it to whatever space is genuinely left.  A true fit test here is circular —
 # the empty rect depends on the very view positions this estimate feeds — so
-# the budget stays a single, named factor rather than a recomputed fit (#31).
+# the budget stays a single, named factor rather than a recomputed fit.
 _ISO_WIDTH_BUDGET = 0.7
 
 # Scale selection accepts a layout when the largest empty rectangle left for the
@@ -2216,7 +2215,7 @@ _LADDER = [
     (0.2, 1189.0, 841.0, 150.0),  # A0 1:5
     # Past 1:5 keep reducing on A0 (the largest sheet) through the rest of the ISO 5455
     # series, so a part too big for A0 1:5 still gets a scale that FITS rather than an
-    # overflowing layout (#350). A0 1:10000 holds anything up to ~8.4 m of drawn height.
+    # overflowing layout. A0 1:10000 holds anything up to ~8.4 m of drawn height.
     (0.1, 1189.0, 841.0, 150.0),  # A0 1:10
     (0.05, 1189.0, 841.0, 150.0),  # A0 1:20
     (0.02, 1189.0, 841.0, 150.0),  # A0 1:50
