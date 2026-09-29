@@ -339,17 +339,17 @@ class TestTheOmissionIsReportedOnce:
         import inspect
         import re
 
-        from draftwright.annotations import from_model
+        from draftwright.annotations import _pmi_dimensions
         from draftwright.linting.pmi_coverage import _EXPLAINED_OMISSION_CODES
 
-        source = inspect.getsource(from_model)
+        source = inspect.getsource(_pmi_dimensions)
         for code in _EXPLAINED_OMISSION_CODES:
             if code == "pmi_not_rendered":
                 continue  # the suppressed error itself, not a suppressor
             call = re.search(
                 r'ctx\.record_issue\(\s*([^\n]*?),\s*"' + re.escape(code) + r'"', source
             )
-            assert call, f"{code} suppresses an error but is recorded nowhere in from_model"
+            assert call, f"{code} suppresses an error but is recorded nowhere in PMI renderer"
             assert "source_id" in call.group(1), (
                 f"{code} suppresses a source-bearing error at a fixed severity "
                 f"({call.group(1).strip()}) — a lost AP242 requirement would leave the "

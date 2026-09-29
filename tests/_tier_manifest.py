@@ -29,7 +29,7 @@ CONTRACT_GROUPS = {
         ),
     ),
     "drawing_edits": ContractGroup(
-        ("src/draftwright/drawing_edits.py",),
+        ("src/draftwright/drawing_edits.py", "src/draftwright/intent_routing.py"),
         (
             "test_add_dimension.py",
             "test_canonical_angles.py",
@@ -151,9 +151,29 @@ CONTRACT_GROUPS = {
             "test_issue_1357_plural_turned_profiles.py",
         ),
     ),
+    "height_ladder": ContractGroup(
+        ("src/draftwright/annotations/_height_ladder.py",),
+        (
+            "test_compiled_plan_boundary.py",
+            "test_location_dimensions.py",
+            "test_issue_1466_semantic_sides.py",
+            "test_strip_layout.py",
+            "test_deferred_edits.py",
+            "test_refactor_golden.py",
+            "test_solve_trace.py",
+        ),
+    ),
     "solve_trace": ContractGroup(
         ("src/draftwright/annotations/solve_trace.py",),
         ("test_solve_trace.py", "test_compiled_plan_boundary.py"),
+    ),
+    "angular_ink": ContractGroup(
+        ("src/draftwright/annotations/angular.py", "src/draftwright/linting/angular.py"),
+        (
+            "test_angular_references.py",
+            "test_angular_rendering.py",
+            "test_issue_1177_angular_dimensions.py",
+        ),
     ),
     "dimension_ink": ContractGroup(
         ("src/draftwright/annotations/_dimension_ink.py",),
@@ -311,6 +331,20 @@ CONTRACT_GROUPS = {
             "test_solve_trace.py",
         ),
     ),
+    "pmi_dimensions": ContractGroup(
+        ("src/draftwright/annotations/_pmi_dimensions.py",),
+        (
+            "test_pmi.py",
+            "test_issue_1209_linear_pmi_witnesses.py",
+            "test_issue_1296_cylindrical_diameter_pmi.py",
+            "test_issue_1177_angular_dimensions.py",
+            "test_sheet_fallback_issue_1797.py",
+            "test_refactor_golden.py",
+            "test_compiled_plan_boundary.py",
+            "test_audit_differential.py",
+            "test_solve_trace.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (
@@ -345,6 +379,7 @@ CONTRACT_GROUPS = {
         (
             "src/draftwright/model/*",
             "src/draftwright/intents.py",
+            "src/draftwright/intent_routing.py",
             "src/draftwright/measurement_support.py",
             "src/draftwright/sheet.py",
             "src/draftwright/sheet_features.py",

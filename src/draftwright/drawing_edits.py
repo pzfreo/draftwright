@@ -11,7 +11,7 @@ import math
 from draftwright._core import _dim, _fmt, _font_safe_text, _tol_suffix
 from draftwright._geometry import _END_ON
 from draftwright.annotations._common import PlacementContext
-from draftwright.intents import Intent
+from draftwright.intent_routing import Intent
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES
 
 

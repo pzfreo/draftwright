@@ -43,14 +43,16 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 `linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
 `annotations/` (the render passes, including feature-family `_slots`,
 `_pocket_pad`, `_edge_callouts`, `_thin_profiles`, `_diameters`, `_locations`, `_gdt`,
-and `_step_lengths` owners, analytical dimension ink in `_dimension_ink`,
+`_pmi_dimensions`, `_step_lengths`, and `_height_ladder` owners, analytical dimension ink in `_dimension_ink`,
 bounded same-batch label repair in `_dimension_ink_repair`, shared page-space
 placement geometry in `_placement_geometry`, required strip-ink resolution and
 survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
-`intent_drain` (the deferred stages, with transaction state owned by `Drawing`) → **6**
+`intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the
+deferred `Intent` record, with `intents` as its stable import path, and transaction
+state owned by `Drawing`) → **6**
 `builder`, one-attempt compilation, explicit-scale resolution, finished-drawing build policy and guarded layout selection → **7** facades
 (`sheet` and its private identity/layout-control/view owners, `document`, `sheet_emit`,
 `sheet_object_source`, `inspection`, `evaluation/`, `cli`, the recogniser/inspection
@@ -62,7 +64,7 @@ are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6
 Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
-shared registry evidence, outcome checks, and blind-slot value validation live inside
+shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation live inside
 rank-2 `linting/_coverage_common`.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
 evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence;

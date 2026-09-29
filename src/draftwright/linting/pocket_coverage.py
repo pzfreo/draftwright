@@ -18,6 +18,7 @@ from quiddity import RecognitionResult, SectionRecess
 from draftwright._core import _decode_hole_location_fact
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import location_state
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
     RequirementCarrierEvidence,
     satisfaction_ids,
@@ -65,11 +66,6 @@ class PocketRequirementOutcome:
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     intrinsic_exclusion: RequirementExclusion | None = field(default=None, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _point(value) -> tuple[float, float, float]:
-    x, y, z = value
-    return (_rounded(x), _rounded(y), _rounded(z))
 
 
 def _depth_axis(pocket) -> str:

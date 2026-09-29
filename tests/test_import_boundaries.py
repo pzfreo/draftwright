@@ -105,7 +105,7 @@ _LAYERS: dict[str, int] = {
     "progress": 0,
     # ADR 2 (was 0018)'s view representation: describes views, imports nothing that draws them.
     "view_plan": 0,
-    "intents": 0,
+    "intents": 5,  # Stable import path; intent_routing owns the deferred record.
     "recognition": 0,
     "recognition_cache": 0,
     "recognition_ownership": 0,
@@ -158,7 +158,7 @@ _LAYERS: dict[str, int] = {
     # 3 — analysis (feature/geometry analysis over the model + core-consumers)
     "analysis": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
-    # Family, analytical ink/repair, placement geometry, strip postsolve, solve trace,
+    # Family (including imported authored PMI), analytical ink/repair, placement geometry, strip postsolve, solve trace,
     # and corridor owners
     # share the annotation rank.
     "annotations": 4,

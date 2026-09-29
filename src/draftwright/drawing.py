@@ -94,8 +94,7 @@ from draftwright.drawing_tables import (
     note as drawing_note,
 )
 from draftwright.intent_drain import IntentDrainState, drain_intents
-from draftwright.intent_routing import _IntentRouting, classify_intents
-from draftwright.intents import Intent
+from draftwright.intent_routing import Intent, _IntentRouting, classify_intents
 from draftwright.linting import (
     CoverageState,
     LintIssue,

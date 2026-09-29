@@ -24,12 +24,15 @@ def _execute(source):
 @pytest.fixture(scope="module")
 def grm04_scripts(tmp_path_factory):
     out = tmp_path_factory.mktemp("semantic-sides")
+    # The edited left-side arrangement needs A3 at scale 4 to retain its full
+    # step-position and hole-location measurements without a placement drop.
     path = generate_sheet_script(
         str(Path(__file__).parent / "fixtures" / "grm04_drive_plate.step"),
         out=str(out / "grm04"),
         title="GRM04",
         number="1466",
         scale=4,
+        page="A3",
         formats=(),
     )
     source = Path(path).read_text(encoding="utf-8")
@@ -91,6 +94,7 @@ def test_discovery_and_emission_preserve_the_supported_sides(grm04_scripts):
         title="GRM04",
         number="1466",
         scale=4,
+        page="A3",
         formats=(),
     )
     namespace = {"part": edited["part"]}
@@ -114,7 +118,7 @@ def test_grm04_edit_preserves_measurement_meaning_under_shared_declaration(grm04
     )
     assert sum(request.side == "left" for request in requests) == 3
     after = build_drawing(
-        original["part"], model=replace(model, authored_dimensions=requests), scale=4
+        original["part"], model=replace(model, authored_dimensions=requests), scale=4, page="A3"
     )
     assert not any(
         issue.code in {"annotation_overlap", "annotation_ink_overlap"} for issue in before.lint()

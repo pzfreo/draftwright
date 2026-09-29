@@ -12,14 +12,15 @@ top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (inclu
 semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `registry.py`, `fonts.py`,
 `_geometry.py`,
-`fits.py`, `intents.py`, `recognition_cache.py`, `recognition_ownership.py`,
+`fits.py`, `recognition_cache.py`, `recognition_ownership.py`,
 `plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
 `recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
 `_core.py` (beside rank-1 `annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
-`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`, `reporting.py`,
+`repair.py`, `projection.py`, `compose.py`, `analysis.py`, `drawing.py`, `intent_drain.py`,
+`intent_routing.py`, `intents.py` (stable import path), `reporting.py`,
 the `linting/` subpackage, the `model/` IR subpackage, the `annotations/` subpackage) →
 `builder.py` → the
 user-facing surfaces: the `make_drawing.py` / `annotate.py` compat facades, the
@@ -153,13 +154,17 @@ and re-exports the existing private helper names.
   - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
     module): turns the planner's `DimensionGroup`/render-intents into placed
     dimensions/callouts/centre marks/section triggers. This is where the turned,
-    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 1 (was 0015),
-    #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
-    were deleted as each migrated here.
+    envelope/OD and centre-mark passes converge with feature-family owners here
+    (ADR 1 (was 0015), #200/#208/#237). The old per-feature
+    `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
   - **`annotations/_step_lengths.py`** — owns compiler-approved turned axial
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
     placer remains in `from_model` for immediate/deferred detail recovery.
+  - **`annotations/_height_ladder.py`** — owns compiled prismatic step-height and
+    overall-height corridor candidates, including chained witnesses and short-rung
+    left-strip escape. `from_model.render_height_ladder` retains view routing and
+    compiled-rung selection; candidates enter the shared corridor solve.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.
@@ -181,6 +186,12 @@ and re-exports the existing private helper names.
     and shared-corridor candidates with deferred side and sheet fallback.
     `from_model.render_gdt` keeps the public pass and supplies live leader,
     carving, and sheet-fallback bindings.
+  - **`annotations/_pmi_dimensions.py`** — owns imported authored PMI dimension
+    selection and compiled included-angle rendering, proven witnesses,
+    angle/linear/cylinder candidates, source outcomes,
+    and shared-corridor fallback. `from_model.render_pmi` and
+    `render_angular_dimensions` keep their public pass signatures and supply live
+    selection and placement bindings.
   - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
     in-plane dimension witnesses, corridor candidates, and obround-radius
     candidates. `from_model.render_slots` retains the public pass and submits
@@ -312,9 +323,10 @@ and re-exports the existing private helper names.
   `filterwarnings` entry naming it pays that on every invocation (#1043).
 - **`fits.py`** — the ISO 286 fit tables (`fit_deviation`, `FitClass`; ADR 4 (was 0011)
   P2a.2): a rank-0 leaf consumed by `_core`, `model/ir` and `sheet`.
-- **`intents.py`** — the deferred-placement "low IR" behind `Drawing.finalize()`
-  (#426): a dependency-free leaf recording edit-verb intents for the recompose
-  (deliberately stringly-typed in its Phase-1 form).
+- **`intent_routing.py` / `intents.py`** — the deferred-placement "low IR" behind
+  `Drawing.finalize()` (#426): the rank-5 routing owner defines the edit-verb `Intent`
+  record; `intents.py` reexports the same class for existing imports. The
+  deliberately stringly-typed record feeds the recompose path.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
   owns the immutable cut/view mark on each live section cutting-plane line (#1931). `Drawing`
@@ -326,7 +338,7 @@ and re-exports the existing private helper names.
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `orchestration.py` (ordered structural, physical, PMI, and build-issue
   critique over an explicit drawing context), `coverage.py` (`lint_feature_coverage` + `CoverageState`),
-  `_coverage_common.py` (shared registry evidence, outcome checks, and blind-slot value validation),
+  `_coverage_common.py` (shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink, with explicit unavailable
   physical-support evidence),

@@ -206,7 +206,7 @@ def test_coverage_mode_is_explicit_and_full_coverage_is_deliberate():
 def test_coverage_report_applies_the_gate_for_its_selected_scope():
     report_job = _job(_workflow("ci.yml"), "coverage-report")
 
-    assert "diff-cover coverage.xml" in report_job
+    assert "python scripts/diff-cover-moves coverage.xml" in report_job
     assert "coverage xml --fail-under=0" in report_job
     assert "coverage html -d htmlcov --fail-under=0" in report_job
     assert '--compare-branch "$BASE_SHA"' in report_job
@@ -219,7 +219,11 @@ def test_coverage_report_applies_the_gate_for_its_selected_scope():
 def test_local_changed_line_gate_uses_the_pinned_diff_cover_tool():
     command = (ROOT / "scripts" / "pr-check").read_text(encoding="utf-8")
 
-    assert "uv run --with diff-cover==9.7.2 diff-cover coverage.xml" in command
+    assert (
+        "uv run --with diff-cover==9.7.2 python scripts/diff-cover-moves coverage.xml" in command
+    )
+    move_gate = (ROOT / "scripts" / "diff-cover-moves").read_text(encoding="utf-8")
+    assert '"diff-cover",' in move_gate and '"--diff-file",' in move_gate
     assert "uvx --from" not in command
 
 

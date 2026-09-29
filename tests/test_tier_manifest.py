@@ -5,6 +5,8 @@ import runpy
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - exercised by the Python 3.10 CI legs
@@ -40,7 +42,9 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "hole_family_evidence": "src/draftwright/evaluation/_hole_family_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
+        "height_ladder": "src/draftwright/annotations/_height_ladder.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
+        "angular_ink": "src/draftwright/annotations/angular.py",
         "dimension_ink": "src/draftwright/annotations/_dimension_ink.py",
         "dimension_ink_repair": "src/draftwright/annotations/_dimension_ink_repair.py",
         "placement_geometry": "src/draftwright/annotations/_placement_geometry.py",
@@ -59,6 +63,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "diameter_family": "src/draftwright/annotations/_diameters.py",
         "location_family": "src/draftwright/annotations/_locations.py",
         "gdt_family": "src/draftwright/annotations/_gdt.py",
+        "pmi_dimensions": "src/draftwright/annotations/_pmi_dimensions.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -215,6 +220,18 @@ def test_from_model_change_runs_through_step_placement_contract():
     assert "test_through_step_semantics.py" in selected
 
 
+def test_height_ladder_owner_runs_compiler_and_corridor_contracts():
+    source = "src/draftwright/annotations/_height_ladder.py"
+    assert selected_groups([source]) == {"height_ladder", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_compiled_plan_boundary.py",
+        "test_issue_1466_semantic_sides.py",
+        "test_strip_layout.py",
+        "test_refactor_golden.py",
+    } <= selected
+
+
 def test_drawing_edit_owner_runs_live_and_deferred_contracts():
     source = "src/draftwright/drawing_edits.py"
     assert selected_groups([source]) == {"drawing_edits"}
@@ -229,9 +246,25 @@ def test_drawing_edit_owner_runs_live_and_deferred_contracts():
     } <= selected
 
 
+def test_intent_routing_owner_selects_deferred_placement_contracts():
+    source = "src/draftwright/intent_routing.py"
+    assert selected_groups([source]) == {"compilation", "drawing_edits"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {"test_deferred_edits.py", "test_issue_563_placement_intent.py"} <= selected
+
+
 def test_solve_trace_owner_runs_recorder_and_boundary_contracts():
     selected = set(pr_modules(_TESTS, ["src/draftwright/annotations/solve_trace.py"]))
     assert {"test_solve_trace.py", "test_compiled_plan_boundary.py"} <= selected
+
+
+@pytest.mark.parametrize(
+    "source",
+    ("src/draftwright/annotations/angular.py", "src/draftwright/linting/angular.py"),
+)
+def test_angular_ink_owner_selects_its_render_and_lint_contracts(source):
+    selected = set(pr_modules(_TESTS, [source]))
+    assert set(CONTRACT_GROUPS["angular_ink"].test_patterns) <= selected
 
 
 def test_step_length_owner_selects_its_placement_contract():
@@ -380,6 +413,20 @@ def test_gdt_owner_runs_declaration_ink_and_fallback_contracts():
         "test_issue_1352_searchable_pdf_text.py",
         "test_declare.py",
         "test_compiled_plan_boundary.py",
+        "test_refactor_golden.py",
+        "test_solve_trace.py",
+    } <= selected
+
+
+def test_pmi_dimension_owner_runs_source_witness_fallback_and_trace_contracts():
+    source = "src/draftwright/annotations/_pmi_dimensions.py"
+    assert selected_groups([source]) == {"pmi_dimensions", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_pmi.py",
+        "test_issue_1209_linear_pmi_witnesses.py",
+        "test_issue_1296_cylindrical_diameter_pmi.py",
+        "test_sheet_fallback_issue_1797.py",
         "test_refactor_golden.py",
         "test_solve_trace.py",
     } <= selected

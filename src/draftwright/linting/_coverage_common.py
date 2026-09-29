@@ -3,8 +3,14 @@
 from math import isfinite
 from numbers import Real
 
+from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._registry import satisfaction_ids, satisfaction_of
 from draftwright.linting.issues import is_placement_drop
+
+
+def point3(value) -> "tuple[float, float, float]":
+    x, y, z = value
+    return (_rounded(x), _rounded(y), _rounded(z))
 
 
 def recess_rounded(value) -> float:

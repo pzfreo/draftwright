@@ -377,7 +377,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: >-
-          uv run --with diff-cover==9.7.2 diff-cover coverage.xml
+          uv run --with diff-cover==9.7.2 python scripts/diff-cover-moves coverage.xml
           --compare-branch "$BASE_SHA"
           --fail-under=90
 
