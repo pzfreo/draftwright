@@ -419,6 +419,18 @@ def test_hole_leader_owner_runs_callout_and_transaction_contracts():
     } <= selected
 
 
+def test_model_detection_change_runs_turning_and_boss_ownership_contracts():
+    source = "src/draftwright/model/detect.py"
+    assert selected_groups([source]) == {"compilation", "recognition"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_boss_ownership.py",
+        "test_issue_1357_plural_turned_profiles.py",
+        "test_part_model.py",
+        "test_turned_step_ownership.py",
+    } <= selected
+
+
 def test_gdt_owner_runs_declaration_ink_and_fallback_contracts():
     source = "src/draftwright/annotations/_gdt.py"
     assert selected_groups([source]) == {"gdt_family", "placement"}
