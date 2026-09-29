@@ -2210,6 +2210,7 @@ def _pack_auxiliary_layout(state: SimpleNamespace) -> bool:
     section_count = state.section_count
     section_hh = state.section_hh
     section_hw = state.section_hw
+    strips = state.strips
     sv = state.sv
     sv_hw = state.sv_hw
     tb_bottom = state.tb_bottom
