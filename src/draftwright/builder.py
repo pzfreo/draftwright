@@ -618,71 +618,8 @@ def _layout_advisory(code: str, message: str) -> LintIssue:
     raise ValueError(f"unknown layout advisory: {code!r}")
 
 
-@observed_stage("assemble")
-def _assemble(
-    a,
-    out,
-    assembly,
-    detail_view,
-    auto_dims,
-    model=None,
-    decorations=None,
-    requested=None,
-    authored=None,
-    trace=None,
-    shape=None,
-    critique_recognition_cache=None,
-    reproducible=True,
-    title_block_cache=None,
-) -> Drawing:
-    """Project the 4 views for analysis *a*, run the automatic annotation
-    passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
-    repacked analysis it is also pass 2 of the measure-and-repack loop (#121).
-    *trace* is the opt-in #736 solve-trace recorder (attached to the drawing's
-    build state so the annotate + finalize paths thread it), or ``None``."""
-    cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
-    dist = a.bbox_max * a.SCALE + 100
-    draft = _dimension_draft(a.text_position, a.text_orientation)
-    if (a.text_position, a.text_orientation) != ("inline", "aligned"):
-        _dimension_head_bounds(draft.arrow_length, draft.head_type)
-
-    scheme_shadow = a.layout_strips.annotation_scheme_shadow_report(a.SCALE)
-    pre_render_choice = choose_pre_render_profile(
-        a.layout_strips,
-        scheme_shadow,
-        page=(a.PAGE_W, a.PAGE_H),
-        views=tuple(a.planned_views or third_angle_view_names()),
-        auto_dims=auto_dims,
-    )
-    dwg = Drawing(
-        scale=a.SCALE,
-        page_w=a.PAGE_W,
-        page_h=a.PAGE_H,
-        tb_w=a.TB_W,
-        draft=draft,
-        look_at=(cxs, cys, czs),
-        dist=dist,
-        centroid=(a.cx, a.cy, a.cz),
-        out=out,
-        part=a.source_part if a.source_part is not None else a.part,
-        working_part=a.part,
-        cyls=a.cyls,
-        assembly=assembly,
-        reproducible=reproducible,
-    )
-    dwg._build.title_block_cache = title_block_cache if title_block_cache is not None else {}
-    dwg.annotation_scheme_decision = {
-        "status": "shadow",
-        "influenced_layout": False,
-        **scheme_shadow.to_dict(),
-        "pre_render_choice": pre_render_choice,
-    }
-    # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
-    # work even in manual mode (#398). _auto_annotate reads this attached model rather
-    # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
-    # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
-    # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
-    # fallback for a manually-constructed Analysis with no stored model.
+def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
+    """Attach declared-only rotational and PMI evidence to this assembly's model."""
     pm = (
         _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
@@ -776,6 +713,75 @@ def _assemble(
                         else ()
                     ),
                 )
+    return pm
+
+
+@observed_stage("assemble")
+def _assemble(
+    a,
+    out,
+    assembly,
+    detail_view,
+    auto_dims,
+    model=None,
+    decorations=None,
+    requested=None,
+    authored=None,
+    trace=None,
+    shape=None,
+    critique_recognition_cache=None,
+    reproducible=True,
+    title_block_cache=None,
+) -> Drawing:
+    """Project the 4 views for analysis *a*, run the automatic annotation
+    passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
+    repacked analysis it is also pass 2 of the measure-and-repack loop (#121).
+    *trace* is the opt-in #736 solve-trace recorder (attached to the drawing's
+    build state so the annotate + finalize paths thread it), or ``None``."""
+    cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
+    dist = a.bbox_max * a.SCALE + 100
+    draft = _dimension_draft(a.text_position, a.text_orientation)
+    if (a.text_position, a.text_orientation) != ("inline", "aligned"):
+        _dimension_head_bounds(draft.arrow_length, draft.head_type)
+
+    scheme_shadow = a.layout_strips.annotation_scheme_shadow_report(a.SCALE)
+    pre_render_choice = choose_pre_render_profile(
+        a.layout_strips,
+        scheme_shadow,
+        page=(a.PAGE_W, a.PAGE_H),
+        views=tuple(a.planned_views or third_angle_view_names()),
+        auto_dims=auto_dims,
+    )
+    dwg = Drawing(
+        scale=a.SCALE,
+        page_w=a.PAGE_W,
+        page_h=a.PAGE_H,
+        tb_w=a.TB_W,
+        draft=draft,
+        look_at=(cxs, cys, czs),
+        dist=dist,
+        centroid=(a.cx, a.cy, a.cz),
+        out=out,
+        part=a.source_part if a.source_part is not None else a.part,
+        working_part=a.part,
+        cyls=a.cyls,
+        assembly=assembly,
+        reproducible=reproducible,
+    )
+    dwg._build.title_block_cache = title_block_cache if title_block_cache is not None else {}
+    dwg.annotation_scheme_decision = {
+        "status": "shadow",
+        "influenced_layout": False,
+        **scheme_shadow.to_dict(),
+        "pre_render_choice": pre_render_choice,
+    }
+    # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
+    # work even in manual mode (#398). _auto_annotate reads this attached model rather
+    # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
+    # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
+    # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
+    # fallback for a manually-constructed Analysis with no stored model.
+    pm = _assembly_model(a, model, decorations, requested, authored)
     # A source-proven document default uses the existing title-block carrier when the caller
     # did not explicitly author one. An explicit tolerance, including the blank string, wins.
     general_tolerance_source = None

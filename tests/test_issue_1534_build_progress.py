@@ -37,6 +37,14 @@ def test_observer_preserves_ink_and_records_nested_stage_times():
     assert any(
         event.phase == "resumed" and event.stage == ("build", "assemble") for event in events
     )
+    assert any(
+        event.stage[:2] == ("build", "assemble") and event.stage[-1] == "projection"
+        for event in starts
+    )
+    assert any(
+        event.stage[:2] == ("build", "assemble") and event.stage[-1].startswith("placement.")
+        for event in starts
+    )
     assert all(event.elapsed_seconds >= event.stage_seconds >= 0 for event in events)
     assert [event.elapsed_seconds for event in events] == sorted(
         event.elapsed_seconds for event in events
