@@ -57,8 +57,9 @@ placement geometry in `_placement_geometry`, placed occupancy and ink clearance 
 `_placement_occupancy`, required strip-ink resolution and
 survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, typed feature-leader region expansion in
-`_leader_candidates`, typed intake, assignment, fallback, and commit phases in
-`leaders`, plus the optional `solve_trace` recorder;
+`_leader_candidates`, typed intake, assignment, and fallback phases in
+`leaders`, final trace inventory and survivor commit in `_leader_commit`,
+plus the optional `solve_trace` recorder;
 `orchestrator._PASS_SEQUENCE` is the one stage order)
 → **5** `drawing`, `drawing_edits`, `drawing_diagnostics`, and
 `intent_drain` and `intent_routing` (the deferred stages; `intent_routing` owns the

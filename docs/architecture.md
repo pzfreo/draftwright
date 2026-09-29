@@ -246,11 +246,15 @@ and re-exports the existing private helper names.
   bounded, deterministic interior/exterior expansion of physical anchors before
   the shared late solve. The established `leaders` imports remain available to
   feature renderers.
+  - **`annotations/_leader_commit.py`** — settled joint candidate inventory,
+  trace recording, and survivor commit for the shared late leader solve. It
+  receives typed outcomes and callbacks from `leaders`, without owning the
+  producer streams or assignment policy.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166). Its typed phase handoffs
   keep the producer streams, lazy greedy floor, primary per-view assignment,
-  budget replay, trace inventory, OCC survivor validation, and commit in this
-  rank-four owner; the public placement entry point preserves their order.
+  budget replay, and OCC survivor validation in this rank-four owner; the public
+  placement entry point hands settled outcomes to `_leader_commit` in order.
   Sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
   exact committed component ink conflicts (including component-local curved
