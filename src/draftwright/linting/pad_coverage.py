@@ -21,6 +21,7 @@ from quiddity import RecognitionResult
 from draftwright._core import _decode_hole_location_fact
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import location_state
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
     RequirementCarrierEvidence,
     satisfaction_ids,
@@ -68,11 +69,6 @@ class PadRequirementOutcome:
 def _pair(values) -> tuple[float, float]:
     lo, hi = values
     return _rounded(lo), _rounded(hi)
-
-
-def _point(values) -> tuple[float, float, float]:
-    x, y, z = values
-    return _rounded(x), _rounded(y), _rounded(z)
 
 
 def _bounds(pad) -> dict[str, tuple[float, float]]:
