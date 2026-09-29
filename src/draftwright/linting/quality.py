@@ -72,7 +72,7 @@ _LEGIBILITY_CODES = frozenset(
         "leader_line_through_text",
         # The overall extents' own placement failure. Separate from `placement_unsatisfiable`
         # because that code is a required *scale* drop and reporting through it refused to
-        # build drawings that previously built (#1216); the sheet is equally less
+        # build drawings that previously built; the sheet is equally less
         # readable either way, so it scores the same.
         "overall_dim_withheld",
         "placement_unsatisfiable",
@@ -87,7 +87,7 @@ _LEGIBILITY_CODES = frozenset(
 # recognised by their ``*_dropped`` suffix rather than by a listed vocabulary. A list has to
 # be remembered; the suffix cannot be forgotten, so a drop code introduced tomorrow counts
 # against legibility on the day it is introduced instead of scoring as perfectly legible
-# until somebody notices (#1127). Codes that cannot be read off their suffix carry an
+# until somebody notices. Codes that cannot be read off their suffix carry an
 # explicit ``outcome_stage`` from their producers instead (see ``is_placement_drop``); there
 # the inventory is enumerated in :data:`_STAGE_ROUTED_CODES` and
 # :data:`_UNSCORED_CODES` — and the suffix shortcut turned
@@ -153,9 +153,8 @@ _NON_REQUIREMENT_INVENTORIES = frozenset(
 #: Inventories the installed package proves and this consumer has not decided about, each with
 #: the issue deciding it. Held SEPARATELY from the set above, because the two mean different
 #: things: those will never be requirement families, these have simply not been ruled on, and
-#: merging them would let an undecided family look settled (#1244). Passage, PrismaticPocket and
-#: AngledStep left this register when #1245/#1246/#1247 gave every authoritative occurrence an
-#: unsupported outcome.
+#: merging them would let an undecided family look settled. An authoritative occurrence
+#: with an unsupported outcome belongs to the set above instead.
 _UNDECIDED_INVENTORIES: dict[str, str] = {
     "oriented_slot_patterns": "https://github.com/pzfreo/draftwright/issues/1430",
 }
@@ -212,7 +211,7 @@ _UNRECOGNISED_GEOMETRY_CODE = "unrecognised_defining_geometry"
 #: drawing labelled 99 over a 16 mm path — a 518% contradiction — reported
 #: ``legibility: 1.0``, because legibility scores LAYOUT and a false dimension is perfectly
 #: legible. With completeness and restraint unavailable on that drawing, every component a
-#: caller could read said perfect (#1176).
+#: caller could read said perfect.
 #:
 #: The first cut of this set held ``label_vs_measured`` alone and claimed it was "currently
 #: the only such code". That was false, and the two reproductions are worse than the case
@@ -273,7 +272,7 @@ _FIDELITY_CODES = frozenset(
         "gear_axis_mismatch",
         "gear_requirement_mismatch",
         # A declaration claiming an AP242 source identity the reconciled document does not
-        # contain (#1563). It belongs by the same rule as `gear_requirement_mismatch`: the
+        # contain. It belongs by the same rule as `gear_requirement_mismatch`: the
         # source contradicted is the authored requirement rather than the solid, and the
         # drawing does place content for the claim — a dimension carrying `ap242_pmi`
         # provenance asserts a machinist can trace it to the model. A fabricated provenance
@@ -283,7 +282,7 @@ _FIDELITY_CODES = frozenset(
         # A missing or altered row makes that printed reference false.
         "manufacturing_reference_unresolved",
         # An annotation claiming a measurement it does not render, and one claiming a
-        # measurement the compiler never approved (#1217). Both are the sheet contradicting
+        # measurement the compiler never approved. Both are the sheet contradicting
         # its own provenance: the drawing asserts, through the seam coverage reads, that it
         # carries a value it demonstrably does not. Same shape as `label_vs_measured` — the
         # source contradicted is the compiled plan rather than the projected path.
@@ -294,7 +293,7 @@ _FIDELITY_CODES = frozenset(
 
 
 #: Every lint code that scores on NO quality component, named so that a new one cannot
-#: arrive unclassified (#1176).
+#: arrive unclassified.
 #:
 #: Nothing here is a bug by itself. Most are omissions — completeness's territory, and it
 #: builds its ledger from requirement outcomes rather than from lint codes, so it never
@@ -306,8 +305,7 @@ _FIDELITY_CODES = frozenset(
 #: score as perfectly truthful and nothing would say so — the failure mode the
 #: ``_FIDELITY_CODES`` note above admits to and, before this, only admitted to.
 #:
-#: Stated that carefully because the first version of this sentence claimed the union was
-#: "exactly the set of codes the engine emits", which was 41 against 55 (#1176).
+#: This register is only one partition of the emitted codes.
 #:
 #: Membership is not an endorsement: several of these arguably SHOULD score somewhere, and
 #: this register is what makes that visible instead of implicit.
@@ -317,19 +315,19 @@ _UNSCORED_CODES = frozenset(
         "authored_dim_degenerate",
         # A source relationship withheld because its geometry cannot prove a truthful
         # witness. Like the adjacent degenerate/unsupported cases, this is an explicit
-        # omission rather than a false claim or a misplaced annotation (#1209).
+        # omission rather than a false claim or a misplaced annotation.
         "authored_dim_source_unresolved",
         "authored_omission",
         "axial_length_missing",
         "boss_height_missing",
-        # Where the sheet's precision prints a nominal the model does not have (#1600). Not
+        # Where the sheet's precision prints a nominal the model does not have. Not
         # fidelity: the label IS the measurement written to the places the sheet uses, and a
         # general tolerance covers the difference — the check that treated it as a false
         # statement was the defect. Not legibility either; the sheet reads perfectly. It is a
-        # statement about precision POLICY, which has no register of its own until #1602
+        # statement about precision policy, which has no register of its own.
         # builds one.
         "nominal_rounded",
-        # The `*_withheld` family (#1216), kept together and in place alphabetically. Each is a
+        # The `*_withheld` family, kept together and in place alphabetically. Each is a
         # claim the drawing declined to make because it could not make it honestly, and said
         # so: a jittered pattern pitch, a step height the page cannot carry, and an `n×` mark
         # whose collapsed members do not all carry the same band. Not a fidelity fault (nothing
@@ -350,7 +348,7 @@ _UNSCORED_CODES = frozenset(
         "missing_principal_dimension",
         "pad_footprint_not_defined",
         # A SUMMARY of required placement failures the automatic path would otherwise return
-        # while reporting success (#1250). Unscored because it double-counts by construction:
+        # while reporting success. Unscored because it double-counts by construction:
         # every loss it names is already reported by the `*_dropped` code that produced it, and
         # those score wherever they score. It prints nothing false and misplaces nothing; what
         # it adds is an error-severity verdict so `passed` cannot be true over a drawing the
@@ -362,11 +360,11 @@ _UNSCORED_CODES = frozenset(
         "pmi_present_but_ignored",
         "pmi_sheet_fallback",
         # Unverified is not false and not misplaced: no census was available, so nothing was
-        # contradicted and nothing was mis-drawn (#1563). It sits with the other pmi codes
+        # contradicted and nothing was mis-drawn. It sits with the other pmi codes
         # here rather than in fidelity, whose basis is a claim the source refutes — this one
         # reports that no source was consulted at all.
         "pmi_unreconciled",
-        # The profile describes less of the body than the body has (#1132). An omission,
+        # The profile describes less of the body than the body has. An omission,
         # so not fidelity: nothing false is printed and nothing is misplaced. It scores
         # nowhere for the same reason the other *_missing codes do.
         "turned_profile_not_spanned",
@@ -381,14 +379,14 @@ _UNSCORED_CODES = frozenset(
         # Neither confirmed nor refuted: the annotation renders no readable text, or the
         # compiler approved the measurement with no displayable value. Reported so an
         # unverifiable claim is visible rather than counted as a pass — but it is evidence
-        # of nothing, so it scores nowhere (#1217).
+        # of nothing, so it scores nowhere.
         "claimed_representation_unreadable",
         "claimed_representation_no_expected_value",
         # A `_dropped` code that scores NOWHERE, which is why the suffix cannot be trusted
         # on its own. `is_placement_drop` consults `outcome_stage` FIRST and only falls back
         # to the suffix, and every `_skip_section` emission is `outcome_stage="validation"`
         # — a deliberate choice, because a placement stage would make an optional section's
-        # absence a scale blocker. So the section-A–A loss reaches no component (#1176).
+        # absence a scale blocker. So the section-A–A loss reaches no component.
         # `sections.py` said the opposite four lines above the call that makes
         # it false; that comment is corrected.
         "section_dropped",
@@ -412,9 +410,7 @@ _UNSCORED_CODES = frozenset(
 #: have the `section_dropped` shape. Several were invisible to the first audit,
 #: which read only codes written as literals AT a producer call, and were new to these
 #: registers; `callout_dropped` was neither — it is also written as a
-#: literal at three producer calls, so the audit always saw it (#1176, corrected
-#: twice after numeric inventories drifted). Keep this explanation structural rather than
-#: restating a count that changes whenever a machined leader family is added.
+#: literal at producer calls. The audit must include both data-carried and literal codes.
 _STAGE_ROUTED_CODES = frozenset(
     {
         "callout_dropped",
@@ -510,7 +506,7 @@ def _unscored_component(issues) -> dict:
         # `available`/`score` so a caller can walk `quality.values()` uniformly. This is an
         # inventory, not a fifth axis: it is always computable, and it is deliberately not a
         # number — pricing "how much went unscored" would be a fifth score nobody asked for
-        # (#1176, which found `for c in quality.values(): c["available"]` raising).
+        # (callers may iterate `quality.values()` and read `c["available"]`).
         "available": True,
         "score": None,
         "issues": len(unscored),
@@ -625,7 +621,7 @@ def _issue_component(
     # predicate is an approximation of the checks' domains, while the finding is the check
     # having fired. The first cut let the argument win, and a `declared_feature_absent` on a
     # 20 mm box was reported as `{available: False, score: None}`: the gate fell closed over
-    # a detected falsehood (#1176).
+    # a detected falsehood.
     #
     # A FAIL-SAFE, not a live branch: once the predicate covers the checks' domains, an issue
     # cannot arise while it is False, so no drawing reaches this line with work to do. Kept
@@ -633,7 +629,7 @@ def _issue_component(
     # between a drift that misreports and a drift
     # that loses a finding. Guarded by a direct test of this function rather than through
     # `lint_summary()` for exactly that reason — a consumer-level test of it would have to
-    # reproduce the drift it exists to survive (#1176).
+    # reproduce the drift it exists to survive.
     available = available or bool(issues)
     errors = sum(issue.severity == "error" for issue in issues)
     warnings = sum(issue.severity == "warning" for issue in issues)
@@ -650,7 +646,7 @@ def _issue_component(
         # Info severity takes the WARNING floor: an issue reaching here is a defect in the
         # axis being scored, and the component cannot report 1.0 while itemising a finding it
         # has just made. Lint uses `info` for "place what fits" drops and readability faults
-        # like a leader crossing a silhouette (#1127), and — since #1176 — for every gear
+        # like a leader crossing a silhouette, and for every gear
         # reconciliation in an ASSEMBLY context (`gear_coverage.py`), where a data table
         # contradicting the geometry is no less false for the part having siblings.
         "score": max(
@@ -659,7 +655,7 @@ def _issue_component(
             - primary_errors * error_penalty
             - (primary_warnings + primary_infos) * warning_penalty,
         ),
-        # Raw compatibility inventory. These fields keep their #1127 semantics even when
+        # Raw compatibility inventory. These fields keep their raw counts even when
         # several pair observations contribute only one penalty.
         "errors": errors,
         "warnings": warnings,
@@ -803,7 +799,7 @@ def _completeness_component(
     # Undecided physical inventories have no requirement grammar yet, so they cannot enter
     # the denominator. They must nevertheless remain visible at runtime: classifying them only
     # in a static exhaustiveness register would let a real occurrence produce a clean-looking
-    # zero-requirement drawing (#1382).
+    # zero-requirement drawing.
     undecided = {
         inventory for inventory in _UNDECIDED_INVENTORIES if getattr(recognition, inventory, ())
     }
@@ -813,7 +809,7 @@ def _completeness_component(
     # Whole-part extents are available directly from geometry and deliberately stay outside
     # the recognition-owned report catalog and its score. Keep their independent physical
     # denominator visible inside completeness instead of silently changing the meaning of
-    # `audited_score` or requiring a provider occurrence for a bbox fact (#1785 / ADR 5).
+    # `audited_score` or requiring a provider occurrence for a bbox fact (ADR 5).
     envelope_counts: Counter = Counter(
         outcome.state for outcome in envelope_requirement_outcomes(part, registry, omissions)
     )

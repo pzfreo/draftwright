@@ -557,7 +557,7 @@ def _will_section(model, *, is_rotational=False, cx=0.0, cy=0.0) -> bool:
 
     if model is None:
         return False
-    # An explicit Sheet.section() request (ADR 4 (was 0011), #841) reserves the row even when no
+    # An explicit Sheet.section() request (ADR 4 (was 0011)) reserves the row even when no
     # hole gate qualifies — a blind pocket's floor/depth section has no driving Z hole.
     if getattr(model, "decorations", {}).get("section") is not None:
         return True
@@ -732,7 +732,7 @@ def _declared_turned_profiles(model: PartModel) -> tuple[TurnedProfile, ...]:
     # Detection's TurnedProfile denominator includes the narrow groove band even though the
     # IR deliberately gives that band to GrooveFeature rather than StepFeature. Reconstruct
     # the same physical denominator for declared/emitted programs; otherwise one remaining
-    # step plus the groove could falsely certify a two-step synthetic profile (#1357).
+    # step plus the groove could falsely certify a two-step synthetic profile.
     augmented_profiles = []
     for profile in declared_profiles:
         profile_steps = list(profile.steps)
@@ -872,7 +872,7 @@ def _converge_step_sizing(
 # A hole is "concentric" with a turned part's rotation axis when its drilling
 # axis is the Z (OD) axis and its opening sits on the part centreline.  Such
 # bores are already dimensioned by the ldr_z bore leaders, so they must not
-# also receive a hole callout / location dim (#10).  Off-axis holes (a bolt
+# also receive a hole callout / location dim.  Off-axis holes (a bolt
 # circle, a cross-hole) fall through to the feature-presence path.
 
 
@@ -895,26 +895,26 @@ def _converge_step_sizing(
 # perpendicular span equals offset + pad_around_text - extension_gap, and
 # pad == extension_gap in the draft preset).  Each slot is therefore derived
 # from text metrics (font_size + pad_around_text), like _MIN_STEP_DIM_MM, so it
-# rescales with _FONT_SIZE instead of being a bare mm guess (#31).
+# rescales with _FONT_SIZE instead of being a bare mm guess.
 # Single overall dim: two glyph-heights of line offset + the outboard label pad.
 # The overall height dim leads the right ladder, so it carries an extra pad of
 # clearance from the view above the first step dim's witness.
 # Stacked step dims sit deeper so each ladder rung's label clears the rung below.
 
 # A plan view with at least this many holes escalates to a hole chart when it is
-# too dense to dimension every hole individually (#93). Below it, a dropped ref
+# too dense to dimension every hole individually. Below it, a dropped ref
 # stays a legibility drop rather than tabulating a handful of holes.
 
 # Smallest projected step height (page-mm) that can still carry a *legible*
 # stacked dimension between its two extension lines.  Derived from what has to
 # fit vertically: the label (font height) plus an arrowhead at each end plus
-# the text clearance above and below — not an arbitrary page-mm cutoff (#13).
+# the text clearance above and below — not an arbitrary page-mm cutoff.
 # Used as the single gate in BOTH _analyse (n_steps) and _auto_annotate
 # (dim_step placement) so the two can never diverge.
 
 # Minimum page-mm separation between two *consecutive* dimensioned step heights.
 # Shoulders closer than this on the page read as one, so only the first of such
-# a cluster is dimensioned and the rest surface via lint (#41). Sized to the
+# a cluster is dimensioned and the rest surface via lint. Sized to the
 # value-label footprint (one glyph height + clearance) — enough to tell two
 # stacked step dims apart, without dropping genuinely-distinct shoulders.
 
@@ -925,11 +925,11 @@ def _converge_step_sizing(
 # position on that axis. Sized to one arrowhead plus clearance — smaller than the
 # step-spacing gate, which also stacks labels in one column. Holes closer than
 # this read as one, so only the first of such a run is dimensioned and the rest
-# surface via lint (#43): "fits" is not the same as "legible".
+# surface via lint: "fits" is not the same as "legible".
 
 
 # ---------------------------------------------------------------------------
-# Annotation depth estimators (Phase 2 of #118)
+# Annotation depth estimators
 #
 # These pure functions estimate the strip depth (mm) required for each
 # inter-view boundary BEFORE view positions are fixed.  They are intentionally
@@ -1222,9 +1222,9 @@ def _sheet_options(r: _AnalysisRequest) -> _SheetOptions:
     margin_bottom = r.margin_bottom
     title_block_width = r.title_block_width
     convention = projection or "third"
-    # The zone-grid ruler (#768) draws its ticks on the frame, so it implies one.
+    # The zone-grid ruler draws its ticks on the frame, so it implies one.
     frame = frame or zones
-    # The content margin — raised by the sheet-frame band (#767) so scale/page selection and
+    # The content margin — raised by the sheet-frame band so scale/page selection and
     # placement both reserve room for the border. Computed up front so the choose_scale inside
     # step-count convergence sees it too.
     sheet_margins = _sheet_option_margins(
@@ -1318,7 +1318,7 @@ def _prepare_source(r: _AnalysisRequest) -> _SourceState:
     if _reuse is not None:
         # Explicit-scale fallback changes only page-space layout. Reuse the immutable geometry,
         # STEP/PMI census, classification, and recognition waist from the requested trial rather
-        # than importing and recognising the same part up to fifteen more times (#1146).
+        # than importing and recognising the same part for each attempt.
         part = _reuse.part
         source_part = _reuse.source_part if _reuse.source_part is not None else part
         recognition_frame = cast(PartFrame | None, _reuse.recognition_frame)
@@ -1428,12 +1428,12 @@ def _prepare_source(r: _AnalysisRequest) -> _SourceState:
 
         # Semantic PMI census (AP242 only; separate read-only pass). Framed extraction receives
         # the provider frame before it classifies correlation topology, preserving tight local
-        # boxes and arbitrary directions (#1401 / ADR 3 (was 0020)). Even off mode inventories a STEP
+        # boxes and arbitrary directions (ADR 3 (was 0020)). Even off mode inventories a STEP
         # source so it can report ignored authored PMI.
         #
         # An in-memory Shape has no AP242 document of its own, which used to end the matter — and
         # a `Sheet` ALWAYS holds one, so no script-built drawing reconciled its PMI at all, not
-        # even to say it had not (#1563). `source` is the caller naming the STEP the solid was
+        # even to say it had not. `source` is the caller naming the STEP the solid was
         # read from; a generated script already opens exactly that path in its own `part =
         # import_step(...)` line, so the emitter can state it. It is the caller's claim, not a
         # proof the bytes produced this solid, so `pmi_source` records name and digest and the
@@ -1523,7 +1523,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
     # recognise_face_levels admitted it). Prismatic and other parts keep the
     # general face-level scan, which recognise_turned_steps cannot replace (no
     # cylinders → no profile).
-    # ADR 4 (was 0011) / ADR 3 (was 0017 §6): a declared model skips detection (#1022).  The gate has to sit
+    # ADR 4 (was 0011) / ADR 3 (was 0017 §6): a declared model skips detection.  The gate has to sit
     # here, ABOVE the aggregate, which is why `_coerce_layout_model` moved up from its old
     # place below — it is pure (IR in, IR out) and reads nothing this block computes.
     _turned: TurnedProfile | None
@@ -1537,7 +1537,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
         # Sizing must source profiles and `step_zs` from the DECLARATION here. Taking them from
         # a recognition that has been gated away would silently change page/scale selection,
         # and leaving the plural inventory empty would silently disable axial critique for a
-        # declared turned part — both are failures the gate must not introduce (#1022).
+        # declared turned part — both are failures the gate must not introduce.
         recognition = None
         _profiles = _declared_turned_profiles(layout_model)
         _turned = _profiles[0] if len(_profiles) == 1 else None
@@ -1549,7 +1549,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
         # Plural turned profiles own their body-local shoulders; the aggregate's compatible
         # ladder projection intentionally returns prismatic FaceLevels unless exactly one
         # Z-profile exists. Project the plural inventory explicitly so equal occurrences do
-        # not become a phantom global prismatic ladder during page sizing (#1357).
+        # not become a phantom global prismatic ladder during page sizing.
         step_zs = (
             sorted(
                 {
@@ -1572,7 +1572,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
     )
     shared_z_cyls, _shared_cross_cyls = shared_cyls
 
-    # Pass 1 (two-pass layout, #131): measure annotation strip depths before
+    # Pass 1 (two-pass layout): measure annotation strip depths before
     # view positions are fixed.  font_size=3.0 is a fixed page-mm constant so
     # all annotation sizes are scale-independent — no circularity.
     # Construct the same draft preset used later in build_drawing() to read
@@ -1595,7 +1595,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
     pads = list(recognition.pads) if recognition else []
     # Build the IR once, up front, so page/scale selection sizes from the SAME feature
     # model the renderers use — detected and declared parts share one sizing path and no
-    # recogniser record reaches the sheet estimators (ADR 1 (was 0008); #584 WP1 A). A declared
+    # recogniser record reaches the sheet estimators (ADR 1 (was 0008)). A declared
     # model sizes from its own declaration (ADR 4 (was 0011)); otherwise the detected records are
     # adapted into the IR (cheap — no re-recognition). Sizing is byte-identical to the old
     # record-based estimators EXCEPT where a pattern shares a machining spec with loose
@@ -1629,7 +1629,7 @@ def _build_sizing_model(r: _AnalysisRequest, s: _SourceState) -> _ModelState:
             polygonal_bosses=polygonal_bosses,
             polygonal_stock=polygonal_stock,
             slots=slots,
-            # Injected from the aggregate since #1026 — `build_part_model` detected these
+            # Injected from the aggregate because `build_part_model` otherwise detects these
             # three itself, which is the duplicate scan ADR 3 (was 0017) exists to remove. On this
             # branch `recognition` is non-None by construction (it is the not-declared arm).
             slot_patterns=list(recognition.slot_patterns) if recognition else None,
@@ -1867,7 +1867,7 @@ def _plan_sheet_demand(r: _AnalysisRequest, s: _SourceState, m: _ModelState) -> 
     planned_iso_scale = _planned_iso_scale(_view_constraints)
     # Recognition's raw face levels can be owned by a plate, channel, or pocket and
     # removed from the final step ladder. Reserve only the levels present in that IR,
-    # just as a declared replay does (#1592). Keep step_zs as the recognition diagnostic.
+    # just as a declared replay does. Keep step_zs as the recognition diagnostic.
     layout_step_zs = _declared_step_zs(sizing_model, _profiles, bb)
 
     return _DemandState(
@@ -1929,7 +1929,7 @@ def _select_sheet(
     layout_step_zs = d.layout_step_zs
 
     # Choose scale/page, iterating so the reserved step corridor matches the
-    # number of steps the legibility gate will actually place (#1) — not the raw
+    # number of steps the legibility gate will actually place — not the raw
     # face count. Otherwise a part with many sub-legible faces (e.g. a staircase
     # with 15 tiny treads) reserves a phantom step ladder that blocks a larger
     # scale. Seed conservatively (all faces), then re-gate at the chosen scale;
@@ -1996,7 +1996,7 @@ def _select_sheet(
     # The fourth dimension of the ADR 2 (was 0018 §5) choice, carried from `choose_scale` rather than
     # re-derived here: this call sees MEASURED strip depths where selection saw estimates, so
     # re-deriving would compose the sheet under a different arrangement than the one whose
-    # feasibility was actually established (#1130).
+    # feasibility was actually established.
     ARRANGEMENT = arrangement_of(scale_pick)
     # The staggered-side scheme reserves the upper-right corridor for defining
     # orthographic dimensions.  Its ISO is orientation-only (NTS), so project it
@@ -2101,7 +2101,7 @@ def _place_sheet(
     )
     strips = _strips_for_derived_views(strips, derived_footprints)
     # View positions + iso empty-rectangle, shared with scale selection (_fits)
-    # via _layout_geometry so placement and fit never diverge (#11).  _fit_iso_view
+    # via _layout_geometry so placement and fit never diverge.  _fit_iso_view
     # later scales the iso to fill its rectangle.
     _g = _layout_geometry(
         x_size,
@@ -2334,8 +2334,8 @@ def _assemble_analysis(
             r._document_input.source_annotations() if r._document_input is not None else ()
         ),
         # The sizing model IS the render model when detection ran (identical inputs by
-        # construction — #584 WP1 A); store it so the pipeline never detects twice
-        # (ADR 1 (was 0008 Amdt 5), #602). A declared model (layout_model) is NOT stored: the
+        # construction); store it so the pipeline never detects twice
+        # (ADR 1 (was 0008 Amdt 5)). A declared model (layout_model) is NOT stored: the
         # builder coerces + decorates the caller's model itself.
         model=m.sizing_model if s.layout_model is None else None,
     )
