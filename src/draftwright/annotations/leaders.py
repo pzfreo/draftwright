@@ -1781,156 +1781,37 @@ def _refine_provisional_leaders(inputs: _ProvisionalRefinementInput) -> _Provisi
     )
 
 
-def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
-    """Solve explicit jobs now through the shared analytical leader machinery.
+class _LeaderTraceRecorder:
+    """Record the bounded candidate inventory and final placement objective."""
 
-    Pre-drain semantic consumers use ``producer_floor=True`` to retain their
-    established first-clear ordering without postponing their winners to the
-    canonical late inventory.  Candidate measurement and survivor validation
-    remain the same shared path; only the assignment tier is fixed to the lazy
-    producer floor.
-    """
-
-    jobs = list(jobs)
-    if not jobs:
-        return 0
-
-    crossing_recovery_enabled = layout_flag(
-        "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
-    )
-
-    def recovery_for(job_index):
-        # The sheet grid is bounded per call, but dense imported parts can have
-        # dozens of hole jobs. Keep this optional search within a small inventory.
-        job = jobs[job_index]
-        if crossing_recovery_enabled and len(jobs) > 16 and job.noun == "hole":
-            return None
-        return job.recover
-
-    trace = getattr(ctx, "trace", None)
-    # ``feature_leader_inventory`` is the authoritative cross-pass drain event: consumers
-    # and performance ratchets select it to measure the shared late solve. Immediate
-    # pre-drain batches retain their noun event below, but must not impersonate that drain
-    # merely because they now share its analytical implementation (#1308 release gate).
-    shared_event = (
-        trace.pass_event("feature_leader_inventory")
-        if trace is not None and not producer_floor
-        else None
-    )
-    noun_events = (
-        {
-            noun: trace.pass_event(f"{noun}_callouts")
-            for noun in dict.fromkeys(job.noun for job in jobs)
-        }
-        if trace is not None
-        else {}
-    )
-    page = (
-        analysis.margin,
-        analysis.margin,
-        analysis.PAGE_W - analysis.margin,
-        analysis.PAGE_H - analysis.margin,
-    )
-    title_block = (
-        analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
-        _TB_CLEAR,
-        analysis.PAGE_W - _TB_CLEAR,
-        _TB_CLEAR + _TB_H,
-    )
-    raw_jobs = []
-    fallback_jobs = []
-    candidate_budget_fallback_jobs = []
-    measurement_work_by_view: dict[str, int] = {}
-    for job in jobs:
-        if job.fallback_candidates is None:
-            joint, fallback = tee(job.candidates)
-        else:
-            joint, fallback = job.candidates, job.fallback_candidates
-        if job.candidate_budget_fallback_candidates is None:
-            fallback, candidate_budget_fallback = tee(fallback)
-        else:
-            candidate_budget_fallback = job.candidate_budget_fallback_candidates
-        raw_jobs.append(iter(joint))
-        fallback_jobs.append(iter(fallback))
-        candidate_budget_fallback_jobs.append(iter(candidate_budget_fallback))
-
-    views = tuple(dict.fromkeys(job.view for job in jobs))
-    # The build's ONE filled-material lowering, indexed the way this stage needs it. Taken
-    # from the drawing here rather than threaded through every producer's job, so a new
-    # leader family joins the inventory without having to remember to carry the field —
-    # and so there is exactly one lowering behind both routing and critique (#798).
-    material_by_view: dict[str, Any] = {}
-    try:
-        fields = dwg.material_fields()
-    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
-        fields = {}
-    for view in views:
-        placed = dwg.views.get(view)
-        if placed and placed[0] is not None:
-            material_by_view[view] = fields.get(id(placed[0]))
-    inventory_unset = object()
-    committed_inventory = inventory_unset
-    provisional_inventory = inventory_unset
-
-    def bounded_fixed_obstacles(*, provisional=False):
-        """Lower fixed ink once, stopping before the component work cap.
-
-        The candidate×component probe cap cannot protect an eager OCC scan that
-        happens before it is computed.  Bound the component inventory itself,
-        cache it across joint/fallback use, and let resource fallback mark exact
-        classification unverified when the inventory is too large.
-        """
-
-        nonlocal committed_inventory, provisional_inventory
-        cached = provisional_inventory if provisional else committed_inventory
-        if cached is not inventory_unset:
-            return cached
-        remaining = _FEATURE_LEADER_MAX_FIXED_WORK
-        components = []
-        if not provisional:
-            # The entire mandatory band is hard, including blank cells
-            # between rendered title-block strokes and glyphs.
-            if remaining < 1:
-                cached = _FIXED_INVENTORY_EXHAUSTED
-            else:
-                components.append(_FixedInkComponent("title_block:reserved", box=title_block))
-                remaining -= 1
-        if cached is inventory_unset:
-            for name, annotation in dwg.iter_annotations():
-                if (
-                    bool(getattr(annotation, "is_provisional_layout_reservation", False))
-                    != provisional
-                ):
-                    continue
-                if remaining <= 0:
-                    cached = _FIXED_INVENTORY_EXHAUSTED
-                    break
-                annotation_components = _annotation_fixed_ink(
-                    dwg,
-                    name,
-                    annotation,
-                    max_components=remaining,
-                )
-                if annotation_components is _FIXED_INVENTORY_EXHAUSTED:
-                    cached = _FIXED_INVENTORY_EXHAUSTED
-                    break
-                components.extend(annotation_components)
-                remaining -= len(annotation_components)
-            else:
-                # View ownership is semantic provenance, not a page-space clipping
-                # boundary.  A front-view witness line can physically cross a side-view
-                # label in the gap between their projections, so every job must see the
-                # same sheet-wide fixed-ink inventory.  Lower it once and share the tuple;
-                # duplicating components per view would spend the work budget repeatedly.
-                shared = tuple(components)
-                cached = {view: shared for view in views}
-        if provisional:
-            provisional_inventory = cached
-        else:
-            committed_inventory = cached
-        return cached
+    def __init__(
+        self,
+        ctx: Any,
+        jobs: list[FeatureLeaderJob],
+        producer_floor: bool,
+        measurement_work_by_view: dict[str, int],
+    ):
+        self.jobs = jobs
+        self.measurement_work_by_view = measurement_work_by_view
+        trace = getattr(ctx, "trace", None)
+        # Immediate pre-drain batches retain their noun event, but only the
+        # canonical late inventory emits the shared drain event.
+        self.shared_event = (
+            trace.pass_event("feature_leader_inventory")
+            if trace is not None and not producer_floor
+            else None
+        )
+        self.noun_events = (
+            {
+                noun: trace.pass_event(f"{noun}_callouts")
+                for noun in dict.fromkeys(job.noun for job in jobs)
+            }
+            if trace is not None
+            else {}
+        )
 
     def record_item(
+        self,
         job_index,
         candidate,
         raw_count,
@@ -1944,7 +1825,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         reason=None,
         recovered=None,
     ):
-        job = jobs[job_index]
+        job = self.jobs[job_index]
         item = {
             "name": job.name,
             "view": job.view,
@@ -1978,7 +1859,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     "route": "bent" if bends else "straight",
                     "tip": list(recovered.tip[:2]),
                     "elbow": list(recovered.elbow[:2]),
-                    "cost": recovery_cost(recovered),
+                    "cost": self.recovery_cost(recovered),
                 }
             )
             if bends:
@@ -1995,18 +1876,222 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                     "cost": candidate.cost,
                 }
             )
-        if shared_event is not None:
-            shared_event["items"].append(dict(item))
-        event = noun_events.get(job.noun)
+        if self.shared_event is not None:
+            self.shared_event["items"].append(dict(item))
+        event = self.noun_events.get(job.noun)
         if event is not None:
             event["items"].append(dict(item))
 
-    def recovery_cost(annotation) -> float:
+    def recovery_cost(self, annotation) -> float:
         """Use the same rendered-segment objective as an ordinary measured candidate."""
         return sum(
             math.hypot(second[0] - first[0], second[1] - first[1])
             for first, second in _segments(annotation)
         )
+
+    def candidate_entry(self, candidate, status, blockers=(), assignment_blockers=()):
+        entry = {
+            "candidate": candidate.raw_index,
+            "region": candidate.region.value,
+            "tip": list(candidate.tip),
+            "elbow": list(candidate.elbow),
+            "cost": candidate.cost,
+            "fixed_blockers": list(blockers),
+            "outcome": status,
+        }
+        if assignment_blockers:
+            entry["assignment_blockers"] = list(assignment_blockers)
+        return entry
+
+    def set_assignment(
+        self,
+        value,
+        *,
+        optimal,
+        states=0,
+        fixed_probes=0,
+        fixed_probe_bound=0,
+        pair_probes=0,
+        placed=0,
+        priority=0.0,
+        penalty=0,
+        cost=0.0,
+        provisional_refinement="not_attempted",
+        provisional_penalty=0,
+    ):
+        if "budget" in value or "budget" in provisional_refinement:
+            activity("budget", reason=value, refinement=provisional_refinement, states=states)
+        for event in [self.shared_event, *self.noun_events.values()]:
+            if event is not None:
+                event.update(
+                    {
+                        "assignment": value,
+                        "optimal": optimal,
+                        "states": states,
+                        "fixed_probes": fixed_probes,
+                        "fixed_probe_bound": fixed_probe_bound,
+                        "fixed_work_limit": _FEATURE_LEADER_MAX_FIXED_WORK,
+                        "pair_probes": pair_probes,
+                        "joint_measurement_work": sum(self.measurement_work_by_view.values()),
+                        "joint_measurement_work_by_view": dict(self.measurement_work_by_view),
+                        "joint_measurement_work_limit_per_view": (
+                            _FEATURE_LEADER_MAX_MEASURE_WORK
+                        ),
+                        "provisional_refinement": provisional_refinement,
+                        "inventory_jobs": len(self.jobs),
+                        "objective": {
+                            "placed": placed,
+                            "priority": priority,
+                            "penalty": penalty,
+                            "provisional_penalty": provisional_penalty,
+                            "cost": cost,
+                        },
+                    }
+                )
+
+
+class _LeaderFixedInkInventory:
+    """Bounded, sheet-wide fixed ink shared by joint and fallback placement."""
+
+    def __init__(
+        self,
+        dwg: Any,
+        views: tuple[str, ...],
+        title_block: tuple[float, float, float, float],
+    ):
+        self.dwg = dwg
+        self.views = views
+        self.title_block = title_block
+        self._unset = object()
+        self._committed = self._unset
+        self._provisional = self._unset
+
+    def get(self, *, provisional=False):
+        """Lower fixed ink once, stopping before the component work cap."""
+
+        cached = self._provisional if provisional else self._committed
+        if cached is not self._unset:
+            return cached
+        remaining = _FEATURE_LEADER_MAX_FIXED_WORK
+        components = []
+        if not provisional:
+            # The entire mandatory band is hard, including blank cells
+            # between rendered title-block strokes and glyphs.
+            if remaining < 1:
+                cached = _FIXED_INVENTORY_EXHAUSTED
+            else:
+                components.append(_FixedInkComponent("title_block:reserved", box=self.title_block))
+                remaining -= 1
+        if cached is self._unset:
+            for name, annotation in self.dwg.iter_annotations():
+                if (
+                    bool(getattr(annotation, "is_provisional_layout_reservation", False))
+                    != provisional
+                ):
+                    continue
+                if remaining <= 0:
+                    cached = _FIXED_INVENTORY_EXHAUSTED
+                    break
+                annotation_components = _annotation_fixed_ink(
+                    self.dwg,
+                    name,
+                    annotation,
+                    max_components=remaining,
+                )
+                if annotation_components is _FIXED_INVENTORY_EXHAUSTED:
+                    cached = _FIXED_INVENTORY_EXHAUSTED
+                    break
+                components.extend(annotation_components)
+                remaining -= len(annotation_components)
+            else:
+                # View ownership is semantic provenance, not a page-space clipping
+                # boundary. Every job sees the same sheet-wide fixed-ink inventory.
+                shared = tuple(components)
+                cached = {view: shared for view in self.views}
+        if provisional:
+            self._provisional = cached
+        else:
+            self._committed = cached
+        return cached
+
+
+def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
+    """Solve explicit jobs now through the shared analytical leader machinery.
+
+    Pre-drain semantic consumers use ``producer_floor=True`` to retain their
+    established first-clear ordering without postponing their winners to the
+    canonical late inventory.  Candidate measurement and survivor validation
+    remain the same shared path; only the assignment tier is fixed to the lazy
+    producer floor.
+    """
+
+    jobs = list(jobs)
+    if not jobs:
+        return 0
+
+    crossing_recovery_enabled = layout_flag(
+        "crossing_recovery", "DRAFTWRIGHT_EXPERIMENTAL_CROSSING_RECOVERY"
+    )
+
+    def recovery_for(job_index):
+        # The sheet grid is bounded per call, but dense imported parts can have
+        # dozens of hole jobs. Keep this optional search within a small inventory.
+        job = jobs[job_index]
+        if crossing_recovery_enabled and len(jobs) > 16 and job.noun == "hole":
+            return None
+        return job.recover
+
+    page = (
+        analysis.margin,
+        analysis.margin,
+        analysis.PAGE_W - analysis.margin,
+        analysis.PAGE_H - analysis.margin,
+    )
+    title_block = (
+        analysis.PAGE_W - analysis.TB_W - _TB_CLEAR,
+        _TB_CLEAR,
+        analysis.PAGE_W - _TB_CLEAR,
+        _TB_CLEAR + _TB_H,
+    )
+    raw_jobs = []
+    fallback_jobs = []
+    candidate_budget_fallback_jobs = []
+    measurement_work_by_view: dict[str, int] = {}
+    recorder = _LeaderTraceRecorder(ctx, jobs, producer_floor, measurement_work_by_view)
+    record_item = recorder.record_item
+    recovery_cost = recorder.recovery_cost
+    candidate_entry = recorder.candidate_entry
+    set_assignment = recorder.set_assignment
+    for job in jobs:
+        if job.fallback_candidates is None:
+            joint, fallback = tee(job.candidates)
+        else:
+            joint, fallback = job.candidates, job.fallback_candidates
+        if job.candidate_budget_fallback_candidates is None:
+            fallback, candidate_budget_fallback = tee(fallback)
+        else:
+            candidate_budget_fallback = job.candidate_budget_fallback_candidates
+        raw_jobs.append(iter(joint))
+        fallback_jobs.append(iter(fallback))
+        candidate_budget_fallback_jobs.append(iter(candidate_budget_fallback))
+
+    views = tuple(dict.fromkeys(job.view for job in jobs))
+    # The build's ONE filled-material lowering, indexed the way this stage needs it. Taken
+    # from the drawing here rather than threaded through every producer's job, so a new
+    # leader family joins the inventory without having to remember to carry the field —
+    # and so there is exactly one lowering behind both routing and critique (#798).
+    material_by_view: dict[str, Any] = {}
+    try:
+        fields = dwg.material_fields()
+    except Exception:  # noqa: BLE001 — an unmeshable part routes on the other constraints
+        fields = {}
+    for view in views:
+        placed = dwg.views.get(view)
+        if placed and placed[0] is not None:
+            material_by_view[view] = fields.get(id(placed[0]))
+    # The candidate×component probe cap cannot protect an eager OCC scan. This
+    # owner caps inventory lowering and caches it across joint/fallback use.
+    bounded_fixed_obstacles = _LeaderFixedInkInventory(dwg, views, title_block).get
 
     def place(job_index, candidate, annotation, *, recovered=False):
         job = jobs[job_index]
@@ -2082,65 +2167,6 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 "without exact fixed-ink classification (probe budget exhausted)",
                 measurement=job.measurement,
             )
-
-    def candidate_entry(candidate, status, blockers=(), assignment_blockers=()):
-        entry = {
-            "candidate": candidate.raw_index,
-            "region": candidate.region.value,
-            "tip": list(candidate.tip),
-            "elbow": list(candidate.elbow),
-            "cost": candidate.cost,
-            "fixed_blockers": list(blockers),
-            "outcome": status,
-        }
-        if assignment_blockers:
-            entry["assignment_blockers"] = list(assignment_blockers)
-        return entry
-
-    def set_assignment(
-        value,
-        *,
-        optimal,
-        states=0,
-        fixed_probes=0,
-        fixed_probe_bound=0,
-        pair_probes=0,
-        placed=0,
-        priority=0.0,
-        penalty=0,
-        cost=0.0,
-        provisional_refinement="not_attempted",
-        provisional_penalty=0,
-    ):
-        if "budget" in value or "budget" in provisional_refinement:
-            activity("budget", reason=value, refinement=provisional_refinement, states=states)
-        for event in [shared_event, *noun_events.values()]:
-            if event is not None:
-                event.update(
-                    {
-                        "assignment": value,
-                        "optimal": optimal,
-                        "states": states,
-                        "fixed_probes": fixed_probes,
-                        "fixed_probe_bound": fixed_probe_bound,
-                        "fixed_work_limit": _FEATURE_LEADER_MAX_FIXED_WORK,
-                        "pair_probes": pair_probes,
-                        "joint_measurement_work": sum(measurement_work_by_view.values()),
-                        "joint_measurement_work_by_view": dict(measurement_work_by_view),
-                        "joint_measurement_work_limit_per_view": (
-                            _FEATURE_LEADER_MAX_MEASURE_WORK
-                        ),
-                        "provisional_refinement": provisional_refinement,
-                        "inventory_jobs": len(jobs),
-                        "objective": {
-                            "placed": placed,
-                            "priority": priority,
-                            "penalty": penalty,
-                            "provisional_penalty": provisional_penalty,
-                            "cost": cost,
-                        },
-                    }
-                )
 
     def greedy(
         reason,
