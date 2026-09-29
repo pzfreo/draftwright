@@ -36,7 +36,7 @@ from draftwright._core import (
     _log,
     _tag_sequence,
     _tol_suffix,
-    _wrap_rows,  # noqa: F401 — re-exported via the annotate facade (#700: one copy, in _core)
+    _wrap_rows,  # noqa: F401 — re-exported via the annotate facade; owned by _core
     layout_frame,
 )
 from draftwright.analysis import _sizing_bores
@@ -303,15 +303,15 @@ def _queue_authored_details(dwg, a, ctx, plan) -> None:
         )
 
 
-# ── the ONE auto-pass stage sequence (#699 slice b) ──────────────────────────
+# ── the one auto-pass stage sequence ────────────────────────────────────
 # The canonical order of the annotation stages. `_auto_annotate` executes it, and
 # `Drawing._drain_intents` (the finalize drain) walks the SAME tuple for its routed
 # subset — so a reordering here reorders BOTH build paths, and the hand-mirrored
 # "mirroring the auto-pass" divergence class is gone by construction. Stages a path
 # does not run are simply absent from its dict ("live_replay"/"user_dims" are
 # finalize-only; most render stages are auto-only); an unknown stage key is an
-# assertion error in both consumers. Order matters through four mechanisms (see
-# the #699 slice-b analysis): immediate placers read live occupancy at call time,
+# assertion error in both consumers. Order matters through four mechanisms:
+# immediate placers read live occupancy at call time,
 # corridor drain order follows key-creation order, some registrations read strip
 # state, and post-drain fallbacks run in registration order.
 _PASS_SEQUENCE: tuple[str, ...] = (
@@ -345,11 +345,9 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "gdt",
     "pmi",
     "drain",
-    # Best-effort machined-feature leader DECORATION places after the drain (#733,
-    # generalising the grooves precedent): a principal dim that registers early but
-    # places at the drain must never have its strip stolen by an immediate callout —
-    # pre-#636 the ladder's early placement enforced this implicitly; post-#636 the
-    # ordering must. The callouts' clear-room check sees the full drained occupancy
+    # Best-effort machined-feature leader decoration places after the drain: a principal
+    # dim that registers early but places at the drain must keep its strip room.
+    # The callouts' clear-room check sees the full drained occupancy
     # and yields (drops with a warning) where a principal dim now sits.
     "chamfers",
     "fillets",
@@ -366,7 +364,7 @@ _PASS_SEQUENCE: tuple[str, ...] = (
     "oriented_slots",
     "pad_heights",
     "grooves",
-    # One compatible same-view feature-leader inventory (#1166): side/plan
+    # One compatible same-view feature-leader inventory: side/plan
     # hole leaders collected before the corridor drain and the machined-feature
     # leader passes collected after it commit together here.
     "feature_leaders",
@@ -463,7 +461,7 @@ def build_model(a: Analysis):
     _bores = tuple(_concentric_bore_diams(a)) if a.is_rotational and a.od_axis == "z" else ()
     # This is the DETECTED path's model construction — `_auto_annotate` calls it only when the
     # caller declared no model, and a detected build always has the aggregate. On the declared
-    # path `a.recognition` is None (#1022) and there is nothing here to build from, so an
+    # path `a.recognition` is None and there is nothing here to build from, so an
     # absent aggregate means the caller reached this from somewhere it should not have.
     assert a.recognition is not None, (
         "build_model needs the recognition aggregate, which a declared build does not have — "
@@ -480,11 +478,9 @@ def build_model(a: Analysis):
         polygonal_bosses=a.recognition.polygonal_bosses,
         polygonal_stock=a.recognition.polygonal_stock,
         slots=a.slots,
-        # The engine's SECOND build_part_model call site; unthreaded, these three were
-        # detected again here after _analyse had already recognised them (#1019). Read off
-        # the run's one RecognitionResult (ADR 3 (was 0017)); `a.pockets`/`a.pads`/
-        # `a.pocket_patterns` are list copies of the same records and would do as well —
-        # #1024 collapses that duplication.
+        # Read the run's one RecognitionResult (ADR 3 (was 0017)) so model assembly
+        # does not recognise these families again. The corresponding analysis lists
+        # contain copies of these same records.
         slot_patterns=a.recognition.slot_patterns,
         oriented_slots=a.recognition.oriented_slots,
         oriented_slot_patterns=a.recognition.oriented_slot_patterns,
@@ -586,10 +582,10 @@ def _initial_annotation_stages(run: _AutoAnnotationRun) -> dict:
 
     def _s_rotational():
         # Rotational furniture — OD dim + axis centrelines + concentric bore leaders — IR
-        # renderer (#237), placed early like the engine's inline block it replaces.
+        # renderer, placed early so later passes see its occupancy.
         render_rotational(dwg, _compiled, a, ctx=ctx)
         # A stepped round stack on an otherwise non-rotational flange still needs
-        # its local axis shown before centered-bore offsets can be suppressed (#881).
+        # its local axis shown before centered-bore offsets can be suppressed.
         render_local_turned_centerlines(dwg, a, ctx=ctx)
 
     def _s_centermarks():
@@ -616,8 +612,8 @@ def _initial_annotation_stages(run: _AutoAnnotationRun) -> dict:
             _annotate_holes(dwg, a, view_of_axis, _groups, feature_keys, ctx=ctx, plan=_compiled)
 
     def _s_locations():
-        # Hole location dims — IR renderer (planner picks the refs + datum, #238); placed
-        # through the existing above-view strips. Replaces the engine's _add_location_dims.
+        # Hole location dims use planner-selected refs and datum; place them through
+        # the existing above-view strips.
         render_locations(dwg, _compiled, a, ctx=ctx)
         if a.cross_diams and a.is_rotational and not feature_keys:
             _log.info(
@@ -627,16 +623,15 @@ def _initial_annotation_stages(run: _AutoAnnotationRun) -> dict:
 
     def _s_height_ladder():
         # Front-view right ladder: prismatic step heights + overall height — IR renderer,
-        # through fv_zones.right preserving the leapfrog cursor (#237). Replaces the inline
-        # dim_step_* + dim_height; the turned step-length chain (render_step_lengths) handles
-        # turned parts, and a Z-turned overall height is suppressed there (ISO 129).
+        # through fv_zones.right preserving the leapfrog cursor. The turned step-length
+        # chain handles turned parts; it also suppresses a Z-turned overall height (ISO 129).
         # The ADR 4 (was 0016) boundary: compile WHAT is drawn, hand the renderer that plus the
         # page geometry it needs to decide WHERE. It no longer sees `_model` or `a`.
         render_height_ladder(
             dwg,
             # `groups=` so the planner runs ONCE per build: the orchestrator already
             # planned, and a compiler re-planning behind it would create a second
-            # product that can drift while the migration is partial (#923).
+            # product that could disagree with this run's compiled plan.
             _compiled,
             layout_frame(a),
             ctx=ctx,
@@ -644,14 +639,14 @@ def _initial_annotation_stages(run: _AutoAnnotationRun) -> dict:
         )
 
     def _s_plates():
-        # Plate/wall thicknesses on a multi-plate prismatic (#559): the thin extent of each
+        # Plate/wall thicknesses on a multi-plate prismatic: the thin extent of each
         # recognised slab, placed in the view where its thin axis is visible. A single flat
         # plate has none (its thickness IS the envelope height).
-        # Planner-fed (#729): consumes the DimensionGroups so an authored tolerance renders.
+        # The compiled group carries any authored tolerance.
         render_plates(dwg, _compiled, a, ctx=ctx)
 
     def _s_step_positions():
-        # Prismatic step POSITIONS (#555): where each shoulder sits along its axis, so a
+        # Prismatic step positions locate each shoulder along its axis, so a
         # stepped block is fully constrained (the heights alone leave the shoulder implicit).
         render_step_positions(dwg, _compiled, layout_frame(a), ctx=ctx)
 
@@ -676,13 +671,13 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
     feature_keys, detail_view = run.feature_keys, run.detail_view
 
     def _s_chamfers():
-        # Chamfer callouts (#560): C{leg} / {leg}×{angle}° via a leader off each chamfer face.
-        # Planner-fed (#724): consumes the DimensionGroups so an authored tolerance renders.
+        # Chamfer callouts: C{leg} / {leg}×{angle}° via a leader off each chamfer face.
+        # The compiled group carries any authored tolerance.
         render_chamfers(dwg, _compiled, a, ctx=ctx)
 
     def _s_fillets():
-        # Fillet callouts (#561): R{radius} (grouped n× R) via a leader off each rounded edge.
-        # Planner-fed (#725): consumes the DimensionGroups so an authored tolerance renders.
+        # Fillet callouts: R{radius} (grouped n× R) via a leader off each rounded edge.
+        # The compiled group carries any authored tolerance.
         render_fillets(dwg, _compiled, a, ctx=ctx)
 
     def _s_blends():
@@ -690,7 +685,7 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         render_blends(dwg, _compiled, a, ctx=ctx)
 
     def _s_paired_ramp_steps():
-        # Two equal ramp angles + their run share one solver-owned leader (#1382).
+        # Two equal ramp angles and their run share one solver-owned leader.
         render_paired_ramp_steps(dwg, _compiled, a, ctx=ctx)
 
     def _s_gusset_ribs():
@@ -714,21 +709,21 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         render_angular_dimensions(dwg, _compiled, a, ctx=ctx)
 
     def _s_flats():
-        # Machined-flat callouts (#148b): {across} A/F via a leader off each flat on round stock.
-        # Planner-fed (#726): consumes the DimensionGroups so an authored tolerance renders.
+        # Machined-flat callouts: {across} A/F via a leader off each flat on round stock.
+        # The compiled group carries any authored tolerance.
         render_flats(dwg, _compiled, a, ctx=ctx)
 
     def _s_pockets():
-        # Blind-recess callouts (#148a): W × L × D DEEP via a leader off each floored pocket.
-        # Planner-fed (#728): consumes the DimensionGroups so authored tolerances render.
+        # Blind-recess callouts: W × L × D DEEP via a leader off each floored pocket.
+        # The compiled group carries any authored tolerance.
         render_pockets(dwg, _compiled, a, ctx=ctx)
 
     def _s_rectangular_blind_slots():
-        # Dedicated OPEN SLOT width × capped-run × depth leader (#1421), solver-owned.
+        # One solver-owned OPEN SLOT leader carries width, capped run, and depth.
         render_rectangular_blind_slots(dwg, _compiled, a, ctx=ctx)
 
     def _s_round_bottom_blind_slots():
-        # Dedicated flat-floor × side-radius × capped-run leader (#1421), solver-owned.
+        # One solver-owned leader carries flat floor, side radius, and capped run.
         render_round_bottom_blind_slots(dwg, _compiled, a, ctx=ctx)
 
     def _s_oriented_slots():
@@ -742,24 +737,23 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         render_pad_heights(dwg, _compiled, a, ctx=ctx)
 
     def _s_pocket_patterns():
-        # Grouped blind-pocket-array callouts (#841): ONE count× W × L × D DEEP leader + the
+        # Grouped blind-pocket-array callouts: one count× W × L × D DEEP leader plus the
         # (n-1)× pitch dim(s), instead of N competing per-pocket size dims. Placed after
         # "pockets" (same leader mechanism); its member pockets are composed into the pattern,
         # so render_pockets never double-renders them.
         render_pocket_patterns(dwg, _compiled, a, ctx=ctx)
 
     def _s_slot_patterns():
-        # Grouped through-slot-array callouts (#841): ONE count× SLOT W × L leader + the (n-1)×
-        # pitch dim(s), instead of N competing per-slot size dims (some of which drop, #841
-        # behaviour 1). Member slots are composed into the pattern, so render_slots never
-        # double-renders them.
+        # Grouped through-slot-array callouts: one count× SLOT W × L leader plus the (n-1)×
+        # pitch dims, avoiding competing per-slot size dims. Member slots form the pattern,
+        # so render_slots does not double-render them.
         render_slot_patterns(dwg, _compiled, a, ctx=ctx)
 
     def _s_off_axis_across():
         # Side-drilled holes' in-plane (side-below) locations share the below corridor with
         # the overall envelope depth. They now queue into the same batch; the envelope's
         # later subchain + mandatory priority keeps ISO outermost stacking and prevents
-        # best-effort locations from starving the principal depth dimension (#477).
+        # best-effort locations from starving the principal depth dimension.
         if feature_keys:
             _locate_off_axis_holes(dwg, ctx, a, which="across", plan=_compiled)
 
@@ -767,20 +761,20 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
         # Overall width (plan, below) + depth (side, below) envelope dims — IR renderer,
         # queued into the shared corridor instead of claiming a post-hoc carve tier.
         # Suppression (the rotational OD's cross-axis extents, X/Z-turned) is the planner's
-        # decision (#250). No square-footprint rule any more — #997 removed it.
+        # decision; there is no square-footprint suppression rule.
         render_envelope(dwg, _compiled, a, ctx=ctx)
 
     def _s_detail_request():
         # Prismatic step-height detail: queue it when detail recovery is enabled (the
         # build default; ``detail_view=False`` opts out), then resolve it with every other
-        # detail request in the "details" stage (#307).
+        # detail request in the "details" stage.
         if detail_view:
             _request_prismatic_detail(dwg, a, ctx=ctx, plan=_compiled)
 
     def _s_boss_diameters():
         # Prismatic bosses get a plan-view ø leader BEFORE the turned row/column solve,
-        # which then sees the ø as 'mentioned' and skips it (#629 — the column-left strip
-        # strands a boss ø when tight, even on a half-empty sheet). No-op on turned parts
+        # which then sees the ø as 'mentioned' and skips it. The column-left strip
+        # can strand a boss ø when tight, even on a half-empty sheet. No-op on turned parts
         # (they keep the OD stack).
         render_boss_diameters(dwg, _compiled, a, ctx=ctx)
 
@@ -793,15 +787,15 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
 
     def _s_diameters():
         # Turned-part dimensions via the IR (ADR 1 (was 0008) convergence). The model is built
-        # once and fed to both renderers (#229 — no per-pass rebuild): ø leaders, row
+        # once and fed to both renderers, with no per-pass rebuild: ø leaders, row
         # below (X) / end-on radial leaders (Y) / column left (Z), one path by
         # frame axis. Replaces
         # _annotate_turned_diameters.
         render_diameters(dwg, _compiled, a, ctx=ctx)
 
     def _s_step_lengths():
-        # The chain that locates every shoulder, X/Y/Z from one path (#223). A crowded
-        # X-turned head queues an enlarged detail request (#304/#307) instead of
+        # One chain locates every shoulder for X/Y/Z. A crowded
+        # X-turned head queues an enlarged detail request instead of
         # cramming; the envelope dim along the turning axis was suppressed so the chain
         # does not double-dimension the length.
         if a.profiles:
@@ -821,17 +815,16 @@ def _feature_annotation_stages(run: _AutoAnnotationRun) -> dict:
     def _s_off_axis_along():
         # Side-drilled (X/Y-axis) hole HEIGHT locations — queued after the mandatory
         # envelope candidates so below/right corridors solve them together with GD&T/PMI
-        # at the drain. (The front-right height ladder's leapfrog witness chain — #477 —
-        # survives inside its candidates' build closures since #636; nothing here
-        # places immediately.)
+        # at the drain. The front-right height ladder's leapfrog witness chain
+        # remains inside its candidates' build closures; nothing here places immediately.
         if feature_keys:
             _locate_off_axis_holes(dwg, ctx, a, which="along", plan=_compiled)
 
     def _s_slots():
-        # Non-cylindrical machined features: slots / reduced across-flats sections
-        # (#135) — IR renderer, placed through the zone strips (shared infra). Runs
-        # after every hole/diameter pass so it claims strip space last.
-        # Planner-fed (#730): consumes the DimensionGroups so authored tolerances render.
+        # Non-cylindrical machined features: slots and reduced across-flats sections.
+        # The IR renderer places them through the shared zone strips after every
+        # hole/diameter pass, so they claim strip space last.
+        # The compiled groups carry any authored tolerances.
         render_slots(dwg, _compiled, a, ctx=ctx)
 
     return {
@@ -874,14 +867,14 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
     detail_reservations = run.detail_reservations
 
     def _s_gdt():
-        # Declared GD&T frames / datum symbols / surface finishes (ADR 4 (was 0011 §4), #61)
+        # Declared GD&T frames, datum symbols, and surface finishes (ADR 4 (was 0011 §4))
         # register into the same strips as first-class candidates BEFORE the drain, so
         # the one solve orders and spaces them crossing-free with locations/slots rather
         # than consuming leftovers as first-fit placements.
         render_gdt(dwg, _model, a, ctx=ctx)
 
     def _s_pmi():
-        # Authored STEP PMI dims (#393) — same pre-drain registration as GD&T above.
+        # Authored STEP PMI dims register before the drain with GD&T.
         if a.pmi_mode == "annotate" or (
             ctx.model_declared
             and any(
@@ -894,18 +887,18 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
 
     def _s_drain():
         # Now every corridor feeder pass has registered; solve each shared strip once
-        # (ADR 2 (was 0009) end state) + the #690 label reconciliation — BEFORE the
+        # (ADR 2 (was 0009)) with label reconciliation, before the
         # section/detail views so they see the placed ladder as an obstacle.
         drain_and_reconcile(ctx, dwg)
 
     def _s_grooves():
-        # Turned/circlip-groove callouts (#148c): {width} WIDE × ø{dia} via a leader off
+        # Turned/circlip-groove callouts: {width} WIDE × ø{dia} via a leader off
         # each groove. A groove is a secondary leader-callout on a turned shaft — exactly
         # where the primary turned-length chain runs — so it places into remaining clear
         # room only after the corridor drain has finalised the diameter/step-length
-        # furniture (else its room check can't see the not-yet-drained length dims and
-        # collides, #148c crowded-shaft).
-        # Planner-fed (#727): consumes the DimensionGroups so authored tolerances render.
+        # furniture (else its room check cannot see the pending length dims and
+        # collides with them).
+        # The compiled groups carry any authored tolerances.
         render_grooves(dwg, _compiled, a, ctx=ctx)
 
     def _s_feature_leaders():
@@ -923,14 +916,14 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
         else:
             # Recorded, not left at the initial `not_evaluated`: the planner DID run and
             # found no counterbore/spotface/blind Z-hole, which is a different fact from
-            # the pass never having run at all (#1190).
+            # the pass never having run at all.
             dwg.record_section_decision(
                 "not_warranted",
                 detail="no qualifying hidden internal detail — no section warranted",
             )
 
     def _s_details():
-        # Resolve every queued enlarged-detail request (#307) — prismatic step bands and
+        # Resolve every queued enlarged-detail request — prismatic step bands and
         # crowded turned heads alike — through the one generic detailer, now that all
         # views and main-view annotations are placed (so the detail avoids them).
         _queue_authored_details(dwg, a, ctx, _compiled)
@@ -952,18 +945,18 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
         _add_title_block(dwg, a)
 
     def _s_sheet_frame():
-        # The sheet border, drawn LAST (#767) — gated on the frame opt-in; content already
+        # The sheet border is drawn last when the frame is enabled; content already
         # reserved room via the raised a.margin, so this only draws.
         if a.frame:
             _add_sheet_frame(dwg, a)
 
     def _s_zone_grid():
-        # ISO 5457 zone-grid border ruler (#768), on the frame (a.zones implies a.frame).
+        # ISO 5457 zone-grid border ruler on the frame (a.zones implies a.frame).
         if a.zones:
             _add_zone_grid(dwg, a)
 
     def _s_projection_symbol():
-        # ISO 5456-2 projection-method glyph (#769) in the reserved title-block band.
+        # ISO 5456-2 projection-method glyph in the reserved title-block band.
         _add_projection_symbol(dwg, a)
         _add_scale_note(dwg, a)
         _add_default_surface_finish(dwg, a)
@@ -971,7 +964,7 @@ def _final_annotation_stages(run: _AutoAnnotationRun) -> dict:
     def _s_tabulate():
         # Escalate to a hole table when the plan view is too dense to dimension
         # every hole — runs last so the table avoids every placed annotation
-        # including the title block and projection symbol (#93/#1517).
+        # including the title block and projection symbol.
         _maybe_tabulate_holes(dwg, a, ctx=ctx, plan=_compiled)
         for schedule in _compiled.schedules:
             cells = tuple(
@@ -1016,13 +1009,13 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     """
     # Per-run placement scratch (detail requests / escalations / corridor batch) + references to
     # the drawing's build-state stores (registry/coverage), threaded to the passes instead of hung
-    # on the Drawing (ADR 1 (was 0005 §2), #639). Fresh each auto-pass; the corridor batch is drained once
-    # at the end (drain_corridors, #345/#346).
+    # on the Drawing (ADR 1 (was 0005 §2)). Fresh each auto-pass; the corridor batch
+    # is drained once at the end.
     ctx = PlacementContext(
         registry=dwg.registry,
         coverage=dwg.coverage,
-        items=dwg.items,  # #817: passes place via ctx.place, not dwg.add
-        # The opt-in solve-trace recorder (#736), attached to the drawing's build state
+        items=dwg.items,  # passes place via ctx.place, not dwg.add
+        # The opt-in solve-trace recorder is attached to the drawing's build state
         # by the builder; getattr because dwg is duck-typed in tests. None = off.
         trace=getattr(dwg, "solve_trace", None),
         feature_leaders=[],
@@ -1057,9 +1050,9 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     for _rs in _right_strips:
         _rs.outer_limit = min(_rs.outer_limit, _iso_x_limit)
 
-    # The same guard for the page-reaching ABOVE strips (#1240). The right strips have been
+    # Clamp page-reaching above strips to the isometric view. The right strips have been
     # iso-clamped since the zone carve; the above strips had only the per-pass m_locy clamp,
-    # so every other above-strip resident — GD&T frames, grid pitch dims, #1236's overall-
+    # so every other above-strip resident — GD&T frames, grid pitch dims, overall-
     # extent fallthrough — could stack under the iso unchecked: `strip_obstacles` is
     # annotations-only by documented design (views enter `late_furniture_obstacles`, not the
     # strip carve), so nothing else stood between them. Same x/y transposition of the same
@@ -1079,20 +1072,19 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
         if _x0 < _iso_x1 and _iso_x0 < _x1 and _iso_y_limit > _as.anchor:
             _as.outer_limit = min(_as.outer_limit, _iso_y_limit)
 
-    # Per-hole annotations from the feature records (#91, #92, #95): each
+    # Per-hole annotations come from feature records: each
     # hole is annotated in the view its axis is normal to.
     # to_page maps a model-space *location* (x, y, z) → page coords (IR-typed, not a
     # recogniser Hole — ADR 1 (was 0008 Amendment 6)).
     view_of_axis = build_view_of_axis(a)
 
     # The part model — the IR-migrated passes (centre marks, turned diameters/lengths)
-    # render from it (ADR 1 (was 0008) convergence / #229). Built once by the pipeline
+    # render from it (ADR 1 (was 0008)). Built once by the pipeline
     # (:func:`build_model`) and filled into BuildState at builder._assemble's single
     # construction site, so the read surface (dwg.model()) works on every real path; the
     # `build_model(a)` fallback covers a direct caller that reached _auto_annotate without a
-    # model. #830: this pass no longer RE-attaches the model onto the drawing (the redundant
-    # dwg._attach_part_model was the only engine caller) — it threads the ensured model onto
-    # the run's ctx so every pass reads it from ctx, not the drawing's privates (#639).
+    # model. The ensured model is threaded onto the run's ctx so every pass reads
+    # it there, without accessing the drawing's private state.
     _model = dwg.model() if dwg.model() is not None else build_model(a)
     ctx.part_model = _model
     ctx.model_declared = dwg.model_declared
@@ -1100,13 +1092,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     ctx.document_source_annotation_ids = getattr(
         dwg, "document_source_annotation_ids", frozenset()
     )
-    # Plan the dimensions ONCE and thread the groups to every renderer that reads them
-    # (was recomputed per renderer, #275). One rule set over DimParameters, literally.
+    # Plan dimensions once and thread the groups to every renderer that reads them.
     _groups = plan_dimensions(_model, planned_views=a.planned_views)
-    # ONE compiled plan, shared by every migrated consumer (#923).
-    # Compiling per stage ran the compiler three times and, worse, let the direct
-    # ladder, the shoulders and the detail escalation each hold a separately
-    # derived decision — three chances to disagree about one drawing.
+    # Share one compiled plan so the ladder, shoulders, and detail escalation
+    # use the same dimension decisions.
     _compiled = compile_dimensions(_model, groups=_groups)
     _groups = annotation_groups(_model, _groups)
     if (
@@ -1143,7 +1132,7 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
                 outcome_stage="validation",
             )
     # Hole callouts, location dims, and the section view fire on *feature
-    # presence*, independent of the turned/prismatic class (#10): the
+    # presence*, independent of the turned/prismatic class: the
     # classification only selects the base set (OD+centreline+ldr_z vs envelope
     # dims).  A turned flange (round OD + a bolt circle) must get BOTH.
     #
@@ -1153,12 +1142,12 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # prismatic part every hole flows through unchanged.
     # The surviving feature holes' *positions* (concentric bores excluded on rotational
     # parts) — the IR gates callouts/furniture/sections on membership in this set, so no
-    # recogniser Hole object crosses into the renderers (Amendment 6, #263/#207).
+    # recogniser Hole object crosses into the renderers (ADR 1 (was 0008 Am6)).
     # feature_hole_keys reads the IR (`_model.features`) — the single source shared with
-    # the section() add verb (#420 / #584 WP1) and the off-axis location pass, which now
-    # derives its own side-drilled holes from the IR too (subsystem B3).
+    # the section() add verb and the off-axis location pass, which derives
+    # side-drilled holes from the IR.
     feature_keys = feature_hole_keys(_model, a)
-    # ADR 4 (was 0011) #448: when the caller DECLARED the model (model=), a hole/pattern renders at
+    # ADR 4 (was 0011): when the caller declared the model (model=), a hole/pattern renders at
     # its declared position even where detection missed it — source the callout membership
     # set from the declared IR groups too, not only a.holes. A no-op for the detection-only
     # path (gated on the declared flag; and on a fully-detected declared part the declared
@@ -1202,10 +1191,10 @@ def _auto_annotate(dwg, a: Analysis, *, detail_view: bool = False):
     # redundant placed pitch ink. Early removal changes unrelated balloon choices.
     _coalesce_aligned_linear_pitch_dims(dwg, a, ctx=ctx)
     retract_resolved_withholdings(dwg, ctx, run.runtime_plan)
-    if ctx.trace is not None:  # snapshot the run's escalations into the trace (#736)
+    if ctx.trace is not None:  # snapshot the run's escalations into the trace
         ctx.trace.record_escalations(ctx.escalations)
-    # The escalations live only on this per-run ctx (#639), discarded when _auto_annotate
-    # returns — so nothing carries stale drops into a later deferred edit (#440), and there is
+    # The escalations live only on this per-run ctx, discarded when _auto_annotate
+    # returns — so nothing carries stale drops into a later deferred edit, and there is
     # no drawing-level list to clear.
     return run.runtime_plan.diagnostics
 
@@ -1315,8 +1304,8 @@ class _HoleTableRun:
 
 def _prepare_hole_table_run(ctx) -> _HoleTableRun | None:
     # Trigger on the first-class Escalation objects the hole placers collect (ADR 2 (was 0009)
-    # Amdt 1, #351 PR-2), not by grepping the `*_dropped` lint strings. Byte-identical:
-    # a "callout"/"location" Escalation is emitted 1:1 with each callout_dropped/
+    # Amdt 1), not by grepping the `*_dropped` lint strings. A
+    # "callout"/"location" Escalation accompanies each callout_dropped/
     # location_ref_dropped code. The lint codes stay as the coverage surface.
     escalations = ctx.escalations
     if not any(e.kind in ("callout", "location") for e in escalations):
@@ -1333,11 +1322,11 @@ def _prepare_hole_table_run(ctx) -> _HoleTableRun | None:
 
     # Tabulate only the genuinely UNpatterned plan-view holes: holes in a
     # recognised pattern are documented by their grouped ``n× ⌀`` callout +
-    # pattern dimension, so they must not become table rows or per-hole balloons
-    # (#92).  Excluding them is also what keeps a densely-but-regularly drilled
-    # part (e.g. NIST CTC-02) off the 61-row escalation (#111). Sourced from the IR —
+    # pattern dimension, so they must not become table rows or per-hole balloons.
+    # Excluding them also keeps a densely but regularly drilled
+    # part (e.g. NIST CTC-02) out of a scattered-hole table. Sourced from the IR —
     # a loose z-axis HoleFeature is by construction not a pattern member, so no
-    # HoleRecord crosses here (ADR 1 (was 0008 Am6); #584 WP1 B4).
+    # HoleRecord crosses here (ADR 1 (was 0008 Am6)).
     _model = ctx.part_model
     holes = [
         SimpleNamespace(
@@ -1353,7 +1342,7 @@ def _prepare_hole_table_run(ctx) -> _HoleTableRun | None:
     ]
     # A chart is warranted only for a *genuinely* dense plan view — a part that
     # merely dropped one too-close location ref keeps its individual dims (the
-    # legibility gate already handled it). #93.
+    # legibility gate already handled it).
     tabulate_scattered = len(holes) >= _TABULATE_MIN_HOLES
     if not tabulate_scattered and not pattern_feats:
         return None
@@ -1362,7 +1351,7 @@ def _prepare_hole_table_run(ctx) -> _HoleTableRun | None:
     tags = _tag_sequence(n_scattered + len(pattern_feats))
     scattered_tags, pattern_tags = tags[:n_scattered], tags[n_scattered:]
     # One balloon per pattern, tagged with its member count so the ring reads
-    # "6×A" rather than one glyph per member (#348).  Without a table/legend the
+    # "6×A" rather than one glyph per member. Without a table/legend the
     # marker does not state the pattern's diameter, depth or arrangement; it is
     # deliberately non-certifying and cannot clear the original callout drop.
     pattern_specs = [
@@ -1708,10 +1697,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         # No `_tol_suffix` here, deliberately. A location cannot be toleranced: `location` is
         # not among any feature's `parameters()`, so there is no key to author one against, and
         # `_compile_locations` / `_compile_off_axis_hole_locations` assign no tolerance.
-        # Measured across the guard corpus, decorating every parameter of every feature through
-        # both key shapes: 204 compiled locations, 0 with a tolerance. The first cut of this
-        # composed the suffix here anyway — a reader with no writer, which is precisely the
-        # dead-code defect this PR filed against #1234's `depth_tol` (#1216).
+        # There is no authored suffix to compose for these table cells.
         approved_locations = {
             (resolve_feature(location.ref), tuple(location.span[1]), location.discriminator): (
                 location.value_text
@@ -1755,10 +1741,8 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         data = [_table_row(tag, h) for tag, h in zip(scattered_tags, holes, strict=True)]
         # Remove the callouts and location dims the table replaces FIRST: it frees
         # their space for the table and shrinks the obstacle set fit_box scans (the
-        # dense parts have dozens), which is the dominant cost on heavy sheets (#93).
-        # Structured coverage state (registered at placement time, #351 PR-4c), not
-        # an annotation-name-prefix grep — the last stringly-typed inference this
-        # resolver relied on (ADR 2 (was 0009 Amdt 1)).
+        # dense parts have dozens). Structured coverage state records these names at
+        # placement time, avoiding an annotation-name-prefix inference (ADR 2 (was 0009 Amdt 1)).
         table_transaction_snap = _snapshot_annotation_transaction(dwg, ctx.coverage)
         replaced = _stash_annotations(
             dwg,
@@ -1840,12 +1824,11 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
     if balloon_specs:
         # One call: the strip solver must see every band member together, or two
         # independent render_balloons calls could stack a pattern balloon on a
-        # per-hole one in the same band. Called sideways into the render layer
-        # (#699) — no longer an upward duck-typed dwg.add_balloons call.
+        # per-hole one in the same band. This calls the shared render-layer placer.
         # A scattered-hole table is a visual escalation, not merely another
         # balloon request: spread its tags around the usable perimeter so a
-        # deep occupied strip cannot collapse the ring onto two near sides
-        # (#901). Pattern-only and public-verb balloons keep nearest-band cost.
+        # deep occupied strip cannot collapse the ring onto two near sides.
+        # Pattern-only and public-verb balloons keep nearest-band cost.
         _place_balloon_attempt(
             balloon_specs,
             perimeter=table_placed,
@@ -1853,7 +1836,7 @@ def _maybe_tabulate_holes_impl(dwg, a: Analysis, *, ctx, plan=None):
         )
 
     # Commit the shared table replacement only after every balloon that maps its
-    # visible rows back to physical holes has landed (#1144).
+    # visible rows back to physical holes has landed.
     table_success_features: set = set()
     if table_placed and table is not None:
         table_tagged_holes = [
