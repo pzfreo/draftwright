@@ -16,8 +16,7 @@ import os
 import warnings
 import weakref
 from collections.abc import Callable, Sequence
-from contextlib import nullcontext
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -58,8 +57,6 @@ from draftwright.analysis import Analysis, _analyse, _apply_principal_view_pins
 from draftwright.annotation_layout_profile import (
     AnnotationLayoutProfile,
     annotation_layout_policy,
-    candidate_profile,
-    current_layout_profile,
     use_layout_profile,
 )
 from draftwright.annotations._common import (
@@ -75,9 +72,15 @@ from draftwright.annotations.orchestrator import (
     build_model,
     build_rotational_feature,
 )
+from draftwright.build_once import build_once
 from draftwright.build_options import BuildOptions
 from draftwright.build_policy import (
-    ScaleIncompatibilityError,
+    ScaleIncompatibilityError as ScaleIncompatibilityError,
+)
+from draftwright.build_policy import (
+    _arrangement_quality as _arrangement_quality,
+)
+from draftwright.build_policy import (
     _automatic_candidate_rejection,
     _axial_dimension_losses,
     _blocker_identity,
@@ -98,9 +101,6 @@ from draftwright.build_policy import (
     _structural_layout_issues,
 )
 from draftwright.build_policy import (
-    _arrangement_quality as _arrangement_quality,
-)
-from draftwright.build_policy import (
     _is_required_scale_drop as _is_required_scale_drop,
 )
 from draftwright.compose import (
@@ -113,12 +113,11 @@ from draftwright.compose import (
     _view_geom,
 )
 from draftwright.drawing import Drawing
+from draftwright.explicit_scale import resolve_explicit_scale
 from draftwright.layout_safety import candidate_safety_evidence
 from draftwright.layout_selection import (
-    annotation_demand_carrier_evidence,
     choose_pre_render_profile,
     lost_required_derived_view_reservations,
-    pre_render_view_page_overflow,
     select_best_annotation_layout,
 )
 from draftwright.linting import LintIssue
@@ -131,9 +130,7 @@ from draftwright.model import (
     StepFeature,
     build_pmi_features,
 )
-from draftwright.model.ir import authored_dimension_target_view
-from draftwright.model.planner import plan_dimensions
-from draftwright.progress import activity, build_operation, observed_stage, stage
+from draftwright.progress import activity, build_operation, observed_stage
 from draftwright.projection import (
     _ISO_MAX_GROW,
     _bbox_within,
@@ -146,9 +143,7 @@ from draftwright.recognition_cache import RecognitionCache
 from draftwright.view_plan import (
     ARRANGEMENTS,
     PRINCIPAL_VIEW_NAMES,
-    UncoveredViewRequirement,
     ViewConstraints,
-    ViewPlanIncomplete,
     resolve_from_analysis,
     third_angle_view_names,
 )
@@ -623,71 +618,8 @@ def _layout_advisory(code: str, message: str) -> LintIssue:
     raise ValueError(f"unknown layout advisory: {code!r}")
 
 
-@observed_stage("assemble")
-def _assemble(
-    a,
-    out,
-    assembly,
-    detail_view,
-    auto_dims,
-    model=None,
-    decorations=None,
-    requested=None,
-    authored=None,
-    trace=None,
-    shape=None,
-    critique_recognition_cache=None,
-    reproducible=True,
-    title_block_cache=None,
-) -> Drawing:
-    """Project the 4 views for analysis *a*, run the automatic annotation
-    passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
-    repacked analysis it is also pass 2 of the measure-and-repack loop (#121).
-    *trace* is the opt-in #736 solve-trace recorder (attached to the drawing's
-    build state so the annotate + finalize paths thread it), or ``None``."""
-    cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
-    dist = a.bbox_max * a.SCALE + 100
-    draft = _dimension_draft(a.text_position, a.text_orientation)
-    if (a.text_position, a.text_orientation) != ("inline", "aligned"):
-        _dimension_head_bounds(draft.arrow_length, draft.head_type)
-
-    scheme_shadow = a.layout_strips.annotation_scheme_shadow_report(a.SCALE)
-    pre_render_choice = choose_pre_render_profile(
-        a.layout_strips,
-        scheme_shadow,
-        page=(a.PAGE_W, a.PAGE_H),
-        views=tuple(a.planned_views or third_angle_view_names()),
-        auto_dims=auto_dims,
-    )
-    dwg = Drawing(
-        scale=a.SCALE,
-        page_w=a.PAGE_W,
-        page_h=a.PAGE_H,
-        tb_w=a.TB_W,
-        draft=draft,
-        look_at=(cxs, cys, czs),
-        dist=dist,
-        centroid=(a.cx, a.cy, a.cz),
-        out=out,
-        part=a.source_part if a.source_part is not None else a.part,
-        working_part=a.part,
-        cyls=a.cyls,
-        assembly=assembly,
-        reproducible=reproducible,
-    )
-    dwg._build.title_block_cache = title_block_cache if title_block_cache is not None else {}
-    dwg.annotation_scheme_decision = {
-        "status": "shadow",
-        "influenced_layout": False,
-        **scheme_shadow.to_dict(),
-        "pre_render_choice": pre_render_choice,
-    }
-    # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
-    # work even in manual mode (#398). _auto_annotate reads this attached model rather
-    # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
-    # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
-    # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
-    # fallback for a manually-constructed Analysis with no stored model.
+def _assembly_model(a, model, decorations, requested, authored) -> PartModel:
+    """Attach declared-only rotational and PMI evidence to this assembly's model."""
     pm = (
         _coerce_model(model, a.part, decorations, requested, authored)
         if model is not None
@@ -781,6 +713,75 @@ def _assemble(
                         else ()
                     ),
                 )
+    return pm
+
+
+@observed_stage("assemble")
+def _assemble(
+    a,
+    out,
+    assembly,
+    detail_view,
+    auto_dims,
+    model=None,
+    decorations=None,
+    requested=None,
+    authored=None,
+    trace=None,
+    shape=None,
+    critique_recognition_cache=None,
+    reproducible=True,
+    title_block_cache=None,
+) -> Drawing:
+    """Project the 4 views for analysis *a*, run the automatic annotation
+    passes, and fit the iso.  This is pass 1 of :func:`build_drawing`; with a
+    repacked analysis it is also pass 2 of the measure-and-repack loop (#121).
+    *trace* is the opt-in #736 solve-trace recorder (attached to the drawing's
+    build state so the annotate + finalize paths thread it), or ``None``."""
+    cxs, cys, czs = a.cx * a.SCALE, a.cy * a.SCALE, a.cz * a.SCALE
+    dist = a.bbox_max * a.SCALE + 100
+    draft = _dimension_draft(a.text_position, a.text_orientation)
+    if (a.text_position, a.text_orientation) != ("inline", "aligned"):
+        _dimension_head_bounds(draft.arrow_length, draft.head_type)
+
+    scheme_shadow = a.layout_strips.annotation_scheme_shadow_report(a.SCALE)
+    pre_render_choice = choose_pre_render_profile(
+        a.layout_strips,
+        scheme_shadow,
+        page=(a.PAGE_W, a.PAGE_H),
+        views=tuple(a.planned_views or third_angle_view_names()),
+        auto_dims=auto_dims,
+    )
+    dwg = Drawing(
+        scale=a.SCALE,
+        page_w=a.PAGE_W,
+        page_h=a.PAGE_H,
+        tb_w=a.TB_W,
+        draft=draft,
+        look_at=(cxs, cys, czs),
+        dist=dist,
+        centroid=(a.cx, a.cy, a.cz),
+        out=out,
+        part=a.source_part if a.source_part is not None else a.part,
+        working_part=a.part,
+        cyls=a.cyls,
+        assembly=assembly,
+        reproducible=reproducible,
+    )
+    dwg._build.title_block_cache = title_block_cache if title_block_cache is not None else {}
+    dwg.annotation_scheme_decision = {
+        "status": "shadow",
+        "influenced_layout": False,
+        **scheme_shadow.to_dict(),
+        "pre_render_choice": pre_render_choice,
+    }
+    # Detect the IR here — before the auto_dims gate — so dwg.model() and feature edits
+    # work even in manual mode (#398). _auto_annotate reads this attached model rather
+    # than rebuilding. On a repack this runs again on the pass-2 drawing (freshness).
+    # Detected path: reuse the model _analyse already built for sizing (#584 WP1 A) —
+    # detectors run once per build (ADR 1 (was 0008 Amdt 5), #602). build_model(a) remains the
+    # fallback for a manually-constructed Analysis with no stored model.
+    pm = _assembly_model(a, model, decorations, requested, authored)
     # A source-proven document default uses the existing title-block carrier when the caller
     # did not explicitly author one. An explicit tolerance, including the blank string, wins.
     general_tolerance_source = None
@@ -1418,516 +1419,30 @@ def _build_drawing_once(
     _candidate_profile_first: bool = False,
     _title_block_cache=None,
 ) -> Drawing:
-    """Build one drawing attempt from the validated options and chosen scale/page.
-
-    The descriptions below refer to fields of ``options``. The public
-    :func:`build_drawing` returns the live :class:`Drawing`; ``make_drawing``
-    wraps that front door with export.
-
-    Args:
-        auto_dims: pass ``False`` to skip the automatic dimensions,
-            centrelines, and leaders (#74) — the automatic set assumes a
-            turned part and is wrong for prismatic geometry. Views, scale,
-            page, and sheet furniture (title block, and the "ISO VIEW (NTS)"
-            note when the iso is rescaled off sheet scale) are still produced;
-            add your own annotations before export. (Annotations added by the default can
-            also be removed wholesale with :meth:`Drawing.clear_annotations`.)
-        detail_view: automatically recover crowded prismatic step dimensions in an
-            enlarged detail view. Default ``True``; pass ``False`` to leave them on the
-            parent view only and report ``step_dim_dropped`` when they do not fit.
-        pmi: AP242 PMI handling. ``None`` (the default) behaves as ``"off"`` but retains
-            that it was defaulted so a source containing authored PMI can say annotation is
-            disabled by default. Explicit ``"off"`` produces no PMI annotations or per-record
-            failures but reports the ignored source inventory; ``"report"`` inventories and
-            lowers without rendering; ``"annotate"`` also requires render outcomes.
-        repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
-            placement to fix mechanically-clear violations (a dim on the wrong
-            side, two overlapping labels). Default ``True``; a no-op on a clean
-            sheet. Pass ``False`` to inspect the raw greedy placement (#30).
-        assembly: severity of the feature-coverage lint for a general-arrangement
-            drawing. ``None`` (default) auto-detects — a multi-solid part is an
-            assembly, whose per-part bores are reported at ``info`` rather than
-            ``warning`` (a GA omits them by design). Force with ``True``/``False``
-            (#69).
-        reproducible: write files that do not carry the run that produced them, so
-            two exports of one drawing are byte-identical and a written drawing can be
-            diffed or checksummed to see whether its content really changed. Sets the
-            default for :meth:`Drawing.export`'s own ``reproducible=``. ``True``:
-            a drawing that differs between runs cannot be diffed, checksummed or
-            cached, and the cost is small on a part — measured on the NIST CTC-01
-            AP242 fixture it is +0.27 s on a 13.4 s job (+3.2% of export, +2.0%
-            overall). Pass ``False`` to opt out where it is not small: the cost is
-            one bounding box and one edge walk per part, so it grows with part
-            count and reached +32% of export on a 358-part assembly. The metadata
-            pinning the flag also turns on is ~1 ms either way.
-        framed_recognition: opt an automatic build into the provider-owned local recognition
-            frame. Caller geometry remains provenance, the exact local solid feeds downstream
-            geometry stages, and a typed refusal has one visible top-level raw fallback. Raw
-            remains the default; declared ``model=`` builds do not frame or recognise.
-        model: a caller-supplied IR (ADR 4 (was 0011)) — a :class:`PartModel`, or a sequence
-            of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
-            ``boss``, ``step``, … from the objects you built). When given, **feature
-            detection is skipped** and the auto-pass dimensions exactly the declared
-            features; ``None`` (default) detects normally. Detection and declaration are
-            two producers of the same IR — everything downstream is untouched. (Notes:
-            sheet scale/zone estimation and the coverage lint still detect independently,
-            so a *partial* declaration will flag the undeclared geometry. A declared
-            hole/pattern now renders at its declared position even where detection missed
-            it (#448); the one remaining detection-dependent bit is the off-axis
-            side-drilled hole *location* dim, which needs recogniser-Hole geometry a
-            declared feature doesn't carry. See ADR 4 (was 0011).)
-        trace: the opt-in **solve-trace / explain mode** (#736): record every strip
-            placement decision as ONE JSON file per build (schema ``version`` 2),
-            with two record types. ``solves`` — the corridor solves: the candidate
-            set, the obstacles that carved the strip (with owning annotation names),
-            the free segments, and each candidate's outcome (placed/dropped-with-
-            reason/deduped/promoted). ``pass_events`` — everything placed outside a
-            corridor solve: the standalone strip passes plus the *immediate* placers
-            (the post-drain machined-feature leader callouts and the turned
-            diameter/step-length set-solves), each with per-item outcomes. The
-            ``jq`` contract — corridor dims vs everything else::
-
-                jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
-                jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
-
-            ``True`` writes ``<out>.trace.json`` beside the drawing; a path writes
-            there (a directory gets ``<stem>.trace.json`` inside it). Default
-            ``None`` consults the ``DRAFTWRIGHT_TRACE`` env var (same
-            path-or-directory semantics); ``False`` forces it off. **Zero output
-            change**: tracing never alters a placement decision, and off (the
-            default) costs nothing. Recording-only: an unwritable trace path logs a
-            warning and never aborts the build/export.
-
-    Returns:
-        A :class:`Drawing` with the standard front/plan/side/iso views projected
-        and the automatic dimensions + title block already added.
-    """
-
-    out = options.out
-    title = options.title
-    number = options.number
-    tolerance = options.tolerance
-    drawn_by = options.drawn_by
-    auto_dims = options.auto_dims
-    detail_view = options.detail_view
-    pmi = options.pmi
-    repair = options.repair
-    assembly = options.assembly
-    model = options.model
-    decorations = options.decorations
-    requested = options.requested
-    authored = options.authored
-    trace = options.trace
-    material = options.material
-    date = options.date
-    revision = options.revision
-    company = options.company
-    frame = options.frame
-    projection = options.projection
-    projection_symbol = options.projection_symbol
-    zones = options.zones
-    reproducible = options.reproducible
-    framed_recognition = options.framed_recognition
-    text_position = options.text_position
-    text_orientation = options.text_orientation
-    _views = options._views
-    _include_iso = options._include_iso
-    _view_constraints = options._view_constraints
-    _required_tables = options._required_tables
-    _document_input = options._document_input
-    source = options.source
-    approved_by = options.approved_by
-    document_type = options.document_type
-    sheet = options.sheet
-    margin_left = options.margin_left
-    margin_right = options.margin_right
-    margin_top = options.margin_top
-    margin_bottom = options.margin_bottom
-    title_block_width = options.title_block_width
-    leader_region = options.leader_region
-    stem = "drawing" if isinstance(step_file, Shape) else Path(step_file).stem
-    out = out or stem
-    for _ext in (".svg", ".dxf"):
-        if out.endswith(_ext):
-            out = out[: -len(_ext)]
-            break
-    title = title or stem.replace("_", " ").upper()
-    tracer = _resolve_trace(trace, out)
-
-    if model is None and (requested or authored is not None):
-        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
-        # builds its own. Silently dropping them would leave a caller's add_dimension() /
-        # dimension() with no effect and no diagnostic — the failure mode this project
-        # treats as worse than a visible error (#630/#631/#632). An authored set is the
-        # worse of the two to drop: the build would quietly revert to the automatic
-        # dimensions the author was replacing (#921).
-        verb = "requested=" if requested else "authored="
-        raise ValueError(
-            f"{verb} names declared features, so it needs model= too; a detected "
-            "model builds its own feature objects that no request can target"
-        )
-
-    def analyse(
-        *,
-        reuse,
-        views,
-        scale_override=None,
-        page_override=None,
-        arrangements_override=None,
-    ):
-        return _analyse(
-            step_file,
-            title,
-            number,
-            tolerance,
-            drawn_by,
-            out,
-            scale=scale if scale_override is None else scale_override,
-            page=page if page_override is None else page_override,
-            pmi=pmi,
-            source=source,
-            model=model,
-            decorations=decorations,
-            authored=authored,
-            requested=requested,
-            material=material,
-            date=date,
-            revision=revision,
-            company=company,
-            approved_by=approved_by,
-            document_type=document_type,
-            sheet=sheet,
-            margin_left=margin_left,
-            margin_right=margin_right,
-            margin_top=margin_top,
-            margin_bottom=margin_bottom,
-            title_block_width=title_block_width,
-            frame=frame,
-            projection=projection,
-            projection_symbol=projection_symbol,
-            text_position=text_position,
-            text_orientation=text_orientation,
-            leader_region=leader_region,
-            zones=zones,
-            _reuse=reuse,
-            _required_tables=_required_tables,
-            _arrangements=(
-                _arrangements if arrangements_override is None else arrangements_override
-            ),
-            _views=views,
-            _include_iso=_include_iso,
-            _view_constraints=_view_constraints,
-            _plan_automatic_details=detail_view,
-            _framed_recognition=framed_recognition,
-            _document_input=_document_input,
-            _scale_from_prior_analysis=(
-                scale_override is not None and reuse is not None and scale_override == reuse.SCALE
-            ),
-        )
-
-    with stage("analysis"):
-        a = analyse(reuse=_analysis_base, views=_views)
-    planned_principals = third_angle_view_names() if _views is None else _views
-    # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
-    # plan_dimensions' requirement check.  An authored principal set is nevertheless
-    # a hard constraint: reject a measured mark targeting an absent projection before
-    # corridor placement can misreport the contradiction as a capacity drop.
-    explicit_model = (
-        _coerce_model(model, a.part, decorations, requested, authored)
-        if model is not None
-        else cast("PartModel", a.model if a.model is not None else build_model(a))
+    return build_once(
+        step_file,
+        options,
+        scale=scale,
+        page=page,
+        _analysis_base=_analysis_base,
+        _analysis_sink=_analysis_sink,
+        _critique_recognition_cache=_critique_recognition_cache,
+        _arrangements=_arrangements,
+        _select_automatic_views=_select_automatic_views,
+        _candidate_profile_first=_candidate_profile_first,
+        _title_block_cache=_title_block_cache,
+        _analyse=_analyse,
+        _coerce_model=_coerce_model,
+        _automatic_turned_principals=_automatic_turned_principals,
+        _resolve_trace=_resolve_trace,
+        _assemble=_assemble,
+        _repack_to_fixed_point=_repack_to_fixed_point,
+        choose_pre_render_profile=choose_pre_render_profile,
+        lost_required_derived_view_reservations=lost_required_derived_view_reservations,
     )
-    uncovered_measured = []
-    for feature in explicit_model.features:
-        feature_view = authored_dimension_target_view(
-            getattr(feature, "dimension_kind", ""),
-            getattr(feature, "dominant_axis", ""),
-            getattr(feature, "view", None),
-            getattr(feature, "side", None),
-            getattr(feature, "angular_reference", None),
-            getattr(feature, "ref_pts", ()),
-        )
-        if (
-            getattr(feature, "kind", None) != "authored_dimension"
-            or not isinstance(feature_view, str)
-            or feature_view in set(planned_principals)
-        ):
-            continue
-        uncovered_measured.append(
-            UncoveredViewRequirement(
-                identity=feature,
-                label=getattr(feature, "source_id", "") or "measured_dimension",
-                preferred_view=feature_view,
-                eligible_views=(feature_view,),
-                reason=f"is explicitly placed in `{feature_view}`",
-            )
-        )
-    if uncovered_measured:
-        raise ViewPlanIncomplete(planned_principals, uncovered_measured)
-    if auto_dims and not {"front", "rear"}.intersection(planned_principals):
-        # A model without an envelope can still approve a synthetic bbox height.
-        # It has no feature parameter for plan_dimensions to check, so prove its
-        # compiled view requirement before projecting a reduced principal set.
-        from draftwright.model.compiled import compile_dimensions
 
-        overall = compile_dimensions(explicit_model).ladder("overall_height")
-        if overall is not None:
-            height = overall.rungs[0]
-            raise ViewPlanIncomplete(
-                planned_principals,
-                [
-                    UncoveredViewRequirement(
-                        identity=height.id,
-                        label="overall_height.length",
-                        preferred_view="front",
-                        eligible_views=("front", "rear"),
-                        reason="requires a planned front or rear view",
-                    )
-                ],
-            )
-    view_attempts: tuple[dict[str, object], ...] = ()
-    view_status = "selected"
-    if _select_automatic_views and _views is None and auto_dims:
-        candidate_views = _automatic_turned_principals(a)
-        if candidate_views is not None:
-            planning_model = (
-                _coerce_model(model, a.part, decorations, requested, authored)
-                if model is not None
-                else cast("PartModel", a.model if a.model is not None else build_model(a))
-            )
-            # Dimensions are not the only annotations with view requirements.  GD&T,
-            # surface-finish, datum, and manufacturing-note aspects carry an explicit target
-            # view in the IR and intentionally bypass the dimension planner.  Fail closed
-            # before projection when an automatic reduction would erase one of those targets.
-            aspect_views = set()
-            for feature in planning_model.features:
-                view = getattr(feature, "view", None)
-                if getattr(feature, "kind", None) == "authored_dimension":
-                    view = authored_dimension_target_view(
-                        getattr(feature, "dimension_kind", ""),
-                        getattr(feature, "dominant_axis", ""),
-                        view,
-                        getattr(feature, "side", None),
-                        getattr(feature, "angular_reference", None),
-                        getattr(feature, "ref_pts", ()),
-                    )
-                if isinstance(view, str) and view in third_angle_view_names():
-                    aspect_views.add(view)
-            missing_aspect_views = tuple(sorted(aspect_views - set(candidate_views)))
-            uncovered = missing_aspect_views
-            reason = "annotation_view_required" if uncovered else None
-            if not uncovered:
-                try:
-                    plan_dimensions(planning_model, planned_views=candidate_views)
-                except ViewPlanIncomplete as exc:
-                    reason = "dimension_requirement_uncovered"
-                    uncovered = tuple(item.label for item in exc.uncovered)
-            candidate_analysis = None
-            if reason is None:
-                try:
-                    # The analysis sizing model can legitimately carry requirements not in a
-                    # caller's authored rendering subset (for example an emitted script with
-                    # every dimension line commented out). It is an independent preflight and
-                    # must reject the proposal rather than escape the automatic-view gate.
-                    candidate_analysis = analyse(reuse=a, views=candidate_views)
-                except ViewPlanIncomplete as exc:
-                    reason = "dimension_requirement_uncovered"
-                    uncovered = tuple(item.label for item in exc.uncovered)
-            if reason is not None:
-                view_status = "retained_for_requirements"
-                view_attempts = (
-                    {
-                        "views": candidate_views,
-                        "status": "rejected",
-                        "reason": reason,
-                        "uncovered": uncovered,
-                        "blockers": (),
-                    },
-                )
-            else:
-                # Recognition/model construction has already happened. Re-resolve only the
-                # scale/page/view geometry under the candidate before any projection or
-                # annotation is built, so the common accepted path still compiles once.
-                assert candidate_analysis is not None
-                a = candidate_analysis
-                view_status = "candidate"
-                view_attempts = (
-                    {
-                        "views": candidate_views,
-                        "status": "candidate",
-                        "reason": "redundant_radial_view_removed",
-                        "blockers": (),
-                    },
-                )
 
-    selected_profile = None
-    pre_render_choice = None
-    if _candidate_profile_first:
-        # A rejected profile must not donate its arrangement to the conservative
-        # recomposition. Keep the settled caller analysis as the common fork.
-        pre_profile_analysis = a
-        pre_render_choice = choose_pre_render_profile(
-            a.layout_strips,
-            a.layout_strips.annotation_scheme_shadow_report(a.SCALE),
-            page=(a.PAGE_W, a.PAGE_H),
-            views=tuple(a.planned_views or third_angle_view_names()),
-            auto_dims=auto_dims,
-        )
-        profile_name = pre_render_choice["profile"]
-        if isinstance(profile_name, str):
-            selected_profile = candidate_profile(profile_name, a.SCALE)
-            with use_layout_profile(selected_profile):
-                a = analyse(
-                    reuse=a,
-                    views=tuple(a.planned_views or third_angle_view_names()),
-                    scale_override=a.SCALE,
-                    page_override=(a.PAGE_W, a.PAGE_H),
-                    arrangements_override=(selected_profile.arrangement or a.arrangement,),
-                )
-            lost_derived = lost_required_derived_view_reservations(pre_profile_analysis, a)
-            if lost_derived:
-                # Recomposition is allowed to move a required detail's box, but
-                # never erase it while keeping the caller's page/scale pinned.
-                # The conservative analysis is already available; this still
-                # builds exactly one drawing and needs no baseline comparison.
-                selected_profile = None
-                a = pre_profile_analysis
-                pre_render_choice = {
-                    **pre_render_choice,
-                    "proposed_profile": profile_name,
-                    "profile": None,
-                    "reason": "required_derived_view_reservation_lost",
-                    "lost_derived_views": list(lost_derived),
-                }
-            # The protected-gutter profile can worsen a caller-fixed, already
-            # overfull sheet by pushing principal views beyond its physical page.
-            # Compare only cheap pre-render geometry.  If the established
-            # conservative profile reduces at least one per-view overflow and
-            # increases none, select it *before* building the one drawing.
-            # This is neither a finished-baseline comparison nor a safety
-            # admission. FTC09's plan moved 6 mm farther out, withholding a
-            # width and PMI carrier that the conservative profile preserves.
-            overflow = pre_render_view_page_overflow(a)
-            if selected_profile is not None and selected_profile.view_gutters and overflow:
-                conservative_profile = candidate_profile("iso-growth", a.SCALE)
-                with use_layout_profile(conservative_profile):
-                    conservative_analysis = analyse(
-                        reuse=pre_profile_analysis,
-                        views=tuple(
-                            pre_profile_analysis.planned_views or third_angle_view_names()
-                        ),
-                        scale_override=pre_profile_analysis.SCALE,
-                        page_override=(pre_profile_analysis.PAGE_W, pre_profile_analysis.PAGE_H),
-                        arrangements_override=(
-                            conservative_profile.arrangement or pre_profile_analysis.arrangement,
-                        ),
-                    )
-                conservative_overflow = pre_render_view_page_overflow(conservative_analysis)
-                views_to_compare = set(overflow) | set(conservative_overflow)
-                no_worse = all(
-                    conservative_overflow.get(view, 0.0) <= overflow.get(view, 0.0) + 1e-6
-                    for view in views_to_compare
-                )
-                strictly_better = any(
-                    conservative_overflow.get(view, 0.0) < overflow.get(view, 0.0) - 1e-6
-                    for view in views_to_compare
-                )
-                # The overflow comparison protects principal geometry, but a
-                # different profile must also retain required derived space.
-                # Otherwise this second pre-render choice can undo the guard
-                # above without ever building a drawing for the lost detail.
-                lost_conservative_derived = lost_required_derived_view_reservations(
-                    pre_profile_analysis, conservative_analysis
-                )
-                if no_worse and strictly_better and not lost_conservative_derived:
-                    selected_profile = conservative_profile
-                    a = conservative_analysis
-                    pre_render_choice = {
-                        **pre_render_choice,
-                        "proposed_profile": profile_name,
-                        "profile": "iso-growth",
-                        "reason": "protected_gutters_worsen_off_page_views",
-                        "proposed_view_overflow_mm": overflow,
-                        "selected_view_overflow_mm": conservative_overflow,
-                    }
-
-    # Pass 1: place + annotate from the estimated layout, then measure the real
-    # per-view footprints and re-pack the blocks disjoint if a view actually
-    # moves (#121, ADR 2 (was 0004) — "lay out, don't predict").  Non-ballooned parts
-    # measure ≈ estimate, so they skip pass 2 and stand byte-identical.
-    with use_layout_profile(selected_profile) if selected_profile else nullcontext():
-        dwg = _assemble(
-            a,
-            out,
-            assembly,
-            detail_view,
-            auto_dims,
-            model=model,
-            decorations=decorations,
-            requested=requested,
-            authored=authored,
-            trace=tracer,
-            critique_recognition_cache=_critique_recognition_cache,
-            reproducible=reproducible,
-            title_block_cache=_title_block_cache,
-        )
-        if auto_dims:
-            repacked = _repack_to_fixed_point(
-                a,
-                dwg,
-                out,
-                assembly,
-                detail_view,
-                # The candidate profile was chosen against this settled sheet and
-                # scale before rendering. A measured repack may move views within
-                # them, but must not search a different sheet/scale behind the
-                # recorded choice (even when the caller requested automatic fit).
-                scale=a.SCALE if _candidate_profile_first else scale,
-                page=(a.PAGE_W, a.PAGE_H) if _candidate_profile_first else page,
-                model=model,
-                decorations=decorations,
-                requested=requested,
-                authored=authored,
-                trace=tracer,
-                critique_recognition_cache=_critique_recognition_cache,
-                reproducible=reproducible,
-            )
-            if repacked is not None:
-                a, dwg = repacked
-        if repair:
-            # Close the loop on the greedy placement: re-place dims behind any
-            # mechanically-clear violations (overlap, wrong-side) and re-lint (#30).
-            # A no-op on a clean sheet, so default-on costs nothing when there is
-            # nothing to fix.
-            dwg.repair()
-    # Reconcile after the final repack/repair, against live registry identities.
-    # This is diagnostic evidence only; it cannot substitute for requirement lint.
-    scheme = a.layout_strips.scheme
-    if auto_dims and scheme is not None:
-        dwg.annotation_scheme_decision = {
-            **dwg.annotation_scheme_decision,
-            "carrier_evidence": annotation_demand_carrier_evidence(scheme, dwg.registry),
-        }
-    if _candidate_profile_first:
-        dwg.annotation_scheme_decision = {
-            **dwg.annotation_scheme_decision,
-            "policy": "demand-guided",
-            "status": "demand_guided" if selected_profile else "no_demand_profile",
-            "influenced_layout": selected_profile is not None,
-            "admission_ready": False,
-            "pre_render_choice": pre_render_choice,
-        }
-    if tracer is not None:  # one JSON per build; Drawing.finalize() re-writes it (#736)
-        tracer.write()
-    if _analysis_sink is not None:
-        _analysis_sink(a)
-    dwg.view_decision = {
-        "policy": "automatic" if _select_automatic_views else "selected",
-        "status": view_status,
-        "chosen": tuple(dwg.view_plan.principal_names),
-        "attempts": view_attempts,
-    }
-    return dwg
+_build_drawing_once.__doc__ = build_once.__doc__
 
 
 #: Every symptom that may make the optional isometric yield, in the order the gate tests
@@ -1952,6 +1467,199 @@ _AUTOMATIC_UPSCALE_TRIAL_LIMIT = 2
 # probing a second scale on both sides made complex AP242 script generation perform four
 # extra full compiles before reaching the same page verdict.
 _AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT = 1
+
+
+@dataclass
+class _AutomaticScaleTrials:
+    """Bounded page and scale probes for one automatic drawing plan."""
+
+    build: Callable[..., Drawing]
+    record_attempt: Callable[..., None]
+    qualify: Callable[..., tuple]
+    retain_arrangement: Callable[[Drawing], Drawing]
+    current_drawing: Callable[[], Drawing]
+    latest_analysis: Callable[[], Analysis | None]
+    settled_arrangement: str
+    settled_principal_views: tuple[str, ...]
+    original_page: tuple[float, float]
+    scale_candidates: dict[float, Drawing] = field(default_factory=dict)
+    scale_failures: dict[float, Exception] = field(default_factory=dict)
+
+    def try_larger_standard_pages(
+        self,
+        starting_page,
+        *,
+        include_iso,
+        reason,
+        fallback_views,
+        require_axial_coverage,
+        allow_recovery_detail=False,
+    ):
+        """Try the bounded standard-page tail under one settled correction policy."""
+        standard_pages = tuple(_PAGE_SIZES.items())
+        original_index = next(
+            (
+                index
+                for index, (_name, dimensions) in enumerate(standard_pages)
+                if tuple(dimensions) == starting_page
+            ),
+            None,
+        )
+        larger_pages = standard_pages[original_index + 1 :] if original_index is not None else ()
+        for page_name, page_dimensions in larger_pages:
+            try:
+                larger = self.build(
+                    None,
+                    arrangements=(self.settled_arrangement,),
+                    views=self.settled_principal_views,
+                    include_iso=include_iso,
+                    page_override=page_name,
+                    retry_reason=reason,
+                )
+            except (ValueError, Standard_Failure) as exc:
+                if not _is_expected_candidate_build_failure(exc):
+                    raise
+                _log.info(
+                    "automatic page escalation to %s rejected (candidate build failed: %s)",
+                    page_name,
+                    exc,
+                )
+                self.record_attempt(
+                    None,
+                    "error",
+                    reason=reason,
+                    views=fallback_views,
+                    page=page_dimensions,
+                    error=str(exc),
+                )
+                continue
+            larger = self.retain_arrangement(larger)
+            issues, blockers, rejection = self.qualify(
+                larger,
+                require_axial_coverage=require_axial_coverage,
+                allow_recovery_detail=allow_recovery_detail,
+            )
+            if rejection is None:
+                self.record_attempt(larger.scale, "complete", reason=reason, candidate=larger)
+                return larger, issues
+            self.record_attempt(
+                larger.scale,
+                "rejected",
+                blockers,
+                reason=reason,
+                rejection=rejection,
+                violations=_layout_issue_records(_hard_layout_issues(issues)),
+                candidate=larger,
+            )
+        return None, None
+
+    def try_scales_on_selected_page(self, candidate_scales, *, reason, require_axial_coverage):
+        """Try a bounded scale sequence on the already selected sheet."""
+        for candidate_scale in candidate_scales:
+            analysis = self.latest_analysis()
+            if (
+                analysis is not None
+                and hasattr(analysis, "bb")
+                and _principal_view_exceeds_page(
+                    candidate_scale,
+                    self.original_page,
+                    analysis.bb,
+                    self.settled_principal_views,
+                )
+            ):
+                self.record_attempt(
+                    candidate_scale,
+                    "skipped",
+                    reason=reason,
+                    rejection="principal_view_exceeds_page",
+                    page=self.original_page,
+                )
+                continue
+            candidate_drawing = self.scale_candidates.get(candidate_scale)
+            failure = self.scale_failures.get(candidate_scale)
+            if candidate_drawing is None and failure is None:
+                try:
+                    candidate_drawing = self.build(
+                        candidate_scale,
+                        arrangements=(self.settled_arrangement,),
+                        views=self.settled_principal_views,
+                        page_override=self.original_page,
+                        retry_reason=reason,
+                    )
+                except (ValueError, Standard_Failure) as exc:
+                    if not _is_expected_candidate_build_failure(exc):
+                        raise
+                    self.scale_failures[candidate_scale] = exc
+                    failure = exc
+                else:
+                    candidate_drawing = self.retain_arrangement(candidate_drawing)
+                    self.scale_candidates[candidate_scale] = candidate_drawing
+            if failure is not None:
+                _log.info(
+                    "%s %s:1 rejected (candidate build failed: %s)",
+                    reason,
+                    candidate_scale,
+                    failure,
+                )
+                self.record_attempt(
+                    candidate_scale,
+                    "error",
+                    reason=reason,
+                    views=self.current_drawing().views,
+                    page=self.original_page,
+                    error=str(failure),
+                )
+                continue
+            assert candidate_drawing is not None
+            assert (candidate_drawing.page_w, candidate_drawing.page_h) == self.original_page
+            issues, blockers, rejection = self.qualify(
+                candidate_drawing,
+                require_axial_coverage=require_axial_coverage,
+            )
+            if rejection is None:
+                self.record_attempt(
+                    candidate_scale, "complete", reason=reason, candidate=candidate_drawing
+                )
+                return candidate_drawing, issues
+            self.record_attempt(
+                candidate_scale,
+                "rejected",
+                blockers,
+                reason=reason,
+                rejection=rejection,
+                violations=_layout_issue_records(_hard_layout_issues(issues)),
+                candidate=candidate_drawing,
+            )
+        return None, None
+
+    def try_larger_scales_on_selected_page(
+        self, starting_scale, *, reason, require_axial_coverage
+    ):
+        """Try larger scales before spending a sheet or optional view (#1338)."""
+        candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
+            :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
+        ]
+        return self.try_scales_on_selected_page(
+            candidate_scales,
+            reason=reason,
+            require_axial_coverage=require_axial_coverage,
+        )
+
+    def try_validity_scales_on_selected_page(
+        self, starting_scale, *, reason, require_axial_coverage
+    ):
+        """Try nearby smaller, then larger scales for a hard sheet-validity defect."""
+        smaller = [item for item in _SCALES if item < starting_scale][
+            :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
+        ]
+        larger = sorted(item for item in _SCALES if item > starting_scale)[
+            :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
+        ]
+        return self.try_scales_on_selected_page(
+            (*smaller, *larger),
+            reason=reason,
+            require_axial_coverage=require_axial_coverage,
+        )
 
 
 @build_operation
@@ -2412,191 +2120,17 @@ def build_drawing(
         # a required placement loss asks the optional ISO to yield. Reuse those finished
         # drawings: the second pass may apply a stricter qualification gate, but rebuilding
         # identical geometry cannot change its answer (#1665).
-        selected_page_scale_candidates: dict[float, Drawing] = {}
-        selected_page_scale_failures: dict[float, Exception] = {}
-
-        def _try_larger_standard_pages(
-            starting_page,
-            *,
-            include_iso,
-            reason,
-            fallback_views,
-            require_axial_coverage,
-            allow_recovery_detail=False,
-        ):
-            """Try the bounded standard-page tail under one settled correction policy."""
-            standard_pages = tuple(_PAGE_SIZES.items())
-            original_index = next(
-                (
-                    index
-                    for index, (_name, dimensions) in enumerate(standard_pages)
-                    if tuple(dimensions) == starting_page
-                ),
-                None,
-            )
-            larger_pages = (
-                standard_pages[original_index + 1 :] if original_index is not None else ()
-            )
-            for page_name, page_dimensions in larger_pages:
-                try:
-                    larger = _build(
-                        None,
-                        arrangements=(settled_arrangement,),
-                        views=settled_principal_views,
-                        include_iso=include_iso,
-                        page_override=page_name,
-                        retry_reason=reason,
-                    )
-                except (ValueError, Standard_Failure) as exc:
-                    if not _is_expected_candidate_build_failure(exc):
-                        raise
-                    _log.info(
-                        "automatic page escalation to %s rejected (candidate build failed: %s)",
-                        page_name,
-                        exc,
-                    )
-                    _record_attempt(
-                        None,
-                        "error",
-                        reason=reason,
-                        views=fallback_views,
-                        page=page_dimensions,
-                        error=str(exc),
-                    )
-                    continue
-                larger = _retain_arrangement(larger)
-                issues, blockers, rejection = _qualify_candidate(
-                    larger,
-                    require_axial_coverage=require_axial_coverage,
-                    allow_recovery_detail=allow_recovery_detail,
-                )
-                if rejection is None:
-                    _record_attempt(
-                        larger.scale,
-                        "complete",
-                        reason=reason,
-                        candidate=larger,
-                    )
-                    return larger, issues
-                _record_attempt(
-                    larger.scale,
-                    "rejected",
-                    blockers,
-                    reason=reason,
-                    rejection=rejection,
-                    violations=_layout_issue_records(_hard_layout_issues(issues)),
-                    candidate=larger,
-                )
-            return None, None
-
-        def _try_scales_on_selected_page(candidate_scales, *, reason, require_axial_coverage):
-            """Try a bounded scale sequence on the already selected sheet."""
-            for candidate_scale in candidate_scales:
-                if (
-                    latest_analysis is not None
-                    and hasattr(latest_analysis, "bb")
-                    and _principal_view_exceeds_page(
-                        candidate_scale, original_page, latest_analysis.bb, settled_principal_views
-                    )
-                ):
-                    _record_attempt(
-                        candidate_scale,
-                        "skipped",
-                        reason=reason,
-                        rejection="principal_view_exceeds_page",
-                        page=original_page,
-                    )
-                    continue
-                candidate_drawing = selected_page_scale_candidates.get(candidate_scale)
-                failure = selected_page_scale_failures.get(candidate_scale)
-                if candidate_drawing is None and failure is None:
-                    try:
-                        candidate_drawing = _build(
-                            candidate_scale,
-                            arrangements=(settled_arrangement,),
-                            views=settled_principal_views,
-                            page_override=original_page,
-                            retry_reason=reason,
-                        )
-                    except (ValueError, Standard_Failure) as exc:
-                        if not _is_expected_candidate_build_failure(exc):
-                            raise
-                        selected_page_scale_failures[candidate_scale] = exc
-                        failure = exc
-                    else:
-                        candidate_drawing = _retain_arrangement(candidate_drawing)
-                        selected_page_scale_candidates[candidate_scale] = candidate_drawing
-                if failure is not None:
-                    _log.info(
-                        "%s %s:1 rejected (candidate build failed: %s)",
-                        reason,
-                        candidate_scale,
-                        failure,
-                    )
-                    _record_attempt(
-                        candidate_scale,
-                        "error",
-                        reason=reason,
-                        views=drawing.views,
-                        page=original_page,
-                        error=str(failure),
-                    )
-                    continue
-                assert candidate_drawing is not None
-                assert (candidate_drawing.page_w, candidate_drawing.page_h) == original_page
-                issues, blockers, rejection = _qualify_candidate(
-                    candidate_drawing,
-                    require_axial_coverage=require_axial_coverage,
-                )
-                if rejection is None:
-                    _record_attempt(
-                        candidate_scale,
-                        "complete",
-                        reason=reason,
-                        candidate=candidate_drawing,
-                    )
-                    return candidate_drawing, issues
-                _record_attempt(
-                    candidate_scale,
-                    "rejected",
-                    blockers,
-                    reason=reason,
-                    rejection=rejection,
-                    violations=_layout_issue_records(_hard_layout_issues(issues)),
-                    candidate=candidate_drawing,
-                )
-            return None, None
-
-        def _try_larger_scales_on_selected_page(starting_scale, *, reason, require_axial_coverage):
-            """Try the bounded larger-scale tail on the already selected sheet.
-
-            Raising the scale spreads features apart before a placement shortage spends a
-            sheet or optional view (#1338).
-            """
-            candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
-                :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
-            ]
-            return _try_scales_on_selected_page(
-                candidate_scales,
-                reason=reason,
-                require_axial_coverage=require_axial_coverage,
-            )
-
-        def _try_validity_scales_on_selected_page(
-            starting_scale, *, reason, require_axial_coverage
-        ):
-            """Try nearby smaller, then larger scales for a hard sheet-validity defect."""
-            smaller = [item for item in _SCALES if item < starting_scale][
-                :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
-            ]
-            larger = sorted(item for item in _SCALES if item > starting_scale)[
-                :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
-            ]
-            return _try_scales_on_selected_page(
-                (*smaller, *larger),
-                reason=reason,
-                require_axial_coverage=require_axial_coverage,
-            )
+        trials = _AutomaticScaleTrials(
+            build=_build,
+            record_attempt=_record_attempt,
+            qualify=_qualify_candidate,
+            retain_arrangement=_retain_arrangement,
+            current_drawing=lambda: drawing,
+            latest_analysis=lambda: latest_analysis,
+            settled_arrangement=settled_arrangement,
+            settled_principal_views=settled_principal_views,
+            original_page=original_page,
+        )
 
         # #1155: the compose-time estimate conservatively reserves an enlarged
         # detail for a crowded run.  Some larger preferred scales make that run
@@ -2614,7 +2148,7 @@ def build_drawing(
                 reason="measured_upscale",
                 candidate=drawing,
             )
-            upscaled, upscaled_issues = _try_larger_scales_on_selected_page(
+            upscaled, upscaled_issues = trials.try_larger_scales_on_selected_page(
                 original_scale,
                 reason="measured_upscale",
                 require_axial_coverage=False,
@@ -2636,7 +2170,7 @@ def build_drawing(
                     # case too; retaining the detail is valid if the candidate passes
                     # every structural and required-outcome gate. A complete detected
                     # drawing does not spend a larger sheet just to eliminate its detail.
-                    larger, larger_issues = _try_larger_standard_pages(
+                    larger, larger_issues = trials.try_larger_standard_pages(
                         original_page,
                         include_iso=_include_iso,
                         reason="page_escalation_after_detail",
@@ -2665,13 +2199,13 @@ def build_drawing(
                 violations=_layout_issue_records(hard_layout),
                 candidate=drawing,
             )
-            recovered, recovered_issues = _try_validity_scales_on_selected_page(
+            recovered, recovered_issues = trials.try_validity_scales_on_selected_page(
                 drawing.scale,
                 reason="scale_retry_after_hard_layout",
                 require_axial_coverage=False,
             )
             if recovered is None and page is None:
-                recovered, recovered_issues = _try_larger_standard_pages(
+                recovered, recovered_issues = trials.try_larger_standard_pages(
                     original_page,
                     include_iso="iso" in drawing.views,
                     reason="page_escalation_after_hard_layout",
@@ -2708,13 +2242,13 @@ def build_drawing(
                     reason="required_outcome_recovery",
                     candidate=drawing,
                 )
-                recovered, recovered_issues = _try_larger_scales_on_selected_page(
+                recovered, recovered_issues = trials.try_larger_scales_on_selected_page(
                     drawing.scale,
                     reason="scale_escalation_after_required_drop",
                     require_axial_coverage=bool(axial_dimension_losses),
                 )
                 if recovered is None and page is None:
-                    recovered, recovered_issues = _try_larger_standard_pages(
+                    recovered, recovered_issues = trials.try_larger_standard_pages(
                         original_page,
                         include_iso=_include_iso,
                         reason="page_escalation_after_required_drop",
@@ -2794,7 +2328,7 @@ def build_drawing(
                 # order was drop-the-ISO then escalate-the-page.  The gates are unchanged:
                 # this wins only by passing the same axial and required-outcome checks the
                 # larger sheet would have had to pass.
-                upscaled, upscaled_issues = _try_larger_scales_on_selected_page(
+                upscaled, upscaled_issues = trials.try_larger_scales_on_selected_page(
                     drawing.scale,
                     reason="scale_escalation_on_selected_page",
                     require_axial_coverage=True,
@@ -2906,7 +2440,7 @@ def build_drawing(
                             # complete candidate merely because removing the optional ISO
                             # made room for that required detail.
                             if page is None:
-                                larger, issues = _try_larger_standard_pages(
+                                larger, issues = trials.try_larger_standard_pages(
                                     original_page,
                                     include_iso=False,
                                     reason="page_escalation_after_optional_iso",
@@ -2986,208 +2520,18 @@ def build_drawing(
             drawing.solve_trace.write()
         return finish_annotation_layout(_complete_automatic_plan(drawing, issues=settled_issues))
 
-    requested_scale = float(scale)
-    automatic_view_policy = views_are_automatic and _views is None
-    layout_profile = current_layout_profile()
-    experimental_arrangement = (
-        layout_profile.arrangement
-        if layout_profile is not None
-        else os.environ.get("DRAFTWRIGHT_EXPERIMENTAL_ARRANGEMENT")
-    )
-    arrangements = None
-    if experimental_arrangement is not None:
-        if experimental_arrangement not in ARRANGEMENTS:
-            raise ValueError(
-                f"experimental arrangement must be one of {ARRANGEMENTS}, "
-                f"got {experimental_arrangement!r}"
-            )
-        arrangements = (experimental_arrangement,)
-    drawing = _build(
-        requested_scale,
-        arrangements=arrangements,
-        views=_views,
-        select_automatic_views=automatic_view_policy,
-    )
-    initial_view_decision = getattr(drawing, "view_decision", {})
-    view_attempts = list(initial_view_decision.get("attempts", ()))
-    view_status = initial_view_decision.get("status", "selected")
-    settled_principal_views = _principal_names(drawing)
-    assessed_blockers = None
-
-    # An authored scale constrains the joint plan; it does not turn automatic view planning
-    # off. Apply the same finished-drawing veto as the fully automatic scale path before the
-    # explicit-scale policy decides whether the requested scale itself is acceptable.
-    if view_status == "candidate":
-        candidate_issues, candidate_blockers = _automatic_assessment(drawing)
-        absent_owners = _absent_view_owners(drawing)
-        unrecoverable_blockers = tuple(
-            blocker for blocker in candidate_blockers if not blocker["source_ids"]
-        )
-        rejection = _automatic_candidate_rejection(candidate_issues, unrecoverable_blockers)
-        if rejection is not None or absent_owners:
-            proposed = settled_principal_views
-            reason = "annotation_owned_by_absent_view" if absent_owners else rejection
-            assert reason is not None
-            view_attempts[-1] = {
-                "views": proposed,
-                "status": "rejected",
-                "reason": reason,
-                "blockers": candidate_blockers,
-                **({"annotations": absent_owners} if absent_owners else {}),
-            }
-            drawing = _build(requested_scale, views=third_angle_view_names(), retry_reason=reason)
-            settled_principal_views = _principal_names(drawing)
-            view_status = "retained_after_rejection"
-        else:
-            view_attempts[-1] = {
-                "views": settled_principal_views,
-                "status": "chosen",
-                "reason": "redundant_radial_view_removed",
-                "blockers": candidate_blockers,
-            }
-            view_status = "reduced"
-            assessed_blockers = candidate_blockers
-    elif view_status == "selected" and automatic_view_policy:
-        view_status = "default"
-
-    settled_view_decision = {
-        "policy": "automatic" if automatic_view_policy else "selected",
-        "status": view_status,
-        "chosen": settled_principal_views,
-        "attempts": tuple(view_attempts),
-    }
-    drawing.view_decision = settled_view_decision
-
-    def _retain_explicit_view_decision(candidate: Drawing) -> Drawing:
-        candidate.view_decision = settled_view_decision
-        return candidate
-
-    if assessed_blockers is None:
-        blockers, short_off_axis_span = scale_blockers_for(drawing, requested_scale)
-    else:
-        blockers, short_off_axis_span = assessed_blockers, False
-    if not blockers:
-        drawing.scale_decision = _scale_decision(
-            policy=scale_policy,
-            requested=requested_scale,
-            effective=drawing.scale,
-            status="honored",
-            attempted=(requested_scale,),
-            attempts=(_scale_attempt(requested_scale, "complete"),),
-        )
-        return finish_annotation_layout(drawing)
-
-    if scale_policy == "permissive":
-        drawing.scale_decision = _scale_decision(
-            policy=scale_policy,
-            requested=requested_scale,
-            effective=drawing.scale,
-            status="degraded",
-            blockers=blockers,
-            attempted=(requested_scale,),
-            attempts=(_scale_attempt(requested_scale, "incomplete", blockers),),
-        )
-        codes = ", ".join(sorted({item["code"] for item in blockers}))
-        warnings.warn(
-            f"requested scale {requested_scale:g} dropped required annotation outcomes "
-            f"({codes}); returning the incomplete drawing because scale_policy='permissive'",
-            ScaleCompletenessWarning,
-            stacklevel=3,  # Skip the public operation observer wrapper too.
-        )
-        return finish_annotation_layout(drawing)
-
-    if scale_policy == "strict":
-        raise ScaleIncompatibilityError(
-            _scale_decision(
-                policy=scale_policy,
-                requested=requested_scale,
-                effective=drawing.scale,
-                status="rejected",
-                blockers=blockers,
-                attempted=(requested_scale,),
-                attempts=(_scale_attempt(requested_scale, "incomplete", blockers),),
-            )
-        )
-
-    attempted = [requested_scale]
-    attempts = [
-        _scale_attempt(
-            requested_scale,
-            "incomplete",
-            blockers,
-            reason="off_axis_span_below_1_mm" if short_off_axis_span else None,
-        )
-    ]
-    last_effective_scale = drawing.scale
-    last_blockers = blockers
-    # ``_SCALES`` is descending and contains the preferred ISO 5455 reductions. The
-    # requested non-standard scale is evaluated first above; fallback candidates must be
-    # standard and no greater than it.
-    for candidate in (item for item in _SCALES if item < requested_scale):
-        if short_off_axis_span:
-            break
-        attempted.append(candidate)
-        try:
-            fallback = _build(
-                candidate, views=settled_principal_views, retry_reason="scale_completeness"
-            )
-        except ValueError as exc:
-            # Once a smaller scale hits the hard rendering floor, every following candidate
-            # is smaller still. Do not hide any unrelated build error.
-            if "drawing geometry degenerates" in str(exc):
-                attempts.append(_scale_attempt(candidate, "render_floor", error=str(exc)))
-                break
-            raise
-        fallback = _retain_explicit_view_decision(fallback)
-        candidate_blockers, short_off_axis_span = scale_blockers_for(fallback, candidate)
-        if candidate_blockers:
-            attempts.append(
-                _scale_attempt(
-                    candidate,
-                    "incomplete",
-                    candidate_blockers,
-                    reason="off_axis_span_below_1_mm" if short_off_axis_span else None,
-                )
-            )
-            last_effective_scale = fallback.scale
-            last_blockers = candidate_blockers
-            continue
-        attempts.append(_scale_attempt(candidate, "complete"))
-        fallback.scale_decision = _scale_decision(
-            policy=scale_policy,
-            requested=requested_scale,
-            effective=fallback.scale,
-            status="fallback",
-            blockers=blockers,
-            attempted=attempted,
-            attempts=attempts,
-        )
-        fallback.registry.record_issue(
-            LintIssue(
-                severity="warning",
-                code="scale_fallback_applied",
-                message=f"Requested scale {requested_scale:g} dropped required annotations; "
-                f"using complete fallback scale {fallback.scale:g}",
-            )
-        )
-        warnings.warn(
-            f"requested scale {requested_scale:g} dropped required annotation outcomes; "
-            f"using complete fallback scale {fallback.scale:g}",
-            ScaleCompletenessWarning,
-            stacklevel=3,  # Skip the public operation observer wrapper too.
-        )
-        return finish_annotation_layout(fallback)
-
-    raise ScaleIncompatibilityError(
-        _scale_decision(
-            policy=scale_policy,
-            requested=requested_scale,
-            effective=last_effective_scale,
-            status="no_complete_scale",
-            blockers=last_blockers,
-            attempted=attempted,
-            attempts=attempts,
-        )
+    return resolve_explicit_scale(
+        scale,
+        scale_policy,
+        views_are_automatic=views_are_automatic,
+        _views=_views,
+        _SCALES=_SCALES,
+        _build=_build,
+        _principal_names=_principal_names,
+        _automatic_assessment=_automatic_assessment,
+        _absent_view_owners=_absent_view_owners,
+        scale_blockers_for=scale_blockers_for,
+        finish_annotation_layout=finish_annotation_layout,
     )
 
 

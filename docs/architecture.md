@@ -78,7 +78,14 @@ and re-exports the existing private helper names.
     so `builder` no longer imports `cli`.)*
   - **`build_policy.py`** — rank-6 finished-drawing scale and arrangement decisions:
     required-outcome blockers, structural validity, candidate quality, and stable
-    decision records. `builder.py` keeps the retry ladder and its constants.
+    decision records. `builder.py` keeps the automatic retry ladder and its constants.
+  - **`explicit_scale.py`** — rank-6 resolution of a caller-requested scale:
+    automatic-view veto, strict and permissive decisions, and bounded standard-scale
+    fallback. The builder supplies its build and critique seams and current scale ladder.
+  - **`build_once.py`** — rank-6 owner of one compile attempt: analysis, view
+    preflight, pre-render profile choice, assembly, measured repack, repair, and
+    the returned view decision. `builder._build_drawing_once` passes its stage
+    bindings through so the outer policy ladder and instrumentation keep one seam.
   - **`layout_safety.py`** — rank-6 observational safety evidence for a finished
     candidate, using reporting and settled view geometry without a baseline drawing.
   - **`layout_selection.py`** — rank-6 finished-drawing annotation layout evidence and
@@ -357,7 +364,7 @@ and re-exports the existing private helper names.
   by `model/declare.py`. It deliberately does not declare recognition-family semantics.
 - **`build_options.py`** — rank-1 frozen build inputs shared by the builder and script
   emitter. It owns defaults and context-free policy validation; retry-specific scale,
-  page, and analysis state remain explicit in the builder.
+  page, and analysis state remain explicit in build orchestration.
 - **`document_input.py`** — rank-1 common intake authority: exact raw recognition/ownership,
   sealed physical membership and copies of member authoring containers. It retains source bytes
   and the original analysis for reuse through the existing builder.

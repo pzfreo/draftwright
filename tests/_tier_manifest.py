@@ -25,6 +25,7 @@ CONTRACT_GROUPS = {
         ),
         (
             "test_issue_1146_scale_completeness.py",
+            "test_issue_1299_page_escalation.py",
             "test_arrangement_gate.py",
             "test_scale_selection.py",
         ),
