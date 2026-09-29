@@ -101,6 +101,14 @@ CONTRACT_GROUPS = {
             "test_issue_1374_fillet_completeness_evidence.py",
         ),
     ),
+    "flat_polygonal_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_flat_polygonal_evidence.py",),
+        (
+            "test_issue_1371_flat_completeness_evidence.py",
+            "test_issue_1371_polygonal_stock_completeness_evidence.py",
+            "test_polygonal_boss_completeness_evidence.py",
+        ),
+    ),
     "step_observers": ContractGroup(
         ("src/draftwright/evaluation/step_analysis.py",),
         (

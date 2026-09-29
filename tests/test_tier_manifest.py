@@ -36,6 +36,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "prismatic_evidence": "src/draftwright/evaluation/_prismatic_evidence.py",
         "groove_evidence": "src/draftwright/evaluation/_groove_evidence.py",
         "edge_profile_evidence": "src/draftwright/evaluation/_edge_profile_evidence.py",
+        "flat_polygonal_evidence": "src/draftwright/evaluation/_flat_polygonal_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
@@ -76,6 +77,15 @@ def test_edge_profile_evidence_change_runs_both_physical_correspondence_contract
     assert {
         "test_issue_1374_chamfer_completeness_evidence.py",
         "test_issue_1374_fillet_completeness_evidence.py",
+    } <= selected
+
+
+def test_flat_polygonal_evidence_change_runs_all_three_physical_correspondence_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/_flat_polygonal_evidence.py"]))
+    assert {
+        "test_issue_1371_flat_completeness_evidence.py",
+        "test_issue_1371_polygonal_stock_completeness_evidence.py",
+        "test_polygonal_boss_completeness_evidence.py",
     } <= selected
 
 
