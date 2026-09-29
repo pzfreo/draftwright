@@ -37,6 +37,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "groove_evidence": "src/draftwright/evaluation/_groove_evidence.py",
         "edge_profile_evidence": "src/draftwright/evaluation/_edge_profile_evidence.py",
         "flat_polygonal_evidence": "src/draftwright/evaluation/_flat_polygonal_evidence.py",
+        "hole_family_evidence": "src/draftwright/evaluation/_hole_family_evidence.py",
         "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "solve_trace": "src/draftwright/annotations/solve_trace.py",
@@ -86,6 +87,16 @@ def test_flat_polygonal_evidence_change_runs_all_three_physical_correspondence_c
         "test_issue_1371_flat_completeness_evidence.py",
         "test_issue_1371_polygonal_stock_completeness_evidence.py",
         "test_polygonal_boss_completeness_evidence.py",
+    } <= selected
+
+
+def test_hole_family_evidence_change_runs_each_physical_and_finished_ink_contract():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/_hole_family_evidence.py"]))
+    assert {
+        "test_issue_1202_observed_drawing_consumer.py",
+        "test_issue_1369_hole_completeness_evidence.py",
+        "test_issue_1370_countersink_completeness_evidence.py",
+        "test_issue_1370_hole_pattern_completeness_evidence.py",
     } <= selected
 
 

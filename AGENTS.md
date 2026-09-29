@@ -70,6 +70,8 @@ evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence
 evidence;
 `_flat_polygonal_evidence.py` owns flat and polygonal correspondence, declaration, and drawing
 evidence;
+`_hole_family_evidence.py` owns hole, countersink, and hole-pattern declaration and drawing
+evidence;
 `step_analysis.py` keeps the observer registry and its stable helper imports.
 
 Key invariants — each is machine-enforced, and the guard test is the authority:

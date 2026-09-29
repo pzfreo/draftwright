@@ -109,6 +109,15 @@ CONTRACT_GROUPS = {
             "test_polygonal_boss_completeness_evidence.py",
         ),
     ),
+    "hole_family_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_hole_family_evidence.py",),
+        (
+            "test_issue_1202_observed_drawing_consumer.py",
+            "test_issue_1369_hole_completeness_evidence.py",
+            "test_issue_1370_countersink_completeness_evidence.py",
+            "test_issue_1370_hole_pattern_completeness_evidence.py",
+        ),
+    ),
     "step_observers": ContractGroup(
         ("src/draftwright/evaluation/step_analysis.py",),
         (
