@@ -713,6 +713,71 @@ def _feature_line(
         return _datum_ref_line(f, origin_ref)
     if k == "note":
         return _note_line(f, origin_ref)
+    if k in {
+        "envelope",
+        "step_level",
+        "rotational",
+        "hole",
+        "boss",
+        "polygonal_boss",
+        "polygonal_stock",
+        "external_spur_gear",
+        "step",
+    }:
+        return _stock_feature_line(
+            f,
+            part_envelope,
+            object_ref=object_ref,
+            exact_parameter=exact_parameter,
+            exact_step_length=exact_step_length,
+            profile_group=profile_group,
+        )
+    if k in {
+        "slot",
+        "blend",
+        "oriented_slot",
+        "rectangular_blind_slot",
+        "round_bottom_blind_slot",
+        "pocket",
+        "channel",
+        "pad",
+        "pattern",
+        "pocket_pattern",
+        "slot_pattern",
+    }:
+        return _machined_feature_line(f, exact_parameter=exact_parameter)
+    if k in {
+        "chamfer",
+        "fillet",
+        "angle",
+        "paired_ramp_step",
+        "gusset_rib",
+        "hex_pocket",
+        "circular_channel",
+        "circular_blind_step",
+        "through_step",
+        "flat",
+        "groove",
+        "plate",
+    }:
+        return _profile_feature_line(f, profile_group=profile_group)
+    # Kinds with no declarative verb: flag inline so they aren't silently lost. Since #945 every
+    # geometric kind has a verb, so this catches bare-face aspects that cannot be rebound and,
+    # more usefully, a newly added kind whose emit line nobody wrote.
+    return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
+
+
+def _stock_feature_line(
+    f,
+    part_envelope,
+    *,
+    object_ref: str | None,
+    exact_parameter: str | None,
+    exact_step_length: bool,
+    profile_group: str | None,
+) -> str:
+    """Emit whole-part, stock, and turned-feature declarations."""
+    k = f.kind
     if k == "envelope":
         if part_envelope is not None and f == part_envelope:
             # `sheet.envelope()` defaults to the whole part and now measures its SOLIDS with a
@@ -846,6 +911,12 @@ def _feature_line(
             # ``length`` and ``at`` would reconstruct both endpoints 0.0005 mm away.
             f'at={_authored_pt(f.frame.origin)}, axis="{f.frame.axis}"{thr}{knurl}{group})'
         )
+    raise AssertionError(f"unexpected stock feature kind: {k}")
+
+
+def _machined_feature_line(f, *, exact_parameter: str | None) -> str:
+    """Emit machined features and their repeated arrangements."""
+    k = f.kind
     if k == "slot":
         lo, hi = _n(f.lo), _n(f.hi)
         # Derive length from the EMITTED lo/hi so hi - lo == length exactly — declare.slot()
@@ -1002,6 +1073,12 @@ def _feature_line(
             if f.angle is not None:
                 parts.append(f"angle={_n(f.angle)}")
         return f"sheet.slot_pattern({_member_slot_str(f.member)}, " + ", ".join(parts) + ")"
+    raise AssertionError(f"unexpected machined feature kind: {k}")
+
+
+def _profile_feature_line(f, *, profile_group: str | None) -> str:
+    """Emit edge, section-profile, and other measured shape declarations."""
+    k = f.kind
     if k == "chamfer":
         turned = ", turned=True" if f.turned else ""
         provenance = ""
@@ -1105,10 +1182,7 @@ def _feature_line(
         return (
             f'sheet.plate(axis="{f.axis}", lo={_n(f.lo)}, hi={_n(f.hi)}, u={_n(f.u)}, v={_n(f.v)})'
         )
-    # Kinds with no declarative verb: flag inline so they aren't silently lost. Since #945 every
-    # geometric kind has a verb, so this catches bare-face aspects that cannot be rebound and,
-    # more usefully, a newly added kind whose emit line nobody wrote.
-    return f"# {k} @ {_pt(f.frame.origin)} — no declarative verb yet; drawn by the auto-pass"
+    raise AssertionError(f"unexpected profile feature kind: {k}")
 
 
 def _needs_section(model) -> bool:
@@ -1744,29 +1818,8 @@ def _layout_override_block(model) -> list[str]:
     ]
 
 
-def _feature_block(
-    features,
-    part_envelope=None,
-    object_refs: Mapping[int, str] | None = None,
-    decorations: Mapping | None = None,
-    declaration_metadata: Mapping[int, tuple[str, str, tuple[str, ...]]] | None = None,
-) -> tuple[list[str], dict[int, str]]:
-    """The emitted feature lines plus ``{id(feature): binding}`` for the names they bind.
-
-    The map is RETURNED rather than recomputed by the dimension block, which needs the same
-    names. Recomputing would be a second derivation of one fact — and this one would be
-    silently wrong rather than loudly: a mismatch emits `sheet.dimension(hole2, …)` naming
-    the wrong hole, which still runs.
-
-    Lines are grouped under section sub-headers (with a repeat tally) and each carries a
-    trailing describing comment. Geometric features retain their consecutive order. Notes
-    are dependent aspect statements, so they are emitted after the independently bindable
-    features; this lets an identity-preserving public reorder put a note before its origin
-    without making the generated relationship impossible to spell (#1351).
-    """
-    if not features:
-        return ["# ── Features: none detected ──"], {}
-    source_features = tuple(features)
+def _profile_groups(source_features) -> dict[int, str]:
+    """Keep detected profile tokens distinct from authored groups."""
     detected_profile_groups: dict[object, str] = {}
     profile_group_by_feature: dict[int, str] = {}
     reserved_profile_groups = {
@@ -1802,6 +1855,33 @@ def _feature_block(
             token = detected_profile_token()
             detected_profile_groups[provider_group] = token
         profile_group_by_feature[id(feature)] = token
+    return profile_group_by_feature
+
+
+def _feature_block(
+    features,
+    part_envelope=None,
+    object_refs: Mapping[int, str] | None = None,
+    decorations: Mapping | None = None,
+    declaration_metadata: Mapping[int, tuple[str, str, tuple[str, ...]]] | None = None,
+) -> tuple[list[str], dict[int, str]]:
+    """The emitted feature lines plus ``{id(feature): binding}`` for the names they bind.
+
+    The map is RETURNED rather than recomputed by the dimension block, which needs the same
+    names. Recomputing would be a second derivation of one fact — and this one would be
+    silently wrong rather than loudly: a mismatch emits `sheet.dimension(hole2, …)` naming
+    the wrong hole, which still runs.
+
+    Lines are grouped under section sub-headers (with a repeat tally) and each carries a
+    trailing describing comment. Geometric features retain their consecutive order. Notes
+    are dependent aspect statements, so they are emitted after the independently bindable
+    features; this lets an identity-preserving public reorder put a note before its origin
+    without making the generated relationship impossible to spell (#1351).
+    """
+    if not features:
+        return ["# ── Features: none detected ──"], {}
+    source_features = tuple(features)
+    profile_group_by_feature = _profile_groups(source_features)
     out = [f"# ── Features ({len(source_features)}): {_manifest(source_features)} ──"]
     features = tuple(f for f in source_features if f.kind != "note") + tuple(
         f for f in source_features if f.kind == "note"
