@@ -1419,20 +1419,14 @@ class Drawing:
           full count, #434); the escalations live only on the per-run ctx, so a repeat
           batch starts clean (#639).
 
-        A slot records width/length and, for an obround, ``slot_end_radius`` on one feature;
-        routing the feature also regenerates its model-derived datum **position** dim, so finalize
-        places a *superset* of the recorded slot intents (auto-pass parity by design —
-        commenting one of a slot's two lines still routes the feature). An unsupported-axis
-        (Y-turned) step/boss callout live-replays, so it surfaces the same ValueError the
-        live verb raises. Only ``only``-set routing is used here; the auto-pass path is
-        untouched.
+        A slot routes width, length, obround end radius and its model-derived datum
+        position, even if fewer intents were recorded. Unsupported-axis turned callouts
+        live-replay and raise the same ValueError as the live verb. Routing uses only-set
+        mode; the auto-pass path is untouched.
 
-        Idempotent (draining empties the list; a repeat call — or ``export()`` then
-        ``export_pdf()`` — no-ops) and a no-op when nothing was recorded (the live/auto-pass
-        path), so ``export()`` calls it unconditionally. **Resilient:** a live-replayed
-        intent is removed only after it places, so a verb that raises surfaces the error
-        and leaves the rest recorded. A record → finalize → record-more → finalize
-        sequence drains each batch.
+        Draining empties the list, so repeated calls and exports are no-ops until more
+        intents are recorded. A live-replayed intent is removed only after placement;
+        an error leaves the remaining batch available for a corrected retry.
         """
         # Nothing recorded → nothing to replay (the live/auto-pass path). The corridor batch is
         # a per-run local built below from these intents (#639), so an empty intent list has no
