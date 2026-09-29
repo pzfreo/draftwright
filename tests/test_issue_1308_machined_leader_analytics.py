@@ -9,114 +9,100 @@ from build123d import Box, Cylinder, Pos
 from build123d_drafting.helpers import Draft
 
 from draftwright import build_drawing
-from draftwright.annotations import from_model
+from draftwright.annotations import from_model, leaders
 from draftwright.annotations._common import analytical_leader_lands_clear
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-# Recorded from the OCC-measured path immediately before #1308.  This is intentionally
-# semantic rather than SVG-byte exact: every annotation, its rendered type, its 3-decimal
-# ink box, and lint-code inventory. #1479 updates the three Blend boxes after correcting
-# their radius targets; the spline-boundary assertion below verifies that change physically.
+# Expected annotation inventory and lint inventory for the three measured STEP parts.
+# Page-space boxes are deliberately omitted: view planning may move otherwise
+# identical feature ink. The test below validates the actual analytical geometry
+# against the rendered OCC leader for every placed analytical survivor.
 EXPECTED = {
     "grm03_thumbwheel_drive_screw.step": (
         {
-            "centerline_front": ("Centerline", (31.89, 69.925, 159.39, 70.075)),
-            "centerline_plan": ("Centerline", (31.89, 139.925, 159.39, 140.075)),
-            "m_cm0": ("CenterMark", (201.28, 65.0, 211.28, 75.0)),
-            "m_dia_x1": ("Leader", (44.39, 32.875, 55.618, 45.0)),
-            "m_dia_x2": ("Leader", (56.074, 32.893, 62.876, 57.5)),
-            "m_dia_x3": ("Leader", (108.49, 32.875, 114.603, 62.5)),
-            "m_dia_x0": ("Leader", (24.623, 53.893, 38.14, 56.107)),
-            "m_steplen0": ("Dimension", (31.49, 97.0, 44.79, 114.083)),
-            "m_steplen1": ("Dimension", (39.34, 97.0, 49.44, 108.0)),
-            "m_steplen2": ("Dimension", (49.34, 97.0, 64.44, 108.0)),
-            "m_steplen3": ("Dimension", (64.34, 97.0, 154.44, 108.0)),
-            "dim_height": ("Dimension", (158.39, 44.95, 166.39, 95.05)),
-            "hc_side0": ("Leader", (210.28, 68.665, 253.305, 71.335)),
-            "m_chamfer_x0": ("Leader", (48.604, 86.499, 64.928, 94.25)),
-            "m_chamfer_x1": ("Leader", (143.595, 76.25, 153.743, 84.292)),
-            "title_block": ("TitleBlock", (165.925, 10.925, 286.075, 43.075)),
-            "scale_note": ("Note", (254.67, 46.0, 267.0, 48.166)),
-            # #1338: the automatic replan keeps the optional ISO on the same sheet.
-            "note_iso_nts": ("Note", (218.528, 122.668, 242.861, 125.362)),
+            "centerline_front": "Centerline",
+            "centerline_plan": "Centerline",
+            "m_cm0": "CenterMark",
+            "m_dia_x1": "Leader",
+            "m_dia_x2": "Leader",
+            "m_dia_x3": "Leader",
+            "m_dia_x0": "Leader",
+            "m_steplen0": "Dimension",
+            "m_steplen1": "Dimension",
+            "m_steplen2": "Dimension",
+            "dim_height": "Dimension",
+            "hc_side0": "Leader",
+            "m_chamfer_x0": "Leader",
+            "m_chamfer_x1": "Leader",
+            "title_block": "TitleBlock",
+            "scale_note": "Note",
         },
-        # The generic Stage-3 same-batch selector (#1334) promotes a conflicted label by one
-        # tier when along-line movement cannot clear the chain; the finished sheet is clean.
         {},
     ),
     "issue_1058_wheel_rh.step": (
         {
-            "m_cm0": ("CenterMark", (73.245, 124.5, 92.745, 144.0)),
-            "hc_plan0": ("Leader", (14.865, 132.903, 76.745, 135.597)),
-            "m_locx0": ("Dimension", (63.945, 136.25, 83.045, 165.25)),
-            "m_locy0": ("Dimension", (155.807, 97.25, 174.907, 107.25)),
-            "dim_height": ("Dimension", (105.862, 56.7, 113.862, 95.3)),
-            "m_env_width": ("Dimension", (63.945, 103.25, 101.912, 111.25)),
-            "m_env_depth": ("Dimension", (155.807, 44.75, 193.907, 52.75)),
-            "title_block": ("TitleBlock", (165.925, 10.925, 286.075, 43.075)),
-            "scale_note": ("Note", (254.67, 46.0, 267.0, 48.166)),
-            "note_iso_nts": ("Note", (155.693, 115.549, 180.026, 118.243)),
+            "m_cm0": "CenterMark",
+            "hc_plan0": "Leader",
+            "m_locx0": "Dimension",
+            "m_locy0": "Dimension",
+            "dim_height": "Dimension",
+            "m_env_width": "Dimension",
+            "m_env_depth": "Dimension",
+            "title_block": "TitleBlock",
+            "scale_note": "Note",
+            "note_iso_nts": "Note",
         },
-        # `nominal_rounded` (#1600): this wheel's lengths are not round at one decimal
-        # place, so the sheet reports that its printed nominals differ from the model.
-        {
-            "gear_semantics_missing": 1,
-            "nominal_rounded": 1,
-            "unrecognised_defining_geometry": 1,
-        },
+        {"gear_semantics_missing": 1, "nominal_rounded": 1, "unrecognised_defining_geometry": 1},
     ),
     "nist_ctc_01_asme1_ap242.stp": (
         {
-            "m_cm0": ("CenterMark", (82.275, 240.5, 89.275, 247.5)),
-            "m_cm1": ("CenterMark", (146.275, 240.5, 153.275, 247.5)),
-            "m_cm2": ("CenterMark", (82.275, 222.5, 89.275, 229.5)),
-            "m_cm3": ("CenterMark", (146.275, 222.5, 153.275, 229.5)),
-            "m_cm4": ("CenterMark", (178.275, 265.5, 187.275, 274.5)),
-            "m_cm5": ("CenterMark", (48.275, 265.5, 57.275, 274.5)),
-            "m_cm6": ("CenterMark", (178.275, 195.5, 187.275, 204.5)),
-            "m_cm7": ("CenterMark", (48.275, 195.5, 57.275, 204.5)),
-            "m_cm8": ("CenterMark", (120.775, 152.0, 126.775, 158.0)),
-            "m_cm9": ("CenterMark", (108.775, 152.0, 114.775, 158.0)),
-            "hc_front0": ("Leader", (122.875, 128.665, 146.85, 153.0)),
-            "m_polygonal_boss_z0": ("Leader", (87.925, 218.931, 112.775, 226.34)),
-            "m_slot0_width": ("Dimension", (74.775, 225.6, 209.775, 244.4)),
-            # Quiddity 0.3.2 retains the rounded-rectangle slot's R10 corners and reports
-            # its overall extents, moving these witnesses to the physical ends.
-            "m_slot1_width": ("Dimension", (186.775, 229.95, 222.625, 240.05)),
-            "m_slot0_length": ("Dimension", (48.725, 241.0, 72.825, 292.0)),
-            "m_slot1_length": ("Dimension", (164.725, 242.0, 184.825, 301.5)),
-            "m_slot0_pos": ("Dimension", (37.725, 241.0, 48.825, 311.0)),
-            "m_locx0": ("Dimension", (37.725, 272.0, 52.825, 320.5)),
-            "m_locx1": ("Dimension", (37.725, 246.0, 85.825, 330.0)),
-            "m_locx2": ("Dimension", (37.725, 246.0, 149.825, 339.5)),
-            "m_slot1_pos": ("Dimension", (37.725, 242.0, 164.825, 349.0)),
-            "m_locx3": ("Dimension", (37.725, 272.0, 182.825, 358.5)),
-            "m_locy0": ("Dimension", (250.725, 172.0, 260.825, 182.0)),
-            "m_locy1": ("Dimension", (250.725, 172.0, 286.825, 191.5)),
-            "m_locy2": ("Dimension", (250.725, 172.0, 304.825, 201.0)),
-            "m_locy3": ("Dimension", (250.725, 172.0, 330.825, 210.5)),
-            "dim_step_0": ("Dimension", (201.775, 139.95, 228.775, 160.05)),
-            "m_bossheight_z0": ("Dimension", (119.775, 159.95, 209.775, 170.05)),
-            "dim_loc_front_z7500": ("Dimension", (199.775, 139.95, 219.275, 155.05)),
-            "dim_height": ("Dimension", (228.775, 139.95, 238.275, 170.05)),
-            "m_env_depth": ("Dimension", (250.725, 128.0, 340.825, 136.0)),
-            "dim_loc_front_x37000": ("Dimension", (37.725, 117.15, 111.825, 136.0)),
-            "dim_loc_front_x43000": ("Dimension", (37.725, 104.3, 123.825, 136.0)),
-            "m_env_width": ("Dimension", (37.725, 178.0, 197.825, 186.0)),
-            # Circular interior alternatives remain normal to their physical rims.
-            "hc_plan0": ("Leader", (87.543, 245.768, 114.866, 252.053)),
-            "hc_plan1": ("Leader", (186.275, 268.665, 220.199, 271.335)),
-            "m_slot0_radius": ("Leader", (10.338, 233.917, 48.775, 236.083)),
-            "m_chamfer_y0": ("Leader", (91.81, 164.568, 108.266, 169.491)),
-            "m_chamfer_z1": ("Leader", (192.775, 275.0, 213.032, 283.142)),
-            "m_fillet_z0": ("Leader", (45.454, 192.341, 64.846, 194.807)),
-            "m_blend_x0": ("Leader", (273.967, 160.268, 289.818, 165.97)),
-            "m_blend_z1": ("Leader", (164.927, 231.235, 184.528, 236.858)),
-            "m_blend_z2": ("Leader", (48.913, 260.134, 68.156, 263.233)),
-            "title_block": ("TitleBlock", (432.925, 10.925, 583.075, 43.075)),
-            "scale_note": ("Note", (551.709, 46.0, 564.0, 48.166)),
-            "note_iso_nts": ("Note", (460.221, 105.557, 484.554, 108.251)),
+            "m_cm0": "CenterMark",
+            "m_cm1": "CenterMark",
+            "m_cm2": "CenterMark",
+            "m_cm3": "CenterMark",
+            "m_cm4": "CenterMark",
+            "m_cm5": "CenterMark",
+            "m_cm6": "CenterMark",
+            "m_cm7": "CenterMark",
+            "m_cm8": "CenterMark",
+            "m_cm9": "CenterMark",
+            "hc_front0": "Leader",
+            "m_polygonal_boss_z0": "Leader",
+            "m_slot0_width": "Dimension",
+            "m_slot1_width": "Dimension",
+            "m_slot0_length": "Dimension",
+            "m_slot1_length": "Dimension",
+            "m_slot0_pos": "Dimension",
+            "m_locx0": "Dimension",
+            "m_locx1": "Dimension",
+            "m_locx2": "Dimension",
+            "m_slot1_pos": "Dimension",
+            "m_locx3": "Dimension",
+            "m_locy0": "Dimension",
+            "m_locy1": "Dimension",
+            "m_locy2": "Dimension",
+            "m_locy3": "Dimension",
+            "dim_step_0": "Dimension",
+            "m_bossheight_z0": "Dimension",
+            "dim_loc_front_z7500": "Dimension",
+            "dim_height": "Dimension",
+            "m_env_depth": "Dimension",
+            "dim_loc_front_x37000": "Dimension",
+            "dim_loc_front_x43000": "Dimension",
+            "m_env_width": "Dimension",
+            "hc_plan0": "Leader",
+            "hc_plan1": "Leader",
+            "m_slot0_radius": "Leader",
+            "m_chamfer_y0": "Leader",
+            "m_chamfer_z1": "Leader",
+            "m_fillet_z0": "Leader",
+            "m_blend_x0": "Leader",
+            "m_blend_z1": "Leader",
+            "m_blend_z2": "Leader",
+            "title_block": "TitleBlock",
+            "scale_note": "Note",
+            "note_iso_nts": "Note",
         },
         {
             "plate_requirement_unverifiable": 1,
@@ -125,6 +111,19 @@ EXPECTED = {
         },
     ),
 }
+
+# GRM03 can use its original ISO plan or a detail view for the final step lengths.
+# Both choices retain the common machined feature inventory above.
+GRM03_VIEW_ALTERNATIVES = (
+    {"m_steplen3": "Dimension", "note_iso_nts": "Note"},
+    {
+        "detail_caption_A": "Note",
+        "detail_marker_A": "Compound",
+        "detail_marker_label_A": "Note",
+        "dim_detail_a_steplen0": "Dimension",
+        "dim_detail_a_steplen1": "Dimension",
+    },
+)
 
 
 def test_analytical_producer_floor_matches_label_and_full_geometry_clearance():
@@ -238,15 +237,42 @@ def test_source_aware_drop_severity_preserves_unsourced_warning(monkeypatch):
 def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, monkeypatch):
     from draftwright import builder as builder_module
 
-    # This is the historical analytical-vs-OCC geometry golden.  Inter-view clearance has
-    # dedicated compose/repack coverage; suppress that independent outer-layout migration here
-    # so a leader-lowering regression remains the only way these coordinates can change.
+    # Inter-view clearance has dedicated compose/repack coverage; this test isolates
+    # whether each selected analytical leader matches its actual OCC ink.
     monkeypatch.setattr(builder_module, "_annotation_clearance", lambda _drawing: 0.0)
     captured_jobs = []
     constructed_polygonal = []
+    analytical_matches = {}
+    rendered_ink_matches = {}
+    materialized_jobs = {}
     place_feature_leader_jobs = from_model.place_feature_leader_jobs
     collect_feature_leader = from_model.collect_feature_leader
     real_leader = from_model.Leader
+    geometry_matches = leaders._geometry_matches
+    ink_matches = leaders._rendered_ink_matches
+    materialize = leaders._materialize
+
+    def capture_geometry_match(candidate, annotation, **kwargs):
+        matches = geometry_matches(candidate, annotation, **kwargs)
+        analytical_matches[id(annotation)] = matches
+        return matches
+
+    monkeypatch.setattr(leaders, "_geometry_matches", capture_geometry_match)
+
+    def capture_rendered_ink_match(candidate, annotation, **kwargs):
+        matches = ink_matches(candidate, annotation, **kwargs)
+        rendered_ink_matches[id(annotation)] = matches
+        return matches
+
+    monkeypatch.setattr(leaders, "_rendered_ink_matches", capture_rendered_ink_match)
+
+    def capture_materialized_job(dwg, job, candidate):
+        annotation = materialize(dwg, job, candidate)
+        if annotation is not None:
+            materialized_jobs[id(annotation)] = (job.name, job.analytical_geometry is not None)
+        return annotation
+
+    monkeypatch.setattr(leaders, "_materialize", capture_materialized_job)
 
     def capture_immediate(drawing, analysis, ctx, jobs, *, producer_floor=False):
         jobs = list(jobs)
@@ -274,57 +300,89 @@ def test_analytical_machined_leaders_preserve_the_occ_measured_drawing(fixture, 
         return leader
 
     monkeypatch.setattr(from_model, "Leader", counted_leader)
-    # This golden isolates analytical-vs-OCC leader lowering.  Keep the established principal
-    # topology explicit so automatic redundant-view selection is not mistaken for a leader
-    # geometry change (and so the recorded page coordinates remain meaningful).
-    # Keep the original furniture policy explicit in this leader-geometry comparison.
+    # Keep the established principal topology and furniture policy explicit.
     drawing = build_drawing(
         FIXTURES / fixture,
         page="A2" if fixture == "nist_ctc_01_asme1_ap242.stp" else None,
         _views=("front", "plan", "side"),
         projection_symbol=False,
     )
-    actual = {}
-    for name, annotation in drawing.iter_annotations():
-        box = annotation.bounding_box()
-        actual[name] = (
-            type(annotation).__name__,
-            tuple(round(value, 3) for value in (box.min.X, box.min.Y, box.max.X, box.max.Y)),
-        )
+    actual = {name: type(annotation).__name__ for name, annotation in drawing.iter_annotations()}
 
     expected_annotations, expected_lint = EXPECTED[fixture]
-    assert actual == expected_annotations
+    if fixture == "grm03_thumbwheel_drive_screw.step":
+        assert actual in [expected_annotations | extra for extra in GRM03_VIEW_ALTERNATIVES]
+    else:
+        assert actual == expected_annotations
     assert drawing.lint_summary()["by_code"] == expected_lint
+    analytical_names = {
+        name
+        for name, annotation in drawing.iter_annotations()
+        if materialized_jobs.get(id(annotation)) == (name, True)
+    }
+    required_analytical = {
+        "grm03_thumbwheel_drive_screw.step": {
+            "m_chamfer_x0",
+            "m_chamfer_x1",
+        },
+        "issue_1058_wheel_rh.step": set(),
+        "nist_ctc_01_asme1_ap242.stp": {
+            "m_polygonal_boss_z0",
+            "m_chamfer_y0",
+            "m_chamfer_z1",
+            "m_fillet_z0",
+            "m_blend_x0",
+            "m_blend_z1",
+            "m_blend_z2",
+        },
+    }[fixture]
+    assert required_analytical <= analytical_names
+    placed_analytical = analytical_names & actual.keys()
+    for name in placed_analytical:
+        annotation = drawing.get_annotation(name)
+        assert analytical_matches.get(id(annotation)) is True, name
+        assert rendered_ink_matches.get(id(annotation)) is True, name
     if fixture == "nist_ctc_01_asme1_ap242.stp":
         from build123d import Edge, GeomType
 
-        # #1479 moved all three Blend tips from analytic axes to physical boundaries.
-        # R5's oblique end trims are splines: preserve this radius and check its own
-        # occurrence's trimmed edge, independently of the renderer's candidate selection.
-        feature = drawing.registry.feature_of("m_blend_x0")
-        assert feature.radius == 5
-        assert drawing.view_of("m_blend_x0") == "side"
+        # #1479 moved all three Blend tips from analytic axes to their own
+        # physical boundaries. Check the named occurrence independently of
+        # the renderer's candidate selection and page layout.
         evidence = drawing.recognition_evidence()
         ownership = drawing.recognition_ownership()
-        (binding,) = [
-            item
-            for item in ownership.bindings
-            if evidence.family(item.occurrence) == "blends" and item.feature is feature
-        ]
-        curves = [
-            edge
-            for ref in evidence.defining_faces(binding.occurrence)
-            for edge in evidence.face(ref).edges()
-            if edge.geom_type != GeomType.LINE
-        ]
-        assert curves and all(edge.geom_type == GeomType.BSPLINE for edge in curves)
-        tip = drawing.get_annotation("m_blend_x0").tip
-        origin = drawing.at("side", 0, 0, 0)
-        y = (tip[0] - origin[0]) / (drawing.at("side", 0, 1, 0)[0] - origin[0])
-        z = (tip[1] - origin[1]) / (drawing.at("side", 0, 0, 1)[1] - origin[1])
         bounds = drawing.working_part.bounding_box()
-        ray = Edge.make_line((bounds.min.X - 1, y, z), (bounds.max.X + 1, y, z))
-        assert min(edge.distance_to(ray) for edge in curves) < 1e-6
+        for name, view, axis, radius in (
+            ("m_blend_x0", "side", "x", 5),
+            ("m_blend_z1", "plan", "z", 10),
+            ("m_blend_z2", "plan", "z", 25),
+        ):
+            feature = drawing.registry.feature_of(name)
+            assert feature.radius == radius
+            assert drawing.view_of(name) == view
+            (binding,) = [
+                item
+                for item in ownership.bindings
+                if evidence.family(item.occurrence) == "blends" and item.feature is feature
+            ]
+            curves = [
+                edge
+                for ref in evidence.defining_faces(binding.occurrence)
+                for edge in evidence.face(ref).edges()
+                if edge.geom_type != GeomType.LINE
+            ]
+            assert curves
+            tip = drawing.get_annotation(name).tip
+            origin = drawing.at(view, 0, 0, 0)
+            if axis == "x":
+                assert all(edge.geom_type == GeomType.BSPLINE for edge in curves)
+                y = (tip[0] - origin[0]) / (drawing.at(view, 0, 1, 0)[0] - origin[0])
+                z = (tip[1] - origin[1]) / (drawing.at(view, 0, 0, 1)[1] - origin[1])
+                ray = Edge.make_line((bounds.min.X - 1, y, z), (bounds.max.X + 1, y, z))
+            else:
+                x = (tip[0] - origin[0]) / (drawing.at(view, 1, 0, 0)[0] - origin[0])
+                y = (tip[1] - origin[1]) / (drawing.at(view, 0, 1, 0)[1] - origin[1])
+                ray = Edge.make_line((x, y, bounds.min.Z - 1), (x, y, bounds.max.Z + 1))
+            assert min(edge.distance_to(ray) for edge in curves) < 1e-6, name
         polygonal_jobs = [job for job in captured_jobs if job.name == "m_polygonal_boss_z0"]
         assert polygonal_jobs
         assert all(job.analytical_geometry is not None for job in polygonal_jobs)
