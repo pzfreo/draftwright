@@ -110,6 +110,65 @@ def test_build_local_placement_critique_keeps_subclass_lint_dispatch_issue_1945(
     assert critique.get(drawing)[0].message == "2"
 
 
+@pytest.mark.parametrize(
+    "options, minimum_states",
+    [({"scale": 1.0, "scale_policy": "permissive"}, 1), ({"annotation_layout": "compare"}, 2)],
+)
+def test_finished_build_physical_critique_runs_once_per_state_issue_1945(
+    monkeypatch, options, minimum_states
+):
+    original_lint = Drawing.lint
+    calls = []
+
+    def counted_lint(self, *, physical=True):
+        calls.append((self, physical))
+        return original_lint(self, physical=physical)
+
+    monkeypatch.setattr(Drawing, "lint", counted_lint)
+    drawing = build_drawing(Box(30, 20, 10), **options)
+    physical = Counter(owner for owner, mode in calls if mode)
+    assert len(physical) >= minimum_states  # compare must exercise both finished attempts
+    assert all(count == 1 for count in physical.values())
+
+    before = tuple(drawing.lint())
+    drawing.registry.record_issue(
+        LintIssue(severity="warning", code="edited_after_build", message="fresh public lint")
+    )
+    after = tuple(drawing.lint())
+    assert len(after) == len(before) + 1
+    assert after[-1].code == "edited_after_build"
+    assert drawing.lint_summary()["by_code"]["edited_after_build"] == 1
+
+
+def test_post_build_edit_after_critique_gets_fresh_physical_evidence_issue_1945(monkeypatch):
+    original_lint = Drawing.lint
+    physical_calls = []
+
+    def counted_lint(self, *, physical=True):
+        issues = original_lint(self, physical=physical)
+        if physical:
+            physical_calls.append(tuple(issue.code for issue in issues))
+        return issues
+
+    def edit_after_critique(drawing):
+        drawing.lint_summary()
+        drawing.registry.record_issue(
+            LintIssue(severity="warning", code="edited_in_hook", message="fresh physical lint")
+        )
+        return drawing
+
+    monkeypatch.setattr(Drawing, "lint", counted_lint)
+    build_drawing(
+        Box(30, 20, 10),
+        scale=1.0,
+        scale_policy="permissive",
+        _post_build=edit_after_critique,
+    )
+    assert len(physical_calls) == 2  # the hook changes state after its first critique
+    assert "edited_in_hook" not in physical_calls[0]
+    assert "edited_in_hook" in physical_calls[1]
+
+
 @pytest.mark.timeout(60)
 def test_build_drawing_export_writes_files(tmp_path):
     stem = str(tmp_path / "b")
