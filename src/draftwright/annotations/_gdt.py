@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from build123d_drafting import DatumFeature, FeatureControlFrame, SurfaceFinish, TextBlock
 from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
 from draftwright._core import (
+    ViewZones,
     _font_safe_text,
     _text_line_spacing_em,
     _text_size,
@@ -24,7 +28,14 @@ from draftwright.annotations._common import (
 )
 from draftwright.annotations.routed import RoutedLeader
 from draftwright.model.compiled import DimensionId
-from draftwright.model.ir import ChamferFeature, FilletFeature
+from draftwright.model.ir import (
+    ChamferFeature,
+    ControlFrame,
+    DatumRef,
+    FilletFeature,
+    Finish,
+    Note,
+)
 
 # GD&T aspect side-layer (ADR 4 (was 0011 §4)) — declared feature control frames / datum
 # feature symbols / surface finishes. Placed as first-class ADR 2 (was 0009) corridor candidates,
@@ -43,6 +54,26 @@ _GDT_CORRIDOR_PRIORITY = PRIORITY.AUTHORED
 # Minimum GD&T leader shaft length (page-mm). A zero-length Leader (site == solved tier)
 # makes OCC's edge builder raise; nudging to this keeps `_build` total.
 _MIN_LEADER = 0.05
+
+
+@dataclass(frozen=True, slots=True)
+class _GdtDropState:
+    """One declared frame's identity and geometry retained until post-drain retry."""
+
+    view: str
+    side: str
+    zones: ViewZones
+    px: float
+    py: float
+    size: tuple[float, float]
+    build: Callable[..., Any]
+    feature: object
+    title_block_box: tuple[float, float, float, float]
+    source_ids: tuple[str, ...]
+    satisfaction: tuple[DimensionId, ...]
+    build_at: Callable[..., Any]
+    build_routed: Callable[..., Any]
+    declaration: ControlFrame | DatumRef | Finish | Note
 
 
 def _gdt_glyph(item, draft):
@@ -149,7 +180,6 @@ def _gdt_drop_callback(
     zones,
     px,
     py,
-    horizontal,
     size,
     tb_box,
     source_ids,
@@ -160,24 +190,24 @@ def _gdt_drop_callback(
 ):
     """Return the deferred shared-solver fallback for one declared GD&T candidate."""
 
-    def _drop(
-        nm,
-        _v=item.view,
-        _s=item.side,
-        _zones=zones,
-        _px=px,
-        _py=py,
-        _hz=horizontal,
-        _sz=size,
-        _bld=build,
-        _feat=item.origin or item,
-        _tb=tb_box,
-        _source=source_ids,
-        _satisfaction=satisfaction,
-        _global_build=build_at,
-        _routed_build=build_routed,
-        _declaration=item,
-    ):
+    state = _GdtDropState(
+        view=item.view,
+        side=item.side,
+        zones=zones,
+        px=px,
+        py=py,
+        size=size,
+        build=build,
+        feature=item.origin or item,
+        title_block_box=tb_box,
+        source_ids=source_ids,
+        satisfaction=satisfaction,
+        build_at=build_at,
+        build_routed=build_routed,
+        declaration=item,
+    )
+
+    def _drop(nm):
         # Fallthrough: the declared/derived side is full — try the OPPOSITE side of
         # the same view before dropping, so a congested default still places somewhere
         # legible rather than vanishing. DEFERRED via ctx.post_drain (the plate
@@ -186,26 +216,12 @@ def _gdt_drop_callback(
         # (no corridor-cross check) match the primary path, BUT reject a spot over the
         # (not-yet-placed) title block — a below/right strip runs into it, and the
         # carve can't see it.
-        def _retry(
-            nm=nm,
-            _v=_v,
-            _s=_s,
-            _zones=_zones,
-            _px=_px,
-            _py=_py,
-            _sz=_sz,
-            _bld=_bld,
-            _feat=_feat,
-            _tb=_tb,
-            _source=_source,
-            _satisfaction=_satisfaction,
-            _global_build=_global_build,
-            _routed_build=_routed_build,
-            _declaration=_declaration,
-        ):
+        def _retry():
             trace = getattr(ctx, "trace", None)
             event = (
-                trace.pass_event("gdt_post_drain_fallback", view=_v, requested_side=_s)
+                trace.pass_event(
+                    "gdt_post_drain_fallback", view=state.view, requested_side=state.side
+                )
                 if trace is not None
                 else None
             )
@@ -220,7 +236,7 @@ def _gdt_drop_callback(
             # with room. A note the caller asked to see should appear somewhere legible
             # rather than vanish; when the requested strip has no room, an explicit `side=`
             # is a preference, not a hard constraint. A perpendicular side flips the leader
-            # orientation (`_bld(pos, _hz=hz)`). If the placement lands on a side other than
+            # orientation (`state.build(pos, _hz=hz)`). If the placement lands on a side other than
             # requested, record an INFO issue so the relaxation is visible.
             # A requested annotation must never be silently lost.
             relax_order = {
@@ -228,22 +244,28 @@ def _gdt_drop_callback(
                 "below": ("above", "right", "left"),
                 "left": ("right", "above", "below"),
                 "right": ("left", "above", "below"),
-            }[_s]
+            }[state.side]
             for alt in relax_order:
-                alt_strip = getattr(_zones, alt, None)
+                alt_strip = getattr(state.zones, alt, None)
                 if alt_strip is None:
                     continue
                 hz = alt in ("above", "below")  # perpendicular sides flip the leader axis
                 axis2 = "y" if hz else "x"
-                extent = _sz[1] if axis2 == "y" else _sz[0]  # the glyph's stacking-axis size
-                perp = (_px, _px + _sz[0]) if hz else (_py - _sz[1] / 2, _py + _sz[1] / 2)
-                pos = carve_position(dwg, alt_strip, _v, axis2, max(tier, extent), perp)
+                extent = (
+                    state.size[1] if axis2 == "y" else state.size[0]
+                )  # the glyph's stacking-axis size
+                perp = (
+                    (state.px, state.px + state.size[0])
+                    if hz
+                    else (state.py - state.size[1] / 2, state.py + state.size[1] / 2)
+                )
+                pos = carve_position(dwg, alt_strip, state.view, axis2, max(tier, extent), perp)
                 if pos is None:
                     if trace_item is not None:
                         trace_item["attempts"].append({"side": alt, "outcome": "no_free_position"})
                     continue
-                dim = _bld(pos, _hz=hz)
-                if _box_hits(_anno_box(dim), (_tb,)):
+                dim = state.build(pos, _hz=hz)
+                if _box_hits(_anno_box(dim), (state.title_block_box,)):
                     if trace_item is not None:
                         trace_item["attempts"].append(
                             {"side": alt, "outcome": "title_block_conflict"}
@@ -256,15 +278,15 @@ def _gdt_drop_callback(
                 ctx.place(
                     dim,
                     nm,
-                    view=_v,
-                    feature=_feat,
-                    satisfaction=_satisfaction,
-                    declaration=_declaration,
+                    view=state.view,
+                    feature=state.feature,
+                    satisfaction=state.satisfaction,
+                    declaration=state.declaration,
                 )  # relaxed side
                 ctx.record_issue(
                     "info",
                     "gdt_side_relaxed",
-                    f"{nm}: the {_v} {_s} strip was full — placed on {alt} instead",
+                    f"{nm}: the {state.view} {state.side} strip was full — placed on {alt} instead",
                 )
                 if trace_item is not None:
                     trace_item["attempts"].append({"side": alt, "outcome": "placed"})
@@ -272,26 +294,26 @@ def _gdt_drop_callback(
                 return
             fallback = sheet_fallback(
                 dwg,
-                (_px, _py),
-                _v,
-                _global_build,
-                _routed_build,
-                _sz,
+                (state.px, state.py),
+                state.view,
+                state.build_at,
+                state.build_routed,
+                state.size,
             )
             if fallback is not None:
                 ctx.place(
                     fallback,
                     nm,
-                    view=_v,
-                    feature=_feat,
-                    satisfaction=_satisfaction,
-                    declaration=_declaration,
+                    view=state.view,
+                    feature=state.feature,
+                    satisfaction=state.satisfaction,
+                    declaration=state.declaration,
                 )
                 ctx.record_issue(
                     "info",
                     "gdt_sheet_fallback",
-                    f"{nm}: adjacent {_v} strips were full — placed in clear sheet space",
-                    source=_source,
+                    f"{nm}: adjacent {state.view} strips were full — placed in clear sheet space",
+                    source=state.source_ids,
                 )
                 if trace_item is not None:
                     trace_item["attempts"].append({"side": "sheet", "outcome": "placed"})
@@ -301,9 +323,9 @@ def _gdt_drop_callback(
                 trace_item["attempts"].append({"side": "sheet", "outcome": "no_clear_route"})
             ctx.record_issue(
                 "warning",
-                "pmi_dropped" if _source else "gdt_dropped",
-                f"{nm} not placed (no legible room in any {_v} strip or sheet fallback)",
-                source=_source,
+                "pmi_dropped" if state.source_ids else "gdt_dropped",
+                f"{nm} not placed (no legible room in any {state.view} strip or sheet fallback)",
+                source=state.source_ids,
                 outcome_stage="placement",
             )
 
@@ -553,7 +575,6 @@ def render_gdt(
             zones=zones,
             px=px,
             py=py,
-            horizontal=horizontal,
             size=size,
             tb_box=tb_box,
             source_ids=source_ids,
