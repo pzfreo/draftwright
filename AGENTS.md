@@ -53,7 +53,8 @@ recognition lifecycle state → **4**
 `_pmi_dimensions`, `_step_lengths`, and `_height_ladder` owners, shared machined
 leader lowering in `_machined_leaders`, analytical dimension ink in `_dimension_ink`,
 bounded same-batch label repair in `_dimension_ink_repair`, shared page-space
-placement geometry in `_placement_geometry`, required strip-ink resolution and
+placement geometry in `_placement_geometry`, placed occupancy and ink clearance in
+`_placement_occupancy`, required strip-ink resolution and
 survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 `_leader_fixed_ink`, typed feature-leader region expansion in
 `_leader_candidates`, typed intake, assignment, fallback, and commit phases in

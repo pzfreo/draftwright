@@ -301,6 +301,10 @@ and re-exports the existing private helper names.
     decomposed occupancy boxes, centerline label clearance, and the shared 1D
     obstacle carve. It owns `_box_hits`; `_common.py` retains the established
     helper import paths.
+  - **`annotations/_placement_occupancy.py`** — placed annotation occupancy,
+    late-furniture obstacles, pending title-block keep-out, and exact ink-clearance
+    predicates. It also places the ISO NTS caption against the finished sheet;
+    `_common.py` keeps the existing imports and supplies its live caption box probe.
   - **`annotations/_strip_postsolve.py`** — required exact-ink resolution after the
     shared strip solve and final survivor commit with provenance and trace closure.
     `_common.py` supplies its live placement helpers at call time and retains
@@ -309,13 +313,11 @@ and re-exports the existing private helper names.
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`), at the bottom of the
     annotations DAG. Bbox and segment helpers live in `_core`, `_geometry`, and
-    `_placement_geometry`. It also owns the **post-fit
-    late-furniture** seam (#1197): `late_furniture_obstacles` is the ONE occupancy
-    a placer facing the finished sheet uses — views, decomposed annotation ink,
-    minus the page-spanning riders, plus the title block as one hull — shared by
-    `Drawing.add_table` and by `place_iso_nts_note`, the iso's NTS caption, which
-    lives here rather than in `projection` because rank-2 cannot reach that
-    occupancy and a hand-rolled substitute was wrong twice.
+    `_placement_geometry`. The **post-fit late-furniture** seam (#1197) lives in
+    `_placement_occupancy`: `late_furniture_obstacles` includes views and decomposed
+    annotation ink, excludes page-spanning riders, and includes the title block
+    as one hull. `Drawing.add_table` and the ISO NTS caption share that policy
+    through the stable `_common` imports.
   - **`annotations/solve_trace.py`** — the optional, recording-only corridor and
     pass event recorder. `_common.SolveTrace` remains the same class for existing
     callers and trace pickle identities; its JSON schema and failure isolation stay
