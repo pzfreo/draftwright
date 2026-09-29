@@ -74,6 +74,9 @@ contract joins).
 are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6.0.
 `annotation_layout_profile` owns feature-leader region policy at rank 1;
 `leader_policy` remains its stable import path at that rank.
+`annotations/_patterns.py` owns grouped pocket/slot pattern callouts and pitch
+preparation; `holes.py` retains the pitch strip placement and its ADR 2 carve
+exemption, supplying that live binding to the pattern owner.
 Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;

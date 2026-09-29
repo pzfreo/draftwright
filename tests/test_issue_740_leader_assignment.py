@@ -42,6 +42,7 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
     assert (
         call_sites("from_model.py")
         | call_sites("holes.py")
+        | call_sites("_patterns.py")
         | call_sites("_diameters.py", "place_jobs")
     ) == {
         ("_diameters.py", "render_diameters", False),
@@ -63,9 +64,9 @@ def test_late_joint_assignment_stays_scoped_to_the_post_drain_adapters():
         ("from_model.py", "render_boss_diameters", False),
         ("from_model.py", "_render_polygonal_prisms", True),
         ("from_model.py", "render_hex_pockets", True),
-        ("holes.py", "render_pocket_patterns", False),
-        ("holes.py", "render_slot_patterns", False),
-        ("holes.py", "render_slot_patterns", True),
+        ("_patterns.py", "render_pocket_patterns", False),
+        ("_patterns.py", "render_slot_patterns", False),
+        ("_patterns.py", "render_slot_patterns", True),
     }
 
     # The public facade must supply its live joint-placement binding to both moved

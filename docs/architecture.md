@@ -231,8 +231,11 @@ and re-exports the existing private helper names.
     radius jobs to the shared late leader assignment.
   - **`annotations/angular.py`** — angular arc/arrow/extension ink and analytic
     radius-dependent footprints, consumed through the shared corridor solve.
-  - **`annotations/holes.py`** — hole/pattern callouts, balloons, planar location
-    and pitch/grid dimensions, table furniture, and slots.
+  - **`annotations/holes.py`** — hole callouts, balloons, planar location,
+    pitch placement, table furniture transactions, and the pattern pass entry points.
+  - **`annotations/_patterns.py`** — grouped pocket and slot pattern callouts,
+    compiled pitch labels, grid-axis selection, and aligned-pitch coalescing.
+    The hole pass supplies its live strip-placement and furniture bindings.
   - **`annotations/hole_locations.py`** — compiler-approved off-axis hole
     locations (incl. side-drilled #133) placed through the shared corridor solve.
   - **`annotations/hole_leader_candidates.py`** — ordered physical candidates for
