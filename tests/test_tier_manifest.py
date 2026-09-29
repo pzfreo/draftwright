@@ -62,6 +62,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "diameter_family": "src/draftwright/annotations/_diameters.py",
         "location_family": "src/draftwright/annotations/_locations.py",
         "gdt_family": "src/draftwright/annotations/_gdt.py",
+        "pmi_dimensions": "src/draftwright/annotations/_pmi_dimensions.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",
@@ -399,6 +400,19 @@ def test_gdt_owner_runs_declaration_ink_and_fallback_contracts():
         "test_issue_1352_searchable_pdf_text.py",
         "test_declare.py",
         "test_compiled_plan_boundary.py",
+        "test_refactor_golden.py",
+        "test_solve_trace.py",
+    } <= selected
+
+
+def test_pmi_dimension_owner_runs_source_witness_fallback_and_trace_contracts():
+    source = "src/draftwright/annotations/_pmi_dimensions.py"
+    assert selected_groups([source]) == {"pmi_dimensions", "placement"}
+    selected = set(pr_modules(_TESTS, [source]))
+    assert {
+        "test_pmi.py",
+        "test_issue_1209_linear_pmi_witnesses.py",
+        "test_sheet_fallback_issue_1797.py",
         "test_refactor_golden.py",
         "test_solve_trace.py",
     } <= selected

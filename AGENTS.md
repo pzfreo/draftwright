@@ -43,6 +43,7 @@ foundational record owner, dimension-intent and oriented-slot geometry validatio
 `linting/`, `reporting`, `drawing_evidence` and peers → **3** `analysis` → **4**
 `annotations/` (the render passes, including feature-family `_slots`,
 `_pocket_pad`, `_edge_callouts`, `_thin_profiles`, `_diameters`, `_locations`, `_gdt`,
+`_pmi_dimensions`,
 and `_step_lengths` owners, analytical dimension ink in `_dimension_ink`,
 bounded same-batch label repair in `_dimension_ink_repair`, shared page-space
 placement geometry in `_placement_geometry`, required strip-ink resolution and

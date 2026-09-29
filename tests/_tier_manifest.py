@@ -319,6 +319,19 @@ CONTRACT_GROUPS = {
             "test_solve_trace.py",
         ),
     ),
+    "pmi_dimensions": ContractGroup(
+        ("src/draftwright/annotations/_pmi_dimensions.py",),
+        (
+            "test_pmi.py",
+            "test_issue_1209_linear_pmi_witnesses.py",
+            "test_issue_1177_angular_dimensions.py",
+            "test_sheet_fallback_issue_1797.py",
+            "test_refactor_golden.py",
+            "test_compiled_plan_boundary.py",
+            "test_audit_differential.py",
+            "test_solve_trace.py",
+        ),
+    ),
     "sheet_layout_controls": ContractGroup(
         ("src/draftwright/sheet_layout_controls.py",),
         (

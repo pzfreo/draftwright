@@ -154,9 +154,9 @@ and re-exports the existing private helper names.
   - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
     module): turns the planner's `DimensionGroup`/render-intents into placed
     dimensions/callouts/centre marks/section triggers. This is where the turned,
-    PMI/GD&T, envelope/OD, centre-mark and step-length passes converged (ADR 1 (was 0015),
-    #200/#208/#237) — the old per-feature `annotations/{turned,pmi}.py` modules
-    were deleted as each migrated here.
+    envelope/OD and centre-mark passes converge with feature-family owners here
+    (ADR 1 (was 0015), #200/#208/#237). The old per-feature
+    `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
   - **`annotations/_step_lengths.py`** — owns compiler-approved turned axial
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
@@ -182,6 +182,12 @@ and re-exports the existing private helper names.
     and shared-corridor candidates with deferred side and sheet fallback.
     `from_model.render_gdt` keeps the public pass and supplies live leader,
     carving, and sheet-fallback bindings.
+  - **`annotations/_pmi_dimensions.py`** — owns imported authored PMI dimension
+    selection and compiled included-angle rendering, proven witnesses,
+    angle/linear/cylinder candidates, source outcomes,
+    and shared-corridor fallback. `from_model.render_pmi` and
+    `render_angular_dimensions` keep their public pass signatures and supply live
+    selection and placement bindings.
   - **`annotations/_slots.py`** — owns compiler-approved slot, pad, and pocket
     in-plane dimension witnesses, corridor candidates, and obround-radius
     candidates. `from_model.render_slots` retains the public pass and submits
