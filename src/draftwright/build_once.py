@@ -42,6 +42,7 @@ def build_once(
     _select_automatic_views: bool = False,
     _candidate_profile_first: bool = False,
     _title_block_cache=None,
+    _placement_critique=None,
     _analyse: Callable[..., Analysis],
     _coerce_model: Callable[..., PartModel],
     _automatic_turned_principals: Callable[[Analysis], tuple[str, ...] | None],
@@ -524,6 +525,7 @@ def build_once(
                 trace=tracer,
                 critique_recognition_cache=_critique_recognition_cache,
                 reproducible=reproducible,
+                placement_critique=_placement_critique,
             )
             if repacked is not None:
                 a, dwg = repacked
@@ -532,7 +534,13 @@ def build_once(
             # mechanically-clear violations (overlap, wrong-side) and re-lint (#30).
             # A no-op on a clean sheet, so default-on costs nothing when there is
             # nothing to fix.
-            dwg.repair()
+            if _placement_critique is None:
+                dwg.repair()
+            else:
+                dwg.repair(
+                    _initial_issues=_placement_critique.get(dwg),
+                    _on_settled=lambda issues: _placement_critique.remember(dwg, issues),
+                )
     # Reconcile after the final repack/repair, against live registry identities.
     # This is diagnostic evidence only; it cannot substitute for requirement lint.
     scheme = a.layout_strips.scheme

@@ -3427,7 +3427,7 @@ class Drawing:
 
     # -- repair ---------------------------------------------------------------
     @observed_stage("repair")
-    def repair(self, max_iter: int = 3):
+    def repair(self, max_iter: int = 3, *, _initial_issues=None, _on_settled=None):
         """Close the lint→repair loop: act on violations, don't only report them.
 
         After the greedy initial placement, re-place the dimensions behind the
@@ -3461,7 +3461,13 @@ class Drawing:
                 perpendicular_step=self.draft.font_size + 2 * self.draft.pad_around_text,
             )
 
-        return repair_drawing(self, max_iter, ink_candidates=ink_candidates)
+        return repair_drawing(
+            self,
+            max_iter,
+            ink_candidates=ink_candidates,
+            initial_issues=_initial_issues,
+            on_settled=_on_settled,
+        )
 
     # -- output ---------------------------------------------------------------
     @observed_stage("lint")

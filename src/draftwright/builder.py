@@ -1075,6 +1075,7 @@ def _repack(
     trace=None,
     critique_recognition_cache=None,
     reproducible=True,
+    placement_critique: _PlacementCritique | None = None,
 ):
     """Measure the laid-out drawing's *real* per-view annotation footprints and,
     when a view collides across views, pack the blocks disjoint — escalating the
@@ -1089,7 +1090,10 @@ def _repack(
     no view actually moves).
     """
     if not _needs_repack(dwg, a):
+        had_advisory = any(issue.code == "page_fit_uncertain" for issue in dwg.registry.issues)
         dwg.registry.drop_issues({"page_fit_uncertain"})
+        if had_advisory and placement_critique is not None:
+            placement_critique.discard(dwg)
         return None
     blocks = _measure_blocks(dwg, a)
 
@@ -1221,9 +1225,12 @@ def _repack(
         and moved < _REPACK_TOL
         and (moved < 1e-6 or not _annotations_out_of_bounds(dwg, a))
     ):
+        prior_issues = dwg.registry.issues
         dwg.registry.drop_issues({"page_fit_uncertain", "scale_fallback_applied"})
         for code, message in repack_advisories:
             dwg.registry.record_issue(_layout_advisory(code, message))
+        if placement_critique is not None and dwg.registry.issues != prior_issues:
+            placement_critique.discard(dwg)
         return None
     fv_zones, pv_zones, sv_zones = _build_zones(g, _analysis_margins(a), ph)
     a2 = replace(
@@ -1290,6 +1297,30 @@ def _repack(
     return a2, dwg2
 
 
+class _PlacementCritique:
+    """Share one finished placement critique between build, repack, and repair gates."""
+
+    def __init__(self):
+        self._issues: weakref.WeakKeyDictionary[Drawing, tuple] = weakref.WeakKeyDictionary()
+
+    def get(self, candidate):
+        # Builder doubles retain their own lint semantics. This cache never escapes one build;
+        # editable public Drawings continue to lint afresh when asked directly.
+        if type(candidate) is not Drawing:
+            return tuple(candidate.lint(physical=False))
+        issues = self._issues.get(candidate)
+        if issues is None:
+            issues = tuple(candidate.lint(physical=False))
+            self._issues[candidate] = issues
+        return issues
+
+    def remember(self, drawing: Drawing, issues) -> None:
+        self._issues[drawing] = tuple(issues)
+
+    def discard(self, drawing: Drawing) -> None:
+        self._issues.pop(drawing, None)
+
+
 @observed_stage("repack")
 def _repack_to_fixed_point(
     a,
@@ -1306,6 +1337,7 @@ def _repack_to_fixed_point(
     trace=None,
     critique_recognition_cache=None,
     reproducible=True,
+    placement_critique: _PlacementCritique | None = None,
 ):
     """Iterate measure→repack→assemble until stable or bounded (#302)."""
 
@@ -1313,7 +1345,12 @@ def _repack_to_fixed_point(
         lint = getattr(candidate, "lint", None)
         # Pure orchestration tests use lightweight drawing doubles. They have no semantic
         # diagnostics, which is equivalent to an empty loss set for this guard.
-        issues = tuple(lint(physical=False)) if lint is not None else ()
+        if lint is None:
+            issues = ()
+        elif placement_critique is not None:
+            issues = placement_critique.get(candidate)
+        else:
+            issues = tuple(lint(physical=False))
         blockers = list(_scale_blockers_from_issues(issues))
         blockers.extend(
             {
@@ -1346,6 +1383,7 @@ def _repack_to_fixed_point(
             trace=trace,
             critique_recognition_cache=critique_recognition_cache,
             reproducible=reproducible,
+            placement_critique=placement_critique,
         )
         if repacked is None:
             if _needs_repack(cur_dwg, cur_a):
@@ -1356,6 +1394,8 @@ def _repack_to_fixed_point(
                         message=f"Measured repack stalled after {i} iterations with residual layout triggers",
                     )
                 )
+                if placement_critique is not None:
+                    placement_critique.discard(cur_dwg)
                 _log.debug(
                     "measure-repack: stalled after %d iteration(s) with residual layout triggers",
                     i,
@@ -1377,6 +1417,8 @@ def _repack_to_fixed_point(
                 message=f"Measured repack reached its {_REPACK_MAX_ITER} iteration limit with residual layout triggers",
             )
         )
+        if placement_critique is not None:
+            placement_critique.discard(cur_dwg)
         _log.debug(
             "measure-repack: reached iteration limit (%d) with residual layout triggers",
             _REPACK_MAX_ITER,
@@ -1418,6 +1460,7 @@ def _build_drawing_once(
     _select_automatic_views: bool = False,
     _candidate_profile_first: bool = False,
     _title_block_cache=None,
+    _placement_critique: _PlacementCritique | None = None,
 ) -> Drawing:
     return build_once(
         step_file,
@@ -1431,6 +1474,7 @@ def _build_drawing_once(
         _select_automatic_views=_select_automatic_views,
         _candidate_profile_first=_candidate_profile_first,
         _title_block_cache=_title_block_cache,
+        _placement_critique=_placement_critique,
         _analyse=_analyse,
         _coerce_model=_coerce_model,
         _automatic_turned_principals=_automatic_turned_principals,
@@ -1830,19 +1874,15 @@ def build_drawing(
     build_attempt = 0
     latest_analysis = None
     critique_recognition_cache = None
-    placement_issues: weakref.WeakKeyDictionary[Drawing, tuple] = weakref.WeakKeyDictionary()
+    placement_critique = _PlacementCritique() if _post_build is None else None
 
     def _placement_issues(candidate):
         # The default builder only changes decision metadata after an attempt returns;
         # a post-build hook may edit the sheet, so preserve its normal critique calls.
         # Lightweight test doubles likewise keep their own lint semantics.
-        if type(candidate) is not Drawing or _post_build is not None:
+        if placement_critique is None:
             return tuple(candidate.lint(physical=False))
-        issues = placement_issues.get(candidate)
-        if issues is None:
-            issues = tuple(candidate.lint(physical=False))
-            placement_issues[candidate] = issues
-        return issues
+        return placement_critique.get(candidate)
 
     built_arrangement = ARRANGEMENTS[0]
 
@@ -1913,6 +1953,7 @@ def build_drawing(
             _select_automatic_views=select_automatic_views,
             _candidate_profile_first=annotation_layout == "demand-guided",
             _title_block_cache=title_block_cache,
+            _placement_critique=placement_critique,
         )
         _validate_authored_view_layout(built, _view_constraints)
         if _document_input is not None:

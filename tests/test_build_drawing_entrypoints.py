@@ -1,5 +1,6 @@
 """Public build_drawing and Drawing entry-point behavior."""
 
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,7 @@ from build123d import Box, Cylinder
 from build123d_drafting import Leader
 
 from draftwright import Drawing, build_drawing
+from draftwright.linting import LintIssue
 
 
 @pytest.mark.timeout(60)
@@ -34,8 +36,47 @@ def test_finished_attempt_reuses_placement_critique_issue_1945(monkeypatch):
     drawing = build_drawing(source)
 
     placement = [row for row in calls if row[1] is False and row[0] is drawing]
-    assert len(placement) == 2  # repair and one shared builder assessment
-    assert placement[0][2] == placement[1][2]
+    assert len(placement) == 1  # repair hands its settled critique to the builder
+
+    drawing.registry.record_issue(
+        LintIssue(severity="warning", code="edited_after_build", message="fresh public lint")
+    )
+    assert "edited_after_build" in {issue.code for issue in drawing.lint(physical=False)}
+
+
+def test_repack_repair_and_builder_critique_each_state_once_issue_1945(monkeypatch):
+    source = Path(__file__).parent / "fixtures" / "grm03_thumbwheel_drive_screw_ap242_pmi.step"
+    original_lint = Drawing.lint
+    calls = []
+
+    def counted_lint(self, *, physical=True):
+        state = (
+            tuple(
+                (name, id(visible), id(hidden)) for name, (visible, hidden) in self.views.items()
+            ),
+            tuple(id(item) for item in self.items),
+            tuple((issue.code, issue.severity, issue.message) for issue in self.registry.issues),
+        )
+        issues = original_lint(self, physical=physical)
+        calls.append((self, physical, state, tuple(issues)))
+        return issues
+
+    monkeypatch.setattr(Drawing, "lint", counted_lint)
+    drawing = build_drawing(source)
+    placement = [(owner, state) for owner, physical, state, _ in calls if not physical]
+
+    # The measured path includes a repack registry change. The precondition keeps this
+    # guard from passing simply because it exercised one unedited drawing.
+    states_by_drawing = {}
+    for owner, state in placement:
+        states_by_drawing.setdefault(owner, set()).add(state)
+    assert any(
+        len({state[2] for state in states}) > 1 and len({state[:2] for state in states}) == 1
+        for states in states_by_drawing.values()
+    )
+    assert all(count == 1 for count in Counter(placement).values())
+    assert len(placement) <= 5
+    assert any(owner is drawing and physical for owner, physical, _, _ in calls)
 
 
 @pytest.mark.timeout(60)

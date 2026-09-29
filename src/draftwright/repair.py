@@ -89,20 +89,20 @@ def _repair_dim_inside_part(dwg, issue) -> bool:
 def _repair_annotation_ink(dwg, choose_candidates, before):
     """Try one shared-solver batch; commit only a content-preserving improvement."""
     if not any(issue.code in {"annotation_ink_overlap", "annotation_overlap"} for issue in before):
-        return
+        return before
     original = list(dwg.iter_annotations())
     pins = dwg.registry.pinned_names()
     measurements = dwg.measurement_snapshot()
     candidates = choose_candidates(original, pins)
     if [name for name, _ in candidates] != [name for name, _ in original]:
-        return
+        return before
     changes = [
         (old, new)
         for (_, old), (_, new) in zip(original, candidates, strict=True)
         if old is not new
     ]
     if not changes:
-        return
+        return before
     changed_names = {
         name for (name, old), (_, new) in zip(original, candidates, strict=True) if old is not new
     }
@@ -110,7 +110,7 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
         # Unknown authority on an annotation we would move still fails closed.  An
         # unrelated piece of sheet furniture with no measurement identity cannot veto a
         # mechanically proved move of a confirmed dimension elsewhere (#1781).
-        return
+        return before
     for (name, old), (_, new) in zip(original, candidates, strict=True):
         if old is new:
             continue
@@ -122,7 +122,7 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
             or (a.p1, a.p2, a.side) != (b.p1, b.p2, b.side)
             or getattr(old, "_dw_authored_side", None) != getattr(new, "_dw_authored_side", None)
         ):
-            return
+            return before
     items = list(dwg.items)
     registry = dwg.registry.snapshot()
     accepted = False
@@ -163,9 +163,12 @@ def _repair_annotation_ink(dwg, choose_candidates, before):
         if not accepted:
             dwg.items[:] = items
             dwg.registry.restore(registry)
+    return after if accepted else before
 
 
-def repair_drawing(dwg, max_iter: int = 3, *, ink_candidates=None):
+def repair_drawing(
+    dwg, max_iter: int = 3, *, ink_candidates=None, initial_issues=None, on_settled=None
+):
     """Close the lint→repair loop; see :meth:`Drawing.repair` for the contract.
     Returns *dwg* for chaining.
 
@@ -178,7 +181,7 @@ def repair_drawing(dwg, max_iter: int = 3, *, ink_candidates=None):
     """
     if max_iter <= 0:
         return dwg
-    before = dwg.lint(physical=False)
+    before = list(initial_issues) if initial_issues is not None else dwg.lint(physical=False)
     flipped: set = set()
     for _ in range(max_iter):
         if not before:
@@ -213,7 +216,9 @@ def repair_drawing(dwg, max_iter: int = 3, *, ink_candidates=None):
                 dwg.registry.restore(snap_registry)
         before = after
     if ink_candidates is not None:
-        _repair_annotation_ink(dwg, ink_candidates, before)
+        before = _repair_annotation_ink(dwg, ink_candidates, before)
+    if on_settled is not None:
+        on_settled(tuple(before))
     return dwg
 
 
