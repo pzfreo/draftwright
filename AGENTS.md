@@ -62,6 +62,8 @@ rank-2 `linting/_coverage_common`.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
 evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence;
 `_groove_evidence.py` owns groove correspondence, declaration, and drawing evidence;
+`_edge_profile_evidence.py` owns chamfer and fillet correspondence, declaration, and drawing
+evidence;
 `step_analysis.py` keeps the observer registry and its stable helper imports.
 
 Key invariants — each is machine-enforced, and the guard test is the authority:
