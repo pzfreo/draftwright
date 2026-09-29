@@ -44,6 +44,7 @@ DAG violation today, so they are accepted rather than chased):
 from __future__ import annotations
 
 import ast
+import re
 from functools import cache
 from pathlib import Path
 
@@ -373,6 +374,20 @@ def test_every_module_is_ranked():
         "Unranked submodule(s) — add them to _LAYERS (and docs/architecture.md) so the "
         f"DAG guard covers them: {sorted(missing)}"
     )
+
+
+def test_every_ranked_module_is_named_in_architecture():
+    """Every DAG entry needs its exact code-spanned module name in the architecture map."""
+    architecture = (_SRC.parent.parent / "docs" / "architecture.md").read_text(encoding="utf-8")
+    code_spans = set(re.findall(r"(?<!`)`([^`\n]+)`(?!`)", architecture))
+    names = {
+        name: ("__init__.py",) if name == "__init__" else (f"{name}.py", f"{name}/")
+        for name in _LAYERS
+    }
+    missing = sorted(
+        name for name, spellings in names.items() if not code_spans.intersection(spellings)
+    )
+    assert not missing, f"Ranked module(s) missing from docs/architecture.md: {missing}"
 
 
 def test_no_upward_runtime_imports():

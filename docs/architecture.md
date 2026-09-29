@@ -30,7 +30,8 @@ inspection surface (`inspection.py`), the
 recognition-evaluation package (`evaluation/`), and the
 `cli.py` entry point. Developer-only `_build_profile.py` sits at the same top layer: it
 patches the public builder and Sheet bindings lazily for pytest measurement, and no engine
-module depends on it. No lower module imports an
+module depends on it. The package root `__init__.py` sits above these facades at rank 8
+and resolves its public API lazily. No lower module imports an
 upper one. `location_contract.py` remains a stable rank-1 import path for the location predicates
 in `measurement_support.py`; the compiler and lint import their owner directly. `progress.py`
 holds a context-scoped observer and cooperative cancellation; stage
