@@ -98,14 +98,18 @@ class TestAnAbsentViewIsANamedResult:
         # wherever the first pass happened to trip. Making this build succeed is the work
         # ADR 2 (was 0018) still owes — 53 view literals in the render passes — and this test is
         # what will change shape when it lands.
-        principals = view_plan_mod.third_angle_principals
+        principals = view_plan_mod.principal_specs
+        assert "plan" in {spec.name for spec in principals(("front", "plan", "side"))}
 
-        def without_plan():
-            return tuple(spec for spec in principals() if spec.name != "plan")
+        def without_plan(names):
+            return tuple(spec for spec in principals(names) if spec.name != "plan")
 
-        # `builder` reaches this through `resolve_from_analysis`, so patching the owning
-        # module is what takes effect.
-        monkeypatch.setattr(view_plan_mod, "third_angle_principals", without_plan)
+        # The resolver expands its selected names through this owner. Replacing the
+        # default spec list alone is overridden by `analysis.planned_views`.
+        monkeypatch.setattr(view_plan_mod, "principal_specs", without_plan)
+        assert "plan" not in {
+            spec.name for spec in view_plan_mod.principal_specs(("front", "plan", "side"))
+        }
 
         part = Box(90, 60, 20) - Pos(20, 15, 0) * Cylinder(4, 20)
         with pytest.raises(ViewNotPlanned) as caught:

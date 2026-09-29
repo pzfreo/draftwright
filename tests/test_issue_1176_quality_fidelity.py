@@ -56,7 +56,7 @@ _REFS = ((0, -25, 0), (0, -9, 0))  # a 16 mm span
 #: The count is measured, not described: earlier comments here miscounted what the sites
 #: were, which is its own small instance of this issue's failure mode. Assert on the number;
 #: run the test to see the list.
-_INDIRECT_PRODUCER_SITES = 7
+_INDIRECT_PRODUCER_SITES = 8
 
 
 def _quality_of(sheet):
@@ -799,7 +799,8 @@ class TestEveryLintCodeIsClassified:
         # string. A shrink-only ratchet (the `_ALLOW` pattern from
         # `test_private_test_imports.py`): a new indirection has to be argued rather than
         # silently widening the blind spot. Walking conditional expressions to their leaves
-        # took this from ten sites to the genuinely opaque ones.
+        # took this from ten sites to the genuinely opaque ones. The extracted machined
+        # leader job owner forwards one existing family code to FeatureLeaderJob.
         _literals, _prefixes, indirect, _stages = _emitted_codes()
         assert len(indirect) <= _INDIRECT_PRODUCER_SITES, (
             f"a new lint code is passed through a variable, so the classification audit "
