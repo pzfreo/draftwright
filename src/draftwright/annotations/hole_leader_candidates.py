@@ -129,6 +129,18 @@ class HoleLeaderCandidateAdapter:
     anchors: Callable
     member_owner: Callable
     expand_regions: Callable
+    build_leader: Callable
+
+    def build(self, tip, elbow, _owner):
+        candidate_side = "right" if elbow[0] >= tip[0] else "left"
+        return self.build_leader(
+            tip=(tip[0], tip[1], 0),
+            elbow=(elbow[0], elbow[1], 0),
+            label="",
+            draft=self.draft,
+            text_side=candidate_side,
+            callout=self.entry[2],
+        )
 
     def analytical_geometry(self, tip, elbow, _owner):
         candidate_side = "right" if elbow[0] >= tip[0] else "left"

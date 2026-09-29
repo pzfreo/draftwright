@@ -2164,23 +2164,13 @@ def _collect_shared_queue(
             anchors=_leader_anchors,
             member_owner=_callout_member_owner,
             expand_regions=feature_leader_candidates,
+            build_leader=_profiled_callout_leader,
         )
         _raw_candidates = adapter.raw
 
-        def _build(tip, elbow, _owner, *, _callout=callout):
-            candidate_side = "right" if elbow[0] >= tip[0] else "left"
-            return _profiled_callout_leader(
-                tip=(tip[0], tip[1], 0),
-                elbow=(elbow[0], elbow[1], 0),
-                label="",
-                draft=draft,
-                text_side=candidate_side,
-                callout=_callout,
-            )
-
         def _recover(
             _raw=_raw_candidates,
-            _build_at=_build,
+            _build_at=adapter.build,
             _callout=callout,
             _box=callout_box,
             _view=view,
@@ -2277,7 +2267,7 @@ def _collect_shared_queue(
                 silhouette=vb,
                 label=str(callout.label),
                 candidates=_raw_candidates(),
-                build=_build,
+                build=adapter.build,
                 measurement=tuple(callout.measurements),
                 noun="hole",
                 drop_code="callout_dropped",
