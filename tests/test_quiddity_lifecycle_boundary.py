@@ -58,7 +58,7 @@ ALLOWED_STANDALONE_CALLS = {
     ): "manual Drawing fallback has no Analysis substrate to reuse",
     (
         "evaluation/step_analysis.py",
-        "_default_observers.observe_holes",
+        "_bore_observers.observe_holes",
         "build_raw_recognition_result",
     ): "isolated STEP evaluation observer has no Drawing lifecycle",
     (

@@ -103,7 +103,8 @@ case. Two instances are known:
 A new representation route must be admitted here or it registers as a false loss.
 
 The module-level imports of ``evaluation._double_d_evidence``,
-``evaluation._turned_step_evidence`` and ``evaluation._pocket_evidence`` load only
+``evaluation._turned_step_evidence``, ``evaluation._pocket_evidence`` and
+``evaluation._prismatic_evidence`` load only
 standard-library dependencies. **Every engine import remains inside a function body**,
 preserving the #313 lazy-load pattern.
 (`quiddity` counts: importing it puts build123d in `sys.modules`, so it carries the
@@ -252,6 +253,57 @@ from draftwright.evaluation._pocket_evidence import (
 )
 from draftwright.evaluation._pocket_evidence import (
     _supported_pocket_patterns as _supported_pocket_patterns,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _PAD_PLANE_AXES as _PAD_PLANE_AXES,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _declared_pad_model as _declared_pad_model,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _declared_plate_model as _declared_plate_model,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_axis as _pad_axis,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_bounds as _pad_bounds,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_correspondence as _pad_correspondence,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_drawing_outcomes as _pad_drawing_outcomes,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_expected_parameters as _pad_expected_parameters,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_identity as _pad_identity,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_model_outcomes as _pad_model_outcomes,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_pair as _pad_pair,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _pad_parameters as _pad_parameters,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _plate_correspondence as _plate_correspondence,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _plate_drawing_outcomes as _plate_drawing_outcomes,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _plate_identity as _plate_identity,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _plate_model_outcomes as _plate_model_outcomes,
+)
+from draftwright.evaluation._prismatic_evidence import (
+    _plate_parameters as _plate_parameters,
 )
 from draftwright.evaluation._turned_step_evidence import (
     _turned_step_correspondence as _turned_step_correspondence,
@@ -1586,383 +1638,6 @@ def _declared_flat_model(part, flats):
             axis_line=observed.axis_line,
             stock_span=observed.stock_span,
             axis_direction=observed.axis_direction,
-        )
-    return sheet.model()
-
-
-_PAD_PLANE_AXES = {"x": ("y", "z"), "y": ("z", "x"), "z": ("x", "y")}
-
-
-def _pad_pair(values) -> tuple[float, float]:
-    lo, hi = values
-    return round(float(lo), 3), round(float(hi), 3)
-
-
-def _pad_bounds(pad) -> dict[str, tuple[float, float]]:
-    if hasattr(pad, "bounds"):
-        return {axis: _pad_pair(pad.bounds(axis)) for axis in "xyz"}
-    return {
-        axis: (
-            round(float(getattr(pad, f"{axis}0")), 3),
-            round(float(getattr(pad, f"{axis}1")), 3),
-        )
-        for axis in "xyz"
-    }
-
-
-def _pad_axis(pad) -> str:
-    axis = getattr(pad, "axis", None)
-    if axis is None:
-        axis = pad.frame.axis
-    return str(axis)
-
-
-def _pad_identity(pad) -> tuple[str, int, tuple[float, float, float]]:
-    from draftwright.linting.pad_coverage import pad_attachment_point
-
-    return _pad_axis(pad), int(pad.direction), pad_attachment_point(pad)
-
-
-def _pad_parameters(pad) -> dict[str, Value]:
-    axis = _pad_axis(pad)
-    long_axis, width_axis = _PAD_PLANE_AXES[axis]
-    bounds = _pad_bounds(pad)
-    return {
-        "width": round(bounds[width_axis][1] - bounds[width_axis][0], 3),
-        "length": round(bounds[long_axis][1] - bounds[long_axis][0], 3),
-        "height": round(bounds[axis][1] - bounds[axis][0], 3),
-    }
-
-
-def _pad_expected_parameters(pad) -> set[str]:
-    axis = _pad_axis(pad)
-    long_axis, width_axis = _PAD_PLANE_AXES[axis]
-    locations = (
-        {"location_pad.location.x", "location_pad.location.y"}
-        if axis == "z"
-        else {f"location_pad.{long_axis}", f"location_pad.{width_axis}"}
-    )
-    return {"pad_width.length", "pad_length.length", "pad_height.length", *locations}
-
-
-def _pad_correspondence(pads, recognition, features, registry=None, omissions=()):
-    """Per physical pad, retain exact IR and production-ledger evidence."""
-    from draftwright.linting.pad_coverage import (
-        pad_attachment_point,
-        pad_key,
-        pad_requirement_outcomes,
-    )
-    from draftwright.registry import AnnotationRegistry
-
-    ledger = pad_requirement_outcomes(
-        recognition,
-        features,
-        AnnotationRegistry() if registry is None else registry,
-        omissions,
-    )
-    by_at: dict[tuple[float, float, float], list] = {}
-    for outcome in ledger:
-        if outcome.source_at is not None:
-            by_at.setdefault(outcome.source_at, []).append(outcome)
-    result = []
-    for source in pads:
-        candidates = [
-            outcome
-            for outcome in by_at.get(pad_attachment_point(source), ())
-            if outcome.features and pad_key(outcome.features[0]) == pad_key(source)
-        ]
-        candidate_features = tuple(
-            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
-        )
-        exact = (
-            len(candidate_features) == 1
-            and len(candidates) == 5
-            and {outcome.parameter_id for outcome in candidates}
-            == _pad_expected_parameters(source)
-            and all(outcome.features == candidate_features for outcome in candidates)
-        )
-        result.append((exact, candidate_features, tuple(candidates)))
-    return result
-
-
-def _pad_model_outcomes(pads, recognition, features) -> list[Outcome]:
-    return [
-        "supported" if exact else "unknown"
-        for exact, _features, _outcomes in _pad_correspondence(pads, recognition, features)
-    ]
-
-
-def _pad_drawing_outcomes(pads, drawing) -> list[Outcome]:
-    """Verify all five pad requirements through exact semantic drawing evidence."""
-    from draftwright._core import _decode_hole_location_fact
-    from draftwright.linting.evidence import (
-        compiled_values,
-        rendered_numbers,
-        verify_measurement_claims,
-    )
-    from draftwright.linting.pad_coverage import pad_center
-    from draftwright.model.compiled import DimensionId, compile_dimensions
-
-    recognition = drawing.recognition()
-    model = drawing.model()
-    plan = compile_dimensions(model)
-    correspondence = _pad_correspondence(
-        pads,
-        recognition,
-        model.features,
-        drawing.registry,
-        plan.diagnostics,
-    )
-    claims = verify_measurement_claims(drawing.registry, plan)
-    approved_by_id = compiled_values(plan)
-    confirmed = {
-        (claim.annotation, claim.measurement)
-        for claim in claims
-        if claim.state == "confirmed" and claim.measurement is not None
-    }
-    location_names: dict[tuple[object, str, tuple[float, float, float]], set[str]] = {}
-    for name in drawing.registry.names():
-        annotation = drawing.registry.named(name)
-        for fact in getattr(annotation, "covers_hole_locations", ()):
-            decoded = _decode_hole_location_fact(fact)
-            if decoded is None:
-                continue
-            feature, parameter, point = decoded
-            if getattr(feature, "kind", None) != "pad":
-                continue
-            point_x, point_y, point_z = point
-            rounded_point = (
-                round(float(point_x), 3),
-                round(float(point_y), 3),
-                round(float(point_z), 3),
-            )
-            location_names.setdefault((feature, parameter, rounded_point), set()).add(name)
-    accepted_states = {"placed", "satisfied_by_structured_note", "inapplicable"}
-    result: list[Outcome] = []
-    for exact, features, outcomes in correspondence:
-        if not exact or len(features) != 1:
-            result.append("unknown")
-            continue
-        feature = features[0]
-        states_ok = all(outcome.state in accepted_states for outcome in outcomes)
-        ink_ok = True
-        for outcome in outcomes:
-            if outcome.state != "placed":
-                continue
-            parameter = outcome.parameter_id
-            evidence_parameter = (
-                "location_pad.location"
-                if parameter.startswith("location_pad.location.")
-                else parameter
-            )
-            matching_claims = {
-                name
-                for name, claim in confirmed
-                if getattr(claim, "feature", None) == feature
-                and str(getattr(claim, "parameter", "")) == evidence_parameter
-            }
-            if parameter.startswith("location_pad.location."):
-                measured_axis = parameter.rsplit(".", 1)[-1]
-                directional_approvals = tuple(
-                    approved
-                    for approved in approved_by_id.get(
-                        DimensionId(feature, "location_pad.location"), ()
-                    )
-                    if approved.discriminator == measured_axis
-                )
-                expected_text = (
-                    directional_approvals[0].value_text if len(directional_approvals) == 1 else ""
-                )
-                try:
-                    expected_value = float(expected_text)
-                except (TypeError, ValueError):
-                    matching_claims = set()
-                else:
-                    matching_claims = {
-                        name
-                        for name in matching_claims
-                        if (numbers := rendered_numbers(drawing.registry.named(name))) is not None
-                        and any(
-                            isclose(number, expected_value, rel_tol=0.0, abs_tol=1e-6)
-                            for number in numbers
-                        )
-                    }
-                matching_claims &= location_names.get(
-                    (feature, parameter, pad_center(feature)), set()
-                )
-            if not matching_claims:
-                ink_ok = False
-                break
-        result.append("supported" if states_ok and ink_ok else "unsupported")
-    return result
-
-
-def _declared_pad_model(part, pads):
-    """Declare observed pads through public ``Sheet.pad`` and return its IR."""
-    from draftwright.sheet import Sheet
-
-    sheet = Sheet(part)
-    sheet.authored_dimensions()
-    for observed in pads:
-        bounds = _pad_bounds(observed)
-        sheet.pad(
-            x0=bounds["x"][0],
-            x1=bounds["x"][1],
-            y0=bounds["y"][0],
-            y1=bounds["y"][1],
-            z0=bounds["z"][0],
-            z1=bounds["z"][1],
-            axis=_pad_axis(observed),
-            direction=observed.direction,
-        )
-    return sheet.model()
-
-
-def _plate_identity(plate) -> tuple[str, float, float, float]:
-    from draftwright.linting.plate_coverage import plate_center
-
-    centre = plate_center(plate)
-    axis = str(plate.axis)
-    index = "xyz".index(axis)
-    other = [candidate for candidate in range(3) if candidate != index]
-    return axis, centre[index], centre[other[0]], centre[other[1]]
-
-
-def _plate_parameters(plate) -> dict[str, Value]:
-    return {"thickness": round(float(plate.hi) - float(plate.lo), 3)}
-
-
-def _plate_correspondence(
-    plates, recognition, features, registry=None, omissions=(), *, part=None
-):
-    """Per body-local slab, retain exact IR and production-ledger evidence."""
-    from draftwright.linting.plate_coverage import (
-        plate_center,
-        plate_key,
-        plate_requirement_outcomes,
-    )
-    from draftwright.registry import AnnotationRegistry
-
-    ledger = plate_requirement_outcomes(
-        recognition,
-        features,
-        AnnotationRegistry() if registry is None else registry,
-        omissions,
-        part=part,
-    )
-    by_at: dict[tuple[float, float, float], list] = {}
-    for outcome in ledger:
-        if outcome.source_at is not None:
-            by_at.setdefault(outcome.source_at, []).append(outcome)
-    result = []
-    for source in plates:
-        candidates = [
-            outcome
-            for outcome in by_at.get(plate_center(source), ())
-            if outcome.features and plate_key(outcome.features[0]) == plate_key(source)
-        ]
-        candidate_features = tuple(
-            dict.fromkeys(feature for outcome in candidates for feature in outcome.features)
-        )
-        exact = (
-            len(candidate_features) == 1
-            and len(candidates) == 1
-            and candidates[0].parameter_id == "thickness.length"
-            and candidates[0].features == candidate_features
-        )
-        result.append((exact, candidate_features, tuple(candidates)))
-    return result
-
-
-def _plate_model_outcomes(plates, recognition, features) -> list[Outcome]:
-    return [
-        "supported" if exact else "unknown"
-        for exact, _features, _outcomes in _plate_correspondence(plates, recognition, features)
-    ]
-
-
-def _plate_drawing_outcomes(plates, drawing) -> list[Outcome]:
-    """Verify each slab thickness through exact compiler identity and finished ink."""
-    from build123d_drafting import Dimension
-
-    from draftwright.linting._registry import satisfaction_ids
-    from draftwright.linting.evidence import verify_measurement_claims
-    from draftwright.model.compiled import compile_dimensions
-
-    recognition = drawing.recognition()
-    model = drawing.model()
-    plan = compile_dimensions(model)
-    correspondence = _plate_correspondence(
-        plates,
-        recognition,
-        model.features,
-        drawing.registry,
-        plan.diagnostics,
-        part=drawing.working_part,
-    )
-    confirmed: dict[tuple[object, str], set[str]] = {}
-    confirmed_counts: Counter[tuple[object, str]] = Counter()
-    for claim in verify_measurement_claims(drawing.registry, plan):
-        measurement = claim.measurement
-        if claim.state != "confirmed" or measurement is None:
-            continue
-        key = (
-            getattr(measurement, "feature", None),
-            str(getattr(measurement, "parameter", "")),
-        )
-        confirmed.setdefault(key, set()).add(claim.annotation)
-        confirmed_counts[key] += 1
-    satisfied = {
-        (identity.feature, identity.parameter)
-        for identity in satisfaction_ids(drawing.registry)
-        if identity.feature is not None and isinstance(identity.parameter, str)
-    }
-
-    result: list[Outcome] = []
-    for exact, features, outcomes in correspondence:
-        if not exact or len(features) != 1:
-            result.append("unknown")
-            continue
-        feature = features[0]
-        names = confirmed.get((feature, "thickness.length"), set())
-        states_ok = all(
-            outcome.state == "placed"
-            or (
-                outcome.state == "inapplicable"
-                and bool(outcome.dependencies)
-                and all(
-                    dependency in satisfied or confirmed_counts[dependency] >= count
-                    for dependency, count in Counter(outcome.dependencies).items()
-                )
-            )
-            for outcome in outcomes
-        )
-        ink_ok = all(
-            outcome.state != "placed"
-            or any(
-                drawing.registry.feature_of(name) == feature
-                and isinstance(drawing.registry.named(name), Dimension)
-                for name in names
-            )
-            for outcome in outcomes
-        )
-        result.append("supported" if states_ok and ink_ok else "unsupported")
-    return result
-
-
-def _declared_plate_model(part, plates):
-    """Declare observed slabs through public ``Sheet.plate`` and return its IR."""
-    from draftwright.sheet import Sheet
-
-    sheet = Sheet(part)
-    sheet.authored_dimensions()
-    for observed in plates:
-        sheet.plate(
-            axis=observed.axis,
-            lo=observed.lo,
-            hi=observed.hi,
-            u=observed.u,
-            v=observed.v,
         )
     return sheet.model()
 
@@ -3304,7 +2979,7 @@ def _declared_turned_step_model(part, sources):
     return sheet.model()
 
 
-def _default_observers() -> Mapping[str, Observer]:
+def _bore_observers() -> Mapping[str, Observer]:
     def observe_holes(part: object) -> Sequence[ObservedFact]:
         # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
         # a module-level import here is a legal downward edge and passes the DAG guard —
@@ -3527,6 +3202,13 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, countersink in enumerate(countersinks)
         )
 
+    return {
+        "holes": observe_holes,
+        "countersinks": observe_countersinks,
+    }
+
+
+def _bore_variant_observers() -> Mapping[str, Observer]:
     def observe_double_d_bores(part: object) -> Sequence[ObservedFact]:
         """Observe one complete through-profile occurrence per aggregate record."""
         from draftwright.builder import build_drawing
@@ -3716,6 +3398,13 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, pattern in enumerate(patterns)
         )
 
+    return {
+        "double-d-bores": observe_double_d_bores,
+        "hole-patterns": observe_hole_patterns,
+    }
+
+
+def _stock_observers() -> Mapping[str, Observer]:
     def observe_flats(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -3793,80 +3482,6 @@ def _default_observers() -> Mapping[str, Observer]:
                 },
             )
             for index, (identity, members) in enumerate(groups)
-        )
-
-    def observe_grooves(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
-
-        try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
-            raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            grooves = tuple(recognition.grooves)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
-            raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(grooves)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(grooves):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _groove_model_outcomes(grooves, recognition, drawing.model().features),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _groove_model_outcomes(
-                    grooves,
-                    recognition,
-                    _declared_groove_model(part, grooves).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _groove_model_outcomes(
-                    grooves,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _groove_drawing_outcomes(grooves, drawing)
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="grooves",
-                identity={"axis": identity[0], "location": identity[1]},
-                parameters=_groove_parameters(groove),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, groove in enumerate(grooves)
-            for identity in (_groove_identity(groove),)
         )
 
     def observe_pads(part: object) -> Sequence[ObservedFact]:
@@ -4040,6 +3655,14 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_plate_identity(plate),)
         )
 
+    return {
+        "flats": observe_flats,
+        "rectangular-pads": observe_pads,
+        "plates": observe_plates,
+    }
+
+
+def _polygonal_observers() -> Mapping[str, Observer]:
     def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4208,6 +3831,168 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_polygonal_stock_identity(stock),)
         )
 
+    return {
+        "polygonal-bosses": observe_polygonal_bosses,
+        "polygonal-stock": observe_polygonal_stock,
+    }
+
+
+def _turned_profile_observers() -> Mapping[str, Observer]:
+    def observe_grooves(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
+            raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            grooves = tuple(recognition.grooves)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
+            raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
+        unknown: list[Outcome] = ["unknown"] * len(grooves)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(grooves):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _groove_model_outcomes(grooves, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _groove_model_outcomes(
+                    grooves,
+                    recognition,
+                    _declared_groove_model(part, grooves).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _groove_model_outcomes(
+                    grooves,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _groove_drawing_outcomes(grooves, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="grooves",
+                identity={"axis": identity[0], "location": identity[1]},
+                parameters=_groove_parameters(groove),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, groove in enumerate(grooves)
+            for identity in (_groove_identity(groove),)
+        )
+
+    def observe_turned_steps(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+        from draftwright.linting.turned_step_coverage import physical_turned_steps
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring turned steps as unknown", exc
+            )
+            raise ObservationError("turned-steps", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            sources = physical_turned_steps(recognition)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no turned steps", exc
+            )
+            raise ObservationError("turned-steps", f"recognition access failed: {exc}") from exc
+        unknown: list[Outcome] = ["unknown"] * len(sources)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(sources):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(sources)} turned-step bands"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring turned steps as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _turned_step_model_outcomes(
+                    sources, recognition, drawing.model().features
+                ),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _turned_step_model_outcomes(
+                    sources,
+                    recognition,
+                    _declared_turned_step_model(part, sources).features,
+                    allow_declared_profile_omission=True,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _generated_turned_step_outcomes(
+                    part,
+                    drawing.model(),
+                    sources,
+                    recognition,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _turned_step_drawing_outcomes(sources, drawing)
+            ),
+        }
+
+        return tuple(
+            _turned_step_observed_fact(profile, step, boundary_outcomes, index)
+            for index, (profile, step) in enumerate(sources)
+        )
+
+    return {
+        "grooves": observe_grooves,
+        "turned-steps": observe_turned_steps,
+    }
+
+
+def _edge_observers() -> Mapping[str, Observer]:
     def observe_chamfers(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4356,80 +4141,13 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_fillet_identity(fillet),)
         )
 
-    def observe_turned_steps(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
-        from draftwright.linting.turned_step_coverage import physical_turned_steps
+    return {
+        "chamfers": observe_chamfers,
+        "fillets": observe_fillets,
+    }
 
-        try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning(
-                "evaluation: drawing build failed (%s); scoring turned steps as unknown", exc
-            )
-            raise ObservationError("turned-steps", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            sources = physical_turned_steps(recognition)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning(
-                "evaluation: recognition access failed (%s); observing no turned steps", exc
-            )
-            raise ObservationError("turned-steps", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(sources)
 
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(sources):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(sources)} turned-step bands"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring turned steps as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _turned_step_model_outcomes(
-                    sources, recognition, drawing.model().features
-                ),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _turned_step_model_outcomes(
-                    sources,
-                    recognition,
-                    _declared_turned_step_model(part, sources).features,
-                    allow_declared_profile_omission=True,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _generated_turned_step_outcomes(
-                    part,
-                    drawing.model(),
-                    sources,
-                    recognition,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _turned_step_drawing_outcomes(sources, drawing)
-            ),
-        }
-
-        return tuple(
-            _turned_step_observed_fact(profile, step, boundary_outcomes, index)
-            for index, (profile, step) in enumerate(sources)
-        )
-
+def _recess_observers() -> Mapping[str, Observer]:
     def observe_pockets(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4652,21 +4370,36 @@ def _default_observers() -> Mapping[str, Observer]:
         )
 
     return {
-        "chamfers": observe_chamfers,
-        "countersinks": observe_countersinks,
-        "double-d-bores": observe_double_d_bores,
-        "fillets": observe_fillets,
-        "flats": observe_flats,
-        "grooves": observe_grooves,
-        "holes": observe_holes,
-        "hole-patterns": observe_hole_patterns,
-        "pocket-patterns": observe_pocket_patterns,
         "pockets": observe_pockets,
-        "plates": observe_plates,
-        "polygonal-bosses": observe_polygonal_bosses,
-        "polygonal-stock": observe_polygonal_stock,
-        "rectangular-pads": observe_pads,
-        "turned-steps": observe_turned_steps,
+        "pocket-patterns": observe_pocket_patterns,
+    }
+
+
+def _default_observers() -> Mapping[str, Observer]:
+    """Register each physical family in the established corpus order."""
+    bore = _bore_observers()
+    variant = _bore_variant_observers()
+    stock = _stock_observers()
+    polygonal = _polygonal_observers()
+    turned = _turned_profile_observers()
+    edge = _edge_observers()
+    recess = _recess_observers()
+    return {
+        "chamfers": edge["chamfers"],
+        "countersinks": bore["countersinks"],
+        "double-d-bores": variant["double-d-bores"],
+        "fillets": edge["fillets"],
+        "flats": stock["flats"],
+        "grooves": turned["grooves"],
+        "holes": bore["holes"],
+        "hole-patterns": variant["hole-patterns"],
+        "pocket-patterns": recess["pocket-patterns"],
+        "pockets": recess["pockets"],
+        "plates": stock["plates"],
+        "polygonal-bosses": polygonal["polygonal-bosses"],
+        "polygonal-stock": polygonal["polygonal-stock"],
+        "rectangular-pads": stock["rectangular-pads"],
+        "turned-steps": turned["turned-steps"],
     }
 
 

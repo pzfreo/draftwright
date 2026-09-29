@@ -33,6 +33,8 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
         "pocket_evidence": "src/draftwright/evaluation/_pocket_evidence.py",
+        "prismatic_evidence": "src/draftwright/evaluation/_prismatic_evidence.py",
+        "step_observers": "src/draftwright/evaluation/step_analysis.py",
         "through_step_placement": "src/draftwright/annotations/from_model.py",
         "hole_locations": "src/draftwright/annotations/hole_locations.py",
         "oriented_slot_geometry": "src/draftwright/model/oriented_slot_geometry.py",
@@ -106,6 +108,19 @@ def test_pocket_evidence_change_runs_both_occurrence_contracts():
         "test_pocket_completeness_evidence.py",
         "test_pocket_pattern_completeness_evidence.py",
     } <= selected
+
+
+def test_prismatic_evidence_change_runs_both_occurrence_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/_prismatic_evidence.py"]))
+    assert {
+        "test_pad_completeness_evidence.py",
+        "test_issue_1373_plate_completeness_evidence.py",
+    } <= selected
+
+
+def test_step_observer_change_runs_every_family_contract():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/evaluation/step_analysis.py"]))
+    assert set(CONTRACT_GROUPS["step_observers"].test_patterns) <= selected
 
 
 def test_from_model_change_runs_through_step_placement_contract():
