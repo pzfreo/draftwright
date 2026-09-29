@@ -159,6 +159,7 @@ class TestTheEvaluationModuleStaysCheapToImport:
         source = Path(spec.origin)
         helpers = (
             source.with_name("_double_d_evidence.py"),
+            source.with_name("_pocket_evidence.py"),
             source.with_name("_turned_step_evidence.py"),
         )
         # BOTH `from x import y` and plain `import x`. Matching only `ImportFrom` left the
@@ -179,6 +180,7 @@ class TestTheEvaluationModuleStaysCheapToImport:
                         and node.module
                         in {
                             "draftwright.evaluation._double_d_evidence",
+                            "draftwright.evaluation._pocket_evidence",
                             "draftwright.evaluation._turned_step_evidence",
                         }
                     )

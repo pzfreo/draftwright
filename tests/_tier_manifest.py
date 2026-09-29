@@ -38,6 +38,13 @@ CONTRACT_GROUPS = {
         ("src/draftwright/evaluation/_turned_step_evidence.py",),
         ("test_issue_1374_turned_step_completeness_evidence.py",),
     ),
+    "pocket_evidence": ContractGroup(
+        ("src/draftwright/evaluation/_pocket_evidence.py",),
+        (
+            "test_pocket_completeness_evidence.py",
+            "test_pocket_pattern_completeness_evidence.py",
+        ),
+    ),
     "through_step_placement": ContractGroup(
         (
             "src/draftwright/annotations/from_model.py",
