@@ -1,4 +1,4 @@
-"""The Drawing result object + table builder (#138 / ADR 1 (was 0005), P6).
+"""The Drawing result object (#138 / ADR 1 (was 0005), P6).
 
 `Drawing` is the composable build result: it owns the render list and view
 map and delegates identity to the registry, coverage to lint, and exposes
@@ -17,8 +17,7 @@ import warnings
 from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from dataclasses import field as dataclasses_field
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult
@@ -37,35 +36,22 @@ if sys.version_info >= (3, 13):
 else:
     from typing_extensions import deprecated
 
-from build123d import (
-    Align,
-    Location,
-)
-from build123d_drafting.helpers import DEFAULT_FONT_PATH
 
 from draftwright._core import (
     Analysis,
-    SheetMargins,
-    _analysis_margins,
-    _build_table,
     _dim,
     _fmt,
     _font_safe_text,
     _frame_margins,
     _log,
-    _tag_sequence,
-    _text_line_spacing_em,
     _tol_suffix,
     place_annotation,
 )
 from draftwright._geometry import _END_ON
 from draftwright.annotations._common import (
     PlacementContext,
-    _register_hole_table_coverage,
     carve_free_position,
-    late_furniture_obstacles,
 )
-from draftwright.annotations.balloons import render_balloons
 from draftwright.auxiliary_layout import fit_auxiliary_box
 from draftwright.drawing_export import (
     add_shapes as add_export_shapes,
@@ -82,10 +68,29 @@ from draftwright.drawing_export import (
 from draftwright.drawing_export import (
     write_svg as write_drawing_svg,
 )
+from draftwright.drawing_state import _MATERIAL_MESH_UNSET, BuildState
+from draftwright.drawing_tables import (
+    DrawingTableState,
+    _ir_hole_groups,
+)
+from draftwright.drawing_tables import (
+    _hole_spec_groups as drawing_hole_spec_groups,
+)
+from draftwright.drawing_tables import (
+    add_balloons as drawing_add_balloons,
+)
+from draftwright.drawing_tables import (
+    add_hole_table as drawing_add_hole_table,
+)
+from draftwright.drawing_tables import (
+    add_table as drawing_add_table,
+)
+from draftwright.drawing_tables import (
+    note as drawing_note,
+)
 from draftwright.intent_drain import IntentDrainState, drain_intents
 from draftwright.intent_routing import _IntentRouting, classify_intents
 from draftwright.intents import Intent
-from draftwright.layout import FitBoxTrace
 from draftwright.linting import (
     CoverageState,
     LintIssue,
@@ -98,7 +103,6 @@ from draftwright.projection import (
     project_view_geometry,
     view_material_field,
 )
-from draftwright.recognition_cache import RecognitionCache
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 from draftwright.view_plan import PRINCIPAL_VIEW_NAMES, VIEW_AXES
@@ -263,37 +267,6 @@ class FeatureInfo:
     count: int
 
 
-class _HoleInstance(NamedTuple):
-    """One hole occurrence for the table / balloon renderers — the IR fields those
-    passes read (``location`` + ``diameter`` for a balloon, ``through``/``depth`` for a
-    table row), so no ``HoleRecord`` is needed (ADR 1 (was 0008); #584 WP1). Duck-compatible
-    with the recogniser record the orchestrator's balloon path still passes."""
-
-    location: tuple
-    diameter: float
-    through: bool
-    depth: float | None
-
-
-def _ir_hole_groups(model, target_axis: str) -> list[tuple]:
-    """``(owner, spec, [member positions], count)`` groups on *target_axis*.
-
-    One group per IR hole/pattern feature — the spec-grouping + pattern recognition
-    detection already did, so no ``HoleRecord``/``HoleSpec`` re-grouping is needed
-    (ADR 1 (was 0008 Am6); #584 WP1). ``spec`` is the representative ``HoleFeature`` (carries
-    diameter / through / depth); ``positions`` are its member centres (drive balloon
-    placement); ``count`` is the feature's own count (the table QTY / FeatureInfo.count).
-    They coincide on the detected path (``members`` is fully populated); ``count`` stays
-    faithful for a declared feature whose ``members`` are unspecified (ADR 4 (was 0011))."""
-    groups: list[tuple] = []
-    for f in model.features:
-        if f.kind == "hole" and f.frame.axis == target_axis:
-            groups.append((f, f, list(f.members) or [f.frame.origin], f.count))
-        elif f.kind == "pattern" and f.member.frame.axis == target_axis:
-            groups.append((f, f.member, list(f.members) or [f.member.frame.origin], f.count))
-    return groups
-
-
 # Machined-feature LEADER callouts (#148): these features use semantic leader callouts. Most
 # expose no spanned linear parameter; paired-ramp's run is explicitly part of its compound
 # leader convention. The reconstruction therefore can't route them through dimension().
@@ -364,151 +337,6 @@ def feature_key(f) -> str | None:
     ]
     tail = ("[" + ",".join(sizes) + "]") if sizes else ""
     return f"{kind}@({x:.3f},{y:.3f},{z:.3f})/{axis}{tail}"
-
-
-#: Distinguishes "the mesh has not been attempted" from "it was attempted and failed".
-#: ``None`` is a real, cacheable outcome here, so it cannot double as the unset marker.
-_MATERIAL_MESH_UNSET = object()
-
-
-@dataclass
-class BuildState:
-    """The build context a finished :class:`Drawing` carries (ADR 1 (was 0005 §2) / #639).
-
-    One typed home for what used to be four loose private attributes:
-
-    - ``analysis`` — the pipeline's :class:`Analysis` namespace.
-    - ``part_model`` — the detected/declared ADR 1 (was 0008) PartModel (read surface for
-      semantic edits, #397).
-    - ``recognition`` — the ADR 3 (was 0017) aggregate reused by model detection and critique.
-    - ``recognition_ownership`` — same-run represented, grouped/pattern, nested, conditional
-      aggregate, and ownerless occurrence outcomes captured while conversion makes the decision;
-      provider references never enter the IR waist.
-    - ``view_edge_cache`` — lint's per-view edge bboxes, keyed on id(view shape)
-      (helpers #143/#164).
-    - ``ann_box_cache`` — lint's annotation bounding boxes (#602): identity- AND
-      location-token-checked entries (see ``_ann_box``), pruned by ``lint()``.
-    - ``principal_profile_cache`` — solid-derived unsupported principal-profile issues
-      reused by repeated physical critique (#1058).
-    - ``trace`` — the opt-in solve-trace recorder (#736,
-      :class:`~draftwright.annotations._common.SolveTrace`), or ``None`` (default:
-      tracing off). Carried here so the finalize path traces like the auto pass.
-    - ``detail_view`` — the resolved ``build_drawing(detail_view=...)`` setting,
-      persisted so the finalize drain gates the prismatic detail request exactly
-      as the auto pass does (#661) — on the ``auto_dims=False`` path the flag
-      would otherwise be consumed nowhere.
-
-    The builder assembles it at one site; ``recognition`` may also be filled once by
-    :meth:`ensure_recognition` for declared-path critique. The compat properties on
-    ``Drawing`` read through it, so ``dwg._analysis``-style test inspection keeps working.
-    """
-
-    analysis: Analysis | None = None
-    recognition_cache: RecognitionCache = dataclasses_field(default_factory=RecognitionCache)
-    recognition_ownership: RecognitionOwnership | None = None
-    part_model: object | None = None
-    view_edge_cache: dict = dataclasses_field(default_factory=dict)
-    ann_box_cache: dict = dataclasses_field(default_factory=dict)
-    #: The title block's deterministic page-space footprint, measured before it is
-    #: drawn so strip placement can avoid it (#1593). None until the builder sets it.
-    pending_title_block_box: tuple | None = None
-    #: Constructed title blocks shared by assembly and measured repack passes of this build.
-    title_block_cache: dict = dataclasses_field(default_factory=dict)
-    #: Imported document default selected as the title-block tolerance carrier. ``None``
-    #: when the caller supplied any explicit value, even identical display text.
-    general_tolerance_source: object | None = None
-    #: Imported document-wide surface finish rendered as title-block furniture.
-    default_surface_finish_source: object | None = None
-    #: Per-view filled projected material (#798) as ``{id(view_shape): (shape, field)}``.
-    #: Keyed by shape identity because the projected shapes carry no view label (lint
-    #: takes their names from ``Drawing.views`` since #1196), and holding the shape
-    #: alongside lets a reused ``id`` be detected — the same guard
-    #: ``_view_edge_entries`` carries (#143).
-    material_fields: dict = dataclasses_field(default_factory=dict)
-    #: The one tessellation behind those fields, or ``None`` once it has been attempted
-    #: and failed. Memoised separately so an unmeshable part is not re-meshed on every
-    #: lint, and so views added by later stages can be lowered without redoing it.
-    material_mesh: Any = _MATERIAL_MESH_UNSET
-    principal_profile_cache: tuple[object, bool, tuple[LintIssue, ...]] | None = None
-    trace: Any = None
-    detail_view: bool = False
-    #: The ADR 2 (was 0018) :class:`~draftwright.view_plan.ResolvedViewPlan` — which views this drawing
-    #: has and where their blocks sit. ONE typed attachment, filled once by the builder at the
-    #: same site it creates the views, because the alternative the ADR names explicitly is what
-    #: the topology was before: the answer spread across `Analysis` fields, three hardcoded
-    #: `_add_view` calls and a docstring, with no single thing to read or replace.
-    view_plan: Any = None
-    #: The compiler's :class:`~draftwright.model.compiled.Omission` records — every
-    #: measurement it considered and did not approve, with the rule that stopped it (#996).
-    #: The compiled plan was a local in the orchestrator: built, read by the renderers, and
-    #: dropped. So the one place recording WHY a dimension is absent did not outlive the
-    #: build, and absence had to be inferred from a finished sheet — which is how a wrong
-    #: suppression rule produced four issue reports before anyone found the rule (#997).
-    omissions: tuple = ()
-
-    @property
-    def recognition(self) -> RecognitionResult | None:
-        """The immutable result held by Draftwright's consumer-owned lifecycle cache."""
-
-        return self.recognition_cache.result
-
-    @recognition.setter
-    def recognition(self, value: RecognitionResult | None) -> None:
-        self.recognition_cache.seed(value)
-        self.recognition_ownership = None
-
-    def attach_recognition(
-        self,
-        result: RecognitionResult | None,
-        *,
-        evidence: RecognitionEvidence | None = None,
-        cache: RecognitionCache | None = None,
-        ownership: RecognitionOwnership | None = None,
-    ) -> None:
-        """Attach one coherent acquisition at the builder's single fill site.
-
-        A rebuilt drawing either receives the prior run's complete cache or a result/evidence
-        pair from its current analysis. Mixing both sources would make run ownership ambiguous
-        and therefore fails closed.
-        """
-
-        if cache is not None:
-            if result is not None or evidence is not None or ownership is not None:
-                raise ValueError("cannot attach both a recognition cache and a new acquisition")
-            self.recognition_cache = cache
-            self.recognition_ownership = None
-            return
-        if ownership is not None and ownership.evidence is not evidence:
-            raise ValueError("recognition ownership and evidence must come from the same run")
-        self.recognition_cache.seed(result, evidence=evidence)
-        self.recognition_ownership = ownership
-
-    @property
-    def recognition_evidence(self) -> RecognitionEvidence | None:
-        """Run-scoped provider evidence paired with :attr:`recognition`, when available."""
-
-        return self.recognition_cache.evidence
-
-    def clear_geometry_caches(self) -> None:
-        """The one invalidation seam (finalize rollback): view edges + annotation
-        boxes together — a rolled-back drawing must re-measure everything."""
-        self.view_edge_cache.clear()
-        self.ann_box_cache.clear()
-        self.material_fields.clear()
-        self.material_mesh = _MATERIAL_MESH_UNSET
-
-    def ensure_recognition(self, part, *, cylinders=None) -> RecognitionResult:
-        """The run's recognition aggregate, recognising *part* once if nothing has yet.
-
-        A declared build performs no recognition (ADR 4 (was 0011) / #1022), so critique on that path
-        has no inventory to judge against and must produce one.  It is built **here**, in the
-        typed build state, and at most once per drawing: a lint-side or ``Drawing``-side memo
-        would make critique a second recognition owner, contrary to ADR 3.
-
-        On a detected build ``recognition`` is already filled by the builder, so this returns
-        it and recognises nothing.
-        """
-        return self.recognition_cache.ensure(part, cylinders=cylinders)
 
 
 class ViewNotPlanned(KeyError):
@@ -2762,41 +2590,32 @@ class Drawing:
             write_svg=self._write_svg,
         )
 
+    def _table_state(self) -> DrawingTableState:
+        return DrawingTableState(
+            drawing=self,
+            draft=self.draft,
+            registry=self._registry,
+            analysis=self._analysis,
+            model=self._part_model,
+            coords=self._coords,
+            coverage=self._coverage,
+            items=self.items,
+            page_w=self.page_w,
+            page_h=self.page_h,
+            document_member=self._document_member,
+            document_source_annotation_ids=self._document_source_annotation_ids,
+            add=self._add,
+            add_table=self.add_table,
+            add_balloons=self.add_balloons,
+            hole_spec_groups=self._hole_spec_groups,
+            fit_auxiliary_box=fit_auxiliary_box,
+        )
+
     def note(self, text, at, *, view=None, rotation=0.0, name=None, align=None):
-        """Add a free-form text **note** at page position *at* — ``(x, y)`` in mm from the sheet
-        origin, the space :meth:`at` / :meth:`view_bounds` return (#817).
-
-        A note is user-positioned free text ("SEE NOTE 1", a general-tolerance line): it carries
-        no feature and is not part of the placement solve, so — unlike :meth:`callout` /
-        :meth:`dimension`, which the solve places — you give the position. Pass *view* to fold it
-        into that view's block for the cross-view repack; ``rotation`` (degrees) and ``align``
-        (a build123d ``Align`` pair, default centred on *at*) are forwarded to the note. Returns
-        the annotation name. This is the public door for free text — the raw ``Note`` object +
-        low-level placement primitive are internal."""
-        from build123d_drafting import Note
-
-        n = Note(
-            _font_safe_text(text),
-            at,
-            self.draft,
-            rotation=rotation,
-            align=align if align is not None else (Align.CENTER, Align.CENTER),
+        """Add user-positioned free text and return its annotation name."""
+        return drawing_note(
+            self._table_state(), text, at, view=view, rotation=rotation, name=name, align=align
         )
-        # Keep the exact string shown by the drafting font for the PDF semantic
-        # overlay (notably its established ⌀ -> ø compatibility substitution).
-        n.pdf_text = _font_safe_text(text)
-        n.pdf_text_rotation = float(rotation)
-        n.pdf_text_line_spacing = _text_line_spacing_em(
-            self.draft.font_size,
-            getattr(self.draft, "font_path", DEFAULT_FONT_PATH),
-            getattr(self.draft, "font", "Arial"),
-        )
-        if name is None:
-            i = 0
-            while (name := f"note{i}") in self._registry:
-                i += 1
-        self._add(n, name, view=view)
-        return name
 
     def add_table(
         self,
@@ -2813,285 +2632,38 @@ class Drawing:
         _cells=(),
         _left_align_cols=(),
     ):
-        """Add a generic data table in the preferred available sheet region (#93/#1145).
-
-        *rows* is a list of equal-length string tuples (``rows[0]`` is the
-        header). The measured page-space footprint is positioned by :func:`fit_box`
-        clear of the views, title block, and existing annotations by the drafting
-        preset's external text clearance; *prefer* ranks candidates by their
-        distance from that page corner but does not restrict placement to the
-        corner. Returns the table annotation, or ``None`` if it has no rows or
-        will not fit. A failed solve records ``table_dropped`` with the footprint,
-        attempted candidate regions, and their named blockers/clearance bands.
-        Gear-data, BOM, and revision tables all go through here;
-        :meth:`add_hole_table` is the hole-specific convenience built on it.
-        """
-        if not rows:
-            return None
-        if _cells and name in self._registry:
-            raise ValueError(f"measured schedule name {name!r} already belongs to an annotation")
-        table = _build_table(
-            rows, self.draft, block_cols=block_cols, left_align_cols=_left_align_cols
+        """Fit a data table in available sheet space and report any placement drop."""
+        return drawing_add_table(
+            self._table_state(),
+            rows,
+            prefer=prefer,
+            name=name,
+            block_cols=block_cols,
+            _source_id=_source_id,
+            _source_ids=_source_ids,
+            _features=_features,
+            _drop_code=_drop_code,
+            _drop_severity=_drop_severity,
+            _cells=_cells,
+            _left_align_cols=_left_align_cols,
         )
-        # Keep the rows the table draws, so its content is readable back off the annotation
-        # (#1217). A table renders as compound geometry with no `label`, so without this a
-        # hole table's measurement claims can be neither confirmed nor refuted — and the
-        # claims it carries are exactly the ones coverage relies on when the engine withdraws
-        # the individual callouts. Mirrors `gear_requirement_rows`.
-        table.table_rows = tuple(tuple(str(cell) for cell in row) for row in rows)
-        if _cells:
-            table.measurement_schedule = _cells[0].schedule
-        table.table_block_cols = block_cols
-        w, h = table.table_size
-        a = self._analysis
-        margins = _analysis_margins(a) if a is not None else SheetMargins()
-        pw = a.PAGE_W if a is not None else self.page_w
-        ph = a.PAGE_H if a is not None else self.page_h
-        region = margins.bounds(pw, ph)
-        # The shared post-fit occupancy policy — views, decomposed annotation ink, minus
-        # the page-spanning riders, plus the title-block hull. Extracted so the NTS
-        # caption places against the same set (#1197); every hand-rolled copy of it has
-        # dropped one of the four parts.
-        obstacles = late_furniture_obstacles(self, named=True)
-
-        trace = FitBoxTrace()
-        pos = fit_auxiliary_box(
-            (w, h),
-            region,
-            obstacles,
-            prefer,
-            clearance=self.draft.pad_around_text,
-            trace=trace,
-        )
-        if pos is None:
-            measured = f"width={w:.1f} mm, height={h:.1f} mm"
-            detail = trace.violation
-            if detail is None and trace.rejected:
-                shown = trace.rejected[:4]
-                rejected = []
-                for attempt in shown:
-                    x0, y0, x1, y1 = attempt.region
-                    rejected.append(
-                        f"[{x0:.1f},{y0:.1f}–{x1:.1f},{y1:.1f}] blocked within "
-                        f"{trace.clearance:.1f} mm clearance by {', '.join(attempt.blockers)}"
-                    )
-                remaining = trace.rejected_candidates - len(shown)
-                suffix = f"; +{remaining} more" if remaining else ""
-                detail = (
-                    f"attempted {trace.attempted_candidates} candidate regions; rejected: "
-                    f"{'; '.join(rejected)}{suffix}"
-                )
-            if detail is None:
-                detail = "solver returned no placement trace"
-            self._registry.record_issue(
-                LintIssue(
-                    severity=_drop_severity,
-                    code=_drop_code,
-                    message=(
-                        f"table {name!r} did not fit the sheet; measured page-space footprint "
-                        f"{measured}; {detail}"
-                    ),
-                    source_ids=tuple(
-                        dict.fromkeys(
-                            ((_source_id,) if _source_id is not None else ()) + _source_ids
-                        )
-                    ),
-                    measurement_ids=tuple(cell.measurement for cell in _cells),
-                )
-            )
-            return None
-        placed = table.locate(Location((pos[0], pos[1], 0)))
-        placed.source_features = _features
-        if not _cells:
-            return self._add(placed, name)
-        snapshot = self._registry.snapshot()
-        items = list(self.items)
-        issues = self._registry.issues
-        try:
-            return self._add(placed, name, cells=_cells)
-        except BaseException:
-            self.items[:] = items
-            self._registry.restore(snapshot)
-            self._registry.restore_issues(issues)
-            raise
 
     def _hole_spec_groups(self, view):
-        """Ordered ``(tag, [holes], count)`` spec-groups of *view*'s holes (tags A, B,
-        …). The shared basis for the hole table's rows and its balloons, so the
-        TAG column and the balloon glyphs line up.
-
-        Sourced from the IR (``model.features``), so each group is one hole/pattern
-        feature — a pattern and same-spec loose holes are distinct groups (ADR 1 (was 0008);
-        #584 WP1). Each ``holes`` element is a :class:`_HoleInstance` (one per member
-        position, driving a balloon); ``count`` is the feature's declared/detected count
-        for the table QTY — equal to ``len(holes)`` on the detected path."""
-        model = self._part_model
-        target = {"plan": "z", "front": "y", "side": "x"}.get(view)
-        if model is None or target is None or view not in self._coords:
-            return []
-
-        glist = [
-            (
-                owner,
-                [_HoleInstance(pos, spec.diameter, spec.through, spec.depth) for pos in positions],
-                count,
-            )
-            for owner, spec, positions, count in _ir_hole_groups(model, target)
-        ]
-        return [
-            (tag, owner, holes, count)
-            for tag, (owner, holes, count) in zip(_tag_sequence(len(glist)), glist, strict=True)
-        ]
+        return drawing_hole_spec_groups(self._table_state(), view)
 
     def add_balloons(self, view, specs):
-        """Place a leadered balloon for each ``(tag, j, hole)`` in *specs*,
-        fitted into the halo the layout reserved around the view (#111).
-
-        Public verb over the :mod:`draftwright.annotations.balloons` render pass
-        (#699: the pass lives in the render layer; this owner method threads the
-        build state in). Each hole is assigned to a reserved band — left, right,
-        top or bottom — by a global max-cardinality/min-cost assignment (#516),
-        each band is spread with the 1D strip solver, and a :class:`Leader` runs
-        from the hole rim to each glyph.
-        """
-        if view not in self._coords or self._analysis is None:
-            return
-        ctx = PlacementContext(
-            registry=self._registry,
-            coverage=self._coverage,
-            items=self.items,
-            part_model=self._part_model,
-            document_member=self._document_member,
-            document_source_annotation_ids=self._document_source_annotation_ids,
-        )
-        render_balloons(self, self._analysis, view, specs, ctx, avoid_annotation_labels=True)
+        """Place leadered balloons in the view's reserved halo."""
+        return drawing_add_balloons(self._table_state(), view, specs)
 
     def _add_balloon(self, view, tag, j, hole):
         """Single-balloon convenience over :meth:`add_balloons` (#111)."""
         self.add_balloons(view, [(tag, j, hole)])
 
     def add_hole_table(self, view="plan", *, prefer="tr", name=None, balloons=True):
-        """Add a hole table for *view*'s holes, placed in a free corner (#93).
-
-        One row per hole spec-group — ``TAG | ⌀ | DEPTH | QTY`` with tags
-        ``A, B, …`` — placed via :meth:`add_table`. With *balloons* (the
-        default) a circled tag is added at each hole keyed to its row. The table
-        carries the same semantic measurement and structured requirement provenance as
-        automatic table escalation, so physical hole outcomes count only the facts the
-        table visibly states. Returns the table, or ``None`` when *view* has no holes or it
-        will not fit.
-        """
-        from draftwright.model.callout import resolved_through_indicator
-
-        groups = self._hole_spec_groups(view)
-        if not groups:
-            return None
-        # The compiler's text for every cell this table prints, keyed the way the coverage
-        # registration below already keys it. A table row IS a dimension — `⌀ 8 ±0.05` in a
-        # cell states exactly what `⌀8 ±0.05` states beside a leader — but this verb formatted
-        # its own numbers off the recognised geometry, so an authored tolerance was approved,
-        # claimed by the table's provenance, and never printed. Read from
-        # `_part_model` rather than `model()`: an attribute, so a declared build is not made
-        # to recognise anything by adding a table (ADR 3 (was 0017)).
-        approved: dict = {}
-        omitted: set = set()
-        if self._part_model is not None:
-            from draftwright.model.compiled import compile_dimensions as _compile_table
-            from draftwright.model.compiled import resolve_feature as _resolve_table
-
-            _plan = _compile_table(self._part_model)
-            approved = {
-                (_resolve_table(group.ref), dim.parameter_id): dim
-                for group in _plan.of_kind("hole")
-                for dim in group.dims
-            }
-            # What the compiler REFUSED, separately from what it merely has no entry for.
-            # `Omission.authored` means the author left a measurement out. Printing it here
-            # would violate the compiled plan's suppression decision.
-            omitted = {
-                (omission.feature, omission.parameter_id)
-                for omission in _plan.diagnostics
-                if omission.authored
-            }
-
-        def _cell(owner, parameter, fallback):
-            """The plan's text for *owner*'s *parameter*, else *fallback*.
-
-            The fallback covers the one case it is for: `_hole_spec_groups` is geometry-derived
-            and can group holes the compiler has NO entry for at all, and an empty cell there
-            would be worse than the measured value. It does not cover a measurement the author
-            omitted — that is a decision, and it is honoured by printing nothing, which is what
-            the escalated table has always done for the same case.
-            """
-            if (owner, parameter) in omitted:
-                return ""
-            dim = approved.get((owner, parameter))
-            if dim is None:
-                return fallback
-            return f"{dim.value_text}{_tol_suffix(dim.tolerance, self.draft)}"
-
-        rows = [("TAG", "⌀", "DEPTH", "QTY")]
-        diams = []
-        for tag, owner, holes, count in groups:
-            h = holes[0]
-            dia = _cell(owner, "bore.diameter", _fmt(h.diameter))
-            # An empty diameter empties the whole cell and takes `THRU` with it, exactly as the
-            # escalated table does (`orchestrator._table_row`): a bare `ø` with no number, or a
-            # `THRU` qualifying a diameter that is not printed, states less than nothing.
-            depth = (
-                (resolved_through_indicator(owner) if dia else "")
-                if h.through
-                else (_cell(owner, "bore.depth", _fmt(h.depth)) if h.depth else "")
-            )
-            rows.append((tag, f"ø{dia}" if dia else "", depth, str(count)))
-            # Legacy physical-diameter lint counts one structured entry per bore.
-            # Repeat the value exactly as many times as the visible QTY asserts, just as
-            # automatic escalation does, while the semantic ledger below retains the
-            # feature-scoped grouping identity.
-            diams.extend([h.diameter] * count)
-        table_name = name or f"hole_table_{view}"
-        table = self.add_table(rows, prefer=prefer, name=table_name)
-        if table is None:
-            return None
-        # The table documents these diameters — let lint see that (#93).
-        table.covers_diameters = tuple(diams)
-        from draftwright.model.compiled import DimensionId
-
-        # Calling the public verb is an explicit edit: the table itself authors every
-        # measurement it visibly prints, even when the original dimension set omitted a
-        # generated callout. Construct the same stable identities the compiler uses so
-        # holes and patterns join the physical outcome ledger through one seam.
-        measurements = tuple(
-            DimensionId(owner, parameter)
-            for _tag, owner, holes, _count in groups
-            for parameter in (
-                ("bore.diameter",)
-                if holes[0].through or holes[0].depth is None
-                else ("bore.diameter", "bore.depth")
-            )
+        """Add a hole table and optional matching balloons for a view."""
+        return drawing_add_hole_table(
+            self._table_state(), view=view, prefer=prefer, name=name, balloons=balloons
         )
-        requirements = tuple(
-            (owner, "bore.through", 1) for _tag, owner, holes, _count in groups if holes[0].through
-        ) + tuple(
-            (owner, "grouping.count", count) for _tag, owner, _holes, count in groups if count > 1
-        )
-        _register_hole_table_coverage(
-            table,
-            self._registry,
-            table_name,
-            measurements=measurements,
-            requirements=requirements,
-        )
-        if balloons:
-            self.add_balloons(
-                view,
-                [
-                    (tag, j, h)
-                    for tag, _owner, holes, _count in groups
-                    for j, h in enumerate(holes)
-                ],
-            )
-        return table
 
     def pin(self, name):
         """Pin a named annotation so the engine never moves it (#89).

@@ -95,6 +95,7 @@ _DRAWING_PRIVATES: frozenset[str] = frozenset(
         "_resolve_dimension_side",
         "_resolve_dimension_span",
         "_set_view_coordinates",
+        "_table_state",
         "_user_dim_uses_corridor",
         "_view_edge_cache",
         "_write_dxf",
