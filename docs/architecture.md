@@ -166,12 +166,10 @@ and re-exports the existing private helper names.
     `build model → plan/model-routed intents → render`; some inline engine code remains — chiefly
     `_maybe_tabulate_holes` (the hole-table/balloon escalation resolver) and the
     iso right-strip outer-limit tightening — pending the last convergence steps.
-  - **`annotations/from_model.py`** — the **IR render layer** (largest annotations
-    module): turns the planner's `DimensionGroup`/render-intents into placed
-    dimensions/callouts/centre marks/section triggers. This is where the turned,
-    envelope/OD and centre-mark passes converge with feature-family owners here
-    (ADR 1 (was 0015), #200/#208/#237). The old per-feature
-    `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
+  - **`annotations/from_model.py`** — the IR render facade and remaining feature
+    passes: turns the planner's `DimensionGroup`/render intents into placed
+    dimensions, callouts, centre marks, and section triggers. It keeps the
+    orchestrator's pass bindings while family owners implement extracted passes.
   - **`annotations/_axial_render.py`** — compiled step-chain, height-ladder,
     step-position and rotational rendering. `from_model` re-exports the public
     passes and injects its current chain placer into step-length and authored
@@ -189,6 +187,10 @@ and re-exports the existing private helper names.
     overall-height corridor candidates, including chained witnesses and short-rung
     left-strip escape. `from_model.render_height_ladder` retains view routing and
     compiled-rung selection; candidates enter the shared corridor solve.
+  - **`annotations/_envelope.py`** — owns compiler-approved overall width/depth
+    routing, mandatory corridor candidates, and deferred above/interior retry with
+    measurement-specific refusal evidence. `from_model.render_envelope` retains the
+    public pass and supplies its live placement bindings.
   - **`annotations/_pocket_pad.py`** — owns compiler-approved pocket and pad-height
     labels, projected rim bounds, direction policy, and leader job construction. The public passes in
     `from_model` submit those jobs to the existing late feature-leader assignment.

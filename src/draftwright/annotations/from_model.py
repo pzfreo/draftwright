@@ -34,10 +34,6 @@ from build123d_drafting.helpers import (
 from draftwright._core import (
     _EDGE_ON,
     _END_ON,
-    _SLOT_DIM_DEPTH,
-    _SLOT_DIM_WIDTH,
-    _STRIP_SPACING,
-    _WITNESS_LIFT_MM,
     Strip,
     _dim,
     _drawing_bounds,
@@ -100,9 +96,7 @@ from draftwright.annotations._axial_render import (
 from draftwright.annotations._common import (
     _SIZE_SUBCHAIN,
     CROSSABLE_TYPES,
-    PRIORITY,
     CorridorCandidate,
-    InteriorDimensionJob,
     PlacementContext,
     _box_hits,
     _geom_box,
@@ -111,13 +105,10 @@ from draftwright.annotations._common import (
     analytical_leader_lands_clear,
     carve_free_position,
     dim_footprint,
-    dimension_candidate_geometry,
     leader_callout_geometry,
     place_strip_candidates,
     register_corridor,
-    strip_free_span,
     strip_obstacles,
-    strip_occupants,
     view_label_clearance,
 )
 from draftwright.annotations._diameters import _diameter_column_left as _diameter_column_left
@@ -139,6 +130,12 @@ from draftwright.annotations._edge_callouts import _corner_candidates as _corner
 from draftwright.annotations._edge_callouts import _fillet_label as _fillet_label
 from draftwright.annotations._edge_callouts import chamfer_jobs as _edge_chamfer_jobs
 from draftwright.annotations._edge_callouts import radius_jobs as _edge_radius_jobs
+from draftwright.annotations._envelope import (
+    _MANDATORY_OVERALL_PRIORITY as _MANDATORY_OVERALL_PRIORITY,
+)
+from draftwright.annotations._envelope import _env_label as _env_label
+from draftwright.annotations._envelope import _EnvelopeDropRetry as _EnvelopeDropRetry
+from draftwright.annotations._envelope import render_envelope as _render_envelope_owner
 from draftwright.annotations._gdt import render_gdt as _render_gdt_owner
 from draftwright.annotations._height_ladder import (
     _OVERALL_SUBCHAIN as _OVERALL_SUBCHAIN,
@@ -260,7 +257,6 @@ from draftwright.model.ir import (
     PatternFeature,
 )
 from draftwright.model.ir_foundation import Point
-from draftwright.view_plan import views_showing
 
 
 def callout_from_spec(spec, draft, count) -> HoleCallout | None:
@@ -462,14 +458,6 @@ def render_slots(dwg, plan, a, *, ctx, only=None) -> int:
         region_policy=LeaderRegionPolicy.AUTO,
     )
     return count
-
-
-# Corridor-ladder ordering (ADR 2 (was 0009) end state): feature-SIZE dims sit nearer the
-# view (inner run), while datum-referenced LOCATION dims form one ascending outer chain.
-# Step-height rungs measure from the common height datum, so they belong to that value-ordered
-# run rather than to producer registration order. Segregating ordinary feature sizes
-# keeps a slot length or local boss height from landing mid-ladder.
-_MANDATORY_OVERALL_PRIORITY = PRIORITY.MANDATORY
 
 
 def render_circular_channel_locations(
@@ -2453,307 +2441,17 @@ def render_plates(dwg, plan, a, *, ctx) -> int:
     ) + register_channel_width(dwg, plan, a, ctx=ctx)
 
 
-def _env_label(approved, draft) -> str:
-    """An envelope extent's label, authored tolerance included (#1215).
-
-    Composed here, exactly as `render_boss_heights` and the plate-thickness and channel-width
-    dims already do — `pd.value_text + _tol_suffix(pd.tolerance, draft)`.
-
-    NOT passed as `Dimension(tolerance=...)`, which is what the first version of this fix did
-    and why it rendered nothing: helpers' `Dimension` does
-    `rendered = label if label is not None else draft._number_with_units(measured, tolerance)`,
-    so an explicit label DISCARDS the tolerance. Every dimension here passes a label, because
-    the compiler owns the value text. Measured then: `label`, glyph count and label width were
-    byte-identical with and without a tolerance, and the exported SVG had the same 115 paths
-    (#1234).
-
-    `_tol_suffix` also renders a `FitClass`, which the ink path's `_number_with_units` raises
-    on — so composing the label is the only route that satisfies #1215's fit-class line.
-
-    One consequence worth naming: every `_dim` call site in this package passes a label, so
-    helpers' own `_number_with_units` formatting is unreachable. That is why the sheet is
-    internally consistent on limit-pair ORDER — `_tol_suffix` renders `+upper -lower` for an
-    envelope extent and a hole callout alike, while `_number_with_units` would render the
-    opposite. The consistency is real but it rests on that unreachability (#1234).
-    """
-    return f"{approved.value_text}{_tol_suffix(approved.tolerance, draft)}"
-
-
-@dataclass(frozen=True, slots=True)
-class _EnvelopeDropRetry:
-    """One overall extent's deferred above/interior retry and refusal evidence."""
-
-    dwg: Any
-    ctx: PlacementContext
-    view: str
-    below: Strip | None
-    above: Strip | None
-    xs: tuple[float, float]
-    label: str
-    tier: float
-    feature: FeatureRef | None
-    measurement: DimensionId | None
-    measurement_span: tuple[Point, Point] | None
-
-    def report(self, name: str) -> None:
-        # Both settled strips explain why the approved overall extent is missing.
-        which = "width" if name.endswith("width") else "depth"
-        msg = (
-            f"overall {which} dimension not placed ({self.view}-view below and above strips full)"
-        )
-        for side_name, side_strip in (("below", self.below), ("above", self.above)):
-            occupants = strip_occupants(self.dwg, side_strip, self.view, "y") if side_strip else []
-            if occupants:
-                msg = f"{msg[:-1]}; {side_name} occupied by: {', '.join(occupants)})"
-        self.ctx.record_issue(
-            "error",
-            "overall_dim_withheld",
-            msg,
-            measurement=self.measurement,
-            measurement_span=self.measurement_span,
-        )
-
-    def drop(self, name: str) -> None:
-        # A mid-drain retry could occupy a later forced corridor candidate's space.
-        self.ctx.post_drain.append(partial(self.retry, name))
-
-    def retry(self, name: str) -> None:
-        bounds = self.dwg.view_bounds(self.view)
-        if bounds is not None:
-            lift = bounds[3] + _WITNESS_LIFT_MM
-
-            def _fallback_build(pos, _l=lift):
-                dim = _dim(
-                    (self.xs[0], _l, 0),
-                    (self.xs[1], _l, 0),
-                    "above",
-                    pos - _l,
-                    self.dwg.draft,
-                    label=self.label,
-                )
-                dim._dw_measurement_span = self.measurement_span
-                return dim
-
-            if self.above is not None:
-                if not place_strip_candidates(
-                    self.dwg,
-                    self.above,
-                    self.view,
-                    "y",
-                    [(name, _fallback_build)],
-                    self.tier,
-                    ctx=self.ctx,
-                    measurements={name: self.measurement},
-                    features={name: self.feature},
-                    trace=self.ctx.trace,
-                    trace_label=f"{name}_above_fallthrough",
-                ):
-                    return
-            interior_jobs = getattr(self.ctx, "interior_dimensions", None)
-            if interior_jobs is not None and not self.ctx.exterior_dimensions_only:
-
-                def _interior_build(pos, _l=lift):
-                    dim = _dim(
-                        (self.xs[0], _l, 0),
-                        (self.xs[1], _l, 0),
-                        "below",
-                        abs(pos - _l),
-                        self.dwg.draft,
-                        label=self.label,
-                    )
-                    dim._dw_measurement_span = self.measurement_span
-                    return dim
-
-                interior_jobs.append(
-                    InteriorDimensionJob(
-                        name=name,
-                        view=self.view,
-                        side="above",
-                        build=_fallback_build,
-                        on_place=lambda _name: None,
-                        on_drop=self.report,
-                        lane_step=(
-                            self.tier
-                            + (self.above.spacing if self.above is not None else _STRIP_SPACING)
-                        ),
-                        priority=_MANDATORY_OVERALL_PRIORITY,
-                        feature=self.feature,
-                        measurement=self.measurement,
-                        interior_build=_interior_build,
-                        analytical_geometry=lambda pos, _l=lift: dimension_candidate_geometry(
-                            (self.xs[0], _l, 0),
-                            (self.xs[1], _l, 0),
-                            "below",
-                            abs(pos - _l),
-                            self.dwg.draft,
-                            self.label,
-                        ),
-                    )
-                )
-                return
-        self.report(name)
-
-
 def render_envelope(dwg, plan, a, *, ctx) -> int:
-    """Overall width (plan, below) + depth (side, below) envelope dims via the IR,
-    registered into the same below-strip corridor as feature/location/GD&T/PMI candidates.
-    The overall dims use the last ladder subchain so they stack outermost by construction,
-    while their mandatory priority prevents best-effort below-strip occupants from starving
-    principal dimensions. The **planner** decides suppression (the rotational OD's cross-axis
-    extents, X/Z-turned; #250) — there is no square-footprint rule since #997, so a square
-    part arrives with both extents. Suppressed entries never arrive. Returns the count
-    queued."""
-    envs = plan.of_kind("envelope")
-    env = envs[0] if envs else None
-    if env is None:
-        return 0
-    n = 0
-
-    def _queue(
-        name,
-        strip,
-        above_strip,
-        view,
-        tier,
-        distance,
-        xs,
-        label,
-        build,
-        footprint=None,
-        measurement=None,
-        measurement_span=None,
-    ):
-        def _tagged_build(pos, _build=build, _span=measurement_span):
-            dim = _build(pos)
-            dim._dw_measurement_span = _span
-            return dim
-
-        state = _EnvelopeDropRetry(
-            dwg=dwg,
-            ctx=ctx,
-            view=view,
-            below=strip,
-            above=above_strip,
-            xs=xs,
-            label=label,
-            tier=tier,
-            feature=env.ref,
-            measurement=measurement,
-            measurement_span=measurement_span,
-        )
-
-        register_corridor(
-            ctx,
-            (view, "below"),
-            strip,
-            view,
-            "y",
-            tier,
-            CorridorCandidate(
-                name=name,
-                build=_tagged_build,
-                order=(_OVERALL_SUBCHAIN, distance, name),
-                on_place=lambda _nm: None,
-                on_drop=state.drop,
-                priority=_MANDATORY_OVERALL_PRIORITY,
-                force=True,
-                feature=env.ref,
-                measurement=measurement,  # which envelope extent this is
-                footprint=footprint,  # analytical measure — no probe build
-            ),
-        )
-
-    # ADR 2 (was 0018): an extent is observable in EITHER view whose page plane contains its axis —
-    # the overall width reads in plan and equally in front. `views_showing`
-    # prefers the conventional view while permitting another selected view.
-    frame = layout_frame(a)
-    for role, axis, slot, ann_name in (
-        ("width", "x", _SLOT_DIM_WIDTH, "m_env_width"),
-        ("depth", "y", _SLOT_DIM_DEPTH, "m_env_depth"),
-    ):
-        extent = env.dim(role=role)
-        if extent is None or extent.span is None:
-            continue
-        # A caller may override the derived view for this independent extent.  The planner
-        # has already proved that the selected projection can render the measurement and is
-        # present in the resolved view plan; placement still goes through the normal strip
-        # candidate solve below.
-        view = extent.view or views_showing(axis, dwg.views, horizontal=True)
-        if (
-            extent.view is None
-            and role == "width"
-            and a.arrangement == "staggered-side"
-            and "front" in dwg.views
-        ):
-            # The staggered scheme gives the plan corridor to feature/slot locations.
-            # Overall X is equally observable in the front projection; route it there
-            # before placement rather than recovering it into plan-view whitespace.
-            view = "front"
-        elif extent.view is None and role == "width" and view == "plan" and "front" in dwg.views:
-            # A demand-guided plan can reserve precisely the gap and label depth
-            # below the plan view, leaving no actual tier for a mandatory width.
-            # The same model-space X span is visible in front. Route it there
-            # before the shared corridor solve if that view has a real tier;
-            # neither a later drop nor an interior retry can create strip depth.
-            def _one_tier_fits(strip):
-                if strip is None:
-                    return False
-                lo, hi, _inner = strip_free_span(strip)
-                return hi - lo > slot + 1e-6
-
-            if not _one_tier_fits(frame.zones("plan").below) and _one_tier_fits(
-                frame.zones("front").below
-            ):
-                view = "front"
-        if view is None:
-            # No planned view can carry it. Reported against the measurement, never dropped
-            # in silence (ADR 4 (was 0016 Amdt 6)) — and this is exactly what the ADR 2 (was 0018)
-            # requirement gate reads to reject a view set that costs a mandatory extent.
-            ctx.record_issue(
-                "error",
-                "overall_dim_withheld",
-                f"overall {role} cannot be shown: no planned view lays the {axis} axis "
-                f"out horizontally (planned: {tuple(dwg.views)})",
-                measurement=extent.id,
-                measurement_span=extent.span,
-            )
-            continue
-        index = "xyz".index(axis)
-        start_pt = tuple(extent.span[0])
-        end_pt = tuple(
-            extent.span[1][index] if i == index else value for i, value in enumerate(start_pt)
-        )
-        p1, p2 = dwg.at(view, *start_pt), dwg.at(view, *end_pt)
-        witness = p1[1] - _WITNESS_LIFT_MM
-        zones = frame.zones(view)
-        _queue(
-            ann_name,
-            zones.below,
-            zones.above,
-            view,
-            slot,
-            abs(end_pt[index] - start_pt[index]),
-            (p1[0], p2[0]),
-            _env_label(extent, dwg.draft),
-            lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(extent, dwg.draft): _dim(
-                (_p1[0], _w, 0),
-                (_p2[0], _w, 0),
-                "below",
-                _w - pos,
-                dwg.draft,
-                label=_v,
-            ),
-            # Measure the same rendered label used by the Dimension. The span
-            # usually dominates this footprint, but outside arrows can make the
-            # label affect its extent.
-            footprint=lambda pos, _p1=p1, _p2=p2, _w=witness, _v=_env_label(extent, dwg.draft): (
-                dim_footprint((_p1[0], _w, 0), (_p2[0], _w, 0), "below", _w - pos, dwg.draft, _v)
-            ),
-            measurement=extent.id,
-            measurement_span=extent.span,
-        )
-        n += 1
-    return n
+    """Register compiler-approved overall extents in the shared corridor."""
+    return _render_envelope_owner(
+        dwg,
+        plan,
+        a,
+        ctx=ctx,
+        layout_frame_fn=layout_frame,
+        register_corridor_fn=register_corridor,
+        dim_builder=_dim,
+    )
 
 
 def queue_step_detail(dwg, plan, feature, a, *, ctx, view_name, label, factor, source) -> bool:
