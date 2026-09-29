@@ -16,7 +16,7 @@ import os
 import warnings
 import weakref
 from collections.abc import Callable, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, cast
 
@@ -1469,6 +1469,199 @@ _AUTOMATIC_UPSCALE_TRIAL_LIMIT = 2
 _AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT = 1
 
 
+@dataclass
+class _AutomaticScaleTrials:
+    """Bounded page and scale probes for one automatic drawing plan."""
+
+    build: Callable[..., Drawing]
+    record_attempt: Callable[..., None]
+    qualify: Callable[..., tuple]
+    retain_arrangement: Callable[[Drawing], Drawing]
+    current_drawing: Callable[[], Drawing]
+    latest_analysis: Callable[[], Analysis | None]
+    settled_arrangement: str
+    settled_principal_views: tuple[str, ...]
+    original_page: tuple[float, float]
+    scale_candidates: dict[float, Drawing] = field(default_factory=dict)
+    scale_failures: dict[float, Exception] = field(default_factory=dict)
+
+    def try_larger_standard_pages(
+        self,
+        starting_page,
+        *,
+        include_iso,
+        reason,
+        fallback_views,
+        require_axial_coverage,
+        allow_recovery_detail=False,
+    ):
+        """Try the bounded standard-page tail under one settled correction policy."""
+        standard_pages = tuple(_PAGE_SIZES.items())
+        original_index = next(
+            (
+                index
+                for index, (_name, dimensions) in enumerate(standard_pages)
+                if tuple(dimensions) == starting_page
+            ),
+            None,
+        )
+        larger_pages = standard_pages[original_index + 1 :] if original_index is not None else ()
+        for page_name, page_dimensions in larger_pages:
+            try:
+                larger = self.build(
+                    None,
+                    arrangements=(self.settled_arrangement,),
+                    views=self.settled_principal_views,
+                    include_iso=include_iso,
+                    page_override=page_name,
+                    retry_reason=reason,
+                )
+            except (ValueError, Standard_Failure) as exc:
+                if not _is_expected_candidate_build_failure(exc):
+                    raise
+                _log.info(
+                    "automatic page escalation to %s rejected (candidate build failed: %s)",
+                    page_name,
+                    exc,
+                )
+                self.record_attempt(
+                    None,
+                    "error",
+                    reason=reason,
+                    views=fallback_views,
+                    page=page_dimensions,
+                    error=str(exc),
+                )
+                continue
+            larger = self.retain_arrangement(larger)
+            issues, blockers, rejection = self.qualify(
+                larger,
+                require_axial_coverage=require_axial_coverage,
+                allow_recovery_detail=allow_recovery_detail,
+            )
+            if rejection is None:
+                self.record_attempt(larger.scale, "complete", reason=reason, candidate=larger)
+                return larger, issues
+            self.record_attempt(
+                larger.scale,
+                "rejected",
+                blockers,
+                reason=reason,
+                rejection=rejection,
+                violations=_layout_issue_records(_hard_layout_issues(issues)),
+                candidate=larger,
+            )
+        return None, None
+
+    def try_scales_on_selected_page(self, candidate_scales, *, reason, require_axial_coverage):
+        """Try a bounded scale sequence on the already selected sheet."""
+        for candidate_scale in candidate_scales:
+            analysis = self.latest_analysis()
+            if (
+                analysis is not None
+                and hasattr(analysis, "bb")
+                and _principal_view_exceeds_page(
+                    candidate_scale,
+                    self.original_page,
+                    analysis.bb,
+                    self.settled_principal_views,
+                )
+            ):
+                self.record_attempt(
+                    candidate_scale,
+                    "skipped",
+                    reason=reason,
+                    rejection="principal_view_exceeds_page",
+                    page=self.original_page,
+                )
+                continue
+            candidate_drawing = self.scale_candidates.get(candidate_scale)
+            failure = self.scale_failures.get(candidate_scale)
+            if candidate_drawing is None and failure is None:
+                try:
+                    candidate_drawing = self.build(
+                        candidate_scale,
+                        arrangements=(self.settled_arrangement,),
+                        views=self.settled_principal_views,
+                        page_override=self.original_page,
+                        retry_reason=reason,
+                    )
+                except (ValueError, Standard_Failure) as exc:
+                    if not _is_expected_candidate_build_failure(exc):
+                        raise
+                    self.scale_failures[candidate_scale] = exc
+                    failure = exc
+                else:
+                    candidate_drawing = self.retain_arrangement(candidate_drawing)
+                    self.scale_candidates[candidate_scale] = candidate_drawing
+            if failure is not None:
+                _log.info(
+                    "%s %s:1 rejected (candidate build failed: %s)",
+                    reason,
+                    candidate_scale,
+                    failure,
+                )
+                self.record_attempt(
+                    candidate_scale,
+                    "error",
+                    reason=reason,
+                    views=self.current_drawing().views,
+                    page=self.original_page,
+                    error=str(failure),
+                )
+                continue
+            assert candidate_drawing is not None
+            assert (candidate_drawing.page_w, candidate_drawing.page_h) == self.original_page
+            issues, blockers, rejection = self.qualify(
+                candidate_drawing,
+                require_axial_coverage=require_axial_coverage,
+            )
+            if rejection is None:
+                self.record_attempt(
+                    candidate_scale, "complete", reason=reason, candidate=candidate_drawing
+                )
+                return candidate_drawing, issues
+            self.record_attempt(
+                candidate_scale,
+                "rejected",
+                blockers,
+                reason=reason,
+                rejection=rejection,
+                violations=_layout_issue_records(_hard_layout_issues(issues)),
+                candidate=candidate_drawing,
+            )
+        return None, None
+
+    def try_larger_scales_on_selected_page(
+        self, starting_scale, *, reason, require_axial_coverage
+    ):
+        """Try larger scales before spending a sheet or optional view (#1338)."""
+        candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
+            :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
+        ]
+        return self.try_scales_on_selected_page(
+            candidate_scales,
+            reason=reason,
+            require_axial_coverage=require_axial_coverage,
+        )
+
+    def try_validity_scales_on_selected_page(
+        self, starting_scale, *, reason, require_axial_coverage
+    ):
+        """Try nearby smaller, then larger scales for a hard sheet-validity defect."""
+        smaller = [item for item in _SCALES if item < starting_scale][
+            :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
+        ]
+        larger = sorted(item for item in _SCALES if item > starting_scale)[
+            :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
+        ]
+        return self.try_scales_on_selected_page(
+            (*smaller, *larger),
+            reason=reason,
+            require_axial_coverage=require_axial_coverage,
+        )
+
+
 @build_operation
 def build_drawing(
     step_file: str | Path | Shape,
@@ -1927,191 +2120,17 @@ def build_drawing(
         # a required placement loss asks the optional ISO to yield. Reuse those finished
         # drawings: the second pass may apply a stricter qualification gate, but rebuilding
         # identical geometry cannot change its answer (#1665).
-        selected_page_scale_candidates: dict[float, Drawing] = {}
-        selected_page_scale_failures: dict[float, Exception] = {}
-
-        def _try_larger_standard_pages(
-            starting_page,
-            *,
-            include_iso,
-            reason,
-            fallback_views,
-            require_axial_coverage,
-            allow_recovery_detail=False,
-        ):
-            """Try the bounded standard-page tail under one settled correction policy."""
-            standard_pages = tuple(_PAGE_SIZES.items())
-            original_index = next(
-                (
-                    index
-                    for index, (_name, dimensions) in enumerate(standard_pages)
-                    if tuple(dimensions) == starting_page
-                ),
-                None,
-            )
-            larger_pages = (
-                standard_pages[original_index + 1 :] if original_index is not None else ()
-            )
-            for page_name, page_dimensions in larger_pages:
-                try:
-                    larger = _build(
-                        None,
-                        arrangements=(settled_arrangement,),
-                        views=settled_principal_views,
-                        include_iso=include_iso,
-                        page_override=page_name,
-                        retry_reason=reason,
-                    )
-                except (ValueError, Standard_Failure) as exc:
-                    if not _is_expected_candidate_build_failure(exc):
-                        raise
-                    _log.info(
-                        "automatic page escalation to %s rejected (candidate build failed: %s)",
-                        page_name,
-                        exc,
-                    )
-                    _record_attempt(
-                        None,
-                        "error",
-                        reason=reason,
-                        views=fallback_views,
-                        page=page_dimensions,
-                        error=str(exc),
-                    )
-                    continue
-                larger = _retain_arrangement(larger)
-                issues, blockers, rejection = _qualify_candidate(
-                    larger,
-                    require_axial_coverage=require_axial_coverage,
-                    allow_recovery_detail=allow_recovery_detail,
-                )
-                if rejection is None:
-                    _record_attempt(
-                        larger.scale,
-                        "complete",
-                        reason=reason,
-                        candidate=larger,
-                    )
-                    return larger, issues
-                _record_attempt(
-                    larger.scale,
-                    "rejected",
-                    blockers,
-                    reason=reason,
-                    rejection=rejection,
-                    violations=_layout_issue_records(_hard_layout_issues(issues)),
-                    candidate=larger,
-                )
-            return None, None
-
-        def _try_scales_on_selected_page(candidate_scales, *, reason, require_axial_coverage):
-            """Try a bounded scale sequence on the already selected sheet."""
-            for candidate_scale in candidate_scales:
-                if (
-                    latest_analysis is not None
-                    and hasattr(latest_analysis, "bb")
-                    and _principal_view_exceeds_page(
-                        candidate_scale, original_page, latest_analysis.bb, settled_principal_views
-                    )
-                ):
-                    _record_attempt(
-                        candidate_scale,
-                        "skipped",
-                        reason=reason,
-                        rejection="principal_view_exceeds_page",
-                        page=original_page,
-                    )
-                    continue
-                candidate_drawing = selected_page_scale_candidates.get(candidate_scale)
-                failure = selected_page_scale_failures.get(candidate_scale)
-                if candidate_drawing is None and failure is None:
-                    try:
-                        candidate_drawing = _build(
-                            candidate_scale,
-                            arrangements=(settled_arrangement,),
-                            views=settled_principal_views,
-                            page_override=original_page,
-                            retry_reason=reason,
-                        )
-                    except (ValueError, Standard_Failure) as exc:
-                        if not _is_expected_candidate_build_failure(exc):
-                            raise
-                        selected_page_scale_failures[candidate_scale] = exc
-                        failure = exc
-                    else:
-                        candidate_drawing = _retain_arrangement(candidate_drawing)
-                        selected_page_scale_candidates[candidate_scale] = candidate_drawing
-                if failure is not None:
-                    _log.info(
-                        "%s %s:1 rejected (candidate build failed: %s)",
-                        reason,
-                        candidate_scale,
-                        failure,
-                    )
-                    _record_attempt(
-                        candidate_scale,
-                        "error",
-                        reason=reason,
-                        views=drawing.views,
-                        page=original_page,
-                        error=str(failure),
-                    )
-                    continue
-                assert candidate_drawing is not None
-                assert (candidate_drawing.page_w, candidate_drawing.page_h) == original_page
-                issues, blockers, rejection = _qualify_candidate(
-                    candidate_drawing,
-                    require_axial_coverage=require_axial_coverage,
-                )
-                if rejection is None:
-                    _record_attempt(
-                        candidate_scale,
-                        "complete",
-                        reason=reason,
-                        candidate=candidate_drawing,
-                    )
-                    return candidate_drawing, issues
-                _record_attempt(
-                    candidate_scale,
-                    "rejected",
-                    blockers,
-                    reason=reason,
-                    rejection=rejection,
-                    violations=_layout_issue_records(_hard_layout_issues(issues)),
-                    candidate=candidate_drawing,
-                )
-            return None, None
-
-        def _try_larger_scales_on_selected_page(starting_scale, *, reason, require_axial_coverage):
-            """Try the bounded larger-scale tail on the already selected sheet.
-
-            Raising the scale spreads features apart before a placement shortage spends a
-            sheet or optional view (#1338).
-            """
-            candidate_scales = sorted(item for item in _SCALES if item > starting_scale)[
-                :_AUTOMATIC_UPSCALE_TRIAL_LIMIT
-            ]
-            return _try_scales_on_selected_page(
-                candidate_scales,
-                reason=reason,
-                require_axial_coverage=require_axial_coverage,
-            )
-
-        def _try_validity_scales_on_selected_page(
-            starting_scale, *, reason, require_axial_coverage
-        ):
-            """Try nearby smaller, then larger scales for a hard sheet-validity defect."""
-            smaller = [item for item in _SCALES if item < starting_scale][
-                :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
-            ]
-            larger = sorted(item for item in _SCALES if item > starting_scale)[
-                :_AUTOMATIC_VALIDITY_SCALE_TRIAL_LIMIT
-            ]
-            return _try_scales_on_selected_page(
-                (*smaller, *larger),
-                reason=reason,
-                require_axial_coverage=require_axial_coverage,
-            )
+        trials = _AutomaticScaleTrials(
+            build=_build,
+            record_attempt=_record_attempt,
+            qualify=_qualify_candidate,
+            retain_arrangement=_retain_arrangement,
+            current_drawing=lambda: drawing,
+            latest_analysis=lambda: latest_analysis,
+            settled_arrangement=settled_arrangement,
+            settled_principal_views=settled_principal_views,
+            original_page=original_page,
+        )
 
         # #1155: the compose-time estimate conservatively reserves an enlarged
         # detail for a crowded run.  Some larger preferred scales make that run
@@ -2129,7 +2148,7 @@ def build_drawing(
                 reason="measured_upscale",
                 candidate=drawing,
             )
-            upscaled, upscaled_issues = _try_larger_scales_on_selected_page(
+            upscaled, upscaled_issues = trials.try_larger_scales_on_selected_page(
                 original_scale,
                 reason="measured_upscale",
                 require_axial_coverage=False,
@@ -2151,7 +2170,7 @@ def build_drawing(
                     # case too; retaining the detail is valid if the candidate passes
                     # every structural and required-outcome gate. A complete detected
                     # drawing does not spend a larger sheet just to eliminate its detail.
-                    larger, larger_issues = _try_larger_standard_pages(
+                    larger, larger_issues = trials.try_larger_standard_pages(
                         original_page,
                         include_iso=_include_iso,
                         reason="page_escalation_after_detail",
@@ -2180,13 +2199,13 @@ def build_drawing(
                 violations=_layout_issue_records(hard_layout),
                 candidate=drawing,
             )
-            recovered, recovered_issues = _try_validity_scales_on_selected_page(
+            recovered, recovered_issues = trials.try_validity_scales_on_selected_page(
                 drawing.scale,
                 reason="scale_retry_after_hard_layout",
                 require_axial_coverage=False,
             )
             if recovered is None and page is None:
-                recovered, recovered_issues = _try_larger_standard_pages(
+                recovered, recovered_issues = trials.try_larger_standard_pages(
                     original_page,
                     include_iso="iso" in drawing.views,
                     reason="page_escalation_after_hard_layout",
@@ -2223,13 +2242,13 @@ def build_drawing(
                     reason="required_outcome_recovery",
                     candidate=drawing,
                 )
-                recovered, recovered_issues = _try_larger_scales_on_selected_page(
+                recovered, recovered_issues = trials.try_larger_scales_on_selected_page(
                     drawing.scale,
                     reason="scale_escalation_after_required_drop",
                     require_axial_coverage=bool(axial_dimension_losses),
                 )
                 if recovered is None and page is None:
-                    recovered, recovered_issues = _try_larger_standard_pages(
+                    recovered, recovered_issues = trials.try_larger_standard_pages(
                         original_page,
                         include_iso=_include_iso,
                         reason="page_escalation_after_required_drop",
@@ -2309,7 +2328,7 @@ def build_drawing(
                 # order was drop-the-ISO then escalate-the-page.  The gates are unchanged:
                 # this wins only by passing the same axial and required-outcome checks the
                 # larger sheet would have had to pass.
-                upscaled, upscaled_issues = _try_larger_scales_on_selected_page(
+                upscaled, upscaled_issues = trials.try_larger_scales_on_selected_page(
                     drawing.scale,
                     reason="scale_escalation_on_selected_page",
                     require_axial_coverage=True,
@@ -2421,7 +2440,7 @@ def build_drawing(
                             # complete candidate merely because removing the optional ISO
                             # made room for that required detail.
                             if page is None:
-                                larger, issues = _try_larger_standard_pages(
+                                larger, issues = trials.try_larger_standard_pages(
                                     original_page,
                                     include_iso=False,
                                     reason="page_escalation_after_optional_iso",
