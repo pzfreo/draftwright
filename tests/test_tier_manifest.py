@@ -39,6 +39,7 @@ def test_each_named_contract_group_resolves_to_existing_modules():
         "ir_foundation": "src/draftwright/model/ir_foundation.py",
         "slot_rendering": "src/draftwright/annotations/_slots.py",
         "drawing_edits": "src/draftwright/drawing_edits.py",
+        "drawing_diagnostics": "src/draftwright/drawing_diagnostics.py",
         "sheet_layout_controls": "src/draftwright/sheet_layout_controls.py",
         "recognition": "src/draftwright/recognition_frame.py",
         "compilation": "src/draftwright/intents.py",

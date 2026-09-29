@@ -18,6 +18,16 @@ class ContractGroup:
 
 
 CONTRACT_GROUPS = {
+    "drawing_diagnostics": ContractGroup(
+        ("src/draftwright/drawing_diagnostics.py",),
+        (
+            "test_drawing_encapsulation.py",
+            "test_issue_1147_legibility_pair_aggregation.py",
+            "test_quality_components.py",
+            "test_report_projection.py",
+            "test_report_writer.py",
+        ),
+    ),
     "drawing_edits": ContractGroup(
         ("src/draftwright/drawing_edits.py",),
         (

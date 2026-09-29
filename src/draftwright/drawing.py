@@ -14,10 +14,8 @@ import math
 import os
 import sys
 import warnings
-from collections.abc import Mapping
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from quiddity import RecognitionResult
@@ -43,7 +41,6 @@ from draftwright._core import (
     _fmt,
     _font_safe_text,
     _frame_margins,
-    _log,
     _tol_suffix,
     place_annotation,
 )
@@ -51,6 +48,15 @@ from draftwright.annotations._common import (
     carve_free_position,
 )
 from draftwright.auxiliary_layout import fit_auxiliary_box
+from draftwright.drawing_diagnostics import (
+    _GEOMETRY_AWARE_CODES as _GEOMETRY_AWARE_CODES,
+)
+from draftwright.drawing_diagnostics import (
+    DiagnosticOperations,
+)
+from draftwright.drawing_diagnostics import (
+    lint_snapshot as lint_snapshot,
+)
 from draftwright.drawing_edits import EditOperations
 from draftwright.drawing_export import (
     add_shapes as add_export_shapes,
@@ -94,9 +100,7 @@ from draftwright.linting import (
     CoverageState,
     LintIssue,
 )
-from draftwright.linting.evidence import compiled_display_precisions
-from draftwright.linting.issues import _collect_issue_aggregation, _current_issue_aggregation
-from draftwright.linting.orchestration import LintContext, lint_finished_drawing
+from draftwright.linting.issues import _current_issue_aggregation
 from draftwright.projection import (
     part_material_mesh,
     project_view_geometry,
@@ -105,149 +109,6 @@ from draftwright.projection import (
 from draftwright.registry import AnnotationRegistry
 from draftwright.repair import repair_drawing
 from draftwright.view_plan import VIEW_AXES
-
-# Codes that check standards/geometry correctness rather than pure page
-# layout. Grouped so a caller (and the #30 repair loop) can tell a wrong
-# drawing from a merely tight one.
-_GEOMETRY_AWARE_CODES = frozenset(
-    {
-        "angled_step_requirement_unsupported",
-        "feature_not_dimensioned",
-        "feature_count_mismatch",
-        "feature_not_located",
-        "feature_no_centermark",
-        "pad_footprint_not_defined",
-        "passage_requirement_unsupported",
-        "prismatic_pocket_requirement_unsupported",
-        "section_recess_requirement_unsupported",
-        "section_recess_recognition_refused",
-        "pocket_not_located",
-        "unrecognised_defining_geometry",
-        "pmi_not_lowered",
-        "pmi_not_rendered",
-        "manufacturing_reference_unresolved",
-        # Registered here for the same reason as the two above: an unverified or
-        # fabricated AP242 claim is a statement about the geometry, not about layout
-        # (#1563). Leaving them out would let a drawing carrying either report
-        # `geometry_issues: 0`, which is the shape of defect this register exists for.
-        "pmi_unreconciled",
-        "pmi_source_unknown",
-        # These REPLACE `pmi_not_rendered` for a record that produced no annotation (#1177);
-        # the content is equally missing, so the count must not fall just because the
-        # reason improved. `authored_dim_degenerate` suppressed that error without
-        # carrying its weight, which is how a lost requirement came to report
-        # `geometry_issues: 0` alongside `passed: True`.
-        "dimension_kind_unsupported",
-        "authored_dim_degenerate",
-        "authored_dim_source_unresolved",
-        "axial_length_missing",
-        # A turned profile that leaves part of the body undescribed (#1132). Registered
-        # here for the same reason as `axial_length_missing` beside it: the shortfall is
-        # about the part, not about where an annotation landed.
-        "turned_profile_not_spanned",
-        "flat_requirement_suppressed",
-        "flat_requirement_missing",
-        "flat_requirement_unverifiable",
-        "groove_requirement_suppressed",
-        "groove_requirement_missing",
-        "groove_requirement_unverifiable",
-        "hole_requirement_suppressed",
-        "hole_requirement_missing",
-        "hole_requirement_unverifiable",
-        "pad_requirement_suppressed",
-        "pad_requirement_missing",
-        "pad_requirement_unverifiable",
-        "plate_requirement_suppressed",
-        "plate_requirement_missing",
-        "plate_requirement_unverifiable",
-        "polygonal_boss_requirement_suppressed",
-        "polygonal_boss_requirement_missing",
-        "polygonal_boss_requirement_unverifiable",
-        "pocket_requirement_suppressed",
-        "pocket_requirement_missing",
-        "pocket_requirement_unverifiable",
-        "missing_principal_dimension",
-        "label_vs_measured",
-        "angular_label_vs_geometry",
-        "angular_geometry_mismatch",
-        "angular_support_unverifiable",
-        "angular_support_mismatch",
-        "dim_inside_part",
-        "callout_dropped",
-        "location_ref_dropped",
-        "off_axis_location_dropped",
-        "hole_pattern_dim_dropped",
-        "pocket_pattern_dim_dropped",
-        "step_dim_dropped",
-        "plate_thickness_dropped",
-        "step_position_dropped",
-        "chamfer_dropped",
-        "channel_requirement_suppressed",
-        "channel_requirement_missing",
-        "channel_requirement_unverifiable",
-        "channel_width_dropped",
-        "flat_dropped",
-        "polygonal_boss_dropped",
-        "polygonal_stock_dropped",
-        "polygonal_stock_length_dropped",
-        "pmi_not_extracted",
-        "placement_unsatisfiable",
-        "pmi_dropped",
-        # A withheld approved dimension is missing content, so both codes count as geometry
-        # issues, like `missing_principal_dimension` above.
-        "step_dim_withheld",
-        "overall_dim_withheld",
-    }
-)
-
-# Coarse 0–1 quality heuristic: a clean sheet scores 1.0; each issue subtracts
-# a flat per-severity penalty (clamped at 0). A convenience signal only — the
-# severity/code counts in the summary are the authoritative output.
-_SCORE_ERROR_PENALTY = 0.2
-_SCORE_WARNING_PENALTY = 0.05
-
-# ``Drawing.report()`` and the completeness component must project one identical physical
-# requirement roster.  Keep that report-scoped evidence task-local so the public
-# ``lint_summary()`` signature and subclass dispatch remain unchanged.
-_REPORT_REQUIREMENTS: ContextVar[tuple[object, Mapping[str, tuple[Any, ...]], object] | None] = (
-    ContextVar("draftwright_report_requirements", default=None)
-)
-
-# A finished-layout assessment needs the raw issues and their summary together. Keep that
-# result task-local for the duration of the assessment; Drawing exposes mutable annotations,
-# so a persistent generation cache needs a wider mutation contract (follow-on #1945).
-_SCOPED_LINT: ContextVar[tuple[object, tuple, object] | None] = ContextVar(
-    "draftwright_scoped_lint", default=None
-)
-
-
-def lint_snapshot(drawing):
-    """Return issues and summary from one lint without exposing a mutable cache scope."""
-    # A nested assessment must not expose its outer snapshot to lint overrides that
-    # call lint_summary() while the inner public lint method is still running.
-    mask = _SCOPED_LINT.set(None)
-    try:
-        with _collect_issue_aggregation() as aggregation:
-            issues = tuple(drawing.lint())
-    finally:
-        _SCOPED_LINT.reset(mask)
-    token = _SCOPED_LINT.set((drawing, issues, aggregation))
-    try:
-        summary = drawing.lint_summary()
-    finally:
-        _SCOPED_LINT.reset(token)
-    return issues, summary
-
-
-@contextlib.contextmanager
-def _reuse_report_requirements(
-    owner: object, outcomes: Mapping[str, tuple[Any, ...]], dimension_plan: object
-):
-    token = _REPORT_REQUIREMENTS.set((owner, outcomes, dimension_plan))
-    try:
-        yield
-    finally:
-        _REPORT_REQUIREMENTS.reset(token)
 
 
 @dataclass
@@ -873,141 +734,16 @@ class Drawing:
         return self._build.recognition_ownership
 
     def report(self) -> dict[str, object]:
-        """Return the versioned machine-readable recognition and drawing report.
 
-        Schema version 3 projects accepted raw recognition occurrences, their exact run-local
-        consumer dispositions, final IR owners, recognition-owned semantic requirement outcomes,
-        profile-support requirements, and the existing structured lint summary.
-        Report IDs are deterministic within this document only; they are not topology or durable
-        feature identifiers. ``bounded-clear`` is not manufacturing readiness because recognition
-        can miss geometry and material, process, finish, fit, and tolerance intent remains authored.
-
-        A declared drawing uses schema version 8: its final IR is the authority, and the report
-        preserves lint/quality observations plus page/view/annotation layout evidence while
-        stating when detailed opt-in placement evidence is unavailable. It never reconstructs
-        occurrences from declared values. A framed or bare
-        drawing whose exact occurrence ownership is unavailable, or a raw drawing with an
-        unclassified accepted occurrence, raises
-        :class:`draftwright.ReportUnavailableError` rather than inventing correspondence or
-        shrinking the denominator. Calling this method never changes rendered drawing content.
-        """
-
-        from draftwright.reporting import declared_drawing_report, drawing_report
-
-        if self._model_declared:
-            source = (
-                getattr(self._analysis, "step_file", None) if self._analysis is not None else None
-            )
-            lint = self.lint_summary()
-            report = declared_drawing_report(
-                model=self.model(),
-                lint=lint,
-                source=source,
-                registry=self._registry,
-                drawing=self,
-            )
-            # Document sheets are authored views over one source-owned detected model.
-            # Keep schema 8's declared layout evidence, but do not discard the exact
-            # occurrence/requirement ledger that the document bound to this member.
-            if (
-                self.recognition_evidence() is not None
-                and self.recognition_ownership() is not None
-            ):
-                snapshot = self.requirement_snapshot()
-                source_report = drawing_report(
-                    evidence=snapshot.evidence,
-                    ownership=snapshot.ownership,
-                    model=snapshot.model,
-                    lint=lint,
-                    source=snapshot.source,
-                    registry=snapshot.registry,
-                    omissions=snapshot.omissions,
-                    dimension_plan=snapshot.dimension_plan,
-                    part=snapshot.part,
-                    requirement_outcomes=snapshot.outcomes,
-                    detail_decisions=tuple(self.detail_decisions),
-                )
-                report["recognition"] = source_report["recognition"]
-            return report
-
-        snapshot = self.requirement_snapshot()
-        with _reuse_report_requirements(self, snapshot.outcomes, snapshot.dimension_plan):
-            lint = self.lint_summary()
-        return drawing_report(
-            evidence=snapshot.evidence,
-            ownership=snapshot.ownership,
-            model=snapshot.model,
-            lint=lint,
-            source=snapshot.source,
-            registry=snapshot.registry,
-            omissions=snapshot.omissions,
-            dimension_plan=snapshot.dimension_plan,
-            part=snapshot.part,
-            requirement_outcomes=snapshot.outcomes,
-            detail_decisions=tuple(self.detail_decisions),
-        )
+        return self._diagnostics().report()
 
     def requirement_snapshot(self, *, include_lint=False):
-        """Capture live source-owned outcomes for single-sheet and document review.
 
-        This reuses the report's exact-authority validation and existing producers.
-        It neither recognizes geometry nor derives requirements from the compiled plan.
-        The returned references belong to this build and must not be persisted or
-        combined with another recognition run. Serialize edits and snapshot reads.
-        """
-        from draftwright.reporting import RequirementSnapshot, validate_report_inputs
-
-        analysis = self._analysis
-        source = getattr(analysis, "step_file", None) if analysis is not None else None
-        evidence, ownership, model = validate_report_inputs(
-            self.recognition_evidence(), self.recognition_ownership(), self.model()
-        )
-        from draftwright.linting.requirements import recognized_requirement_outcomes
-        from draftwright.model.compiled import compile_dimensions
-
-        dimension_plan = compile_dimensions(model)
-        omissions = tuple(self._build.omissions)
-        outcomes = recognized_requirement_outcomes(
-            evidence.result,
-            tuple(model.features),
-            self.registry,
-            omissions,
-            dimension_plan=dimension_plan,
-            part=self._working_part,
-            evidence=evidence,
-            ownership=ownership,
-            datum=next((datum for datum in model.datums if datum.id == "datum_xy"), None),
-        )
-        lint = None
-        if include_lint:
-            with _reuse_report_requirements(self, outcomes, dimension_plan):
-                lint = self.lint_summary()
-        return RequirementSnapshot(
-            evidence,
-            ownership,
-            model,
-            source,
-            self.registry,
-            omissions,
-            dimension_plan,
-            self._working_part,
-            outcomes,
-            lint,
-        )
+        return self._diagnostics().requirement_snapshot(include_lint=include_lint)
 
     def write_report(self, path: str | os.PathLike[str]) -> str:
-        """Atomically write :meth:`report` as deterministic UTF-8 JSON.
 
-        The destination is replaced only after the complete strict-JSON document has been
-        flushed to a temporary file in the same directory. A report or filesystem failure leaves
-        an existing destination untouched; temporary-file cleanup is best-effort when the
-        filesystem itself refuses it. This method does not export or modify any visual drawing
-        artefact.
-        """
-
-        from draftwright.reporting import write_json_document
-
-        return write_json_document(self.report(), path)
+        return self._diagnostics().write_report(path)
 
     # --- build-context compat properties (#639): one BuildState, thin views.
     # _part_model and the two caches are GETTER-ONLY by design:
@@ -2056,6 +1792,23 @@ class Drawing:
             on_settled=_on_settled,
         )
 
+    def _diagnostics(self) -> DiagnosticOperations:
+        """Pass Drawing-owned state and public dispatch hooks to a diagnostic operation."""
+        return DiagnosticOperations(
+            self,
+            analysis=self._analysis,
+            model=self._part_model,
+            build=self._build,
+            registry=self._registry,
+            coverage=self._coverage,
+            working_part=self._working_part,
+            model_declared=self._model_declared,
+            view_edge_cache=self._view_edge_cache,
+            ann_box_cache=self._ann_box_cache,
+            cyl_cache=self._cyl_cache,
+            set_cyl_cache=lambda cache: setattr(self, "_cyl_cache", cache),
+        )
+
     # -- output ---------------------------------------------------------------
     @observed_stage("lint")
     def lint(self, *, physical: bool = True):
@@ -2075,137 +1828,24 @@ class Drawing:
         return self._lint(physical=physical, aggregation=_current_issue_aggregation())
 
     def _lint(self, *, physical: bool = True, aggregation=None):
-        """Internal lint path with an optional summary-scoped pair ledger (#1147)."""
-        page_bbox = self.drawable_bounds
-        # The model compiler remains above linting's independent rank-2 boundary.
-        model = self._part_model
-        dimension_plan = None
-        if model is not None:
-            requests = (
-                model.authored_dimensions
-                if model.authored_dimensions is not None
-                else model.requested_dimensions
-            )
-            if physical or any(request.display_decimals is not None for request in requests):
-                from draftwright.model.compiled import compile_dimensions
 
-                dimension_plan = compile_dimensions(model)
-        display_decimals = (
-            compiled_display_precisions(self._registry, dimension_plan)
-            if dimension_plan is not None
-            else None
-        )
-        ctx = LintContext(
-            drawing=self,
-            page_bbox=page_bbox,
-            views=self.views,
-            items=self.items,
-            scale=self.scale,
-            material_fields=self.material_fields,
-            registry=self._registry,
-            working_part=self._working_part,
-            analysis=self._analysis,
-            build=self._build,
-            model=model,
-            coverage=self._coverage,
-            assembly=self.assembly,
-            model_declared=self._model_declared,
-            view_edge_cache=self._view_edge_cache,
-            ann_box_cache=self._ann_box_cache,
-            cyl_cache=self._cyl_cache,
-        )
-        try:
-            return lint_finished_drawing(
-                ctx,
-                physical=physical,
-                aggregation=aggregation,
-                dimension_plan=dimension_plan,
-                display_decimals=display_decimals,
-            )
-        finally:
-            if ctx.cyl_cache is not self._cyl_cache:
-                self._cyl_cache = ctx.cyl_cache
+        return self._diagnostics()._lint(physical=physical, aggregation=aggregation)
 
     def layout_utilization(self) -> dict:
-        """Conservative page-space utilization evidence for layout decisions.
 
-        The evidence uses clipped view and annotation bounding boxes. It therefore
-        overestimates sparse line-work by design, but it is deterministic, cross-family,
-        and sufficient to expose a large unused sheet or empty quadrant without parsing
-        an export (#1797).
-        """
-        from draftwright.drawing_evidence import layout_utilization
-
-        page = _frame_margins(self._analysis).bounds(self.page_w, self.page_h)
-        return layout_utilization(page, self.views, self.view_bounds, self.iter_annotations)
+        return self._diagnostics().layout_utilization()
 
     def lint_summary(self) -> dict:
-        """Aggregate :meth:`lint` into a JSON-friendly diagnostic summary.
 
-        Gives a non-interactive caller (a script, or an LLM via the API) structured
-        diagnostics and independently inspectable components without rendering the SVG:
-
-        - ``passed`` — no error-severity issues;
-        - ``score`` — legacy coarse 0–1 diagnostic heuristic (see ``_SCORE_*``);
-        - ``diagnostic_score`` — the same value under its honest name;
-        - ``quality`` — separable completeness, restraint, legibility and fidelity components. No
-          composite drawing-quality score is manufactured (#1127). Legibility's existing
-          severity/code counts are raw findings; its ``primary_*`` counts and scalar group
-          producer-identified pair findings by annotation and failure mechanism (#1147);
-        - ``review`` — concise explanations of those existing observations and their limits;
-        - ``errors`` / ``warnings`` / ``infos`` — counts by severity;
-        - ``by_code`` — per-check counts;
-        - ``geometry_issues`` — count of standards/geometry-correctness issues
-          as opposed to pure layout (see ``_GEOMETRY_AWARE_CODES``);
-        - ``issues`` — the full list, each as a plain dict.
-        - ``pmi`` — when source PMI exists, source-to-render stage counts derived from the
-          extraction report, final IR, annotation registry, and structured placement drops.
-        """
-        # Keep dispatch through the documented public critique method: subclasses and callers
-        # may extend ``lint``. The context is task-local, and only the base implementation
-        # records pair evidence; custom issues remain independent (fail closed).
-        scoped = _SCOPED_LINT.get()
-        if scoped is not None and scoped[0] is self:
-            issues, aggregation = scoped[1], scoped[2]
-        else:
-            with _collect_issue_aggregation() as aggregation:
-                issues = self.lint()
-        from draftwright.drawing_evidence import lint_summary as project_lint_summary
-
-        candidate = _REPORT_REQUIREMENTS.get()
-        report_requirements = candidate if candidate is not None and candidate[0] is self else None
-        return project_lint_summary(
-            issues,
-            aggregation,
-            analysis=self._analysis,
-            model=self._part_model,
-            registry=self._registry,
-            recognition=self._build.recognition,
-            evidence=self._build.recognition_evidence,
-            ownership=self._build.recognition_ownership,
-            omissions=self._build.omissions,
-            working_part=self._working_part,
-            items=self.items,
-            model_declared=self._model_declared,
-            layout_utilization=self.layout_utilization,
-            report_requirements=report_requirements,
-            geometry_aware_codes=_GEOMETRY_AWARE_CODES,
-            score_error_penalty=_SCORE_ERROR_PENALTY,
-            score_warning_penalty=_SCORE_WARNING_PENALTY,
-        )
+        return self._diagnostics().lint_summary()
 
     # The output formats export() understands. PDF renders from the SVG, PNG from the PDF —
     # so requesting pdf/png writes the SVG (and pdf) as intermediates, cleaned up if not asked for.
     _EXPORT_FORMATS = ("svg", "dxf", "pdf", "png")
 
     def _lint_and_log(self) -> None:
-        issues = self.lint()
-        if issues:
-            _log.warning("Lint issues:")
-            for iss in issues:
-                _log.warning("  [%s] %s: %s", iss.severity, iss.code, iss.message)
-        else:
-            _log.info("Lint: OK")
+
+        return self._diagnostics()._lint_and_log()
 
     def _write_svg(self, out: str, *, reproducible: bool = True) -> str:
         return write_drawing_svg(
@@ -2296,3 +1936,11 @@ Drawing.furniture.__doc__ = EditOperations.furniture.__doc__
 Drawing.rotational.__doc__ = EditOperations.rotational.__doc__
 Drawing.section.__doc__ = EditOperations.section.__doc__
 Drawing.locate.__doc__ = EditOperations.locate.__doc__
+
+# Preserve the public diagnostic operation documentation on the result facade.
+Drawing.report.__doc__ = DiagnosticOperations.report.__doc__
+Drawing.requirement_snapshot.__doc__ = DiagnosticOperations.requirement_snapshot.__doc__
+Drawing.write_report.__doc__ = DiagnosticOperations.write_report.__doc__
+Drawing._lint.__doc__ = DiagnosticOperations._lint.__doc__
+Drawing.layout_utilization.__doc__ = DiagnosticOperations.layout_utilization.__doc__
+Drawing.lint_summary.__doc__ = DiagnosticOperations.lint_summary.__doc__
