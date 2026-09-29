@@ -169,6 +169,16 @@ class TestTheEvaluationModuleStaysCheapToImport:
         )
         helpers = tuple(source.with_name(f"{name}.py") for name in helper_names)
         allowed_helpers = {f"draftwright.evaluation.{name}" for name in helper_names}
+
+        def module_scope_imports(node):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                if isinstance(child, (ast.Import, ast.ImportFrom)):
+                    yield child
+                else:
+                    yield from module_scope_imports(child)
+
         # BOTH `from x import y` and plain `import x`. Matching only `ImportFrom` left the
         # test named for this property unable to see the commonest form; a mutation adding
         # `import draftwright.linting.hole_coverage` was caught only by the subprocess test
@@ -176,9 +186,9 @@ class TestTheEvaluationModuleStaysCheapToImport:
         offenders = []
         for path in (source, *helpers):
             tree = ast.parse(path.read_text())
-            for node in tree.body:
+            for node in module_scope_imports(tree):
                 # Evidence helpers may import one another, but none may import the engine.
-                # Keep checking them here, so moving code cannot hide an eager engine import.
+                # Check module-scope control flow too, so an eager import cannot hide in it.
                 if (
                     isinstance(node, ast.ImportFrom)
                     and (node.module or "").startswith(_ENGINE)
