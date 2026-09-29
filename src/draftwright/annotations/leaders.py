@@ -1802,6 +1802,82 @@ def _greedy_terminal_reason(rejected) -> str:
 
 
 @dataclass(frozen=True)
+class _GreedyFloorStart:
+    fixed: Any
+    fixed_verified: bool
+    legacy_boxes: dict[str, Any]
+
+
+def _start_greedy_floor(dwg, jobs, views, bounded_fixed_obstacles) -> _GreedyFloorStart:
+    fixed_result = bounded_fixed_obstacles()
+    fixed_verified = fixed_result is not _FIXED_INVENTORY_EXHAUSTED
+    fixed = fixed_result if fixed_verified else {view: () for view in views}
+    legacy_boxes = {
+        # Producer fallback replays the pre-#1166 acceptance floor; exact
+        # blockers below still persist any retained crossing. Optional
+        # future section furniture cannot become a resource-cap veto.
+        view: _legacy_fallback_obstacles(dwg, view)
+        for view in dict.fromkeys(job.view for job in jobs)
+    }
+    return _GreedyFloorStart(fixed, fixed_verified, legacy_boxes)
+
+
+@dataclass(frozen=True)
+class _GreedyRecoveryCallbacks:
+    recovery_for: Callable[..., Any]
+    place: Callable[..., Any]
+    drop: Callable[..., Any]
+    record_item: Callable[..., Any]
+    recovery_cost: Callable[..., float]
+
+
+def _finish_greedy_recoveries(
+    pending_recoveries,
+    jobs: list[FeatureLeaderJob],
+    callbacks: _GreedyRecoveryCallbacks,
+    totals: tuple[int, float, float],
+) -> tuple[int, float, float]:
+    recovery_for = callbacks.recovery_for
+    place = callbacks.place
+    drop = callbacks.drop
+    record_item = callbacks.record_item
+    recovery_cost = callbacks.recovery_cost
+    placed_count, total_priority, total_cost = totals
+    # Recovery runs after every ordinary winner is committed, so its exact sheet-space
+    # predicate sees the complete greedy result rather than depending on producer order.
+    for (
+        job_index,
+        recorded_raw_count,
+        recorded_rejected,
+        obstacle_count,
+        recorded_inventory,
+        producer_fallback,
+        drop_reason,
+    ) in pending_recoveries:
+        recovered = recovery_for(job_index)()
+        if recovered is not None:
+            annotation, feature = recovered
+            place(job_index, feature, annotation, recovered=True)
+            placed_count += 1
+            total_priority += jobs[job_index].priority
+            total_cost += recovery_cost(annotation)
+        else:
+            drop(job_index, reason=drop_reason)
+        record_item(
+            job_index,
+            None,
+            recorded_raw_count,
+            recorded_rejected,
+            obstacle_count=obstacle_count,
+            candidate_inventory=recorded_inventory,
+            producer_fallback=producer_fallback,
+            reason=drop_reason,
+            recovered=annotation if recovered is not None else None,
+        )
+    return placed_count, total_priority, total_cost
+
+
+@dataclass(frozen=True)
 class _GreedySelectionInput:
     dwg: Any
     job: FeatureLeaderJob
@@ -2564,17 +2640,11 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         total_penalty = 0
         total_cost = 0.0
         actual_fixed_probes = fixed_probes
-        fixed_result = bounded_fixed_obstacles()
-        fixed_verified = fixed_result is not _FIXED_INVENTORY_EXHAUSTED
-        fixed = fixed_result if fixed_verified else {view: () for view in views}
+        start = _start_greedy_floor(dwg, jobs, views, bounded_fixed_obstacles)
+        fixed_verified = start.fixed_verified
+        fixed = start.fixed
         pending_recoveries = []
-        legacy_boxes = {
-            # Producer fallback replays the pre-#1166 acceptance floor; exact
-            # blockers below still persist any retained crossing.  Optional
-            # future section furniture cannot become a resource-cap veto.
-            view: _legacy_fallback_obstacles(dwg, view)
-            for view in dict.fromkeys(job.view for job in jobs)
-        }
+        legacy_boxes = start.legacy_boxes
 
         for job_index, job in enumerate(jobs):
             obstacle_count = len(fixed[job.view])
@@ -2701,37 +2771,12 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
                 selected, material_by_view.get(job.view)
             )
             total_cost += selected.cost
-        # Recovery runs after every ordinary winner is committed, so its exact sheet-space
-        # predicate sees the complete greedy result rather than depending on producer order.
-        for (
-            job_index,
-            recorded_raw_count,
-            recorded_rejected,
-            obstacle_count,
-            recorded_inventory,
-            producer_fallback,
-            drop_reason,
-        ) in pending_recoveries:
-            recovered = recovery_for(job_index)()
-            if recovered is not None:
-                annotation, feature = recovered
-                place(job_index, feature, annotation, recovered=True)
-                placed_count += 1
-                total_priority += jobs[job_index].priority
-                total_cost += recovery_cost(annotation)
-            else:
-                drop(job_index, reason=drop_reason)
-            record_item(
-                job_index,
-                None,
-                recorded_raw_count,
-                recorded_rejected,
-                obstacle_count=obstacle_count,
-                candidate_inventory=recorded_inventory,
-                producer_fallback=producer_fallback,
-                reason=drop_reason,
-                recovered=annotation if recovered is not None else None,
-            )
+        placed_count, total_priority, total_cost = _finish_greedy_recoveries(
+            pending_recoveries,
+            jobs,
+            _GreedyRecoveryCallbacks(recovery_for, place, drop, record_item, recovery_cost),
+            (placed_count, total_priority, total_cost),
+        )
         set_assignment(
             reason,
             optimal=False,
