@@ -2979,7 +2979,7 @@ def _declared_turned_step_model(part, sources):
     return sheet.model()
 
 
-def _default_observers() -> Mapping[str, Observer]:
+def _bore_observers() -> Mapping[str, Observer]:
     def observe_holes(part: object) -> Sequence[ObservedFact]:
         # Lazy for COST, not for layering: `evaluation` is rank 7 and `builder` rank 6, so
         # a module-level import here is a legal downward edge and passes the DAG guard —
@@ -3202,6 +3202,13 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, countersink in enumerate(countersinks)
         )
 
+    return {
+        "holes": observe_holes,
+        "countersinks": observe_countersinks,
+    }
+
+
+def _bore_variant_observers() -> Mapping[str, Observer]:
     def observe_double_d_bores(part: object) -> Sequence[ObservedFact]:
         """Observe one complete through-profile occurrence per aggregate record."""
         from draftwright.builder import build_drawing
@@ -3391,6 +3398,13 @@ def _default_observers() -> Mapping[str, Observer]:
             for index, pattern in enumerate(patterns)
         )
 
+    return {
+        "double-d-bores": observe_double_d_bores,
+        "hole-patterns": observe_hole_patterns,
+    }
+
+
+def _stock_observers() -> Mapping[str, Observer]:
     def observe_flats(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -3468,80 +3482,6 @@ def _default_observers() -> Mapping[str, Observer]:
                 },
             )
             for index, (identity, members) in enumerate(groups)
-        )
-
-    def observe_grooves(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
-
-        try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
-            raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            grooves = tuple(recognition.grooves)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
-            raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(grooves)
-
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(grooves):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _groove_model_outcomes(grooves, recognition, drawing.model().features),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _groove_model_outcomes(
-                    grooves,
-                    recognition,
-                    _declared_groove_model(part, grooves).features,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _groove_model_outcomes(
-                    grooves,
-                    recognition,
-                    _generated_sheet_model(part, drawing.model()).features,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _groove_drawing_outcomes(grooves, drawing)
-            ),
-        }
-
-        return tuple(
-            ObservedFact(
-                family="grooves",
-                identity={"axis": identity[0], "location": identity[1]},
-                parameters=_groove_parameters(groove),
-                downstream={
-                    boundary: boundary_outcomes[boundary][index]
-                    for boundary in _DOWNSTREAM_BOUNDARIES
-                },
-            )
-            for index, groove in enumerate(grooves)
-            for identity in (_groove_identity(groove),)
         )
 
     def observe_pads(part: object) -> Sequence[ObservedFact]:
@@ -3715,6 +3655,14 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_plate_identity(plate),)
         )
 
+    return {
+        "flats": observe_flats,
+        "rectangular-pads": observe_pads,
+        "plates": observe_plates,
+    }
+
+
+def _polygonal_observers() -> Mapping[str, Observer]:
     def observe_polygonal_bosses(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -3883,6 +3831,168 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_polygonal_stock_identity(stock),)
         )
 
+    return {
+        "polygonal-bosses": observe_polygonal_bosses,
+        "polygonal-stock": observe_polygonal_stock,
+    }
+
+
+def _turned_profile_observers() -> Mapping[str, Observer]:
+    def observe_grooves(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning("evaluation: drawing build failed (%s); scoring grooves as unknown", exc)
+            raise ObservationError("grooves", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            grooves = tuple(recognition.grooves)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning("evaluation: recognition access failed (%s); observing no grooves", exc)
+            raise ObservationError("grooves", f"recognition access failed: {exc}") from exc
+        unknown: list[Outcome] = ["unknown"] * len(grooves)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(grooves):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(grooves)} physical grooves"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring grooves as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _groove_model_outcomes(grooves, recognition, drawing.model().features),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _groove_model_outcomes(
+                    grooves,
+                    recognition,
+                    _declared_groove_model(part, grooves).features,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _groove_model_outcomes(
+                    grooves,
+                    recognition,
+                    _generated_sheet_model(part, drawing.model()).features,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _groove_drawing_outcomes(grooves, drawing)
+            ),
+        }
+
+        return tuple(
+            ObservedFact(
+                family="grooves",
+                identity={"axis": identity[0], "location": identity[1]},
+                parameters=_groove_parameters(groove),
+                downstream={
+                    boundary: boundary_outcomes[boundary][index]
+                    for boundary in _DOWNSTREAM_BOUNDARIES
+                },
+            )
+            for index, groove in enumerate(grooves)
+            for identity in (_groove_identity(groove),)
+        )
+
+    def observe_turned_steps(part: object) -> Sequence[ObservedFact]:
+        from draftwright.builder import build_drawing
+        from draftwright.linting.turned_step_coverage import physical_turned_steps
+
+        try:
+            drawing = build_drawing(part)  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
+            _log.warning(
+                "evaluation: drawing build failed (%s); scoring turned steps as unknown", exc
+            )
+            raise ObservationError("turned-steps", f"drawing build failed: {exc}") from exc
+        try:
+            recognition = drawing.recognition()
+            if recognition is None:
+                raise ValueError("detected build has no build-owned recognition result")
+            sources = physical_turned_steps(recognition)
+        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
+            _log.warning(
+                "evaluation: recognition access failed (%s); observing no turned steps", exc
+            )
+            raise ObservationError("turned-steps", f"recognition access failed: {exc}") from exc
+        unknown: list[Outcome] = ["unknown"] * len(sources)
+
+        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
+            try:
+                result = observe()
+                if len(result) != len(sources):
+                    raise ValueError(
+                        f"observed {len(result)} outcomes for {len(sources)} turned-step bands"
+                    )
+                return result
+            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
+                _log.warning(
+                    "evaluation: %s observation failed (%s); scoring turned steps as unknown",
+                    name,
+                    exc,
+                )
+                return list(unknown)
+
+        boundary_outcomes = {
+            "ir_adapter": observed_boundary(
+                "ir_adapter",
+                lambda: _turned_step_model_outcomes(
+                    sources, recognition, drawing.model().features
+                ),
+            ),
+            "dsl_declaration": observed_boundary(
+                "dsl_declaration",
+                lambda: _turned_step_model_outcomes(
+                    sources,
+                    recognition,
+                    _declared_turned_step_model(part, sources).features,
+                    allow_declared_profile_omission=True,
+                ),
+            ),
+            "generated_code": observed_boundary(
+                "generated_code",
+                lambda: _generated_turned_step_outcomes(
+                    part,
+                    drawing.model(),
+                    sources,
+                    recognition,
+                ),
+            ),
+            "drawing_consumer": observed_boundary(
+                "drawing_consumer", lambda: _turned_step_drawing_outcomes(sources, drawing)
+            ),
+        }
+
+        return tuple(
+            _turned_step_observed_fact(profile, step, boundary_outcomes, index)
+            for index, (profile, step) in enumerate(sources)
+        )
+
+    return {
+        "grooves": observe_grooves,
+        "turned-steps": observe_turned_steps,
+    }
+
+
+def _edge_observers() -> Mapping[str, Observer]:
     def observe_chamfers(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4031,80 +4141,13 @@ def _default_observers() -> Mapping[str, Observer]:
             for identity in (_fillet_identity(fillet),)
         )
 
-    def observe_turned_steps(part: object) -> Sequence[ObservedFact]:
-        from draftwright.builder import build_drawing
-        from draftwright.linting.turned_step_coverage import physical_turned_steps
+    return {
+        "chamfers": observe_chamfers,
+        "fillets": observe_fillets,
+    }
 
-        try:
-            drawing = build_drawing(part)  # type: ignore[arg-type]
-        except Exception as exc:  # noqa: BLE001 — a non-answer, not an aborted corpus run
-            _log.warning(
-                "evaluation: drawing build failed (%s); scoring turned steps as unknown", exc
-            )
-            raise ObservationError("turned-steps", f"drawing build failed: {exc}") from exc
-        try:
-            recognition = drawing.recognition()
-            if recognition is None:
-                raise ValueError("detected build has no build-owned recognition result")
-            sources = physical_turned_steps(recognition)
-        except Exception as exc:  # noqa: BLE001 — no safe observed numerator remains
-            _log.warning(
-                "evaluation: recognition access failed (%s); observing no turned steps", exc
-            )
-            raise ObservationError("turned-steps", f"recognition access failed: {exc}") from exc
-        unknown: list[Outcome] = ["unknown"] * len(sources)
 
-        def observed_boundary(name: str, observe: Callable[[], list[Outcome]]) -> list[Outcome]:
-            try:
-                result = observe()
-                if len(result) != len(sources):
-                    raise ValueError(
-                        f"observed {len(result)} outcomes for {len(sources)} turned-step bands"
-                    )
-                return result
-            except Exception as exc:  # noqa: BLE001 — score a broken boundary, keep corpus
-                _log.warning(
-                    "evaluation: %s observation failed (%s); scoring turned steps as unknown",
-                    name,
-                    exc,
-                )
-                return list(unknown)
-
-        boundary_outcomes = {
-            "ir_adapter": observed_boundary(
-                "ir_adapter",
-                lambda: _turned_step_model_outcomes(
-                    sources, recognition, drawing.model().features
-                ),
-            ),
-            "dsl_declaration": observed_boundary(
-                "dsl_declaration",
-                lambda: _turned_step_model_outcomes(
-                    sources,
-                    recognition,
-                    _declared_turned_step_model(part, sources).features,
-                    allow_declared_profile_omission=True,
-                ),
-            ),
-            "generated_code": observed_boundary(
-                "generated_code",
-                lambda: _generated_turned_step_outcomes(
-                    part,
-                    drawing.model(),
-                    sources,
-                    recognition,
-                ),
-            ),
-            "drawing_consumer": observed_boundary(
-                "drawing_consumer", lambda: _turned_step_drawing_outcomes(sources, drawing)
-            ),
-        }
-
-        return tuple(
-            _turned_step_observed_fact(profile, step, boundary_outcomes, index)
-            for index, (profile, step) in enumerate(sources)
-        )
-
+def _recess_observers() -> Mapping[str, Observer]:
     def observe_pockets(part: object) -> Sequence[ObservedFact]:
         from draftwright.builder import build_drawing
 
@@ -4327,21 +4370,36 @@ def _default_observers() -> Mapping[str, Observer]:
         )
 
     return {
-        "chamfers": observe_chamfers,
-        "countersinks": observe_countersinks,
-        "double-d-bores": observe_double_d_bores,
-        "fillets": observe_fillets,
-        "flats": observe_flats,
-        "grooves": observe_grooves,
-        "holes": observe_holes,
-        "hole-patterns": observe_hole_patterns,
-        "pocket-patterns": observe_pocket_patterns,
         "pockets": observe_pockets,
-        "plates": observe_plates,
-        "polygonal-bosses": observe_polygonal_bosses,
-        "polygonal-stock": observe_polygonal_stock,
-        "rectangular-pads": observe_pads,
-        "turned-steps": observe_turned_steps,
+        "pocket-patterns": observe_pocket_patterns,
+    }
+
+
+def _default_observers() -> Mapping[str, Observer]:
+    """Register each physical family in the established corpus order."""
+    bore = _bore_observers()
+    variant = _bore_variant_observers()
+    stock = _stock_observers()
+    polygonal = _polygonal_observers()
+    turned = _turned_profile_observers()
+    edge = _edge_observers()
+    recess = _recess_observers()
+    return {
+        "chamfers": edge["chamfers"],
+        "countersinks": bore["countersinks"],
+        "double-d-bores": variant["double-d-bores"],
+        "fillets": edge["fillets"],
+        "flats": stock["flats"],
+        "grooves": turned["grooves"],
+        "holes": bore["holes"],
+        "hole-patterns": variant["hole-patterns"],
+        "pocket-patterns": recess["pocket-patterns"],
+        "pockets": recess["pockets"],
+        "plates": stock["plates"],
+        "polygonal-bosses": polygonal["polygonal-bosses"],
+        "polygonal-stock": polygonal["polygonal-stock"],
+        "rectangular-pads": stock["rectangular-pads"],
+        "turned-steps": turned["turned-steps"],
     }
 
 
