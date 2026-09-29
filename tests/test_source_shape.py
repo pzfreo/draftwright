@@ -80,14 +80,12 @@ def test_nested_callbacks_capture_fewer_than_five_defaults():
             if defaults < 5:
                 continue
             parent = parents.get(node)
-            while parent is not None and not isinstance(
-                parent,
-                (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef, ast.Module),
-            ):
+            while parent is not None and not isinstance(parent, ast.Module):
+                if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                    oversized.append(
+                        f"{path.relative_to(_SOURCE)}:{node.lineno} "
+                        f"{getattr(node, 'name', '<lambda>')}: {defaults} defaults"
+                    )
+                    break
                 parent = parents.get(parent)
-            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                oversized.append(
-                    f"{path.relative_to(_SOURCE)}:{node.lineno} "
-                    f"{getattr(node, 'name', '<lambda>')}: {defaults} defaults"
-                )
     assert not oversized, "Nested callbacks with five or more defaults:\n" + "\n".join(oversized)
