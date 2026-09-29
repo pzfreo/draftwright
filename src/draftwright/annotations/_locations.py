@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from build123d_drafting.helpers import CenterMark
 
@@ -27,6 +29,27 @@ from draftwright.model.compiled import (
     shared_location_text,
 )
 from draftwright.model.ir import CircularChannelFeature, HoleFeature, SlotFeature
+
+
+@dataclass(frozen=True, slots=True)
+class _CircularChannelLocationGeometry:
+    dwg: Any
+    dim_builder: Callable[..., Any]
+    p1: tuple[float, float, float]
+    p2: tuple[float, float, float]
+    side: str
+    edge: float
+    label: str
+
+    def build(self, pos: float) -> Any:
+        return self.dim_builder(
+            self.p1, self.p2, self.side, abs(pos - self.edge), self.dwg.draft, label=self.label
+        )
+
+    def footprint(self, pos: float) -> Any:
+        return dim_footprint(
+            self.p1, self.p2, self.side, abs(pos - self.edge), self.dwg.draft, self.label
+        )
 
 
 def _location_candidate(
@@ -181,11 +204,7 @@ def render_circular_channel_locations(
         edge = max(p1[0], p2[0]) if side == "right" else max(p1[1], p2[1])
         pinned_group = any(entry.ref in pinned_refs for entry in dimensions)
 
-        def build(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
-            return dim_builder(p1, p2, side, abs(pos - edge), dwg.draft, label=label)
-
-        def footprint(pos, p1=p1, p2=p2, side=side, edge=edge, label=label):
-            return dim_footprint(p1, p2, side, abs(pos - edge), dwg.draft, label)
+        geometry = _CircularChannelLocationGeometry(dwg, dim_builder, p1, p2, side, edge, label)
 
         def placed(name, pinned_group=pinned_group):
             if pinned_group:
@@ -200,8 +219,8 @@ def render_circular_channel_locations(
             tier,
             CorridorCandidate(
                 name=name,
-                build=build,
-                footprint=footprint,
+                build=geometry.build,
+                footprint=geometry.footprint,
                 order=(_LOC_SUBCHAIN, dimension.value, name),
                 on_place=placed,
                 on_drop=dropped,
