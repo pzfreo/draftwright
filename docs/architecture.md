@@ -157,6 +157,10 @@ and re-exports the existing private helper names.
     envelope/OD and centre-mark passes converge with feature-family owners here
     (ADR 1 (was 0015), #200/#208/#237). The old per-feature
     `annotations/{turned,pmi}.py` modules were deleted as each migrated to the one engine.
+  - **`annotations/_axial_render.py`** — compiled step-chain, height-ladder,
+    step-position and rotational rendering. `from_model` re-exports the public
+    passes and injects its current chain placer into step-length and authored
+    detail calls, preserving the shared immediate/deferred route.
   - **`annotations/_machined_leaders.py`** — expands compiler-approved feature
     leader jobs into analytical interior/exterior candidates and submits them to
     immediate or late shared placement. `from_model.place_machined_leader_jobs`
@@ -164,7 +168,8 @@ and re-exports the existing private helper names.
   - **`annotations/_step_lengths.py`** — owns compiler-approved turned axial
     profile grouping, X/Y crowded-chain detail requests, and step-length placement.
     `from_model.render_step_lengths` remains the public pass; the shared chain
-    placer remains in `from_model` for immediate/deferred detail recovery.
+    placer lives in `_axial_render` and is injected through `from_model` for
+    immediate/deferred detail recovery.
   - **`annotations/_height_ladder.py`** — owns compiled prismatic step-height and
     overall-height corridor candidates, including chained witnesses and short-rung
     left-strip escape. `from_model.render_height_ladder` retains view routing and
