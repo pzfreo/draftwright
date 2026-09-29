@@ -217,6 +217,9 @@ and re-exports the existing private helper names.
   - **`annotations/_dimension_ink_repair.py`** — bounded same-batch label conflict
     arithmetic and deterministic candidate search. `_common.py` supplies its
     dimension builder at call time and keeps the established import path.
+  - **`annotations/_placement_geometry.py`** — analytical leader footprints,
+    decomposed occupancy boxes, centerline label clearance, and the shared 1D
+    obstacle carve. `_common.py` retains the established helper import paths.
   - **`annotations/_common.py`** — the ADR 2 (was 0014) corridor-solve engine
     (`CorridorCandidate`, `solve_corridor`, `register_corridor`/`drain_corridors`,
     `place_strip_candidates`, `PlacementContext`) plus `_box_hits`, at the

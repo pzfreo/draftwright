@@ -155,6 +155,16 @@ CONTRACT_GROUPS = {
             "test_remaining_ink_overlaps.py",
         ),
     ),
+    "placement_geometry": ContractGroup(
+        ("src/draftwright/annotations/_placement_geometry.py",),
+        (
+            "test_leader_footprint.py",
+            "test_occupancy_boxes.py",
+            "test_strip_layout.py",
+            "test_interior_label_placement.py",
+            "test_issue_740_leader_assignment.py",
+        ),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (
