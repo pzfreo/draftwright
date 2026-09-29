@@ -53,6 +53,16 @@ def _tee():
     return base + wall
 
 
+@pytest.fixture(scope="module")
+def tee_baseline():
+    from draftwright import build_drawing
+
+    drawing = build_drawing(_tee())
+    assert len(drawing.recognition().plates) == 2
+    assert sum(feature.kind == "plate" for feature in drawing.model().features) == 2
+    return drawing
+
+
 def _states(boundary: str) -> set[str]:
     observed = _default_observers()["plates"](_tee())
     assert len(observed) == 2
@@ -109,12 +119,12 @@ def test_every_principal_plate_boundary_is_observed(fixture, axes) -> None:
     assert all(set(fact.downstream.values()) == {"supported"} for fact in observed)
 
 
-def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline() -> None:
+def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline(tee_baseline) -> None:
     from draftwright import build_drawing
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.model.compiled import compile_dimensions
 
-    baseline = build_drawing(_tee())
+    baseline = tee_baseline
     moved = build_drawing(Pos(91, -37, 48) * Rot(31, 47, 13) * _tee(), framed_recognition=True)
 
     def requirements(drawing):
@@ -139,13 +149,12 @@ def test_arbitrary_rigid_motion_survives_the_owned_framed_pipeline() -> None:
     ]
 
 
-def test_plate_ledger_tracks_one_requirement_per_occurrence_and_fails_closed() -> None:
-    from draftwright import build_drawing
+def test_plate_ledger_tracks_one_requirement_per_occurrence_and_fails_closed(tee_baseline) -> None:
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.model.compiled import compile_dimensions
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     outcomes = plate_requirement_outcomes(
@@ -174,10 +183,9 @@ def test_plate_ledger_tracks_one_requirement_per_occurrence_and_fails_closed() -
     }
 
 
-def test_plate_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
+def test_plate_ledger_rejects_foreign_malformed_and_duplicate_ir(tee_baseline) -> None:
     from quiddity import build_raw_recognition_result
 
-    from draftwright import build_drawing
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
@@ -200,7 +208,7 @@ def test_plate_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
     assert len(malformed) == 2
     assert {outcome.state for outcome in malformed} == {"unverifiable"}
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     features = [feature for feature in drawing.model().features if feature.kind == "plate"]
     duplicate = plate_requirement_outcomes(
         recognition, (*features, features[0]), AnnotationRegistry()
@@ -212,12 +220,11 @@ def test_plate_ledger_rejects_foreign_malformed_and_duplicate_ir() -> None:
 @pytest.mark.parametrize(
     "corruption", ("raises", "wrong_id", "wrong_value", "missing_span", "wrong_span")
 )
-def test_plate_ledger_rejects_every_malformed_parameter_contract(corruption) -> None:
-    from draftwright import build_drawing
+def test_plate_ledger_rejects_every_malformed_parameter_contract(corruption, tee_baseline) -> None:
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     features = [feature for feature in drawing.model().features if feature.kind == "plate"]
@@ -254,12 +261,13 @@ def test_plate_ledger_rejects_every_malformed_parameter_contract(corruption) -> 
 
 
 @pytest.mark.parametrize("field", ("axis", "interval", "witness"))
-def test_plate_correspondence_rejects_compiler_significant_ir_corruption(field) -> None:
-    from draftwright import build_drawing
+def test_plate_correspondence_rejects_compiler_significant_ir_corruption(
+    field, tee_baseline
+) -> None:
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     features = [feature for feature in drawing.model().features if feature.kind == "plate"]
@@ -277,7 +285,7 @@ def test_plate_correspondence_rejects_compiler_significant_ir_corruption(field) 
     assert "unverifiable" in {outcome.state for outcome in outcomes}
 
 
-def test_plate_ledger_distinguishes_derived_suppressed_dropped_and_missing() -> None:
+def test_plate_ledger_distinguishes_derived_suppressed_dropped_and_missing(tee_baseline) -> None:
     from draftwright import build_drawing
     from draftwright.linting.issues import LintIssue
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
@@ -303,7 +311,7 @@ def test_plate_ledger_distinguishes_derived_suppressed_dropped_and_missing() -> 
     )
     assert {outcome.state for outcome in unevidenced} == {"missing"}
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     features = [feature for feature in drawing.model().features if feature.kind == "plate"]
@@ -331,13 +339,14 @@ def test_plate_ledger_distinguishes_derived_suppressed_dropped_and_missing() -> 
     assert {outcome.state for outcome in outcomes} == {"suppressed", "dropped"}
 
 
-def test_plate_ledger_retains_structured_note_satisfaction_separately_from_ink() -> None:
-    from draftwright import build_drawing
+def test_plate_ledger_retains_structured_note_satisfaction_separately_from_ink(
+    tee_baseline,
+) -> None:
     from draftwright.linting.plate_coverage import plate_requirement_outcomes
     from draftwright.model.compiled import DimensionId
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "plate")
@@ -357,14 +366,13 @@ def test_plate_ledger_retains_structured_note_satisfaction_separately_from_ink()
     }
 
 
-def test_plate_coverage_does_not_duplicate_a_placement_drop() -> None:
-    from draftwright import build_drawing
+def test_plate_coverage_does_not_duplicate_a_placement_drop(tee_baseline) -> None:
     from draftwright.linting.issues import LintIssue
     from draftwright.linting.plate_coverage import lint_plate_coverage
     from draftwright.model.compiled import DimensionId
     from draftwright.registry import AnnotationRegistry
 
-    drawing = build_drawing(_tee())
+    drawing = tee_baseline
     recognition = drawing.recognition()
     assert recognition is not None
     feature = next(item for item in drawing.model().features if item.kind == "plate")
@@ -1437,10 +1445,10 @@ def test_shifting_provider_transverse_witness_reduces_detection_recall(
     assert damaged.detection.false_positives == reduced_baseline.detection.matched
 
 
-def test_deleting_plate_declarations_cannot_shrink_quality_denominator() -> None:
-    from draftwright import Sheet, build_drawing
+def test_deleting_plate_declarations_cannot_shrink_quality_denominator(tee_baseline) -> None:
+    from draftwright import Sheet
 
-    complete = build_drawing(_tee())
+    complete = tee_baseline
     sparse = Sheet(_tee())
     envelope = sparse.envelope()
     sparse.dimension(envelope, "width.length")
