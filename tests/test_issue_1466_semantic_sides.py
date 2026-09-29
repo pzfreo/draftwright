@@ -301,7 +301,7 @@ def test_same_side_label_rebuild_preserves_the_authored_constraint(monkeypatch):
 
 
 def test_height_retry_predicts_the_geometry_it_builds_after_a_predecessor_is_placed(monkeypatch):
-    import draftwright.annotations.from_model as renderer
+    import draftwright.annotations._axial_render as renderer
 
     captured = {}
     register = renderer.register_corridor
