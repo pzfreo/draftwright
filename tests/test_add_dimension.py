@@ -780,28 +780,6 @@ class TestFeatureViewIdentity:
         big.tolerance(0.05)
         return sheet, big
 
-    def test_a_tuple_swap_invalidates_rather_than_retargets(self):
-        sheet, _big = self._two_holes()
-        sheet.features[0], sheet.features[1] = sheet.features[1], sheet.features[0]
-        with pytest.raises(ValueError, match="no longer on the sheet"):
-            sheet._decorations()
-
-    def test_a_slice_permutation_invalidates_rather_than_retargets(self):
-        """`features[:] = features[::-1]` is the idiomatic in-place reversal, and it
-        moves values between slots exactly like a swap."""
-        sheet, _big = self._two_holes()
-        sheet.features[:] = sheet.features[::-1]
-        with pytest.raises(ValueError, match="no longer on the sheet"):
-            sheet._decorations()
-
-    def test_replacing_a_feature_wholesale_invalidates_its_references(self):
-        """A different feature in the slot is a different thing — the old feature's
-        tolerance must not transfer to it."""
-        sheet, _big = self._two_holes()
-        sheet.features[0] = HoleFeature(Frame((9, 9, 9), "z"), 1.0, depth=None, through=True)
-        with pytest.raises(ValueError, match="no longer on the sheet"):
-            sheet._decorations()
-
     def test_reverse_preserves_identity(self):
         """The identity-safe way to reorder: entries move, so references follow."""
         sheet, _big = self._two_holes()

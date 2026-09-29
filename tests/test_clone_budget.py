@@ -71,8 +71,8 @@ CLONE_BUDGET = 0
 #:
 #: At two, the guard was measuring coincidence. 61 of its 70 groups were pairs, and the
 #: pairs are ordinary tests that happen to share a shape once identifiers and literals are
-#: erased — `test_add_dimension.py::test_a_tuple_swap_invalidates_rather_than_retargets`
-#: against `test_sheet_identity_invariant.py::test_a_tuple_swap_raises`. With the budget
+#: erased — the former tuple-swap pair in `test_add_dimension.py` and
+#: `test_sheet_identity_invariant.py`, now consolidated in the latter. With the budget
 #: sitting exactly on the measured count, the next PR adding any three-statement test that
 #: collided by accident would have failed CI telling its author to "parametrize and delete
 #: the copies", which would usually be wrong — and a gate that cries wolf gets raised
