@@ -199,9 +199,9 @@ _LAYERS: dict[str, int] = {
     # the report projector. `sheet_emit` consumes it at the same rank to write its sidecar;
     # nothing below rank 7 does.
     "inspection": 7,
-    # Versioned, independently-authored recognition benchmark, including family evidence
-    # modules. It may validate through the cross-repository contract, but the drawing engine
-    # must never depend on its evaluator.
+    # Versioned, independently-authored recognition benchmark, including rank-7 family
+    # evidence owners such as _groove_evidence. It may validate through the cross-repository
+    # contract, but the drawing engine must never depend on its evaluator.
     "evaluation": 7,
     "cli": 7,
     # 8 — the package root: the public API surface, above everything
