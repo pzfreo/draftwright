@@ -12,11 +12,12 @@ top: rank-0 modules (not yet all independent): `progress.py`, `layout.py` (inclu
 semantic survival order), `layout_scheme.py` (typed render-free annotation
 topology and corridor demand planning), `registry.py`, `fonts/`,
 `_geometry.py`,
-`fits.py`, `recognition_ownership.py`,
-`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `profile_angles.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
-`recognition_frame.py`, `oriented_slot_contract.py`, `feature_identity.py`, and the strict
+`fits.py`,
+`plate_correspondence.py`, `contract_values.py`, `measurement_support.py`, `angular_geometry.py`, `recogniser_policy.py`, `recogniser_schema.py`,
+`recognition_frame.py`, `feature_identity.py`, and the strict
 `blend_contract.py` provider-record boundary →
-the rank-1 `model/` IR waist and `_core.py` (beside rank-1
+the rank-1 `model/` IR waist, `recognition_ownership.py`, `profile_angles.py`,
+`oriented_slot_contract.py`, and `_core.py` (beside rank-1
 `annotation_layout_profile.py` and the stable
 `obligations.py` and `leader_policy.py` import paths) → stage modules
 (`export.py`, `drawing_export.py`, `pdf_text.py`,
@@ -50,7 +51,8 @@ The remaining rank-0 files that import within the package are enumerated by
 `test_rank_zero_leaf_exceptions_only_shrink`; every other rank-0 file is a strict
 package leaf across runtime, type-only and lazy imports. `model/` shares a numerical
 rank with `_core` but its separate fail-closed import allowlist still prohibits any
-model-to-core edge. The exception set must shrink before rank 0 as a whole can mean
+model-to-core edge while permitting these three shared rank-1 recognition modules.
+The exception set must shrink before rank 0 as a whole can mean
 an independent leaf.
 
 This DAG is **machine-enforced** by `tests/test_import_boundaries.py` (#640): the
@@ -457,7 +459,7 @@ and re-exports the existing private helper names.
   `Blend` path records.
   It rejects widened, mutable, non-finite, non-canonical, and unreleased values and owns the
   exact occurrence key shared by conversion and completeness lint.
-- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 trust-boundary leaves. The identity leaf also
+- **`oriented_slot_contract.py` / `feature_identity.py`** — the #1432 shared trust boundaries. The rank-0 identity leaf also
   registers the exact envelope type for independent consolidated seat-run coverage.
   The former shares exact released schema validation between detection and independent
   completeness, with geometric correspondence keys separate from same-run occurrence identity.

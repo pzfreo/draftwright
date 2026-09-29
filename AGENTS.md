@@ -34,10 +34,11 @@ in step; do not restate the module list here.
 
 In outline, by `_LAYERS` rank: **0** leaves and transitional shared helpers — placement solvers,
 geometry maths, registry, measurement support with pocket/pad location predicates,
-recognition-boundary contracts and ownership → **1**
+and recognition-boundary helpers → **1**
 the `model/` IR waist with its foundational record owner, dimension-intent and
 oriented-slot geometry validation, `detect_inventory` aggregate projection and
-`detect_ownership` stages (ADR 1), plus `_core` / `document_input` /
+`detect_ownership` stages, shared profile-angle requirements, the oriented-slot
+contract and recognition ownership (ADR 1), plus `_core` / `document_input` /
 the stable `location_contract` import path; the model's separate import allowlist
 keeps it below `_core` → **2**
 `projection`, `compose`, `export`, `pdf_text`, `repair`, `_pmi_schema`,

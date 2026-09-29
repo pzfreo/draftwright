@@ -107,13 +107,13 @@ _LAYERS: dict[str, int] = {
     "view_plan": 0,
     "intents": 5,  # Stable import path; intent_routing owns the deferred record.
     "recognition": 0,
-    "recognition_ownership": 0,
+    "recognition_ownership": 1,
     # Shared pure Plate-record/final-IR correspondence predicates. Both model assembly and
     # completeness lint consume them without either layer importing the other.
     "plate_correspondence": 0,
     "contract_values": 0,  # finite values and exact shared vector arithmetic
     "measurement_support": 0,
-    "profile_angles": 0,
+    "profile_angles": 1,
     "angular_geometry": 0,
     "recogniser_policy": 0,
     # Consumer-owned public record schema versions, shared by the report projector and the
@@ -122,15 +122,15 @@ _LAYERS: dict[str, int] = {
     "recognition_frame": 0,
     # Strict shared validator for the released provider Blend record and its occurrence key.
     "blend_contract": 0,
-    "oriented_slot_contract": 0,
+    "oriented_slot_contract": 1,
     "section_recess_contract": 0,
     "score": 0,  # census over recognition/ only — a leaf beside the recognisers (#704)
     # audit: diffs two FINISHED drawings through their public reads (#996). A leaf by
     # construction — it imports nothing from the engine, so the thing it measures can never
     # come to depend on it.
     "audit": 0,
-    # 1 — the IR waist and shared drawing/layout primitives
-    # The IR waist consumes lower leaves but has a stricter allowlist below: even at the
+    # 1 — the IR waist, shared recognition modules, and drawing/layout primitives
+    # The IR waist consumes approved shared modules but has a stricter allowlist below: even at the
     # same numerical rank, it cannot import _core or other drawing/layout owners.
     "model": 1,
     "_core": 1,
@@ -371,11 +371,8 @@ def _all_sources() -> list[Path]:
 # importer cannot appear silently, and removing one requires shrinking this set.
 _RANK_ZERO_TRANSITIONAL_IMPORTERS = frozenset(
     {
-        "oriented_slot_contract.py",
         "plate_correspondence.py",
-        "profile_angles.py",
         "recognition_frame.py",
-        "recognition_ownership.py",
     }
 )
 
@@ -608,7 +605,7 @@ _MODEL_MAY_IMPORT = {
     "oriented_slot_contract",
     "section_recess_contract",
     # ADR 3 (was 0017 Amendment 12): detect records exact run-local occurrence→IR ownership at the
-    # conversion site. The leaf ledger depends on neither the model nor any upper stage.
+    # conversion site. The ledger depends on neither the model nor any upper stage.
     "recognition_ownership",
     # ADR 2 (was 0018): the dimension planner resolves requirement ownership against the selected
     # semantic view set.  `view_plan` is a rank-0, drawing-independent leaf.
@@ -642,7 +639,7 @@ def _draftwright_imports(path: Path) -> tuple[set[str], list[str]]:
 
 
 def test_model_imports_only_allowed_leaves():
-    """The IR waist imports only approved lower leaves or its own sibling modules."""
+    """The IR waist imports only approved shared modules or its own siblings."""
     offenders: dict[str, set[str]] = {}
     relatives: dict[str, list[str]] = {}
     for path in sorted(_MODEL_DIR.glob("*.py")):
@@ -653,7 +650,7 @@ def test_model_imports_only_allowed_leaves():
         if relative:
             relatives[path.name] = relative
     assert not offenders, (
-        "model/ (the IR waist) may only import lower leaves and its own siblings "
+        "model/ (the IR waist) may only import approved shared modules and its own siblings "
         f"{sorted(_MODEL_MAY_IMPORT)} (ADR 1 (was 0008); #584 WP2). Disallowed: {offenders}"
     )
     assert not relatives, (
