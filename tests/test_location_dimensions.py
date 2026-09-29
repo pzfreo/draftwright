@@ -7,7 +7,42 @@ from _drawing_helpers import ink_crossings_named as _ink_crossings_named
 from build123d import Box, Compound, Cylinder, Edge, Pos
 
 from draftwright import build_drawing
-from draftwright.annotations import from_model, hole_locations
+from draftwright.annotations import _locations, from_model, hole_locations
+
+
+def test_circular_channel_location_geometry_binds_each_candidate_and_reads_live_draft_issue_1930(
+    monkeypatch,
+):
+    drawing = SimpleNamespace(draft=object())
+
+    def build(*args, **kwargs):
+        return args, kwargs
+
+    monkeypatch.setattr(_locations, "dim_footprint", build)
+    first = _locations._CircularChannelLocationGeometry(
+        drawing, build, (1.0, 2.0, 0.0), (3.0, 4.0, 0.0), "above", 4.0, "A"
+    )
+    second = _locations._CircularChannelLocationGeometry(
+        drawing, build, (5.0, 6.0, 0.0), (7.0, 8.0, 0.0), "right", 11.0, "B"
+    )
+    current_draft = drawing.draft
+    assert first.build(7.0) == (
+        ((1.0, 2.0, 0.0), (3.0, 4.0, 0.0), "above", 3.0, current_draft),
+        {"label": "A"},
+    )
+    assert second.footprint(7.0) == (
+        ((5.0, 6.0, 0.0), (7.0, 8.0, 0.0), "right", 4.0, current_draft, "B"),
+        {},
+    )
+    drawing.draft = object()
+    assert first.footprint(7.0)[0] == (
+        (1.0, 2.0, 0.0),
+        (3.0, 4.0, 0.0),
+        "above",
+        3.0,
+        drawing.draft,
+        "A",
+    )
 
 
 def test_location_facades_resolve_patched_helpers_when_called(monkeypatch):
