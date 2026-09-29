@@ -1090,10 +1090,11 @@ def _repack(
     no view actually moves).
     """
     if not _needs_repack(dwg, a):
-        had_advisory = any(issue.code == "page_fit_uncertain" for issue in dwg.registry.issues)
+        prior_issues = tuple(dwg.registry.issues)
+        had_advisory = any(issue.code == "page_fit_uncertain" for issue in prior_issues)
         dwg.registry.drop_issues({"page_fit_uncertain"})
         if had_advisory and placement_critique is not None:
-            placement_critique.discard(dwg)
+            placement_critique.drop_page_fit_advisory(dwg, prior_issues)
         return None
     blocks = _measure_blocks(dwg, a)
 
@@ -1319,6 +1320,23 @@ class _PlacementCritique:
 
     def discard(self, drawing: Drawing) -> None:
         self._issues.pop(drawing, None)
+
+    def drop_page_fit_advisory(self, drawing: Drawing, before: tuple) -> None:
+        """Keep a build-local critique after removal of that registry-only advisory."""
+        cached = self._issues.get(drawing)
+        after = tuple(drawing.registry.issues)
+        expected = tuple(issue for issue in before if issue.code != "page_fit_uncertain")
+        if (
+            cached is None
+            or not before
+            or len(cached) < len(before)
+            or len(after) != len(expected)
+            or any(left is not right for left, right in zip(after, expected, strict=True))
+            or any(left is not right for left, right in zip(cached[-len(before) :], before))
+        ):
+            self.discard(drawing)
+            return
+        self._issues[drawing] = (*cached[: -len(before)], *after)
 
 
 @observed_stage("repack")
