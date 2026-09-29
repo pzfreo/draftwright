@@ -123,6 +123,10 @@ CONTRACT_GROUPS = {
             "test_issue_1357_plural_turned_profiles.py",
         ),
     ),
+    "solve_trace": ContractGroup(
+        ("src/draftwright/annotations/solve_trace.py",),
+        ("test_solve_trace.py", "test_compiled_plan_boundary.py"),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (

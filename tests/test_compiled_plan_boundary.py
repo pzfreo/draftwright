@@ -338,7 +338,7 @@ class TestTheRendererCannotSeeContent:
         # function, or additional call is visible here regardless of whether it accepts `plan`.
         assert actual == {
             ("_common", "_hole_location_coverage_fact"): 1,
-            ("_common", "SolveTrace.record_escalations"): 1,
+            ("solve_trace", "SolveTrace.record_escalations"): 1,
             ("_common", "solve_corridor._group_owners"): 1,
             ("_common", "PlacementContext.place"): 1,
             ("from_model", "render_locations"): 1,

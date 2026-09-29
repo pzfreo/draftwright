@@ -159,7 +159,7 @@ _LAYERS: dict[str, int] = {
     "analysis": 3,
     # 4 — the annotation render layer (+ the thin annotate re-export facade).
     # `_step_lengths` is an annotations/ family owner beside `_slots`; both remain rank 4.
-    "annotations": 4,
+    "annotations": 4,  # _common and solve_trace share the annotation rank
     "annotate": 4,
     # 5 — the Drawing result object
     "intent_drain": 5,
