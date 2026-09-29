@@ -2244,92 +2244,20 @@ def drain_corridors(ctx, dwg):
     _drain_interior_dimensions(ctx, dwg)
 
 
-def place_strip_candidates(
-    dwg,
-    strip,
-    view,
-    axis,
-    cands,
-    tier,
-    *,
-    ctx,
-    force=False,
-    features=None,
-    measurements=None,
-    satisfactions=None,
-    declarations=None,
-    sizes=None,
-    forbid=None,
-    priorities=None,
-    obligation_classes=None,
-    anchored=None,
-    naturals=None,
-    footprints=None,
-    valid_positions=None,
-    compact_candidates=None,
-    ink_repair_candidates=None,
-    require_clear_ink=(),
-    ink_displaced=None,
-    corner_reserves=(),
-    trace=None,
-    trace_label=None,
-):
-    """Collect-then-solve placement of location/feature dims on one strip (ADR 2 (was 0009)).
-    The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
-    P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
-    one :func:`plan_strip` solve per free segment of the CARVED strip (`strip` carved
-    around :func:`strip_obstacles`), replacing the per-dim ``allocate`` + ``_box_hits``
-    tier-retry. *tier* is the label height (sets the inter-dim gap ``tier + spacing``).
-
-    Occupancy is THIS view's own placed annotations plus the drawing-level obstacles no
-    ortho view owns (the section hatch), recomputed per call so a dim placed earlier in
-    the pass is avoided; other ortho views are disjoint (ADR 2 (was 0004)) and excluded so their
-    rows never over-carve this strip. This makes the old post-hoc collision retry
-    structural: a dim can never land on a bore-callout leader shaft the label-only
-    occupancy missed (#133/#225/#305).
-
-    A right/below dim also occupies the 2-D corridor back to the view edge, which the
-    1-D strip carve cannot represent: a leader in that corridor is crossed no matter how
-    far out the dim line lands. By default such a placement is rejected so the caller can
-    route the dim to the other view (its disjoint block cannot cross this leader).
-
-    *sizes* maps a candidate's name to its real page-mm footprint ``(w, h)``; absent
-    names use the dimension default ``(tier, tier)``. A wide/tall occupant (a GD&T
-    frame, #61) sets it so :func:`plan_strip` enforces its true stacking gap — over
-    capacity it is relocated to the next segment or dropped, never overlapped.
-
-    *priorities* maps a candidate's name to its within-class survival rank (#357);
-    absent names default to 0. When a segment is over capacity :func:`plan_strip` drops
-    the lowest ``(obligation class, priority, key)``, so a required obligation survives
-    optional generated ink before authored priority decides within its class.
-    An authored GD&T frame is not dropped for a lower-value auto dim purely by
-    stacking-key order.
-
-    *anchored* and *naturals* opt individual candidates into the weighted anchoring
-    mode in :func:`plan_strip`. This preserves the old segment-edge natural for every
-    caller that does not pass them, while letting authored pinned candidates express the
-    page coordinate they asked for inside the same shared solve.
-
-    *require_clear_ink* names candidates whose entire ink must clear both settled and
-    same-batch annotations before commit. *ink_repair_candidates* supplies bounded
-    feature-relative alternatives for those names; a still-conflicting candidate is
-    returned to its normal drop/fallthrough path. *ink_displaced* records lower-priority
-    siblings yielded to required ink so a force retry cannot restore the conflict.
-
-    ``force=True`` skips that corridor check — the caller's last resort when no view took
-    the dim cleanly: keep it on its natural view and accept the (same-feature) leader
-    crossing rather than drop a real dimension (policy B). Candidates that find no strip
-    tier AT ALL are still returned (a physically full strip — the caller records the
-    genuine drop).
-
-    *trace* is the opt-in :class:`SolveTrace` recorder (#736), ``None`` (default) = off
-    with nil cost; :func:`solve_corridor` threads it for corridor solves, and a
-    standalone caller may pass ``trace=ctx.trace`` with a *trace_label* naming its
-    pass. The recorded pass carries the carved span, the in-band obstacles with their
-    owning annotation names, the free segments, per-candidate placements/rejections
-    (with reasons), and the unplaced leftovers."""
-    if strip is None or not cands:
-        return list(cands)
+def _prepare_strip_candidate_run(run) -> None:
+    """Measure footprints, carve occupied tiers, and retain hard blockers."""
+    dwg, strip, view, axis, cands, tier = (
+        run.dwg,
+        run.strip,
+        run.view,
+        run.axis,
+        run.cands,
+        run.tier,
+    )
+    force, sizes, footprints = run.force, run.sizes, run.footprints
+    priorities, obligation_classes = run.priorities, run.obligation_classes
+    forbid, corner_reserves = run.forbid, run.corner_reserves
+    trace, trace_label = run.trace, run.trace_label
 
     def _survival_rank(name):
         return (
@@ -2488,6 +2416,29 @@ def place_strip_candidates(
             return "real_box_title_block"
         return None
 
+    run.tp, run.lo, run.hi, run.inner, run.idx, run.pad = tp, lo, hi, inner, idx, pad
+    run.segs, run.todo = segs, todo
+    run.blockers, run.out_of_band, run.keep_out = blockers, out_of_band, keep_out
+    run.survival_rank = _survival_rank
+    run.predicted_box = _predicted_box
+    run.real_box_conflict = _real_box_conflict
+
+
+def _solve_strip_candidate_segments(run) -> None:
+    """Rank, solve, refill, and verify each free segment before accepting ink."""
+    axis, tier, sizes, naturals = run.axis, run.tier, run.sizes, run.naturals
+    priorities, obligation_classes, anchored = (
+        run.priorities,
+        run.obligation_classes,
+        run.anchored,
+    )
+    valid_positions, forbid, force = run.valid_positions, run.forbid, run.force
+    lo, inner, pad, tp, blockers = run.lo, run.inner, run.pad, run.tp, run.blockers
+    _survival_rank = run.survival_rank
+    _predicted_box = run.predicted_box
+    _real_box_conflict = run.real_box_conflict
+    todo, segs = run.todo, run.segs
+
     def _take_for_segment(items, n):
         if len(items) <= n:
             return items, []
@@ -2613,6 +2564,23 @@ def place_strip_candidates(
         todo = todo + rejected_total
         solved.extend(placed)
 
+    run.solved, run.placed_positions, run.todo = solved, placed_positions, todo
+
+
+def _adjust_strip_candidate_labels(run) -> None:
+    """Reuse clear lateral tiers and shift dimension labels as one batch."""
+    dwg, view, axis, cands, tier, strip = (
+        run.dwg,
+        run.view,
+        run.axis,
+        run.cands,
+        run.tier,
+        run.strip,
+    )
+    anchored, valid_positions = run.anchored, run.valid_positions
+    lo, hi, inner, pad, tp = run.lo, run.hi, run.inner, run.pad, run.tp
+    placed_positions, solved = run.placed_positions, run.solved
+    _real_box_conflict = run.real_box_conflict
     if solved:
         assert len({name for name, _dim_obj in solved}) == len(solved), (
             "strip survivor names must be unique before label selection"
@@ -2744,6 +2712,14 @@ def place_strip_candidates(
                 continue
             real = _geom_box(dim)
             solved.append((name, natural if _real_box_conflict(name, real) else dim))
+    run.solved = solved
+
+
+def _compact_strip_candidate_ink(run) -> None:
+    """Try bounded contraction against settled and same-batch ink."""
+    dwg, view, cands = run.dwg, run.view, run.cands
+    compact_candidates, anchored, forbid = (run.compact_candidates, run.anchored, run.forbid)
+    idx, tp, solved, todo = run.idx, run.tp, run.solved, run.todo
     # Some annotation ink can enclose large empty rectangles. After the shared
     # strip solve, try a bounded contraction using actual segments and labels
     # against both committed ink and this batch. Never move an anchored item.
@@ -2798,6 +2774,17 @@ def place_strip_candidates(
                 )
                 tp.setdefault(trace_field, []).append(name)
             break
+    run.solved, run.todo = solved, todo
+
+
+def _resolve_required_strip_ink(run) -> None:
+    """Repair required exact ink or return it to normal drop handling."""
+    dwg, cands = run.dwg, run.cands
+    require_clear_ink, anchored = run.require_clear_ink, run.anchored
+    ink_repair_candidates, ink_displaced = run.ink_repair_candidates, run.ink_displaced
+    tp, solved, todo = run.tp, run.solved, run.todo
+    _survival_rank = run.survival_rank
+    _real_box_conflict = run.real_box_conflict
     # A force-kept GD&T frame must not bypass the exact-ink decision merely because
     # its strip tier fitted. First let the dimension batch repair its own labels;
     # then test the *whole* frame and leader against committed ink and its siblings.
@@ -2879,6 +2866,15 @@ def place_strip_candidates(
             solved[index] = (name, replacement)
             if tp is not None:
                 tp.setdefault("ink_repaired", []).append(name)
+    run.solved, run.todo = solved, todo
+
+
+def _commit_strip_candidate_run(run):
+    """Place survivors with provenance, then close the optional solve trace."""
+    ctx, view = run.ctx, run.view
+    features, measurements = run.features, run.measurements
+    satisfactions, declarations = run.satisfactions, run.declarations
+    solved, todo, tp, trace = run.solved, run.todo, run.tp, run.trace
     for name, dim in solved:
         # Record feature provenance (ADR 5 (was 0010)): the drain-time seam for corridor-placed
         # dims — `features` maps this batch's names to their source IR feature.
@@ -2929,6 +2925,129 @@ def place_strip_candidates(
         tp["unplaced"] = [n for n, _ in todo]
         trace.end_pass(tp)  # folds a standalone pass's items; no-op when corridor-nested
     return todo
+
+
+def place_strip_candidates(
+    dwg,
+    strip,
+    view,
+    axis,
+    cands,
+    tier,
+    *,
+    ctx,
+    force=False,
+    features=None,
+    measurements=None,
+    satisfactions=None,
+    declarations=None,
+    sizes=None,
+    forbid=None,
+    priorities=None,
+    obligation_classes=None,
+    anchored=None,
+    naturals=None,
+    footprints=None,
+    valid_positions=None,
+    compact_candidates=None,
+    ink_repair_candidates=None,
+    require_clear_ink=(),
+    ink_displaced=None,
+    corner_reserves=(),
+    trace=None,
+    trace_label=None,
+):
+    """Collect-then-solve placement of location/feature dims on one strip (ADR 2 (was 0009)).
+    The single shared strip placer that retires the ``Strip.allocate`` cursor (#150,
+    P3): each candidate in *cands* — an ``(name, build(pos)->dim)`` pair — is spaced by
+    one :func:`plan_strip` solve per free segment of the CARVED strip (`strip` carved
+    around :func:`strip_obstacles`), replacing the per-dim ``allocate`` + ``_box_hits``
+    tier-retry. *tier* is the label height (sets the inter-dim gap ``tier + spacing``).
+
+    Occupancy is THIS view's own placed annotations plus the drawing-level obstacles no
+    ortho view owns (the section hatch), recomputed per call so a dim placed earlier in
+    the pass is avoided; other ortho views are disjoint (ADR 2 (was 0004)) and excluded so their
+    rows never over-carve this strip. This makes the old post-hoc collision retry
+    structural: a dim can never land on a bore-callout leader shaft the label-only
+    occupancy missed (#133/#225/#305).
+
+    A right/below dim also occupies the 2-D corridor back to the view edge, which the
+    1-D strip carve cannot represent: a leader in that corridor is crossed no matter how
+    far out the dim line lands. By default such a placement is rejected so the caller can
+    route the dim to the other view (its disjoint block cannot cross this leader).
+
+    *sizes* maps a candidate's name to its real page-mm footprint ``(w, h)``; absent
+    names use the dimension default ``(tier, tier)``. A wide/tall occupant (a GD&T
+    frame, #61) sets it so :func:`plan_strip` enforces its true stacking gap — over
+    capacity it is relocated to the next segment or dropped, never overlapped.
+
+    *priorities* maps a candidate's name to its within-class survival rank (#357);
+    absent names default to 0. When a segment is over capacity :func:`plan_strip` drops
+    the lowest ``(obligation class, priority, key)``, so a required obligation survives
+    optional generated ink before authored priority decides within its class.
+    An authored GD&T frame is not dropped for a lower-value auto dim purely by
+    stacking-key order.
+
+    *anchored* and *naturals* opt individual candidates into the weighted anchoring
+    mode in :func:`plan_strip`. This preserves the old segment-edge natural for every
+    caller that does not pass them, while letting authored pinned candidates express the
+    page coordinate they asked for inside the same shared solve.
+
+    *require_clear_ink* names candidates whose entire ink must clear both settled and
+    same-batch annotations before commit. *ink_repair_candidates* supplies bounded
+    feature-relative alternatives for those names; a still-conflicting candidate is
+    returned to its normal drop/fallthrough path. *ink_displaced* records lower-priority
+    siblings yielded to required ink so a force retry cannot restore the conflict.
+
+    ``force=True`` skips that corridor check — the caller's last resort when no view took
+    the dim cleanly: keep it on its natural view and accept the (same-feature) leader
+    crossing rather than drop a real dimension (policy B). Candidates that find no strip
+    tier AT ALL are still returned (a physically full strip — the caller records the
+    genuine drop).
+
+    *trace* is the opt-in :class:`SolveTrace` recorder (#736), ``None`` (default) = off
+    with nil cost; :func:`solve_corridor` threads it for corridor solves, and a
+    standalone caller may pass ``trace=ctx.trace`` with a *trace_label* naming its
+    pass. The recorded pass carries the carved span, the in-band obstacles with their
+    owning annotation names, the free segments, per-candidate placements/rejections
+    (with reasons), and the unplaced leftovers."""
+    if strip is None or not cands:
+        return list(cands)
+    run = SimpleNamespace(
+        dwg=dwg,
+        strip=strip,
+        view=view,
+        axis=axis,
+        cands=cands,
+        tier=tier,
+        ctx=ctx,
+        force=force,
+        features=features,
+        measurements=measurements,
+        satisfactions=satisfactions,
+        declarations=declarations,
+        sizes=sizes,
+        forbid=forbid,
+        priorities=priorities,
+        obligation_classes=obligation_classes,
+        anchored=anchored,
+        naturals=naturals,
+        footprints=footprints,
+        valid_positions=valid_positions,
+        compact_candidates=compact_candidates,
+        ink_repair_candidates=ink_repair_candidates,
+        require_clear_ink=require_clear_ink,
+        ink_displaced=ink_displaced,
+        corner_reserves=corner_reserves,
+        trace=trace,
+        trace_label=trace_label,
+    )
+    _prepare_strip_candidate_run(run)
+    _solve_strip_candidate_segments(run)
+    _adjust_strip_candidate_labels(run)
+    _compact_strip_candidate_ink(run)
+    _resolve_required_strip_ink(run)
+    return _commit_strip_candidate_run(run)
 
 
 def carve_free_position(dwg, strip, view, axis, tier, perp_span, *, outermost=False):
