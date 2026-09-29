@@ -17,6 +17,7 @@ from quiddity import RecognitionResult
 
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
     satisfaction_of,
     with_measurement_carriers,
@@ -45,11 +46,6 @@ class ChamferRequirementOutcome:
     parameter_id: str = "chamfer.length"
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _point(value) -> tuple[float, float, float]:
-    x, y, z = value
-    return (_rounded(x), _rounded(y), _rounded(z))
 
 
 def chamfer_key(chamfer) -> tuple:

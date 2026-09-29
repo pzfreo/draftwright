@@ -328,7 +328,7 @@ and re-exports the existing private helper names.
 - **`linting/`** — the lint subpackage (#138 / ADR 1 (was 0005); ADR 3 (was 0007): draftwright
   owns linting): `orchestration.py` (ordered structural, physical, PMI, and build-issue
   critique over an explicit drawing context), `coverage.py` (`lint_feature_coverage` + `CoverageState`),
-  `_coverage_common.py` (shared registry evidence, outcome checks, and blind-slot value validation),
+  `_coverage_common.py` (shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation),
   `structural.py` (geometry/standards checks), `issues.py` (the `LintIssue` type),
   `angular.py` (degree claims and actual angular ink, with explicit unavailable
   physical-support evidence),

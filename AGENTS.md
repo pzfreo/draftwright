@@ -64,7 +64,7 @@ are thin compat facades; `score` / `recognition/` re-export `quiddity` until 0.6
 Shared three-decimal correspondence rounding, exact built-in finite-real validation, and
 common profile/frame vector arithmetic live in
 the rank-0 `contract_values` leaf;
-shared registry evidence, outcome checks, and blind-slot value validation live inside
+shared registry evidence, outcome checks, exact three-coordinate point rounding, and blind-slot value validation live inside
 rank-2 `linting/_coverage_common`.
 Within rank-7 `evaluation/`, `_turned_step_evidence.py` owns turned-step IR and drawing
 evidence, and `_pocket_evidence.py` owns lone-pocket and pocket-pattern evidence;

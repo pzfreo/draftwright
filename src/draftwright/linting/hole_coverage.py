@@ -17,6 +17,7 @@ from quiddity import BoltCircle, HoleRecord, HoleSpec, RecognitionResult, counte
 from draftwright._core import _decode_hole_location_fact, _fmt
 from draftwright._geometry import _END_ON, _is_principal_axis, _projected_edge_distance
 from draftwright.contract_values import rounded as _rounded
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._registry import (
     cell_approvals_of,
     exact_measurement_carriers,
@@ -72,11 +73,6 @@ class HoleRequirementOutcome:
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
     carriers: tuple[RequirementCarrier, ...] = field(default=(), kw_only=True)
-
-
-def _point(value) -> tuple[float, float, float]:
-    x, y, z = value
-    return (_rounded(x), _rounded(y), _rounded(z))
 
 
 def _axis_letter(axis) -> str:
