@@ -18,6 +18,17 @@ class ContractGroup:
 
 
 CONTRACT_GROUPS = {
+    "scale_policy": ContractGroup(
+        (
+            "src/draftwright/build_policy.py",
+            "src/draftwright/explicit_scale.py",
+        ),
+        (
+            "test_issue_1146_scale_completeness.py",
+            "test_arrangement_gate.py",
+            "test_scale_selection.py",
+        ),
+    ),
     "pmi_support": ContractGroup(
         (
             "src/draftwright/pmi.py",

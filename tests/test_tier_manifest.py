@@ -28,6 +28,7 @@ _TESTS = Path(__file__).resolve().parent
 def test_each_named_contract_group_resolves_to_existing_modules():
     all_modules = {path.name for path in _TESTS.glob("test_*.py")}
     probes = {
+        "scale_policy": "src/draftwright/build_policy.py",
         "pmi_support": "src/draftwright/_pmi_support_blockers.py",
         "double_d_evidence": "src/draftwright/evaluation/_double_d_evidence.py",
         "turned_step_evidence": "src/draftwright/evaluation/_turned_step_evidence.py",
@@ -56,6 +57,11 @@ def test_each_named_contract_group_resolves_to_existing_modules():
 def test_double_d_evidence_change_runs_its_physical_correspondence_contract():
     selected = pr_modules(_TESTS, ["src/draftwright/evaluation/_double_d_evidence.py"])
     assert "test_issue_1370_double_d_completeness_evidence.py" in selected
+
+
+def test_scale_policy_change_runs_scale_and_arrangement_contracts():
+    selected = set(pr_modules(_TESTS, ["src/draftwright/build_policy.py"]))
+    assert {"test_issue_1146_scale_completeness.py", "test_arrangement_gate.py"} <= selected
 
 
 def test_turned_step_evidence_change_runs_its_physical_correspondence_contract():
