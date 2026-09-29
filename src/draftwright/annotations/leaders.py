@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from itertools import chain, islice, tee
-from typing import Any
+from typing import Any, cast
 
 from build123d import Face, Vector, Wire
 
@@ -1672,6 +1672,141 @@ def drain_feature_leaders(dwg, analysis, ctx) -> int:
     return place_feature_leader_jobs(dwg, analysis, ctx, jobs)
 
 
+@dataclass(frozen=True)
+class _ProvisionalRefinementInput:
+    jobs: list[FeatureLeaderJob]
+    views: tuple[str, ...]
+    viable_by_job: list[list[_MeasuredLeaderCandidate]]
+    conflicts: list[tuple[int, int, int, int]]
+    policy_blockers_by_job: list[list[tuple[str, ...]]]
+    material_by_job: list[list[int]]
+    probes_by_view: dict[str, int]
+    assignment: _LeaderAssignment
+    bounded_fixed_obstacles: Callable[..., Any]
+
+
+@dataclass(frozen=True)
+class _ProvisionalRefinement:
+    assignment: _LeaderAssignment
+    states: int
+    probe_bound: int
+    blockers_by_job: list[list[tuple[str, ...]]]
+    outcome: str
+
+
+def _refine_provisional_leaders(inputs: _ProvisionalRefinementInput) -> _ProvisionalRefinement:
+    """Try the bounded section-furniture refinement after the primary assignment."""
+
+    jobs = inputs.jobs
+    views = inputs.views
+    viable_by_job = inputs.viable_by_job
+    conflicts = inputs.conflicts
+    policy_blockers_by_job = inputs.policy_blockers_by_job
+    material_by_job = inputs.material_by_job
+    probes_by_view = inputs.probes_by_view
+    assignment = inputs.assignment
+    bounded_fixed_obstacles = inputs.bounded_fixed_obstacles
+    assignment_states = assignment.states
+    # Optional section furniture must never veto a required feature leader.
+    # Once the primary committed-ink assignment is proven optimal, however, a
+    # second bounded solve may prefer an equally complete/important result that
+    # leaves the provisional section row clear.  Encode the established fixed
+    # penalty as the major component so the refinement cannot trade a real
+    # dimension/witness crossing for future optional furniture.  If either the
+    # probe or exact-search budget is exhausted, retain the primary result.
+    provisional = (
+        bounded_fixed_obstacles(provisional=True)
+        if assignment.optimal
+        else {view: () for view in views}
+    )
+    provisional_inventory_exhausted = provisional is _FIXED_INVENTORY_EXHAUSTED
+    provisional_probes_by_view: dict[str, int] = {}
+    if not provisional_inventory_exhausted:
+        for job, candidates in zip(jobs, viable_by_job, strict=True):
+            provisional_probes_by_view[job.view] = provisional_probes_by_view.get(
+                job.view, 0
+            ) + len(candidates) * len(provisional[job.view])
+    provisional_probe_bound = (
+        _FEATURE_LEADER_MAX_FIXED_WORK + 1
+        if provisional_inventory_exhausted
+        else sum(provisional_probes_by_view.values())
+    )
+    provisional_refinement = "not_needed" if assignment.optimal else "primary_state_budget"
+    provisional_blockers_by_job: list[list[tuple[str, ...]]] = [
+        [() for _candidate in candidates] for candidates in viable_by_job
+    ]
+    # Per view, matching the primary gate. Summing across views would compare three
+    # independent searches' work against one search's budget, so a dense part could clear
+    # the primary gate and then never attempt the section refinement at all.
+    if (
+        not provisional_inventory_exhausted
+        and provisional_probe_bound
+        and all(
+            probes_by_view.get(view, 0) + provisional_probes_by_view.get(view, 0)
+            <= _FEATURE_LEADER_MAX_FIXED_WORK
+            for view in {*probes_by_view, *provisional_probes_by_view}
+        )
+    ):
+        provisional_blockers_by_job = [
+            [
+                tuple(
+                    component.name
+                    for component in provisional[job.view]
+                    if _candidate_hits_component(candidate, component)
+                )
+                for candidate in candidates
+            ]
+            for job, candidates in zip(jobs, viable_by_job, strict=True)
+        ]
+        max_provisional_penalty = 1 + sum(
+            max((len(blockers) for blockers in job_blockers), default=0)
+            for job_blockers in provisional_blockers_by_job
+        )
+        refined = _assign_by_view(
+            [job.view for job in jobs],
+            [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
+            conflicts,
+            priorities=[job.priority for job in jobs],
+            penalties_by_job=[
+                [
+                    (len(fixed_blockers) + units) * max_provisional_penalty
+                    + len(provisional_blockers)
+                    for fixed_blockers, provisional_blockers, units in zip(
+                        fixed_job_blockers,
+                        provisional_job_blockers,
+                        material_job_units,
+                        strict=True,
+                    )
+                ]
+                # Material joins the COMMITTED major component, beside the fixed-ink
+                # blockers: a cut through the part is a real defect on the finished sheet,
+                # so the refinement must not be able to buy a clear section row with one.
+                for fixed_job_blockers, provisional_job_blockers, material_job_units in zip(
+                    policy_blockers_by_job,
+                    provisional_blockers_by_job,
+                    material_by_job,
+                    strict=True,
+                )
+            ],
+        )
+        if refined.optimal:
+            assignment = refined
+            assignment_states += refined.states
+            provisional_refinement = "selected"
+        else:
+            assignment_states += refined.states
+            provisional_refinement = "state_budget_retained_primary"
+    elif provisional_probe_bound:
+        provisional_refinement = "probe_budget_retained_primary"
+    return _ProvisionalRefinement(
+        assignment,
+        assignment_states,
+        provisional_probe_bound,
+        provisional_blockers_by_job,
+        provisional_refinement,
+    )
+
+
 def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False) -> int:
     """Solve explicit jobs now through the shared analytical leader machinery.
 
@@ -2642,99 +2777,24 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
             abandoned_rejected=rejected_by_job,
             abandoned_raw_counts=raw_count_by_job,
         )
-    assignment_states = assignment.states
-
-    # Optional section furniture must never veto a required feature leader.
-    # Once the primary committed-ink assignment is proven optimal, however, a
-    # second bounded solve may prefer an equally complete/important result that
-    # leaves the provisional section row clear.  Encode the established fixed
-    # penalty as the major component so the refinement cannot trade a real
-    # dimension/witness crossing for future optional furniture.  If either the
-    # probe or exact-search budget is exhausted, retain the primary result.
-    provisional = (
-        bounded_fixed_obstacles(provisional=True)
-        if assignment.optimal
-        else {view: () for view in views}
-    )
-    provisional_inventory_exhausted = provisional is _FIXED_INVENTORY_EXHAUSTED
-    provisional_probes_by_view: dict[str, int] = {}
-    if not provisional_inventory_exhausted:
-        for job, candidates in zip(jobs, viable_by_job, strict=True):
-            provisional_probes_by_view[job.view] = provisional_probes_by_view.get(
-                job.view, 0
-            ) + len(candidates) * len(provisional[job.view])
-    provisional_probe_bound = (
-        _FEATURE_LEADER_MAX_FIXED_WORK + 1
-        if provisional_inventory_exhausted
-        else sum(provisional_probes_by_view.values())
-    )
-    provisional_refinement = "not_needed" if assignment.optimal else "primary_state_budget"
-    provisional_blockers_by_job: list[list[tuple[str, ...]]] = [
-        [() for _candidate in candidates] for candidates in viable_by_job
-    ]
-    # Per view, matching the primary gate. Summing across views would compare three
-    # independent searches' work against one search's budget, so a dense part could clear
-    # the primary gate and then never attempt the section refinement at all.
-    if (
-        not provisional_inventory_exhausted
-        and provisional_probe_bound
-        and all(
-            probes_by_view.get(view, 0) + provisional_probes_by_view.get(view, 0)
-            <= _FEATURE_LEADER_MAX_FIXED_WORK
-            for view in {*probes_by_view, *provisional_probes_by_view}
-        )
-    ):
-        provisional_blockers_by_job = [
-            [
-                tuple(
-                    component.name
-                    for component in provisional[job.view]
-                    if _candidate_hits_component(candidate, component)
-                )
-                for candidate in candidates
-            ]
-            for job, candidates in zip(jobs, viable_by_job, strict=True)
-        ]
-        max_provisional_penalty = 1 + sum(
-            max((len(blockers) for blockers in job_blockers), default=0)
-            for job_blockers in provisional_blockers_by_job
-        )
-        refined = _assign_by_view(
-            [job.view for job in jobs],
-            [[candidate.cost for candidate in candidates] for candidates in viable_by_job],
+    refinement = _refine_provisional_leaders(
+        _ProvisionalRefinementInput(
+            jobs,
+            views,
+            viable_by_job,
             conflicts,
-            priorities=[job.priority for job in jobs],
-            penalties_by_job=[
-                [
-                    (len(fixed_blockers) + units) * max_provisional_penalty
-                    + len(provisional_blockers)
-                    for fixed_blockers, provisional_blockers, units in zip(
-                        fixed_job_blockers,
-                        provisional_job_blockers,
-                        material_job_units,
-                        strict=True,
-                    )
-                ]
-                # Material joins the COMMITTED major component, beside the fixed-ink
-                # blockers: a cut through the part is a real defect on the finished sheet,
-                # so the refinement must not be able to buy a clear section row with one.
-                for fixed_job_blockers, provisional_job_blockers, material_job_units in zip(
-                    policy_blockers_by_job,
-                    provisional_blockers_by_job,
-                    material_by_job,
-                    strict=True,
-                )
-            ],
+            policy_blockers_by_job,
+            material_by_job,
+            probes_by_view,
+            assignment,
+            bounded_fixed_obstacles,
         )
-        if refined.optimal:
-            assignment = refined
-            assignment_states += refined.states
-            provisional_refinement = "selected"
-        else:
-            assignment_states += refined.states
-            provisional_refinement = "state_budget_retained_primary"
-    elif provisional_probe_bound:
-        provisional_refinement = "probe_budget_retained_primary"
+    )
+    assignment = refinement.assignment
+    assignment_states = refinement.states
+    provisional_probe_bound = refinement.probe_bound
+    provisional_blockers_by_job = refinement.blockers_by_job
+    provisional_refinement = refinement.outcome
     chosen = {
         (job_index, choice)
         for job_index, choice in enumerate(assignment.choices)
@@ -2898,7 +2958,7 @@ def place_feature_leader_jobs(dwg, analysis, ctx, jobs, *, producer_floor=False)
         candidate = viable_by_job[job_index][choice]
         place(job_index, candidate, materialized[job_index])
     for job_index in sorted(crossed_choices):
-        choice = final_choices[job_index]
+        choice = cast(int, final_choices[job_index])
         recovered = recovery_for(job_index)()
         if recovered is not None:
             annotation, feature = recovered
