@@ -230,9 +230,9 @@ and re-exports the existing private helper names.
     sparse plan and side hole leaders in the shared late leader assignment, plus
     front/rear rim-tip construction consumed by the current vertical strip solve.
     The hole pass retains strip selection, table eligibility, and furniture transactions.
-  - **`annotations/_hole_leader_placement.py`** — callout claim forwarding and
-    bounded sheet recovery for hole leaders; the hole pass owns the queue and
-    survivor commit.
+  - **`annotations/_hole_leader_placement.py`** — shared physical hole-leader
+    construction, callout claim forwarding, and bounded sheet recovery; the hole
+    pass owns the queue and survivor commit.
   - **`annotations/_leader_fixed_ink.py`** — exact fixed-annotation component
   lowering for the shared leader solve: metadata strokes, label boxes, and
   residual rendered faces retain bounded work and stable component identities.
