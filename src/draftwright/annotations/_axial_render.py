@@ -311,9 +311,7 @@ def _draw_step_chain(
             continue
         survivors.append((name, dim, measurements))
     for name, dim, measurements in survivors:
-        if detail_scale is not None:
-            dim._dw_scale = detail_scale
-        ctx.place(dim, name, view=view, measurement=measurements)
+        ctx.place(dim, name, view=view, measurement=measurements, scale=detail_scale)
         if ev is not None:
             b = _anno_box(dim)
             ev["items"].append(

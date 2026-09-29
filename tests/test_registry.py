@@ -95,12 +95,39 @@ def test_candidate_region_rejects_unknown_provenance():
     assert r.named("d1") is None
 
 
-def test_solved_region_never_returns_to_helper_object_attributes():
+def test_detail_scale_follows_live_annotation_identity():
+    r = AnnotationRegistry()
+    original = SimpleNamespace()
+    r.add(original, "detail", "section_aa", scale=4.0)
+    assert r.scale_of("detail") == 4.0
+    assert not hasattr(original, "_dw_scale")
+
+    snap = r.snapshot()
+    identity = r.identity_of("detail")
+    removed = r.remove("detail")
+    assert r.scale_of("detail") is None
+    r.add(removed, "detail", None)
+    r.reapply("detail", identity)
+    assert r.scale_of("detail") == 4.0
+
+    replacement = SimpleNamespace()
+    r.replace_object(original, replacement)
+    assert r.scale_of("detail") == 4.0  # repair keeps this name's scale
+    r.add(SimpleNamespace(), "detail", "front")
+    assert r.scale_of("detail") is None  # a new mark inherits nothing
+    r.restore(snap)
+    assert r.scale_of("detail") == 4.0
+    r.clear(())
+    assert r.scale_of("detail") is None
+
+
+@pytest.mark.parametrize("attribute", ["_dw_candidate_region", "_dw_scale"])
+def test_registry_metadata_never_returns_to_helper_object_attributes(attribute):
     source = Path(__file__).parents[1] / "src" / "draftwright"
     offenders = [
         path.relative_to(source)
         for path in source.rglob("*.py")
-        if "_dw_candidate_region" in path.read_text(encoding="utf-8")
+        if attribute in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
 
@@ -244,6 +271,7 @@ def test_identity_of_reapply_round_trips_every_axis():
         "satisfaction": (),
         "section": None,
         "candidate_region": None,
+        "scale": None,
         "pinned": False,
     }
 

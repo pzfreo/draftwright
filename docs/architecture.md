@@ -368,8 +368,8 @@ and re-exports the existing private helper names.
   deliberately stringly-typed record feeds the recompose path.
 - **`registry.py`** — `AnnotationRegistry`: the single owner of annotation
   identity/ownership/pins/build-issues (#138 / ADR 1 (was 0005), Step 2). It also
-  owns typed candidate-region provenance and the immutable cut/view mark on each
-  live section cutting-plane line (#1931). `Drawing`
+  owns typed candidate-region provenance, per-annotation detail scale, and the immutable
+  cut/view mark on each live section cutting-plane line (#1931). `Drawing`
   delegates here and keeps the render list. The `_named`/`_anno_view`/`_pinned`/
   `_build_issues` aliases on `Drawing` (and coverage's three) were **deleted** at
   their §4 date (#720): reach the state through `dwg.registry` (`in reg`,

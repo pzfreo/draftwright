@@ -14,8 +14,8 @@ of annotation grouping rather than of the drawing — the same class of defect a
 where lint TEXT depended on memory addresses.
 
 **#1204's fix was a `check_view_placement` flag suppressing those checks for every group after
-the first. #1216 removed the split instead** — `_lint_dim` reads each annotation's own
-`_dw_scale`, so `lint_drawing` runs once over everything — and the flag went with it, because
+the first. #1216 removed the split instead** — `_lint_dim` receives each annotation's
+registry-owned scale, so `lint_drawing` runs once over everything — and the flag went with it, because
 the double-count no longer happens rather than being suppressed after the fact. (The split was
 also what made the PAIRWISE checks blind across groups: a detail view's dims and its own
 caption are always in different groups and spatially adjacent by construction, so the pair most
@@ -61,6 +61,23 @@ def _counts(drawing):
     return Counter(i.code for i in drawing.lint() if i.code.startswith(("view_", "leader_")))
 
 
+def _scale_of(drawing, annotation):
+    for name, obj in drawing.registry.iter_named():
+        if obj is annotation:
+            return drawing.registry.scale_of(name) or drawing.scale
+    return drawing.scale
+
+
+def _tag_scale(drawing, annotation, scale):
+    for name, obj in drawing.registry.iter_named():
+        if obj is annotation:
+            drawing.registry.mark_scale(name, scale)
+            return
+    drawing.registry.add(
+        annotation, f"test_scale_{len(drawing.registry.names())}", None, scale=scale
+    )
+
+
 def _split_into_scale_groups(drawing, groups=2):
     """Retag annotations so the drawing has *groups* distinct scales, as detail views do."""
     measured = [a for a in drawing.items if getattr(a, "measured_length", None) is not None]
@@ -75,8 +92,8 @@ def _split_into_scale_groups(drawing, groups=2):
     # produced one group too few on an earlier fixture that happened to be drawn at one of
     # them, since an untagged annotation reports the sheet scale.
     for index, annotation in enumerate(measured[:extra]):
-        annotation._dw_scale = drawing.scale * (index + 2)
-    assert len({getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}) == groups
+        _tag_scale(drawing, annotation, drawing.scale * (index + 2))
+    assert len({_scale_of(drawing, a) for a in drawing.items}) == groups
     return measured[:extra]
 
 
@@ -131,11 +148,11 @@ def _retag_into_a_later_group(drawing, label="STUB"):
     Which group a finding lands in is what the flag actually gates, and leaving it to item
     order meant the tests protected whichever group the stub fell in by accident.
     """
-    first = next(iter({getattr(a, "_dw_scale", drawing.scale) for a in drawing.items}))
+    first = _scale_of(drawing, drawing.items[0])
     for annotation in drawing.items:
         if getattr(annotation, "label", None) == label:
-            annotation._dw_scale = drawing.scale * 7
-            assert getattr(annotation, "_dw_scale") != first
+            _tag_scale(drawing, annotation, drawing.scale * 7)
+            assert _scale_of(drawing, annotation) != first
             return annotation
     pytest.fail(f"no annotation labelled {label!r} to move")
 
@@ -218,16 +235,14 @@ class TestTheCountsDoNotMoveWithTheGrouping:
         before = _counts(drawing)["leader_crosses_silhouette"]
         assert before > 0, "fixture no longer supplies a real leader finding"
 
-        drawing.items[0]._dw_scale = drawing.scale * 97
+        _tag_scale(drawing, drawing.items[0], drawing.scale * 97)
         order = []
         for annotation in drawing.items:
-            scale = getattr(annotation, "_dw_scale", drawing.scale)
+            scale = _scale_of(drawing, annotation)
             if scale not in order:
                 order.append(scale)
         leaders = {
-            getattr(a, "_dw_scale", drawing.scale)
-            for a in drawing.items
-            if getattr(a, "elbow", None) is not None
+            _scale_of(drawing, a) for a in drawing.items if getattr(a, "elbow", None) is not None
         }
         assert order.index(next(iter(leaders))) > 0, (
             f"the leader-carrying group is still first ({order}, leaders at {leaders}), so "
@@ -240,7 +255,7 @@ class TestTheCountsDoNotMoveWithTheGrouping:
     def test_the_summarys_view_counts_do_not_move_with_the_grouping(self):
         # The property that matters to a caller, stated over the VIEW families only.
         #
-        # Not over the whole summary: retagging an annotation's `_dw_scale` genuinely
+        # Not over the whole summary: changing an annotation's detail scale genuinely
         # changes what that annotation asserts — its label no longer matches its geometry
         # at 4:1 — so a new `label_vs_measured` is correct, not drift. A first version of
         # this test compared the entire `by_code` and failed on exactly that, which would
@@ -259,19 +274,19 @@ class TestTheCountsDoNotMoveWithTheGrouping:
 class TestTheReasonForTheSplitIsStillHonoured:
     def test_an_annotation_is_linted_at_its_own_scale(self):
         # The split existed so `label_vs_measured` compares an annotation against ITS OWN
-        # scale; #1216 keeps that and drops the split by reading the tag per annotation. So
-        # the item carries `_dw_scale` and the SHEET is 1:1 — the arrangement a detail view
+        # scale; #1216 keeps that and drops the split by supplying scale per annotation. So
+        # the item has an explicit scale and the SHEET is 1:1 — the arrangement a detail view
         # actually produces. Passing the detail's scale as `drawing_scale` with no tag on the
         # item, as this test did, exercises only the fallback and would pass against a
-        # `_lint_dim` that ignored `_dw_scale` entirely (#1216 review r9, F6).
+        # `_lint_dim` that ignored the detail scale entirely (#1216 review r9, F6).
         from types import SimpleNamespace
 
         from draftwright.linting.structural import _lint_dim
 
         # A 4:1 detail: 40 mm of drawn path for a 10 mm feature, on a 1:1 sheet.
-        tagged = SimpleNamespace(label="10", measured_length=40.0, _dw_scale=4.0)
+        tagged = SimpleNamespace(label="10", measured_length=40.0)
         issues: list = []
-        _lint_dim(tagged, None, issues, 1.0)
+        _lint_dim(tagged, None, issues, 1.0, item_scale=4.0)
         assert not [i for i in issues if i.code == "label_vs_measured"], (
             f"a correctly scaled detail dimension was reported as contradictory: "
             f"{[i.message for i in issues]}"
@@ -283,14 +298,14 @@ class TestTheReasonForTheSplitIsStillHonoured:
         control: list = []
         _lint_dim(untagged, None, control, 1.0)
         assert [i for i in control if i.code == "label_vs_measured"], (
-            "the untagged control is clean too, so this test cannot tell whether `_dw_scale` "
+            "the untagged control is clean too, so this test cannot tell whether detail scale "
             "was read"
         )
 
     def test_a_single_group_drawing_is_untouched(self):
         # The common case takes the other branch entirely and must be unaffected.
         drawing = _drawing_producing_both_families()
-        assert {getattr(a, "_dw_scale", None) for a in drawing.items} == {None}, (
+        assert all(drawing.registry.scale_of(n) is None for n in drawing.registry.names()), (
             "the fixture already has more than one scale group"
         )
         assert set(_counts(drawing)) >= {"view_out_of_bounds"}, (
@@ -299,7 +314,7 @@ class TestTheReasonForTheSplitIsStillHonoured:
         assert set(_counts(drawing)), "the single-group path stopped reporting view findings"
 
     def test_the_message_names_the_divisor_it_used(self):
-        # #1216 review r9, F4. `_lint_dim` divides by the item's own `_dw_scale` and printed
+        # #1216 review r9, F4. `_lint_dim` divides by the item's own detail scale and printed
         # the SHEET scale: `÷5.0 = 15.000` for 45 mm divided by 3.0. The clause was also gated
         # on the sheet scale, so on a 1:1 sheet it vanished entirely and the percentage could
         # not be derived from any number in the message — the #1196 defect class, where lint
@@ -309,8 +324,8 @@ class TestTheReasonForTheSplitIsStillHonoured:
         from draftwright.linting.structural import _lint_dim
 
         issues: list = []
-        item = SimpleNamespace(label="10", measured_length=45.0, _dw_scale=3.0)
-        _lint_dim(item, None, issues, 5.0)
+        item = SimpleNamespace(label="10", measured_length=45.0)
+        _lint_dim(item, None, issues, 5.0, item_scale=3.0)
         contradictions = [i for i in issues if i.code == "label_vs_measured"]
         assert len(contradictions) == 1, f"precondition: expected one finding, got {issues}"
         message = contradictions[0].message
@@ -318,20 +333,20 @@ class TestTheReasonForTheSplitIsStillHonoured:
         assert "÷5.0" not in message, message
         # And it is present on a 1:1 sheet, which is where it used to be omitted.
         one_to_one: list = []
-        _lint_dim(item, None, one_to_one, 1.0)
+        _lint_dim(item, None, one_to_one, 1.0, item_scale=3.0)
         assert "(÷3.0 = 15.000)" in one_to_one[0].message, one_to_one[0].message
 
     def test_a_degenerate_item_scale_falls_back_to_the_sheet_scale(self):
         # `drawing_scale` is validated positive by `lint_drawing`; a per-annotation
-        # `_dw_scale` is not on that path. A zero tag must fall back rather than divide:
+        # detail scale is not on that path. A zero tag must fall back rather than divide:
         # before the guard, `measured / 0` raised past the validated entry point.
         from types import SimpleNamespace
 
         from draftwright.linting.structural import _lint_dim
 
         issues: list = []
-        item = SimpleNamespace(label="10", measured_length=20.0, _dw_scale=0.0)
-        _lint_dim(item, None, issues, 2.0)  # 20 / 2.0 = 10 — clean via the fallback
+        item = SimpleNamespace(label="10", measured_length=20.0)
+        _lint_dim(item, None, issues, 2.0, item_scale=0.0)  # 20 / 2.0 = 10 — fallback
         assert not [i for i in issues if i.code == "label_vs_measured"], (
             f"the zero-tag fallback did not use the sheet scale: {[i.message for i in issues]}"
         )

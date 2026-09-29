@@ -139,6 +139,7 @@ class AnnotationRegistry:
         self._anno_satisfaction: dict = {}
         self._anno_section: dict[str, SectionMark] = {}
         self._anno_candidate_region: dict[str, CandidateRegion] = {}
+        self._anno_scale: dict[str, float] = {}
         self._pinned: set = set()
         self._build_issues: list = []
 
@@ -211,6 +212,19 @@ class AnnotationRegistry:
     def candidate_region_of(self, name) -> CandidateRegion | None:
         """The solved region of a live named annotation, when recorded."""
         return self._anno_candidate_region.get(name)
+
+    def scale_of(self, name: str) -> float | None:
+        """The scale of a live detail dimension, or ``None`` at sheet scale."""
+        return self._anno_scale.get(name)
+
+    def mark_scale(self, name: str, scale: float | None) -> None:
+        """Bind a detail scale to an already registered annotation."""
+        if name not in self._named:
+            raise KeyError(name)
+        if scale is None:
+            self._anno_scale.pop(name, None)
+        else:
+            self._anno_scale[name] = scale
 
     def has_section(self, cut_y: float, views: Collection[str]) -> bool:
         """Whether a live line marks this cut and its derived view still exists."""
@@ -292,6 +306,7 @@ class AnnotationRegistry:
             "anno_satisfaction": dict(self._anno_satisfaction),
             "anno_section": dict(self._anno_section),
             "anno_candidate_region": dict(self._anno_candidate_region),
+            "anno_scale": dict(self._anno_scale),
             "pinned": set(self._pinned),
         }
 
@@ -315,6 +330,8 @@ class AnnotationRegistry:
         self._anno_section.update(snap.get("anno_section", {}))
         self._anno_candidate_region.clear()
         self._anno_candidate_region.update(snap.get("anno_candidate_region", {}))
+        self._anno_scale.clear()
+        self._anno_scale.update(snap.get("anno_scale", {}))
         self._pinned.clear()
         self._pinned.update(snap["pinned"])
 
@@ -342,6 +359,7 @@ class AnnotationRegistry:
             "satisfaction": self._anno_satisfaction.get(name, ()),
             "section": self._anno_section.get(name),
             "candidate_region": self._anno_candidate_region.get(name),
+            "scale": self._anno_scale.get(name),
             "pinned": name in self._pinned,
         }
 
@@ -397,6 +415,11 @@ class AnnotationRegistry:
             self._anno_candidate_region[name] = normalized_region
         else:
             self._anno_candidate_region.pop(name, None)
+        scale = identity.get("scale")
+        if scale is not None:
+            self._anno_scale[name] = scale
+        else:
+            self._anno_scale.pop(name, None)
         if identity.get("pinned"):
             self._pinned.add(name)
         else:
@@ -413,6 +436,7 @@ class AnnotationRegistry:
         cells=(),
         declaration=None,
         candidate_region: CandidateRegion | str | None = None,
+        scale: float | None = None,
     ):
         """Register *obj* under *name* and record its owning *view* (and source *feature*).
 
@@ -468,6 +492,7 @@ class AnnotationRegistry:
                 self._anno_candidate_region[name] = normalized_region
             else:
                 self._anno_candidate_region.pop(name, None)
+            self.mark_scale(name, scale)
         return displaced
 
     def remove(self, name):
@@ -483,6 +508,7 @@ class AnnotationRegistry:
             self._anno_satisfaction.pop(name, None)
             self._anno_section.pop(name, None)
             self._anno_candidate_region.pop(name, None)
+            self._anno_scale.pop(name, None)
         return obj
 
     def clear(self, keep) -> dict:
@@ -505,6 +531,7 @@ class AnnotationRegistry:
         self._anno_candidate_region = {
             n: region for n, region in self._anno_candidate_region.items() if n in keep_set
         }
+        self._anno_scale = {n: scale for n, scale in self._anno_scale.items() if n in keep_set}
         self._anno_section = {n: s for n, s in self._anno_section.items() if n in keep_set}
         return kept_named
 

@@ -319,6 +319,7 @@ def lint_drawing(
     display_decimals: dict[int, int] | None = None,
     annotation_names: dict[int, str] | None = None,
     annotation_regions: dict[int, str] | None = None,
+    annotation_scales: dict[int, float] | None = None,
 ) -> list[LintIssue]:
     """Structural checks on a composed annotation list, duck-typed.
 
@@ -441,6 +442,7 @@ def lint_drawing(
         warned_label_bbox,
         names,
         display_decimals,
+        annotation_scales,
     )
     _lint_annotation_pairs(
         items,
@@ -475,7 +477,13 @@ def lint_drawing(
     # precede the recognition-derived ones in a finished `Drawing.lint()`, so a caller that
     # wants a particular finding must select it by code — `issues[0]` was never a stable
     # address and one test was relying on it.
-    _lint_display_precision(items, issues, drawing_scale, display_decimals=display_decimals)
+    _lint_display_precision(
+        items,
+        issues,
+        drawing_scale,
+        display_decimals=display_decimals,
+        annotation_scales=annotation_scales,
+    )
     return issues
 
 
@@ -488,6 +496,7 @@ def _lint_annotation_items(
     warned_label_bbox,
     names,
     display_decimals,
+    annotation_scales,
 ) -> None:
     """Check each annotation's own title, leader, or measurement content."""
     for item in items:
@@ -508,6 +517,7 @@ def _lint_annotation_items(
                 drawing_scale,
                 box_cache,
                 decimals=(display_decimals or {}).get(id(item)),
+                item_scale=(annotation_scales or {}).get(id(item)),
             )
 
 
@@ -956,7 +966,7 @@ _NOMINAL_SHIFT_FLOOR = 5e-4
 
 
 def _lint_display_precision(
-    items, issues, drawing_scale: float = 1.0, *, display_decimals=None
+    items, issues, drawing_scale: float = 1.0, *, display_decimals=None, annotation_scales=None
 ) -> None:
     """Say where the sheet's precision prints a nominal the model does not have (#1600).
 
@@ -988,7 +998,9 @@ def _lint_display_precision(
     for item in items:
         label = _item_label(item)
         label_val = _label_reading(item, label)
-        measurement = dimension_path_measurement(item, drawing_scale)
+        measurement = dimension_path_measurement(
+            item, drawing_scale, item_scale=(annotation_scales or {}).get(id(item))
+        )
         if label_val is None or measurement is None:
             continue
         measured, item_scale = measurement
@@ -1251,7 +1263,7 @@ def _lint_view_shapes(
     # #1204 suppressed them for every group after the first, because `Drawing._lint` split the
     # annotations by scale and called this once per group, emitting each view-level finding
     # once PER GROUP. #1216 removed the split — `_lint_dim` reads each annotation's own
-    # `_dw_scale`, so there is one call — which removes the double-count at its source and
+    # per-annotation scale, so there is one call — which removes the double-count at its source and
     # leaves nothing for the suppression to do. The `check_view_placement` parameter went with
     # it; a flag no caller sets is a branch no test can reach (#1216).
 
@@ -1465,7 +1477,9 @@ def _label_centerline_overlap(dim_item, cl_item, box_cache=None, warned=None):
 _MATERIAL_LABEL_DISCREPANCY = 0.05
 
 
-def dimension_path_measurement(item, drawing_scale: float = 1.0):
+def dimension_path_measurement(
+    item, drawing_scale: float = 1.0, *, item_scale: float | None = None
+):
     """Return a linear dimension's measured page length and its applicable scale.
 
     Shared by structural lint and measurement snapshots so a claim's text remains
@@ -1498,31 +1512,39 @@ def dimension_path_measurement(item, drawing_scale: float = 1.0):
     # Divide measured by the scale factor before comparing so a 37.5 mm
     # measured segment with label "7.5" at 5:1 is accepted, not flagged.
     #
-    # PER ANNOTATION. An enlarged detail view (#42) tags its dims with `_dw_scale`, and the
-    # caller used to pre-split the item list by that tag and call `lint_drawing` once per
+    # PER ANNOTATION. An enlarged detail view (#42) records its scale in the registry, and
+    # the caller used to pre-split the item list by that scale and call `lint_drawing` once per
     # group so this comparison saw the right scale. That split is what made the PAIRWISE
     # checks blind across groups: two annotations in different groups were never compared,
     # and a detail view's dims and its own caption are ALWAYS in different groups while
     # being spatially adjacent by construction — the pair most likely to collide was the
     # one pair never checked (#1216).
     #
-    # Reading the tag here instead lets `lint_drawing` run once over every annotation.
+    # Passing the scale here instead lets `lint_drawing` run once over every annotation.
     # `drawing_scale` remains the sheet default for the untagged majority, and stays the
     # right value for the page-level `world_ext` check above, which is about the sheet and
     # not about any one annotation.
-    # `drawing_scale` is validated positive by `lint_drawing`; a per-annotation `_dw_scale`
+    # `drawing_scale` is validated positive by `lint_drawing`; a per-annotation scale
     # is not on that path, so it is guarded here rather than assumed.
-    item_scale = getattr(item, "_dw_scale", drawing_scale)
+    if item_scale is None:
+        item_scale = drawing_scale
     if not item_scale or item_scale <= 0:
         item_scale = drawing_scale
     return measured, item_scale
 
 
 def _lint_dim(
-    item, part_bbox, issues, drawing_scale: float = 1.0, box_cache=None, *, decimals=None
+    item,
+    part_bbox,
+    issues,
+    drawing_scale: float = 1.0,
+    box_cache=None,
+    *,
+    decimals=None,
+    item_scale: float | None = None,
 ) -> None:
     label = _item_label(item)
-    measurement = dimension_path_measurement(item, drawing_scale)
+    measurement = dimension_path_measurement(item, drawing_scale, item_scale=item_scale)
     # A repeat label is read as its producer declared it (#1153).
     label_val = _label_reading(item, label)
     if getattr(item, "measured_angle", None) is not None:

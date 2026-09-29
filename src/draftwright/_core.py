@@ -115,6 +115,7 @@ def place_annotation(
     cells=(),
     declaration=None,
     candidate_region=None,
+    scale: float | None = None,
 ):
     """The annotation-placement primitive (#817): register *obj* under *name* — replacing any
     prior object of that name (dropped from the render list *items*) so a name maps to one
@@ -141,6 +142,7 @@ def place_annotation(
         cells=cells,
         declaration=declaration,
         candidate_region=candidate_region,
+        scale=scale,
     )
     return obj
 

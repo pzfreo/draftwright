@@ -1797,6 +1797,7 @@ class PlacementContext:
         satisfaction=None,
         declaration=None,
         candidate_region=None,
+        scale: float | None = None,
     ):
         """Place an annotation onto the drawing through this context (#817) — the render passes'
         door to the placement primitive, so a pass never reaches into the ``Drawing`` (ADR 1 (was 0005)
@@ -1821,6 +1822,7 @@ class PlacementContext:
             satisfaction,
             declaration=declaration,
             candidate_region=candidate_region,
+            scale=scale,
         )
 
     def feature_of_hole_at(self, location):
