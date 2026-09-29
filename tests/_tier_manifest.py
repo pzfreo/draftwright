@@ -195,6 +195,14 @@ CONTRACT_GROUPS = {
             "test_issue_1166_cross_pass_feature_leaders.py",
         ),
     ),
+    "leader_fixed_ink": ContractGroup(
+        ("src/draftwright/annotations/_leader_fixed_ink.py",),
+        (
+            "test_issue_1166_cross_pass_feature_leaders.py",
+            "test_issue_1534_build_progress.py",
+            "test_issue_798_silhouette_lint.py",
+        ),
+    ),
     "hole_locations": ContractGroup(
         ("src/draftwright/annotations/hole_locations.py",),
         (

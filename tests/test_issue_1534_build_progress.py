@@ -1,5 +1,6 @@
 """Activity observes the shared pipeline; cancellation never publishes partial ink."""
 
+import importlib
 import json
 
 import pytest
@@ -52,11 +53,17 @@ def test_observer_preserves_ink_and_records_nested_stage_times():
     json.dumps([event.to_dict() for event in events], allow_nan=False)
 
 
-@pytest.mark.parametrize("seam", ["_validated_face_mesh", "_fixed_blockers"])
-def test_cancellation_is_checked_inside_repeated_leader_work(monkeypatch, seam):
-    import draftwright.annotations.leaders as leaders
-
-    original = getattr(leaders, seam)
+@pytest.mark.parametrize(
+    ("module_name", "seam"),
+    [
+        ("draftwright.annotations.leaders", "_validated_face_mesh"),
+        ("draftwright.annotations._leader_fixed_ink", "_validated_face_mesh"),
+        ("draftwright.annotations.leaders", "_fixed_blockers"),
+    ],
+)
+def test_cancellation_is_checked_inside_repeated_leader_work(monkeypatch, module_name, seam):
+    module = importlib.import_module(module_name)
+    original = getattr(module, seam)
     entered = []
 
     def request(*args, **kwargs):
@@ -64,7 +71,7 @@ def test_cancellation_is_checked_inside_repeated_leader_work(monkeypatch, seam):
         control.cancel("inside repeated leader work")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(leaders, seam, request)
+    monkeypatch.setattr(module, seam, request)
     with pytest.raises(BuildCancelled) as caught, observe_build(lambda event: None) as control:
         build_drawing(_part(), scale=2)
     assert entered == [seam], (

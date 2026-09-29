@@ -174,6 +174,9 @@ and re-exports the existing private helper names.
     sparse plan and side hole leaders in the shared late leader assignment, plus
     front/rear rim-tip construction consumed by the current vertical strip solve.
     The hole pass retains strip selection, table eligibility, and furniture transactions.
+  - **`annotations/_leader_fixed_ink.py`** — exact fixed-annotation component
+  lowering for the shared leader solve: metadata strokes, label boxes, and
+  residual rendered faces retain bounded work and stable component identities.
   - **`annotations/leaders.py`** — the one bounded late inventory for compatible
   automatic/deferred same-view feature leaders (#1166): sparse ordinary
   side/plan hole jobs and the five post-drain machined-feature families lower
