@@ -76,6 +76,16 @@ def _blind_hole():
     return Box(80, 50, 20, align=_XYZ_MIN) - Pos(12, 7, 12) * Cylinder(4, 8, align=_XYZ_MIN)
 
 
+@pytest.fixture(scope="module")
+def blind_hole_baseline():
+    drawing = build_drawing(_blind_hole(), auto_dims=False)
+    assert [(hole.diameter, hole.depth, hole.bottom) for hole in drawing.recognition().holes] == [
+        (8.0, 8.0, "flat")
+    ]
+    assert any(feature.kind == "hole" for feature in drawing.model().features)
+    return drawing
+
+
 def _opposed_blind_holes():
     xyz_min = (Align.MIN, Align.MIN, Align.MIN)
     part = Box(40, 40, 20, align=xyz_min)
@@ -602,10 +612,12 @@ def test_grouped_and_per_member_exact_owners_are_an_ambiguous_cover():
     assert _completeness(drawing)["audited_score"] == 0.0
 
 
-def test_dense_separate_blind_tool_correspondence_scales_linearly(monkeypatch):
+def test_dense_separate_blind_tool_correspondence_scales_linearly(
+    monkeypatch, blind_hole_baseline
+):
     import draftwright.linting.hole_coverage as hole_coverage_module
 
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    baseline = blind_hole_baseline
     member_calls = 0
     original_members = hole_coverage_module._members
 
@@ -662,10 +674,12 @@ def test_dense_separate_blind_tool_correspondence_scales_linearly(monkeypatch):
     assert member_calls < 20_000
 
 
-def test_overlapping_owner_chain_fails_closed_without_quadratic_rescans(monkeypatch):
+def test_overlapping_owner_chain_fails_closed_without_quadratic_rescans(
+    monkeypatch, blind_hole_baseline
+):
     import draftwright.linting.hole_coverage as hole_coverage_module
 
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    baseline = blind_hole_baseline
     item_visits = 0
 
     class CountingCounter(Counter):
@@ -714,10 +728,12 @@ def test_overlapping_owner_chain_fails_closed_without_quadratic_rescans(monkeypa
     assert item_visits < 20_000
 
 
-def test_many_distinct_hole_specs_do_not_cross_scan_the_ir_inventory(monkeypatch):
+def test_many_distinct_hole_specs_do_not_cross_scan_the_ir_inventory(
+    monkeypatch, blind_hole_baseline
+):
     import draftwright.linting.hole_coverage as hole_coverage_module
 
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    baseline = blind_hole_baseline
     feature_spec_calls = 0
     original_feature_spec = hole_coverage_module._feature_spec
 
@@ -763,8 +779,8 @@ def test_many_distinct_hole_specs_do_not_cross_scan_the_ir_inventory(monkeypatch
     assert feature_spec_calls < 20_000
 
 
-def test_populated_measurement_inventory_is_indexed_once():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_populated_measurement_inventory_is_indexed_once(blind_hole_baseline):
+    baseline = blind_hole_baseline
     count = 200
     feature_reads = 0
 
@@ -822,8 +838,8 @@ def test_populated_measurement_inventory_is_indexed_once():
     assert feature_reads == count
 
 
-def test_unrelated_structured_location_metadata_is_ignored():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_unrelated_structured_location_metadata_is_ignored(blind_hole_baseline):
+    baseline = blind_hole_baseline
     unrelated = type("UnrelatedFeature", (), {"kind": "pad"})()
     measurement = SimpleNamespace(feature=unrelated, parameter="location.location.x")
     annotation = SimpleNamespace(covers_hole_locations=((measurement, (1.0, 2.0, 3.0)),))
@@ -894,10 +910,12 @@ def test_turned_axis_evidence_is_computed_once_per_axis(monkeypatch):
     assert calls == 3
 
 
-def test_many_blind_patterns_use_indexed_tool_centre_correspondence(monkeypatch):
+def test_many_blind_patterns_use_indexed_tool_centre_correspondence(
+    monkeypatch, blind_hole_baseline
+):
     import draftwright.linting.hole_coverage as hole_coverage_module
 
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    baseline = blind_hole_baseline
     pattern_key_calls = 0
     original_pattern_key = hole_coverage_module._pattern_key
 
@@ -1009,10 +1027,12 @@ def test_default_linear_direction_uses_bounded_member_traversal(monkeypatch):
     assert visits <= 3 * pattern.count + 1
 
 
-def test_overlapping_declared_covers_fail_closed_with_bounded_work(monkeypatch):
+def test_overlapping_declared_covers_fail_closed_with_bounded_work(
+    monkeypatch, blind_hole_baseline
+):
     import draftwright.linting.hole_coverage as hole_coverage_module
 
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+    baseline = blind_hole_baseline
     item_visits = 0
 
     class CountingCounter(Counter):
@@ -1559,8 +1579,8 @@ def test_partial_tool_centre_owner_makes_complete_pattern_fallback_ambiguous():
     assert _completeness(drawing)["audited_score"] == 0.5
 
 
-def test_pattern_exact_owner_cannot_be_reused_as_a_loose_hole_tool_centre():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_pattern_exact_owner_cannot_be_reused_as_a_loose_hole_tool_centre(blind_hole_baseline):
+    baseline = blind_hole_baseline
     loose = HoleRecord(
         axis=(0.0, 0.0, 1.0),
         location=(0.0, 0.0, 0.0),
@@ -1600,8 +1620,8 @@ def test_pattern_exact_owner_cannot_be_reused_as_a_loose_hole_tool_centre():
     ]
 
 
-def test_loose_exact_owner_cannot_be_reused_as_a_pattern_tool_centre():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_loose_exact_owner_cannot_be_reused_as_a_pattern_tool_centre(blind_hole_baseline):
+    baseline = blind_hole_baseline
     loose = HoleRecord(
         axis=(0.0, 0.0, 1.0),
         location=(0.0, 0.0, 4.0),
@@ -1649,8 +1669,8 @@ def test_loose_exact_owner_cannot_be_reused_as_a_pattern_tool_centre():
     ]
 
 
-def test_one_exact_pattern_owner_cannot_cover_two_physical_sources():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_one_exact_pattern_owner_cannot_cover_two_physical_sources(blind_hole_baseline):
+    baseline = blind_hole_baseline
     loose = HoleRecord(
         axis=(0.0, 0.0, -1.0),
         location=(0.0, 0.0, 0.0),
@@ -1698,8 +1718,8 @@ def test_one_exact_pattern_owner_cannot_cover_two_physical_sources():
     ]
 
 
-def test_distinct_exact_and_projected_owners_remain_valid():
-    baseline = build_drawing(_blind_hole(), auto_dims=False)
+def test_distinct_exact_and_projected_owners_remain_valid(blind_hole_baseline):
+    baseline = blind_hole_baseline
     loose = HoleRecord(
         axis=(0.0, 0.0, 1.0),
         location=(50.0, 0.0, 0.0),
