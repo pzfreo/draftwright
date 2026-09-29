@@ -29,238 +29,22 @@ from draftwright.view_plan import (
 )
 
 
-def build_once(
-    step_file: str | Path | Shape,
+def _resolve_views(
+    a: Analysis,
     options: BuildOptions,
     *,
-    scale: float | None,
-    page: str | tuple | None,
-    _analysis_base: Analysis | None = None,
-    _analysis_sink: Callable[[Analysis], None] | None = None,
-    _critique_recognition_cache=None,
-    _arrangements: tuple[str, ...] | None = None,
-    _select_automatic_views: bool = False,
-    _candidate_profile_first: bool = False,
-    _title_block_cache=None,
-    _placement_critique=None,
-    _analyse: Callable[..., Analysis],
-    _coerce_model: Callable[..., PartModel],
-    _automatic_turned_principals: Callable[[Analysis], tuple[str, ...] | None],
-    _resolve_trace,
-    _assemble: Callable[..., Drawing],
-    _repack_to_fixed_point: Callable[..., tuple[Analysis, Drawing] | None],
-    choose_pre_render_profile,
-    lost_required_derived_view_reservations,
-) -> Drawing:
-    """Build one drawing attempt from the validated options and chosen scale/page.
-
-    The descriptions below refer to fields of ``options``. The public
-    :func:`build_drawing` returns the live :class:`Drawing`; ``make_drawing``
-    wraps that front door with export.
-
-    Args:
-        auto_dims: pass ``False`` to skip the automatic dimensions,
-            centrelines, and leaders (#74) — the automatic set assumes a
-            turned part and is wrong for prismatic geometry. Views, scale,
-            page, and sheet furniture (title block, and the "ISO VIEW (NTS)"
-            note when the iso is rescaled off sheet scale) are still produced;
-            add your own annotations before export. (Annotations added by the default can
-            also be removed wholesale with :meth:`Drawing.clear_annotations`.)
-        detail_view: automatically recover crowded prismatic step dimensions in an
-            enlarged detail view. Default ``True``; pass ``False`` to leave them on the
-            parent view only and report ``step_dim_dropped`` when they do not fit.
-        pmi: AP242 PMI handling. ``None`` (the default) behaves as ``"off"`` but retains
-            that it was defaulted so a source containing authored PMI can say annotation is
-            disabled by default. Explicit ``"off"`` produces no PMI annotations or per-record
-            failures but reports the ignored source inventory; ``"report"`` inventories and
-            lowers without rendering; ``"annotate"`` also requires render outcomes.
-        repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
-            placement to fix mechanically-clear violations (a dim on the wrong
-            side, two overlapping labels). Default ``True``; a no-op on a clean
-            sheet. Pass ``False`` to inspect the raw greedy placement (#30).
-        assembly: severity of the feature-coverage lint for a general-arrangement
-            drawing. ``None`` (default) auto-detects — a multi-solid part is an
-            assembly, whose per-part bores are reported at ``info`` rather than
-            ``warning`` (a GA omits them by design). Force with ``True``/``False``
-            (#69).
-        reproducible: write files that do not carry the run that produced them, so
-            two exports of one drawing are byte-identical and a written drawing can be
-            diffed or checksummed to see whether its content really changed. Sets the
-            default for :meth:`Drawing.export`'s own ``reproducible=``. ``True``:
-            a drawing that differs between runs cannot be diffed, checksummed or
-            cached, and the cost is small on a part — measured on the NIST CTC-01
-            AP242 fixture it is +0.27 s on a 13.4 s job (+3.2% of export, +2.0%
-            overall). Pass ``False`` to opt out where it is not small: the cost is
-            one bounding box and one edge walk per part, so it grows with part
-            count and reached +32% of export on a 358-part assembly. The metadata
-            pinning the flag also turns on is ~1 ms either way.
-        framed_recognition: opt an automatic build into the provider-owned local recognition
-            frame. Caller geometry remains provenance, the exact local solid feeds downstream
-            geometry stages, and a typed refusal has one visible top-level raw fallback. Raw
-            remains the default; declared ``model=`` builds do not frame or recognise.
-        model: a caller-supplied IR (ADR 4 (was 0011)) — a :class:`PartModel`, or a sequence
-            of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
-            ``boss``, ``step``, … from the objects you built). When given, **feature
-            detection is skipped** and the auto-pass dimensions exactly the declared
-            features; ``None`` (default) detects normally. Detection and declaration are
-            two producers of the same IR — everything downstream is untouched. (Notes:
-            sheet scale/zone estimation and the coverage lint still detect independently,
-            so a *partial* declaration will flag the undeclared geometry. A declared
-            hole/pattern now renders at its declared position even where detection missed
-            it (#448); the one remaining detection-dependent bit is the off-axis
-            side-drilled hole *location* dim, which needs recogniser-Hole geometry a
-            declared feature doesn't carry. See ADR 4 (was 0011).)
-        trace: the opt-in **solve-trace / explain mode** (#736): record every strip
-            placement decision as ONE JSON file per build (schema ``version`` 2),
-            with two record types. ``solves`` — the corridor solves: the candidate
-            set, the obstacles that carved the strip (with owning annotation names),
-            the free segments, and each candidate's outcome (placed/dropped-with-
-            reason/deduped/promoted). ``pass_events`` — everything placed outside a
-            corridor solve: the standalone strip passes plus the *immediate* placers
-            (the post-drain machined-feature leader callouts and the turned
-            diameter/step-length set-solves), each with per-item outcomes. The
-            ``jq`` contract — corridor dims vs everything else::
-
-                jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
-                jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
-
-            ``True`` writes ``<out>.trace.json`` beside the drawing; a path writes
-            there (a directory gets ``<stem>.trace.json`` inside it). Default
-            ``None`` consults the ``DRAFTWRIGHT_TRACE`` env var (same
-            path-or-directory semantics); ``False`` forces it off. **Zero output
-            change**: tracing never alters a placement decision, and off (the
-            default) costs nothing. Recording-only: an unwritable trace path logs a
-            warning and never aborts the build/export.
-
-    Returns:
-        A :class:`Drawing` with the standard front/plan/side/iso views projected
-        and the automatic dimensions + title block already added.
-    """
-
-    out = options.out
-    title = options.title
-    number = options.number
-    tolerance = options.tolerance
-    drawn_by = options.drawn_by
-    auto_dims = options.auto_dims
-    detail_view = options.detail_view
-    pmi = options.pmi
-    repair = options.repair
-    assembly = options.assembly
+    analyse,
+    _coerce_model,
+    _automatic_turned_principals,
+    _select_automatic_views: bool,
+):
+    """Check hard view requirements, then try the automatic principal reduction."""
     model = options.model
     decorations = options.decorations
     requested = options.requested
     authored = options.authored
-    trace = options.trace
-    material = options.material
-    date = options.date
-    revision = options.revision
-    company = options.company
-    frame = options.frame
-    projection = options.projection
-    projection_symbol = options.projection_symbol
-    zones = options.zones
-    reproducible = options.reproducible
-    framed_recognition = options.framed_recognition
-    text_position = options.text_position
-    text_orientation = options.text_orientation
+    auto_dims = options.auto_dims
     _views = options._views
-    _include_iso = options._include_iso
-    _view_constraints = options._view_constraints
-    _required_tables = options._required_tables
-    _document_input = options._document_input
-    source = options.source
-    approved_by = options.approved_by
-    document_type = options.document_type
-    sheet = options.sheet
-    margin_left = options.margin_left
-    margin_right = options.margin_right
-    margin_top = options.margin_top
-    margin_bottom = options.margin_bottom
-    title_block_width = options.title_block_width
-    leader_region = options.leader_region
-    stem = "drawing" if isinstance(step_file, Shape) else Path(step_file).stem
-    out = out or stem
-    for _ext in (".svg", ".dxf"):
-        if out.endswith(_ext):
-            out = out[: -len(_ext)]
-            break
-    title = title or stem.replace("_", " ").upper()
-    tracer = _resolve_trace(trace, out)
-
-    if model is None and (requested or authored is not None):
-        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
-        # builds its own. Silently dropping them would leave a caller's add_dimension() /
-        # dimension() with no effect and no diagnostic — the failure mode this project
-        # treats as worse than a visible error (#630/#631/#632). An authored set is the
-        # worse of the two to drop: the build would quietly revert to the automatic
-        # dimensions the author was replacing (#921).
-        verb = "requested=" if requested else "authored="
-        raise ValueError(
-            f"{verb} names declared features, so it needs model= too; a detected "
-            "model builds its own feature objects that no request can target"
-        )
-
-    def analyse(
-        *,
-        reuse,
-        views,
-        scale_override=None,
-        page_override=None,
-        arrangements_override=None,
-    ):
-        return _analyse(
-            step_file,
-            title,
-            number,
-            tolerance,
-            drawn_by,
-            out,
-            scale=scale if scale_override is None else scale_override,
-            page=page if page_override is None else page_override,
-            pmi=pmi,
-            source=source,
-            model=model,
-            decorations=decorations,
-            authored=authored,
-            requested=requested,
-            material=material,
-            date=date,
-            revision=revision,
-            company=company,
-            approved_by=approved_by,
-            document_type=document_type,
-            sheet=sheet,
-            margin_left=margin_left,
-            margin_right=margin_right,
-            margin_top=margin_top,
-            margin_bottom=margin_bottom,
-            title_block_width=title_block_width,
-            frame=frame,
-            projection=projection,
-            projection_symbol=projection_symbol,
-            text_position=text_position,
-            text_orientation=text_orientation,
-            leader_region=leader_region,
-            zones=zones,
-            _reuse=reuse,
-            _required_tables=_required_tables,
-            _arrangements=(
-                _arrangements if arrangements_override is None else arrangements_override
-            ),
-            _views=views,
-            _include_iso=_include_iso,
-            _view_constraints=_view_constraints,
-            _plan_automatic_details=detail_view,
-            _framed_recognition=framed_recognition,
-            _document_input=_document_input,
-            _scale_from_prior_analysis=(
-                scale_override is not None and reuse is not None and scale_override == reuse.SCALE
-            ),
-        )
-
-    with stage("analysis"):
-        a = analyse(reuse=_analysis_base, views=_views)
     planned_principals = third_angle_view_names() if _views is None else _views
     # Measured dimensions are model-routed (ADR 1 (was 0015)) and therefore do not enter
     # plan_dimensions' requirement check.  An authored principal set is nevertheless
@@ -394,6 +178,19 @@ def build_once(
                     },
                 )
 
+    return a, view_status, view_attempts
+
+
+def _select_profile(
+    a: Analysis,
+    *,
+    analyse,
+    auto_dims: bool,
+    _candidate_profile_first: bool,
+    choose_pre_render_profile,
+    lost_required_derived_view_reservations,
+):
+    """Settle a candidate layout profile before building the drawing."""
     selected_profile = None
     pre_render_choice = None
     if _candidate_profile_first:
@@ -485,6 +282,35 @@ def build_once(
                         "selected_view_overflow_mm": conservative_overflow,
                     }
 
+    return a, selected_profile, pre_render_choice
+
+
+def _assemble_repack_repair(
+    a: Analysis,
+    options: BuildOptions,
+    *,
+    out,
+    scale,
+    page,
+    tracer,
+    selected_profile,
+    _candidate_profile_first: bool,
+    _critique_recognition_cache,
+    _title_block_cache,
+    _placement_critique,
+    _assemble,
+    _repack_to_fixed_point,
+) -> tuple[Analysis, Drawing]:
+    """Render once, repack measured footprints, then run bounded repair."""
+    assembly = options.assembly
+    detail_view = options.detail_view
+    auto_dims = options.auto_dims
+    model = options.model
+    decorations = options.decorations
+    requested = options.requested
+    authored = options.authored
+    reproducible = options.reproducible
+    repair = options.repair
     # Pass 1: place + annotate from the estimated layout, then measure the real
     # per-view footprints and re-pack the blocks disjoint if a view actually
     # moves (#121, ADR 2 (was 0004) — "lay out, don't predict").  Non-ballooned parts
@@ -541,6 +367,269 @@ def build_once(
                     _initial_issues=_placement_critique.get(dwg),
                     _on_settled=lambda issues: _placement_critique.remember(dwg, issues),
                 )
+    return a, dwg
+
+
+def build_once(
+    step_file: str | Path | Shape,
+    options: BuildOptions,
+    *,
+    scale: float | None,
+    page: str | tuple | None,
+    _analysis_base: Analysis | None = None,
+    _analysis_sink: Callable[[Analysis], None] | None = None,
+    _critique_recognition_cache=None,
+    _arrangements: tuple[str, ...] | None = None,
+    _select_automatic_views: bool = False,
+    _candidate_profile_first: bool = False,
+    _title_block_cache=None,
+    _placement_critique=None,
+    _analyse: Callable[..., Analysis],
+    _coerce_model: Callable[..., PartModel],
+    _automatic_turned_principals: Callable[[Analysis], tuple[str, ...] | None],
+    _resolve_trace,
+    _assemble: Callable[..., Drawing],
+    _repack_to_fixed_point: Callable[..., tuple[Analysis, Drawing] | None],
+    choose_pre_render_profile,
+    lost_required_derived_view_reservations,
+) -> Drawing:
+    """Build one drawing attempt from the validated options and chosen scale/page.
+
+    The descriptions below refer to fields of ``options``. The public
+    :func:`build_drawing` returns the live :class:`Drawing`; ``make_drawing``
+    wraps that front door with export.
+
+    Args:
+        auto_dims: pass ``False`` to skip the automatic dimensions,
+            centrelines, and leaders (#74) — the automatic set assumes a
+            turned part and is wrong for prismatic geometry. Views, scale,
+            page, and sheet furniture (title block, and the "ISO VIEW (NTS)"
+            note when the iso is rescaled off sheet scale) are still produced;
+            add your own annotations before export. (Annotations added by the default can
+            also be removed wholesale with :meth:`Drawing.clear_annotations`.)
+        detail_view: automatically recover crowded prismatic step dimensions in an
+            enlarged detail view. Default ``True``; pass ``False`` to leave them on the
+            parent view only and report ``step_dim_dropped`` when they do not fit.
+        pmi: AP242 PMI handling. ``None`` (the default) behaves as ``"off"`` but retains
+            that it was defaulted so a source containing authored PMI can say annotation is
+            disabled by default. Explicit ``"off"`` produces no PMI annotations or per-record
+            failures but reports the ignored source inventory; ``"report"`` inventories and
+            lowers without rendering; ``"annotate"`` also requires render outcomes.
+        repair: run the bounded lint→repair loop (:meth:`Drawing.repair`) after
+            placement to fix mechanically-clear violations (a dim on the wrong
+            side, two overlapping labels). Default ``True``; a no-op on a clean
+            sheet. Pass ``False`` to inspect the raw greedy placement (#30).
+        assembly: severity of the feature-coverage lint for a general-arrangement
+            drawing. ``None`` (default) auto-detects — a multi-solid part is an
+            assembly, whose per-part bores are reported at ``info`` rather than
+            ``warning`` (a GA omits them by design). Force with ``True``/``False``
+            (#69).
+        reproducible: write files that do not carry the run that produced them, so
+            two exports of one drawing are byte-identical and a written drawing can be
+            diffed or checksummed to see whether its content really changed. Sets the
+            default for :meth:`Drawing.export`'s own ``reproducible=``. ``True``:
+            a drawing that differs between runs cannot be diffed, checksummed or
+            cached, and the cost is small on a part — measured on the NIST CTC-01
+            AP242 fixture it is +0.27 s on a 13.4 s job (+3.2% of export, +2.0%
+            overall). Pass ``False`` to opt out where it is not small: the cost is
+            one bounding box and one edge walk per part, so it grows with part
+            count and reached +32% of export on a 358-part assembly. The metadata
+            pinning the flag also turns on is ~1 ms either way.
+        framed_recognition: opt an automatic build into the provider-owned local recognition
+            frame. Caller geometry remains provenance, the exact local solid feeds downstream
+            geometry stages, and a typed refusal has one visible top-level raw fallback. Raw
+            remains the default; declared ``model=`` builds do not frame or recognise.
+        model: a caller-supplied IR (ADR 4 (was 0011)) — a :class:`PartModel`, or a sequence
+            of :class:`Feature`\\ s (declared with :func:`draftwright.model.hole`,
+            ``boss``, ``step``, … from the objects you built). When given, **feature
+            detection is skipped** and the auto-pass dimensions exactly the declared
+            features; ``None`` (default) detects normally. Detection and declaration are
+            two producers of the same IR — everything downstream is untouched. (Notes:
+            sheet scale/zone estimation and the coverage lint still detect independently,
+            so a *partial* declaration will flag the undeclared geometry. A declared
+            hole/pattern now renders at its declared position even where detection missed
+            it (#448); the one remaining detection-dependent bit is the off-axis
+            side-drilled hole *location* dim, which needs recogniser-Hole geometry a
+            declared feature doesn't carry. See ADR 4 (was 0011).)
+        trace: the opt-in **solve-trace / explain mode** (#736): record every strip
+            placement decision as ONE JSON file per build (schema ``version`` 2),
+            with two record types. ``solves`` — the corridor solves: the candidate
+            set, the obstacles that carved the strip (with owning annotation names),
+            the free segments, and each candidate's outcome (placed/dropped-with-
+            reason/deduped/promoted). ``pass_events`` — everything placed outside a
+            corridor solve: the standalone strip passes plus the *immediate* placers
+            (the post-drain machined-feature leader callouts and the turned
+            diameter/step-length set-solves), each with per-item outcomes. The
+            ``jq`` contract — corridor dims vs everything else::
+
+                jq '.solves[].outcomes[] | select(.name == "dim_height")' t.trace.json
+                jq '.pass_events[] | select(.label == "pocket_callouts") | .items[]' t.trace.json
+
+            ``True`` writes ``<out>.trace.json`` beside the drawing; a path writes
+            there (a directory gets ``<stem>.trace.json`` inside it). Default
+            ``None`` consults the ``DRAFTWRIGHT_TRACE`` env var (same
+            path-or-directory semantics); ``False`` forces it off. **Zero output
+            change**: tracing never alters a placement decision, and off (the
+            default) costs nothing. Recording-only: an unwritable trace path logs a
+            warning and never aborts the build/export.
+
+    Returns:
+        A :class:`Drawing` with the standard front/plan/side/iso views projected
+        and the automatic dimensions + title block already added.
+    """
+
+    out = options.out
+    title = options.title
+    number = options.number
+    tolerance = options.tolerance
+    drawn_by = options.drawn_by
+    auto_dims = options.auto_dims
+    detail_view = options.detail_view
+    pmi = options.pmi
+    model = options.model
+    decorations = options.decorations
+    requested = options.requested
+    authored = options.authored
+    trace = options.trace
+    material = options.material
+    date = options.date
+    revision = options.revision
+    company = options.company
+    frame = options.frame
+    projection = options.projection
+    projection_symbol = options.projection_symbol
+    zones = options.zones
+    framed_recognition = options.framed_recognition
+    text_position = options.text_position
+    text_orientation = options.text_orientation
+    _views = options._views
+    _include_iso = options._include_iso
+    _view_constraints = options._view_constraints
+    _required_tables = options._required_tables
+    _document_input = options._document_input
+    source = options.source
+    approved_by = options.approved_by
+    document_type = options.document_type
+    sheet = options.sheet
+    margin_left = options.margin_left
+    margin_right = options.margin_right
+    margin_top = options.margin_top
+    margin_bottom = options.margin_bottom
+    title_block_width = options.title_block_width
+    leader_region = options.leader_region
+    stem = "drawing" if isinstance(step_file, Shape) else Path(step_file).stem
+    out = out or stem
+    for _ext in (".svg", ".dxf"):
+        if out.endswith(_ext):
+            out = out[: -len(_ext)]
+            break
+    title = title or stem.replace("_", " ").upper()
+    tracer = _resolve_trace(trace, out)
+
+    if model is None and (requested or authored is not None):
+        # Both verbs name a DECLARED feature object (ADR 4 (was 0016) / #872, #874), and detection
+        # builds its own. Silently dropping them would leave a caller's add_dimension() /
+        # dimension() with no effect and no diagnostic — the failure mode this project
+        # treats as worse than a visible error (#630/#631/#632). An authored set is the
+        # worse of the two to drop: the build would quietly revert to the automatic
+        # dimensions the author was replacing (#921).
+        verb = "requested=" if requested else "authored="
+        raise ValueError(
+            f"{verb} names declared features, so it needs model= too; a detected "
+            "model builds its own feature objects that no request can target"
+        )
+
+    def analyse(
+        *,
+        reuse,
+        views,
+        scale_override=None,
+        page_override=None,
+        arrangements_override=None,
+    ):
+        return _analyse(
+            step_file,
+            title,
+            number,
+            tolerance,
+            drawn_by,
+            out,
+            scale=scale if scale_override is None else scale_override,
+            page=page if page_override is None else page_override,
+            pmi=pmi,
+            source=source,
+            model=model,
+            decorations=decorations,
+            authored=authored,
+            requested=requested,
+            material=material,
+            date=date,
+            revision=revision,
+            company=company,
+            approved_by=approved_by,
+            document_type=document_type,
+            sheet=sheet,
+            margin_left=margin_left,
+            margin_right=margin_right,
+            margin_top=margin_top,
+            margin_bottom=margin_bottom,
+            title_block_width=title_block_width,
+            frame=frame,
+            projection=projection,
+            projection_symbol=projection_symbol,
+            text_position=text_position,
+            text_orientation=text_orientation,
+            leader_region=leader_region,
+            zones=zones,
+            _reuse=reuse,
+            _required_tables=_required_tables,
+            _arrangements=(
+                _arrangements if arrangements_override is None else arrangements_override
+            ),
+            _views=views,
+            _include_iso=_include_iso,
+            _view_constraints=_view_constraints,
+            _plan_automatic_details=detail_view,
+            _framed_recognition=framed_recognition,
+            _document_input=_document_input,
+            _scale_from_prior_analysis=(
+                scale_override is not None and reuse is not None and scale_override == reuse.SCALE
+            ),
+        )
+
+    with stage("analysis"):
+        a = analyse(reuse=_analysis_base, views=_views)
+    a, view_status, view_attempts = _resolve_views(
+        a,
+        options,
+        analyse=analyse,
+        _coerce_model=_coerce_model,
+        _automatic_turned_principals=_automatic_turned_principals,
+        _select_automatic_views=_select_automatic_views,
+    )
+    a, selected_profile, pre_render_choice = _select_profile(
+        a,
+        analyse=analyse,
+        auto_dims=auto_dims,
+        _candidate_profile_first=_candidate_profile_first,
+        choose_pre_render_profile=choose_pre_render_profile,
+        lost_required_derived_view_reservations=lost_required_derived_view_reservations,
+    )
+    a, dwg = _assemble_repack_repair(
+        a,
+        options,
+        out=out,
+        scale=scale,
+        page=page,
+        tracer=tracer,
+        selected_profile=selected_profile,
+        _candidate_profile_first=_candidate_profile_first,
+        _critique_recognition_cache=_critique_recognition_cache,
+        _title_block_cache=_title_block_cache,
+        _placement_critique=_placement_critique,
+        _assemble=_assemble,
+        _repack_to_fixed_point=_repack_to_fixed_point,
+    )
     # Reconcile after the final repack/repair, against live registry identities.
     # This is diagnostic evidence only; it cannot substitute for requirement lint.
     scheme = a.layout_strips.scheme
