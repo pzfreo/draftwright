@@ -28,7 +28,7 @@ def _source_files() -> list[Path]:
 def test_source_modules_stay_within_the_size_limit():
     oversized = []
     for path in _source_files():
-        lines = len(path.read_text().splitlines())
+        lines = len(path.read_text(encoding="utf-8").splitlines())
         if lines > _MAX_MODULE_LINES:
             oversized.append(f"{path.relative_to(_SOURCE)}: {lines} lines")
     assert not oversized, "Source modules over 3,000 lines:\n" + "\n".join(oversized)
@@ -37,7 +37,7 @@ def test_source_modules_stay_within_the_size_limit():
 def test_source_functions_stay_within_the_size_limit():
     oversized = []
     for path in _source_files():
-        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 assert node.end_lineno is not None
                 lines = node.end_lineno - node.lineno + 1
@@ -54,7 +54,7 @@ def test_placement_mega_functions_stay_under_200_lines():
         path = _SOURCE / module
         matches = [
             node
-            for node in ast.walk(ast.parse(path.read_text(), filename=str(path)))
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
         ]
         assert len(matches) == 1, f"Expected one {module}:{name}, found {len(matches)}"
@@ -69,7 +69,7 @@ def test_placement_mega_functions_stay_under_200_lines():
 def test_nested_callbacks_capture_fewer_than_five_defaults():
     oversized = []
     for path in _source_files():
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
