@@ -21,6 +21,7 @@ from quiddity import PolygonalStock, RecognitionResult
 
 from draftwright.contract_values import rounded as _rounded
 from draftwright.linting._coverage_common import index_evidence as _index_evidence
+from draftwright.linting._coverage_common import point3 as _point
 from draftwright.linting._coverage_common import state as _state
 from draftwright.linting._registry import (
     with_measurement_carriers,
@@ -70,11 +71,6 @@ class PolygonalStockOutcome:
     requirement_count: int = 1
     features: tuple = ()
     source_records: tuple[object, ...] = field(default=(), repr=False, compare=False, kw_only=True)
-
-
-def _point(values) -> Point:
-    x, y, z = values
-    return _rounded(x), _rounded(y), _rounded(z)
 
 
 def _points(values) -> tuple[Point, ...]:
