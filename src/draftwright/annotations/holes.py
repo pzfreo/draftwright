@@ -60,6 +60,7 @@ from draftwright.annotations._common import (
     view_label_clearance,
 )
 from draftwright.annotations._hole_leader_placement import (
+    _build_hole_callout_leader,
     _profiled_callout_leader,
     _recover_hole_leader,
 )
@@ -235,14 +236,7 @@ def add_feature_callout(
         to_page=lambda loc: dwg.at(view, *loc)[:2],
     )
     ctx.place(
-        _profiled_callout_leader(
-            tip=(tip[0], tip[1], 0),
-            elbow=(elbow[0], elbow[1], 0),
-            label="",
-            draft=draft,
-            text_side=tside,
-            callout=callout,
-        ),
+        _build_hole_callout_leader(tip, elbow, tside, callout, draft, _profiled_callout_leader),
         name,
         view=view,
         feature=feature,
@@ -1687,14 +1681,7 @@ def _build_leader_at(s, edge, side, y, to_page, elbow_dx, draft, scale):
     ``(leader, tip, elbow)``. Promoted (#638; pure)."""
     callout = s[2]
     tip, elbow = _leader_anchors(s, edge, side, y, to_page, elbow_dx, draft, scale)
-    leader = _profiled_callout_leader(
-        tip=(tip[0], tip[1], 0),
-        elbow=(elbow[0], elbow[1], 0),
-        label="",
-        draft=draft,
-        text_side=side,
-        callout=callout,
-    )
+    leader = _build_hole_callout_leader(tip, elbow, side, callout, draft, _profiled_callout_leader)
     return leader, tip, elbow
 
 
