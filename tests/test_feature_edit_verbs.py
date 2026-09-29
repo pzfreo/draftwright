@@ -109,6 +109,26 @@ class TestFeatureEditVerbs:
         # carried it there anyway. A part WITHOUT one now emits `dwg.overall_height()`.
         assert "dim_height" not in dwg.annotations()
 
+    def test_featureless_overall_height_edit_agrees_live_and_deferred(self):
+        """A bounding-box height has no feature handle, but remains an explicit edit."""
+        from draftwright.model.ir import PartModel
+
+        part = Box(80, 60, 30)
+        model = PartModel(
+            bbox=part.bounding_box(), orientation="prismatic", features=[], datums=[]
+        )
+        live = build_drawing(part, model=model, auto_dims=False)
+        deferred = build_drawing(part, model=model, auto_dims=False)
+        assert not model.features
+        assert "dim_height" not in live.annotations()
+        assert "dim_height" not in deferred.annotations()
+
+        assert live.overall_height() == ["dim_height"]
+        with deferred.deferred():
+            assert deferred.overall_height() == []
+        assert deferred.annotations() == live.annotations()
+        assert live.get_annotation("dim_height").label == "30"
+
     def test_callout_adds_a_hole_leader_and_round_trips(self):
         # #414 / #400 Ph2: the callout add verb — detect-only build, then add the hole's
         # ø leader explicitly; it is a leader-attached callout, tagged, and drops.

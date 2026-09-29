@@ -118,8 +118,10 @@ def test_drawing_edit_owner_runs_live_and_deferred_contracts():
     selected = set(pr_modules(_TESTS, [source]))
     assert {
         "test_add_dimension.py",
+        "test_canonical_angles.py",
         "test_deferred_edits.py",
         "test_feature_edit_replay.py",
+        "test_issue_1613_circular_channel.py",
         "test_refactor_golden.py",
     } <= selected
 
