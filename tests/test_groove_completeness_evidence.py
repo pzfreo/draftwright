@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from _evidence_contract import (
     assert_every_boundary_is_supported,
+    assert_missing_build_owned_recognition_fails_closed,
     assert_missing_model_outcomes_fail_closed,
     assert_observer_failure_cannot_pass_the_negative_case,
     assert_observer_uses_one_build_owned_recognition,
@@ -326,12 +327,9 @@ def test_observer_fails_closed_when_build_or_recognition_is_unavailable() -> Non
 
 
 def test_observer_fails_closed_when_built_recognition_is_unavailable(monkeypatch) -> None:
-    from draftwright.drawing import Drawing
-    from draftwright.evaluation.step_analysis import ObservationError
-
-    monkeypatch.setattr(Drawing, "recognition", lambda _self: None)
-    with pytest.raises(ObservationError, match="recognition access failed"):
-        _default_observers()["grooves"](_lone())
+    assert_missing_build_owned_recognition_fails_closed(
+        monkeypatch, "grooves", _lone(), feature_kind="groove"
+    )
 
 
 def test_observer_failure_cannot_pass_the_zero_groove_negative_case(monkeypatch) -> None:
