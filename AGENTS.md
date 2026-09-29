@@ -54,7 +54,8 @@ survivor commit in `_strip_postsolve`, exact settled annotation ink lowering in
 deferred `Intent` record, with `intents` as its stable import path, and transaction
 state owned by `Drawing`) → **6**
 `builder`, one-attempt compilation, explicit-scale resolution, finished-drawing build policy and guarded layout selection → **7** facades
-(`sheet` and its private identity/layout-control/view owners, `document`, `sheet_emit`,
+(`sheet` and its private identity/layout-control/view owners, `document`, `sheet_emit`
+and its private `sheet_feature_lines` formatter,
 `sheet_object_source`, `inspection`, `evaluation/`, `cli`, the recogniser/inspection
 contract joins).
 `make_drawing` / `annotate`

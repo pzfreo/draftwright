@@ -186,6 +186,7 @@ _LAYERS: dict[str, int] = {
     "sheet_views": 7,
     "document": 7,
     "sheet_emit": 7,
+    "sheet_feature_lines": 7,
     "sheet_object_source": 7,
     "replay_assessment": 7,
     # Developer-only pytest/runner support. It patches the user-facing builder bindings at

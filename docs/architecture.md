@@ -513,6 +513,9 @@ and re-exports the existing private helper names.
 - **`sheet_object_source.py`** — live-object import seams and mutual one-to-one
   geometry correspondence for script generation. This facade-rank owner keeps the
   existing private `sheet_emit` import paths available to callers.
+- **`sheet_feature_lines.py`** — private feature-declaration formatting for generated
+  scripts: numeric spelling, source-record expressions, and feature-family calls.
+  `sheet_emit.py` keeps the dispatch and existing private import paths.
 - **`sheet_emit.py`** — **the** script emitter, behind `--script` (#940 retired the
   imperative alternative): generates an editable `Sheet` script from a detected
   model — one named binding per feature, an explicit dimension source, and a bounded
