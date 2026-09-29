@@ -25,6 +25,7 @@ UNIT_MODULES = frozenset(
         "test_recogniser_adoption.py",
         "test_recogniser_policy.py",
         "test_registry.py",
+        "test_source_shape.py",
     }
 )
 
